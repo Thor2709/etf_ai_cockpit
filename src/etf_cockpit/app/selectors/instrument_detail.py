@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+from pathlib import Path
 from typing import Any, Mapping
 
 import pandas as pd
@@ -55,6 +56,14 @@ from etf_cockpit.application.ui_facade import load_financial_institution_project
 from etf_cockpit.application.ui_facade import load_real_asset_projection
 from etf_cockpit.application.ui_facade import load_cyclical_projection
 from etf_cockpit.application.ui_facade import load_innovation_projection
+from etf_cockpit.audit.thesis_diary import (
+    ThesisDiaryIntegrityError,
+    ThesisDiaryStore,
+    disclosure_safe_entry,
+    disclosure_safe_outcome,
+    disclosure_safe_review,
+)
+from etf_cockpit.core.paths import DATA_DIR
 
 
 @dataclass(frozen=True)
@@ -97,6 +106,7 @@ _SECTION_NAMES = (
     "paper_trades",
     "history",
     "journal",
+    "thesis_diary",
     "run_changes",
 )
 SCOREBOARD_PATH = DERIVED_DIR / "scoreboard.parquet"
@@ -1247,6 +1257,11 @@ def _forecast_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[str, 
 
 
 def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: Mapping[str, Any]) -> dict[str, Any]:
+    llm_backtest_fields = {
+        "llm_backtest_validity": "unknown",
+        "llm_backtest_reason": "LLM diary output is unknown historical evidence unless strict forward-only decision-time markers exist.",
+        "llm_output_authority": "excluded_from_backtest",
+    }
     report = getattr(snapshot, "backtest", None)
     signal_log = _instrument_rows(getattr(report, "signal_log", None), instrument_id)
     trade_log = _instrument_rows(getattr(report, "trade_log", None), instrument_id)
@@ -1267,10 +1282,10 @@ def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: M
         quality_present = True
         quality = _safe_backtest_quality(report_quality_raw)
     if signal_log.empty and trade_log.empty and not quality_present:
-        return _unavailable("Backtest trust unavailable for this instrument.") | {"trust": "unavailable", "signal_rows": [], "trade_rows": []}
+        return _unavailable("Backtest trust unavailable for this instrument.") | {"trust": "unavailable", "signal_rows": [], "trade_rows": [], **llm_backtest_fields}
     metadata_source = scoreboard or (signal_log.iloc[-1] if not signal_log.empty else trade_log.iloc[-1])
     trust = quality or "unavailable"
-    return {"status": "available" if quality is not None else "manual_review", "trust": trust, "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "execution_allowed": False, **_provenance_fields(metadata_source)}
+    return {"status": "available" if quality is not None else "manual_review", "trust": trust, "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "execution_allowed": False, **llm_backtest_fields, **_provenance_fields(metadata_source)}
 
 
 def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
@@ -1317,6 +1332,75 @@ def _journal_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dic
     return {"status": "available", "entries": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
 
 
+def _thesis_diary_panel(instrument_id: str, *, root: Path | None = None) -> dict[str, Any]:
+    """Project only the selected instrument's non-authoritative LLM diary rows."""
+
+    try:
+        store = ThesisDiaryStore(root or DATA_DIR)
+        entries = [entry for entry in store.list_entries() if entry.instrument_id == instrument_id]
+        records: list[dict[str, Any]] = []
+        for entry in entries:
+            state = store.replay(entry.thesis_id)
+            outcomes = dict(entry.outcomes)
+            for event in state.outcomes:
+                horizon = event.get("horizon")
+                if horizon in outcomes:
+                    outcomes[horizon] = dict(event)
+            currently_redacted = state.redaction_state == "redacted"
+            display_entry = disclosure_safe_entry(entry) if currently_redacted else entry
+            record = display_entry.model_dump(mode="json")
+            record.update(
+                {
+                    "human_review_status": state.human_review.get("status", entry.human_review_status),
+                    "human_review": disclosure_safe_review(state.human_review) if currently_redacted else dict(state.human_review),
+                    "redaction_state": state.redaction_state,
+                    "expires_at": state.expires_at,
+                    "expired": state.expired,
+                    "replayed_at": state.replayed_at,
+                    "applied_event_ids": list(state.applied_event_ids),
+                    "outcomes": {
+                        horizon: disclosure_safe_outcome(value) if currently_redacted and isinstance(value, dict) else value
+                        for horizon, value in outcomes.items()
+                    },
+                    "outcome_events": [
+                        disclosure_safe_outcome(value) if currently_redacted else value
+                        for value in state.outcomes
+                    ],
+                    "execution_allowed": False,
+                    "executable_authority": False,
+                    "score_eligible": False,
+                    "action_authority": False,
+                    "risk_gate_authority": False,
+                }
+            )
+            records.append(record)
+    except (ThesisDiaryIntegrityError, OSError, ValueError) as exc:
+        return _unavailable(f"LLM thesis diary unavailable; manual review required ({type(exc).__name__}).") | {
+            "entries": [],
+            "score_eligible": False,
+            "action_authority": False,
+            "risk_gate_authority": False,
+        }
+    if not records:
+        return _unavailable("No persisted LLM thesis diary entries are available for this instrument.") | {
+            "entries": [],
+            "score_eligible": False,
+            "action_authority": False,
+            "risk_gate_authority": False,
+        }
+    return {
+        "status": "available",
+        "instrument_id": instrument_id,
+        "entries": records,
+        "message": "LLM theses are context-only and cannot affect scores, actions, risk gates or trade proposals.",
+        "execution_allowed": False,
+        "executable_authority": False,
+        "score_eligible": False,
+        "action_authority": False,
+        "risk_gate_authority": False,
+    }
+
+
 def _candidate_identity_panel(instrument_id: str, candidate_score: SimpleInstrumentScore) -> dict[str, Any]:
     source_group = _safe_text(candidate_score.source_group) or "unavailable"
     analysis_tier = _safe_text(candidate_score.analysis_tier) or "unavailable"
@@ -1359,6 +1443,7 @@ def build_instrument_detail(
     score_history: pd.DataFrame | None = None,
     paper_trades: pd.DataFrame | None = None,
     journal: pd.DataFrame | None = None,
+    thesis_diary_root: Path | None = None,
     candidate_score: SimpleInstrumentScore | None = None,
     financial_projection: Mapping[str, object] | None = None,
     real_asset_projection: Mapping[str, object] | None = None,
@@ -1591,6 +1676,7 @@ def build_instrument_detail(
             "paper_trades": _paper_trade_panel(instrument_id, paper_trades),
             "history": _history_panel(instrument_id, score_history),
             "journal": _journal_panel(instrument_id, journal),
+            "thesis_diary": _thesis_diary_panel(instrument_id, root=thesis_diary_root),
             "run_changes": _run_changes_panel(instrument_id, score_history),
         },
     )

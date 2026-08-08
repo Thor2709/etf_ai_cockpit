@@ -50,6 +50,7 @@ from etf_cockpit.data.catalogue import DataCatalogue, DataCatalogueError
 from etf_cockpit.data.macro_warehouse import MacroWarehouse, MacroWarehouseError
 from etf_cockpit.data.legal_terms import legal_terms_report
 from etf_cockpit.data.bitemporal import BitemporalStore
+from etf_cockpit.audit.thesis_diary import export_thesis_diary_packet
 from etf_cockpit.application.architecture import build_report as build_architecture_report
 from etf_cockpit.application.settings import load_settings_bundle, settings_export
 from etf_cockpit.governance.product_scope import (
@@ -101,6 +102,7 @@ _COMPLETE_AUDIT_REQUIRED: tuple[tuple[str, str, bool], ...] = (
     ("evidence_export/edge_cost.csv", "derived", True),
     ("evidence_export/data_health.csv", "derived", True),
     ("evidence_export/decision_journal_summary.json", "user_record", True),
+    ("evidence_export/thesis_diary.json", "user_record", False),
     ("evidence_export/macro_warehouse_summary.json", "derived", True),
     ("evidence_export/data_catalogue_summary.json", "derived", True),
     ("evidence_export/bitemporal_vintage_manifest.json", "evidence", False),
@@ -501,6 +503,12 @@ def _export_decision_journal_summary(path: Path) -> None:
     path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def _export_thesis_diary(path: Path, *, root: Path = ROOT / "data") -> None:
+    """Include complete, checksum-bound thesis records for packet replay."""
+
+    export_thesis_diary_packet(path, root=root)
+
+
 def _export_macro_warehouse_summary(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -814,6 +822,10 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
     _export_issue_dossiers(docs_root, manifest)
     _export_health_evidence(export_dir, config, manifest)
     _copy_optional_output(ROOT / "logs" / "workflow.jsonl", evidence_root, "workflow.jsonl", manifest)
+
+    thesis_diary_path = evidence_root / "thesis_diary.json"
+    _export_thesis_diary(thesis_diary_path)
+    _include_file(thesis_diary_path, "thesis_diary.json", manifest)
 
     (evidence_root / "trust_critical_manifest.json").write_text(json.dumps(manifest, indent=2, default=str), encoding="utf-8")
     _include_file(evidence_root / "trust_critical_manifest.json", "trust_critical_manifest.json", manifest)

@@ -9,6 +9,13 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import build_version_registry, compatibility_summary, extract_and_validate_audit_archive
+from etf_cockpit.audit.thesis_diary import (
+    ThesisDiaryIntegrityError,
+    ThesisDiaryStore,
+    disclosure_safe_entry,
+    disclosure_safe_outcome,
+    disclosure_safe_review,
+)
 from etf_cockpit.audit.local_llm import (
     build_local_audit_context,
     check_local_llm_status,
@@ -20,10 +27,53 @@ from etf_cockpit.services import ChatGPTBridge
 from etf_cockpit.governance.product_scope import load_authority_matrix
 
 
+def _thesis_diary_text() -> str:
+    try:
+        entries = ThesisDiaryStore().list_entries()
+    except (ThesisDiaryIntegrityError, OSError, ValueError) as exc:
+        return f"LLM thesis diary unavailable; manual review required ({type(exc).__name__})."
+    if not entries:
+        return "No persisted instrument-specific LLM thesis entries."
+    lines = []
+    store = ThesisDiaryStore()
+    for entry in entries:
+        state = store.replay(entry.thesis_id)
+        currently_redacted = state.redaction_state == "redacted"
+        display_entry = disclosure_safe_entry(entry) if currently_redacted else entry
+        review = disclosure_safe_review(state.human_review) if currently_redacted else state.human_review
+        outcomes = [disclosure_safe_outcome(value) for value in state.outcomes] if currently_redacted else list(state.outcomes)
+        lines.append(
+            " | ".join(
+                (
+                    f"{display_entry.instrument_id} @ {display_entry.decision_time}",
+                    f"label={display_entry.final_advisory_label}",
+                    f"evidence_score={display_entry.evidence_score if display_entry.evidence_score is not None else 'unknown'}",
+                    f"evidence_quality={display_entry.evidence_quality if display_entry.evidence_quality is not None else 'unknown'}",
+                    f"risk_friction={display_entry.risk_friction if display_entry.risk_friction is not None else 'unknown'}",
+                    f"uncertainty={display_entry.uncertainty}",
+                    f"sources={','.join(display_entry.input_sources) or 'unknown'}",
+                    f"thesis={display_entry.thesis_summary}",
+                    f"risk={display_entry.risk_summary}",
+                    f"contradictions={display_entry.contradiction_summary}",
+                    f"review={review}",
+                    f"redaction={state.redaction_state}",
+                    f"expires_at={state.expires_at or 'none'}",
+                    f"expired={state.expired}",
+                    f"outcomes={outcomes}",
+                    f"replayed_at={state.replayed_at or 'current'}",
+                    f"backtest={display_entry.backtest_validity}",
+                    "execution_allowed=false",
+                )
+            )
+        )
+    return "\n".join(lines)
+
+
 def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
     path_field = ft.TextField(label="External audit commentary JSON path", expand=True)
     output = ft.Text(state.last_message, color=theme.MUTED, selectable=True)
     llm_output = ft.Text("Local LLM audit has not been run in this session.", color=theme.MUTED, selectable=True)
+    diary_output = ft.Text(_thesis_diary_text(), color=theme.MUTED, selectable=True, size=11)
     authority_matrix = load_authority_matrix()
     version_summary = compatibility_summary(build_version_registry())
 
@@ -79,13 +129,24 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
             settings = load_local_llm_settings()
             state.update_activity("Calling local LLM audit endpoint")
             page.update()
-            status, commentary = generate_local_audit_commentary(build_local_audit_context(state.snapshot), settings)
+            context = build_local_audit_context(state.snapshot)
+            status, commentary = generate_local_audit_commentary(context, settings)
             if commentary is None:
                 llm_output.value = f"{status.status}: {status.message}"
                 state.finish_activity(llm_output.value)
             else:
-                saved_path = save_local_audit_commentary(commentary, model=status.model)
-                llm_output.value = f"Saved local LLM commentary: {saved_path}\n{commentary.summary}"
+                if status.context_snapshot is None:
+                    raise ValueError("Local LLM generation did not retain its immutable context snapshot")
+                saved_path = save_local_audit_commentary(
+                    commentary,
+                    model=status.model,
+                    context=status.context_snapshot,
+                    request_envelope=status.request_envelope,
+                    response_payload=status.response_payload,
+                    generation_time=status.generation_time,
+                )
+                llm_output.value = f"Saved local LLM thesis diary: {saved_path}\n{commentary.summary}"
+                diary_output.value = _thesis_diary_text()
                 state.finish_activity(f"Saved local LLM commentary: {saved_path}", output_path=saved_path)
         except Exception as exc:
             state.fail_activity("Generate local LLM commentary", exc)
@@ -113,6 +174,15 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
                         ),
                     ],
                     spacing=8,
+                )
+            ),
+            panel(
+                ft.Column(
+                    [
+                        section_header("LLM thesis diary", "Instrument-specific, dated context only. Human review and forward outcomes are persisted; diary output cannot alter scores, actions, risk gates or trade proposals."),
+                        diary_output,
+                    ],
+                    spacing=10,
                 )
             ),
             panel(

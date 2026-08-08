@@ -632,9 +632,16 @@ def test_registry_entrypoint_rejects_handcrafted_invalid_transition_events(
 ) -> None:
     prior = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
     source = prior["records"][issue_id]["programme_status"]
+    legal_target = {
+        "planned": "ready",
+        "ready": "in_progress",
+        "in_progress": "implemented_initially",
+        "implemented_initially": "integrated",
+        "integrated": "closed",
+    }[source]
     event: dict[str, object] = {
         "from": source,
-        "to": "closed" if source == "integrated" else "ready",
+        "to": legal_target,
         "review_reference": "B00-R/adversarial-review",
         "evidence_references": ["tests/contracts/adversarial.json"],
         "reviewer": "independent-reviewer",
@@ -890,11 +897,15 @@ def test_committed_sync_files_are_safe_evidence_not_apply_plans() -> None:
         assert (path.with_suffix(path.suffix + ".sha256")).read_text(encoding="utf-8").split()[0] == digest
 
 
-def test_validator_modes_compose_existing_release_gate_without_reimplementation() -> None:
+def test_validator_modes_compose_existing_release_gate_without_reimplementation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     assert validate_app.REPORT_DIRECTORY == Path("artifacts/validation")
     full = validate_app._checks_for_mode(ROOT, "full", {})
     packaged = validate_app._checks_for_mode(ROOT, "packaged", {})
     offline = validate_app._checks_for_mode(ROOT, "offline", {})
+    monkeypatch.setattr(validate_app, "_changed_test_paths", lambda _root: ["tests/test_sample.py"])
+    changed = validate_app._checks_for_mode(ROOT, "changed", {})
 
     assert full[0].name == "protected_release_gate"
     assert "scripts/release_gate.py" in full[0].command
@@ -902,6 +913,8 @@ def test_validator_modes_compose_existing_release_gate_without_reimplementation(
     assert "--skip-tests" not in packaged[0].command
     smoke = next(check for check in offline if check.name == "source_smoke")
     assert dict(smoke.environment) == {"ETF_COCKPIT_OFFLINE": "1"}
+    changed_tests = next(check for check in changed if check.name == "changed_tests")
+    assert changed_tests.timeout_seconds == validate_app.CHANGED_TEST_TIMEOUT_SECONDS == 240
 
 
 def test_package_parity_detects_mismatch(tmp_path: Path) -> None:

@@ -9,30 +9,119 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
-## Current ISSUE-0104 completion lane
+## Current ISSUE-0010 product lane
 
-Product PR #655 merged independently approved exact head
-`977031f161800398962111ac1e0af8f4e5646134` as
-`ae9a792c8ebe360618d57980be2b4e77ed746943`. H-tier run `31262430310`
-passed authoritative Linux, Windows and terminal validation; guard
-`31262430312` passed. Writer `31265258916` applied only
-`ready -> in_progress` with zero-action readback, generic convergence
-`31265258925` produced no patch, and `execution_allowed=false` remains.
-Both report-only pilots passed; their aggregate reported only the intentional
-platform-specific memory-limit test pass/skip difference, recorded as a
-non-authoritative follow-up without reopening validation infrastructure.
+ISSUE-0104 completion PR #656 merged independently approved exact head
+`2e183215d64ba7cdb3bf1dc649bfeca62eb9dad5` as
+`43b7561b910758aafe7c5501803fbcbe86fd197b`. Exact-head release run
+`31265876805` passed authoritative Linux, Windows and terminal validation and
+guard `31265876806` passed. Writer `31267257715` applied the aggregate
+`in_progress -> implemented_initially -> integrated` replay with one proposal
+and receipt and zero-action readback; convergence `31267257761` and a fresh
+generic readback are zero-action. Canonical state and GitHub issue #244 agree
+on `integrated`; `execution_allowed=false` remains.
 
-The clean `codex/issue0104-completion-20260809` lane starts at that exact merge
-and records only `in_progress -> implemented_initially -> integrated`. Its
-byte-clean canonical projections, one-action live plan
-`96ebe03609cb9ca041067fe8e46a8e305f14dee430f8ef9ac7dd8dd501f0072c`,
-append-only authority
-`88b3271e4b2f146d0bdf2b8f09932de00406a0b838f0709c1a096e4e28dfce91`
-and candidate ref
-`1a6434afbe945a1d2250b5387b9db375515bc50a67f9f836e05c3f863d06ec53`
-are bound to PR #655 and issue #244. Focused E-tier guards, exact-head review,
-merge and writer/readback verification remain; ISSUE-0010 is the prepared next
-dependency-ready product issue.
+ISSUE-0010 is the next dependency-ready issue. Clean branch
+`codex/issue0010-product-20260809-v3` starts at that exact main. The first
+prepared head `ede07a26d6556e0caff79a78ecb10aa935f3fbcf` passed focused tests
+but both parallel reviews rejected it for cross-process lost updates,
+future-observation replay, inexact prompt provenance, stale lifecycle UI,
+unsafe redaction export, missing behavioral financial non-interference proof
+and incorrect non-H classification. Consolidated correction
+`f535c0dec6285de2a31a4b515fd83f907b8eadc1` passed focused adversarial
+validation and was transplanted once without conflict. Canonical inputs now
+record only `planned -> in_progress`; generated projections are byte-clean.
+The one-action live plan is
+`e85ef463b0ec18b3b33ffdbf20c449fc26915d302bf66a6f0e8014aa80db782f`,
+authority is
+`52a917e9e678729a974545b08dc8ef74abe6079168af8270dd430d9b2e262e80`,
+candidate ref is
+`6741dbdac63e87a11dc6671e305bf04d623e72cd91b03fb45c23d9a78418e4ee`,
+and `execution_allowed=false`. Focused adversarial tests, exact guard,
+byte-clean generation, H-tier classification and exact one-action candidate
+validation pass. Freeze this completed tree for parallel review and H-tier CI.
+
+Frozen head `b3afaa2ab790e13af439e4db5f7fb883d9224cfb` was rejected by
+both reviews for current-time future-event leakage, redaction disclosure,
+partial multi-instrument writes and unbound exact provenance. H run
+`31269127682` timed out preflight before packages because two changed broad
+tests took 65 and 109 seconds. Consolidated correction
+`d28da1de5c367a85077cfda333730c3b2d6a25c9` closes the full finding set,
+restores those broad tests to base and moves only the new assertions into fast
+ISSUE-0010 modules. The resulting exact Windows changed-test selection passes
+in 42.3 seconds. Replacement head
+`f1462202e8630cb6f41623a59ac4e0ed9575ea3d` passed exact guard/candidate and
+focused validation, but both parallel reviewers rejected it after all verdicts
+were collected: response availability was backdated to snapshot time and
+immutable entry/packet validation did not independently recheck exact semantic
+provenance. Release run `31270403242` is stale. One consolidated four-file
+correction now binds stable generation availability to creation and decision
+time, retains snapshot time separately, revalidates request/model/raw response
+and parsed commentary at immutable boundaries, and adds focused replay,
+mismatch and retry regressions. Head
+`e8a122f00bba59712a3afb010edddcda84142744` passed 37 exact changed tests in
+41.8 seconds and all control checks, but both parallel reviewers then found the
+final bounded boundary set: mutable caller-context timestamp reuse, malformed
+synthetic/redaction markers, and missing packet chronology/unique-event
+validation. Release run `31271660658` is stale. The permitted final correction
+keeps availability on the immutable response status and passes it through the
+UI save path, requires strict provenance and fully scrubbed redaction shapes,
+and reuses complete store event invariants for packet replay. Head
+`d83b691c5cfd3d449a002726013296ce2969d917` passed 46 exact changed tests in
+44.5 seconds and all control checks, but adversarial exact-head review then
+demonstrated save-context/request-context mismatch, post-cutoff event leakage
+from safe exports and future-dated evidence acceptance. Release run
+`31273205539` is stale. The final bounded correction deep-copies and requires
+the immutable generation context for every exact save, filters safe exports to
+the effective cutoff while rebuilding chains/checksums, and rejects recognized
+snapshot observations after decision time. Focused mutation/retry,
+future-payload/readback and future-evidence regressions pass. Head
+`3c702a546e85b0f03225885e5ef58fa42f3471de` passed exact validation, but
+review then reproduced nested future metadata, a retroactively backdated expiry
+payload and exact availability before the required snapshot date. The bounded
+closure recursively checks recognized temporal fields in dictionaries/lists,
+requires an ISO snapshot date for exact contexts and rejects expiry before its
+event time. Focused regressions pass. Exact head
+`79ec77ba659659dfee8fba54d764c6a93daa3af7` received both independent
+approvals, but H run `31275348236` failed identically on both platforms because
+the existing malformed-transition fixture still used obsolete ISSUE-0010
+`in_progress -> ready`, masking its intended malformed-field checks. The
+test-only correction derives the legal next hop before injecting each invalid
+field; all seven cases pass. Replacement head
+`6b5a00b34e6d5c992c5a182428b3df648a704489` received both independent
+approvals and passed the exact guard, but H run `31276736844` timed out the
+exact changed-test selection at 120 seconds on both its initial attempt and
+single permitted retry; authority preflight and supply-chain checks passed.
+The one bounded test-only correction retains all seven independent malformed
+event checks and runs the generic generator/validator entrypoints once rather
+than redundantly for every variant. The same exact local selection passes in
+65.3 seconds. Head `8023867cd48c27f35a439e4f3fd9a8602de44a3e` received both
+independent approvals and guard `31277808316` passed, but release run
+`31277808312` reproduced the same 120-second changed-test timeout before
+packages; authority and supply chain passed. The sole demonstrated harness
+correction gives only changed-test execution a bounded 240-second ceiling,
+retains every test and H-tier package/terminal requirement, and adds a direct
+contract regression. Head `4670c084fcfec15342527652c90a9968205485af`
+passed guard `31278463750` and hosted run `31278463749` passed authority,
+supply chain and the complete changed-test preflight in 125.2 seconds. Its
+package jobs became stale and were cancelled after whole-diff review found two
+product defects; risk review approved. One consolidated correction now rejects
+contradictory redaction state retaining raw content and reuses the existing
+recursive temporal bound for nested outcome details, with direct regressions.
+Replacement head `e10b9914f4806f0e3e549cd3f74edb1c4132455e` passed the exact
+changed selection in 69.9 seconds and guard `31279691735`; H run `31279691720`
+became stale and was cancelled after risk review found Windows case-insensitive
+ID overwrite and tuple-nested PIT bypasses; whole-diff review approved. The
+consolidated correction rejects normalized ID collisions inside existing
+single/batch transaction boundaries, preserves the original entry and extends
+the existing recursive temporal traversal to tuple arrays. Replacement head
+`5d11f10d95931b3971b33e606920aed526a0b570` passed the exact changed suite
+in 71.8 seconds and risk review approved; stale H run `31281223390` was
+cancelled after whole-diff review required every malformed variant to exercise
+both generic registry entrypoints and nested synthetic executable-authority
+metadata to fail closed. The bounded correction restores those assertions and
+recursively rejects the marker across dict/list/tuple metadata. Freeze one
+replacement head for both reviews and fresh H-tier CI; no adjacent hardening.
 
 ## ISSUE-0104 product chronology
 

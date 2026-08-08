@@ -13,37 +13,155 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
-## Current ISSUE-0104 completion checkpoint
+## Current ISSUE-0010 product checkpoint
 
-- Product PR #655 merged independently approved exact head
-  `977031f161800398962111ac1e0af8f4e5646134` as
-  `ae9a792c8ebe360618d57980be2b4e77ed746943`. Exact-head H-tier run
-  `31262430310` passed preflight, supply chain, authoritative Linux and Windows
-  package gates and terminal validation; status guard `31262430312` passed.
-- Ordered writer `31265258916` applied only ISSUE-0104
-  `ready -> in_progress`, returned `applied_and_verified` with
-  `zero_action_readback=true`, and preserved `execution_allowed=false`.
-  Generic convergence `31265258925` passed without producing a patch.
-- Both report-only four-worker pilots passed. Their cross-platform aggregation
-  reported only the intentional Linux-pass/Windows-skip difference in
-  `test_memory_limit_configuration_has_a_platform_specific_stdlib_path`; this
-  is a non-authoritative follow-up and does not reopen validation infrastructure.
-- Clean completion worktree
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0104_completion`,
-  branch `codex/issue0104-completion-20260809`, started empty at exact main
-  `ae9a792c8ebe360618d57980be2b4e77ed746943`. It records only the authorised
-  ISSUE-0104 `in_progress -> implemented_initially -> integrated` replay.
-- Canonical inputs were updated first and all projections are byte-clean. Live
-  plan `96ebe03609cb9ca041067fe8e46a8e305f14dee430f8ef9ac7dd8dd501f0072c`
-  contains one status-only update for issue #244. Append-only replay authority
-  `88b3271e4b2f146d0bdf2b8f09932de00406a0b838f0709c1a096e4e28dfce91`
+- ISSUE-0104 completion PR #656 merged independently approved exact head
+  `2e183215d64ba7cdb3bf1dc649bfeca62eb9dad5` as exact main
+  `43b7561b910758aafe7c5501803fbcbe86fd197b`. Release run `31265876805`
+  passed classifier, preflight, supply chain, authoritative Linux and Windows
+  packages and terminal validation; guard `31265876806` passed.
+- Ordered writer `31267257715` applied the sole aggregate ISSUE-0104
+  `in_progress -> implemented_initially -> integrated` replay with one proposal
+  and receipt, `terminal_status=applied_and_verified` and
+  `zero_action_readback=true`. Generic convergence `31267257761` passed. A fresh
+  exact-main generic readback has zero actions; canonical state and GitHub issue
+  #244 both resolve to `integrated`, and `execution_allowed=false` remains.
+- ISSUE-0010 is dependency-ready with no blocking inputs. Clean worktree
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0010_product_v3`,
+  branch `codex/issue0010-product-20260809-v3`, starts empty at exact main
+  `43b7561b910758aafe7c5501803fbcbe86fd197b`.
+- The bounded scope is a local, non-executable LLM thesis diary with exact
+  generation provenance, immutable/reproducible forward-only lifecycle,
+  disclosure-safe redaction export and behavioral isolation from scores,
+  optimisers, risk gates, proposals and orders. It must preserve
+  `execution_allowed=false` and requires H-tier persistence validation.
+- The first prepared product head
+  `ede07a26d6556e0caff79a78ecb10aa935f3fbcf` passed its focused suite but was
+  rejected after both parallel reviews. Their complete finding set is
+  cross-process lost updates, future-observation replay, reconstructed rather
+  than exact prompt provenance, stale UI lifecycle projection, unsafe
+  redaction export, missing behavioral non-interference proof and incorrect
+  non-H classification.
+- Consolidated correction commit
+  `f535c0dec6285de2a31a4b515fd83f907b8eadc1` passed focused adversarial
+  validation and was transplanted once onto this exact-main lane without
+  conflict. Canonical inputs now record only the legal ISSUE-0010
+  `planned -> in_progress` transaction and all generated projections are
+  byte-clean.
+- Live plan `e85ef463b0ec18b3b33ffdbf20c449fc26915d302bf66a6f0e8014aa80db782f`
+  contains one status-only update for GitHub issue #14. Append-only authority
+  `52a917e9e678729a974545b08dc8ef74abe6079168af8270dd430d9b2e262e80`
   and candidate ref
-  `1a6434afbe945a1d2250b5387b9db375515bc50a67f9f836e05c3f863d06ec53`
-  bind both hops to PR #655 and preserve `execution_allowed=false`.
-- Next action is focused E-tier guard/reconciliation validation, one frozen
-  exact-head review cycle, protected merge, ordered-writer/readback proof, then
-  transplant and review the dependency-ready ISSUE-0010 product lane on fresh
-  exact main.
+  `6741dbdac63e87a11dc6671e305bf04d623e72cd91b03fb45c23d9a78418e4ee`
+  bind it to exact parent `43b7561b910758aafe7c5501803fbcbe86fd197b`
+  and preserve `execution_allowed=false`. Focused adversarial tests, exact
+  status guard, byte-clean generation, H-tier classification and the exact
+  one-action candidate validation pass. Freeze this completed tree and start
+  both independent reviews and H-tier hosted CI in parallel.
+- Frozen head `b3afaa2ab790e13af439e4db5f7fb883d9224cfb` was rejected
+  after both parallel reviews completed. Their consolidated findings were
+  current-time future-event leakage, redaction disclosure in UI/export,
+  partial multi-instrument generation writes and unbound request/model/response
+  provenance. H run `31269127682` also timed out preflight because two changed
+  broad test modules took 65 and 109 seconds before packages could start.
+- Consolidated correction `d28da1de5c367a85077cfda333730c3b2d6a25c9`
+  closes all findings with one atomic generation batch/report transaction,
+  effective-current replay and redaction cutoffs, fully scrubbed current UI,
+  exact semantic provenance binding and explicit synthetic fallback records.
+  The two broad tests now match base; dedicated ISSUE-0010 modules reduce the
+  exact changed-test selection to 42.3 seconds on Windows.
+- Replacement head `f1462202e8630cb6f41623a59ac4e0ed9575ea3d`
+  passed byte-clean generation, transition guard, H classification, live
+  candidate validation and focused local validation. Both parallel reviewers
+  rejected it only after all verdicts were collected: generated entries used
+  snapshot time rather than actual response availability, and immutable
+  entry/packet validation trusted self-consistent hashes without rechecking
+  exact request/model/raw-response/commentary semantics. Release run
+  `31270403242` is stale and must not be reused.
+- One consolidated four-file correction now hash-binds stable response
+  availability to both creation and decision time, preserves snapshot
+  `as_of_date` separately, revalidates exact provenance at immutable-entry and
+  packet boundaries, and adds focused historical replay, mismatch and retry
+  regressions. Head `e8a122f00bba59712a3afb010edddcda84142744`
+  passed 37 exact changed tests in 41.8 seconds plus all exact control checks,
+  but both parallel reviewers found one final consolidated boundary set:
+  caller-context reuse could backdate a later response, malformed synthetic
+  provenance and redaction markers were accepted, and packet replay omitted
+  store chronology/unique-event invariants. Release run `31271660658` is stale.
+- The permitted final correction keeps generation availability in the frozen
+  response status and passes it through the UI save path without mutating the
+  request context; requires strict exact/synthetic provenance; enforces fully
+  scrubbed, internally consistent redacted entries; and reuses full store event
+  history validation for packet replay. Head
+  `d83b691c5cfd3d449a002726013296ce2969d917` passed 46 exact changed tests in
+  44.5 seconds and all control checks, but exact-head adversarial review then
+  demonstrated three remaining PIT gaps: save context was not bound to the
+  generated request context, safe exports retained post-cutoff event payloads,
+  and future-dated evidence snapshots were accepted. Release run
+  `31273205539` is stale.
+- The final bounded correction now retains and deep-copies the immutable
+  generation context, requires every exact request to carry that context and
+  rejects any save mismatch, filters exported entries/events to the effective
+  cutoff while rebuilding chains and checksums, and rejects recognized snapshot
+  dates/timestamps after decision availability. Head
+  `3c702a546e85b0f03225885e5ef58fa42f3471de` passed exact changed/control
+  validation, but reviewers demonstrated nested metadata timestamps bypassing
+  the top-level bound, retroactively backdated expiry payloads, and exact saves
+  with availability before their required snapshot date. The bounded closure
+  recursively validates recognized temporal fields through dictionaries/lists,
+  requires exact audit contexts to carry an ISO snapshot date, and rejects an
+  expiry before its event time. Focused mutation/retry, future-payload/readback,
+  nested-future-evidence, historical-availability and expiry regressions pass.
+  Exact head `79ec77ba659659dfee8fba54d764c6a93daa3af7` received both
+  independent approvals. H run `31275348236` then failed identically on Linux
+  and Windows only because the existing malformed-transition fixture still
+  constructed obsolete ISSUE-0010 `in_progress -> ready`, masking its intended
+  malformed date/commit/evidence errors. The bounded test-only correction now
+  derives the legal next hop before injecting each malformed field; all seven
+  adversarial cases pass. Replacement head
+  `6b5a00b34e6d5c992c5a182428b3df648a704489` received both independent
+  approvals and passed the exact status guard. H-tier run `31276736844` then
+  timed out the unchanged exact changed-test selection at 120 seconds in both
+  the initial attempt and its single permitted retry; authority preflight and
+  supply-chain validation passed. The sole bounded correction preserves all
+  seven independent malformed-event assertions while exercising the two
+  generic registry entrypoints once instead of redundantly for every malformed
+  variant. The exact local selection passes in 65.3 seconds. Head
+  `8023867cd48c27f35a439e4f3fd9a8602de44a3e` received both independent
+  approvals and exact guard `31277808316` passed. Release run `31277808312`
+  nevertheless reproduced the same 120-second changed-test timeout before
+  packages; fresh authority and supply-chain validation passed. The single
+  demonstrated harness correction assigns only changed-test execution a
+  bounded 240-second ceiling, leaving every selected test, classifier, H-tier
+  package and terminal requirement unchanged, with a direct timeout-contract
+  regression. Head `4670c084fcfec15342527652c90a9968205485af`
+  passed exact guard `31278463750`; hosted run `31278463749` passed authority,
+  supply chain and the full changed-test preflight in 125.2 seconds before its
+  now-stale package jobs were cancelled after whole-diff review rejected the
+  head. The risk reviewer approved. The consolidated final findings were an
+  accepted contradictory redaction state retaining raw content and nested
+  future timestamps in outcome details bypassing the PIT bound. The bounded
+  product correction enforces redaction-state/content consistency and reuses
+  the existing recursive temporal validator for outcome details, with direct
+  adversarial regressions. Replacement head
+  `e10b9914f4806f0e3e549cd3f74edb1c4132455e` passed the full exact changed
+  selection in 69.9 seconds and guard `31279691735`; its now-stale H run
+  `31279691720` was cancelled after risk review found two further deterministic
+  defects, while whole-diff review approved. Case variants of a thesis ID could
+  collide on a Windows path and tuples could bypass recursive PIT checks before
+  JSON normalization. The consolidated correction adds casefolded collision
+  rejection inside single/batch transaction boundaries while preserving the
+  original entry, and traverses tuple arrays in the existing recursive temporal
+  validator for snapshots and outcomes. Replacement head
+  `5d11f10d95931b3971b33e606920aed526a0b570` passed the exact changed suite
+  in 71.8 seconds and received risk approval; its stale H run `31281223390`
+  was cancelled after whole-diff review required restoration of all seven
+  malformed variants through both generic registry entrypoints and rejection
+  of nested `executable_authority=true` in synthetic provenance. The bounded
+  correction restores those entrypoint assertions now that the 240-second
+  ceiling is proven and recursively rejects executable-authority markers in
+  JSON-compatible synthetic metadata. Freeze one replacement head for both
+  reviews and fresh H-tier CI.
 
 ## ISSUE-0104 product chronology
 
