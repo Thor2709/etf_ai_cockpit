@@ -577,6 +577,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         _render_evidence_section("Backtest trust", model.sections.get("backtests")),
         _render_evidence_section("Paper-trade history", model.sections.get("paper_trades")),
         _render_evidence_section("Decision journal", model.sections.get("journal")),
+        _render_evidence_section(
+            "LLM thesis diary",
+            model.sections.get("thesis_diary"),
+            subtitle="Dated instrument-specific LLM thesis, source snapshot, uncertainty, human review, score/risk context and forward outcomes; context-only with execution_allowed=false.",
+            key="instrument-detail.thesis-diary",
+        ),
         _render_evidence_section("What changed since the last run", model.sections.get("run_changes")),
         _render_evidence_section("Point-in-time vintage history", vintage_history, subtitle="Append-only effective and availability timestamps, revisions, corrections and source-vintage metadata."),
     ]

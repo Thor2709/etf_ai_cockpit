@@ -9,7 +9,8 @@ import requests
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from etf_cockpit.core.paths import CONFIG_DIR, REPORTS_DIR
+from etf_cockpit.audit.thesis_diary import ThesisDiaryStore, build_thesis_entry, sha256_value
+from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, REPORTS_DIR
 from etf_cockpit.services import CockpitSnapshot
 
 
@@ -83,6 +84,7 @@ def check_local_llm_status(settings: LocalLLMSettings | None = None) -> LocalLLM
 def build_local_audit_context(snapshot: CockpitSnapshot) -> dict[str, Any]:
     signal_rows = []
     for signal in snapshot.signals:
+        metrics = signal.supporting_metrics
         signal_rows.append(
             {
                 "etf_id": signal.etf_id,
@@ -90,6 +92,11 @@ def build_local_audit_context(snapshot: CockpitSnapshot) -> dict[str, Any]:
                 "blocked_by": signal.blocked_by,
                 "reason_full": signal.supporting_metrics.get("reason_full", signal.reason_long),
                 "edge_to_cost_ratio": signal.supporting_metrics.get("edge_to_cost_ratio"),
+                "input_sources": ["cockpit_snapshot", f"signal:{signal.etf_id}"],
+                "evidence_score": next((metrics.get(key) for key in ("evidence_score_10", "evidence_score", "canonical_attractiveness_10") if metrics.get(key) is not None), None),
+                "evidence_quality": next((metrics.get(key) for key in ("evidence_quality_10", "evidence_quality", "canonical_evidence_confidence_10") if metrics.get(key) is not None), None),
+                "risk_friction": metrics.get("risk_friction_10"),
+                "final_advisory_label": metrics.get("final_label", signal.action),
                 "model_allowed_in_score": {
                     key: value
                     for key, value in signal.supporting_metrics.items()
@@ -157,6 +164,19 @@ def parse_local_llm_response(content: str) -> LocalAuditCommentary:
         raise ValueError(f"Local LLM response failed schema validation: {exc}") from exc
 
 
+def build_local_audit_prompt(context: dict[str, Any]) -> str:
+    """Build the deterministic prompt persisted with a local thesis."""
+
+    return (
+        "You are auditing a local ETF decision-support cockpit. "
+        "Only explain deterministic outputs supplied in JSON. "
+        "Do not calculate portfolio metrics, invent data, override risk gates, or recommend direct buy/sell execution. "
+        "Return exactly one JSON object with fields: summary, blocked_trade_explanations, contradictions, "
+        "external_review_questions, confidence, executable_authority. executable_authority must be false.\n\n"
+        f"Audit context:\n{json.dumps(context, default=str, indent=2)}"
+    )
+
+
 def generate_local_audit_commentary(
     context: dict[str, Any],
     settings: LocalLLMSettings | None = None,
@@ -165,14 +185,7 @@ def generate_local_audit_commentary(
     status = check_local_llm_status(settings)
     if status.status != "ok" or not status.model:
         return status, None
-    prompt = (
-        "You are auditing a local ETF decision-support cockpit. "
-        "Only explain deterministic outputs supplied in JSON. "
-        "Do not calculate portfolio metrics, invent data, override risk gates, or recommend direct buy/sell execution. "
-        "Return exactly one JSON object with fields: summary, blocked_trade_explanations, contradictions, "
-        "external_review_questions, confidence, executable_authority. executable_authority must be false.\n\n"
-        f"Audit context:\n{json.dumps(context, default=str, indent=2)}"
-    )
+    prompt = build_local_audit_prompt(context)
     body = {
         "model": status.model,
         "messages": [
@@ -194,16 +207,67 @@ def generate_local_audit_commentary(
     return status, parse_local_llm_response(content)
 
 
-def save_local_audit_commentary(commentary: LocalAuditCommentary, *, model: str | None, directory: Path = REPORTS_DIR) -> Path:
+def save_local_audit_commentary(
+    commentary: LocalAuditCommentary,
+    *,
+    model: str | None,
+    context: dict[str, Any] | None = None,
+    directory: Path = REPORTS_DIR,
+    diary_root: Path = DATA_DIR,
+) -> Path:
+    context = context or {"status": "unavailable", "authority": "commentary_only_no_trade_execution"}
+    model_name = model or "unavailable"
+    signals = context.get("signals")
+    scoped_signals = signals if isinstance(signals, list) and signals else [{"etf_id": context.get("instrument_id", "unavailable"), "input_sources": ["cockpit_snapshot"]}]
+    stored_entries = []
+    for signal in scoped_signals:
+        signal = signal if isinstance(signal, dict) else {}
+        instrument_id = str(signal.get("etf_id") or context.get("instrument_id") or "unavailable")
+        scoped_context = {**context, "signals": [signal], "instrument_id": instrument_id}
+        prompt = build_local_audit_prompt(scoped_context)
+        input_sources = sorted({str(source) for source in signal.get("input_sources", []) if str(source).strip()} | {"cockpit_snapshot", f"signal:{instrument_id}"})
+        source_snapshot = {"source": "cockpit_snapshot", "input_sources": input_sources, "snapshot": scoped_context}
+        retrieval_snapshot = {
+            "method": "build_local_audit_context.v1",
+            "context_hash": sha256_value(scoped_context),
+            "fields": sorted(scoped_context),
+        }
+        metadata = scoped_context.get("backtest_metadata")
+        forward_only = isinstance(metadata, dict) and metadata.get("forward_only") is True and metadata.get("llm_available_at_decision") is True
+        entry = build_thesis_entry(
+            prompt=prompt,
+            model=model_name,
+            instrument_id=instrument_id,
+            input_sources=input_sources,
+            source_snapshot=source_snapshot,
+            retrieval_snapshot=retrieval_snapshot,
+            evidence_snapshot=scoped_context,
+            llm_output=commentary.model_dump(mode="json"),
+            thesis_summary=commentary.summary,
+            risk_summary="; ".join(commentary.blocked_trade_explanations) or "No additional risk summary supplied.",
+            contradiction_summary="; ".join(commentary.contradictions) or "No contradictions supplied.",
+            uncertainty=1.0 - commentary.confidence,
+            evidence_score=signal.get("evidence_score"),
+            evidence_quality=signal.get("evidence_quality"),
+            risk_friction=signal.get("risk_friction"),
+            final_advisory_label=str(signal.get("final_advisory_label") or "manual_review"),
+            backtest_validity="forward_only" if forward_only else "unknown",
+        )
+        stored_entries.append(ThesisDiaryStore(diary_root).create(entry))
     directory.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     path = directory / f"local_llm_audit_{timestamp}.json"
     payload = {
         "source": "local_lm_studio",
-        "model": model,
+        "model": model_name,
         "imported_at": datetime.now(timezone.utc).isoformat(),
+        "thesis_id": stored_entries[0].thesis_id if len(stored_entries) == 1 else None,
+        "thesis_ids": [entry.thesis_id for entry in stored_entries],
+        "thesis_checksums": {entry.thesis_id: entry.checksum for entry in stored_entries},
+        "instrument_ids": [entry.instrument_id for entry in stored_entries],
         "executable_authority": False,
         "commentary": commentary.model_dump(),
+        "thesis_records": [entry.model_dump(mode="json") for entry in stored_entries],
     }
     path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     return path
