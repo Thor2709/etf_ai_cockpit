@@ -126,8 +126,15 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   supply-chain validation passed. The sole bounded correction preserves all
   seven independent malformed-event assertions while exercising the two
   generic registry entrypoints once instead of redundantly for every malformed
-  variant. The exact local selection passes in 65.3 seconds. Freeze one new
-  head, repeat both reviews and fresh H-tier CI, and make no adjacent change.
+  variant. The exact local selection passes in 65.3 seconds. Head
+  `8023867cd48c27f35a439e4f3fd9a8602de44a3e` received both independent
+  approvals and exact guard `31277808316` passed. Release run `31277808312`
+  nevertheless reproduced the same 120-second changed-test timeout before
+  packages; fresh authority and supply-chain validation passed. The single
+  demonstrated harness correction assigns only changed-test execution a
+  bounded 240-second ceiling, leaving every selected test, classifier, H-tier
+  package and terminal requirement unchanged, with a direct timeout-contract
+  regression. Freeze one final head for both reviews and fresh H-tier CI.
 
 ## ISSUE-0104 product chronology
 

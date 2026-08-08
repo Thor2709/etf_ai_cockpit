@@ -95,8 +95,14 @@ single permitted retry; authority preflight and supply-chain checks passed.
 The one bounded test-only correction retains all seven independent malformed
 event checks and runs the generic generator/validator entrypoints once rather
 than redundantly for every variant. The same exact local selection passes in
-65.3 seconds. Freeze one new head for both reviews and fresh H-tier CI; no
-adjacent hardening.
+65.3 seconds. Head `8023867cd48c27f35a439e4f3fd9a8602de44a3e` received both
+independent approvals and guard `31277808316` passed, but release run
+`31277808312` reproduced the same 120-second changed-test timeout before
+packages; authority and supply chain passed. The sole demonstrated harness
+correction gives only changed-test execution a bounded 240-second ceiling,
+retains every test and H-tier package/terminal requirement, and adds a direct
+contract regression. Freeze one final head for both reviews and fresh H-tier
+CI; no adjacent hardening.
 
 ## ISSUE-0104 product chronology
 
