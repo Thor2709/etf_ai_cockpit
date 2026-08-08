@@ -201,6 +201,16 @@ def test_time_varying_conflicts_are_limited_to_same_reporting_period() -> None:
 
     assert different_periods["fields"]["replication_method"]["status"] == "resolved"
     assert different_periods["fields"]["replication_method"]["value"] == "Synthetic swap"
+    assert different_periods["documents"]["prospectus"]["source_id"] == "half-2026"
+
+    reversed_projection = project_etf_structure(
+        "ETF-1",
+        document_registry=registry.iloc[::-1].reset_index(drop=True),
+        report_records=reports,
+        decision_time="2026-07-10",
+    )
+    assert reversed_projection["documents"]["prospectus"] == different_periods["documents"]["prospectus"]
+    assert reversed_projection["structure_provenance_hash"] == different_periods["structure_provenance_hash"]
 
     same_period = reports.copy()
     same_period.loc[1, "field_evidence"] = same_period.loc[1, "field_evidence"].replace(

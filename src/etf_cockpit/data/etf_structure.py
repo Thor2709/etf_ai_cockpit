@@ -1165,7 +1165,14 @@ def _document_matrix(registry: list[dict[str, object]], selected: dict[str, set[
         if not chosen:
             matrix[family] = {"status": "unknown", "source_id": "unavailable", "document_date": "unavailable", "checksum": "unavailable", "version": "unavailable", "fields": [], "execution_allowed": False}
             continue
-        row = chosen[0]
+        row = max(
+            chosen,
+            key=lambda item: (
+                _date_text(item.get("document_date")) or "",
+                _date_time_text(item.get("known_at")) or "",
+                str(item.get("source_id")),
+            ),
+        )
         family_candidates = [item for item in candidates if _family(item.document_type) == family and item.source_id in source_ids]
         matrix[family] = {
             "status": "available" if family_candidates else "unknown",
