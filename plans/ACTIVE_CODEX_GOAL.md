@@ -103,10 +103,17 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   generation context, requires every exact request to carry that context and
   rejects any save mismatch, filters exported entries/events to the effective
   cutoff while rebuilding chains and checksums, and rejects recognized snapshot
-  dates/timestamps after decision availability. Focused mutation, retry,
-  future-payload, packet-readback and future-evidence regressions pass. Freeze
-  the next head only after exact changed/control validation, then repeat both
-  reviews and fresh H-tier CI; do not add adjacent hardening.
+  dates/timestamps after decision availability. Head
+  `3c702a546e85b0f03225885e5ef58fa42f3471de` passed exact changed/control
+  validation, but reviewers demonstrated nested metadata timestamps bypassing
+  the top-level bound, retroactively backdated expiry payloads, and exact saves
+  with availability before their required snapshot date. The bounded closure
+  recursively validates recognized temporal fields through dictionaries/lists,
+  requires exact audit contexts to carry an ISO snapshot date, and rejects an
+  expiry before its event time. Focused mutation/retry, future-payload/readback,
+  nested-future-evidence, historical-availability and expiry regressions pass.
+  Freeze the next head after exact validation and repeat review/CI without
+  adjacent hardening.
 
 ## ISSUE-0104 product chronology
 

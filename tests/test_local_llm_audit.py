@@ -311,6 +311,34 @@ def test_exact_generation_rejects_request_without_immutable_context(tmp_path: Pa
         )
 
 
+def test_exact_generation_rejects_availability_before_snapshot_date(tmp_path: Path) -> None:
+    context = {"as_of_date": "2026-08-03", "signals": [{"etf_id": "VWCE"}]}
+    commentary = local_llm.LocalAuditCommentary(summary="Review only", confidence=0.5)
+    with pytest.raises(ValueError, match="postdates thesis decision time"):
+        local_llm.save_local_audit_commentary(
+            commentary,
+            model="exact-model",
+            context=context,
+            request_envelope={
+                "model": "exact-model",
+                "messages": [{"role": "user", "content": local_llm.build_local_audit_prompt(context)}],
+            },
+            response_payload={
+                "model": "exact-model",
+                "choices": [{
+                    "message": {
+                        "content": '{"summary":"Review only","confidence":0.5,"executable_authority":false}'
+                    }
+                }],
+            },
+            generation_time="1970-01-01T00:00:00+00:00",
+            directory=tmp_path / "reports",
+            diary_root=tmp_path / "data",
+        )
+    assert not (tmp_path / "data" / "thesis_diary").exists()
+    assert not list((tmp_path / "reports").glob("*.json"))
+
+
 def test_immutable_entry_rejects_self_consistent_but_semantically_inconsistent_exact_generation() -> None:
     commentary = local_llm.LocalAuditCommentary(summary="Stored commentary", confidence=0.5)
     prompt = "immutable prompt"

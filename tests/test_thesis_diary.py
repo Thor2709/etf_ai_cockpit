@@ -175,6 +175,13 @@ def test_snapshot_observation_times_cannot_postdate_decision() -> None:
         _entry(retrieval_snapshot={"retrieved_at": "not-a-timestamp"})
     with pytest.raises(ValueError, match="source_snapshot.timestamp postdates"):
         _entry(source_snapshot={"timestamp": "2099-01-01T00:00:00+00:00"})
+    with pytest.raises(ValueError, match=r"evidence_snapshot.metadata\[0\].retrieved_at postdates"):
+        _entry(
+            evidence_snapshot={
+                "as_of_date": "2026-08-03",
+                "metadata": [{"retrieved_at": "2099-01-01T00:00:00+00:00"}],
+            }
+        )
 
     valid = _entry(
         source_snapshot={"timestamp": "2026-08-03T00:00:00+00:00"},
@@ -182,6 +189,19 @@ def test_snapshot_observation_times_cannot_postdate_decision() -> None:
         evidence_snapshot={"as_of_date": "2026-08-03"},
     )
     assert valid.evidence_snapshot["as_of_date"] == "2026-08-03"
+
+
+def test_expiry_event_cannot_backdate_expiry_before_event(tmp_path: Path) -> None:
+    store = ThesisDiaryStore(tmp_path)
+    entry = store.create(_entry())
+    with pytest.raises(ThesisDiaryIntegrityError, match="expiry is backdated"):
+        store.append_expiry(
+            entry.thesis_id,
+            expires_at="2026-08-02T00:00:00+00:00",
+            reason="invalid retroactive expiry",
+            decision_time="2026-08-04T00:00:00+00:00",
+        )
+    assert len(store.export_packet()["events"]) == 1
 
 
 def test_multiprocess_create_append_read_and_export_are_serialized(tmp_path: Path) -> None:

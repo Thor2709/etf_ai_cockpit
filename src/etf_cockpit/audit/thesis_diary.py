@@ -80,24 +80,34 @@ def _validate_snapshot_temporal_bound(snapshot: dict[str, Any], *, name: str, de
     """Reject recognized snapshot observations that postdate the decision."""
 
     decision = _time_key(decision_time)
-    for field, value in snapshot.items():
-        if field in _SNAPSHOT_DATE_FIELDS:
-            if not isinstance(value, str):
-                raise ValueError(f"{name}.{field} must be an ISO-8601 date")
-            try:
-                parsed = date.fromisoformat(value.strip())
-            except ValueError as exc:
-                raise ValueError(f"{name}.{field} must be an ISO-8601 date") from exc
-            observed = datetime(parsed.year, parsed.month, parsed.day, tzinfo=timezone.utc)
-        elif field in _SNAPSHOT_TIMESTAMP_FIELDS:
-            try:
-                observed = _time_key(value)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"{name}.{field} must be a timezone-aware ISO-8601 timestamp") from exc
-        else:
-            continue
-        if observed > decision:
-            raise ValueError(f"{name}.{field} postdates thesis decision time")
+
+    def walk(value: Any, path: str) -> None:
+        if isinstance(value, dict):
+            for field, nested in value.items():
+                field_path = f"{path}.{field}"
+                if field in _SNAPSHOT_DATE_FIELDS:
+                    if not isinstance(nested, str):
+                        raise ValueError(f"{field_path} must be an ISO-8601 date")
+                    try:
+                        parsed = date.fromisoformat(nested.strip())
+                    except ValueError as exc:
+                        raise ValueError(f"{field_path} must be an ISO-8601 date") from exc
+                    observed = datetime(parsed.year, parsed.month, parsed.day, tzinfo=timezone.utc)
+                    if observed > decision:
+                        raise ValueError(f"{field_path} postdates thesis decision time")
+                elif field in _SNAPSHOT_TIMESTAMP_FIELDS:
+                    try:
+                        observed = _time_key(nested)
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError(f"{field_path} must be a timezone-aware ISO-8601 timestamp") from exc
+                    if observed > decision:
+                        raise ValueError(f"{field_path} postdates thesis decision time")
+                walk(nested, field_path)
+        elif isinstance(value, list):
+            for index, nested in enumerate(value):
+                walk(nested, f"{path}[{index}]")
+
+    walk(snapshot, name)
 
 
 def _safe_id(value: str, label: str = "thesis id") -> str:
@@ -609,6 +619,12 @@ def _validate_event(event: dict[str, Any], expected_sequence: int | None = None)
 
 
 def _validate_outcome_timing(entry: ThesisDiaryEntry, event: dict[str, Any]) -> None:
+    if event["operation"] == "expiry":
+        if _time_key(event["payload"]["expires_at"]) < _time_key(event["decision_time"]):
+            raise ThesisDiaryIntegrityError(
+                f"thesis expiry is backdated before its event: {entry.thesis_id}"
+            )
+        return
     if event["operation"] != "outcome":
         return
     observed_at = _time_key(event["payload"]["observed_at"])

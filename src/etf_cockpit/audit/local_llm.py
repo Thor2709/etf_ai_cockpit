@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import threading
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -311,6 +311,13 @@ def _generation_binding(
         raise ValueError("exact LLM request prompt context is invalid") from exc
     if sha256_value(prompt_context) != sha256_value(save_context):
         raise ValueError("exact LLM request prompt context contradicts save context")
+    as_of_date = save_context.get("as_of_date")
+    if not isinstance(as_of_date, str):
+        raise ValueError("exact LLM request context requires an ISO-8601 as_of_date")
+    try:
+        date.fromisoformat(as_of_date.strip())
+    except ValueError as exc:
+        raise ValueError("exact LLM request context requires an ISO-8601 as_of_date") from exc
     try:
         raw_content = response["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:

@@ -75,9 +75,14 @@ from safe exports and future-dated evidence acceptance. Release run
 the immutable generation context for every exact save, filters safe exports to
 the effective cutoff while rebuilding chains/checksums, and rejects recognized
 snapshot observations after decision time. Focused mutation/retry,
-future-payload/readback and future-evidence regressions pass. Freeze the next
-head after exact changed/control validation, then repeat both reviews and fresh
-H-tier CI; no adjacent hardening.
+future-payload/readback and future-evidence regressions pass. Head
+`3c702a546e85b0f03225885e5ef58fa42f3471de` passed exact validation, but
+review then reproduced nested future metadata, a retroactively backdated expiry
+payload and exact availability before the required snapshot date. The bounded
+closure recursively checks recognized temporal fields in dictionaries/lists,
+requires an ISO snapshot date for exact contexts and rejects expiry before its
+event time. Focused regressions pass. Freeze the next exact head and repeat
+review/CI; no adjacent hardening.
 
 ## ISSUE-0104 product chronology
 
