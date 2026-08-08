@@ -130,6 +130,56 @@ def _load_structure_caps(instrument_ids: object, decision_time: object) -> dict[
         return {item: 0.0 for item in ids}
 
 
+def _cached_structure_columns_match(
+    signal_log: pd.DataFrame,
+    structural_caps: pd.Series,
+    structural_hashes: pd.Series,
+    structure_evidence: object,
+) -> bool:
+    """Validate cached structural identity without replaying once per row."""
+
+    decision_times = pd.to_datetime(signal_log["date"], errors="coerce")
+    instrument_ids = signal_log["etf_id"].astype(str).str.strip()
+    if decision_times.isna().any() or instrument_ids.eq("").any():
+        return False
+    evidence_channels = (
+        structure_evidence.document_registry,
+        structure_evidence.report_records,
+        structure_evidence.supplemental_rows,
+        structure_evidence.holdings,
+    )
+    if all(isinstance(channel, pd.DataFrame) and channel.empty for channel in evidence_channels):
+        return bool(structural_caps.eq(0.0).all() and structural_hashes.eq("unavailable").all())
+
+    replay_rows = pd.DataFrame(
+        {
+            "decision_date": decision_times.dt.date,
+            "instrument_id": instrument_ids,
+            "stored_cap": structural_caps,
+            "stored_hash": structural_hashes,
+        }
+    )
+    for decision_date, rows in replay_rows.groupby("decision_date", sort=True):
+        expected_caps = structure_confidence_caps(
+            sorted(rows["instrument_id"].unique()),
+            document_registry=structure_evidence.document_registry,
+            report_records=structure_evidence.report_records,
+            supplemental_rows=structure_evidence.supplemental_rows,
+            holdings=structure_evidence.holdings,
+            decision_time=decision_date,
+        )
+        for row in rows.itertuples(index=False):
+            expected_cap = float(expected_caps.get(row.instrument_id, 0.0))
+            expected_hash = str(
+                expected_caps.provenance.get(row.instrument_id, {}).get(
+                    "structure_provenance_hash", "unavailable"
+                )
+            ).strip()
+            if float(row.stored_cap) != expected_cap or row.stored_hash != expected_hash:
+                return False
+    return True
+
+
 def _write_universe_cache_metadata(path: Path, revision: str, settings_revision: str | None = None) -> None:
     metadata_path = _universe_cache_meta_path(path)
     payload = json.dumps(
@@ -999,31 +1049,13 @@ class BacktestService:
             if metadata.get("quality_momentum_strategy_version") != QUALITY_MOMENTUM_VERSION:
                 return None
             structure_evidence = _load_local_structural_evidence()
-            for index, row in enumerate(signal_log.to_dict("records")):
-                decision_timestamp = pd.to_datetime(row.get("date"), errors="coerce")
-                if pd.isna(decision_timestamp):
-                    return None
-                instrument_id = str(row.get("etf_id", "")).strip()
-                if not instrument_id:
-                    return None
-                expected_caps = structure_confidence_caps(
-                    [instrument_id],
-                    document_registry=structure_evidence.document_registry,
-                    report_records=structure_evidence.report_records,
-                    supplemental_rows=structure_evidence.supplemental_rows,
-                    holdings=structure_evidence.holdings,
-                    decision_time=decision_timestamp.date(),
-                )
-                expected_cap = float(expected_caps.get(instrument_id, 0.0))
-                expected_hash = str(
-                    expected_caps.provenance.get(instrument_id, {}).get(
-                        "structure_provenance_hash", "unavailable"
-                    )
-                ).strip()
-                if float(structural_caps.iloc[index]) != expected_cap:
-                    return None
-                if structural_hashes.iloc[index] != expected_hash:
-                    return None
+            if not _cached_structure_columns_match(
+                signal_log,
+                structural_caps,
+                structural_hashes,
+                structure_evidence,
+            ):
+                return None
             if metadata.get("input_checksum") != backtest_input_checksum(
                 self.config,
                 load_prices(),

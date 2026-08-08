@@ -163,6 +163,13 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     service = services.BacktestService(config, universe_revision="test-revision")
 
     generated = service.run_backtest()
+    monkeypatch.setattr(
+        services,
+        "structure_confidence_caps",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("empty structural evidence must not replay once per signal row")
+        ),
+    )
     cached = service._load_cached_backtest()
 
     assert cached is not None
