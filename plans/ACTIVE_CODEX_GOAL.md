@@ -445,6 +445,18 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   head for both reviews and fresh H-tier hosted validation; no further change
   is permitted without a newly demonstrated defect. Lifecycle authority and
   `execution_allowed=false` remain unchanged.
+- Exact head `52d2eb31096b141c23850fcc60ccbc89c445e9a3` received risk
+  approval but was rejected by the whole-diff review after both verdicts
+  completed: an arbitrary non-empty signal ID outside the configured universe
+  could pass the empty-evidence cache path. Release run `31261532414` was
+  cancelled and its in-flight package/pilot evidence discarded as stale.
+- Minimal correction commit
+  `13e0b378e3686dffe9a5e5bdd9901d9f2b858d50` binds every cached signal
+  ID to `config.universe.enabled_ids` before either cache-validation path and
+  adds the exact unconfigured-ID regression. The complete 79-test
+  backtest/correction modules, Ruff and diff hygiene pass. Freeze the final
+  head for both reviews and fresh H-tier hosted validation; lifecycle authority
+  and `execution_allowed=false` remain unchanged.
 
 ## Completed UPDATEV2-0018 product checkpoint
 

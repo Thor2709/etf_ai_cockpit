@@ -451,6 +451,19 @@ asserts concurrent mixed-schema imports retain both expected source IDs. The
 hygiene pass. Freeze one replacement head for both reviews and fresh H-tier
 packages/pilots; lifecycle and `execution_allowed=false` remain unchanged.
 
+Exact head `52d2eb31096b141c23850fcc60ccbc89c445e9a3` received risk
+approval but was rejected by the whole-diff review after both verdicts
+completed because an arbitrary non-empty signal ID outside the configured
+universe could pass the empty-evidence cache path. Release run `31261532414`
+was cancelled and discarded as stale.
+
+Minimal correction commit `13e0b378e3686dffe9a5e5bdd9901d9f2b858d50`
+binds every cached signal ID to `config.universe.enabled_ids` before either
+cache-validation path and adds the unconfigured-ID regression. The complete
+79-test backtest/correction modules, Ruff and diff hygiene pass. Freeze the
+final head for both reviews and fresh H-tier packages/pilots; lifecycle and
+`execution_allowed=false` remain unchanged.
+
 ## Completed UPDATEV2-0018 parser lane
 
 ISSUE-0103 completion PR #648 merged exact reviewed head
