@@ -35,6 +35,13 @@ from etf_cockpit.data import fund_holdings as fund_holdings_module
 from etf_cockpit.data import import_pipeline as import_pipeline_module
 from etf_cockpit.data import sample_data as sample_data_module
 from etf_cockpit.data import trade_candidate_analysis as candidate_analysis_module
+from etf_cockpit.data.esef_provider import FilingsXbrlOrgProvider
+from etf_cockpit.data.oam_adapters import (
+    FranceDilaOamAdapter,
+    OAMDiscoveryRequest,
+    archive_manual_official_filing,
+)
+from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
 from etf_cockpit.parsers.contracts import ParseResult, ParseWarning
 from etf_cockpit.services import ForecastService
 from etf_cockpit.services import build_snapshot
@@ -78,6 +85,13 @@ def test_issue_0012_contract_names_every_declared_long_running_action() -> None:
         "notes_news_import",
         "holdings_factsheet_import",
         "macro_news_refresh",
+        "sec_companyfacts_fetch",
+        "sec_companyfacts_import",
+        "esef_discovery",
+        "esef_download",
+        "esef_import",
+        "oam_discovery",
+        "manual_official_filing_import",
     )
     assert all(label for label in LONG_RUNNING_ACTIONS.values())
 
@@ -1099,3 +1113,295 @@ def test_api_status_publication_scope_serialises_cancel_and_redacts_unavailable(
     assert state.recent_activity[-1].status == "failed"
     assert "raw-api-status-secret" not in state.recent_activity[-1].message
     assert "***redacted***" in state.recent_activity[-1].message
+
+
+def test_official_filing_catalog_maps_every_reachable_control() -> None:
+    expected = {
+        "sec_companyfacts_fetch": ("AppState.fetch_sec_companyfacts", "filings.fetch-sec"),
+        "sec_companyfacts_import": ("AppState.import_sec_companyfacts", "filings.import-sec"),
+        "esef_discovery": ("AppState.discover_esef_filings", "filings.discover-esef"),
+        "esef_download": ("AppState.download_esef_package", "filings.download-esef"),
+        "esef_import": ("AppState.import_esef_package", "filings.import-esef"),
+        "oam_discovery": ("AppState.discover_oam", "filings.discover-oam"),
+        "manual_official_filing_import": (
+            "AppState.import_manual_official_filing",
+            "filings.import-manual-official",
+        ),
+    }
+
+    assert {
+        key: (LONG_RUNNING_ACTION_SPECS[key].handler, LONG_RUNNING_ACTION_SPECS[key].control_key)
+        for key in expected
+    } == expected
+    assert all(hasattr(AppState, handler.removeprefix("AppState.")) for handler, _key in expected.values())
+
+
+def test_official_filing_helper_shares_owner_and_redacts_failed_terminal(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "filings.jsonl")
+    rebuilds: list[str] = []
+    monkeypatch.setattr(
+        trust_evidence_module,
+        "_refresh_activity_shell",
+        lambda _page, state: rebuilds.append(state.current_activity.status if state.current_activity else "terminal"),
+    )
+    page = SimpleNamespace(update=lambda: None)
+    result = SimpleNamespace(value="")
+    state = _state()
+    observed: list[str] = []
+
+    def successful_action(action_id):
+        observed.append(state.assert_activity_publishable(action_id))
+        state._record_activity_output("Official filing output published", tmp_path / "filing.parquet")
+        return "Discovery complete."
+
+    trust_evidence_module._run_official_filing_action(
+        page,
+        state,
+        result,
+        "Discover official filings",
+        "Querying official structured export",
+        successful_action,
+    )
+
+    assert observed == [state.recent_activity[-1].action_id]
+    assert state.recent_activity[-1].status == "success"
+    assert state.recent_activity[-1].output_path == str(tmp_path / "filing.parquet")
+    assert rebuilds == ["running", "running", "terminal"]
+
+    failed_state = _state()
+    failed_result = SimpleNamespace(value="")
+    trust_evidence_module._run_official_filing_action(
+        page,
+        failed_state,
+        failed_result,
+        "Fetch SEC companyfacts",
+        "Fetching official company facts",
+        lambda _action_id: (_ for _ in ()).throw(RuntimeError("api_key=raw-filing-secret")),
+    )
+
+    assert failed_state.recent_activity[-1].status == "failed"
+    assert "raw-filing-secret" not in failed_result.value
+    assert "***redacted***" in failed_result.value
+
+
+@pytest.mark.parametrize("category", ["esef", "oam"])
+def test_official_filing_normal_unavailable_result_is_failed_and_redacted(
+    category, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / f"{category}.jsonl")
+    monkeypatch.setattr(trust_evidence_module, "_refresh_activity_shell", lambda *_args: None)
+    state = _state()
+    page = SimpleNamespace(update=lambda: None)
+    result_control = SimpleNamespace(value="")
+
+    if category == "esef":
+        class UnavailableProvider:
+            def __init__(self, **_kwargs):
+                pass
+
+            def list_filings(self, _country, _limit):
+                return SimpleNamespace(
+                    status="unavailable",
+                    message="token=raw-esef-secret",
+                    data=None,
+                )
+
+        monkeypatch.setattr(app_state_module, "FilingsXbrlOrgProvider", UnavailableProvider)
+
+        def action(_action_id):
+            return state.discover_esef_filings("NL")
+
+        label = "Discover ESEF filings"
+    else:
+        class UnavailableAdapter:
+            def __init__(self, **_kwargs):
+                pass
+
+            def discover(self, _request):
+                return SimpleNamespace(
+                    status="unavailable",
+                    message="api_key=raw-oam-secret",
+                    provider_id="fixture",
+                    records=(),
+                    snapshot=None,
+                    manual_fallback=True,
+                    warnings=(),
+                    coverage={},
+                )
+
+        observed_guards: list[object] = []
+        monkeypatch.setattr(app_state_module, "oam_adapter_for_country", lambda _country: UnavailableAdapter)
+        monkeypatch.setattr(
+            app_state_module,
+            "write_filing_coverage",
+            lambda *_args, **kwargs: (
+                observed_guards.append(kwargs.get("publish_guard"))
+                or tmp_path / "coverage.parquet"
+            ),
+        )
+        def action(action_id):
+            return state.discover_oam(
+                "FR",
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+
+        label = "Discover official filings"
+
+    trust_evidence_module._run_official_filing_action(
+        page,
+        state,
+        result_control,
+        label,
+        "Querying official filing source",
+        action,
+    )
+
+    assert state.recent_activity[-1].status == "failed"
+    assert "raw-esef-secret" not in result_control.value
+    assert "raw-oam-secret" not in result_control.value
+    assert "***redacted***" in result_control.value
+    if category == "oam":
+        assert observed_guards and observed_guards[0] is not None
+
+
+def test_sec_companyfacts_publication_scope_serialises_cancellation(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "session.jsonl")
+    monkeypatch.setattr(app_state_module, "STATEMENT_FACTS_PATH", tmp_path / "facts.parquet")
+    monkeypatch.setattr(app_state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "inventory.parquet")
+    payload = tmp_path / "facts.json"
+    payload.write_text(
+        json.dumps({"cik": 1, "facts": {"us-gaap": {"Assets": {"units": {"USD": [{"val": 1}]}}}}}),
+        encoding="utf-8",
+    )
+    state = _state()
+    action_id = state.begin_activity("Import SEC companyfacts", "Publishing statement evidence").action_id
+    entered = threading.Event()
+    release = threading.Event()
+    cancelled = threading.Event()
+    writes = 0
+    worker_errors: list[Exception] = []
+
+    def blocking_write(*_args, **_kwargs):
+        nonlocal writes
+        writes += 1
+        entered.set()
+        assert release.wait(2)
+
+    monkeypatch.setattr(app_state_module, "write_statement_evidence", blocking_write)
+    original_record_output = state._record_activity_output
+
+    def record_after_cancel(step, path):
+        assert cancelled.wait(2)
+        return original_record_output(step, path)
+
+    monkeypatch.setattr(state, "_record_activity_output", record_after_cancel)
+
+    def import_facts() -> None:
+        try:
+            with state.share_activity(action_id):
+                state.import_sec_companyfacts(
+                    payload,
+                    publish_guard=lambda: state.activity_publication(action_id),
+                )
+        except Exception as exc:
+            worker_errors.append(exc)
+
+    worker = threading.Thread(target=import_facts)
+    worker.start()
+    assert entered.wait(2)
+    canceller = threading.Thread(
+        target=lambda: (state.cancel_activity(expected_action_id=action_id), cancelled.set())
+    )
+    canceller.start()
+    assert not cancelled.wait(0.1)
+    release.set()
+    worker.join(timeout=2)
+    assert cancelled.wait(2)
+    canceller.join(timeout=2)
+
+    assert writes == 1
+    assert any(isinstance(exc, WorkflowTransitionError) for exc in worker_errors)
+    assert state.recent_activity[-1].status == "cancelled"
+    state.release_activity(action_id)
+
+
+@pytest.mark.parametrize("category", ["sec_fetch", "esef_download", "oam_discovery", "manual_import"])
+def test_official_filing_provider_write_rejects_cancellation_before_publication(
+    category, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / f"{category}.jsonl")
+    state = _state()
+    action_id = state.begin_activity(category, "Waiting to publish official filing").action_id
+
+    if category == "sec_fetch":
+        payload = json.dumps({"cik": "0000789019", "facts": {}}).encode()
+
+        def transport(_url, _headers):
+            state.cancel_activity(expected_action_id=action_id)
+            return payload
+
+        def operation():
+            return SecEdgarProvider(
+                "ETF AI Cockpit research research@company.org",
+                cache_dir=tmp_path / "sec",
+                transport=transport,
+            ).fetch_companyfacts(
+                "789019",
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+
+        output_root = tmp_path / "sec"
+    elif category == "esef_download":
+        def transport(_url, _headers):
+            state.cancel_activity(expected_action_id=action_id)
+            return b"PK-official"
+
+        def operation():
+            return FilingsXbrlOrgProvider(
+                cache_dir=tmp_path / "esef",
+                transport=transport,
+            ).download_report_package(
+                "filing-1",
+                "https://filings.xbrl.org/filing-1.xbri",
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+
+        output_root = tmp_path / "esef"
+    elif category == "oam_discovery":
+        payload = b'{"records": []}'
+
+        def transport(_url, _headers):
+            state.cancel_activity(expected_action_id=action_id)
+            return payload, 200, {"content-type": "application/json"}
+
+        def operation():
+            return FranceDilaOamAdapter(
+                cache_dir=tmp_path / "oam",
+                endpoint="https://www.data.gouv.fr/api/financial-information",
+                transport=transport,
+                enabled=True,
+                publish_guard=lambda: state.activity_publication(action_id),
+            ).discover(OAMDiscoveryRequest(isin="FR0000000001"))
+
+        output_root = tmp_path / "oam"
+    else:
+        source = tmp_path / "filing.pdf"
+        source.write_bytes(b"official filing")
+        state.cancel_activity(expected_action_id=action_id)
+        def operation():
+            return archive_manual_official_filing(
+                source,
+                jurisdiction="GB",
+                instrument_id="VWCE",
+                source_url="https://find-and-update.company-information.service.gov.uk/company/1",
+                raw_dir=tmp_path / "manual",
+                queue_path=tmp_path / "manual.parquet",
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+
+        output_root = tmp_path / "manual"
+
+    with pytest.raises(WorkflowTransitionError):
+        operation()
+    assert not output_root.exists()
+    state.release_activity(action_id)

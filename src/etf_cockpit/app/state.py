@@ -459,6 +459,11 @@ class AppState:
         action_id = expected_action_id or self.shared_activity_id
         return self.require_activity(action_id).action_id
 
+    def _record_activity_output(self, step: str, path: Path | str) -> None:
+        action_id = getattr(getattr(self, "_activity_context", None), "action_id", None)
+        if action_id is not None:
+            self.update_activity(step, output_path=path, expected_action_id=action_id)
+
     @contextmanager
     def activity_publication(self, expected_action_id: str | None = None):
         """Authorize and hold ownership for exactly one durable publication."""
@@ -801,7 +806,13 @@ class AppState:
             upload_path.write_bytes(content)
         return self._import_and_refresh(upload_path, dataset_type)
 
-    def import_sec_companyfacts(self, path: Path, *, instrument_id: str | None = None) -> str:
+    def import_sec_companyfacts(
+        self,
+        path: Path,
+        *,
+        instrument_id: str | None = None,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> str:
         """Import an offline SEC companyfacts JSON and publish clean facts/inventory."""
 
         try:
@@ -837,49 +848,73 @@ class AppState:
             if not parsed.success:
                 warning_codes = ", ".join(warning.code for warning in parsed.warnings)
                 self.last_message = f"SEC import unavailable: {warning_codes or 'validation failed'}. No data changed."
-                return self.last_message
+                raise ActivityUnavailableError(self.last_message)
             source = RawDocument(path, path.resolve().as_uri(), datetime.now(timezone.utc), parsed.source_sha256, "sec_edgar", "sec_companyfacts", "application/json", 200)
-            write_statement_evidence(
-                source,
-                parsed.records,
-                STATEMENT_FACTS_PATH,
-                FILINGS_STATEMENTS_PATH,
-                instrument_id=identity.instrument_id,
-                vendor_records=_load_vendor_statement_claims(identity.instrument_id),
-            )
+            with publication_scope(publish_guard):
+                write_statement_evidence(
+                    source,
+                    parsed.records,
+                    STATEMENT_FACTS_PATH,
+                    FILINGS_STATEMENTS_PATH,
+                    instrument_id=identity.instrument_id,
+                    vendor_records=_load_vendor_statement_claims(identity.instrument_id),
+                )
+            self._record_activity_output("SEC statement evidence published", STATEMENT_FACTS_PATH)
             review_note = " manual identity review required." if not resolved_from_identity else ""
             self.last_message = f"SEC import complete: {len(parsed.records)} facts, {len(parsed.warnings)} mapping warnings.{review_note}"
             return self.last_message
+        except (ActivityUnavailableError, WorkflowTransitionError):
+            raise
         except Exception as exc:
             self.last_message = f"SEC import unavailable: {type(exc).__name__}. No data changed; scoring and execution were not started."
-            return self.last_message
+            raise ActivityUnavailableError(self.last_message) from exc
 
-    def fetch_sec_companyfacts(self, cik: str, *, cache_dir: Path | None = None, instrument_id: str | None = None, user_agent: str | None = None) -> str:
+    def fetch_sec_companyfacts(
+        self,
+        cik: str,
+        *,
+        cache_dir: Path | None = None,
+        instrument_id: str | None = None,
+        user_agent: str | None = None,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> str:
         """Fetch keyless SEC facts with controlled unavailable state."""
 
         try:
             configured_agent = str(user_agent or os.getenv("ETF_COCKPIT_SEC_EDGAR_USER_AGENT") or "").strip()
             if not configured_agent:
                 self.last_message = "SEC import unavailable: configure ETF_COCKPIT_SEC_EDGAR_USER_AGENT with organisation and contact email. Local data was not changed."
-                return self.last_message
+                raise ActivityUnavailableError(self.last_message)
             provider = SecEdgarProvider(
                 configured_agent,
                 cache_dir=cache_dir or (RAW_DIR / "sec_edgar"),
             )
-            document = provider.fetch_companyfacts(cik)
-            return self.import_sec_companyfacts(document.path, instrument_id=instrument_id)
+            document = provider.fetch_companyfacts(cik, publish_guard=publish_guard)
+            return self.import_sec_companyfacts(
+                document.path,
+                instrument_id=instrument_id,
+                publish_guard=publish_guard,
+            )
+        except (ActivityUnavailableError, WorkflowTransitionError):
+            raise
         except Exception as exc:
             self.last_message = f"SEC import unavailable: {type(exc).__name__}. Local data was not changed."
-            return self.last_message
+            raise ActivityUnavailableError(self.last_message) from exc
 
-    def import_esef_package(self, path: Path, *, instrument_id: str | None = None) -> str:
+    def import_esef_package(
+        self,
+        path: Path,
+        *,
+        instrument_id: str | None = None,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> str:
         """Import a local ESEF report package into the shared facts/inventory stores."""
 
         try:
             package_path = Path(path)
             raw_path, source_sha256 = _preserve_esef_raw(
                 package_path,
-                publish_guard=self.activity_publication,
+                publish_guard=publish_guard,
             )
             parsed = parse_esef_package(package_path)
             if not parsed.success or not parsed.records:
@@ -900,7 +935,7 @@ class AppState:
                 source_provider=provider_id,
             )
             source = RawDocument(raw_path, source_url, datetime.now(timezone.utc), parsed.source_sha256, provider_id, "esef_report_package", "application/octet-stream", 200)
-            with self.activity_publication():
+            with publication_scope(publish_guard):
                 write_statement_evidence(
                     source,
                     records,
@@ -909,6 +944,7 @@ class AppState:
                     instrument_id=resolved_instrument_id,
                     vendor_records=_load_vendor_statement_claims(resolved_instrument_id),
                 )
+            self._record_activity_output("ESEF statement evidence published", STATEMENT_FACTS_PATH)
             warning_codes = ", ".join(sorted({f"{warning.code}:{warning.severity}" for warning in parsed.warnings})) or "none"
             mapping_counts = {
                 "mapped": sum(record.mapping_status == "mapped" for record in parsed.records),
@@ -919,7 +955,7 @@ class AppState:
             authority = "official_filing" if provider_id == "filings_xbrl_org" else "manual_review"
             self.last_message = f"ESEF import complete: {len(records)} facts, warnings={warning_codes}, mapping={mapping_counts}; source_authority={authority}.{review_note}"
             return self.last_message
-        except ActivityUnavailableError:
+        except (ActivityUnavailableError, WorkflowTransitionError):
             raise
         except Exception as exc:
             self.last_message = f"ESEF import unavailable: {type(exc).__name__}. No data changed; scoring and execution were not started."
@@ -932,16 +968,18 @@ class AppState:
             provider = FilingsXbrlOrgProvider(cache_dir=cache_dir or (RAW_DIR / "esef"))
             result = provider.list_filings(country, limit)
             if result.status != "ok":
-                self.last_message = f"ESEF discovery unavailable: {result.message}"
-                return self.last_message
+                self.last_message = f"ESEF discovery unavailable: {redact_text(str(result.message))}"
+                raise ActivityUnavailableError(self.last_message)
             self._esef_provider = provider
             self._esef_filings = result.data
             filing_count = len(result.data) if result.data is not None else 0
             self.last_message = f"ESEF discovery complete: {filing_count} official filings."
             return self.last_message
+        except ActivityUnavailableError:
+            raise
         except Exception as exc:
             self.last_message = f"ESEF discovery unavailable: {type(exc).__name__}. Local data was not changed."
-            return self.last_message
+            raise ActivityUnavailableError(self.last_message) from exc
 
     def discover_oam(
         self,
@@ -956,6 +994,7 @@ class AppState:
         company_number: str = "",
         api_key: str = "",
         cache_dir: Path | None = None,
+        publish_guard: PublicationScopeFactory | None = None,
     ) -> str:
         """Discover one official OAM export without changing clean evidence on failure."""
 
@@ -970,6 +1009,7 @@ class AppState:
                 "cache_dir": cache_dir,
                 "endpoint": endpoint or None,
                 "enabled": bool(endpoint.strip()) or adapter_type is CompaniesHouseFilingAdapter,
+                "publish_guard": publish_guard,
             }
             if adapter_type is CompaniesHouseFilingAdapter:
                 adapter_kwargs["api_key"] = api_key
@@ -983,19 +1023,29 @@ class AppState:
                 company_number=company_number,
             )
             result = adapter.discover(request)
-            write_filing_coverage(result, country=country_code, request=request)
+            coverage_path = write_filing_coverage(
+                result,
+                country=country_code,
+                request=request,
+                publish_guard=publish_guard,
+            )
             if result.status == "ok":
-                write_oam_discovery_registry(result)
-                self.last_message = f"{result.message} Snapshot checksum={result.snapshot.sha256[:12] if result.snapshot else 'unavailable'}..."
+                registry_path = write_oam_discovery_registry(result, publish_guard=publish_guard)
+                self._record_activity_output("Official filing registry published", registry_path)
+                self.last_message = f"{redact_text(str(result.message))} Snapshot checksum={result.snapshot.sha256[:12] if result.snapshot else 'unavailable'}..."
             else:
-                self.last_message = f"{result.message} Manual fallback remains available; no clean evidence was changed."
+                self._record_activity_output("Filing coverage evidence retained", coverage_path)
+                self.last_message = f"{redact_text(str(result.message))} Manual fallback remains available; no clean evidence was changed."
+                raise ActivityUnavailableError(self.last_message)
             return self.last_message
+        except (ActivityUnavailableError, WorkflowTransitionError):
+            raise
         except Exception as exc:
             self.last_message = (
                 f"OAM discovery unavailable: {type(exc).__name__}. Manual fallback remains available; "
                 "the coverage attempt was retained when possible, but no filing evidence or score changed."
             )
-            return self.last_message
+            raise ActivityUnavailableError(self.last_message) from exc
 
     def import_manual_official_filing(
         self,
@@ -1007,6 +1057,7 @@ class AppState:
         document_type: str = "annual_report",
         published_at: str = "",
         available_at: str = "",
+        publish_guard: PublicationScopeFactory | None = None,
     ) -> str:
         """Archive one user-owned official filing for explicit manual review."""
 
@@ -1019,30 +1070,46 @@ class AppState:
                 document_type=document_type,
                 published_at=published_at or None,
                 available_at=available_at or None,
+                publish_guard=publish_guard,
             )
+            self._record_activity_output("Manual official filing archived", record.raw_path)
             self.last_message = (
                 f"Official filing archived for {record.instrument_id}: {record.sha256[:12]}...; "
                 f"availability={record.availability_precision}; manual review required; execution_allowed=false."
             )
             return self.last_message
+        except (ActivityUnavailableError, WorkflowTransitionError):
+            raise
         except Exception as exc:
             self.last_message = (
                 f"Official filing import unavailable: {type(exc).__name__}. "
                 "No existing evidence changed; scoring and execution were not started."
             )
-            return self.last_message
+            raise ActivityUnavailableError(self.last_message) from exc
 
-    def download_esef_package(self, filing_id: str, *, package_url: str | None = None, cache_dir: Path | None = None) -> str:
+    def download_esef_package(
+        self,
+        filing_id: str,
+        *,
+        package_url: str | None = None,
+        cache_dir: Path | None = None,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> str:
         """Download one discovered official package while retaining immutable raw bytes."""
 
         try:
             provider = getattr(self, "_esef_provider", None) or FilingsXbrlOrgProvider(cache_dir=cache_dir or (RAW_DIR / "esef"))
-            document = provider.download_report_package(filing_id, package_url)
+            document = provider.download_report_package(
+                filing_id,
+                package_url,
+                publish_guard=publish_guard,
+            )
+            self._record_activity_output("ESEF package downloaded", document.path)
             self.last_message = f"ESEF package downloaded: {document.path.name} ({document.sha256[:12]}...)."
             return self.last_message
         except (EsefProviderUnavailable, OSError, ValueError) as exc:
             self.last_message = f"ESEF download unavailable: {type(exc).__name__}. Local data was not changed."
-            return self.last_message
+            raise ActivityUnavailableError(self.last_message) from exc
     def _import_and_refresh(self, path: Path, dataset_type: str = "prices") -> str:
         self.assert_activity_publishable()
         result = DataService(self.snapshot.config).import_local_file(

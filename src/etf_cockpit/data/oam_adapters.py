@@ -29,6 +29,7 @@ import pandas as pd
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR
+from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 
 
 OAM_DISCOVERY_PATH = CLEAN_DIR / "oam_discovery.parquet"
@@ -152,6 +153,7 @@ class OAMAdapter:
         retries: int = 2,
         enabled: bool = False,
         sleep: Callable[[float], None] = time.sleep,
+        publish_guard: PublicationScopeFactory | None = None,
     ) -> None:
         if timeout <= 0:
             raise ValueError("OAM timeout must be positive")
@@ -164,6 +166,7 @@ class OAMAdapter:
         self.retries = int(retries)
         self.enabled = bool(enabled)
         self.sleep = sleep
+        self.publish_guard = publish_guard
 
     def discover(self, request: OAMDiscoveryRequest | None = None) -> OAMDiscoveryResult:
         request = request or OAMDiscoveryRequest()
@@ -285,7 +288,8 @@ class OAMAdapter:
         if path.exists() and hashlib.sha256(path.read_bytes()).hexdigest() != digest:
             raise ValueError("OAM snapshot checksum mismatch")
         if not path.exists():
-            atomic_write_bytes(path, response.payload, lambda candidate: _validate_checksum(candidate, digest))
+            with publication_scope(self.publish_guard):
+                atomic_write_bytes(path, response.payload, lambda candidate: _validate_checksum(candidate, digest))
         return OAMSnapshot(str(path), url, digest, len(response.payload), response.headers.get("content-type", ""), response.status, datetime.now(timezone.utc).isoformat(timespec="seconds"))
 
     @staticmethod
@@ -603,7 +607,12 @@ def download_oam_document(
     return adapter._snapshot(url, response)
 
 
-def write_oam_discovery_registry(result: OAMDiscoveryResult, *, destination: Path = OAM_DISCOVERY_PATH) -> Path:
+def write_oam_discovery_registry(
+    result: OAMDiscoveryResult,
+    *,
+    destination: Path = OAM_DISCOVERY_PATH,
+    publish_guard: PublicationScopeFactory | None = None,
+) -> Path:
     """Write only successful, evidence-labelled discovery rows locally."""
 
     rows = [asdict(record) for record in result.records]
@@ -621,7 +630,8 @@ def write_oam_discovery_registry(result: OAMDiscoveryResult, *, destination: Pat
     frame["coverage_json"] = json.dumps(result.coverage or {}, sort_keys=True)
     frame["warnings"] = frame["warnings"].map(lambda value: list(value) if isinstance(value, tuple) else value) if not frame.empty else pd.Series(dtype=object)
     destination = Path(destination)
-    _write_parquet_atomic(frame, destination)
+    with publication_scope(publish_guard):
+        _write_parquet_atomic(frame, destination)
     return destination
 
 
@@ -631,6 +641,7 @@ def write_filing_coverage(
     country: str,
     request: OAMDiscoveryRequest,
     destination: Path = FILING_COVERAGE_PATH,
+    publish_guard: PublicationScopeFactory | None = None,
 ) -> Path:
     """Upsert one successful or unavailable jurisdiction coverage observation."""
 
@@ -660,7 +671,8 @@ def write_filing_coverage(
     combined = pd.concat([existing, pd.DataFrame([row])], ignore_index=True)
     combined = combined.drop_duplicates(["provider_id", "query_sha256"], keep="last")
     combined = combined.sort_values(["country", "provider_id", "instrument_identity", "query_sha256"], kind="stable")
-    _write_parquet_atomic(combined, destination)
+    with publication_scope(publish_guard):
+        _write_parquet_atomic(combined, destination)
     return destination
 
 
@@ -682,6 +694,7 @@ def archive_manual_official_filing(
     available_at: str | None = None,
     raw_dir: Path | None = None,
     queue_path: Path = MANUAL_FILING_QUEUE_PATH,
+    publish_guard: PublicationScopeFactory | None = None,
 ) -> ManualFilingArchive:
     """Archive a user-owned official filing without parsing or score authority."""
 
@@ -714,7 +727,8 @@ def archive_manual_official_filing(
     if destination.exists() and hashlib.sha256(destination.read_bytes()).hexdigest() != digest:
         raise ValueError("Manual filing immutable archive checksum mismatch.")
     if not destination.exists():
-        atomic_write_bytes(destination, payload, lambda candidate: _validate_checksum(candidate, digest))
+        with publication_scope(publish_guard):
+            atomic_write_bytes(destination, payload, lambda candidate: _validate_checksum(candidate, digest))
     identity_status = "matched_canonical_instrument"
     coverage_status = "archived_manual_review" if availability else "archived_timing_unavailable"
     record = ManualFilingArchive(
@@ -738,7 +752,8 @@ def archive_manual_official_filing(
     combined = pd.concat([existing, pd.DataFrame([asdict(record)])], ignore_index=True)
     combined = combined.drop_duplicates(["jurisdiction", "instrument_id", "sha256"], keep="last")
     combined = combined.sort_values(["jurisdiction", "instrument_id", "published_at", "sha256"], kind="stable")
-    _write_parquet_atomic(combined, queue)
+    with publication_scope(publish_guard):
+        _write_parquet_atomic(combined, queue)
     return record
 
 

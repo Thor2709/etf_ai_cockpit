@@ -53,6 +53,13 @@ LONG_RUNNING_ACTION_SPECS: dict[str, LongRunningActionSpec] = {
     "notes_news_import": LongRunningActionSpec("Import manual_news", "dashboard.import_file:manual_news", "dashboard.import-manual-notes"),
     "holdings_factsheet_import": LongRunningActionSpec("Import ETF holdings", "trust_evidence.import_holdings", "etf-disclosures.import-holdings"),
     "macro_news_refresh": LongRunningActionSpec("Refresh macro/news context", "macro_factors.refresh_context", "macro.refresh-context"),
+    "sec_companyfacts_fetch": LongRunningActionSpec("Fetch SEC companyfacts", "AppState.fetch_sec_companyfacts", "filings.fetch-sec"),
+    "sec_companyfacts_import": LongRunningActionSpec("Import SEC companyfacts", "AppState.import_sec_companyfacts", "filings.import-sec"),
+    "esef_discovery": LongRunningActionSpec("Discover ESEF filings", "AppState.discover_esef_filings", "filings.discover-esef"),
+    "esef_download": LongRunningActionSpec("Download ESEF package", "AppState.download_esef_package", "filings.download-esef"),
+    "esef_import": LongRunningActionSpec("Import ESEF package", "AppState.import_esef_package", "filings.import-esef"),
+    "oam_discovery": LongRunningActionSpec("Discover official filings", "AppState.discover_oam", "filings.discover-oam"),
+    "manual_official_filing_import": LongRunningActionSpec("Archive manual official filing", "AppState.import_manual_official_filing", "filings.import-manual-official"),
 }
 LONG_RUNNING_ACTIONS: dict[str, str] = {
     key: spec.label for key, spec in LONG_RUNNING_ACTION_SPECS.items()

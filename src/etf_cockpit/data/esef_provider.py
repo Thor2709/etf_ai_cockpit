@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes
+from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.parsers.contracts import RawDocument, load_fixture_manifest
 from etf_cockpit.data.providers import ProviderResult
 
@@ -90,7 +91,13 @@ class FilingsXbrlOrgProvider:
         except (OSError, StopIteration, ValueError, json.JSONDecodeError):
             return None
 
-    def download_report_package(self, filing_id: str, package_url: str | None = None) -> RawDocument:
+    def download_report_package(
+        self,
+        filing_id: str,
+        package_url: str | None = None,
+        *,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> RawDocument:
         safe_id = _validate_filing_id(filing_id)
         selected_url = package_url or str(self._filings.get(safe_id, {}).get("package_url") or "")
         fixture_payload = self._fixture_package(safe_id)
@@ -111,7 +118,8 @@ class FilingsXbrlOrgProvider:
         if immutable_path.exists() and hashlib.sha256(immutable_path.read_bytes()).hexdigest() != digest:
             raise ValueError("ESEF immutable raw payload checksum mismatch")
         if not immutable_path.exists():
-            atomic_write_bytes(immutable_path, payload, lambda _candidate: None)
+            with publication_scope(publish_guard):
+                atomic_write_bytes(immutable_path, payload, lambda _candidate: None)
         return RawDocument(immutable_path, selected_url, datetime.now(timezone.utc), digest, "filings_xbrl_org", "esef_report_package", "application/octet-stream", status)
 
     def _fixture_package(self, filing_id: str) -> tuple[str, bytes, int] | None:

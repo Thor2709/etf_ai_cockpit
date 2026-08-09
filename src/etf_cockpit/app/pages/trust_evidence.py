@@ -5,7 +5,7 @@ import hashlib
 import os
 from pathlib import Path
 import tempfile
-from typing import Iterator
+from typing import Callable, Iterator
 
 import flet as ft
 import pandas as pd
@@ -145,6 +145,43 @@ def _refresh_activity_shell(page: ft.Page, state: AppState) -> None:
     from etf_cockpit.app.router import render_shell
 
     render_shell(page, state, getattr(page, "route", "") or state.snapshot.config.ui.default_page)
+
+
+def _run_official_filing_action(
+    page: ft.Page,
+    state: AppState,
+    result: ft.Control,
+    label: str,
+    step: str,
+    action: Callable[[str], str],
+) -> None:
+    """Run one filing control through the shared durable activity lifecycle."""
+
+    if state.current_activity is not None:
+        result.value = f"{label} blocked: {state.current_activity.label} is already running."
+        page.update()
+        return
+    action_id = state.begin_activity(label, "Preparing official filing action").action_id
+    result.value = f"{label} in progress: {step.lower()}..."
+    _refresh_activity_shell(page, state)
+    try:
+        with state.share_activity(action_id):
+            state.update_activity(step, expected_action_id=action_id)
+            _refresh_activity_shell(page, state)
+            message = action(action_id)
+        state.finish_activity(message, expected_action_id=action_id)
+        result.value = message
+    except Exception as exc:
+        if not state.activity_was_cancelled(action_id):
+            state.fail_activity(label, exc, expected_action_id=action_id)
+        result.value = state.last_message
+    finally:
+        state.release_activity(action_id)
+        _refresh_activity_shell(page, state)
+
+
+def _filing_unavailable(message: str) -> str:
+    raise ActivityUnavailableError(message)
 
 
 def _require_disclosure_available(label: str, result: object) -> None:
@@ -416,18 +453,33 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             return
         selected = files[0]
         path = Path(selected.path) if selected.path else None
-        if path is None or not path.exists():
-            result.value = "SEC import requires a readable local JSON path."
-        else:
-            result.value = state.import_sec_companyfacts(path)
-        page.update()
+        _run_official_filing_action(
+            page,
+            state,
+            result,
+            "Import SEC companyfacts",
+            "Parsing selected company facts",
+            lambda action_id: state.import_sec_companyfacts(
+                path,
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+            if path is not None and path.exists()
+            else _filing_unavailable("SEC import requires a readable local JSON path."),
+        )
 
     async def fetch_sec(_event: ft.ControlEvent) -> None:
         cik = str(cik_field.value or "").strip()
-        result.value = "SEC import status: fetching official companyfacts with bounded requests..."
-        page.update()
-        result.value = state.fetch_sec_companyfacts(cik)
-        page.update()
+        _run_official_filing_action(
+            page,
+            state,
+            result,
+            "Fetch SEC companyfacts",
+            "Fetching official company facts",
+            lambda action_id: state.fetch_sec_companyfacts(
+                cik,
+                publish_guard=lambda: state.activity_publication(action_id),
+            ),
+        )
 
     async def import_esef(_event: ft.ControlEvent) -> None:
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["xbri", "zip"], with_data=True)
@@ -436,54 +488,68 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         else:
             selected = files[0]
             path = Path(selected.path) if selected.path else None
-            if state.current_activity is not None:
-                result.value = f"ESEF import blocked: {state.current_activity.label} is already running."
-                page.update()
-                return
-            action_id = state.begin_activity("Import ESEF package", "Reading selected package").action_id
-            try:
-                state.assert_activity_publishable(action_id)
-                if path is None or not path.exists():
-                    raise ActivityUnavailableError("ESEF import requires a readable local package.")
-                with state.share_activity(action_id):
-                    result.value = state.import_esef_package(path)
-                state.finish_activity(result.value, expected_action_id=action_id)
-            except Exception as exc:
-                if not state.activity_was_cancelled(action_id):
-                    state.fail_activity("Import ESEF package", exc, expected_action_id=action_id)
-                result.value = f"ESEF import failed safely: {state.last_message}"
-            finally:
-                state.release_activity(action_id)
-                _refresh_activity_shell(page, state)
+            _run_official_filing_action(
+                page,
+                state,
+                result,
+                "Import ESEF package",
+                "Reading selected package",
+                lambda action_id: state.import_esef_package(
+                    path,
+                    publish_guard=lambda: state.activity_publication(action_id),
+                )
+                if path is not None and path.exists()
+                else _filing_unavailable("ESEF import requires a readable local package."),
+            )
 
     async def discover_esef(_event: ft.ControlEvent) -> None:
-        result.value = "ESEF discovery status: querying official filings.xbrl.org with a bounded request..."
-        page.update()
-        result.value = state.discover_esef_filings(str(country_field.value or "NL").strip(), 10)
-        page.update()
+        _run_official_filing_action(
+            page,
+            state,
+            result,
+            "Discover ESEF filings",
+            "Querying official filings index",
+            lambda _action_id: state.discover_esef_filings(str(country_field.value or "NL").strip(), 10),
+        )
 
     async def download_esef(_event: ft.ControlEvent) -> None:
         filing_id = str(filing_id_field.value or "").strip()
-        result.value = state.download_esef_package(filing_id) if filing_id else "ESEF download requires a discovered filing ID."
-        page.update()
+        _run_official_filing_action(
+            page,
+            state,
+            result,
+            "Download ESEF package",
+            "Downloading official filing package",
+            lambda action_id: state.download_esef_package(
+                filing_id,
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+            if filing_id
+            else _filing_unavailable("ESEF download requires a discovered filing ID."),
+        )
 
     async def discover_oam(_event: ft.ControlEvent) -> None:
-        result.value = "OAM discovery status: preparing a bounded official structured-export request..."
-        page.update()
         api_key = str(companies_house_key_field.value or "")
         companies_house_key_field.value = ""
-        result.value = state.discover_oam(
-            str(oam_country_field.value or "FR"),
-            issuer=str(oam_issuer_field.value or ""),
-            isin=str(oam_isin_field.value or ""),
-            document_type=str(oam_document_type_field.value or ""),
-            date_from=str(oam_date_from_field.value or ""),
-            date_to=str(oam_date_to_field.value or ""),
-            endpoint=str(oam_endpoint_field.value or ""),
-            company_number=str(company_number_field.value or ""),
-            api_key=api_key,
+        _run_official_filing_action(
+            page,
+            state,
+            result,
+            "Discover official filings",
+            "Querying official structured export",
+            lambda action_id: state.discover_oam(
+                str(oam_country_field.value or "FR"),
+                issuer=str(oam_issuer_field.value or ""),
+                isin=str(oam_isin_field.value or ""),
+                document_type=str(oam_document_type_field.value or ""),
+                date_from=str(oam_date_from_field.value or ""),
+                date_to=str(oam_date_to_field.value or ""),
+                endpoint=str(oam_endpoint_field.value or ""),
+                company_number=str(company_number_field.value or ""),
+                api_key=api_key,
+                publish_guard=lambda: state.activity_publication(action_id),
+            ),
         )
-        page.update()
 
     async def import_manual_filing(_event: ft.ControlEvent) -> None:
         files = await picker.pick_files(
@@ -498,10 +564,13 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         selected = files[0]
         suffix = Path(str(getattr(selected, "name", "filing.bin"))).suffix or ".bin"
         with _materialise_picker_file(selected, suffix) as path:
-            if path is None:
-                result.value = "Official filing import requires a readable local file."
-            else:
-                result.value = state.import_manual_official_filing(
+            _run_official_filing_action(
+                page,
+                state,
+                result,
+                "Archive manual official filing",
+                "Archiving selected official filing",
+                lambda action_id: state.import_manual_official_filing(
                     path,
                     jurisdiction=str(manual_country_field.value or ""),
                     instrument_id=str(manual_instrument_field.value or ""),
@@ -509,8 +578,11 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                     document_type=str(manual_document_type_field.value or "annual_report"),
                     published_at=str(manual_published_field.value or ""),
                     available_at=str(manual_available_field.value or ""),
+                    publish_guard=lambda: state.activity_publication(action_id),
                 )
-        page.update()
+                if path is not None
+                else _filing_unavailable("Official filing import requires a readable local file."),
+            )
 
     return panel(ft.Column([section_header("Official filing import", "SEC EDGAR, filings.xbrl.org, Companies House and national OAM evidence. Network, entitlement and timing gaps remain explicit; no filing action starts scoring or execution."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec)], wrap=True), ft.Row([country_field, filing_id_field, ft.OutlinedButton("Discover ESEF filings", key="filings.discover-esef", icon=ft.Icons.SEARCH, on_click=discover_esef), ft.OutlinedButton("Download ESEF package", key="filings.download-esef", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=download_esef), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), ft.Row([oam_country_field, oam_issuer_field, oam_isin_field, oam_document_type_field, company_number_field], wrap=True), ft.Row([oam_date_from_field, oam_date_to_field, oam_endpoint_field, companies_house_key_field, ft.OutlinedButton("Discover official filings", key="filings.discover-oam", icon=ft.Icons.SEARCH, on_click=discover_oam)], wrap=True), ft.Row([manual_country_field, manual_instrument_field, manual_document_type_field, manual_published_field, manual_available_field], wrap=True), ft.Row([manual_source_url_field, ft.OutlinedButton("Archive manual official filing", key="filings.import-manual-official", icon=ft.Icons.UPLOAD_FILE, on_click=import_manual_filing)], wrap=True), result], spacing=8))
 
