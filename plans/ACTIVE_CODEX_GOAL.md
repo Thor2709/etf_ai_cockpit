@@ -239,7 +239,20 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   generation pass. The exact classifier returns H because the product diff
   changes `pyproject.toml` and `scripts/smoke_app.py`; evidence reuse is false,
   package gate is required, and fresh exact-head Linux and Windows hosted gates
-  remain mandatory after review freezes the replacement head.
+  remain mandatory after review freezes the replacement head. Rejected head
+  `e52308309e4817447696f8a219556df67da6a5ba` was then shown to leave direct
+  result-button dispatch outside terminal replay, collapse command-palette
+  change and submit events into one control contract, and silently omit orphan
+  configured inputs. The final bounded uncommitted correction routes the real
+  result `on_click` through its generated `navigate_palette_command` contract,
+  keeps completed/failed terminal results across direct duplicate dispatch,
+  inventories stable `shell.command-palette.on-change` and `.on-submit`
+  actions with exact callbacks, and rejects every unmatched actionable/input
+  contract. Fourteen passive fields falsely declared as input actions were
+  removed from metadata without changing their UI. The resulting 225 metadata
+  contracts generate 283 actions (203 controls, 40 routes and 40 commands),
+  all non-executable. Two focused selections pass 87 tests; H classification
+  and fresh hosted Linux/Windows requirements are unchanged.
 - ISSUE-0011 is already canonically `in_progress`; the product PR therefore
   carries no artificial status or dependency transaction. Before product
   merge, retain exact product/review/gate evidence and the post-merge writer

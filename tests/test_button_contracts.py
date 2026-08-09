@@ -60,6 +60,11 @@ def test_source_discovery_covers_constructor_post_binding_inputs_and_file_picker
     assert controls["data-health.filter.status"].events == ("on_select",)
     assert controls["dashboard.renew-import.file-picker"].events == ("file_picker",)
     assert controls["dashboard.renew-import.file-picker"].callbacks == ("pick_files",)
+    assert controls["shell.command-palette.on-change"].events == ("on_change",)
+    assert controls["shell.command-palette.on-change"].callbacks == ("render_palette_results",)
+    assert controls["shell.command-palette.on-submit"].events == ("on_submit",)
+    assert controls["shell.command-palette.on-submit"].callbacks == ("submit_palette",)
+    assert "shell.command-palette" not in controls
 
 
 @pytest.mark.parametrize("removed_key", ["dashboard.export-audit", "operations.paper-open"])
@@ -135,6 +140,24 @@ def test_actionable_controls_reject_unresolved_or_invented_callbacks(
         )
 
 
+def test_orphan_input_contract_is_rejected_instead_of_omitted() -> None:
+    contracts = load_ui_acceptance_contracts()
+    template = next(item for item in contracts if item.control_type == "input")
+    orphan = replace(
+        template,
+        key="invented.orphan-input",
+        callback="invented_callback",
+        success_signal="ui.success.invented.orphan-input",
+        controlled_error_signal="ui.failure.invented.orphan-input",
+    )
+    with pytest.raises(ValueError, match="invented.orphan-input"):
+        validate_ui_acceptance_inventory(
+            (*contracts, orphan),
+            PAGES,
+            source_root=Path("src/etf_cockpit/app"),
+        )
+
+
 def test_generated_inventory_is_complete_stable_and_lane_covered() -> None:
     inventory = build_main_ui_action_inventory()
     assert {item.source for item in inventory} == {"control", "route", "command"}
@@ -143,6 +166,15 @@ def test_generated_inventory_is_complete_stable_and_lane_covered() -> None:
     assert len({item.command_id for item in inventory}) == len(inventory)
     assert all(item.execution_allowed is False for item in inventory)
     assert all(item.success_signal and item.failure_state for item in inventory)
+    palette_actions = {
+        item.key: item.callback
+        for item in inventory
+        if item.key.startswith("shell.command-palette.")
+    }
+    assert palette_actions == {
+        "shell.command-palette.on-change": "render_palette_results",
+        "shell.command-palette.on-submit": "submit_palette",
+    }
 
 
 def test_generated_inventory_is_idempotent_and_command_contracts_are_bound() -> None:

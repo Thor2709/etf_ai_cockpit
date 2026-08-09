@@ -143,7 +143,7 @@ class DiscoveredControl:
 
 _STABLE_KEY = re.compile(r"^[a-z0-9]+(?:[.-][a-z0-9*]+)+$")
 _ACTIONABLE_CONTROL_TYPES = frozenset({"navigation", "button", "file_picker", "expandable"})
-_EVENT_BINDINGS = frozenset({"on_click", "on_select", "on_change"})
+_EVENT_BINDINGS = frozenset({"on_click", "on_select", "on_change", "on_submit"})
 _ACTION_CONTROL_CALLS = frozenset({
     "Button",
     "CupertinoButton",
@@ -263,10 +263,7 @@ def validate_ui_acceptance_inventory(
         configured_without_source = sorted(
             item.key
             for item in rows
-            if (
-                item.control_type in _ACTIONABLE_CONTROL_TYPES
-                or (item.control_type == "input" and any(_keys_match(item.key, key) for key in source_controls))
-            )
+            if (item.control_type in _ACTIONABLE_CONTROL_TYPES or item.control_type == "input")
             and not any(key != "<missing>" and _keys_match(item.key, key) for key in source_controls)
         )
         if configured_without_source:
@@ -382,25 +379,20 @@ def generate_ui_action_inventory(
         )
 
     for command in command_metadata:
-        route = str(getattr(command, "route", "")).strip()
-        if not route:
-            raise ValueError("UI command metadata requires a route")
+        contract = command_contract_from_metadata(command)
+        route = contract.route
         title = str(getattr(command, "title", route)).strip() or route
-        command_id = str(getattr(command, "command_id", f"palette-command:{route}")).strip()
-        callback = str(getattr(command, "callback", "navigate_to")).strip()
-        success_signal = _signal_id("success", f"command:{command_id}")
-        controlled_error_signal = _signal_id("failure", f"command:{command_id}")
         actions.append(
             UIAction(
-                action_id=f"command:{command_id}",
+                action_id=contract.action_id,
                 key=f"shell.command.{_route_slug(route)}",
                 route=route,
                 control_label=title,
                 control_type="command",
-                callback=callback,
-                command_id=command_id,
-                success_signal=success_signal,
-                controlled_error_signal=controlled_error_signal,
+                callback=contract.callback,
+                command_id=contract.command_id,
+                success_signal=contract.success_signal,
+                controlled_error_signal=contract.controlled_error_signal,
                 lane=_lane_for_route(route),
                 source="command",
             )
@@ -482,6 +474,26 @@ def ui_command_contracts(inventory: Iterable[UIAction]) -> tuple[UICommandContra
             idempotency_key=f"ui:{item.action_id}",
         )
         for item in sorted(inventory, key=lambda row: row.command_id)
+    )
+
+
+def command_contract_from_metadata(command: object) -> UICommandContract:
+    """Build the one runtime contract used by a palette command result."""
+
+    route = str(getattr(command, "route", "")).strip()
+    if not route:
+        raise ValueError("UI command metadata requires a route")
+    command_id = str(getattr(command, "command_id", f"palette-command:{route}")).strip()
+    callback = str(getattr(command, "callback", "navigate_palette_command")).strip()
+    action_id = f"command:{command_id}"
+    return UICommandContract(
+        command_id=command_id,
+        action_id=action_id,
+        route=route,
+        callback=callback,
+        success_signal=_signal_id("success", action_id),
+        controlled_error_signal=_signal_id("failure", action_id),
+        idempotency_key=f"ui:{action_id}",
     )
 
 
@@ -650,6 +662,11 @@ def _record_discovered(
     event_nodes: Mapping[str, ast.AST | None],
     location: str,
 ) -> None:
+    if key == "shell.command-palette" and {"on_change", "on_submit"} <= event_nodes.keys():
+        for event_name, callback_node in event_nodes.items():
+            event_key = f"{key}.{event_name.replace('_', '-')}"
+            _record_discovered(found, event_key, {event_name: callback_node}, location)
+        return
     row = found.setdefault(key, {"callbacks": [], "events": [], "locations": []})
     row["locations"].append(location)
     for event_name, callback_node in event_nodes.items():

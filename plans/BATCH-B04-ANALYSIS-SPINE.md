@@ -184,10 +184,23 @@ focused selections pass 100 tests; Ruff, compile, diff hygiene and byte-clean
 generation pass. Classification is H because `pyproject.toml` and
 `scripts/smoke_app.py` are changed package/protected surfaces; reuse is false,
 the package gate is required, and fresh exact-head Linux and Windows hosted
-gates are mandatory. Because canonical ISSUE-0011 is already `in_progress`,
-this product PR changes no status or dependency edge; after exact reviewed
-merge, use the existing aggregate `in_progress -> implemented_initially ->
-integrated` writer transaction and require zero-action generic readback.
+gates are mandatory. Rejected head
+`e52308309e4817447696f8a219556df67da6a5ba` was then reproduced bypassing
+terminal replay on real result-button dispatch, collapsing palette change and
+submit into one action, and silently omitting orphan configured inputs. The
+final bounded uncommitted correction sends actual result `on_click` through
+the generated `navigate_palette_command` contract, retains completed/failed
+terminal results across duplicate dispatch, inventories distinct stable
+`shell.command-palette.on-change` and `.on-submit` actions with exact runtime
+callbacks, and rejects every unmatched actionable/input contract. Fourteen
+passive fields falsely declared as input actions were removed from metadata;
+their UI is unchanged. The 225 contracts now generate 283 non-executable
+actions (203 controls, 40 routes and 40 commands), and two focused selections
+pass 87 tests. H classification and fresh hosted Linux/Windows requirements
+are unchanged. Because canonical ISSUE-0011 is already `in_progress`, this
+product PR changes no status or dependency edge; after exact reviewed merge,
+use the existing aggregate `in_progress -> implemented_initially -> integrated`
+writer transaction and require zero-action generic readback.
 
 ## ISSUE-0104 product chronology
 

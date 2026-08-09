@@ -90,6 +90,9 @@ def test_shell_command_palette_exposes_search_and_enter_instructions() -> None:
     fields = [control for control in _walk(view) if isinstance(control, ft.TextField)]
 
     assert any(field.label == "Command palette" and field.hint_text == "Search pages or commands" for field in fields)
+    palette = next(field for field in fields if field.key == "shell.command-palette")
+    assert palette.on_change.__name__ == "render_palette_results"
+    assert palette.on_submit.__name__ == "submit_palette"
     assert "Workspace: Home" in text
 
 
@@ -137,7 +140,7 @@ def test_shell_command_palette_filters_and_navigates(monkeypatch: pytest.MonkeyP
     assert selected == ["/comparison", "/data-health", "/backtests"]
 
 
-def test_palette_contract_invokes_actual_bound_callback_and_replays_outcome(
+def test_palette_control_dispatch_preserves_terminal_result_and_prevents_reinvocation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     snapshot = build_snapshot()
@@ -156,16 +159,12 @@ def test_palette_contract_invokes_actual_bound_callback_and_replays_outcome(
         for item in ui_command_contracts(build_main_ui_action_inventory())
         if item.action_id == "command:palette:comparison"
     )
-    assert result.on_click.__name__ == contract.callback == "select_palette_command"
-
-    invoked = {}
+    assert result.on_click.__name__ == "select_palette_command"
+    assert contract.callback == "navigate_palette_command"
     event = SimpleNamespace(control=result)
-    completed = contract.invoke(result.on_click, event, invoked=invoked, show_failure=lambda _message: None)
-    replayed = contract.invoke(result.on_click, event, invoked=invoked, show_failure=lambda _message: None)
+    result.on_click(event)
+    result.on_click(event)
     assert selected == ["/comparison"]
-    assert completed.status == replayed.status == "completed"
-    assert replayed.replayed is True
-    assert (replayed.signal, replayed.visible_message) == (completed.signal, completed.visible_message)
 
     attempts: list[str] = []
 
@@ -174,16 +173,30 @@ def test_palette_contract_invokes_actual_bound_callback_and_replays_outcome(
         raise RuntimeError("controlled palette failure")
 
     monkeypatch.setattr(router, "navigate_to", fail_navigation)
-    failures: list[str] = []
-    failed_invocations = {}
-    failed = contract.invoke(result.on_click, event, invoked=failed_invocations, show_failure=failures.append)
-    failed_replay = contract.invoke(result.on_click, event, invoked=failed_invocations, show_failure=failures.append)
+    failed_state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    failed_view = build_shell(page, failed_state, "/")
+    failed_palette = next(
+        control for control in _walk(failed_view) if getattr(control, "key", None) == "shell.command-palette"
+    )
+    failed_palette.value = "comparison"
+    failed_palette.on_change(SimpleNamespace(control=failed_palette))
+    failed_result = next(
+        control for control in _walk(failed_view) if getattr(control, "key", None) == "shell.command.comparison"
+    )
+    failed_event = SimpleNamespace(control=failed_result)
+    failed_result.on_click(failed_event)
+    first_failure = failed_state.last_message
+    failed_result.on_click(failed_event)
     assert attempts == ["/comparison"]
-    assert failed.status == failed_replay.status == "failed"
-    assert failed_replay.replayed is True
-    assert failed.signal == failed_replay.signal == contract.controlled_error_signal
-    assert failed.visible_message == failed_replay.visible_message
-    assert failures == [failed.visible_message, failed.visible_message]
+    assert failed_state.last_message == first_failure
+    assert contract.controlled_error_signal in first_failure
+    assert "Action failed safely: RuntimeError: controlled palette failure" in first_failure
+    visible = " ".join(
+        str(control.value)
+        for control in _walk(failed_view)
+        if isinstance(control, ft.Text)
+    )
+    assert first_failure in visible
 
 def test_unknown_and_failed_routes_render_a_visible_controlled_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     snapshot = build_snapshot()
