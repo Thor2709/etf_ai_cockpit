@@ -9,6 +9,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
+from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.application.ui_facade import (
     ApiStatus,
     CancelWorkflowCommand,
@@ -183,16 +184,17 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
             body.controls = rows
             message.value = "Durable jobs are local, resumable and audit-linked."
         except Exception as exc:
-            body.controls = [ft.Text(f"Unable to read durable jobs: {type(exc).__name__}: {exc}", color=theme.RED, selectable=True)]
+            body.controls = [ft.Text(f"Unable to read durable jobs: {type(exc).__name__}.", color=theme.RED, selectable=True)]
             message.value = "The durable job store reported a readable failure. No output was published."
         page.update()
 
     def cancel_workflow(workflow_id: str) -> None:
         try:
             result = api.execute(CancelWorkflowCommand(idempotency_key=f"cancel-{workflow_id}", workflow_id=workflow_id))
-            message.value = f"Cancellation {'recorded' if result.status in {ApiStatus.ACCEPTED, ApiStatus.REPLAYED} else 'failed'} for {workflow_id}: {result.error_message or result.status.value}."
+            detail = redact_text(str(result.error_message or result.status.value))
+            message.value = f"Cancellation {'recorded' if result.status in {ApiStatus.ACCEPTED, ApiStatus.REPLAYED} else 'failed'} for {workflow_id}: {detail}."
         except Exception as exc:
-            message.value = f"Cancellation failed: {type(exc).__name__}: {exc}"
+            message.value = f"Cancellation failed: {type(exc).__name__}."
         refresh()
 
     def run_self_check(_event: ft.ControlEvent) -> None:
@@ -212,7 +214,7 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
                 raise RuntimeError(result.error_message or result.status.value)
             message.value = f"Started {result.resource_id or 'workflow'}; acknowledgement recorded."
         except Exception as exc:
-            message.value = f"Self-check could not start: {type(exc).__name__}: {exc}"
+            message.value = f"Self-check could not start: {type(exc).__name__}."
             refresh()
             return
 

@@ -147,6 +147,22 @@ def _refresh_activity_shell(page: ft.Page, state: AppState) -> None:
     render_shell(page, state, getattr(page, "route", "") or state.snapshot.config.ui.default_page)
 
 
+def _require_disclosure_available(label: str, result: object) -> None:
+    success = getattr(result, "success", None)
+    status = getattr(result, "extraction_status", getattr(result, "status", None))
+    status_value = str(getattr(status, "value", status) or "").strip().lower()
+    if success is False or status_value in {
+        "failed",
+        "unavailable",
+        "parse_failed",
+        "unsupported",
+        "malformed",
+        "incomplete",
+        "resource_blocked",
+    }:
+        raise ActivityUnavailableError(f"{label} unavailable: {status_value or 'parse failed'}.")
+
+
 def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
     registry = ProviderRegistry(state.snapshot.config.data_providers)
     capabilities = registry.probe_all()
@@ -602,6 +618,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             report_status.value = f"ETF {imported.document.document_kind} import: {imported.extraction_status}; source={imported.source_id}; fingerprint={fingerprint}; review remains advisory and non-executable."
             review_source_field.value = imported.source_id
             review_fingerprint_field.value = fingerprint
+            _require_disclosure_available("ETF report import", imported)
             state.finish_activity(report_status.value, expected_action_id=action_id)
         except Exception as exc:
             if not state.activity_was_cancelled(action_id):
@@ -708,6 +725,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                         document_checksum = _document_checksum(document_row)
                         warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
                         result.value = f"PRIIPs KID {instrument_id}: records={len(parsed.records)}, confidence={record.extraction_confidence if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
+                _require_disclosure_available("PRIIPs KID import", parsed)
                 state.finish_activity(result.value, expected_action_id=action_id)
                 state.last_message = result.value
             except Exception as exc:
@@ -771,6 +789,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                         document_checksum = _document_checksum(document_row)
                         warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
                         result.value = f"Methodology {instrument_id}/{provider or 'unknown provider'}: records={len(parsed.records)}, version={record.version if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
+                _require_disclosure_available("Methodology import", parsed)
                 state.finish_activity(result.value, expected_action_id=action_id)
                 state.last_message = result.value
             except Exception as exc:

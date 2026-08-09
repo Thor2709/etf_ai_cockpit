@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from etf_cockpit.core.constants import APP_VERSION
+from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.paths import LOG_DIR, ROOT, ensure_project_dirs
 
 SESSION_LOG_PATH = LOG_DIR / "session.jsonl"
@@ -284,7 +285,29 @@ def _compact_session_log(path: Path, *, max_events: int) -> None:
         event["event_hash"] = _event_hash(event)
         prior_hash = str(event["event_hash"])
         rewritten.append(json.dumps(event, ensure_ascii=True, default=str, sort_keys=True))
-    path.write_text("\n".join(rewritten) + "\n", encoding="utf-8")
+    payload = ("\n".join(rewritten) + "\n").encode("utf-8")
+    atomic_write_bytes(path, payload, _validate_compacted_session_log)
+
+
+def _validate_compacted_session_log(path: Path) -> None:
+    """Validate staged JSONL with the runtime reader and its hash chain."""
+
+    from etf_cockpit.operations.event_store import load_events_with_tail_recovery
+
+    events, recovery = load_events_with_tail_recovery(path)
+    if recovery.quarantined_tail:
+        raise ValueError("Compacted session log contains an incomplete tail")
+    rows = [json.loads(row) for row in path.read_text(encoding="utf-8", errors="strict").splitlines() if row.strip()]
+    if len(events) != len(rows):
+        raise ValueError("Compacted session log event count changed during validation")
+    prior_hash: str | None = None
+    for index, event in enumerate(rows, start=1):
+        stored_hash = str(event.pop("event_hash", ""))
+        if event.get("prior_event_hash") != prior_hash:
+            raise ValueError(f"Compacted session log hash chain breaks before row {index}")
+        if not stored_hash or _event_hash(event) != stored_hash:
+            raise ValueError(f"Compacted session log event hash is invalid at row {index}")
+        prior_hash = stored_hash
 
 
 def _session_log_event_count(path: Path) -> int:

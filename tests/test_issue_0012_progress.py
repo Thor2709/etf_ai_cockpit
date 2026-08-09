@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
@@ -122,7 +123,7 @@ def test_direct_state_action_persists_terminal_fields_and_readable_error(tmp_pat
 def test_void_state_actions_persist_meaningful_terminal_messages(tmp_path, monkeypatch, method_name, expected_message) -> None:
     monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "session.jsonl")
     snapshot = _state().snapshot
-    monkeypatch.setattr(app_state_module, "build_snapshot", lambda force_sample=False: snapshot)
+    monkeypatch.setattr(app_state_module, "build_snapshot", lambda force_sample=False, **_kwargs: snapshot)
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
 
     assert getattr(state, method_name)() is None
@@ -170,7 +171,7 @@ def test_forecast_steps_cover_baseline_timesfm_toto_and_scoreboard(monkeypatch, 
             return "baseline ok; optional models unavailable"
 
     monkeypatch.setattr(app_state_module, "DataService", FakeDataService)
-    monkeypatch.setattr(app_state_module, "build_snapshot", lambda force_sample=False: snapshot)
+    monkeypatch.setattr(app_state_module, "build_snapshot", lambda force_sample=False, **_kwargs: snapshot)
     monkeypatch.setattr(state, "_write_current_scoreboard", lambda: tmp_path / "scoreboard.parquet")
 
     state.run_forecasting_models()
@@ -253,7 +254,7 @@ def test_session_history_retention_is_bounded_and_rehashed_in_place(tmp_path, mo
     monkeypatch.setattr(session_log, "SESSION_LOG_PATH", log_path)
     monkeypatch.setattr(session_log, "SESSION_LOG_MAX_EVENTS", 5)
     for index in range(8):
-        session_log.append_event({"event_type": "test_event", "sequence_number": index}, path=log_path)
+        session_log.log_event(event_type="test_event", operation=str(index), path=log_path)
 
     session_log.init_session_log(clear=False, route="/")
 
@@ -261,6 +262,22 @@ def test_session_history_retention_is_bounded_and_rehashed_in_place(tmp_path, mo
     assert len(rows) == 5
     assert rows[0]["prior_event_hash"] is None
     assert all(row["prior_event_hash"] == rows[index - 1]["event_hash"] for index, row in enumerate(rows[1:], 1))
+
+
+def test_session_log_compaction_replace_failure_preserves_canonical_bytes(tmp_path, monkeypatch) -> None:
+    log_path = tmp_path / "session.jsonl"
+    for index in range(6):
+        session_log.log_event(event_type="test_event", operation=str(index), path=log_path)
+    original = log_path.read_bytes()
+
+    def fail_replace(_source, _destination) -> None:
+        raise OSError("injected replace failure")
+
+    monkeypatch.setattr("etf_cockpit.core.atomic_io._replace_single_destination_with_retry", fail_replace)
+    with pytest.raises(OSError, match="injected replace failure"):
+        session_log._compact_session_log(log_path, max_events=3)
+
+    assert log_path.read_bytes() == original
 
 
 def test_activity_ownership_and_cancellation_do_not_adopt_or_replace_actions(tmp_path, monkeypatch) -> None:
@@ -311,6 +328,73 @@ def test_concurrent_begin_activity_creates_exactly_one_controller_record(tmp_pat
     assert len(started) == 1
     assert len(rejected) == 1 and isinstance(rejected[0], WorkflowTransitionError)
     assert [result.action_id for result in state.workflow_controller.active()] == started
+
+
+def test_update_activity_cancellation_race_leaves_cancelled_terminal_unchanged(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "session.jsonl")
+    state = _state()
+    action_id = state.begin_activity("Owner", "Initial step").action_id
+    cancel_entered = threading.Event()
+    release_cancel = threading.Event()
+    update_errors: list[Exception] = []
+    real_cancel = state.workflow_controller.cancel
+
+    def blocking_cancel(*args, **kwargs):
+        cancel_entered.set()
+        assert release_cancel.wait(2)
+        return real_cancel(*args, **kwargs)
+
+    monkeypatch.setattr(state.workflow_controller, "cancel", blocking_cancel)
+    canceller = threading.Thread(target=lambda: state.cancel_activity(expected_action_id=action_id))
+    canceller.start()
+    assert cancel_entered.wait(2)
+
+    def late_update() -> None:
+        try:
+            state.update_activity(
+                "Late step",
+                "late message",
+                completed_units=9,
+                total_units=10,
+                expected_action_id=action_id,
+            )
+        except Exception as exc:
+            update_errors.append(exc)
+
+    updater = threading.Thread(target=late_update)
+    updater.start()
+    release_cancel.set()
+    canceller.join(timeout=2)
+    updater.join(timeout=2)
+
+    entry = state.current_activity
+    assert entry is not None
+    terminal = (entry.status, entry.step, entry.message, entry.completed_units, entry.total_units)
+    assert terminal == ("cancelled", "Cancelled", "Cancelled by user", 0, None)
+    assert len(update_errors) == 1 and isinstance(update_errors[0], WorkflowTransitionError)
+    assert (entry.status, entry.step, entry.message, entry.completed_units, entry.total_units) == terminal
+    assert state.last_message == "Cancelled by user"
+
+
+def test_update_activity_controller_failure_does_not_partially_mutate(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "session.jsonl")
+    state = _state()
+    action_id = state.begin_activity("Owner", "Initial step").action_id
+    entry = state.current_activity
+    before = (entry.step, entry.message, entry.completed_units, entry.total_units, entry.output_path, state.last_message)
+    monkeypatch.setattr(state.workflow_controller, "step", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("step failed")))
+
+    with pytest.raises(RuntimeError, match="step failed"):
+        state.update_activity(
+            "Rejected step",
+            "rejected message",
+            completed_units=2,
+            total_units=3,
+            output_path=tmp_path / "out.csv",
+            expected_action_id=action_id,
+        )
+
+    assert (entry.step, entry.message, entry.completed_units, entry.total_units, entry.output_path, state.last_message) == before
 
 
 def test_cancelled_dashboard_action_cannot_publish_or_create_orphan(tmp_path, monkeypatch) -> None:
@@ -431,6 +515,21 @@ def test_cache_cleanup_unavailable_is_failed_and_ui_uses_redacted_error(tmp_path
     assert "***redacted***" in " ".join(_texts(control))
 
 
+def test_jobs_refresh_does_not_render_secret_bearing_exception(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "jobs.jsonl")
+    state = _state()
+
+    def fail_refresh():
+        raise RuntimeError("password=raw-jobs-secret")
+
+    monkeypatch.setattr(state.application_api, "recover_expired_leases", fail_refresh)
+    control = jobs_page_module.jobs_page(SimpleNamespace(update=lambda: None), state)
+    visible = " ".join(_texts(control))
+
+    assert "raw-jobs-secret" not in visible
+    assert "RuntimeError" in visible
+
+
 def test_forecast_service_emits_model_steps_at_execution_boundaries(monkeypatch) -> None:
     snapshot = _snapshot()
     prices = snapshot.prices.copy()
@@ -490,6 +589,43 @@ def test_cancel_guard_blocks_real_price_and_forecast_write_boundaries(tmp_path, 
     with pytest.raises(WorkflowTransitionError, match="cancelled"):
         ForecastService(snapshot.config)._write_forecasts([], date(2026, 8, 9), output_path=output, publish_guard=cancelled)
     assert not output.exists()
+
+
+def test_cancellation_after_service_commit_blocks_snapshot_derived_write(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "session.jsonl")
+    state = _state()
+    derived_writes: list[int] = []
+    snapshot = state.snapshot
+
+    class CancellingService:
+        last_operation_succeeded = True
+
+        def __init__(self, _config) -> None:
+            pass
+
+        def refresh_yfinance_data(self, **_kwargs) -> str:
+            action_id = state.current_activity.action_id
+            state.cancel_activity(expected_action_id=action_id)
+            return "Prices committed before cancellation."
+
+    def guarded_snapshot(*, force_sample=False, publish_guard=None):
+        monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(services_module, "write_features", lambda _features: derived_writes.append(1))
+        services_module.FeatureService(snapshot.config).compute_features(
+            snapshot.data_report.as_of_date,
+            snapshot.prices,
+            publish_guard=publish_guard,
+        )
+        return snapshot
+
+    monkeypatch.setattr(app_state_module, "DataService", CancellingService)
+    monkeypatch.setattr(app_state_module, "build_snapshot", guarded_snapshot)
+
+    with pytest.raises(WorkflowTransitionError):
+        state.refresh_yfinance_data()
+
+    assert derived_writes == []
+    assert state.recent_activity[-1].status == "cancelled"
 
 
 def test_cancel_guard_blocks_real_candidate_report_and_holdings_atomic_group(tmp_path, monkeypatch) -> None:
@@ -611,6 +747,61 @@ def test_esef_normal_unavailable_result_is_failed_terminal(tmp_path, monkeypatch
 
     assert state.recent_activity[-1].status == "failed"
     assert "unavailable" in state.recent_activity[-1].message.lower()
+
+
+@pytest.mark.parametrize(
+    ("label", "result"),
+    [
+        ("ETF report import", SimpleNamespace(extraction_status="parse_failed")),
+        ("PRIIPs KID import", SimpleNamespace(success=False)),
+        ("Methodology import", SimpleNamespace(status="unavailable")),
+    ],
+)
+def test_disclosure_unavailable_results_raise_before_success_terminal(label, result, tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "session.jsonl")
+    state = _state()
+    action_id = state.begin_activity(label, "Persisting retained unavailable evidence").action_id
+    with pytest.raises(ActivityUnavailableError, match="unavailable") as raised:
+        trust_evidence_module._require_disclosure_available(label, result)
+    state.fail_activity(label, raised.value, expected_action_id=action_id)
+
+    assert state.recent_activity[-1].status == "failed"
+    assert state.recent_activity[-1].step == "Failed"
+    assert not any(entry.status == "success" for entry in state.recent_activity)
+
+
+def test_yfinance_reference_failure_redacts_secret_and_cancellation_is_not_swallowed(monkeypatch) -> None:
+    snapshot = _snapshot()
+    price_result = SimpleNamespace(ok=True, data=snapshot.prices.copy(), message="prices fetched")
+    reference_result = SimpleNamespace(ok=True, data=services_module.pd.DataFrame({"instrument_id": ["VWCE"]}), message="reference fetched")
+    provider = SimpleNamespace(
+        fetch_prices=lambda *_args: price_result,
+        fetch_etf_metadata=lambda *_args: reference_result,
+        fetch_etf_holdings=lambda *_args: SimpleNamespace(ok=False, data=None, message="api_key=raw-reference-secret"),
+    )
+    monkeypatch.setattr(services_module.YFinanceProvider, "from_config", staticmethod(lambda _config: provider))
+    monkeypatch.setattr(services_module, "validate_prices", lambda *_args, **_kwargs: SimpleNamespace(issues=[]))
+    monkeypatch.setattr(services_module, "commit_price_import", lambda _result: SimpleNamespace(rows=1, clean_path="prices", previous_snapshot_path=None))
+    monkeypatch.setattr(services_module.DataService, "_reference_context", lambda _self: {"known_etfs": [], "isin_to_etf_id": {}, "ticker_to_etf_id": {}})
+    monkeypatch.setattr(services_module, "commit_reference_import", lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("token=raw-provider-secret")))
+
+    message = services_module.DataService(snapshot.config).refresh_yfinance_data()
+    assert "raw-provider-secret" not in message
+    assert "raw-reference-secret" not in message
+    assert "***redacted***" in message
+    assert "ValueError" in message
+
+    scope_calls = 0
+
+    def cancelled_scope():
+        nonlocal scope_calls
+        scope_calls += 1
+        if scope_calls == 1:
+            return nullcontext()
+        raise WorkflowTransitionError("cancelled")
+
+    with pytest.raises(WorkflowTransitionError, match="cancelled"):
+        services_module.DataService(snapshot.config).refresh_yfinance_data(publish_guard=cancelled_scope)
 
 
 @pytest.mark.parametrize("page_kind", ["import_export", "chatgpt_audit"])

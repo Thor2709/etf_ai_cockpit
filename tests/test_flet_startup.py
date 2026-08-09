@@ -104,7 +104,7 @@ def test_main_forecast_workflow_disables_uncached_optional_models(monkeypatch) -
             return "Configured ETF forecasts reused from cache as of 2026-07-07: baseline ok 7. Output: forecasts.csv."
 
     monkeypatch.setattr(app_state_module, "DataService", FakeDataService)
-    monkeypatch.setattr(app_state_module, "build_snapshot", lambda force_sample=False: snapshot)
+    monkeypatch.setattr(app_state_module, "build_snapshot", lambda force_sample=False, **_kwargs: snapshot)
     monkeypatch.setattr(state, "_write_current_scoreboard", lambda: SimpleNamespace(name="scoreboard.parquet"))
 
     message = state.run_forecasting_models()

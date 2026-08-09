@@ -29,9 +29,10 @@ from etf_cockpit.core.paths import (
     FORECASTS_DIR,
     ensure_project_dirs,
 )
+from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.core.timing import record_cache_event, timed_step
 from etf_cockpit.core.types import DataQualityReport, ForecastResult, SignalResult
-from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
+from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
 from etf_cockpit.core.versioning import (
     current_settings_identity,
     current_settings_revision,
@@ -357,7 +358,7 @@ class DataService:
                 ("etf_holdings", provider.fetch_etf_holdings([])),
             ):
                 if not reference_result.ok or reference_result.data is None:
-                    messages.append(f"{dataset_type}: {reference_result.message}")
+                    messages.append(f"{dataset_type}: {redact_text(str(reference_result.message))}")
                     continue
                 try:
                     with publication_scope(publish_guard):
@@ -368,13 +369,17 @@ class DataService:
                             isin_to_etf_id=context["isin_to_etf_id"],
                             ticker_to_etf_id=context["ticker_to_etf_id"],
                         )
+                except WorkflowTransitionError:
+                    raise
                 except Exception as exc:
-                    messages.append(f"{dataset_type}: fetched but not committed because validation failed: {exc}")
+                    messages.append(
+                        f"{dataset_type}: fetched but not committed because validation failed ({type(exc).__name__})."
+                    )
                     continue
                 warning_suffix = f" Warnings: {'; '.join(reference_commit.warnings)}" if reference_commit.warnings else ""
                 messages.append(
                     (
-                        f"{reference_result.message} Validated and committed {reference_commit.rows} {dataset_type} rows. "
+                        f"{redact_text(str(reference_result.message))} Validated and committed {reference_commit.rows} {dataset_type} rows. "
                         f"Clean data: {reference_commit.clean_path}.{warning_suffix}"
                     )
                 )
@@ -723,7 +728,13 @@ class FeatureService:
     def __init__(self, config: AppConfig):
         self.config = config
 
-    def compute_features(self, as_of_date: date | None = None, prices: pd.DataFrame | None = None) -> pd.DataFrame:
+    def compute_features(
+        self,
+        as_of_date: date | None = None,
+        prices: pd.DataFrame | None = None,
+        *,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> pd.DataFrame:
         settings_identity = current_settings_identity()
         frame = prices if prices is not None else load_prices()
         if as_of_date:
@@ -734,12 +745,14 @@ class FeatureService:
             f"features_{as_of_date.isoformat() if as_of_date else 'latest'}",
             settings_identity=settings_identity,
         )
-        ensure_run_manifest(
-            run_id,
-            ("schema:local-storage", "dataset:prices", "dataset:universe"),
-            settings_identity=settings_identity,
-        )
-        write_features(features)
+        with publication_scope(publish_guard):
+            ensure_run_manifest(
+                run_id,
+                ("schema:local-storage", "dataset:prices", "dataset:universe"),
+                settings_identity=settings_identity,
+            )
+        with publication_scope(publish_guard):
+            write_features(features)
         return features
 
 
@@ -984,7 +997,12 @@ class BacktestService:
         self.config = config
         self.universe_revision = _current_universe_revision() if universe_revision is None else universe_revision
 
-    def load_or_run_backtest(self, as_of_date: date | None = None) -> BacktestReport:
+    def load_or_run_backtest(
+        self,
+        as_of_date: date | None = None,
+        *,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> BacktestReport:
         cache_present = (BACKTESTS_DIR / "backtest_results.csv").exists() or (BACKTESTS_DIR / "equity_curves.csv").exists()
         with timed_step("backtest", "cache_read"):
             cached = self._load_cached_backtest(as_of_date)
@@ -994,9 +1012,9 @@ class BacktestService:
         if cache_present:
             record_cache_event("backtest", "invalidation", action_id="backtest", detail="unreadable or stale output")
         record_cache_event("backtest", "miss", action_id="backtest")
-        return self.run_backtest()
+        return self.run_backtest(publish_guard=publish_guard)
 
-    def run_backtest(self) -> BacktestReport:
+    def run_backtest(self, *, publish_guard: PublicationScopeFactory | None = None) -> BacktestReport:
         settings_identity = current_settings_identity()
         prices = load_prices()
         fundamentals = load_fundamental_evidence()
@@ -1017,20 +1035,22 @@ class BacktestService:
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
         run_id = settings_bound_run_id("backtest", settings_identity=settings_identity)
-        ensure_run_manifest(
-            run_id,
-            (
-                "schema:local-storage",
-                "dataset:prices",
-                "formula:score-engine-v3",
-                "policy:portfolio-targets",
-                "policy:risk-limits",
-                "policy:costs",
-                "model:baseline",
-            ),
-            settings_identity=settings_identity,
-        )
-        BACKTESTS_DIR.mkdir(parents=True, exist_ok=True)
+        with publication_scope(publish_guard):
+            ensure_run_manifest(
+                run_id,
+                (
+                    "schema:local-storage",
+                    "dataset:prices",
+                    "formula:score-engine-v3",
+                    "policy:portfolio-targets",
+                    "policy:risk-limits",
+                    "policy:costs",
+                    "model:baseline",
+                ),
+                settings_identity=settings_identity,
+            )
+        with publication_scope(publish_guard):
+            BACKTESTS_DIR.mkdir(parents=True, exist_ok=True)
         requests = (
             AtomicWriteRequest(BACKTESTS_DIR / "backtest_results.csv", report.results.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
             AtomicWriteRequest(BACKTESTS_DIR / "equity_curves.csv", report.equity_curves.to_csv().encode("utf-8"), lambda path: _validate_csv(path, index_col=0)),
@@ -1044,19 +1064,22 @@ class BacktestService:
             ),
         )
         with timed_step("backtest", "write_outputs"):
-            atomic_write_group(requests)
+            with publication_scope(publish_guard):
+                atomic_write_group(requests)
         for output in (
             BACKTESTS_DIR / "backtest_results.csv",
             BACKTESTS_DIR / "equity_curves.csv",
             BACKTESTS_DIR / "signal_log.csv",
             BACKTESTS_DIR / "quality_momentum_evidence.csv",
         ):
-            _write_universe_cache_metadata(
-                output,
-                self.universe_revision,
-                str(settings_identity["settings_revision"]),
-            )
-        append_jsonl("model_runs.jsonl", "backtest_completed", {"ai_added_value": report.ai_added_value})
+            with publication_scope(publish_guard):
+                _write_universe_cache_metadata(
+                    output,
+                    self.universe_revision,
+                    str(settings_identity["settings_revision"]),
+                )
+        with publication_scope(publish_guard):
+            append_jsonl("model_runs.jsonl", "backtest_completed", {"ai_added_value": report.ai_added_value})
         return report
 
     def _load_cached_backtest(self, as_of_date: date | None = None) -> BacktestReport | None:
@@ -1200,12 +1223,20 @@ class ChatGPTBridge:
         return import_audit_json(path, self.config)
 
 
-def build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
+def build_snapshot(
+    force_sample: bool = False,
+    *,
+    publish_guard: PublicationScopeFactory | None = None,
+) -> CockpitSnapshot:
     with timed_step("snapshot", "build"):
-        return _build_snapshot(force_sample=force_sample)
+        return _build_snapshot(force_sample=force_sample, publish_guard=publish_guard)
 
 
-def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
+def _build_snapshot(
+    force_sample: bool = False,
+    *,
+    publish_guard: PublicationScopeFactory | None = None,
+) -> CockpitSnapshot:
     configure_logging()
     ensure_project_dirs()
     config = load_config()
@@ -1227,7 +1258,11 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
         features = pd.DataFrame(columns=["date", "etf_id"])
         latest = pd.DataFrame(columns=["date", "etf_id"])
     else:
-        features = feature_service.compute_features(data_report.as_of_date, prices)
+        features = feature_service.compute_features(
+            data_report.as_of_date,
+            prices,
+            publish_guard=publish_guard,
+        )
         latest = latest_features(features, data_report.as_of_date)
     status = model_availability(config)
     inventory = model_diagnostics(config)
@@ -1249,7 +1284,14 @@ def _build_snapshot(force_sample: bool = False) -> CockpitSnapshot:
             structure_confidence_caps=structure_caps,
         )
     )
-    backtest = _empty_backtest_report("Backtest skipped because no clean prices exist for the current two-tier universe yet.") if prices.empty else BacktestService(config, universe_revision=universe_revision).load_or_run_backtest(data_report.as_of_date)
+    backtest = (
+        _empty_backtest_report("Backtest skipped because no clean prices exist for the current two-tier universe yet.")
+        if prices.empty
+        else BacktestService(config, universe_revision=universe_revision).load_or_run_backtest(
+            data_report.as_of_date,
+            publish_guard=publish_guard,
+        )
+    )
     etf_economics_records = load_etf_economics_records()
     etf_fund_total_return = load_total_return_evidence(ETF_FUND_TOTAL_RETURN_PATH)
     etf_benchmark_total_return = load_total_return_evidence(ETF_BENCHMARK_TOTAL_RETURN_PATH)

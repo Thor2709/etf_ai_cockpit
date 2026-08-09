@@ -467,22 +467,26 @@ class AppState:
         output_path: Path | str | None = None,
         expected_action_id: str | None = None,
     ) -> None:
-        entry = self.require_activity(expected_action_id or self.shared_activity_id)
-        entry.step = step
-        entry.completed_units = max(0, int(completed_units))
-        entry.total_units = None if total_units is None else max(0, int(total_units))
-        if output_path is not None:
-            entry.output_path = str(output_path)
-        if message is not None:
-            entry.message = message
-            self.last_message = message
-        else:
-            self.last_message = step
-        with timed_step(entry.action_id, step):
-            self.workflow_controller.step(
-                entry.action_id,
-                WorkflowStep(step, entry.message or step, completed_units, total_units),
-            )
+        with self._activity_lock:
+            entry = self.require_activity(expected_action_id or self.shared_activity_id)
+            next_completed = max(0, int(completed_units))
+            next_total = None if total_units is None else max(0, int(total_units))
+            next_output = entry.output_path if output_path is None else str(output_path)
+            next_message = entry.message if message is None else message
+            with timed_step(entry.action_id, step):
+                self.workflow_controller.step(
+                    entry.action_id,
+                    WorkflowStep(step, next_message or step, next_completed, next_total),
+                )
+            entry.step = step
+            entry.completed_units = next_completed
+            entry.total_units = next_total
+            entry.output_path = next_output
+            if message is not None:
+                entry.message = message
+            self.last_message = message if message is not None else step
+            logged_message = self.last_message
+            logged_output = entry.output_path
         log_event(
             event_type="activity_update",
             severity="info",
@@ -494,10 +498,10 @@ class AppState:
             status="running",
             output_summary={
                 "step": step,
-                "message": self.last_message,
-                "completed_units": entry.completed_units,
-                "total_units": entry.total_units,
-                "output_path": entry.output_path,
+                "message": logged_message,
+                "completed_units": next_completed,
+                "total_units": next_total,
+                "output_path": logged_output,
             },
             path=ACTIVITY_LOG_PATH,
         )
@@ -649,7 +653,7 @@ class AppState:
 
     @_tracked_activity("Refresh sample data", "Refreshing local sample data")
     def refresh_sample_data(self) -> None:
-        self.snapshot = build_snapshot(force_sample=True)
+        self.snapshot = build_snapshot(force_sample=True, publish_guard=self.activity_publication)
         self.selected_etf = self.snapshot.config.ui.default_etf
         self.last_message = "Sample data regenerated and signals refreshed."
 
@@ -663,7 +667,7 @@ class AppState:
     def renew_data_api_status(self) -> str:
         message = DataService(self.snapshot.config).api_update_status()
         self.last_message = message
-        self.snapshot = build_snapshot(force_sample=False)
+        self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)
         return message
 
     @_tracked_activity("Refresh yfinance data", "Fetching adjusted yfinance prices")
@@ -673,7 +677,7 @@ class AppState:
             service = DataService(self.snapshot.config)
             message = service.refresh_yfinance_data(publish_guard=self.activity_publication)
             if getattr(service, "last_operation_succeeded", True):
-                self.snapshot = build_snapshot(force_sample=False)
+                self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)
                 self._write_current_scoreboard()
                 self.last_message = "YFinance data refreshed."
             else:
@@ -688,7 +692,7 @@ class AppState:
             message = DataService(self.snapshot.config).run_yfinance_candidate_analysis(
                 publish_guard=self.activity_publication
             )
-            self.snapshot = build_snapshot(force_sample=False)
+            self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)
             scoreboard_path = self._write_current_scoreboard()
             self.last_message = "Algorithms refreshed from yfinance data."
             summary = message.split(" Report:", 1)[0]
@@ -712,7 +716,7 @@ class AppState:
             if not getattr(service, "last_operation_succeeded", True):
                 self.last_message = message
                 raise ActivityUnavailableError(message)
-            self.snapshot = build_snapshot(force_sample=False)
+            self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)
             scoreboard_path = self._write_current_scoreboard()
             self.update_activity("Forecasts and scoreboard complete", completed_units=4, total_units=4, output_path=scoreboard_path)
             self.last_message = "Fast forecasts refreshed from yfinance data for the 60-trading-day scoring horizon."
@@ -724,7 +728,7 @@ class AppState:
         message = DataService(self.snapshot.config).rollback_latest_price_import()
         self.last_message = message
         if message.startswith("Rolled back prices"):
-            self.snapshot = build_snapshot(force_sample=False)
+            self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)
         return message
 
     @_tracked_activity("Validate local import", "Validating selected import")
@@ -996,12 +1000,12 @@ class AppState:
         self.last_message = result.message
         if not result.ok:
             raise ActivityUnavailableError(result.message)
-        self.snapshot = build_snapshot(force_sample=False)
+        self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)
         return result.message
 
     @_tracked_activity("Refresh macro/news context", "Refreshing local context")
     def refresh_signals(self) -> None:
-        self.snapshot = build_snapshot(force_sample=False)
+        self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)
         self.last_message = "Signals refreshed from local data."
 
     @_tracked_activity("Export audit packet", "Writing audit packet")
