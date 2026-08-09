@@ -766,6 +766,23 @@ def test_long_running_contract_points_to_real_handlers_and_registered_controls()
         "import-export.export-audit-packet",
         "chatgpt.export-audit",
     )
+    assert LONG_RUNNING_ACTION_CONTROL_KEYS["holdings_factsheet_import"] == (
+        "etf-disclosures.import-holdings",
+        "dashboard.import-etf-factsheets",
+        "dashboard.import-etf-holdings",
+    )
+    reverse_catalog: dict[str, set[str]] = {}
+    for action_key, control_keys in LONG_RUNNING_ACTION_CONTROL_KEYS.items():
+        for control_key in control_keys:
+            reverse_catalog.setdefault(control_key, set()).add(action_key)
+    assert reverse_catalog["dashboard.import-etf-factsheets"] == {"holdings_factsheet_import"}
+    assert reverse_catalog["dashboard.import-etf-holdings"] == {"holdings_factsheet_import"}
+    assert reverse_catalog["dashboard.run-forecasting-models"] == {
+        "baseline_forecast",
+        "timesfm_forecast",
+        "toto_forecast",
+        "forecasts",
+    }
 
 
 @pytest.mark.parametrize("action_kind", ["yfinance", "local_import", "dashboard_result"])
@@ -1017,6 +1034,36 @@ def test_notes_browser_import_retry_reenters_background_lifecycle(tmp_path, monk
     assert terminal_refreshes == 2
     assert state.recent_activity[-1].status == "success"
     assert state.recent_activity[-1].message == "Browser notes imported."
+
+
+def test_empty_renew_picker_rerenders_terminal_shell(monkeypatch) -> None:
+    state = _state()
+    rebuild_states: list[str] = []
+
+    def rebuild(_page, current_state) -> None:
+        rebuild_states.append("running" if current_state.current_activity is not None else "terminal")
+
+    monkeypatch.setattr(dashboard_page_module, "_rebuild", rebuild)
+    page = SimpleNamespace(services=[], route="/", update=lambda: None)
+    dashboard_page_module._open_renew_dialog(page, state)
+    picker = page.services[0]
+    monkeypatch.setattr(
+        picker,
+        "pick_files",
+        lambda **_kwargs: asyncio.sleep(0, result=[]),
+    )
+    button = next(
+        item
+        for item in _walk(page.dialog)
+        if getattr(item, "key", None) == "dashboard.import-manual-notes"
+    )
+
+    asyncio.run(button.on_click(SimpleNamespace()))
+
+    assert rebuild_states == ["running", "terminal"]
+    assert state.current_activity is None
+    assert state.recent_activity[-1].status == "success"
+    assert "No local file selected." in " ".join(_texts(page.dialog))
 
 
 def test_jobs_refresh_does_not_render_secret_bearing_exception(tmp_path, monkeypatch) -> None:

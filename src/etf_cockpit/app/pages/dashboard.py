@@ -632,7 +632,7 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
             state.fail_activity(f"Import {dataset_type}", exc, expected_action_id=action_id)
             result_text.value = state.last_message
         finally:
-            if not worker_started and state.current_activity is not None and state.current_activity.action_id == action_id:
+            if not worker_started:
                 _restore_cancelled_result(state, action_id, result_text)
                 state.release_activity(action_id)
                 _rebuild(page, state)

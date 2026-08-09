@@ -75,6 +75,11 @@ LONG_RUNNING_ACTION_CONTROL_KEYS.update(
             "import-export.export-audit-packet",
             "chatgpt.export-audit",
         ),
+        "holdings_factsheet_import": (
+            "etf-disclosures.import-holdings",
+            "dashboard.import-etf-factsheets",
+            "dashboard.import-etf-holdings",
+        ),
     }
 )
 
