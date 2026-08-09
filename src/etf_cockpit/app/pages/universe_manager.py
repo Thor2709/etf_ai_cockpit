@@ -216,11 +216,15 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
                 status.value = f"Edit rejected: {exc}"
                 page.update()
 
+        def cancel_edit(_event: ft.ControlEvent) -> None:
+            dialog.open = False
+            page.update()
+
         dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text(f"Edit {record.instrument_id}"),
             content=ft.Column([*controls.values(), enabled, leveraged, inverse], tight=True, scroll=ft.ScrollMode.AUTO),
-            actions=[ft.TextButton("Cancel", key="universe.edit-cancel", on_click=lambda _event: setattr(dialog, "open", False)), ft.Button("Validate and stage", key="universe.edit-save", on_click=save_edit)],
+            actions=[ft.TextButton("Cancel", key="universe.edit-cancel", on_click=cancel_edit), ft.Button("Validate and stage", key="universe.edit-save", on_click=save_edit)],
         )
         page.overlay.append(dialog)
         dialog.open = True
@@ -267,11 +271,15 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
                 status.value = f"Add rejected: {exc}"
                 page.update()
 
+        def cancel_add(_event: ft.ControlEvent) -> None:
+            dialog.open = False
+            page.update()
+
         dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text("Add universe record"),
             content=ft.Column([*controls.values(), enabled, leveraged, inverse], tight=True, scroll=ft.ScrollMode.AUTO),
-            actions=[ft.TextButton("Cancel", key="universe.add-cancel", on_click=lambda _event: setattr(dialog, "open", False)), ft.Button("Validate and add", key="universe.add-save", on_click=save_add)],
+            actions=[ft.TextButton("Cancel", key="universe.add-cancel", on_click=cancel_add), ft.Button("Validate and add", key="universe.add-save", on_click=save_add)],
         )
         page.overlay.append(dialog)
         dialog.open = True
@@ -365,6 +373,11 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
             "reviews": evidence.get("identity_reviews", "unavailable"),
             "reason_code": evidence.get("reason_code", ""),
         }
+
+        def close_identity(_event: ft.ControlEvent) -> None:
+            dialog.open = False
+            page.update()
+
         dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text(f"Identity master: {record.instrument_id}"),
@@ -380,7 +393,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
                 ft.TextButton(
                     "Close",
                     key="universe.identity-close",
-                    on_click=lambda _event: setattr(dialog, "open", False),
+                    on_click=close_identity,
                 )
             ],
         )

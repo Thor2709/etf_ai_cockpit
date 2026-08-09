@@ -171,12 +171,23 @@ visible unknown/builder route failures, deterministic duplicate handling and
 installed-wheel contract resolution are covered. The 43-test focused suite,
 Ruff, compile, diff hygiene, byte-clean generation and an isolated installed
 wheel run pass; the wheel generated the same 282 actions twice and every action
-retained `execution_allowed=false`. Freeze a new reviewed exact head, then run
-fresh hosted Linux/Windows package evidence. Because canonical ISSUE-0011 is
-already `in_progress`, this product PR changes no status or dependency edge;
-after exact reviewed merge, use the existing aggregate `in_progress ->
-implemented_initially -> integrated` writer transaction and require
-zero-action generic readback.
+retained `execution_allowed=false`. Exact head
+`aa1453f6eec7ad57e40b778ae86b9118d2334c53` was rejected for unresolved
+action callbacks, a no-op synthetic action, false universe cancel metadata,
+palette metadata/runtime divergence and failed replay returning success. The
+final uncommitted correction makes every discovered callback resolvable,
+regenerates the existing deterministic synthetic fixture with visible
+success/failure state, gives universe dismissals exact callback names, binds
+palette result controls directly to `select_palette_command`, and replays the
+original completed/failed terminal result without reinvocation. Two disjoint
+focused selections pass 100 tests; Ruff, compile, diff hygiene and byte-clean
+generation pass. Classification is H because `pyproject.toml` and
+`scripts/smoke_app.py` are changed package/protected surfaces; reuse is false,
+the package gate is required, and fresh exact-head Linux and Windows hosted
+gates are mandatory. Because canonical ISSUE-0011 is already `in_progress`,
+this product PR changes no status or dependency edge; after exact reviewed
+merge, use the existing aggregate `in_progress -> implemented_initially ->
+integrated` writer transaction and require zero-action generic readback.
 
 ## ISSUE-0104 product chronology
 

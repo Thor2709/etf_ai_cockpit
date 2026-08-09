@@ -6,7 +6,7 @@ import json
 import re
 import sys
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Callable, Iterable, Literal
@@ -91,7 +91,7 @@ class UICommandContract:
         callback: Callable[[object | None], object],
         event: object | None = None,
         *,
-        invoked: set[str],
+        invoked: dict[str, UIInvocationResult],
         show_failure: Callable[[str], None],
     ) -> UIInvocationResult:
         """Execute one bound callback with deterministic duplicate/failure evidence."""
@@ -102,27 +102,34 @@ class UICommandContract:
                 f"UI command callback mismatch: {self.command_id} "
                 f"expects {self.callback}, got {actual_callback or '<anonymous>'}"
             )
-        if self.idempotency_key in invoked:
-            return UIInvocationResult(
-                status="replayed",
-                signal=self.success_signal,
-                visible_message="Action already handled; duplicate invocation made no changes.",
-            )
-        invoked.add(self.idempotency_key)
+        prior = invoked.get(self.idempotency_key)
+        if prior is not None:
+            replay = replace(prior, replayed=True)
+            if replay.status == "failed":
+                show_failure(replay.visible_message)
+            return replay
         try:
             callback(event)
         except Exception as exc:  # the contract converts callback failure into visible UI state
             message = f"Action failed safely: {type(exc).__name__}: {exc}"
             show_failure(message)
-            return UIInvocationResult(status="failed", signal=self.controlled_error_signal, visible_message=message)
-        return UIInvocationResult(status="completed", signal=self.success_signal, visible_message="Action completed.")
+            result = UIInvocationResult(status="failed", signal=self.controlled_error_signal, visible_message=message)
+        else:
+            result = UIInvocationResult(
+                status="completed",
+                signal=self.success_signal,
+                visible_message="Action completed.",
+            )
+        invoked[self.idempotency_key] = result
+        return result
 
 
 @dataclass(frozen=True)
 class UIInvocationResult:
-    status: Literal["completed", "failed", "replayed"]
+    status: Literal["completed", "failed"]
     signal: str
     visible_message: str
+    replayed: bool = False
     execution_allowed: Literal[False] = False
 
 
@@ -246,6 +253,13 @@ def validate_ui_acceptance_inventory(
         )
         if uncovered:
             raise ValueError("source controls missing acceptance contracts: " + ", ".join(uncovered))
+        unresolved_callbacks = sorted(
+            key
+            for key, discovered in source_controls.items()
+            if key != "<missing>" and not discovered.callbacks
+        )
+        if unresolved_callbacks:
+            raise ValueError("source actions have unresolved callbacks: " + ", ".join(unresolved_callbacks))
         configured_without_source = sorted(
             item.key
             for item in rows
@@ -647,8 +661,9 @@ def _record_discovered(
 
 def _callback_name(node: ast.AST | None) -> str:
     if isinstance(node, (ast.Name, ast.Attribute)):
-        name = _call_name(node)
-        return "" if name.startswith("on_") else name
+        return _call_name(node)
+    if isinstance(node, ast.IfExp):
+        return _callback_name(node.body) or _callback_name(node.orelse)
     if isinstance(node, ast.Lambda):
         for child in ast.walk(node.body):
             if isinstance(child, ast.Call):

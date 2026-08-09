@@ -3,7 +3,7 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.command_palette import PaletteCommand, search_commands
+from etf_cockpit.app.command_palette import search_commands
 from etf_cockpit.app.components.cards import panel
 from etf_cockpit.app.components.flet_compat import border_only, padding_symmetric
 from etf_cockpit.app.pages.backtests import backtests_page
@@ -215,8 +215,12 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
 
     palette_results = ft.Container(visible=False)
 
-    def select_palette_command(command: PaletteCommand) -> None:
-        navigate_to(page, state, command.route)
+    def select_palette_command(event: ft.ControlEvent) -> None:
+        route = str(getattr(getattr(event, "control", None), "data", "") or "")
+        if not route:
+            show_palette_message("Selected command has no registered route")
+            return
+        navigate_to(page, state, route)
 
     def show_palette_message(message: str) -> None:
         palette_results.content = panel(ft.Column([ft.Text(message, color=theme.AMBER, size=theme.FONT_SM, selectable=True)]))
@@ -236,7 +240,8 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
                 f"{command.title} · {command.workspace} · {command.route}",
                 key=f"shell.command.{command.route.strip('/').replace('/', '-') or 'home'}",
                 tooltip=f"Open {command.title}",
-                on_click=lambda _event, item=command: select_palette_command(item),
+                data=command.route,
+                on_click=select_palette_command,
             )
             for command in matches
         )
@@ -254,7 +259,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
             return
         matches = search_commands(PAGES, WORKSPACE_GROUPS, query, limit=1)
         if matches:
-            select_palette_command(matches[0])
+            navigate_to(page, state, matches[0].route)
         else:
             show_palette_message("No matching workspace")
 

@@ -10,6 +10,7 @@ from etf_cockpit.app import router
 from etf_cockpit.app.components.states import STATE_NAMES, state_panel
 from etf_cockpit.app.router import PAGES, WORKSPACE_GROUPS, build_shell, uses_narrow_layout, workspace_for_route
 from etf_cockpit.app.state import AppState
+from etf_cockpit.core.ui_acceptance import build_main_ui_action_inventory, ui_command_contracts
 from etf_cockpit.services import build_snapshot
 
 
@@ -135,6 +136,54 @@ def test_shell_command_palette_filters_and_navigates(monkeypatch: pytest.MonkeyP
     )
     assert selected == ["/comparison", "/data-health", "/backtests"]
 
+
+def test_palette_contract_invokes_actual_bound_callback_and_replays_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshot = build_snapshot()
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    page = SimpleNamespace(width=1200, route="/", update=lambda: None)
+    selected: list[str] = []
+    monkeypatch.setattr(router, "navigate_to", lambda _page, _state, route: selected.append(route))
+
+    view = build_shell(page, state, "/")
+    palette = next(control for control in _walk(view) if getattr(control, "key", None) == "shell.command-palette")
+    palette.value = "comparison"
+    palette.on_change(SimpleNamespace(control=palette))
+    result = next(control for control in _walk(view) if getattr(control, "key", None) == "shell.command.comparison")
+    contract = next(
+        item
+        for item in ui_command_contracts(build_main_ui_action_inventory())
+        if item.action_id == "command:palette:comparison"
+    )
+    assert result.on_click.__name__ == contract.callback == "select_palette_command"
+
+    invoked = {}
+    event = SimpleNamespace(control=result)
+    completed = contract.invoke(result.on_click, event, invoked=invoked, show_failure=lambda _message: None)
+    replayed = contract.invoke(result.on_click, event, invoked=invoked, show_failure=lambda _message: None)
+    assert selected == ["/comparison"]
+    assert completed.status == replayed.status == "completed"
+    assert replayed.replayed is True
+    assert (replayed.signal, replayed.visible_message) == (completed.signal, completed.visible_message)
+
+    attempts: list[str] = []
+
+    def fail_navigation(_page: object, _state: object, route: str) -> None:
+        attempts.append(route)
+        raise RuntimeError("controlled palette failure")
+
+    monkeypatch.setattr(router, "navigate_to", fail_navigation)
+    failures: list[str] = []
+    failed_invocations = {}
+    failed = contract.invoke(result.on_click, event, invoked=failed_invocations, show_failure=failures.append)
+    failed_replay = contract.invoke(result.on_click, event, invoked=failed_invocations, show_failure=failures.append)
+    assert attempts == ["/comparison"]
+    assert failed.status == failed_replay.status == "failed"
+    assert failed_replay.replayed is True
+    assert failed.signal == failed_replay.signal == contract.controlled_error_signal
+    assert failed.visible_message == failed_replay.visible_message
+    assert failures == [failed.visible_message, failed.visible_message]
 
 def test_unknown_and_failed_routes_render_a_visible_controlled_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     snapshot = build_snapshot()

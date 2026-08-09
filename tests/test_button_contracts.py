@@ -90,6 +90,51 @@ def test_source_parity_rejects_stock_research_key_or_callback_mismatch(tmp_path:
         )
 
 
+@pytest.mark.parametrize(
+    ("key", "callback", "mutation"),
+    [
+        (
+            "training-centre.synthetic-scenario",
+            "generate_synthetic_scenario",
+            "on_click=lambda _event: None",
+        ),
+        (
+            "universe.edit-cancel",
+            "cancel_edit",
+            "on_click=lambda _event: setattr(dialog, \"open\", False)",
+        ),
+    ],
+)
+def test_actionable_controls_reject_unresolved_or_invented_callbacks(
+    tmp_path: Path,
+    key: str,
+    callback: str,
+    mutation: str,
+) -> None:
+    contract = next(item for item in load_ui_acceptance_contracts() if item.key == key)
+    source_root = tmp_path / "app"
+    source_root.mkdir()
+    source_file = source_root / "controls.py"
+    source_file.write_text(
+        f'ft.TextButton(key="{key}", {mutation})\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=rf"unresolved callbacks: {key}"):
+        validate_ui_acceptance_inventory((contract,), (contract.route,), source_root=source_root)
+
+    source_file.write_text(
+        f"def {callback}(_event):\n    return None\n"
+        f'ft.TextButton(key="{key}", on_click={callback})\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=rf"callback mismatch: {key}"):
+        validate_ui_acceptance_inventory(
+            (replace(contract, callback="invented_callback"),),
+            (contract.route,),
+            source_root=source_root,
+        )
+
+
 def test_generated_inventory_is_complete_stable_and_lane_covered() -> None:
     inventory = build_main_ui_action_inventory()
     assert {item.source for item in inventory} == {"control", "route", "command"}
@@ -170,11 +215,12 @@ def test_command_contract_executes_success_failure_and_duplicate_visibly() -> No
     def callback(_event: object | None) -> None:
         calls.append("called")
 
-    invoked: set[str] = set()
+    invoked = {}
     completed = contract.invoke(callback, invoked=invoked, show_failure=failures.append)
     replayed = contract.invoke(callback, invoked=invoked, show_failure=failures.append)
     assert (completed.status, completed.signal, calls) == ("completed", contract.success_signal, ["called"])
-    assert replayed.status == "replayed" and "duplicate" in replayed.visible_message
+    assert replayed.status == "completed" and replayed.replayed is True
+    assert (replayed.signal, replayed.visible_message) == (completed.signal, completed.visible_message)
     assert calls == ["called"] and failures == []
 
     def failing_callback(_event: object | None) -> None:
@@ -182,8 +228,11 @@ def test_command_contract_executes_success_failure_and_duplicate_visibly() -> No
 
     failing_contract = replace(contract, callback="failing_callback", idempotency_key="ui:control:test.failure")
     failed = failing_contract.invoke(failing_callback, invoked=invoked, show_failure=failures.append)
+    failed_replay = failing_contract.invoke(failing_callback, invoked=invoked, show_failure=failures.append)
     assert failed.status == "failed" and failed.signal == failing_contract.controlled_error_signal
-    assert failures == [failed.visible_message]
+    assert failed_replay.status == "failed" and failed_replay.replayed is True
+    assert (failed_replay.signal, failed_replay.visible_message) == (failed.signal, failed.visible_message)
+    assert failures == [failed.visible_message, failed.visible_message]
     assert failed.execution_allowed is False
 
 

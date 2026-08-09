@@ -20,7 +20,7 @@ class PaletteCommand:
 
     @property
     def callback(self) -> str:
-        return "navigate_to"
+        return "select_palette_command"
 
     @property
     def success_signal(self) -> str:

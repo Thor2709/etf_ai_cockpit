@@ -18,7 +18,10 @@ def test_gate_drawer_is_keyboard_addressable() -> None:
         gates=(GateResult(gate_id="evidence", order=1, severity="notice", passed=True, message="Evidence present"),),
         execution_allowed=False,
     )
-    buttons = [item for item in _walk(build_gate_summary(decision)) if getattr(item, "key", "") == "authority-gates.view-all"]
+    def open_help(_event: object) -> None:
+        return None
+
+    buttons = [item for item in _walk(build_gate_summary(decision, open_help=open_help)) if getattr(item, "key", "") == "authority-gates.view-all"]
     assert len(buttons) == 1
     assert buttons[0].disabled is False
     assert buttons[0].tooltip
@@ -29,5 +32,9 @@ def test_gate_summary_has_real_navigation_callback() -> None:
         gates=(GateResult(gate_id="evidence", order=1, severity="notice", passed=True, message="Evidence present"),),
         execution_allowed=False,
     )
-    buttons = [item for item in _walk(build_gate_summary(decision, on_view_all=lambda _event: None)) if getattr(item, "key", "") == "authority-gates.view-all"]
+    def open_help(_event: object) -> None:
+        return None
+
+    buttons = [item for item in _walk(build_gate_summary(decision, open_help=open_help)) if getattr(item, "key", "") == "authority-gates.view-all"]
     assert callable(buttons[0].on_click)
+    assert buttons[0].on_click.__name__ == "open_help"

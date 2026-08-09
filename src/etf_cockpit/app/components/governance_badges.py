@@ -35,7 +35,7 @@ def status_badge(label: str, state: str, *, colour: str = theme.MUTED) -> ft.Con
 def build_gate_summary(
     authority_decision: Any,
     *,
-    on_view_all: Callable[[ft.ControlEvent], None] | None = None,
+    open_help: Callable[[ft.ControlEvent], None],
 ) -> ft.Container:
     """Build a keyboard-addressable, text-first gate summary."""
 
@@ -62,7 +62,7 @@ def build_gate_summary(
         "View all gates",
         key="authority-gates.view-all",
         tooltip="View all gate evidence",
-        on_click=on_view_all,
+        on_click=open_help,
     )
     return panel(
         ft.Column(

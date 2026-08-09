@@ -224,9 +224,22 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   smoke and preserves `execution_allowed=false`. The 43-test focused suite,
   Ruff, compile, diff hygiene and byte-clean generation pass. A locally built
   wheel installed outside the source tree generates the same 282-action
-  inventory twice and validates all actions as non-executable. Fresh hosted
-  Linux/Windows package evidence remains required after review freezes a new
-  exact head.
+  inventory twice and validates all actions as non-executable. Exact head
+  `aa1453f6eec7ad57e40b778ae86b9118d2334c53` was then rejected because
+  unresolved lambda/setattr controls could accept invented callbacks, the
+  synthetic-scenario action was a no-op, universe edit cancel metadata was
+  false, palette command metadata named a different runtime path, and failed
+  invocation replay returned a success signal. The final uncommitted
+  correction fails closed on every unresolved discovered callback, gives the
+  seeded synthetic action deterministic visible success/failure behavior,
+  names the existing universe dismissals truthfully, directly binds palette
+  result controls to `select_palette_command`, and stores/replays the original
+  completed or failed terminal result without a second callback. Two disjoint
+  focused selections pass 100 tests; Ruff, compile, diff hygiene and byte-clean
+  generation pass. The exact classifier returns H because the product diff
+  changes `pyproject.toml` and `scripts/smoke_app.py`; evidence reuse is false,
+  package gate is required, and fresh exact-head Linux and Windows hosted gates
+  remain mandatory after review freezes the replacement head.
 - ISSUE-0011 is already canonically `in_progress`; the product PR therefore
   carries no artificial status or dependency transaction. Before product
   merge, retain exact product/review/gate evidence and the post-merge writer
