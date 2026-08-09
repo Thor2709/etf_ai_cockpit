@@ -334,6 +334,19 @@ affected and 41 yfinance/release-hardening tests plus Ruff, compileall and
 diff checks. The final checkpointed head requires both reviews and hosted
 O-tier validation afresh; rejected-head evidence is not reusable.
 
+Exact head `61fdc2ac636946d7bf1d69201881faf01e96fecf` was rejected
+after both reviewers confirmed unguarded sample/API-status/rollback writes;
+risk review also found restart recovery depended on secondary activity events
+instead of canonical workflow events. Correction commit `fb0916fc` recovers
+start/step/finish/cancel from the existing locked `workflow_*` events when
+richer activity events are absent, and threads the lock-held publication scope
+through sample inputs, clean prices, rollback, API/yfinance status and snapshot
+initialization. Provider failures are redacted and unavailable status fails.
+Focused evidence passed 40 ISSUE-0012, 51 rollback/yfinance and 23 workflow/
+startup tests plus directly coupled release/trust regressions, Ruff, compileall
+and diff checks. Repeat both exact-head reviews and hosted O-tier validation;
+all prior hosted runs are stale.
+
 ## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head
