@@ -64,6 +64,19 @@ LONG_RUNNING_ACTION_SPECS: dict[str, LongRunningActionSpec] = {
 LONG_RUNNING_ACTIONS: dict[str, str] = {
     key: spec.label for key, spec in LONG_RUNNING_ACTION_SPECS.items()
 }
+LONG_RUNNING_ACTION_CONTROL_KEYS: dict[str, tuple[str, ...]] = {
+    key: (spec.control_key,) for key, spec in LONG_RUNNING_ACTION_SPECS.items()
+}
+LONG_RUNNING_ACTION_CONTROL_KEYS.update(
+    {
+        "validation": ("dashboard.renew-import", "dashboard.renew-dry-run"),
+        "audit_export": (
+            "dashboard.export-audit",
+            "import-export.export-audit-packet",
+            "chatgpt.export-audit",
+        ),
+    }
+)
 
 
 @dataclass(frozen=True)

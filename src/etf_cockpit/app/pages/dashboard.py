@@ -411,7 +411,7 @@ def _run_dialog_action(page: ft.Page, state: AppState, result_text: ft.Text, lab
     entry = state.begin_activity(label, step)
     action_id = entry.action_id
     result_text.value = f"{step}..."
-    page.update()
+    _rebuild(page, state)
 
     def worker() -> None:
         try:
@@ -468,7 +468,7 @@ def _export_pack(page: ft.Page, state: AppState) -> None:
             state.fail_activity(
                 "Export audit packet",
                 exc,
-                retry_callback=state.export_audit_packet,
+                retry_callback=lambda: (_export_pack(page, state), "Retry started.")[1],
                 expected_action_id=action_id,
             )
         finally:
@@ -585,7 +585,7 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
         entry = state.begin_activity(f"Import {dataset_type}", "Validating selected file")
         action_id = entry.action_id
         result_text.value = f"Importing selected {dataset_type} file..."
-        page.update()
+        _rebuild(page, state)
         return start_import_worker(
             dataset_type,
             action_id,
@@ -599,7 +599,7 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
         action_id = entry.action_id
         worker_started = False
         result_text.value = f"Opening local file picker for {dataset_type}..."
-        page.update()
+        _rebuild(page, state)
         try:
             files = await file_picker.pick_files(
                 file_type=ft.FilePickerFileType.CUSTOM,

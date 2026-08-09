@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import threading
 
 import flet as ft
 
@@ -92,30 +93,51 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
             return None
         return state.begin_activity(label, step).action_id
 
-    def export_pack(_event: ft.ControlEvent) -> None:
+    def start_export_pack() -> threading.Thread | None:
         action_id = start_activity("Export audit packet", "Writing audit packet", output)
         if action_id is None:
-            return
+            return None
         output.value = "Exporting audit packet..."
-        page.update()
-        try:
-            with state.share_activity(action_id):
-                path = state.export_audit_packet()
-            with TemporaryDirectory(prefix="audit_verify_") as verification_dir:
-                report = extract_and_validate_audit_archive(path, Path(verification_dir))
-            if not report.valid:
-                raise ValueError(f"Audit packet validation failed: missing={report.missing}, checksums={report.checksum_errors}, secrets={report.secret_findings}")
-            message = f"Exported: {path} ({len(report.included)} artefacts; checksums validated; execution_allowed=false)"
-            state.finish_activity(message, output_path=path, expected_action_id=action_id)
-            output.value = message
-        except Exception as exc:
-            if state.activity_was_cancelled(action_id):
-                return
-            state.fail_activity("Export audit packet", exc, retry_callback=state.export_audit_packet, expected_action_id=action_id)
-            output.value = state.last_message
-        finally:
-            state.release_activity(action_id)
-            refresh_shell()
+        refresh_shell()
+
+        def worker() -> None:
+            try:
+                with state.share_activity(action_id):
+                    path = state.export_audit_packet()
+                if state.activity_was_cancelled(action_id):
+                    return
+                state.update_activity("Validating exported audit packet", expected_action_id=action_id)
+                with TemporaryDirectory(prefix="audit_verify_") as verification_dir:
+                    report = extract_and_validate_audit_archive(path, Path(verification_dir))
+                if not report.valid:
+                    raise ValueError(f"Audit packet validation failed: missing={report.missing}, checksums={report.checksum_errors}, secrets={report.secret_findings}")
+                if state.activity_was_cancelled(action_id):
+                    return
+                message = f"Exported: {path} ({len(report.included)} artefacts; checksums validated; execution_allowed=false)"
+                state.finish_activity(message, output_path=path, expected_action_id=action_id)
+                output.value = message
+            except Exception as exc:
+                if not state.activity_was_cancelled(action_id):
+                    state.fail_activity(
+                        "Export audit packet",
+                        exc,
+                        retry_callback=lambda: start_export_pack(),
+                        expected_action_id=action_id,
+                    )
+                    output.value = state.last_message
+            finally:
+                cancelled_message = state.restore_cancelled_activity_message(action_id)
+                if cancelled_message is not None:
+                    output.value = cancelled_message
+                state.release_activity(action_id)
+                refresh_shell()
+
+        background = threading.Thread(target=worker, daemon=True)
+        background.start()
+        return background
+
+    def export_pack(_event: ft.ControlEvent) -> None:
+        start_export_pack()
 
     def import_audit(_event: ft.ControlEvent) -> None:
         action_id = start_activity("Import external audit response", "Validating audit JSON", output)

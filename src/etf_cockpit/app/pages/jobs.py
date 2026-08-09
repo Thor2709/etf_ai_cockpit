@@ -22,6 +22,15 @@ from etf_cockpit.application.ui_facade import (
 )
 
 
+def _refresh_activity_shell(page: ft.Page, state: AppState) -> None:
+    if not hasattr(page, "views"):
+        page.update()
+        return
+    from etf_cockpit.app.router import render_shell
+
+    render_shell(page, state, getattr(page, "route", "") or state.snapshot.config.ui.default_page)
+
+
 def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
     api = state.application_api
     body = ft.Column(spacing=10, expand=True, scroll=ft.ScrollMode.AUTO)
@@ -103,12 +112,7 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
                 cleanup_message.value = cancelled_message
                 cleanup_message.color = theme.MUTED
             state.release_activity(action_id)
-            if not hasattr(page, "views"):
-                page.update()
-            else:
-                from etf_cockpit.app.router import render_shell
-
-                render_shell(page, state, getattr(page, "route", "") or state.snapshot.config.ui.default_page)
+            _refresh_activity_shell(page, state)
 
     def start_cache_cleanup() -> threading.Thread | None:
         label = "Rebuild generated cache"
@@ -126,7 +130,7 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
             return None
         cleanup_message.value = "Generated-cache cleanup in progress..."
         cleanup_message.color = theme.MUTED
-        page.update()
+        _refresh_activity_shell(page, state)
         worker = threading.Thread(target=run_cache_cleanup, args=(action_id,), daemon=True)
         worker.start()
         return worker

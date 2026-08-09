@@ -28,6 +28,7 @@ from etf_cockpit.core.errors import ErrorStore
 from etf_cockpit.core import session_log
 from etf_cockpit.core.workflow import (
     LONG_RUNNING_ACTIONS,
+    LONG_RUNNING_ACTION_CONTROL_KEYS,
     LONG_RUNNING_ACTION_SPECS,
     WorkflowController,
     WorkflowStatus,
@@ -496,8 +497,14 @@ def test_cancelled_dashboard_action_cannot_publish_or_create_orphan(tmp_path, mo
 
 
 def test_dashboard_action_restores_cancelled_message_after_late_success(monkeypatch) -> None:
-    monkeypatch.setattr("etf_cockpit.app.pages.dashboard._rebuild", lambda *_args: None)
     state = _state()
+    running_refresh = threading.Event()
+    finalized = threading.Event()
+
+    def record_rebuild(*_args) -> None:
+        (running_refresh if state.current_activity is not None else finalized).set()
+
+    monkeypatch.setattr("etf_cockpit.app.pages.dashboard._rebuild", record_rebuild)
     started = threading.Event()
     release = threading.Event()
 
@@ -508,21 +515,26 @@ def test_dashboard_action_restores_cancelled_message_after_late_success(monkeypa
         return "late dashboard success"
 
     _run_action(SimpleNamespace(update=lambda: None), state, "Late dashboard action", action)
+    assert running_refresh.wait(2)
     assert started.wait(2)
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
-    deadline = time.time() + 2
-    while state.current_activity is not None and time.time() < deadline:
-        time.sleep(0.01)
+    assert finalized.wait(2)
 
     assert state.last_message == "Cancelled by user"
     assert state.recent_activity[-1].message == "Cancelled by user"
 
 
 def test_dialog_action_restores_cancelled_message_after_late_success(monkeypatch) -> None:
-    monkeypatch.setattr("etf_cockpit.app.pages.dashboard._rebuild", lambda *_args: None)
     state = _state()
+    running_refresh = threading.Event()
+    finalized = threading.Event()
+
+    def record_rebuild(*_args) -> None:
+        (running_refresh if state.current_activity is not None else finalized).set()
+
+    monkeypatch.setattr("etf_cockpit.app.pages.dashboard._rebuild", record_rebuild)
     result = SimpleNamespace(value="")
     started = threading.Event()
     release = threading.Event()
@@ -541,21 +553,26 @@ def test_dialog_action_restores_cancelled_message_after_late_success(monkeypatch
         "Working",
         action,
     )
+    assert running_refresh.wait(2)
     assert started.wait(2)
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
-    deadline = time.time() + 2
-    while state.current_activity is not None and time.time() < deadline:
-        time.sleep(0.01)
+    assert finalized.wait(2)
 
     assert state.last_message == "Cancelled by user"
     assert result.value == "Cancelled by user"
 
 
 def test_export_pack_restores_cancelled_message_after_late_success(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("etf_cockpit.app.pages.dashboard._rebuild", lambda *_args: None)
     state = _state()
+    running_refresh = threading.Event()
+    finalized = threading.Event()
+
+    def record_rebuild(*_args) -> None:
+        (running_refresh if state.current_activity is not None else finalized).set()
+
+    monkeypatch.setattr("etf_cockpit.app.pages.dashboard._rebuild", record_rebuild)
     started = threading.Event()
     release = threading.Event()
     destination = tmp_path / "audit.zip"
@@ -568,16 +585,169 @@ def test_export_pack_restores_cancelled_message_after_late_success(monkeypatch, 
 
     state.export_audit_packet = export
     _export_pack(SimpleNamespace(update=lambda: None), state)
+    assert running_refresh.wait(2)
     assert started.wait(2)
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
-    deadline = time.time() + 2
-    while state.current_activity is not None and time.time() < deadline:
-        time.sleep(0.01)
+    assert finalized.wait(2)
 
     assert state.last_message == "Cancelled by user"
     assert state.recent_activity[-1].message == "Cancelled by user"
+
+
+def test_chatgpt_audit_control_is_cancellable_and_retry_revalidates_archive(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "chatgpt.jsonl")
+    monkeypatch.setattr(router_module, "render_shell", lambda *_args, **_kwargs: None)
+    state = _state()
+    state.error_store = ErrorStore(tmp_path / "errors.jsonl")
+    entered = threading.Event()
+    release = threading.Event()
+    running_refreshes = 0
+    terminal_refreshes = 0
+    calls = 0
+    validated: list[Path] = []
+    destination = tmp_path / "audit.zip"
+
+    def update() -> None:
+        nonlocal running_refreshes, terminal_refreshes
+        if state.current_activity is None:
+            terminal_refreshes += 1
+        else:
+            running_refreshes += 1
+
+    def export() -> Path:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            assert release.wait(2)
+            state.last_message = "late chatgpt export success"
+            return destination
+        if calls == 2:
+            raise TimeoutError("audit export timeout")
+        return destination
+
+    def validate(path: Path, _destination: Path):
+        validated.append(path)
+        return SimpleNamespace(
+            valid=True,
+            included=("manifest.json",),
+            missing=(),
+            checksum_errors=(),
+            secret_findings=(),
+        )
+
+    monkeypatch.setattr(state, "export_audit_packet", export)
+    monkeypatch.setattr(chatgpt_audit_module, "extract_and_validate_audit_archive", validate)
+    page = SimpleNamespace(route="/chatgpt", update=update)
+    control = chatgpt_audit_module.chatgpt_audit_page(page, state)
+    button = next(item for item in _walk(control) if getattr(item, "key", None) == "chatgpt.export-audit")
+
+    button.on_click(SimpleNamespace())
+    assert entered.wait(2)
+    assert running_refreshes >= 1
+    assert state.current_activity is not None
+    action_id = state.current_activity.action_id
+    state.cancel_activity(expected_action_id=action_id)
+    release.set()
+    deadline = time.time() + 2
+    while terminal_refreshes < 1 and time.time() < deadline:
+        time.sleep(0.01)
+    assert state.last_message == "Cancelled by user"
+    assert "Cancelled by user" in " ".join(_texts(control))
+
+    button.on_click(SimpleNamespace())
+    deadline = time.time() + 2
+    while terminal_refreshes < 2 and time.time() < deadline:
+        time.sleep(0.01)
+    assert state.recent_activity[-1].status == "failed"
+    error = state.error_store.recent()[0]
+    errors_recovery_module._retry(SimpleNamespace(), state, error.error_id)
+    deadline = time.time() + 2
+    while (
+        state.current_activity is not None
+        or state.recent_activity[-1].status != "success"
+        or terminal_refreshes < 3
+    ) and time.time() < deadline:
+        time.sleep(0.01)
+
+    assert calls == 3
+    assert validated == [destination]
+    assert state.recent_activity[-1].status == "success"
+    assert "checksums validated" in state.recent_activity[-1].message
+
+
+def test_import_export_audit_control_is_cancellable_and_retryable(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "import-export.jsonl")
+    monkeypatch.setattr(router_module, "render_shell", lambda *_args, **_kwargs: None)
+    state = _state()
+    state.error_store = ErrorStore(tmp_path / "errors.jsonl")
+    entered = threading.Event()
+    release = threading.Event()
+    running_refreshes = 0
+    terminal_refreshes = 0
+    calls = 0
+    destination = tmp_path / "audit.zip"
+
+    def update() -> None:
+        nonlocal running_refreshes, terminal_refreshes
+        if state.current_activity is None:
+            terminal_refreshes += 1
+        else:
+            running_refreshes += 1
+
+    def export() -> Path:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            assert release.wait(2)
+            state.last_message = "late import-export success"
+            return destination
+        if calls == 2:
+            raise TimeoutError("audit packet timeout")
+        return destination
+
+    monkeypatch.setattr(state, "export_audit_packet", export)
+    page = SimpleNamespace(services=[], overlay=[], route="/import-export", update=update)
+    control = import_export_page_module.import_export_page(page, state)
+    button = next(
+        item
+        for item in _walk(control)
+        if getattr(item, "key", None) == "import-export.export-audit-packet"
+    )
+
+    button.on_click(SimpleNamespace())
+    assert entered.wait(2)
+    assert running_refreshes >= 1
+    action_id = state.current_activity.action_id
+    state.cancel_activity(expected_action_id=action_id)
+    release.set()
+    deadline = time.time() + 2
+    while terminal_refreshes < 1 and time.time() < deadline:
+        time.sleep(0.01)
+    assert state.last_message == "Cancelled by user"
+    assert "Cancelled by user" in " ".join(_texts(control))
+
+    button.on_click(SimpleNamespace())
+    deadline = time.time() + 2
+    while terminal_refreshes < 2 and time.time() < deadline:
+        time.sleep(0.01)
+    assert state.recent_activity[-1].status == "failed"
+    error = state.error_store.recent()[0]
+    errors_recovery_module._retry(SimpleNamespace(), state, error.error_id)
+    deadline = time.time() + 2
+    while (
+        state.current_activity is not None
+        or state.recent_activity[-1].status != "success"
+        or terminal_refreshes < 3
+    ) and time.time() < deadline:
+        time.sleep(0.01)
+
+    assert calls == 3
+    assert state.recent_activity[-1].status == "success"
+    assert state.last_export_path == destination
 
 
 def test_long_running_contract_points_to_real_handlers_and_registered_controls() -> None:
@@ -585,9 +755,17 @@ def test_long_running_contract_points_to_real_handlers_and_registered_controls()
     assert tuple(LONG_RUNNING_ACTION_SPECS) == tuple(LONG_RUNNING_ACTIONS)
     for key, spec in LONG_RUNNING_ACTION_SPECS.items():
         assert spec.handler and spec.control_key, key
-        assert spec.control_key in acceptance, key
+        assert LONG_RUNNING_ACTION_CONTROL_KEYS[key], key
+        assert spec.control_key == LONG_RUNNING_ACTION_CONTROL_KEYS[key][0], key
+        for control_key in LONG_RUNNING_ACTION_CONTROL_KEYS[key]:
+            assert control_key in acceptance, (key, control_key)
         if spec.handler.startswith("AppState."):
             assert callable(getattr(AppState, spec.handler.split(".", 1)[1]))
+    assert LONG_RUNNING_ACTION_CONTROL_KEYS["audit_export"] == (
+        "dashboard.export-audit",
+        "import-export.export-audit-packet",
+        "chatgpt.export-audit",
+    )
 
 
 @pytest.mark.parametrize("action_kind", ["yfinance", "local_import", "dashboard_result"])
@@ -689,16 +867,26 @@ def test_cache_rebuild_cancellation_and_retry_use_background_lifecycle(tmp_path,
 
     monkeypatch.setattr(jobs_page_module, "generated_cache_cleanup", cleanup)
     state = _state()
+    refreshes: list[str] = []
+
+    def record_refresh(*_args) -> None:
+        refreshes.append("running" if state.current_activity is not None else "terminal")
+
+    monkeypatch.setattr(jobs_page_module, "_refresh_activity_shell", record_refresh)
     control = jobs_page_module.jobs_page(SimpleNamespace(update=lambda: None), state)
     button = next(item for item in _walk(control) if getattr(item, "key", None) == "jobs.resource-cache-cleanup")
 
     button.on_click(SimpleNamespace())
+    assert refreshes == ["running"]
     assert entered.wait(2)
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
     deadline = time.time() + 2
     while state.current_activity is not None and time.time() < deadline:
+        time.sleep(0.01)
+    deadline = time.time() + 2
+    while refreshes.count("terminal") < 1 and time.time() < deadline:
         time.sleep(0.01)
     assert state.recent_activity[-1].status == "cancelled"
     assert "Cancelled by user" in " ".join(_texts(control))
@@ -709,20 +897,32 @@ def test_cache_rebuild_cancellation_and_retry_use_background_lifecycle(tmp_path,
     deadline = time.time() + 2
     while state.current_activity is not None and time.time() < deadline:
         time.sleep(0.01)
+    deadline = time.time() + 2
+    while refreshes.count("terminal") < 2 and time.time() < deadline:
+        time.sleep(0.01)
     assert state.recent_activity[-1].status == "failed"
     error = state.error_store.recent()[0]
     errors_recovery_module._retry(SimpleNamespace(), state, error.error_id)
     deadline = time.time() + 2
     while (state.current_activity is not None or state.recent_activity[-1].status != "success") and time.time() < deadline:
         time.sleep(0.01)
+    deadline = time.time() + 2
+    while refreshes.count("terminal") < 3 and time.time() < deadline:
+        time.sleep(0.01)
     assert calls == 3
     assert state.recent_activity[-1].status == "success"
+    assert refreshes == ["running", "terminal", "running", "terminal", "running", "terminal"]
 
 
 def test_notes_native_import_cancellation_restores_result_after_late_success(tmp_path, monkeypatch) -> None:
-    rebuilt = threading.Event()
-    monkeypatch.setattr(dashboard_page_module, "_rebuild", lambda *_args: rebuilt.set())
     state = _state()
+    running_refresh = threading.Event()
+    finalized = threading.Event()
+
+    def record_rebuild(*_args) -> None:
+        (running_refresh if state.current_activity is not None else finalized).set()
+
+    monkeypatch.setattr(dashboard_page_module, "_rebuild", record_rebuild)
     started = threading.Event()
     release = threading.Event()
     source = tmp_path / "notes.csv"
@@ -747,14 +947,12 @@ def test_notes_native_import_cancellation_restores_result_after_late_success(tmp
     )
     button = next(item for item in _walk(page.dialog) if getattr(item, "key", None) == "dashboard.import-manual-notes")
     asyncio.run(button.on_click(SimpleNamespace()))
+    assert running_refresh.wait(2)
     assert started.wait(2)
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
-    deadline = time.time() + 2
-    while state.current_activity is not None and time.time() < deadline:
-        time.sleep(0.01)
-    assert rebuilt.wait(2)
+    assert finalized.wait(2)
 
     assert state.last_message == "Cancelled by user"
     assert state.recent_activity[-1].status == "cancelled"
@@ -762,12 +960,21 @@ def test_notes_native_import_cancellation_restores_result_after_late_success(tmp
 
 
 def test_notes_browser_import_retry_reenters_background_lifecycle(tmp_path, monkeypatch) -> None:
-    rebuilt = threading.Event()
-    monkeypatch.setattr(dashboard_page_module, "_rebuild", lambda *_args: rebuilt.set())
     monkeypatch.setattr(router_module, "render_shell", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "notes.jsonl")
     state = _state()
     state.error_store = ErrorStore(tmp_path / "errors.jsonl")
+    running_refreshes = 0
+    terminal_refreshes = 0
+
+    def record_rebuild(*_args) -> None:
+        nonlocal running_refreshes, terminal_refreshes
+        if state.current_activity is None:
+            terminal_refreshes += 1
+        else:
+            running_refreshes += 1
+
+    monkeypatch.setattr(dashboard_page_module, "_rebuild", record_rebuild)
     attempts = 0
 
     def import_upload(name, content, dataset_type):
@@ -792,15 +999,22 @@ def test_notes_browser_import_retry_reenters_background_lifecycle(tmp_path, monk
     deadline = time.time() + 2
     while state.current_activity is not None and time.time() < deadline:
         time.sleep(0.01)
+    deadline = time.time() + 2
+    while terminal_refreshes < 1 and time.time() < deadline:
+        time.sleep(0.01)
     assert state.recent_activity[-1].status == "failed"
     error = state.error_store.recent()[0]
     errors_recovery_module._retry(SimpleNamespace(), state, error.error_id)
     deadline = time.time() + 2
     while (state.current_activity is not None or state.recent_activity[-1].status != "success") and time.time() < deadline:
         time.sleep(0.01)
-    assert rebuilt.wait(2)
+    deadline = time.time() + 2
+    while terminal_refreshes < 2 and time.time() < deadline:
+        time.sleep(0.01)
 
     assert attempts == 2
+    assert running_refreshes == 2
+    assert terminal_refreshes == 2
     assert state.recent_activity[-1].status == "success"
     assert state.recent_activity[-1].message == "Browser notes imported."
 

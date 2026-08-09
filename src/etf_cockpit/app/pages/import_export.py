@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 
 import flet as ft
 import pandas as pd
@@ -411,30 +412,71 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             return pd.DataFrame(rows) if rows else None
         return None
 
+    def start_audit_packet_export() -> threading.Thread | None:
+        label = "Export audit packet"
+        if state.current_activity is not None:
+            show(f"Export blocked: {state.current_activity.label} is already running.", colour=theme.RED)
+            return None
+        action_id = state.begin_activity(label, "Preparing export").action_id
+        show("Exporting audit packet...")
+        _refresh_activity_shell(page, state)
+
+        def worker() -> None:
+            try:
+                with state.share_activity(action_id):
+                    destination = state.export_audit_packet()
+                if state.activity_was_cancelled(action_id):
+                    return
+                state.last_export_path = destination
+                message = f"Export complete: audit packet at {destination}."
+                _record_export_terminal(
+                    state,
+                    label=label,
+                    message=message,
+                    destination=destination,
+                    ok=True,
+                    error=None,
+                    action_id=action_id,
+                )
+                show(message, colour=theme.GREEN)
+            except Exception as exc:
+                if not state.activity_was_cancelled(action_id):
+                    state.fail_activity(
+                        label,
+                        exc,
+                        retry_callback=lambda: start_audit_packet_export(),
+                        expected_action_id=action_id,
+                    )
+                    show(state.last_message, colour=theme.RED)
+            finally:
+                cancelled_message = state.restore_cancelled_activity_message(action_id)
+                if cancelled_message is not None:
+                    show(cancelled_message)
+                state.release_activity(action_id)
+                _refresh_activity_shell(page, state)
+
+        background = threading.Thread(target=worker, daemon=True)
+        background.start()
+        return background
+
     def export_category(category: str) -> None:
+        if category == "audit_packet":
+            start_audit_packet_export()
+            return
         label = f"Export {category.replace('_', ' ')}"
         if state.current_activity is not None:
             show(f"Export blocked: {state.current_activity.label} is already running.", colour=theme.RED)
             return
         action_id = state.begin_activity(label, "Preparing export").action_id
         try:
-            if category == "audit_packet":
-                with state.share_activity(action_id):
-                    destination = state.export_audit_packet()
-                state.last_export_path = destination
-                message = f"Export complete: audit packet at {destination}."
-            else:
-                frame = _export_frame(category)
-                destination = Path(export_path.value or ROOT / "exports" / f"{category}.csv") if category == "scoreboard" else ROOT / "exports" / f"{category}.csv"
-                with state.activity_publication(action_id):
-                    result = export_table(category, frame, destination)
-                state.last_export_path = result.destination
-                message = f"Export {'complete' if result.ok else 'unavailable'}: {result.destination}; {result.error or f'{result.rows} rows'}."
-            result_ok = True
-            result_error = None
-            if category != "audit_packet":
-                result_ok = bool(result.ok)
-                result_error = result.error
+            frame = _export_frame(category)
+            destination = Path(export_path.value or ROOT / "exports" / f"{category}.csv") if category == "scoreboard" else ROOT / "exports" / f"{category}.csv"
+            with state.activity_publication(action_id):
+                result = export_table(category, frame, destination)
+            state.last_export_path = result.destination
+            message = f"Export {'complete' if result.ok else 'unavailable'}: {result.destination}; {result.error or f'{result.rows} rows'}."
+            result_ok = bool(result.ok)
+            result_error = result.error
             _record_export_terminal(
                 state,
                 label=label,
