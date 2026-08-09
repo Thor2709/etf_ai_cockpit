@@ -379,7 +379,15 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
                         spacing=8,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    ft.ProgressBar(value=None, color=theme.CYAN, bgcolor=theme.SURFACE_2),
+                    ft.ProgressBar(
+                        value=(
+                            state.current_activity.completed_units / state.current_activity.total_units
+                            if state.current_activity.total_units
+                            else None
+                        ),
+                        color=theme.CYAN,
+                        bgcolor=theme.SURFACE_2,
+                    ),
                 ],
                 spacing=6,
             ),

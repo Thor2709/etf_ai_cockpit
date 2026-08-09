@@ -22,6 +22,26 @@ class WorkflowStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+# The product-level contract is intentionally data-only.  It keeps the UI
+# action inventory and focused evidence aligned without introducing another
+# workflow implementation or changing execution authority.
+LONG_RUNNING_ACTIONS: dict[str, str] = {
+    "yfinance_fetch": "Refresh yfinance data",
+    "validation": "Validate current data",
+    "algorithms": "Run algorithms",
+    "baseline_forecast": "Running baseline forecasts",
+    "timesfm_forecast": "Checking cached TimesFM forecasts",
+    "toto_forecast": "Checking cached Toto forecasts",
+    "forecasts": "Run forecasting models",
+    "scoreboard_write": "Write scoreboard",
+    "audit_export": "Export audit packet",
+    "cache_rebuild": "Rebuild generated cache",
+    "notes_news_import": "Import manual_news",
+    "holdings_factsheet_import": "Import ETF holdings",
+    "macro_news_refresh": "Refresh macro/news context",
+}
+
+
 @dataclass(frozen=True)
 class WorkflowStep:
     key: str

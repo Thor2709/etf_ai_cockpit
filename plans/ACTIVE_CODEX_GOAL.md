@@ -320,27 +320,38 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
 - Completion PR #661 merged independently approved exact head
   `0d789d0550a38c107b427bec40ac6bfff98ce5da` as
-  `a80aa32a3c6ffaeb5e7075d152c2d4cce9e888ea`. Writer run
+  `a80aa32a3c6ffaeb5e7075d152c2d4cce9e888ea`. Status guard run
+  `31300304421` and release run `31300304453` passed. Writer run
   `31301505274` returned `applied_and_verified` with an acceptance receipt and
   `zero_action_readback=true`; fresh generic exact-main readback has no
   actions at plan SHA
   `da8f7f0f36d1a9c9124b02634176b51b3e9e11cddbebcf39457cdeec9f615ef1`.
   GitHub issue #15 resolves to canonical `integrated` and
   `execution_allowed=false` remains.
-- ISSUE-0012 is next and product commit
+- ISSUE-0012 is the next implementation-order, dependency-ready issue. Product
+  commit
   `7cf66f9aea285d29e4881aa53c2e9817baccbbbf` is locally green and
-  frozen. Exact-main lifecycle preparation reproduced
+  preserved for rebase onto the repaired main. Exact-main lifecycle preparation reproduced
   `ISSUE-0012: status replay transition history prefix must be a list`; the
   failed projection remains isolated in worktree
   `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0012_lifecycle_premerge`
   at live one-action plan SHA
   `8e3778a20cd1b1c64da5c69347238c017c932f56d1f16649bd7a2dd8847fe3aa`.
-  Clean H-tier branch
-  `codex/issue0012-bootstrap-replay-repair-v2-20260809` starts at exact main
-  `a80aa32a3c6ffaeb5e7075d152c2d4cce9e888ea` and permits the empty
-  prefix only for complete fixed ISSUE-0011 and ISSUE-0012 B00 records. Every
-  other identity or malformed source fails closed; hops, dependencies, retry
-  behavior, authority and `execution_allowed=false` are unchanged.
+  Repair PR #662 merged independently approved exact head
+  `f23e814127fc62db4c936e9b4788ff7b242d2288` as
+  `5718ed5a2cb961985a215a25277951c271c4571d` after H-tier run
+  `31303632447` passed Linux, Windows and terminal validation. Only complete
+  fixed ISSUE-0011 and ISSUE-0012 B00 records may use the empty prefix; every
+  other identity or malformed source fails closed. Hops, dependencies, retry
+  behavior, authority and `execution_allowed=false` are unchanged. Product
+  worktree
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0011_readback`,
+  branch `codex/issue0012-product-20260809`, now rebases onto exact main
+  `5718ed5a2cb961985a215a25277951c271c4571d`. Scope is the existing shared
+  workflow-status service and persistent activity/run-log contract extended
+  across every declared long-running workflow, with visible started/step/
+  progress/success/failure/timestamp/output/error state and no execution or
+  external-write authority.
 
 ## ISSUE-0104 product chronology
 

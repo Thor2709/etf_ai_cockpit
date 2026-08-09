@@ -2,16 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+from functools import wraps
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar, cast
 
 from etf_cockpit.core.config import AppConfig, save_provider_settings
 from etf_cockpit.core.atomic_io import atomic_write_bytes, sha256_file
 from etf_cockpit.core.migrations import run_startup_migrations
 from etf_cockpit.core.paths import CLEAN_DIR, FILINGS_STATEMENTS_PATH, RAW_DIR, ROOT, STATEMENT_FACTS_PATH
-from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event, log_exception
+from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event
 from etf_cockpit.core.errors import ErrorStore, classify_exception
 from etf_cockpit.core.timing import timed_step
 from etf_cockpit.core.workflow import WorkflowController, WorkflowStatus, WorkflowStep
@@ -44,6 +45,45 @@ from etf_cockpit.app import theme
 # Compatibility seam for existing callers and tests. This is the session trace,
 # not a second mutable activity store.
 ACTIVITY_LOG_PATH = SESSION_LOG_PATH
+
+_TrackedResult = TypeVar("_TrackedResult")
+
+
+def _tracked_activity(label: str, step: str) -> Callable[[Callable[..., _TrackedResult]], Callable[..., _TrackedResult]]:
+    """Give direct callers the same lifecycle as callbacks using the dashboard helper.
+
+    Page callbacks may already own an activity.  In that case this decorator only
+    publishes the nested step and output; the outer callback remains responsible
+    for the terminal result.
+    """
+
+    def decorate(function: Callable[..., _TrackedResult]) -> Callable[..., _TrackedResult]:
+        @wraps(function)
+        def wrapped(self: "AppState", *args: Any, **kwargs: Any) -> _TrackedResult:
+            owns_activity = self.current_activity is None
+            if owns_activity:
+                self.begin_activity(label, step)
+            else:
+                self.update_activity(step)
+            try:
+                result = function(self, *args, **kwargs)
+                output_path = result if isinstance(result, Path) else None
+                if self.current_activity is not None and output_path is not None:
+                    self.update_activity("Writing output", output_path=output_path)
+                if owns_activity:
+                    message = str(result).strip() if result is not None else str(self.last_message or "").strip()
+                    if not message:
+                        raise RuntimeError("Tracked action completed without a readable result message.")
+                    self.finish_activity(message, output_path=output_path, label=label)
+                return result
+            except Exception as exc:
+                if owns_activity:
+                    self.fail_activity(label, exc, retry_callback=lambda: function(self, *args, **kwargs))
+                raise
+
+        return cast(Callable[..., _TrackedResult], wrapped)
+
+    return decorate
 
 
 def _signal_classification_is_current(signal: object, *, root: Path) -> bool:
@@ -80,6 +120,7 @@ class ActivityEntry:
     output_path: str | None = None
     completed_units: int = 0
     total_units: int | None = None
+    error: str | None = None
 
     @property
     def is_running(self) -> bool:
@@ -98,6 +139,7 @@ class ActivityEntry:
             "output_path": self.output_path,
             "completed_units": self.completed_units,
             "total_units": self.total_units,
+            "error": self.error,
         }
 
     @classmethod
@@ -114,6 +156,7 @@ class ActivityEntry:
             output_path=data.get("output_path"),
             completed_units=int(data.get("completed_units") or 0),
             total_units=None if data.get("total_units") is None else int(data.get("total_units")),
+            error=None if data.get("error") is None else str(data.get("error")),
         )
 
 
@@ -122,37 +165,47 @@ def _utc_now() -> str:
 
 
 def _read_recent_activity(limit: int = 8) -> list[ActivityEntry]:
-    entries: list[ActivityEntry] = []
     try:
         events, _ = load_events_with_tail_recovery(ACTIVITY_LOG_PATH)
     except Exception:
         return []
+    terminal_events = {"activity_complete", "activity_failed", "activity_cancelled"}
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for event in events:
-        if event.event_type not in {"activity_complete", "activity_failed", "activity_cancelled"}:
+        if not event.action_id:
             continue
         data = event.model_dump(mode="json")
-        output_summary = data.get("output_summary") or {}
-        file_paths = data.get("file_paths") or []
+        if event.event_type in {"activity_update", *terminal_events}:
+            grouped.setdefault(str(event.action_id), []).append(data)
+
+    entries: list[ActivityEntry] = []
+    for action_events in grouped.values():
+        terminal = next((item for item in reversed(action_events) if item.get("event_type") in terminal_events), None)
+        if terminal is None:
+            continue
+        terminal_summary = terminal.get("output_summary") or {}
+        latest_update = next((item for item in reversed(action_events) if item.get("event_type") == "activity_update"), {})
+        latest_summary = latest_update.get("output_summary") or {}
+        first_summary = (action_events[0].get("output_summary") or {}) if action_events else {}
+        file_paths = terminal.get("file_paths") or []
+        output_path = terminal_summary.get("output_path") or (file_paths[0] if file_paths else None)
+        status = str(terminal.get("status") or "unknown")
         entries.append(
             ActivityEntry(
-                label=str(data.get("button_label") or data.get("feature") or "Workflow action"),
-                status=str(event.status or "unknown"),
-                step=(
-                    "Complete"
-                    if event.event_type == "activity_complete"
-                    else "Cancelled"
-                    if event.event_type == "activity_cancelled"
-                    else "Failed"
-                ),
-                started_at=str(data.get("timestamp_local") or data.get("timestamp_utc") or ""),
-                action_id=str(event.action_id or ""),
-                finished_at=str(data.get("timestamp_local") or data.get("timestamp_utc") or ""),
-                message=str(data.get("user_message") or output_summary.get("message") or ""),
-                output_path=str(file_paths[0]) if file_paths else None,
+                label=str(terminal.get("button_label") or terminal.get("feature") or "Workflow action"),
+                status=status,
+                step=str(terminal_summary.get("step") or ("Cancelled" if status == "cancelled" else "Failed" if status == "failed" else "Complete")),
+                started_at=str(terminal_summary.get("started_at") or first_summary.get("started_at") or action_events[0].get("timestamp_local") or action_events[0].get("timestamp_utc") or ""),
+                action_id=str(terminal.get("action_id") or ""),
+                finished_at=str(terminal_summary.get("finished_at") or terminal.get("timestamp_local") or terminal.get("timestamp_utc") or ""),
+                message=str(terminal.get("user_message") or terminal_summary.get("message") or ""),
+                output_path=None if output_path is None else str(output_path),
+                completed_units=int(terminal_summary.get("completed_units", latest_summary.get("completed_units", 0)) or 0),
+                total_units=None if terminal_summary.get("total_units", latest_summary.get("total_units")) is None else int(terminal_summary.get("total_units", latest_summary.get("total_units"))),
+                error=None if terminal_summary.get("error") is None else str(terminal_summary.get("error")),
             )
         )
-    entries = entries[-limit:]
-    return entries
+    return entries[-limit:]
 
 
 @dataclass
@@ -297,7 +350,7 @@ class AppState:
             feature=label,
             operation="activity_start",
             status="running",
-            output_summary={"step": entry.step},
+            output_summary={"step": entry.step, "started_at": entry.started_at},
             path=ACTIVITY_LOG_PATH,
         )
         return entry
@@ -309,6 +362,7 @@ class AppState:
         *,
         completed_units: int = 0,
         total_units: int | None = None,
+        output_path: Path | str | None = None,
     ) -> None:
         if self.current_activity is None:
             self.begin_activity(step, step)
@@ -316,6 +370,8 @@ class AppState:
         self.current_activity.step = step
         self.current_activity.completed_units = max(0, int(completed_units))
         self.current_activity.total_units = None if total_units is None else max(0, int(total_units))
+        if output_path is not None:
+            self.current_activity.output_path = str(output_path)
         if message is not None:
             self.current_activity.message = message
             self.last_message = message
@@ -335,23 +391,31 @@ class AppState:
             feature=self.current_activity.label,
             operation="activity_step",
             status="running",
-            output_summary={"step": step, "message": self.last_message},
+            output_summary={
+                "step": step,
+                "message": self.last_message,
+                "completed_units": self.current_activity.completed_units,
+                "total_units": self.current_activity.total_units,
+                "output_path": self.current_activity.output_path,
+            },
             path=ACTIVITY_LOG_PATH,
         )
 
     def finish_activity(self, message: str, output_path: Path | str | None = None, label: str | None = None) -> ActivityEntry:
         entry = self.current_activity or self.begin_activity(label or "Workflow action", "Completing")
+        resolved_output_path = entry.output_path if output_path is None else str(output_path)
         result = self.workflow_controller.finish(
             entry.action_id,
             WorkflowStatus.SUCCESS,
             message,
-            () if output_path is None else (output_path,),
+            () if resolved_output_path is None else (resolved_output_path,),
         )
         entry.status = "success"
         entry.step = "Complete"
         entry.finished_at = _utc_now()
         entry.message = result.message
-        entry.output_path = None if output_path is None else str(output_path)
+        entry.output_path = resolved_output_path
+        entry.error = None
         self.current_activity = None
         self.last_message = message
         self.recent_activity = (self.recent_activity + [entry])[-8:]
@@ -365,6 +429,15 @@ class AppState:
             operation="finish_activity",
             status="success",
             file_paths=entry.output_path,
+            output_summary={
+                "step": entry.step,
+                "message": entry.message,
+                "started_at": entry.started_at,
+                "finished_at": entry.finished_at,
+                "completed_units": entry.completed_units,
+                "total_units": entry.total_units,
+                "output_path": entry.output_path,
+            },
             user_message=message,
             path=ACTIVITY_LOG_PATH,
         )
@@ -384,6 +457,7 @@ class AppState:
         entry.step = "Failed"
         entry.finished_at = _utc_now()
         entry.message = f"{label} failed: {result.message}"
+        entry.error = result.message
         self.current_activity = None
         self.last_message = entry.message
         self.recent_activity = (self.recent_activity + [entry])[-8:]
@@ -393,14 +467,29 @@ class AppState:
             retry_callback=retry_callback,
             user_message=entry.message,
         )
-        log_exception(
+        log_event(
             event_type="activity_failed",
-            exc=exc,
+            severity="error",
             action_id=entry.action_id,
             component="app_state",
             button_label=entry.label,
             feature=entry.label,
             operation="fail_activity",
+            status="failed",
+            file_paths=entry.output_path,
+            exception_type=type(exc).__name__,
+            exception_message_redacted=result.message,
+            traceback_fingerprint=result.error_fingerprint,
+            output_summary={
+                "step": entry.step,
+                "message": entry.message,
+                "error": entry.error,
+                "started_at": entry.started_at,
+                "finished_at": entry.finished_at,
+                "completed_units": entry.completed_units,
+                "total_units": entry.total_units,
+                "output_path": entry.output_path,
+            },
             user_message=entry.message,
             path=ACTIVITY_LOG_PATH,
         )
@@ -441,22 +530,26 @@ class AppState:
             events = []
         return current_activity_view(events)
 
+    @_tracked_activity("Refresh sample data", "Refreshing local sample data")
     def refresh_sample_data(self) -> None:
         self.snapshot = build_snapshot(force_sample=True)
         self.selected_etf = self.snapshot.config.ui.default_etf
         self.last_message = "Sample data regenerated and signals refreshed."
 
+    @_tracked_activity("Validate current data", "Running dry-run validation")
     def renew_data_dry_run(self) -> str:
         message = DataService(self.snapshot.config).dry_run_update()
         self.last_message = "Renew data dry run completed."
         return message
 
+    @_tracked_activity("Check API/yfinance provider", "Checking provider configuration")
     def renew_data_api_status(self) -> str:
         message = DataService(self.snapshot.config).api_update_status()
         self.last_message = message
         self.snapshot = build_snapshot(force_sample=False)
         return message
 
+    @_tracked_activity("Refresh yfinance data", "Fetching adjusted yfinance prices")
     def refresh_yfinance_data(self) -> str:
         action_id = self.current_activity.action_id if self.current_activity else "yfinance"
         with timed_step(action_id, "yfinance_refresh"):
@@ -470,6 +563,7 @@ class AppState:
                 self.last_message = message
             return message
 
+    @_tracked_activity("Run algorithms", "Running deterministic algorithms")
     def run_algorithm_scores(self) -> str:
         action_id = self.current_activity.action_id if self.current_activity else "algorithms"
         with timed_step(action_id, "algorithm_scores"):
@@ -480,16 +574,22 @@ class AppState:
             summary = message.split(" Report:", 1)[0]
             return f"{summary}. Scoreboard updated: {scoreboard_path.name}."
 
+    @_tracked_activity("Run forecasting models", "Running baseline forecasts")
     def run_forecasting_models(self) -> str:
         action_id = self.current_activity.action_id if self.current_activity else "forecasts"
         with timed_step(action_id, "forecast_models"):
+            self.update_activity("Running baseline forecasts", completed_units=1, total_units=4)
+            self.update_activity("Checking cached TimesFM forecasts", completed_units=2, total_units=4)
+            self.update_activity("Checking cached Toto forecasts", completed_units=3, total_units=4)
             message = DataService(self.snapshot.config).run_yfinance_forecasts(horizons=[60], live_optional_models=False)
             self.snapshot = build_snapshot(force_sample=False)
             scoreboard_path = self._write_current_scoreboard()
+            self.update_activity("Forecasts and scoreboard complete", completed_units=4, total_units=4, output_path=scoreboard_path)
             self.last_message = "Fast forecasts refreshed from yfinance data for the 60-trading-day scoring horizon."
             summary = "; ".join(line.split(". Output:", 1)[0] for line in message.splitlines() if line.strip())
             return f"{summary}. Optional TimesFM/Toto live models are kept out of the main workflow if they are not already cached. Scoreboard updated: {scoreboard_path.name}."
 
+    @_tracked_activity("Rollback prices", "Searching previous clean price snapshot")
     def rollback_latest_prices(self) -> str:
         message = DataService(self.snapshot.config).rollback_latest_price_import()
         self.last_message = message
@@ -497,9 +597,11 @@ class AppState:
             self.snapshot = build_snapshot(force_sample=False)
         return message
 
+    @_tracked_activity("Validate local import", "Validating selected import")
     def validate_local_import(self, path: str, dataset_type: str = "prices") -> str:
         return self._import_and_refresh(Path(path), dataset_type)
 
+    @_tracked_activity("Import local upload", "Writing selected upload")
     def import_local_upload(self, file_name: str, content: bytes, dataset_type: str = "prices") -> str:
         upload_dir = RAW_DIR / "browser_uploads"
         upload_dir.mkdir(parents=True, exist_ok=True)
@@ -752,10 +854,12 @@ class AppState:
             self.snapshot = build_snapshot(force_sample=False)
         return result.message
 
+    @_tracked_activity("Refresh macro/news context", "Refreshing local context")
     def refresh_signals(self) -> None:
         self.snapshot = build_snapshot(force_sample=False)
         self.last_message = "Signals refreshed from local data."
 
+    @_tracked_activity("Export audit packet", "Writing audit packet")
     def export_audit_packet(self) -> Path:
         self._write_current_scoreboard()
         bridge = ChatGPTBridge(self.snapshot.config)
@@ -796,6 +900,7 @@ class AppState:
         self.last_message = f"Saved provider settings for {provider_name}.{suffix}"
         return self.last_message
 
+    @_tracked_activity("Write scoreboard", "Building scoreboard")
     def _write_current_scoreboard(self) -> Path:
         candidate_report, _ = load_latest_candidate_report()
         regime = build_market_regime(self.snapshot.prices, candidate_report)

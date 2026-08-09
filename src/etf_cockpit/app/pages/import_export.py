@@ -27,6 +27,23 @@ from etf_cockpit.application.ui_facade import (
 )
 
 
+def _record_export_terminal(
+    state: AppState,
+    *,
+    label: str,
+    message: str,
+    destination: Path,
+    ok: bool,
+    error: str | None,
+    owns_activity: bool,
+) -> None:
+    if ok:
+        if owns_activity:
+            state.finish_activity(message, output_path=destination, label=label)
+        return
+    state.fail_activity(label, RuntimeError(error or "export was unavailable"))
+
+
 def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     picker = ft.FilePicker(key="import-export.import.file-picker")
     try:
@@ -132,23 +149,32 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         if selected_preview is None or not selected_preview.valid:
             show("Commit blocked: run a valid preview first.", colour=theme.RED)
             return
+        label = f"Import {selected_preview.import_type}"
+        owns_activity = state.current_activity is None
+        if owns_activity:
+            state.begin_activity(label, "Committing validated import")
+        else:
+            state.update_activity("Committing validated import")
         try:
+            output_path = None
             if selected_preview.import_type == "portfolio_history":
                 portfolio_result = portfolio_imports.commit(selected_preview)
-                show(
-                    f"Portfolio import {portfolio_result.status}: batch {portfolio_result.batch_id}; accepted={portfolio_result.accepted}, quarantined={portfolio_result.quarantined}, duplicates={portfolio_result.duplicates}, corrections={portfolio_result.corrections} (execution_allowed=false).",
-                    colour=theme.GREEN,
-                )
+                message = f"Portfolio import {portfolio_result.status}: batch {portfolio_result.batch_id}; accepted={portfolio_result.accepted}, quarantined={portfolio_result.quarantined}, duplicates={portfolio_result.duplicates}, corrections={portfolio_result.corrections} (execution_allowed=false)."
             else:
                 service = ImportService(ROOT)
                 service.register(selected_preview)
                 generic_result = service.commit(selected_preview.preview_id)
-                show(
-                    f"Import committed: {generic_result.rows} rows at {generic_result.destination} (execution_allowed=false).",
-                    colour=theme.GREEN,
-                )
+                output_path = generic_result.destination
+                message = f"Import committed: {generic_result.rows} rows at {generic_result.destination} (execution_allowed=false)."
+            show(message, colour=theme.GREEN)
+            state.update_activity("Import committed", completed_units=1, total_units=1)
+            if owns_activity:
+                state.finish_activity(message, output_path=output_path, label=label)
         except Exception as exc:
-            show(f"Import failed: {type(exc).__name__}: {exc}; previous clean state preserved.", colour=theme.RED)
+            failure = f"Import failed: {type(exc).__name__}: {exc}; previous clean state preserved."
+            show(failure, colour=theme.RED)
+            if owns_activity:
+                state.fail_activity(label, exc)
 
     commit_button.on_click = commit
 
@@ -218,13 +244,29 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             page.update()
             return
         source = Path(files[0].path or files[0].name)
+        label = "Rebuild local source cache"
+        owns_activity = state.current_activity is None
+        if owns_activity:
+            state.begin_activity(label, "Validating cache source")
+        else:
+            state.update_activity("Validating cache source")
         try:
             result = ContentAddressedCache(ROOT).store_local_file(bulk_source_id.value or "local-bulk-source", source)
             bulk_status.value = f"Cached and checksum-verified {result.manifest.source_id}: {result.manifest.content_sha256[:16]}…; version {result.manifest.version}; raw object is immutable."
             bulk_status.color = theme.GREEN
+            state.update_activity("Cache source promoted", completed_units=1, total_units=1)
+            if owns_activity:
+                cache = ContentAddressedCache(ROOT)
+                state.finish_activity(
+                    bulk_status.value,
+                    output_path=cache._manifest_path(result.manifest.source_id),
+                    label=label,
+                )
         except Exception as exc:
             bulk_status.value = f"Bulk cache rejected: {type(exc).__name__}: {exc}; no partial object was promoted."
             bulk_status.color = theme.RED
+            if owns_activity:
+                state.fail_activity(label, exc)
         page.update()
 
     cache_report = bulk_cache_health(ROOT)
@@ -317,19 +359,42 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         return None
 
     def export_category(category: str) -> None:
-        if category == "audit_packet":
-            try:
+        label = f"Export {category.replace('_', ' ')}"
+        owns_activity = state.current_activity is None
+        if owns_activity:
+            state.begin_activity(label, "Preparing export")
+        else:
+            state.update_activity("Preparing export")
+        try:
+            if category == "audit_packet":
                 destination = state.export_audit_packet()
                 state.last_export_path = destination
-                show(f"Export complete: audit packet at {destination}.", colour=theme.GREEN)
-            except Exception as exc:
-                show(f"Export unavailable: audit packet: {type(exc).__name__}: {exc}.", colour=theme.RED)
-            return
-        frame = _export_frame(category)
-        destination = Path(export_path.value or ROOT / "exports" / f"{category}.csv") if category == "scoreboard" else ROOT / "exports" / f"{category}.csv"
-        result = export_table(category, frame, destination)
-        state.last_export_path = result.destination
-        show(f"Export {'complete' if result.ok else 'unavailable'}: {result.destination}; {result.error or f'{result.rows} rows'}.", colour=theme.GREEN if result.ok else theme.RED)
+                message = f"Export complete: audit packet at {destination}."
+            else:
+                frame = _export_frame(category)
+                destination = Path(export_path.value or ROOT / "exports" / f"{category}.csv") if category == "scoreboard" else ROOT / "exports" / f"{category}.csv"
+                result = export_table(category, frame, destination)
+                state.last_export_path = result.destination
+                message = f"Export {'complete' if result.ok else 'unavailable'}: {result.destination}; {result.error or f'{result.rows} rows'}."
+            result_ok = True
+            result_error = None
+            if category != "audit_packet":
+                result_ok = bool(result.ok)
+                result_error = result.error
+            show(message, colour=theme.GREEN if result_ok else theme.RED)
+            _record_export_terminal(
+                state,
+                label=label,
+                message=message,
+                destination=destination,
+                ok=result_ok,
+                error=result_error,
+                owns_activity=owns_activity,
+            )
+        except Exception as exc:
+            show(f"Export unavailable: {category}: {type(exc).__name__}: {exc}.", colour=theme.RED)
+            if owns_activity:
+                state.fail_activity(label, exc)
 
     def export_scoreboard(_event: ft.ControlEvent) -> None:
         export_category("scoreboard")

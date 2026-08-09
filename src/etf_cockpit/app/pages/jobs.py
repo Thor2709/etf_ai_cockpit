@@ -44,16 +44,35 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
     )
 
     def clean_generated_cache(_event: ft.ControlEvent) -> None:
-        result = generated_cache_cleanup(
-            Path.cwd(),
-            maximum_bytes=int(selected_profile["job_disk_limit_mb"]) * 1024 * 1024,
-            apply=True,
-        )
-        removed = len(result.get("removed", []))
-        cleanup_message.value = (
-            f"Generated-cache cleanup: {result['status']}; removed {removed} reproducible file(s)."
-        )
-        cleanup_message.color = theme.RED if result["status"] in {"failed", "unavailable"} else theme.GREEN
+        label = "Rebuild generated cache"
+        owns_activity = state.current_activity is None
+        if owns_activity:
+            state.begin_activity(label, "Inspecting generated cache")
+        else:
+            state.update_activity("Inspecting generated cache")
+        try:
+            result = generated_cache_cleanup(
+                Path.cwd(),
+                maximum_bytes=int(selected_profile["job_disk_limit_mb"]) * 1024 * 1024,
+                apply=True,
+            )
+            removed = len(result.get("removed", []))
+            cleanup_message.value = (
+                f"Generated-cache cleanup: {result['status']}; removed {removed} reproducible file(s)."
+            )
+            cleanup_message.color = theme.RED if result["status"] in {"failed", "unavailable"} else theme.GREEN
+            state.update_activity("Cache cleanup complete", completed_units=1, total_units=1)
+            if owns_activity:
+                state.finish_activity(
+                    cleanup_message.value,
+                    output_path=result.get("cache_path"),
+                    label=label,
+                )
+        except Exception as exc:
+            if owns_activity:
+                state.fail_activity(label, exc)
+            cleanup_message.value = f"Generated-cache cleanup failed: {type(exc).__name__}: {exc}"
+            cleanup_message.color = theme.RED
         page.update()
 
     resource_panel = panel(

@@ -288,6 +288,7 @@ def _news_context_extra(state: AppState) -> ft.Control:
     except Exception:
         events = pd.DataFrame()
     event_text = "Event calendar unavailable; no canonical local event records are registered." if events.empty else f"{len(events)} event records are available. Events remain context-only, execution_allowed=false, and do not change scores or actions."
+
     return panel(
         ft.Column(
             [
@@ -503,6 +504,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             result.value = "ETF document import cancelled; no data changed."
             page.update()
             return
+        _start_disclosure_import(state, result, "Import ETF factsheet")
         path = Path(files[0].path) if files[0].path else None
         try:
             if path is None or not path.exists():
@@ -517,6 +519,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             )
             result.value = f"ETF {document.document_type} registered for {document.instrument_id}; registry persisted with checksum {document.sha256[:12]}...."
             state.last_message = result.value
+            state.finish_activity(result.value)
         except Exception as exc:
             state.fail_activity("Import ETF document", exc)
             result.value = f"ETF document import failed safely: {state.last_message or type(exc).__name__}; no data changed."
@@ -528,6 +531,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             report_status.value = "ETF report import cancelled; no data changed."
             page.update()
             return
+        _start_disclosure_import(state, report_status, "Import ETF report")
         selected = files[0]
         suffix = Path(str(getattr(selected, "name", "report.pdf"))).suffix or ".pdf"
         try:
@@ -550,7 +554,9 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             report_status.value = f"ETF {imported.document.document_kind} import: {imported.extraction_status}; source={imported.source_id}; fingerprint={fingerprint}; review remains advisory and non-executable."
             review_source_field.value = imported.source_id
             review_fingerprint_field.value = fingerprint
+            state.finish_activity(report_status.value)
         except Exception as exc:
+            state.fail_activity("Import ETF report", exc)
             report_status.value = f"ETF report import failed safely: {type(exc).__name__}; no parsed authority granted."
         page.update()
 
@@ -574,6 +580,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             result.value = "ETF holdings import cancelled; no data changed."
             page.update()
             return
+        _start_disclosure_import(state, result, "Import ETF holdings")
         path = Path(files[0].path) if files[0].path else None
         try:
             if path is None or not path.exists():
@@ -587,6 +594,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             )
             result.value = f"ETF holdings imported for {instrument_field.value}: completeness={imported.completeness}, freshness={imported.freshness}, confidence={imported.confidence:.2f}."
             state.last_message = result.value
+            state.finish_activity(result.value)
         except Exception as exc:
             state.fail_activity("Import ETF holdings", exc)
             result.value = f"ETF holdings import failed safely: {state.last_message or type(exc).__name__}; existing holdings were preserved."

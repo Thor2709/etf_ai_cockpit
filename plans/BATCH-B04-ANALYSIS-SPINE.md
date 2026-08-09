@@ -264,14 +264,24 @@ has no actions. GitHub issue #15 resolves to `integrated` and
 
 ISSUE-0012 product commit
 `7cf66f9aea285d29e4881aa53c2e9817baccbbbf` is locally green and
-frozen. Exact-main lifecycle preparation reproduced
+preserved for rebase onto repaired main. Exact-main lifecycle preparation reproduced
 `ISSUE-0012: status replay transition history prefix must be a list`; its
 isolated one-action plan SHA is
 `8e3778a20cd1b1c64da5c69347238c017c932f56d1f16649bd7a2dd8847fe3aa`.
-Clean H-tier branch `codex/issue0012-bootstrap-replay-repair-v2-20260809`
-allows the empty prefix only for complete fixed ISSUE-0011 and ISSUE-0012 B00
-records. Every other identity and malformed source fails closed; no lifecycle,
-dependency, retry, external-write or execution authority changes.
+Repair PR #662 merged independently approved exact head
+`f23e814127fc62db4c936e9b4788ff7b242d2288` as
+`5718ed5a2cb961985a215a25277951c271c4571d` after H-tier run
+`31303632447` passed Linux, Windows and terminal validation. Only complete
+fixed ISSUE-0011 and ISSUE-0012 B00 records may use the empty prefix; every
+other identity and malformed source fails closed. No lifecycle, dependency,
+retry, external-write or execution authority changes.
+
+ISSUE-0012 remains the next product issue. Clean branch
+`codex/issue0012-product-20260809` rebases onto exact main
+`5718ed5a2cb961985a215a25277951c271c4571d`. Its bounded scope extends the
+existing persistent activity/run-log and visible progress contract across all
+declared long-running workflows, preserving local-first operation and all
+execution and external-write boundaries.
 
 ## ISSUE-0104 product chronology
 
