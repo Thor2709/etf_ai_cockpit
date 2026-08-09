@@ -45,7 +45,7 @@ def training_centre_page(page: ft.Page, state: object) -> ft.Control:
                 wrap=True,
             ),
             panel(ft.Column([section_header("Registry status", "The compatible lightweight adapter uses the existing transactional store."), ft.Text(message, color=theme.MUTED, selectable=True), ft.Text(f"Runs: {len(runs)} · models: {len(models)} · metrics: {len(metrics)} · training workflows: {len([item for item in workflows if item.workflow_type == 'model_training'])}", color=theme.TEXT, selectable=True)])),
-            _synthetic_panel(),
+            _synthetic_panel(page),
             render_optimisation_history(optimisation["trials"], optimisation["summaries"]),
             _validation_panel(
                 page,
@@ -222,25 +222,40 @@ def _retained_validation_text(
     )
 
 
-def _synthetic_panel() -> ft.Container:
+def _synthetic_panel(page: ft.Page | None = None) -> ft.Container:
     """Show a deterministic robustness fixture without granting promotion authority."""
 
     spec = SyntheticScenarioSpec(periods=60, seed=42, missing_rate=0.04, jump_probability=0.03)
-    try:
-        dataset = SyntheticScenarioGenerator().generate(spec)
-        evidence = SyntheticScenarioGenerator.validate(dataset)
-        summary = f"{evidence['rows']['prices']} price rows · {evidence['rows']['data_quality']} quality rows · {evidence['rows']['execution_events']} execution fixtures"
-        detail = f"Seed {spec.seed} · hash {str(dataset.metadata['dataset_hash'])[:12]} · labels {evidence['status']}"
-    except Exception as exc:
-        summary = "Synthetic scenario unavailable"
-        detail = f"Controlled failure: {type(exc).__name__}: {exc}"
+    summary_text = ft.Text(color=theme.TEXT, selectable=True)
+    detail_text = ft.Text(color=theme.MUTED, selectable=True)
+
+    def generate_synthetic_scenario(_event: ft.ControlEvent | None = None) -> None:
+        try:
+            dataset = SyntheticScenarioGenerator().generate(spec)
+            evidence = SyntheticScenarioGenerator.validate(dataset)
+            summary_text.value = (
+                f"{evidence['rows']['prices']} price rows · "
+                f"{evidence['rows']['data_quality']} quality rows · "
+                f"{evidence['rows']['execution_events']} execution fixtures"
+            )
+            detail_text.value = (
+                f"Seed {spec.seed} · hash {str(dataset.metadata['dataset_hash'])[:12]} · "
+                f"labels {evidence['status']}"
+            )
+        except Exception as exc:
+            summary_text.value = "Synthetic scenario unavailable"
+            detail_text.value = f"Controlled failure: {type(exc).__name__}: {exc}"
+        if _event is not None and callable(getattr(page, "update", None)):
+            page.update()
+
+    generate_synthetic_scenario()
     return panel(
         ft.Column(
             [
                 section_header("Synthetic Scenario Builder", "Seeded market, data-quality and execution fixtures for invariants and robustness only."),
-                ft.Row([ft.TextButton("Generate seeded scenario", key="training-centre.synthetic-scenario", on_click=lambda _event: None), ft.Text("synthetic=true · promotion_eligible=false", color=theme.MUTED, selectable=True)], wrap=True),
-                ft.Text(summary, color=theme.TEXT, selectable=True),
-                ft.Text(detail, color=theme.MUTED, selectable=True),
+                ft.Row([ft.TextButton("Generate seeded scenario", key="training-centre.synthetic-scenario", on_click=generate_synthetic_scenario), ft.Text("synthetic=true · promotion_eligible=false", color=theme.MUTED, selectable=True)], wrap=True),
+                summary_text,
+                detail_text,
             ]
         )
     )

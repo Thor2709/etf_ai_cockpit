@@ -92,7 +92,7 @@ def _capital_efficiency_panel(section: object, page: object | None = None) -> ft
         selected=["reported"],
         allow_empty_selection=False,
         on_change=select_basis,
-        key="stock-research-capital-basis",
+        key="stock-research.capital-basis",
     )
     proxies = value.get("business_quality_proxies", {}) if isinstance(value.get("business_quality_proxies"), dict) else {}
     proxy_text = ", ".join(f"{name.replace('_', ' ')}={_research_number(item.get('value'))} ({item.get('status', 'unavailable')})" for name, item in proxies.items() if isinstance(item, dict)) or "No source-backed quality proxies are available."

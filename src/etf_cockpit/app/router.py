@@ -3,7 +3,7 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.command_palette import PaletteCommand, search_commands
+from etf_cockpit.app.command_palette import search_commands
 from etf_cockpit.app.components.cards import panel
 from etf_cockpit.app.components.flet_compat import border_only, padding_symmetric
 from etf_cockpit.app.pages.backtests import backtests_page
@@ -49,10 +49,11 @@ from etf_cockpit.app.pages.release_readiness import release_readiness_page
 from etf_cockpit.app.pages.programme_map import programme_map_page
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.session_log import log_event
+from etf_cockpit.core.ui_acceptance import UIInvocationResult, command_contract_from_metadata
 
 PAGES = {
     "/": ("Simple Scores", dashboard_page),
-"/portfolio": ("Portfolio Sandbox", portfolio_page),
+    "/portfolio": ("Portfolio Sandbox", portfolio_page),
     "/portfolio-optimiser": ("Portfolio Optimiser Lab", portfolio_optimiser_page),
     "/signals": ("Scores", signals_page),
     "/screener": ("Fundamentals Screener", screener_page),
@@ -166,7 +167,9 @@ def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: 
 
 def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
     canonical_route = _page_route(route)
-    title, builder = PAGES.get(canonical_route, PAGES["/"])
+    page_entry = PAGES.get(canonical_route)
+    title = page_entry[0] if page_entry is not None else "Route unavailable"
+    builder = page_entry[1] if page_entry is not None else None
     narrow = uses_narrow_layout(page, state)
 
     def nav_button(path: str, label: str) -> ft.Container:
@@ -212,9 +215,14 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
     )
 
     palette_results = ft.Container(visible=False)
+    palette_commands: dict[str, object] = {}
+    palette_invocations: dict[str, UIInvocationResult] = {}
 
-    def select_palette_command(command: PaletteCommand) -> None:
-        navigate_to(page, state, command.route)
+    def navigate_palette_command(event: ft.ControlEvent) -> None:
+        route = str(getattr(getattr(event, "control", None), "data", "") or "")
+        if not route:
+            raise ValueError("selected command has no registered route")
+        navigate_to(page, state, route)
 
     def show_palette_message(message: str) -> None:
         palette_results.content = panel(ft.Column([ft.Text(message, color=theme.AMBER, size=theme.FONT_SM, selectable=True)]))
@@ -223,9 +231,27 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         if callable(getattr(page, "update", None)):
             page.update()
 
+    def select_palette_command(event: ft.ControlEvent) -> UIInvocationResult | None:
+        route = str(getattr(getattr(event, "control", None), "data", "") or "")
+        command = palette_commands.get(route)
+        if command is None:
+            show_palette_message("Selected command has no registered route")
+            return None
+        contract = command_contract_from_metadata(command)
+        result = contract.invoke(
+            navigate_palette_command,
+            event,
+            invoked=palette_invocations,
+            show_failure=lambda _message: None,
+        )
+        if result.status == "failed":
+            show_palette_message(f"{result.signal} · {result.visible_message}")
+        return result
+
     def render_palette_results(event: ft.ControlEvent) -> None:
         query = str(getattr(getattr(event, "control", None), "value", None) or "")
         matches = search_commands(PAGES, WORKSPACE_GROUPS, query)
+        palette_commands.update({command.route: command for command in matches})
         result_controls: list[ft.Control] = [
             ft.Text("Command palette results", color=theme.MUTED, size=theme.FONT_XS, weight=ft.FontWeight.BOLD)
         ]
@@ -234,7 +260,8 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
                 f"{command.title} · {command.workspace} · {command.route}",
                 key=f"shell.command.{command.route.strip('/').replace('/', '-') or 'home'}",
                 tooltip=f"Open {command.title}",
-                on_click=lambda _event, item=command: select_palette_command(item),
+                data=command.route,
+                on_click=select_palette_command,
             )
             for command in matches
         )
@@ -252,7 +279,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
             return
         matches = search_commands(PAGES, WORKSPACE_GROUPS, query, limit=1)
         if matches:
-            select_palette_command(matches[0])
+            navigate_to(page, state, matches[0].route)
         else:
             show_palette_message("No matching workspace")
 
@@ -359,12 +386,23 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         )
     else:
         progress_strip = ft.Container(height=0)
+    if builder is None:
+        page_content = _route_failure_control(state, route, "The requested route is not registered.")
+    else:
+        try:
+            page_content = builder(page, state)
+        except Exception as exc:
+            page_content = _route_failure_control(
+                state,
+                route,
+                f"The page could not be rendered safely ({type(exc).__name__}).",
+            )
     body = ft.Column(
         [
             header,
             palette_results,
             progress_strip,
-            ft.Container(content=builder(page, state), expand=True, padding=theme.SPACE_3 if narrow else theme.SPACE_5),
+            ft.Container(content=page_content, expand=True, padding=theme.SPACE_3 if narrow else theme.SPACE_5),
             ft.Container(
                 height=28,
                 bgcolor=theme.SURFACE,
@@ -382,6 +420,34 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
     else:
         controls = [ft.Row([sidebar, body], expand=True, spacing=0)]
     return ft.View(route=route, controls=controls, bgcolor=theme.BG, padding=0)
+
+
+def _route_failure_control(state: AppState, route: str, detail: str) -> ft.Control:
+    message = f"Route failure: {route or '/'} · {detail} No action was executed."
+    state.last_message = message
+    log_event(
+        event_type="route_render_failure",
+        severity="error",
+        route=route,
+        component="navigation",
+        button_label="Route unavailable",
+        operation="render_shell",
+        status="failed",
+        message=detail,
+    )
+    return ft.Container(
+        key="router.route-error",
+        content=panel(
+            ft.Column(
+                [
+                    ft.Text("Route unavailable", color=theme.AMBER, size=theme.FONT_LG, weight=ft.FontWeight.BOLD),
+                    ft.Text(message, color=theme.TEXT, selectable=True),
+                    ft.Text("Return to a registered workspace from navigation or the command palette.", color=theme.MUTED),
+                ],
+                spacing=theme.SPACE_2,
+            )
+        ),
+    )
 
 
 def render_shell(page: ft.Page, state: AppState, route: str) -> None:

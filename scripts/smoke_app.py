@@ -43,6 +43,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     _validate_smoke_args(args)
+    verify_ui_action_inventory()
     verify_expected_title()
 
     requested_port = launcher_core.normalise_port(args.port)
@@ -168,6 +169,17 @@ def verify_expected_title() -> None:
     expected_assignment = f'page.title = "{EXPECTED_TITLE}"'
     if not source_path.exists() or expected_assignment not in source_path.read_text(encoding="utf-8"):
         raise RuntimeError(f"Flet page title is not configured as {EXPECTED_TITLE!r}: {source_path}")
+
+
+def verify_ui_action_inventory() -> None:
+    from etf_cockpit.core.ui_acceptance import build_main_ui_action_inventory, ui_command_contracts
+
+    inventory = build_main_ui_action_inventory()
+    commands = ui_command_contracts(inventory)
+    if not inventory or len(commands) != len(inventory):
+        raise RuntimeError("UI action inventory is empty or has unbound commands")
+    if any(item.execution_allowed is not False for item in inventory):
+        raise RuntimeError("UI action inventory attempted to grant execution authority")
 
 
 def _source_root() -> Path:

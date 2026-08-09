@@ -97,6 +97,7 @@ def accessible_table(
         _update_view(search_callback(str(query or "")))
 
     search_control = ft.TextField(
+        key=f"{table_id}.search",
         label=f"Search {table_id}" if searchable else "",
         visible=searchable,
         dense=True,

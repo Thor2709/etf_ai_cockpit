@@ -195,6 +195,109 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   `planned -> implemented_initially` and asserts every selected skip is absent
   from `CONTROL_ALLOWED_TRANSITIONS`, eliminating dependence on future
   canonical status ordering.
+- Final completion head `4abb1d92830801d73045aa1499f4cec71caec8a4`
+  received both independent approvals, passed guard `31286274630` and O-tier
+  release run `31286274627`, then merged in PR #658 as exact main
+  `f6104403ab0f5e4e007700e5cbc1870429370f27`. Writer `31286431060`
+  applied one aggregate proposal and receipt with
+  `terminal_status=applied_and_verified` and `zero_action_readback=true`;
+  convergence `31286431065` passed. GitHub issue #14 and canonical state agree
+  on `integrated`; fresh generic plan
+  `51be8c545bc6f962076d2c310067748d72ab9a519378c09c18119040e768dafc`
+  has zero actions and `execution_allowed=false` remains.
+- ISSUE-0011 is dependency-ready and selected next. Clean branch
+  `codex/issue0011-product-20260809` starts at exact main
+  `f6104403ab0f5e4e007700e5cbc1870429370f27`. Its bounded product scope is a
+  deterministic main-UI action inventory generated from registered controls,
+  routes and command metadata, with stable unique IDs, bound command
+  contracts, visible failure states, six required workflow lanes and no
+  execution authority. Rejected head
+  `eefdd8b613cd0bf34d2414d35fd624ded2e90bd8` omitted post-construction and
+  keyed input/file-picker bindings, trusted editable signals and substring
+  lane labels, lacked a real route failure surface and could not resolve its
+  contract from an installed wheel; its evidence is stale. The consolidated
+  uncommitted correction discovers and validates 238 source/config contracts
+  and generates 282 contracted actions (202 controls, 40 routes and 40
+  commands). It fixes the paper-open and stock-research parity regressions,
+  binds exact callbacks and deterministic signals/lanes, renders controlled
+  unknown/builder route failures, invokes inventory validation in package
+  smoke and preserves `execution_allowed=false`. The 43-test focused suite,
+  Ruff, compile, diff hygiene and byte-clean generation pass. A locally built
+  wheel installed outside the source tree generates the same 282-action
+  inventory twice and validates all actions as non-executable. Exact head
+  `aa1453f6eec7ad57e40b778ae86b9118d2334c53` was then rejected because
+  unresolved lambda/setattr controls could accept invented callbacks, the
+  synthetic-scenario action was a no-op, universe edit cancel metadata was
+  false, palette command metadata named a different runtime path, and failed
+  invocation replay returned a success signal. The final uncommitted
+  correction fails closed on every unresolved discovered callback, gives the
+  seeded synthetic action deterministic visible success/failure behavior,
+  names the existing universe dismissals truthfully, directly binds palette
+  result controls to `select_palette_command`, and stores/replays the original
+  completed or failed terminal result without a second callback. Two disjoint
+  focused selections pass 100 tests; Ruff, compile, diff hygiene and byte-clean
+  generation pass. The exact classifier returns H because the product diff
+  changes `pyproject.toml` and `scripts/smoke_app.py`; evidence reuse is false,
+  package gate is required, and fresh exact-head Linux and Windows hosted gates
+  remain mandatory after review freezes the replacement head. Rejected head
+  `e52308309e4817447696f8a219556df67da6a5ba` was then shown to leave direct
+  result-button dispatch outside terminal replay, collapse command-palette
+  change and submit events into one control contract, and silently omit orphan
+  configured inputs. The final bounded uncommitted correction routes the real
+  result `on_click` through its generated `navigate_palette_command` contract,
+  keeps completed/failed terminal results across direct duplicate dispatch,
+  inventories stable `shell.command-palette.on-change` and `.on-submit`
+  actions with exact callbacks, and rejects every unmatched actionable/input
+  contract. Fourteen passive fields falsely declared as input actions were
+  removed from metadata without changing their UI. The resulting 225 metadata
+  contracts generate 283 actions (203 controls, 40 routes and 40 commands),
+  all non-executable. Two focused selections pass 87 tests; H classification
+  and fresh hosted Linux/Windows requirements are unchanged. Exact head
+  `de14e2ea9f4dc366067ea6fc3e0bb0f03041c491` passed whole-diff review but
+  risk review found that direct dispatch did not return its preserved terminal
+  result. The final correction returns that existing result and directly
+  asserts completed/failed status, signal, message and replay state; its
+  focused regression, Ruff, compile and diff hygiene pass. Exact head
+  `962d3bca6ccffca5f4d4548640689b6d7d52415c` was then rejected because a
+  direct named event callback was accepted even when its symbol was undefined,
+  and `select_palette_command` still declared `None` despite returning the
+  preserved `UIInvocationResult`. The bounded uncommitted correction checks
+  direct source callback names against module imports/definitions and their
+  enclosing parameters/local bindings while preserving nested, imported,
+  parameter, post-construction, attribute and lambda callback forms. The
+  palette handler now returns `UIInvocationResult | None` explicitly. The
+  29-test focused selection, targeted two-file MyPy with return checking,
+  Ruff, compile and diff hygiene pass; the exact 225-contract/283-action
+  non-executable inventory and H classification remain unchanged. Exact head
+  `ceb1fd963f303cf1b68e528cbdfdda397196f39d` was then blocked because the
+  full targeted MyPy command still found an un-narrowed route-metadata index
+  and two `importlib.metadata.SimplePath` conversions, while a lambda wrapper
+  could still call an undefined callback name. The final bounded uncommitted
+  correction narrows page-title metadata to a non-empty tuple, converts
+  installed distribution paths through their string representation, and
+  validates direct names called inside lambda event wrappers against the same
+  available-symbol set. The exact two-file MyPy command passes without
+  error-code exclusions; the unavailable PyYAML stub uses the repository's
+  narrow import annotation. The 30-test focused selection, Ruff, compile and
+  diff hygiene pass. The exact
+  225-contract/283-action non-executable inventory, package mechanics and H
+  classification remain unchanged. Exact head
+  `1944caa539d0f63ed0de52ccdd7e9cb6dfc3abec` received both independent
+  approvals. H-tier run `31293133592` passed Linux full tests, package build,
+  source/package parity and every policy check, but Linux package smoke failed
+  because the extracted sdist's partial `tests/` tree was mistaken for a
+  repository checkout and an intentionally absent acceptance-test source was
+  required at runtime. The bounded package correction requires acceptance-test
+  files only when a `.git` checkout marker exists and adds the exact
+  package-versus-checkout regression. The runtime contract and 283-action
+  inventory are unchanged; fresh exact-head H gates remain required.
+- ISSUE-0011 is already canonically `in_progress`; the product PR therefore
+  carries no artificial status or dependency transaction. Before product
+  merge, retain exact product/review/gate evidence and the post-merge writer
+  expectation. After the reviewed merge exists, prepare the existing atomic
+  `in_progress -> implemented_initially -> integrated` replay against that
+  exact product commit and require the authorized writer plus zero-action
+  generic readback.
 
 ## ISSUE-0104 product chronology
 

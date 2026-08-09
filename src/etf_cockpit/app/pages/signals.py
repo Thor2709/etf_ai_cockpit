@@ -47,7 +47,7 @@ def signals_page(_page: ft.Page, state: AppState) -> ft.Control:
 
         gate_summary = build_gate_summary(
             scores[0].authority_decision,
-            on_view_all=open_help,
+            open_help=open_help,
         )
 
     controls: list[ft.Control] = [

@@ -40,6 +40,13 @@ def test_shell_exposes_stable_navigation_and_dashboard_keys() -> None:
 
 def test_invalid_contracts_fail_closed(tmp_path: Path) -> None:
     path = tmp_path / "ui.yaml"
-    path.write_text("version: 1\ncontrols:\n  - {key: navigation.home, route: /, control_label: Home, callback: go, success_signal: ok, controlled_error_signal: error}\n  - {key: navigation.home, route: /, control_label: Duplicate, callback: go, success_signal: ok, controlled_error_signal: error}\n", encoding="utf-8")
+    path.write_text(
+        "version: 3\ncontrols:\n"
+        "  - {key: navigation.home, route: /, control_label: Home, callback: go, "
+        "success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test.py}\n"
+        "  - {key: navigation.home, route: /, control_label: Duplicate, callback: go, "
+        "success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test.py}\n",
+        encoding="utf-8",
+    )
     with pytest.raises(ValueError, match="unique"):
         load_ui_acceptance_contracts(path)
