@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 import subprocess
 import sys
@@ -15,6 +16,11 @@ from tests.issue0014._support import (
 
 
 def test_real_sdist_runs_packaged_offline_smoke_from_artifact_root(tmp_path: Path) -> None:
+    if importlib.util.find_spec("setuptools") is None:
+        pytest.skip(
+            "configured sdist backend is absent from preflight; the mandatory package gate "
+            "installs release tooling and executes the same package command"
+        )
     package_source = copy_repository_runtime(tmp_path / "package-source", packaging=True)
     artifact_root = package_source / "build" / "python-dist"
     artifact_root.mkdir(parents=True)
@@ -48,6 +54,16 @@ def test_real_sdist_runs_packaged_offline_smoke_from_artifact_root(tmp_path: Pat
 
     assert "smoke_ok mode=offline" in smoke.stdout
     assert str(package.root) in smoke.stdout or "127.0.0.1" in smoke.stdout
+
+
+def test_posix_package_command_uses_the_configured_isolated_builder(tmp_path: Path) -> None:
+    assert release_gate.package_command(tmp_path, platform_name="posix") == (
+        sys.executable,
+        "-m",
+        "build",
+        "--outdir",
+        "build/python-dist",
+    )
 
 
 def test_packaged_smoke_fails_closed_when_artifact_is_missing(tmp_path: Path) -> None:

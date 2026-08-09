@@ -475,8 +475,14 @@ findings. Both reviews approved exact head
 `f25e006a506d2c141b42544ad3dca64e7fe4c831`, but fresh run `31333048454`
 deterministically reproduced the Linux changed-test timeout. The final bounded
 correction removes only duplicate initial snapshot and route rendering; all 16
-journeys retain their assertions and pass locally in 140 seconds. Freeze one
-replacement head for both reviews and fresh H-tier validation.
+journeys retain their assertions and pass locally in 140 seconds. Both reviews
+approved exact head `b3696a504f26dfedad3a5948030cfa8bfab19429`; run
+`31333531773` completed changed tests in 183 seconds and exposed the independent
+preflight absence of the configured setuptools backend. Keep real sdist
+execution when the backend exists, assert the exact isolated-build command
+everywhere, and leave authoritative package execution mandatory in the H-tier
+package job. Freeze one final replacement head for both reviews and fresh
+validation.
 
 ## ISSUE-0104 product chronology
 
