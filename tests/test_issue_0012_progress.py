@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from contextlib import nullcontext
 from datetime import date
@@ -1258,6 +1259,210 @@ def test_official_filing_visible_cancel_stops_late_publication(tmp_path, monkeyp
     assert not writes
     assert state.recent_activity[-1].status == "cancelled"
     assert state.current_activity is None
+
+
+@pytest.mark.parametrize(
+    "control_key,method_name,file_name,payload",
+    [
+        ("filings.import-sec", "import_sec_companyfacts", "facts.json", b'{"cik": "1", "facts": {}}'),
+        ("filings.import-esef", "import_esef_package", "filing.zip", b"PK-web-esef"),
+        ("filings.import-manual-official", "import_manual_official_filing", "filing.pdf", b"web-manual"),
+    ],
+)
+def test_official_picker_bytes_survive_delayed_background_worker(
+    control_key, method_name, file_name, payload, monkeypatch
+) -> None:
+    selected = SimpleNamespace(path=None, bytes=payload, name=file_name)
+
+    class Picker:
+        async def pick_files(self, **_kwargs):
+            return [selected]
+
+    monkeypatch.setattr(trust_evidence_module, "_attach_picker", lambda *_args: Picker())
+    monkeypatch.setattr(trust_evidence_module, "_refresh_activity_shell", lambda *_args: None)
+    state = _state()
+    entered = threading.Event()
+    release = threading.Event()
+
+    def delayed_import(path, **_kwargs):
+        entered.set()
+        assert release.wait(2)
+        assert path.read_bytes() == payload
+        return "Web upload imported."
+
+    monkeypatch.setattr(state, method_name, delayed_import)
+    page = SimpleNamespace(overlay=[], update=lambda: None)
+    controls = trust_evidence_module._filing_import_controls(page, state)
+    button = next(control for control in _walk(controls) if getattr(control, "key", None) == control_key)
+
+    asyncio.run(button.on_click(SimpleNamespace(control=button)))
+    assert entered.wait(2)
+    release.set()
+    for _ in range(100):
+        if state.current_activity is None:
+            break
+        time.sleep(0.01)
+
+    assert state.recent_activity[-1].status == "success"
+
+
+@pytest.mark.parametrize("category", ["holdings", "kid"])
+def test_disclosure_picker_cancel_before_publication_is_terminal(category, monkeypatch) -> None:
+    selected = SimpleNamespace(path=None, bytes=b"browser upload", name="upload.pdf" if category == "kid" else "upload.csv")
+
+    class Picker:
+        async def pick_files(self, **_kwargs):
+            return [selected]
+
+    monkeypatch.setattr(trust_evidence_module, "_attach_picker", lambda *_args: Picker())
+    monkeypatch.setattr(trust_evidence_module, "_refresh_activity_shell", lambda *_args: None)
+    state = _state()
+    page = SimpleNamespace(overlay=[], update=lambda: None)
+    entered = threading.Event()
+    release = threading.Event()
+    writes: list[str] = []
+
+    if category == "holdings":
+        def import_holdings(_path, *_args, **kwargs):
+            entered.set()
+            assert release.wait(2)
+            with kwargs["publish_guard"]():
+                writes.append("holdings")
+            return SimpleNamespace(completeness="complete", freshness="current", confidence=1.0)
+
+        monkeypatch.setattr(trust_evidence_module, "import_etf_holdings_with_document", import_holdings)
+        control_key = "etf-disclosures.import-holdings"
+    else:
+        def retain(_path, _subdirectory, *, publish_guard):
+            entered.set()
+            assert release.wait(2)
+            with publish_guard():
+                writes.append("kid")
+            return _path
+
+        monkeypatch.setattr(trust_evidence_module, "_retain_picker_source", retain)
+        control_key = "etf-disclosures.import-kid"
+
+    controls = trust_evidence_module._disclosure_import_controls(page, state)
+    button = next(control for control in _walk(controls) if getattr(control, "key", None) == control_key)
+    asyncio.run(button.on_click(SimpleNamespace(control=button)))
+    assert entered.wait(2)
+    action_id = state.current_activity.action_id
+    state.cancel_activity(expected_action_id=action_id)
+    release.set()
+    for _ in range(100):
+        if state.current_activity is None:
+            break
+        time.sleep(0.01)
+
+    assert not writes
+    assert state.recent_activity[-1].status == "cancelled"
+    assert state.last_message == state.recent_activity[-1].message
+
+
+def test_cancel_after_final_publication_restores_canonical_message(monkeypatch) -> None:
+    monkeypatch.setattr(trust_evidence_module, "_refresh_activity_shell", lambda *_args: None)
+    state = _state()
+    page = SimpleNamespace(update=lambda: None)
+    result = SimpleNamespace(value="")
+    published = threading.Event()
+    release = threading.Event()
+
+    def action(action_id):
+        with state.activity_publication(action_id):
+            published.set()
+        assert release.wait(2)
+        state.last_message = "late success must not remain visible"
+        return "late success must not remain visible"
+
+    worker = trust_evidence_module._run_official_filing_action(
+        page, state, result, "Fetch SEC companyfacts", "Publishing", action
+    )
+    assert worker is not None and published.wait(2)
+    action_id = state.current_activity.action_id
+    state.cancel_activity(expected_action_id=action_id)
+    release.set()
+    worker.join(timeout=2)
+
+    assert state.last_message == "Cancelled by user"
+    assert result.value == "Cancelled by user"
+    assert state.recent_activity[-1].status == "cancelled"
+
+
+def test_official_filing_retry_reenters_background_lifecycle(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(trust_evidence_module, "_refresh_activity_shell", lambda *_args: None)
+    monkeypatch.setattr(router_module, "render_shell", lambda *_args, **_kwargs: None)
+    state = _state()
+    state.error_store = ErrorStore(tmp_path / "errors.jsonl")
+    page = SimpleNamespace(update=lambda: None)
+    result = SimpleNamespace(value="")
+    attempts = 0
+
+    def action(_action_id):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise TimeoutError("SEC provider timeout")
+        return "SEC retry complete."
+
+    worker = trust_evidence_module._run_official_filing_action(
+        page, state, result, "Fetch SEC companyfacts", "Fetching", action
+    )
+    assert worker is not None
+    worker.join(timeout=2)
+    error = state.error_store.recent()[0]
+    errors_recovery_module._retry(SimpleNamespace(), state, error.error_id)
+    for _ in range(100):
+        if attempts == 2 and state.current_activity is None and result.value == "SEC retry complete.":
+            break
+        time.sleep(0.01)
+
+    assert attempts == 2
+    assert [entry.status for entry in state.recent_activity[-2:]] == ["failed", "success"]
+    assert result.value == "SEC retry complete."
+
+
+def test_esef_discovery_cancel_does_not_publish_in_memory_success(tmp_path, monkeypatch) -> None:
+    state = _state()
+    state._esef_provider = "existing-provider"
+    state._esef_filings = ("existing-filing",)
+    entered = threading.Event()
+    release = threading.Event()
+
+    class Provider:
+        def __init__(self, **_kwargs):
+            pass
+
+        def list_filings(self, _country, _limit):
+            entered.set()
+            assert release.wait(2)
+            return SimpleNamespace(status="ok", message="ok", data=("new-filing",))
+
+    monkeypatch.setattr(app_state_module, "FilingsXbrlOrgProvider", Provider)
+    action_id = state.begin_activity("Discover ESEF filings", "Fetching").action_id
+    errors: list[Exception] = []
+
+    def discover():
+        try:
+            with state.share_activity(action_id):
+                state.discover_esef_filings("NL", expected_action_id=action_id, cache_dir=tmp_path)
+        except Exception as exc:
+            errors.append(exc)
+        finally:
+            state.restore_cancelled_activity_message(action_id)
+            state.release_activity(action_id)
+
+    worker = threading.Thread(target=discover)
+    worker.start()
+    assert entered.wait(2)
+    state.cancel_activity(expected_action_id=action_id)
+    release.set()
+    worker.join(timeout=2)
+
+    assert any(isinstance(exc, WorkflowTransitionError) for exc in errors)
+    assert state._esef_provider == "existing-provider"
+    assert state._esef_filings == ("existing-filing",)
+    assert state.last_message == "Cancelled by user"
 
 
 @pytest.mark.parametrize("label", ["Import PRIIPs KID", "Import index methodology"])

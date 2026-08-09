@@ -455,6 +455,29 @@ class AppState:
         result = self.workflow_controller.get(action_id)
         return bool(result and result.status is WorkflowStatus.CANCELLED)
 
+    def restore_cancelled_activity_message(self, action_id: str) -> str | None:
+        """Restore the canonical cancellation message after a worker stops publishing."""
+
+        with self._activity_lock:
+            result = self.workflow_controller.get(action_id)
+            if result is None or result.status is not WorkflowStatus.CANCELLED:
+                return None
+            message = result.message
+            entry = next(
+                (item for item in reversed(self.recent_activity) if item.action_id == action_id),
+                None,
+            )
+            if entry is not None:
+                entry.status = WorkflowStatus.CANCELLED.value
+                entry.step = "Cancelled"
+                entry.message = message
+            if self.current_activity is not None and self.current_activity.action_id == action_id:
+                self.current_activity.status = WorkflowStatus.CANCELLED.value
+                self.current_activity.step = "Cancelled"
+                self.current_activity.message = message
+            self.last_message = message
+            return message
+
     def assert_activity_publishable(self, expected_action_id: str | None = None) -> str:
         action_id = expected_action_id or self.shared_activity_id
         return self.require_activity(action_id).action_id
@@ -961,7 +984,14 @@ class AppState:
             self.last_message = f"ESEF import unavailable: {type(exc).__name__}. No data changed; scoring and execution were not started."
             raise ActivityUnavailableError(self.last_message) from exc
 
-    def discover_esef_filings(self, country: str = "NL", limit: int = 10, *, cache_dir: Path | None = None) -> str:
+    def discover_esef_filings(
+        self,
+        country: str = "NL",
+        limit: int = 10,
+        *,
+        cache_dir: Path | None = None,
+        expected_action_id: str | None = None,
+    ) -> str:
         """Discover official ESEF filings with an explicit unavailable state."""
 
         try:
@@ -970,12 +1000,20 @@ class AppState:
             if result.status != "ok":
                 self.last_message = f"ESEF discovery unavailable: {redact_text(str(result.message))}"
                 raise ActivityUnavailableError(self.last_message)
-            self._esef_provider = provider
-            self._esef_filings = result.data
             filing_count = len(result.data) if result.data is not None else 0
-            self.last_message = f"ESEF discovery complete: {filing_count} official filings."
-            return self.last_message
-        except ActivityUnavailableError:
+            message = f"ESEF discovery complete: {filing_count} official filings."
+            action_id = expected_action_id or getattr(getattr(self, "_activity_context", None), "action_id", None)
+            if action_id is None:
+                self._esef_provider = provider
+                self._esef_filings = result.data
+                self.last_message = message
+            else:
+                with self.activity_publication(action_id):
+                    self._esef_provider = provider
+                    self._esef_filings = result.data
+                    self.last_message = message
+            return message
+        except (ActivityUnavailableError, WorkflowTransitionError):
             raise
         except Exception as exc:
             self.last_message = f"ESEF discovery unavailable: {type(exc).__name__}. Local data was not changed."
