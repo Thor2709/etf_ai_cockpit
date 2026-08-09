@@ -344,8 +344,9 @@ through sample inputs, clean prices, rollback, API/yfinance status and snapshot
 initialization. Provider failures are redacted and unavailable status fails.
 Focused evidence passed 40 ISSUE-0012, 51 rollback/yfinance and 23 workflow/
 startup tests plus directly coupled release/trust regressions, Ruff, compileall
-and diff checks. Repeat both exact-head reviews and hosted O-tier validation;
-all prior hosted runs are stale.
+and diff checks. Protected clean-price-store coverage makes the new head
+H-tier; repeat both exact-head reviews and hosted Linux, Windows and terminal
+validation. All prior hosted runs are stale.
 
 ## ISSUE-0104 product chronology
 

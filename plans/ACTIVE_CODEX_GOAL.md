@@ -417,8 +417,9 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   redacted and unavailable status is terminal failure. Focused evidence passed
   40 ISSUE-0012, 51 rollback/yfinance and 23 workflow/startup tests plus the
   directly coupled release/trust regressions, Ruff, compileall and diff checks.
-  Repeat both reviews and hosted O-tier validation on the new checkpointed
-  head; prior hosted runs are stale.
+  Protected clean-price-store coverage makes the new checkpointed head H-tier;
+  repeat both reviews and hosted Linux, Windows and terminal validation. Prior
+  hosted runs are stale.
 
 ## ISSUE-0104 product chronology
 
