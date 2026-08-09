@@ -52,7 +52,7 @@ from etf_cockpit.core.session_log import log_event
 
 PAGES = {
     "/": ("Simple Scores", dashboard_page),
-"/portfolio": ("Portfolio Sandbox", portfolio_page),
+    "/portfolio": ("Portfolio Sandbox", portfolio_page),
     "/portfolio-optimiser": ("Portfolio Optimiser Lab", portfolio_optimiser_page),
     "/signals": ("Scores", signals_page),
     "/screener": ("Fundamentals Screener", screener_page),
@@ -166,7 +166,9 @@ def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: 
 
 def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
     canonical_route = _page_route(route)
-    title, builder = PAGES.get(canonical_route, PAGES["/"])
+    page_entry = PAGES.get(canonical_route)
+    title = page_entry[0] if page_entry is not None else "Route unavailable"
+    builder = page_entry[1] if page_entry is not None else None
     narrow = uses_narrow_layout(page, state)
 
     def nav_button(path: str, label: str) -> ft.Container:
@@ -359,12 +361,23 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         )
     else:
         progress_strip = ft.Container(height=0)
+    if builder is None:
+        page_content = _route_failure_control(state, route, "The requested route is not registered.")
+    else:
+        try:
+            page_content = builder(page, state)
+        except Exception as exc:
+            page_content = _route_failure_control(
+                state,
+                route,
+                f"The page could not be rendered safely ({type(exc).__name__}).",
+            )
     body = ft.Column(
         [
             header,
             palette_results,
             progress_strip,
-            ft.Container(content=builder(page, state), expand=True, padding=theme.SPACE_3 if narrow else theme.SPACE_5),
+            ft.Container(content=page_content, expand=True, padding=theme.SPACE_3 if narrow else theme.SPACE_5),
             ft.Container(
                 height=28,
                 bgcolor=theme.SURFACE,
@@ -382,6 +395,34 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
     else:
         controls = [ft.Row([sidebar, body], expand=True, spacing=0)]
     return ft.View(route=route, controls=controls, bgcolor=theme.BG, padding=0)
+
+
+def _route_failure_control(state: AppState, route: str, detail: str) -> ft.Control:
+    message = f"Route failure: {route or '/'} · {detail} No action was executed."
+    state.last_message = message
+    log_event(
+        event_type="route_render_failure",
+        severity="error",
+        route=route,
+        component="navigation",
+        button_label="Route unavailable",
+        operation="render_shell",
+        status="failed",
+        message=detail,
+    )
+    return ft.Container(
+        key="router.route-error",
+        content=panel(
+            ft.Column(
+                [
+                    ft.Text("Route unavailable", color=theme.AMBER, size=theme.FONT_LG, weight=ft.FontWeight.BOLD),
+                    ft.Text(message, color=theme.TEXT, selectable=True),
+                    ft.Text("Return to a registered workspace from navigation or the command palette.", color=theme.MUTED),
+                ],
+                spacing=theme.SPACE_2,
+            )
+        ),
+    )
 
 
 def render_shell(page: ft.Page, state: AppState, route: str) -> None:

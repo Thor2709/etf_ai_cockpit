@@ -111,6 +111,7 @@ def etf_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             ft.Row(
                 [
                     ft.Dropdown(
+                        key="instrument-detail.instrument",
                         label="Instrument",
                         value=selected,
                         options=[ft.DropdownOption(etf_id) for etf_id in ids],

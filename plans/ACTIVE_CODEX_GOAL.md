@@ -211,11 +211,22 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   deterministic main-UI action inventory generated from registered controls,
   routes and command metadata, with stable unique IDs, bound command
   contracts, visible failure states, six required workflow lanes and no
-  execution authority. The implementation currently produces 308 actions
-  (228 controls, 40 routes and 40 commands); 12 focused contract, palette and
-  accessibility tests plus ruff, compile and diff checks pass. Broader local
-  Flet smoke attempts emitted passing results but did not terminate cleanly,
-  so exact hosted package validation remains required.
+  execution authority. Rejected head
+  `eefdd8b613cd0bf34d2414d35fd624ded2e90bd8` omitted post-construction and
+  keyed input/file-picker bindings, trusted editable signals and substring
+  lane labels, lacked a real route failure surface and could not resolve its
+  contract from an installed wheel; its evidence is stale. The consolidated
+  uncommitted correction discovers and validates 238 source/config contracts
+  and generates 282 contracted actions (202 controls, 40 routes and 40
+  commands). It fixes the paper-open and stock-research parity regressions,
+  binds exact callbacks and deterministic signals/lanes, renders controlled
+  unknown/builder route failures, invokes inventory validation in package
+  smoke and preserves `execution_allowed=false`. The 43-test focused suite,
+  Ruff, compile, diff hygiene and byte-clean generation pass. A locally built
+  wheel installed outside the source tree generates the same 282-action
+  inventory twice and validates all actions as non-executable. Fresh hosted
+  Linux/Windows package evidence remains required after review freezes a new
+  exact head.
 - ISSUE-0011 is already canonically `in_progress`; the product PR therefore
   carries no artificial status or dependency transaction. Before product
   merge, retain exact product/review/gate evidence and the post-merge writer

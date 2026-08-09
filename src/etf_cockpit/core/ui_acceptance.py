@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import ast
+import importlib.metadata
 import json
 import re
-from dataclasses import asdict, dataclass
+import sys
 from collections.abc import Mapping
+from dataclasses import asdict, dataclass
+from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Callable, Iterable, Literal
 
 import yaml
 
@@ -35,7 +38,7 @@ class UIAcceptance:
 
     @property
     def resolved_lane(self) -> str:
-        return self.lane or _lane_for(self.key, self.route)
+        return self.lane or _lane_for_control(self.key, self.route, self.control_type)
 
 
 UI_LANES: tuple[str, ...] = (
@@ -83,13 +86,90 @@ class UICommandContract:
     idempotency_key: str
     execution_allowed: Literal[False] = False
 
+    def invoke(
+        self,
+        callback: Callable[[object | None], object],
+        event: object | None = None,
+        *,
+        invoked: set[str],
+        show_failure: Callable[[str], None],
+    ) -> UIInvocationResult:
+        """Execute one bound callback with deterministic duplicate/failure evidence."""
+
+        actual_callback = getattr(callback, "__name__", "")
+        if actual_callback != self.callback:
+            raise ValueError(
+                f"UI command callback mismatch: {self.command_id} "
+                f"expects {self.callback}, got {actual_callback or '<anonymous>'}"
+            )
+        if self.idempotency_key in invoked:
+            return UIInvocationResult(
+                status="replayed",
+                signal=self.success_signal,
+                visible_message="Action already handled; duplicate invocation made no changes.",
+            )
+        invoked.add(self.idempotency_key)
+        try:
+            callback(event)
+        except Exception as exc:  # the contract converts callback failure into visible UI state
+            message = f"Action failed safely: {type(exc).__name__}: {exc}"
+            show_failure(message)
+            return UIInvocationResult(status="failed", signal=self.controlled_error_signal, visible_message=message)
+        return UIInvocationResult(status="completed", signal=self.success_signal, visible_message="Action completed.")
+
+
+@dataclass(frozen=True)
+class UIInvocationResult:
+    status: Literal["completed", "failed", "replayed"]
+    signal: str
+    visible_message: str
+    execution_allowed: Literal[False] = False
+
+
+@dataclass(frozen=True)
+class DiscoveredControl:
+    key: str
+    callbacks: tuple[str, ...]
+    events: tuple[str, ...]
+    locations: tuple[str, ...]
+
 
 _STABLE_KEY = re.compile(r"^[a-z0-9]+(?:[.-][a-z0-9*]+)+$")
+_ACTIONABLE_CONTROL_TYPES = frozenset({"navigation", "button", "file_picker", "expandable"})
+_EVENT_BINDINGS = frozenset({"on_click", "on_select", "on_change"})
+_ACTION_CONTROL_CALLS = frozenset({
+    "Button",
+    "CupertinoButton",
+    "Dropdown",
+    "ElevatedButton",
+    "FilledButton",
+    "IconButton",
+    "OutlinedButton",
+    "SegmentedButton",
+    "TextButton",
+    "TextField",
+})
+_LIVE_STAGE_KEYS = frozenset({
+    "operations.environment",
+    "operations.preview",
+    "operations.confirm",
+    "operations.cancel",
+})
+_ROUTE_LANES = {
+    "/training-centre": "training",
+    "/forward-evidence": "paper",
+    "/operations": "live_stage",
+    "/providers": "broker_read_only",
+    "/errors": "recovery",
+    "/jobs": "recovery",
+}
 
 
 def load_ui_acceptance_contracts(path: Path | None = None) -> tuple[UIAcceptance, ...]:
-    source = path or (CONFIG_DIR / "ui_acceptance.yaml")
+    source = path or _default_contract_path()
     payload = yaml.safe_load(source.read_text(encoding="utf-8")) or {}
+    if payload.get("version") != 3:
+        raise ValueError("ui acceptance contract must use version 3")
     rows = payload.get("controls")
     if not isinstance(rows, list):
         raise ValueError("ui acceptance controls must be a list")
@@ -98,16 +178,23 @@ def load_ui_acceptance_contracts(path: Path | None = None) -> tuple[UIAcceptance
         if not isinstance(row, dict):
             raise ValueError("ui acceptance record must be a mapping")
         values = {str(key): value for key, value in row.items()}
+        key = _required(values, "key")
+        control_type = str(values.get("control_type") or "button").strip().lower()
+        declared_lane = str(values.get("lane") or "").strip().lower()
+        if declared_lane not in {"", "auto"}:
+            raise ValueError(f"UI acceptance lane is authoritative and must be auto: {key}")
+        if _required(values, "success_signal") != "auto" or _required(values, "controlled_error_signal") != "auto":
+            raise ValueError(f"UI acceptance signals are authoritative and must be auto: {key}")
         contract = UIAcceptance(
-            key=_required(values, "key"),
+            key=key,
             route=_required(values, "route"),
             control_label=_required(values, "control_label"),
             callback=_required(values, "callback"),
-            success_signal=_required(values, "success_signal"),
-            controlled_error_signal=_required(values, "controlled_error_signal"),
+            success_signal=_signal_id("success", key),
+            controlled_error_signal=_signal_id("failure", key),
             acceptance_test=str(values.get("acceptance_test") or "").strip(),
-            control_type=str(values.get("control_type") or "button").strip().lower(),
-            lane=str(values.get("lane") or "").strip().lower(),
+            control_type=control_type,
+            lane=_lane_for_control(key, _required(values, "route"), control_type),
         )
         contracts.append(contract)
     if len({item.key for item in contracts}) != len(contracts):
@@ -117,8 +204,10 @@ def load_ui_acceptance_contracts(path: Path | None = None) -> tuple[UIAcceptance
             raise ValueError(f"missing UI acceptance field: acceptance_test ({item.key})")
         if item.control_type not in {"navigation", "button", "file_picker", "expandable", "input", "evidence"}:
             raise ValueError(f"unsupported UI acceptance control type: {item.control_type}")
-        if item.lane and item.lane not in UI_LANES:
-            raise ValueError(f"unsupported UI acceptance lane: {item.lane}")
+        acceptance_path = Path(item.acceptance_test)
+        source_root = source.parents[1]
+        if (source_root / "tests").is_dir() and not acceptance_path.is_absolute() and not (source_root / acceptance_path).is_file():
+            raise ValueError(f"UI acceptance test does not exist: {item.acceptance_test} ({item.key})")
     return tuple(contracts)
 
 
@@ -145,8 +234,8 @@ def validate_ui_acceptance_inventory(
         if not item.key or not item.callback or not item.success_signal or not item.controlled_error_signal or not item.acceptance_test:
             raise ValueError(f"UI acceptance inventory incomplete: {item.key or '<unknown>'}")
     if source_root is not None:
-        source_controls = discover_actionable_control_keys(source_root)
-        missing_keys = sorted(source_controls.get("<missing>", ()))
+        source_controls = discover_actionable_controls(source_root)
+        missing_keys = sorted(source_controls.get("<missing>", DiscoveredControl("<missing>", (), (), ())).locations)
         if missing_keys:
             raise ValueError("source controls missing stable keys: " + ", ".join(missing_keys))
         declared = {item.key for item in rows}
@@ -157,6 +246,31 @@ def validate_ui_acceptance_inventory(
         )
         if uncovered:
             raise ValueError("source controls missing acceptance contracts: " + ", ".join(uncovered))
+        configured_without_source = sorted(
+            item.key
+            for item in rows
+            if (
+                item.control_type in _ACTIONABLE_CONTROL_TYPES
+                or (item.control_type == "input" and any(_keys_match(item.key, key) for key in source_controls))
+            )
+            and not any(key != "<missing>" and _keys_match(item.key, key) for key in source_controls)
+        )
+        if configured_without_source:
+            raise ValueError("UI acceptance controls missing source actions: " + ", ".join(configured_without_source))
+        callback_mismatches: list[str] = []
+        for item in rows:
+            matches = [
+                discovered
+                for key, discovered in source_controls.items()
+                if key != "<missing>" and _keys_match(item.key, key)
+            ]
+            known_callbacks = {callback for match in matches for callback in match.callbacks if callback}
+            if known_callbacks and item.callback not in known_callbacks:
+                callback_mismatches.append(
+                    f"{item.key} configured={item.callback} source={','.join(sorted(known_callbacks))}"
+                )
+        if callback_mismatches:
+            raise ValueError("UI acceptance callback mismatch: " + "; ".join(callback_mismatches))
 
 
 def build_main_ui_action_inventory(
@@ -172,8 +286,16 @@ def build_main_ui_action_inventory(
     from etf_cockpit.app.router import PAGES, WORKSPACE_GROUPS
 
     controls = tuple(contracts or load_ui_acceptance_contracts())
+    source_root = Path(__file__).resolve().parents[1] / "app"
+    validate_ui_acceptance_inventory(controls, PAGES, source_root=source_root)
+    discovered = discover_actionable_controls(source_root)
+    actionable_controls = tuple(
+        item
+        for item in controls
+        if any(key != "<missing>" and _keys_match(item.key, key) for key in discovered)
+    )
     return generate_ui_action_inventory(
-        controls,
+        actionable_controls,
         PAGES,
         all_commands(PAGES, WORKSPACE_GROUPS),
     )
@@ -198,6 +320,15 @@ def generate_ui_action_inventory(
         raise ValueError("UI controls reference unregistered routes: " + ", ".join(missing_control_routes))
     actions: list[UIAction] = []
     for item in rows:
+        authoritative_lane = _lane_for_control(item.key, item.route, item.control_type)
+        if item.resolved_lane != authoritative_lane:
+            raise ValueError(
+                f"UI action lane mismatch: {item.key} expected {authoritative_lane}, got {item.resolved_lane}"
+            )
+        if item.success_signal != _signal_id("success", item.key):
+            raise ValueError(f"UI action success contract mismatch: {item.key}")
+        if item.controlled_error_signal != _signal_id("failure", item.key):
+            raise ValueError(f"UI action failure contract mismatch: {item.key}")
         actions.append(
             UIAction(
                 action_id=item.action_id,
@@ -229,9 +360,9 @@ def generate_ui_action_inventory(
                 control_type="route",
                 callback="navigate_to",
                 command_id=f"route-command:{route}",
-                success_signal=f"route={route}",
-                controlled_error_signal="route_render_error_visible",
-                lane=_lane_for("", route),
+                success_signal=_signal_id("success", f"route:{route}"),
+                controlled_error_signal=_signal_id("failure", f"route:{route}"),
+                lane=_lane_for_route(route),
                 source="route",
             )
         )
@@ -243,8 +374,8 @@ def generate_ui_action_inventory(
         title = str(getattr(command, "title", route)).strip() or route
         command_id = str(getattr(command, "command_id", f"palette-command:{route}")).strip()
         callback = str(getattr(command, "callback", "navigate_to")).strip()
-        success_signal = str(getattr(command, "success_signal", "route_changed")).strip()
-        controlled_error_signal = str(getattr(command, "controlled_error_signal", "no_matching_workspace")).strip()
+        success_signal = _signal_id("success", f"command:{command_id}")
+        controlled_error_signal = _signal_id("failure", f"command:{command_id}")
         actions.append(
             UIAction(
                 action_id=f"command:{command_id}",
@@ -256,7 +387,7 @@ def generate_ui_action_inventory(
                 command_id=command_id,
                 success_signal=success_signal,
                 controlled_error_signal=controlled_error_signal,
-                lane=_lane_for("", route),
+                lane=_lane_for_route(route),
                 source="command",
             )
         )
@@ -292,6 +423,24 @@ def validate_generated_ui_action_inventory(
             raise ValueError(f"UI action lacks visible failure coverage: {item.action_id}")
         if item.execution_allowed is not False:
             raise ValueError(f"UI action cannot grant execution: {item.action_id}")
+        expected_lane = (
+            _lane_for_control(item.key, item.route, item.control_type)
+            if item.source == "control"
+            else _lane_for_route(item.route)
+        )
+        if item.lane != expected_lane:
+            raise ValueError(f"UI action lane mismatch: {item.action_id} expected {expected_lane}, got {item.lane}")
+        signal_key = (
+            item.key
+            if item.source == "control"
+            else f"route:{item.route}"
+            if item.source == "route"
+            else f"command:{item.command_id}"
+        )
+        if item.success_signal != _signal_id("success", signal_key):
+            raise ValueError(f"UI action success contract mismatch: {item.action_id}")
+        if item.controlled_error_signal != _signal_id("failure", signal_key):
+            raise ValueError(f"UI action failure contract mismatch: {item.action_id}")
     expected_routes = {str(route) for route in registered_routes}
     generated_routes = {item.route for item in rows if item.source == "route"}
     if expected_routes - generated_routes:
@@ -340,38 +489,88 @@ def _route_slug(route: str) -> str:
     return route.strip("/").replace("/", "-") or "home"
 
 
-def _lane_for(key: str, route: str) -> str:
-    value = f"{key} {route}".casefold()
-    if "training" in value:
+def _lane_for_control(key: str, route: str, control_type: str) -> str:
+    """Return the fixed lane for a declared control without label inference."""
+
+    if key in _LIVE_STAGE_KEYS:
+        return "live_stage"
+    if key == "navigation.training-centre" or key.startswith("training-centre."):
         return "training"
-    if key in {"operations.environment", "operations.preview", "operations.confirm", "operations.cancel"}:
-        return "live_stage"
-    if "paper" in value or "forward-evidence" in value or route == "/operations":
+    if key.startswith("operations.paper-") or key.startswith("forward-evidence."):
         return "paper"
-    if "broker" in value or route == "/providers":
+    if key == "navigation.providers" or key.startswith("providers."):
         return "broker_read_only"
-    if any(token in value for token in ("recover", "restore", "backup", "retry", "/errors", "/jobs")):
+    if (
+        key.startswith("errors.")
+        or key.startswith("jobs.")
+        or key.startswith("settings.backup-")
+        or key == "settings.recovery-drill"
+        or key.startswith("import-export.restore-")
+        or key == "import-export.create-backup"
+    ):
         return "recovery"
-    if "live" in value:
-        return "live_stage"
+    if control_type == "navigation":
+        return _lane_for_route(route)
     return "research"
 
 
-def discover_actionable_control_keys(source_root: Path) -> dict[str, tuple[str, ...]]:
-    """Discover keyed actionable Flet controls from the application source.
+def _lane_for_route(route: str) -> str:
+    return _ROUTE_LANES.get(str(route), "research")
 
-    This intentionally inspects only controls that can change state or open a
-    picker: callbacks, file pickers, and the two small helpers that construct
-    those controls. Dynamic f-strings are represented by a trailing ``.*`` so
-    they can match the corresponding wildcard contract.
-    """
-    found: dict[str, list[str]] = {}
+
+def _signal_id(outcome: Literal["success", "failure"], key: str) -> str:
+    stable_key = str(key).replace("*", "wildcard").replace(":", ".").replace("/", ".").strip(".") or "home"
+    return f"ui.{outcome}.{stable_key}"
+
+
+def _default_contract_path() -> Path:
+    source_path = CONFIG_DIR / "ui_acceptance.yaml"
+    if source_path.is_file():
+        return source_path
+    try:
+        distribution = importlib.metadata.distribution("etf-ai-cockpit")
+    except importlib.metadata.PackageNotFoundError as exc:
+        raise FileNotFoundError("ui_acceptance.yaml is unavailable from source and installed package") from exc
+    installed_candidates = (
+        Path(distribution.locate_file("")) / "configs" / "ui_acceptance.yaml",
+        Path(sys.prefix) / "configs" / "ui_acceptance.yaml",
+    )
+    for candidate in installed_candidates:
+        if candidate.is_file():
+            return candidate
+    for item in distribution.files or ():
+        candidate = Path(str(item).replace("\\", "/"))
+        if candidate.as_posix().endswith("/configs/ui_acceptance.yaml"):
+            resolved = Path(distribution.locate_file(item))
+            if resolved.is_file():
+                return resolved
+    raise FileNotFoundError("installed package does not contain configs/ui_acceptance.yaml")
+
+
+def discover_actionable_controls(source_root: Path) -> dict[str, DiscoveredControl]:
+    """Discover constructor and post-construction event bindings by stable key."""
+
+    found: dict[str, dict[str, list[str]]] = {}
     missing: list[str] = []
     for path in sorted(Path(source_root).rglob("*.py")):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         except (OSError, SyntaxError):
             continue
+        assigned_controls: dict[str, tuple[str, str]] = {}
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            value = node.value
+            if not isinstance(value, ast.Call):
+                continue
+            target = node.target if isinstance(node, ast.AnnAssign) else node.targets[0] if len(node.targets) == 1 else None
+            if not isinstance(target, ast.Name):
+                continue
+            keywords = {item.arg: item.value for item in value.keywords if item.arg}
+            key = _key_pattern(keywords.get("key"))
+            if key:
+                assigned_controls[target.id] = (key, f"{path.as_posix()}:{node.lineno}")
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -379,12 +578,16 @@ def discover_actionable_control_keys(source_root: Path) -> dict[str, tuple[str, 
             keywords = {item.arg: item.value for item in node.keywords if item.arg}
             if function_name == "_workflow_button":
                 expression = keywords.get("key_name")
+                event_nodes = {"on_click": keywords.get("on_click")}
             elif function_name == "_attach_picker":
                 expression = node.args[1] if len(node.args) > 1 else None
-            elif "on_click" in keywords:
+                event_nodes = {"file_picker": ast.Name(id="pick_files")}
+            elif function_name in _ACTION_CONTROL_CALLS and any(name in _EVENT_BINDINGS for name in keywords):
                 expression = keywords.get("key")
+                event_nodes = {name: value for name, value in keywords.items() if name in _EVENT_BINDINGS}
             elif function_name == "FilePicker":
                 expression = keywords.get("key")
+                event_nodes = {"file_picker": ast.Name(id="pick_files")}
             else:
                 continue
             key = _key_pattern(expression)
@@ -396,10 +599,63 @@ def discover_actionable_control_keys(source_root: Path) -> dict[str, tuple[str, 
                     continue
                 missing.append(location)
             else:
-                found.setdefault(key, []).append(location)
+                _record_discovered(found, key, event_nodes, location)
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            target = node.target if isinstance(node, ast.AnnAssign) else node.targets[0] if len(node.targets) == 1 else None
+            if not isinstance(target, ast.Attribute) or target.attr not in _EVENT_BINDINGS:
+                continue
+            if not isinstance(target.value, ast.Name) or target.value.id not in assigned_controls:
+                continue
+            key, construction_location = assigned_controls[target.value.id]
+            location = f"{path.as_posix()}:{node.lineno}"
+            _record_discovered(found, key, {target.attr: node.value}, f"{construction_location},{location}")
     if missing:
-        found["<missing>"] = missing
-    return {key: tuple(locations) for key, locations in found.items()}
+        found["<missing>"] = {"callbacks": [], "events": [], "locations": missing}
+    return {
+        key: DiscoveredControl(
+            key=key,
+            callbacks=tuple(sorted(set(values["callbacks"]))),
+            events=tuple(sorted(set(values["events"]))),
+            locations=tuple(sorted(set(values["locations"]))),
+        )
+        for key, values in found.items()
+    }
+
+
+def discover_actionable_control_keys(source_root: Path) -> dict[str, tuple[str, ...]]:
+    """Compatibility projection of actionable keys to source locations."""
+
+    return {key: item.locations for key, item in discover_actionable_controls(source_root).items()}
+
+
+def _record_discovered(
+    found: dict[str, dict[str, list[str]]],
+    key: str,
+    event_nodes: Mapping[str, ast.AST | None],
+    location: str,
+) -> None:
+    row = found.setdefault(key, {"callbacks": [], "events": [], "locations": []})
+    row["locations"].append(location)
+    for event_name, callback_node in event_nodes.items():
+        row["events"].append(event_name)
+        callback = _callback_name(callback_node)
+        if callback:
+            row["callbacks"].append(callback)
+
+
+def _callback_name(node: ast.AST | None) -> str:
+    if isinstance(node, (ast.Name, ast.Attribute)):
+        name = _call_name(node)
+        return "" if name.startswith("on_") else name
+    if isinstance(node, ast.Lambda):
+        for child in ast.walk(node.body):
+            if isinstance(child, ast.Call):
+                name = _call_name(child.func)
+                if name not in {"getattr", "setattr", "str", "list", "tuple"}:
+                    return name
+    return ""
 
 
 def _call_name(node: ast.AST) -> str:
@@ -425,11 +681,11 @@ def _key_pattern(node: ast.AST | None) -> str | None:
 
 
 def _key_is_declared(key: str, declared: set[str]) -> bool:
-    if key in declared:
-        return True
-    if key.endswith(".*"):
-        return any(item.startswith(key[:-1]) for item in declared)
-    return any(item.endswith(".*") and key.startswith(item[:-1]) for item in declared)
+    return any(fnmatchcase(key, item) or fnmatchcase(item, key) for item in declared)
+
+
+def _keys_match(left: str, right: str) -> bool:
+    return _key_is_declared(left, {right}) or _key_is_declared(right, {left})
 
 
 def _required(values: dict[str, object], key: str) -> str:

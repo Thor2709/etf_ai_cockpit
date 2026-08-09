@@ -134,3 +134,26 @@ def test_shell_command_palette_filters_and_navigates(monkeypatch: pytest.MonkeyP
         for control in _walk(view)
     )
     assert selected == ["/comparison", "/data-health", "/backtests"]
+
+
+def test_unknown_and_failed_routes_render_a_visible_controlled_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    snapshot = build_snapshot()
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    page = SimpleNamespace(width=1200, route="/missing")
+    monkeypatch.setattr(router, "log_event", lambda **_kwargs: None)
+
+    unknown = build_shell(page, state, "/missing")
+    unknown_controls = list(_walk(unknown))
+    assert any(getattr(control, "key", None) == "router.route-error" for control in unknown_controls)
+    assert any(isinstance(control, ft.Text) and "not registered" in str(control.value) for control in unknown_controls)
+
+    def broken_page(_page: object, _state: object) -> ft.Control:
+        raise RuntimeError("private detail")
+
+    monkeypatch.setitem(PAGES, "/broken", ("Broken", broken_page))
+    failed = build_shell(page, state, "/broken")
+    failed_controls = list(_walk(failed))
+    assert any(getattr(control, "key", None) == "router.route-error" for control in failed_controls)
+    visible = " ".join(str(control.value) for control in failed_controls if isinstance(control, ft.Text))
+    assert "could not be rendered safely (RuntimeError)" in visible
+    assert "private detail" not in visible

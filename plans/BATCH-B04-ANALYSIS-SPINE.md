@@ -161,14 +161,22 @@ ISSUE-0011 is the next dependency-ready product issue. Clean branch
 only the main-UI action reliability contract: deterministic inventory from
 control/route/command metadata, unique stable IDs, command bindings, visible
 failure states and research, training, paper, broker-read-only, recovery and
-live-stage lane coverage with no execution authority. Current output is 308
-actions (228 controls, 40 routes and 40 commands); 12 focused tests and static
-checks pass. Local broader Flet smoke emitted passing output without clean
-termination, so hosted package validation remains required. Because canonical
-ISSUE-0011 is already `in_progress`, this product PR changes no status or
-dependency edge; after exact reviewed merge, use the existing aggregate
-`in_progress -> implemented_initially -> integrated` writer transaction and
-require zero-action generic readback.
+live-stage lane coverage with no execution authority. Rejected head
+`eefdd8b613cd0bf34d2414d35fd624ded2e90bd8` and its evidence are stale. The
+single consolidated uncommitted correction now validates 238 source/config
+contracts, including post-construction paper-open, keyed input/change/select
+bindings and file pickers, and generates 282 contracted actions (202 controls,
+40 routes and 40 commands). Exact callback/signal contracts, fixed lane policy,
+visible unknown/builder route failures, deterministic duplicate handling and
+installed-wheel contract resolution are covered. The 43-test focused suite,
+Ruff, compile, diff hygiene, byte-clean generation and an isolated installed
+wheel run pass; the wheel generated the same 282 actions twice and every action
+retained `execution_allowed=false`. Freeze a new reviewed exact head, then run
+fresh hosted Linux/Windows package evidence. Because canonical ISSUE-0011 is
+already `in_progress`, this product PR changes no status or dependency edge;
+after exact reviewed merge, use the existing aggregate `in_progress ->
+implemented_initially -> integrated` writer transaction and require
+zero-action generic readback.
 
 ## ISSUE-0104 product chronology
 
