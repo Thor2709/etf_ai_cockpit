@@ -513,6 +513,14 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   completeness regression from the accepted disclosure-import buttons. Its
   hosted evidence is stale; freeze one replacement head after focused checks,
   then repeat both reviews and fresh H-tier Linux, Windows and terminal gates.
+- Exact head `a5144b49ed996af95f4a1706d8bc5f87d97b9742` received risk-review
+  approval and one newly demonstrated whole-diff rejection: browser byte
+  uploads left document/holdings registries bound to deleted temporary paths,
+  and only five of seven accepted controls were config-derived in the reverse
+  regression. The final bounded pass reuses checksum-addressed raw retention
+  before those registry writes and derives the exact seven-control set from
+  UI acceptance. Its hosted evidence is stale; focused checks, both reviews
+  and fresh H-tier Linux, Windows and terminal gates remain required.
 
 ## ISSUE-0104 product chronology
 

@@ -769,29 +769,27 @@ def test_long_running_contract_points_to_real_handlers_and_registered_controls()
         "import-export.export-audit-packet",
         "chatgpt.export-audit",
     )
-    assert LONG_RUNNING_ACTION_CONTROL_KEYS["holdings_factsheet_import"] == (
-        "etf-disclosures.import-holdings",
-        "etf-disclosures.import-document",
-        "etf-disclosures.import-report",
-        "etf-disclosures.import-kid",
-        "etf-disclosures.import-methodology",
-        "dashboard.import-etf-factsheets",
-        "dashboard.import-etf-holdings",
-    )
     reverse_catalog: dict[str, set[str]] = {}
     for action_key, control_keys in LONG_RUNNING_ACTION_CONTROL_KEYS.items():
         for control_key in control_keys:
             reverse_catalog.setdefault(control_key, set()).add(action_key)
-    assert reverse_catalog["dashboard.import-etf-factsheets"] == {"holdings_factsheet_import"}
-    assert reverse_catalog["dashboard.import-etf-holdings"] == {"holdings_factsheet_import"}
-    accepted_disclosure_imports = {
+    accepted_holdings_factsheet_imports = {
         control["key"]
         for control in accepted_controls
-        if control["route"] == "/etf-disclosures"
+        if control["route"] in {"/", "/etf-disclosures"}
         and control["control_type"] == "button"
-        and control["key"].startswith("etf-disclosures.import-")
+        and (
+            control["key"].startswith("etf-disclosures.import-")
+            or control["key"].startswith("dashboard.import-etf-")
+        )
     }
-    assert accepted_disclosure_imports <= reverse_catalog.keys()
+    assert len(accepted_holdings_factsheet_imports) == 7
+    assert accepted_holdings_factsheet_imports == set(LONG_RUNNING_ACTION_CONTROL_KEYS["holdings_factsheet_import"])
+    assert accepted_holdings_factsheet_imports == {
+        control_key
+        for control_key, action_keys in reverse_catalog.items()
+        if "holdings_factsheet_import" in action_keys
+    }
     assert reverse_catalog["dashboard.run-forecasting-models"] == {
         "baseline_forecast",
         "timesfm_forecast",
@@ -1809,6 +1807,83 @@ def test_official_picker_bytes_survive_delayed_background_worker(
         time.sleep(0.01)
 
     assert state.recent_activity[-1].status == "success"
+
+
+@pytest.mark.parametrize(
+    ("control_key", "file_name", "payload"),
+    (
+        ("etf-disclosures.import-document", "factsheet.pdf", b"browser factsheet"),
+        (
+            "etf-disclosures.import-holdings",
+            "holdings.csv",
+            b"security,ticker,weight,as_of\nIssuer,ISS,1.0,2026-08-09\n",
+        ),
+    ),
+)
+def test_disclosure_browser_picker_bytes_retain_registry_source_after_worker(
+    control_key, file_name, payload, tmp_path, monkeypatch
+) -> None:
+    selected = SimpleNamespace(path=None, bytes=payload, name=file_name)
+
+    class Picker:
+        async def pick_files(self, **_kwargs):
+            return [selected]
+
+    monkeypatch.setattr(trust_evidence_module, "_attach_picker", lambda *_args: Picker())
+    monkeypatch.setattr(trust_evidence_module, "_refresh_activity_shell", lambda *_args: None)
+    monkeypatch.setattr(trust_evidence_module, "RAW_DIR", tmp_path / "raw")
+    registry_path = tmp_path / "fund_documents.parquet"
+    holdings_path = tmp_path / "fund_holdings.parquet"
+
+    if control_key.endswith("document"):
+        import_document = trust_evidence_module.import_etf_document
+
+        def import_document_with_destination(path, **kwargs):
+            return import_document(path, destination=registry_path, **kwargs)
+
+        monkeypatch.setattr(trust_evidence_module, "import_etf_document", import_document_with_destination)
+        document_type = "factsheet"
+    else:
+        import_holdings = trust_evidence_module.import_etf_holdings_with_document
+
+        def import_holdings_with_destinations(path, *args, **kwargs):
+            valid_args = (*args[:2], "issuer", *args[3:])
+            return import_holdings(
+                path,
+                *valid_args,
+                holdings_destination=holdings_path,
+                registry_destination=registry_path,
+                **kwargs,
+            )
+
+        monkeypatch.setattr(trust_evidence_module, "import_etf_holdings_with_document", import_holdings_with_destinations)
+        document_type = "holdings"
+
+    state = _state()
+    page = SimpleNamespace(overlay=[], update=lambda: None)
+    controls = trust_evidence_module._disclosure_import_controls(page, state)
+    button = next(control for control in _walk(controls) if getattr(control, "key", None) == control_key)
+
+    asyncio.run(button.on_click(SimpleNamespace(control=button)))
+    deadline = time.time() + 2
+    while state.current_activity is not None and time.time() < deadline:
+        time.sleep(0.01)
+
+    assert state.recent_activity[-1].status == "success", state.last_message
+    registry = trust_evidence_module.read_document_registry(path=registry_path)
+    registered = registry.loc[
+        registry["document_type"].astype(str).eq(document_type)
+        & registry["coverage_status"].astype(str).eq("available")
+    ]
+    assert len(registered) == 1
+    source_path = Path(str(registered.iloc[0]["path"]))
+    assert source_path.is_file()
+    assert source_path.read_bytes() == payload
+
+    if document_type == "holdings":
+        stored = services_module.pd.read_parquet(holdings_path)
+        bound = stored.loc[stored["document_source_id"].astype(str).eq(str(registered.iloc[0]["source_id"]))]
+        assert not bound.empty
 
 
 @pytest.mark.parametrize("category", ["holdings", "kid"])

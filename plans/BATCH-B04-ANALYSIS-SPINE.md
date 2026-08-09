@@ -2665,3 +2665,13 @@ missing from reverse-complete long-running control coverage. One bounded pass
 adds those existing controls and an acceptance-derived reverse regression.
 Rejected-head CI is stale; focused checks, both exact-head reviews and fresh
 H-tier Linux, Windows and terminal gates are required on the replacement head.
+
+`FINAL_CORRECTION` UPDATEV2-0018 exact head
+`a5144b49ed996af95f4a1706d8bc5f87d97b9742` received risk approval and
+one newly demonstrated whole-diff rejection: byte-backed document/holdings
+imports persisted temporary paths, and reverse coverage derived only five of
+seven accepted controls from configuration. The bounded final pass retains
+those sources under existing checksum-addressed raw evidence before registry
+writes and derives the exact seven-control set from UI acceptance. Rejected-
+head CI is stale; focused checks, both exact-head reviews and fresh H-tier
+Linux, Windows and terminal gates remain required.

@@ -674,8 +674,15 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             return
 
         def action(path: Path, action_id: str) -> str:
-            document = import_etf_document(
+            retained_path = _retain_picker_source(
                 path,
+                "etf_factsheets",
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+            if retained_path is None:
+                raise ActivityUnavailableError("ETF document import requires a readable selected file.")
+            document = import_etf_document(
+                retained_path,
                 instrument_id=str(instrument_field.value or state.selected_etf or "").strip(),
                 document_type=str(document_type_field.value or "factsheet"),
                 document_date=str(document_date_field.value or "").strip() or None,
@@ -761,8 +768,15 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             page.update()
             return
         def action(path: Path, action_id: str) -> str:
-            imported = import_etf_holdings_with_document(
+            retained_path = _retain_picker_source(
                 path,
+                "etf_holdings",
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+            if retained_path is None:
+                raise ActivityUnavailableError("ETF holdings import requires a readable selected file.")
+            imported = import_etf_holdings_with_document(
+                retained_path,
                 str(instrument_field.value or state.selected_etf or "").strip(),
                 str(holdings_date_field.value or "").strip() or None,
                 "manual_unverified",
