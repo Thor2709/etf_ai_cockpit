@@ -16,6 +16,7 @@ import pandas as pd
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR
+from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.data.fund_documents import (
     FUND_DOCUMENTS_PATH,
     fund_document_registry_guard,
@@ -123,6 +124,7 @@ def persist_priips_kid_with_document(
     authority: str = "issuer_document",
     document_date: str | None = None,
     configured_instrument_ids: Iterable[str] = (),
+    publish_guard: PublicationScopeFactory | None = None,
 ) -> Path:
     """Publish KID parsed rows and the FundDocument registry as one transaction."""
 
@@ -137,6 +139,7 @@ def persist_priips_kid_with_document(
         authority=authority,
         document_date=document_date or (result.records[0].document_date if result.records else None),
         configured_instrument_ids=configured_instrument_ids,
+        publish_guard=publish_guard,
     )
 
 
@@ -152,6 +155,7 @@ def persist_index_methodology_with_document(
     document_date: str | None = None,
     configured_instrument_ids: Iterable[str] = (),
     holdings: pd.DataFrame | None = None,
+    publish_guard: PublicationScopeFactory | None = None,
 ) -> Path:
     """Publish methodology parsed rows and the FundDocument registry atomically."""
 
@@ -170,6 +174,7 @@ def persist_index_methodology_with_document(
         document_date=document_date,
         configured_instrument_ids=configured_instrument_ids,
         document_available=document_available,
+        publish_guard=publish_guard,
     )
 
 
@@ -186,6 +191,7 @@ def _persist_with_document(
     document_date: str | None,
     configured_instrument_ids: Iterable[str],
     document_available: bool | None = None,
+    publish_guard: PublicationScopeFactory | None = None,
 ) -> Path:
     destination = Path(destination)
     registry_destination = Path(registry_destination)
@@ -233,7 +239,8 @@ def _persist_with_document(
                 AtomicWriteRequest(registry_destination, parquet_payload(inventory), validate_parquet_file),
                 AtomicWriteRequest(registry_destination.with_suffix(".csv"), inventory.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
             )
-            atomic_write_group(requests)
+            with publication_scope(publish_guard):
+                atomic_write_group(requests)
     return destination
 
 
@@ -589,7 +596,11 @@ _LEGACY_REPORT_COLUMNS = (
 )
 
 
-def import_etf_report(request: EtfReportImportRequest) -> EtfReportImportResult:
+def import_etf_report(
+    request: EtfReportImportRequest,
+    *,
+    publish_guard: PublicationScopeFactory | None = None,
+) -> EtfReportImportResult:
     """Snapshot, parse and persist one report without accepting caller results."""
 
     if not isinstance(request, EtfReportImportRequest):
@@ -611,7 +622,8 @@ def import_etf_report(request: EtfReportImportRequest) -> EtfReportImportResult:
     # from diverging from its registry and extraction identities.
     with persistent_file_guard(snapshot_guard, timeout_seconds=request.timeout_seconds):
         if not snapshot_path.exists():
-            atomic_write_bytes(snapshot_path, snapshot, validator=lambda path: _validate_snapshot(path, snapshot, checksum))
+            with publication_scope(publish_guard):
+                atomic_write_bytes(snapshot_path, snapshot, validator=lambda path: _validate_snapshot(path, snapshot, checksum))
         elif not _snapshot_matches(snapshot_path, snapshot, checksum):
             raise ValueError("immutable ETF report snapshot is corrupt")
         parse_result = parse_etf_report_in_child(
@@ -703,6 +715,7 @@ def import_etf_report(request: EtfReportImportRequest) -> EtfReportImportResult:
                     _write_report_group(
                         combined, inventory, conflicts, Path(request.destination), Path(request.registry_destination),
                         Path(request.conflict_destination), snapshot_path=snapshot_path, snapshot=snapshot, snapshot_sha256=checksum,
+                        publish_guard=publish_guard,
                     )
     return EtfReportImportResult(source_id, document, parse_result, extraction_status, Path(request.destination), Path(request.registry_destination), Path(request.conflict_destination))
 
@@ -992,6 +1005,7 @@ def _write_report_group(
     snapshot_path: Path | None = None,
     snapshot: bytes | None = None,
     snapshot_sha256: str | None = None,
+    publish_guard: PublicationScopeFactory | None = None,
 ) -> None:
     requests = [
         AtomicWriteRequest(destination, parquet_payload(frame[REPORT_COLUMNS]), validate_parquet_file),
@@ -1008,7 +1022,8 @@ def _write_report_group(
         if snapshot is None or snapshot_sha256 is None:
             raise ValueError("snapshot bytes and checksum are required together")
         requests.append(AtomicWriteRequest(snapshot_path, snapshot, lambda path: _validate_snapshot(path, snapshot, snapshot_sha256)))
-    atomic_write_group(requests)
+    with publication_scope(publish_guard):
+        atomic_write_group(requests)
 
 
 def _read_report_frame(path: Path) -> pd.DataFrame:

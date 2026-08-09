@@ -10,6 +10,7 @@ import pandas as pd
 
 from etf_cockpit.core.config import AppConfig, ProviderSection
 from etf_cockpit.core.paths import RAW_DIR, REPORTS_DIR
+from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.data.yfinance_provider import YFinanceProvider
 
 
@@ -77,18 +78,23 @@ def refresh_candidate_analysis(
     years: int = 5,
     as_of_date: date | None = None,
     candidate_path: Path | None = None,
+    publish_guard: PublicationScopeFactory | None = None,
 ) -> CandidateAnalysisResult:
     data = fetch_candidate_prices(config, years=years, as_of_date=as_of_date, candidate_path=candidate_path)
     fundamentals = fetch_candidate_fundamentals(data.candidates)
     report = analyse_candidate_prices(data.candidates, data.prices, fundamentals=fundamentals)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    with publication_scope(publish_guard):
+        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     csv_path = REPORTS_DIR / f"yfinance_trade_candidate_analysis_{timestamp}.csv"
     json_path = REPORTS_DIR / f"yfinance_trade_candidate_analysis_{timestamp}.json"
     markdown_path = REPORTS_DIR / f"yfinance_trade_candidate_analysis_{timestamp}.md"
-    report.to_csv(csv_path, index=False)
-    json_path.write_text(json.dumps(report.to_dict(orient="records"), indent=2, default=str), encoding="utf-8")
-    markdown_path.write_text(_render_candidate_markdown(report, data.source_message), encoding="utf-8")
+    with publication_scope(publish_guard):
+        report.to_csv(csv_path, index=False)
+    with publication_scope(publish_guard):
+        json_path.write_text(json.dumps(report.to_dict(orient="records"), indent=2, default=str), encoding="utf-8")
+    with publication_scope(publish_guard):
+        markdown_path.write_text(_render_candidate_markdown(report, data.source_message), encoding="utf-8")
     return CandidateAnalysisResult(
         rows=len(report),
         csv_path=csv_path,

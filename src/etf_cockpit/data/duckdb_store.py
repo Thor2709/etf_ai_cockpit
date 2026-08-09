@@ -7,7 +7,8 @@ import pandas as pd
 
 from etf_cockpit.core.atomic_io import wait_for_atomic_group
 from etf_cockpit.core.config import AppConfig, load_config
-from etf_cockpit.core.paths import FEATURES_DIR, PORTFOLIOS_DIR, VALIDATED_DIR, ensure_project_dirs
+from etf_cockpit.core.paths import FEATURES_DIR, PORTFOLIOS_DIR, VALIDATED_DIR
+from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.data.sample_data import ensure_sample_files
 from etf_cockpit.data.validation import validate_prices
 
@@ -22,17 +23,22 @@ def read_price_csv(path: Path) -> pd.DataFrame:
     return frame
 
 
-def initialise_store(config: AppConfig | None = None, force_sample: bool = False) -> None:
-    ensure_project_dirs()
+def initialise_store(
+    config: AppConfig | None = None,
+    force_sample: bool = False,
+    *,
+    publish_guard: PublicationScopeFactory | None = None,
+) -> None:
     cfg = config or load_config()
-    price_csv, _ = ensure_sample_files(cfg, force=force_sample)
+    price_csv, _ = ensure_sample_files(cfg, force=force_sample, publish_guard=publish_guard)
     if force_sample or not PRICE_PARQUET.exists():
         prices = read_price_csv(price_csv)
         report = validate_prices(prices)
         if report.status == "Blocked":
             blocked = ", ".join(sorted(report.blocked_etfs))
             raise ValueError(f"Sample data unexpectedly blocked for: {blocked}")
-        write_prices(prices)
+        with publication_scope(publish_guard):
+            write_prices(prices)
 
 
 def write_prices(prices: pd.DataFrame, path: Path = PRICE_PARQUET) -> None:

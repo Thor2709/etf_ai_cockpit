@@ -15,6 +15,7 @@ import pandas as pd
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import CLEAN_DIR
+from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.data.fund_documents import (
     FUND_DOCUMENTS_PATH,
     build_document_inventory,
@@ -582,15 +583,28 @@ def import_etf_holdings_with_document(
     registry_destination: Path | None = None,
     configured_instrument_ids: list[str] | tuple[str, ...] | None = None,
     today: str | date | datetime | None = None,
+    publish_guard: PublicationScopeFactory | None = None,
 ) -> HoldingsNormalisationResult:
-    """Import eligible holdings and register their source in one atomic group."""
+    """Import eligible holdings or non-score manual context with bound evidence."""
     holdings_destination = Path(holdings_destination or FUND_HOLDINGS_PATH)
     registry_destination = Path(registry_destination or FUND_DOCUMENTS_PATH)
     with fund_document_registry_guard(registry_destination):
         with holdings_store_guard(holdings_destination):
             candidate, frame, effective_as_of = _read_holdings_import(path, as_of)
             result = normalise_holdings(frame, instrument_id, effective_as_of, source, today=today)
-            if not result.score_eligible:
+            manual_unverified_context = (
+                result.source == "manual_unverified"
+                and result.authority == "unknown"
+                and result.score_eligible is False
+                and not _holdings_write_reasons(
+                    result,
+                    result.frame,
+                    require_score_eligibility=False,
+                    require_explicit_identity=False,
+                    require_full_weights=False,
+                )
+            )
+            if not result.score_eligible and not manual_unverified_context:
                 detail = ", ".join(result.warnings) or f"completeness={result.completeness}, freshness={result.freshness}"
                 raise ValueError(f"Holdings import is invalid or ineligible; no data changed ({detail}).")
             existing_holdings = _read_existing_holdings(holdings_destination)
@@ -600,7 +614,7 @@ def import_etf_holdings_with_document(
                 "holdings",
                 str(instrument_id).strip(),
                 "",
-                "issuer_document",
+                "manual_unverified" if manual_unverified_context else "issuer_document",
                 document_date=result.as_of,
             )
             merged_holdings = _attach_document_binding(merged_holdings, document)
@@ -624,7 +638,8 @@ def import_etf_holdings_with_document(
                 AtomicWriteRequest(registry_destination, parquet_payload(inventory), validate_parquet_file),
                 AtomicWriteRequest(registry_csv_destination, inventory.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
             )
-            atomic_write_group(requests)
+            with publication_scope(publish_guard):
+                atomic_write_group(requests)
     return result
 
 

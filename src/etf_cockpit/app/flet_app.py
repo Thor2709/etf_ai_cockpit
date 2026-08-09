@@ -208,7 +208,7 @@ def run() -> None:
             return
         port = _fallback_port_if_busy(port)
         os.environ["ETF_COCKPIT_PORT"] = str(port)
-        init_session_log(clear=True, build_mode="web", port=port, route="/")
+        init_session_log(clear=False, build_mode="web", port=port, route="/")
         view = ft.AppView.WEB_BROWSER
         embedded_platform = os.environ.pop("FLET_PLATFORM", None)
         if open_browser:
@@ -224,7 +224,7 @@ def run() -> None:
         )
     try:
         if view_setting in {"desktop", "flet_app"}:
-            init_session_log(clear=True, build_mode="desktop", port=port, route="/")
+            init_session_log(clear=False, build_mode="desktop", port=port, route="/")
         _resolve_flet_app()(target=main, view=view, host="127.0.0.1", port=port)
     except Exception:
         _startup_log("ft.app failed\n" + traceback.format_exc())

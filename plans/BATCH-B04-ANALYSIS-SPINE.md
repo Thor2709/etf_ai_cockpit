@@ -263,15 +263,177 @@ has no actions. GitHub issue #15 resolves to `integrated` and
 `execution_allowed=false` remains.
 
 ISSUE-0012 product commit
-`7cf66f9aea285d29e4881aa53c2e9817baccbbbf` is locally green and
-frozen. Exact-main lifecycle preparation reproduced
+`43fcbca8f5960af7f54f48bb94e0d08682f49c78` is rebased onto repaired
+main and remains locally green. Exact-main lifecycle preparation reproduced
 `ISSUE-0012: status replay transition history prefix must be a list`; its
 isolated one-action plan SHA is
 `8e3778a20cd1b1c64da5c69347238c017c932f56d1f16649bd7a2dd8847fe3aa`.
-Clean H-tier branch `codex/issue0012-bootstrap-replay-repair-v2-20260809`
-allows the empty prefix only for complete fixed ISSUE-0011 and ISSUE-0012 B00
-records. Every other identity and malformed source fails closed; no lifecycle,
-dependency, retry, external-write or execution authority changes.
+Repair PR #662 merged independently approved exact head
+`f23e814127fc62db4c936e9b4788ff7b242d2288` as
+`5718ed5a2cb961985a215a25277951c271c4571d` after H-tier run
+`31303632447` passed Linux, Windows and terminal validation. Only complete
+fixed ISSUE-0011 and ISSUE-0012 B00 records may use the empty prefix; every
+other identity and malformed source fails closed. No lifecycle, dependency,
+retry, external-write or execution authority changes.
+
+ISSUE-0012 remains the next product issue. Clean branch
+`codex/issue0012-product-20260809` starts at exact main
+`5718ed5a2cb961985a215a25277951c271c4571d`. Its bounded scope extends the
+existing persistent activity/run-log and visible progress contract across all
+declared long-running workflows, preserving local-first operation and all
+execution and external-write boundaries.
+
+Fresh repaired exact-main lifecycle proof produced one ISSUE-0012 action at
+plan SHA
+`8e3778a20cd1b1c64da5c69347238c017c932f56d1f16649bd7a2dd8847fe3aa`
+and aggregate authority
+`e1b1ea5d819d666f8a1b8b2d27ce683772ad35dd1f59de8e6458e5ff102004f1`.
+The guard correctly rejects combining it with the product PR because product
+commit `43fcbca8f5960af7f54f48bb94e0d08682f49c78` is not yet an ancestor
+of the reviewed generation base. Keep the product PR product-only, then
+regenerate this compact completion transaction from its exact reviewed merge
+and require the ordered writer plus zero-action generic readback.
+
+Product PR #663 head `b1023cf53a4634c8fc4c7263660677ffc10364a3`
+was rejected by both exact-head reviewers. All persistence, cancellation,
+runtime-binding, terminal-status, redaction and visible-timestamp findings
+were consolidated into correction commit `3303ac2f`. The correction retains
+restart history, enforces action-ID publication ownership and cancellation,
+marks normal-return unavailable results as failures, reports real forecast
+stage boundaries, makes macro/news refresh reachable, redacts cache failures
+and renders start/output/error evidence. Focused lifecycle, startup, workflow,
+resource, UI, import/report, forecast and event-log evidence passed alongside
+Ruff, compileall and diff checks. Exact classification keeps the replacement
+product head O-tier with no packaged gate due; it requires parallel whole-diff
+review, risk review and exact-head hosted release validation before merge.
+
+Replacement head `f82ddaf8748787bf9ea51fdbf37eff933ecdd511`
+passed hosted run `31306934161`, but both reviewers rejected its cancellation
+publication boundary, making that CI evidence stale. The whole-diff review
+also found non-atomic concurrent starts, raw UI exceptions, ESEF unavailable
+success and stale non-dashboard progress rendering. Final consolidated
+correction commit `eff4ba5c` makes starts atomic, reserves cancelled ownership
+until callback exit and holds the shared activity lock across each single
+verified durable publication. Cancellation now wins before a write or waits
+for it and rejects every later publication. UI failures are redacted, ESEF
+unavailability fails and terminal non-dashboard handlers rebuild the shell.
+Focused evidence passed 24 ISSUE-0012 tests and 201 coupled tests plus Ruff,
+compileall and diff checks. The next exact head must repeat whole-diff review,
+risk review and hosted O-tier validation together.
+
+Exact head `aadea38329f051523c18e235b67040c1852d5150` was then
+rejected by both reviewers for five newly demonstrated terminal-integrity
+defects: an update/cancel mutation race, non-atomic session-log compaction,
+unguarded snapshot-derived writes, disclosure unavailability shown as success
+and remaining raw job/provider errors. Consolidated correction commit
+`9e77291d` linearizes updates with the controller transition, atomically stages
+and validates compacted history, scopes feature/backtest publications,
+re-raises cancellation, fails unavailable disclosure terminals and removes
+raw exception text. Focused evidence passed 33 ISSUE-0012, 143 directly
+affected and 41 yfinance/release-hardening tests plus Ruff, compileall and
+diff checks. The final checkpointed head requires both reviews and hosted
+O-tier validation afresh; rejected-head evidence is not reusable.
+
+Exact head `61fdc2ac636946d7bf1d69201881faf01e96fecf` was rejected
+after both reviewers confirmed unguarded sample/API-status/rollback writes;
+risk review also found restart recovery depended on secondary activity events
+instead of canonical workflow events. Correction commit `fb0916fc` recovers
+start/step/finish/cancel from the existing locked `workflow_*` events when
+richer activity events are absent, and threads the lock-held publication scope
+through sample inputs, clean prices, rollback, API/yfinance status and snapshot
+initialization. Provider failures are redacted and unavailable status fails.
+Focused evidence passed 40 ISSUE-0012, 51 rollback/yfinance and 23 workflow/
+startup tests plus directly coupled release/trust regressions, Ruff, compileall
+and diff checks. Protected clean-price-store coverage makes the new head
+H-tier; repeat both exact-head reviews and hosted Linux, Windows and terminal
+validation. All prior hosted runs are stale.
+
+Exact head `2edf3a41a078e3db4a7f2033bf318cb2c4283c39` whole-diff
+review found the remaining in-scope gap: SEC/OAM/ESEF/manual filing controls
+bypassed the shared lifecycle. Correction commit `116c80c1` routes all seven
+controls through canonical activity ownership, guarded publication,
+unavailable/redacted terminals and shell refresh, and adds catalog entries.
+Focused evidence passed 49 ISSUE-0012 and 156 filing/trust/UI tests,
+deterministic SEC cancellation publication evidence, Ruff, compileall and diff
+checks. Risk review separately reproduced cross-process session-log contention
+and pre-existing crash-atomicity gaps in broad financial/audit writers; retain
+them as later persistence-hardening evidence and do not expand this product
+issue into a new locking or generation framework. Repeat scoped whole-diff and
+risk review plus the full H-tier hosted gate on the final head.
+
+Exact head `39a7016ee9742979d6e0eff237672b4556af1e72` was rejected
+for four scoped recovery gaps: truncated-tail startup append failure,
+synchronous filing work without a reachable cancel control, disclosure
+losing-start cleanup and retries bypassing canonical activity ownership.
+Correction commit `d8dd2344` applies existing bounded tail recovery before
+append/compaction, runs official filing work in the existing background pattern
+with a persistent-shell cancel control, handles atomic-start losers safely and
+makes retries re-enter the decorated lifecycle wrapper. Focused ISSUE-0012,
+startup, error-recovery, trust and button evidence passed with Ruff, compileall
+and diff checks. Re-run both scoped reviews and the full H-tier Linux/Windows/
+terminal gate on the final checkpointed head.
+
+Exact head `5336501786e19bdb6102b7dd5517fb032f2d6cb1` was rejected
+after both scoped reviewers completed. The consolidated defects were
+worker-lifetime handling of byte-backed browser uploads, stale success text
+after cancellation, absent official-filing retry re-entry, synchronous
+document/report/holdings/KID/methodology imports, ESEF discovery publishing
+after cancellation and path-only picker handling. Correction commit
+`8bb8bfcdf38e9b1ce23595bf789f29c96e3da343` uses the existing background
+lifecycle for every affected import, keeps path/byte uploads readable for the
+worker lifetime, restores canonical cancellation text, binds ESEF publication
+to the owning action and makes retry callbacks re-enter the lifecycle. Focused
+ISSUE-0012 and coupled trust/button/error-recovery/startup evidence passed with
+Ruff, compileall and diff checks. Freeze one checkpoint head after this
+chronology update, then run both scoped reviews and fresh H-tier Linux,
+Windows and terminal validation against that exact head.
+
+Exact head `de06050914635a3bb736f504e39c3bf73021cbbc` was rejected
+after both parallel reviewers completed. The complete finding set is late
+success text surviving canonical cancellation in generic helpers, synchronous
+cache rebuild without safe retry, and synchronous notes/news import without
+reachable cancellation or retry. Hosted H-tier run `31317068279` passed
+generation, smoke and supply-chain controls but timed out its six-module
+changed-test selection at 240 seconds before package jobs. Correction commit
+`633e64607c070c05e6306aab3de6a0a1b17f4a3d` restores canonical cancelled
+messages in affected finalizers, moves both actions onto the existing
+background lifecycle, guards cache deletion and preserves retry. Five lightly
+edited broad test modules are restored to base while their unchanged full-suite
+assertions pass; the actual changed-test set is ISSUE-0012 plus Flet startup
+and passes locally below the hosted window. Focused ISSUE-0012 and correction
+regressions, Ruff, compileall and diff checks pass. Freeze one new exact head
+after this checkpoint and repeat both reviews plus fresh H-tier Linux, Windows
+and terminal validation; rejected-head evidence is stale.
+
+Exact head `fb9ebd6dff118dfa19a784245f09d4534b88c33d` was rejected
+after both parallel reviewers completed. The newly demonstrated final gap was
+cancellation reachability: validation, renew imports and cache cleanup did not
+rerender the persistent shell when starting, and the accepted ChatGPT and
+Import/Export audit controls remained synchronous with incomplete retry
+ownership. Hosted run `31319351588` passed corrected preflight but was
+cancelled/disregarded during Linux/Windows packaging once review rejected the
+head. Correction commit `e3df8c194fd3b85077dfa532f9b564ce72207d12`
+immediately exposes the shell cancel control for every affected start, routes
+all three registered audit exports through background owned lifecycles,
+restores cancellation and retries each complete operation including ChatGPT
+archive validation. The action-control catalog now enumerates every registered
+control. Focused ISSUE-0012 passes 71 tests; the exact changed-test set passes
+in 115.5 seconds without warnings, with Ruff, compileall and diff checks green.
+Freeze one final exact head after this checkpoint and repeat both reviews plus
+fresh H-tier Linux, Windows and terminal validation.
+
+Exact head `2a91dd466be9a70d868a82c53956181f7b10b738` was rejected
+after both parallel reviewers completed. All runtime lifecycle findings were
+accepted; the residual set was two missing Dashboard holdings/factsheet keys
+in reverse action-control coverage and an empty file-picker terminal that
+cleared activity before the final shell rerender. Hosted run `31320604306`
+passed corrected preflight but was cancelled/disregarded during Linux/Windows
+packaging after rejection. Correction commit
+`72792c1c3533e4d4c25b05fd10ef270f1555c7e2` adds exact and reverse catalog
+coverage, records both accepted Dashboard controls and always rerenders the
+picker terminal. Focused ISSUE-0012, Ruff, compileall and diff checks pass.
+Freeze the replacement exact head after this checkpoint and repeat both
+reviews plus fresh H-tier Linux, Windows and terminal validation.
 
 ## ISSUE-0104 product chronology
 
@@ -2495,3 +2657,39 @@ unchanged. The isolated product implementation is stable at
 review. After readiness converges, rebase that product head onto the new exact
 main and run fresh H-tier review and authoritative Linux/Windows package gates
 before merge and automatic lifecycle completion.
+
+`CORRECTION` UPDATEV2-0018 exact head
+`0216f820eb7c111cd95c0bc287d50e05e6b526c0` received whole-diff approval
+and one risk-review blocker: four accepted disclosure-import buttons were
+missing from reverse-complete long-running control coverage. One bounded pass
+adds those existing controls and an acceptance-derived reverse regression.
+Rejected-head CI is stale; focused checks, both exact-head reviews and fresh
+H-tier Linux, Windows and terminal gates are required on the replacement head.
+
+`FINAL_CORRECTION` UPDATEV2-0018 exact head
+`a5144b49ed996af95f4a1706d8bc5f87d97b9742` received risk approval and
+one newly demonstrated whole-diff rejection: byte-backed document/holdings
+imports persisted temporary paths, and reverse coverage derived only five of
+seven accepted controls from configuration. The bounded final pass retains
+those sources under existing checksum-addressed raw evidence before registry
+writes and derives the exact seven-control set from UI acceptance. Rejected-
+head CI is stale; focused checks, both exact-head reviews and fresh H-tier
+Linux, Windows and terminal gates remain required.
+
+`TRUTHFUL_AUTHORITY_CORRECTION` exact head
+`daa23b34a6c54faf5b0c0d85920cbc442a94e65f` passed the complete focused
+review surface but masked the real holdings callback by rewriting
+`manual_unverified` as `issuer` in its durability test. The narrow correction
+allows only structurally valid non-score manual context through the existing
+atomic holdings/document group, preserves unknown authority and false score
+eligibility, binds truthful manual evidence and removes the rewrite. Fresh
+exact-head reviews and H-tier Linux, Windows and terminal gates are required.
+
+`GATE_CORRECTION` exact head
+`a1e1f756343453850991c7eb3ade23f443d1c78c` received both reviewer
+approvals, but Linux H-tier run `31324672892` exposed one stale legacy test
+that expected immediate cancellation-slot release. The reviewed contract
+reserves cancelled ownership until callback exit to reject late publication.
+The test-only correction asserts reservation, explicit owner release and the
+durable cancellation event. Runtime behavior and authority remain unchanged;
+fresh exact-head reviews and H-tier Linux/Windows/terminal gates are required.

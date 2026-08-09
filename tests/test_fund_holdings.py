@@ -420,6 +420,39 @@ def test_document_holdings_import_rejects_invalid_post_binding_without_writes(
         assert not destination.exists()
 
 
+def test_combined_holdings_import_persists_manual_unverified_context_and_document(tmp_path: Path) -> None:
+    import etf_cockpit.data.fund_holdings as fund_holdings
+    from etf_cockpit.data.fund_documents import read_document_registry
+
+    source = tmp_path / "holdings.csv"
+    source.write_bytes(b"security,ticker,weight,as_of\nManual,MAN,1.0,2026-08-09\n")
+    holdings_destination = tmp_path / "fund_holdings.parquet"
+    registry_destination = tmp_path / "fund_documents.parquet"
+
+    imported = fund_holdings.import_etf_holdings_with_document(
+        source,
+        "VWCE",
+        "2026-08-09",
+        "manual_unverified",
+        holdings_destination=holdings_destination,
+        registry_destination=registry_destination,
+        today="2026-08-10",
+    )
+
+    assert imported.source == "manual_unverified"
+    assert imported.authority == "unknown"
+    assert imported.score_eligible is False
+    stored = pd.read_parquet(holdings_destination)
+    assert stored["source"].eq("manual_unverified").all()
+    assert stored["authority"].eq("unknown").all()
+    assert stored["score_eligible"].eq(False).all()
+    registry = read_document_registry(path=registry_destination)
+    document = registry.loc[registry["document_type"].eq("holdings")].iloc[0]
+    assert document["authority"] == "manual_unverified"
+    assert stored["document_source_id"].eq(document["source_id"]).all()
+    assert stored["document_checksum"].eq(document["sha256"]).all()
+
+
 def test_concurrent_holdings_imports_preserve_disjoint_identity_schemas(tmp_path: Path) -> None:
     from etf_cockpit.data.fund_holdings import import_etf_holdings
 

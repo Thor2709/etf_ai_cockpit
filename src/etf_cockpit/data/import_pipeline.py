@@ -15,6 +15,7 @@ from etf_cockpit.core.atomic_io import (
     atomic_write_json,
 )
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR, SNAPSHOTS_DIR
+from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.core.types import DatasetMetadata
 from etf_cockpit.data.duckdb_store import PRICE_PARQUET
 from etf_cockpit.data.provenance import sha256_dataframe
@@ -98,8 +99,8 @@ def rollback_latest_price_import(
     clean_path: Path = CLEAN_DIR / "prices.parquet",
     compatibility_path: Path = PRICE_PARQUET,
     snapshots_dir: Path = SNAPSHOTS_DIR / "prices",
+    publish_guard: PublicationScopeFactory | None = None,
 ) -> PriceImportRollback:
-    snapshots_dir.mkdir(parents=True, exist_ok=True)
     candidates = sorted(snapshots_dir.glob("*_previous_*.parquet"), key=lambda path: path.name)
     if not candidates:
         raise FileNotFoundError("No previous clean price snapshot is available to roll back.")
@@ -108,30 +109,31 @@ def rollback_latest_price_import(
     frame = pd.read_parquet(restored_snapshot_path)
     checksum = sha256_dataframe(frame)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    clean_path.parent.mkdir(parents=True, exist_ok=True)
-    compatibility_path.parent.mkdir(parents=True, exist_ok=True)
+    with publication_scope(publish_guard):
+        clean_path.parent.mkdir(parents=True, exist_ok=True)
+        compatibility_path.parent.mkdir(parents=True, exist_ok=True)
 
-    current_snapshot_path = None
-    if compatibility_path.exists():
-        current_snapshot_path = snapshots_dir / f"{timestamp}_rollback_replaced_{compatibility_path.name}"
-        shutil.copy2(compatibility_path, current_snapshot_path)
+        current_snapshot_path = None
+        if compatibility_path.exists():
+            current_snapshot_path = snapshots_dir / f"{timestamp}_rollback_replaced_{compatibility_path.name}"
+            shutil.copy2(compatibility_path, current_snapshot_path)
 
-    _write_price_stores_atomically(frame, (compatibility_path, clean_path))
+        _write_price_stores_atomically(frame, (compatibility_path, clean_path))
 
-    metadata_path = snapshots_dir / f"{timestamp}_{checksum[:12]}_prices_rollback.json"
-    atomic_write_json(
-        metadata_path,
-        {
-            "dataset_type": "prices",
-            "operation": "rollback_latest_price_import",
-            "rows": len(frame),
-            "checksum": checksum,
-            "restored_snapshot_path": str(restored_snapshot_path),
-            "current_snapshot_path": str(current_snapshot_path) if current_snapshot_path else None,
-            "clean_path": str(clean_path),
-            "compatibility_path": str(compatibility_path),
-        },
-    )
+        metadata_path = snapshots_dir / f"{timestamp}_{checksum[:12]}_prices_rollback.json"
+        atomic_write_json(
+            metadata_path,
+            {
+                "dataset_type": "prices",
+                "operation": "rollback_latest_price_import",
+                "rows": len(frame),
+                "checksum": checksum,
+                "restored_snapshot_path": str(restored_snapshot_path),
+                "current_snapshot_path": str(current_snapshot_path) if current_snapshot_path else None,
+                "clean_path": str(clean_path),
+                "compatibility_path": str(compatibility_path),
+            },
+        )
     return PriceImportRollback(
         restored_snapshot_path=restored_snapshot_path,
         current_snapshot_path=current_snapshot_path,

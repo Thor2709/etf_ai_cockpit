@@ -320,27 +320,224 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
 - Completion PR #661 merged independently approved exact head
   `0d789d0550a38c107b427bec40ac6bfff98ce5da` as
-  `a80aa32a3c6ffaeb5e7075d152c2d4cce9e888ea`. Writer run
+  `a80aa32a3c6ffaeb5e7075d152c2d4cce9e888ea`. Status guard run
+  `31300304421` and release run `31300304453` passed. Writer run
   `31301505274` returned `applied_and_verified` with an acceptance receipt and
   `zero_action_readback=true`; fresh generic exact-main readback has no
   actions at plan SHA
   `da8f7f0f36d1a9c9124b02634176b51b3e9e11cddbebcf39457cdeec9f615ef1`.
   GitHub issue #15 resolves to canonical `integrated` and
   `execution_allowed=false` remains.
-- ISSUE-0012 is next and product commit
-  `7cf66f9aea285d29e4881aa53c2e9817baccbbbf` is locally green and
-  frozen. Exact-main lifecycle preparation reproduced
+- ISSUE-0012 is the next implementation-order, dependency-ready issue. Product
+  commit
+  `43fcbca8f5960af7f54f48bb94e0d08682f49c78` is rebased onto the
+  repaired main and remains locally green. Exact-main lifecycle preparation reproduced
   `ISSUE-0012: status replay transition history prefix must be a list`; the
   failed projection remains isolated in worktree
   `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0012_lifecycle_premerge`
   at live one-action plan SHA
   `8e3778a20cd1b1c64da5c69347238c017c932f56d1f16649bd7a2dd8847fe3aa`.
-  Clean H-tier branch
-  `codex/issue0012-bootstrap-replay-repair-v2-20260809` starts at exact main
-  `a80aa32a3c6ffaeb5e7075d152c2d4cce9e888ea` and permits the empty
-  prefix only for complete fixed ISSUE-0011 and ISSUE-0012 B00 records. Every
-  other identity or malformed source fails closed; hops, dependencies, retry
-  behavior, authority and `execution_allowed=false` are unchanged.
+  Repair PR #662 merged independently approved exact head
+  `f23e814127fc62db4c936e9b4788ff7b242d2288` as
+  `5718ed5a2cb961985a215a25277951c271c4571d` after H-tier run
+  `31303632447` passed Linux, Windows and terminal validation. Only complete
+  fixed ISSUE-0011 and ISSUE-0012 B00 records may use the empty prefix; every
+  other identity or malformed source fails closed. Hops, dependencies, retry
+  behavior, authority and `execution_allowed=false` are unchanged. Product
+  worktree
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0011_readback`,
+  branch `codex/issue0012-product-20260809` starts at exact main
+  `5718ed5a2cb961985a215a25277951c271c4571d`. Scope is the existing shared
+  workflow-status service and persistent activity/run-log contract extended
+  across every declared long-running workflow, with visible started/step/
+  progress/success/failure/timestamp/output/error state and no execution or
+  external-write authority.
+- Fresh exact-main lifecycle proof after the repair generated one ISSUE-0012
+  action at plan SHA
+  `8e3778a20cd1b1c64da5c69347238c017c932f56d1f16649bd7a2dd8847fe3aa`
+  and prepared aggregate authority
+  `e1b1ea5d819d666f8a1b8b2d27ce683772ad35dd1f59de8e6458e5ff102004f1`.
+  The status guard correctly prohibits embedding that replay in the product
+  PR because product commit `43fcbca8f5960af7f54f48bb94e0d08682f49c78`
+  is not yet an ancestor of the reviewed generation base. The product PR
+  therefore remains product-only; immediately after its exact reviewed merge,
+  regenerate the already-proved compact completion transaction from the new
+  main, validate the writer, and require zero-action generic readback.
+- Product PR #663 head `b1023cf53a4634c8fc4c7263660677ffc10364a3`
+  was rejected by both exact-head reviewers. Their persistence, cancellation,
+  runtime-binding, terminal-status, redaction and visible-timestamp findings
+  were collected before one consolidated correction. Correction commit
+  `3303ac2f` preserves the session trace across restart, binds every publication
+  to its owning action and cancellation state, records unavailable outcomes as
+  failures, emits forecast stages at their actual service boundaries, exposes
+  the macro/news action, redacts cache errors and renders start/output/error
+  evidence. Attributable focused evidence passed 18 lifecycle/startup tests,
+  the remaining startup tests in bounded groups, 31 workflow/resource/macro
+  tests, 21 button/accessibility tests, 54 import/report tests, 3 forecast
+  tests, 10 event-log/redaction tests, Ruff, compileall and diff checks. The
+  exact classifier keeps the replacement product head O-tier with no packaged
+  gate due; freeze it only after this checkpoint and run whole-diff review,
+  risk review and the exact-head hosted release gate concurrently.
+- Replacement head `f82ddaf8748787bf9ea51fdbf37eff933ecdd511`
+  passed hosted run `31306934161` but both reviewers rejected its cancellation
+  publication boundary, so that CI evidence is stale. The whole-diff review
+  also found non-atomic concurrent starts, raw UI exceptions, ESEF unavailable
+  success and stale non-dashboard progress rendering. One final consolidated
+  correction commit `eff4ba5c` makes activity starts atomic, reserves cancelled
+  ownership until callback exit, and uses the same lock for one verified
+  durable publication at a time. Cancellation therefore wins before a write
+  or waits for that write and rejects every later write. It also redacts UI
+  failures, records ESEF unavailability as failed and rebuilds the shared shell
+  on non-dashboard terminal events. Focused correction evidence passed 24
+  ISSUE-0012 tests and 201 coupled workflow/startup/import/holdings/disclosure/
+  release-hardening tests plus Ruff, compileall and diff checks. Re-freeze only
+  after this checkpoint, then repeat both reviews and hosted O-tier validation
+  against one exact head.
+- Exact head `aadea38329f051523c18e235b67040c1852d5150` was rejected by
+  both parallel reviewers for five newly demonstrated terminal-integrity
+  defects: an update/cancel mutation race, non-atomic session-log compaction,
+  unguarded snapshot-derived writes, disclosure unavailability recorded as
+  success and remaining raw job/provider errors. Consolidated correction
+  commit `9e77291d` linearizes update mutation with the controller transition,
+  stages/validates/fsyncs/atomically replaces compacted history, scopes feature
+  and backtest publications, re-raises cancellation from reference import,
+  fails unavailable disclosure terminals and removes raw exception text.
+  Focused evidence passed 33 ISSUE-0012 tests, 143 directly affected tests and
+  41 yfinance/release-hardening tests plus Ruff, compileall and diff checks.
+  Repeat both independent reviews and hosted O-tier validation against the
+  final checkpointed head; do not reuse the rejected head's evidence.
+- Exact head `61fdc2ac636946d7bf1d69201881faf01e96fecf` was rejected
+  after both reviewers confirmed unguarded sample/API-status/rollback writes;
+  risk review also found restart recovery depended on secondary activity
+  events instead of canonical workflow events. Correction commit `fb0916fc`
+  now recovers start/step/finish/cancel directly from the existing locked
+  `workflow_*` events when richer activity events are absent, and threads the
+  lock-held publication scope through sample inputs, clean prices, rollback,
+  API/yfinance status and snapshot initialization. Provider failures are
+  redacted and unavailable status is terminal failure. Focused evidence passed
+  40 ISSUE-0012, 51 rollback/yfinance and 23 workflow/startup tests plus the
+  directly coupled release/trust regressions, Ruff, compileall and diff checks.
+  Protected clean-price-store coverage makes the new checkpointed head H-tier;
+  repeat both reviews and hosted Linux, Windows and terminal validation. Prior
+  hosted runs are stale.
+- Exact head `2edf3a41a078e3db4a7f2033bf318cb2c4283c39` whole-diff
+  review found the remaining in-scope gap: SEC/OAM/ESEF/manual filing controls
+  bypassed the shared lifecycle. Correction commit `116c80c1` routes all
+  seven controls through canonical activity ownership, guarded publication,
+  unavailable/redacted terminals and shell refresh, and adds their catalog
+  entries. Focused evidence passed 49 ISSUE-0012 and 156 filing/trust/UI tests,
+  deterministic SEC cancellation publication evidence, Ruff, compileall and
+  diff checks. Risk review separately reproduced cross-process session-log
+  contention and pre-existing crash-atomicity gaps in broad financial/audit
+  writers; record those as later persistence hardening and do not expand this
+  product issue into a new locking or generation framework. Repeat scoped
+  whole-diff and risk review plus full H-tier hosted validation on the final
+  head.
+- Exact head `39a7016ee9742979d6e0eff237672b4556af1e72` was rejected
+  for four scoped recovery gaps: truncated-tail startup append failure,
+  synchronous filing work without a reachable cancel control, disclosure
+  losing-start cleanup and retries bypassing canonical activity ownership.
+  Correction commit `d8dd2344` applies existing bounded tail recovery before
+  append/compaction, runs official filing work in the existing background
+  pattern with a persistent-shell cancel control, handles atomic-start losers
+  safely and makes retries re-enter the decorated lifecycle wrapper. Focused
+  ISSUE-0012, startup, error-recovery, trust and button evidence passed with
+  Ruff, compileall and diff checks. Re-run both scoped reviews and the full
+  H-tier Linux/Windows/terminal gate on the final checkpointed head.
+- Exact head `5336501786e19bdb6102b7dd5517fb032f2d6cb1` was rejected
+  after both scoped reviewers completed. Their consolidated findings were
+  worker-lifetime handling of byte-backed browser uploads, stale success text
+  after cancellation, missing official-filing retry re-entry, synchronous
+  document/report/holdings/KID/methodology imports, ESEF discovery publishing
+  after cancellation and path-only picker handling. Correction commit
+  `8bb8bfcdf38e9b1ce23595bf789f29c96e3da343` routes every affected import
+  through the existing background lifecycle, materialises path/byte uploads
+  for exactly the worker lifetime, restores canonical cancellation messages,
+  binds ESEF publication to the owning action and makes retry callbacks
+  re-enter that lifecycle. Focused ISSUE-0012 and coupled trust/button/error-
+  recovery/startup evidence passed with Ruff, compileall and diff checks.
+  Freeze one checkpoint head after this chronology update; both scoped reviews
+  and fresh H-tier Linux, Windows and terminal validation remain required.
+- Exact head `de06050914635a3bb736f504e39c3bf73021cbbc` was rejected
+  after both parallel reviewers completed. Their consolidated findings were
+  late success text surviving canonical cancellation in generic helpers,
+  synchronous cache rebuild without safe retry, and synchronous notes/news
+  imports without reachable cancellation or retry. Hosted H-tier run
+  `31317068279` separately passed generation, smoke and supply-chain controls
+  but timed out its six-module changed-test selection at 240 seconds before
+  Linux/Windows packaging. Correction commit
+  `633e64607c070c05e6306aab3de6a0a1b17f4a3d` restores canonical cancelled
+  messages in every affected finalizer, moves both actions onto the existing
+  background lifecycle, guards cache deletion and preserves safe retry. Five
+  lightly edited broad test modules are restored to base without weakening
+  their full-suite assertions; the actual changed-test set is now ISSUE-0012
+  plus Flet startup and passes locally below the hosted window. The five
+  restored modules also pass independently, focused ISSUE-0012 and correction
+  regressions pass, and Ruff, compileall and diff checks pass. Freeze one new
+  exact head after this checkpoint, then repeat both reviews and fresh H-tier
+  Linux, Windows and terminal validation; rejected-head evidence is stale.
+- Exact head `fb9ebd6dff118dfa19a784245f09d4534b88c33d` was rejected
+  after both parallel reviewers completed. The newly demonstrated final gap
+  was cancellation reachability: validation, renew imports and cache cleanup
+  did not rerender the persistent shell at start, while accepted ChatGPT and
+  Import/Export audit controls still ran synchronously and their retry paths
+  did not re-enter each complete operation. Its hosted run `31319351588`
+  passed preflight, including the corrected changed-test window, but was
+  cancelled/disregarded during Linux/Windows packaging after review rejected
+  the head. Correction commit
+  `e3df8c194fd3b85077dfa532f9b564ce72207d12` immediately exposes the shell
+  cancel control for every affected start, routes all three registered audit
+  exports through background owned lifecycles, restores cancellation and
+  retries each full operation including ChatGPT archive validation. The
+  generated action-control catalog now enumerates every registered control.
+  Focused ISSUE-0012 passes 71 tests; the exact changed-test set passes in
+  115.5 seconds without warnings, with Ruff, compileall and diff checks green.
+  Freeze one final exact head after this checkpoint and repeat both reviews
+  plus fresh H-tier Linux, Windows and terminal validation.
+- Exact head `2a91dd466be9a70d868a82c53956181f7b10b738` was rejected
+  after both parallel reviewers completed. All runtime lifecycle findings were
+  accepted; the complete residual set was two missing Dashboard holdings/
+  factsheet keys in reverse action-control coverage and an empty file-picker
+  terminal that cleared activity before the final shell rerender. Hosted run
+  `31320604306` passed corrected preflight but was cancelled/disregarded during
+  Linux/Windows packaging after rejection. Correction commit
+  `72792c1c3533e4d4c25b05fd10ef270f1555c7e2` adds exact and reverse catalog
+  coverage, records both accepted Dashboard controls and always rerenders the
+  picker terminal. Focused ISSUE-0012, Ruff, compileall and diff checks pass.
+  Freeze the replacement exact head after this checkpoint and repeat both
+  reviews plus fresh H-tier Linux, Windows and terminal validation.
+- Exact head `0216f820eb7c111cd95c0bc287d50e05e6b526c0` received whole-diff
+  approval and one consolidated risk-review finding: four accepted disclosure
+  import controls were absent from reverse-complete action-control coverage.
+  The bounded correction adds those existing controls and derives the reverse
+  completeness regression from the accepted disclosure-import buttons. Its
+  hosted evidence is stale; freeze one replacement head after focused checks,
+  then repeat both reviews and fresh H-tier Linux, Windows and terminal gates.
+- Exact head `a5144b49ed996af95f4a1706d8bc5f87d97b9742` received risk-review
+  approval and one newly demonstrated whole-diff rejection: browser byte
+  uploads left document/holdings registries bound to deleted temporary paths,
+  and only five of seven accepted controls were config-derived in the reverse
+  regression. The final bounded pass reuses checksum-addressed raw retention
+  before those registry writes and derives the exact seven-control set from
+  UI acceptance. Its hosted evidence is stale; focused checks, both reviews
+  and fresh H-tier Linux, Windows and terminal gates remain required.
+- Exact head `daa23b34a6c54faf5b0c0d85920cbc442a94e65f` passed 109 focused
+  cases in whole-diff review but received one truthful-authority risk finding:
+  its new holdings test rewrote `manual_unverified` to `issuer`, masking the
+  production callback's pre-persistence rejection. The narrow final repair
+  permits only structurally valid non-score manual context in the existing
+  atomic holdings/document importer, preserves `source=manual_unverified`,
+  `authority=unknown`, `score_eligible=false`, binds the document with
+  `manual_unverified` authority and removes the test rewrite. Rejected-head CI
+  is stale; both reviews and fresh H-tier gates remain required.
+- Exact head `a1e1f756343453850991c7eb3ade23f443d1c78c` received both code/risk
+  approvals, but Linux H-tier run `31324672892` deterministically failed one
+  unchanged legacy cancellation assertion. The newer reviewed ownership
+  contract reserves a cancelled activity until its callback exits so late
+  publication cannot overlap a replacement action. The bounded test-only
+  correction now asserts that reservation, explicit owner release and durable
+  cancellation log; no runtime behavior or authority changes. Repeat both
+  exact-head reviews and fresh Linux, Windows and terminal H-tier validation.
 
 ## ISSUE-0104 product chronology
 

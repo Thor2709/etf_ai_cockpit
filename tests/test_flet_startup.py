@@ -58,9 +58,13 @@ def test_activity_entries_persist_to_local_run_log(tmp_path, monkeypatch) -> Non
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
 
-    state.begin_activity("Test action", "Starting")
-    state.update_activity("Running")
-    entry = state.finish_activity("Test action complete", output_path=tmp_path / "out.txt")
+    action_id = state.begin_activity("Test action", "Starting").action_id
+    state.update_activity("Running", expected_action_id=action_id)
+    entry = state.finish_activity(
+        "Test action complete",
+        output_path=tmp_path / "out.txt",
+        expected_action_id=action_id,
+    )
 
     assert entry.status == "success"
     assert state.current_activity is None
@@ -100,7 +104,7 @@ def test_main_forecast_workflow_disables_uncached_optional_models(monkeypatch) -
             return "Configured ETF forecasts reused from cache as of 2026-07-07: baseline ok 7. Output: forecasts.csv."
 
     monkeypatch.setattr(app_state_module, "DataService", FakeDataService)
-    monkeypatch.setattr(app_state_module, "build_snapshot", lambda force_sample=False: snapshot)
+    monkeypatch.setattr(app_state_module, "build_snapshot", lambda force_sample=False, **_kwargs: snapshot)
     monkeypatch.setattr(state, "_write_current_scoreboard", lambda: SimpleNamespace(name="scoreboard.parquet"))
 
     message = state.run_forecasting_models()

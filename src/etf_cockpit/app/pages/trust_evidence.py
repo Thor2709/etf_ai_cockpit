@@ -5,16 +5,18 @@ import hashlib
 import os
 from pathlib import Path
 import tempfile
-from typing import Iterator
+import threading
+from typing import Callable, Iterator
 
 import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
-from etf_cockpit.app.state import AppState
+from etf_cockpit.app.state import ActivityUnavailableError, AppState
 from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.paths import RAW_DIR, STATEMENT_FACTS_PATH
+from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
 from etf_cockpit.application.ui_facade import (
     BENCHMARK_ATTRIBUTION_PATH,
     CORRELATION_CLUSTERS_PATH,
@@ -87,7 +89,12 @@ def _materialise_picker_file(selected: object, suffix: str) -> Iterator[Path | N
         temporary_path.unlink(missing_ok=True)
 
 
-def _retain_picker_source(path: Path | None, subdirectory: str) -> Path | None:
+def _retain_picker_source(
+    path: Path | None,
+    subdirectory: str,
+    *,
+    publish_guard: PublicationScopeFactory | None = None,
+) -> Path | None:
     """Retain uploaded bytes under the raw evidence directory before parsing."""
 
     if path is None or not path.is_file():
@@ -96,11 +103,12 @@ def _retain_picker_source(path: Path | None, subdirectory: str) -> Path | None:
     digest = hashlib.sha256(payload).hexdigest()
     suffix = path.suffix.lower() or ".pdf"
     destination = RAW_DIR / subdirectory / f"{digest}{suffix}"
-    atomic_write_bytes(
-        destination,
-        payload,
-        validator=lambda candidate: hashlib.sha256(candidate.read_bytes()).hexdigest() == digest,
-    )
+    with publication_scope(publish_guard):
+        atomic_write_bytes(
+            destination,
+            payload,
+            validator=lambda candidate: hashlib.sha256(candidate.read_bytes()).hexdigest() == digest,
+        )
     return destination
 
 
@@ -120,11 +128,121 @@ def _document_checksum(row: pd.Series | None) -> str:
     return "" if value is None or pd.isna(value) else str(value)
 
 
-def _start_disclosure_import(state: AppState, result: ft.Control, label: str) -> None:
+def _start_disclosure_import(state: AppState, result: ft.Control, label: str) -> str | None:
     """Expose a durable running state before a disclosure parser begins."""
 
-    state.begin_activity(label, "Reading selected document")
+    try:
+        action_id = state.begin_activity(label, "Reading selected document").action_id
+    except WorkflowTransitionError:
+        owner = state.current_activity.label if state.current_activity is not None else "Another action"
+        result.value = f"{label} blocked: {owner} is already running."
+        return None
     result.value = f"{label} in progress: reading selected document..."
+    return action_id
+
+
+def _refresh_activity_shell(page: ft.Page, state: AppState) -> None:
+    if not hasattr(page, "views"):
+        page.update()
+        return
+    from etf_cockpit.app.router import render_shell
+
+    render_shell(page, state, getattr(page, "route", "") or state.snapshot.config.ui.default_page)
+
+
+def _run_official_filing_action(
+    page: ft.Page,
+    state: AppState,
+    result: ft.Control,
+    label: str,
+    step: str,
+    action: Callable[[str], str],
+) -> threading.Thread | None:
+    """Run one filing control through the shared durable activity lifecycle."""
+
+    try:
+        action_id = state.begin_activity(label, "Preparing official filing action").action_id
+    except WorkflowTransitionError:
+        owner = state.current_activity.label if state.current_activity is not None else "Another action"
+        result.value = f"{label} blocked: {owner} is already running."
+        page.update()
+        return None
+    result.value = f"{label} in progress: {step.lower()}..."
+    _refresh_activity_shell(page, state)
+
+    def worker() -> None:
+        try:
+            with state.share_activity(action_id):
+                state.update_activity(step, expected_action_id=action_id)
+                _refresh_activity_shell(page, state)
+                message = action(action_id)
+            if state.activity_was_cancelled(action_id):
+                return
+            state.finish_activity(message, expected_action_id=action_id)
+            result.value = message
+        except Exception as exc:
+            if not state.activity_was_cancelled(action_id):
+                state.fail_activity(
+                    label,
+                    exc,
+                    retry_callback=lambda: (
+                        _run_official_filing_action(page, state, result, label, step, action),
+                        "Retry started.",
+                    )[1],
+                    expected_action_id=action_id,
+                )
+                result.value = state.last_message
+        finally:
+            cancelled_message = state.restore_cancelled_activity_message(action_id)
+            if cancelled_message is not None:
+                result.value = cancelled_message
+            state.release_activity(action_id)
+            _refresh_activity_shell(page, state)
+
+    background = threading.Thread(target=worker, daemon=True)
+    background.start()
+    return background
+
+
+def _run_picker_activity(
+    page: ft.Page,
+    state: AppState,
+    result: ft.Control,
+    label: str,
+    step: str,
+    selected: object,
+    suffix: str,
+    action: Callable[[Path, str], str],
+) -> threading.Thread | None:
+    """Materialise one native/web picker selection for exactly the worker lifetime."""
+
+    def materialised_action(action_id: str) -> str:
+        with _materialise_picker_file(selected, suffix) as path:
+            if path is None:
+                raise ActivityUnavailableError(f"{label} requires a readable selected file.")
+            return action(path, action_id)
+
+    return _run_official_filing_action(page, state, result, label, step, materialised_action)
+
+
+def _filing_unavailable(message: str) -> str:
+    raise ActivityUnavailableError(message)
+
+
+def _require_disclosure_available(label: str, result: object) -> None:
+    success = getattr(result, "success", None)
+    status = getattr(result, "extraction_status", getattr(result, "status", None))
+    status_value = str(getattr(status, "value", status) or "").strip().lower()
+    if success is False or status_value in {
+        "failed",
+        "unavailable",
+        "parse_failed",
+        "unsupported",
+        "malformed",
+        "incomplete",
+        "resource_blocked",
+    }:
+        raise ActivityUnavailableError(f"{label} unavailable: {status_value or 'parse failed'}.")
 
 
 def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
@@ -288,6 +406,7 @@ def _news_context_extra(state: AppState) -> ft.Control:
     except Exception:
         events = pd.DataFrame()
     event_text = "Event calendar unavailable; no canonical local event records are registered." if events.empty else f"{len(events)} event records are available. Events remain context-only, execution_allowed=false, and do not change scores or actions."
+
     return panel(
         ft.Column(
             [
@@ -378,19 +497,33 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             page.update()
             return
         selected = files[0]
-        path = Path(selected.path) if selected.path else None
-        if path is None or not path.exists():
-            result.value = "SEC import requires a readable local JSON path."
-        else:
-            result.value = state.import_sec_companyfacts(path)
-        page.update()
+        _run_picker_activity(
+            page,
+            state,
+            result,
+            "Import SEC companyfacts",
+            "Parsing selected company facts",
+            selected,
+            ".json",
+            lambda path, action_id: state.import_sec_companyfacts(
+                path,
+                publish_guard=lambda: state.activity_publication(action_id),
+            ),
+        )
 
     async def fetch_sec(_event: ft.ControlEvent) -> None:
         cik = str(cik_field.value or "").strip()
-        result.value = "SEC import status: fetching official companyfacts with bounded requests..."
-        page.update()
-        result.value = state.fetch_sec_companyfacts(cik)
-        page.update()
+        _run_official_filing_action(
+            page,
+            state,
+            result,
+            "Fetch SEC companyfacts",
+            "Fetching official company facts",
+            lambda action_id: state.fetch_sec_companyfacts(
+                cik,
+                publish_guard=lambda: state.activity_publication(action_id),
+            ),
+        )
 
     async def import_esef(_event: ft.ControlEvent) -> None:
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["xbri", "zip"], with_data=True)
@@ -398,42 +531,73 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             result.value = "ESEF import cancelled; no data changed."
         else:
             selected = files[0]
-            path = Path(selected.path) if selected.path else None
-            try:
-                result.value = state.import_esef_package(path) if path and path.exists() else "ESEF import requires a readable local package."
-            except Exception as exc:
-                state.fail_activity("Import ESEF package", exc)
-                result.value = f"ESEF import failed safely: {state.last_message}"
-        page.update()
+            suffix = Path(str(getattr(selected, "name", "filing.xbri"))).suffix or ".xbri"
+            _run_picker_activity(
+                page,
+                state,
+                result,
+                "Import ESEF package",
+                "Reading selected package",
+                selected,
+                suffix,
+                lambda path, action_id: state.import_esef_package(
+                    path,
+                    publish_guard=lambda: state.activity_publication(action_id),
+                ),
+            )
 
     async def discover_esef(_event: ft.ControlEvent) -> None:
-        result.value = "ESEF discovery status: querying official filings.xbrl.org with a bounded request..."
-        page.update()
-        result.value = state.discover_esef_filings(str(country_field.value or "NL").strip(), 10)
-        page.update()
+        _run_official_filing_action(
+            page,
+            state,
+            result,
+            "Discover ESEF filings",
+            "Querying official filings index",
+            lambda action_id: state.discover_esef_filings(
+                str(country_field.value or "NL").strip(),
+                10,
+                expected_action_id=action_id,
+            ),
+        )
 
     async def download_esef(_event: ft.ControlEvent) -> None:
         filing_id = str(filing_id_field.value or "").strip()
-        result.value = state.download_esef_package(filing_id) if filing_id else "ESEF download requires a discovered filing ID."
-        page.update()
+        _run_official_filing_action(
+            page,
+            state,
+            result,
+            "Download ESEF package",
+            "Downloading official filing package",
+            lambda action_id: state.download_esef_package(
+                filing_id,
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+            if filing_id
+            else _filing_unavailable("ESEF download requires a discovered filing ID."),
+        )
 
     async def discover_oam(_event: ft.ControlEvent) -> None:
-        result.value = "OAM discovery status: preparing a bounded official structured-export request..."
-        page.update()
         api_key = str(companies_house_key_field.value or "")
         companies_house_key_field.value = ""
-        result.value = state.discover_oam(
-            str(oam_country_field.value or "FR"),
-            issuer=str(oam_issuer_field.value or ""),
-            isin=str(oam_isin_field.value or ""),
-            document_type=str(oam_document_type_field.value or ""),
-            date_from=str(oam_date_from_field.value or ""),
-            date_to=str(oam_date_to_field.value or ""),
-            endpoint=str(oam_endpoint_field.value or ""),
-            company_number=str(company_number_field.value or ""),
-            api_key=api_key,
+        _run_official_filing_action(
+            page,
+            state,
+            result,
+            "Discover official filings",
+            "Querying official structured export",
+            lambda action_id: state.discover_oam(
+                str(oam_country_field.value or "FR"),
+                issuer=str(oam_issuer_field.value or ""),
+                isin=str(oam_isin_field.value or ""),
+                document_type=str(oam_document_type_field.value or ""),
+                date_from=str(oam_date_from_field.value or ""),
+                date_to=str(oam_date_to_field.value or ""),
+                endpoint=str(oam_endpoint_field.value or ""),
+                company_number=str(company_number_field.value or ""),
+                api_key=api_key,
+                publish_guard=lambda: state.activity_publication(action_id),
+            ),
         )
-        page.update()
 
     async def import_manual_filing(_event: ft.ControlEvent) -> None:
         files = await picker.pick_files(
@@ -447,20 +611,25 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             return
         selected = files[0]
         suffix = Path(str(getattr(selected, "name", "filing.bin"))).suffix or ".bin"
-        with _materialise_picker_file(selected, suffix) as path:
-            if path is None:
-                result.value = "Official filing import requires a readable local file."
-            else:
-                result.value = state.import_manual_official_filing(
-                    path,
-                    jurisdiction=str(manual_country_field.value or ""),
-                    instrument_id=str(manual_instrument_field.value or ""),
-                    source_url=str(manual_source_url_field.value or ""),
-                    document_type=str(manual_document_type_field.value or "annual_report"),
-                    published_at=str(manual_published_field.value or ""),
-                    available_at=str(manual_available_field.value or ""),
-                )
-        page.update()
+        _run_picker_activity(
+            page,
+            state,
+            result,
+            "Archive manual official filing",
+            "Archiving selected official filing",
+            selected,
+            suffix,
+            lambda path, action_id: state.import_manual_official_filing(
+                path,
+                jurisdiction=str(manual_country_field.value or ""),
+                instrument_id=str(manual_instrument_field.value or ""),
+                source_url=str(manual_source_url_field.value or ""),
+                document_type=str(manual_document_type_field.value or "annual_report"),
+                published_at=str(manual_published_field.value or ""),
+                available_at=str(manual_available_field.value or ""),
+                publish_guard=lambda: state.activity_publication(action_id),
+            ),
+        )
 
     return panel(ft.Column([section_header("Official filing import", "SEC EDGAR, filings.xbrl.org, Companies House and national OAM evidence. Network, entitlement and timing gaps remain explicit; no filing action starts scoring or execution."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec)], wrap=True), ft.Row([country_field, filing_id_field, ft.OutlinedButton("Discover ESEF filings", key="filings.discover-esef", icon=ft.Icons.SEARCH, on_click=discover_esef), ft.OutlinedButton("Download ESEF package", key="filings.download-esef", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=download_esef), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), ft.Row([oam_country_field, oam_issuer_field, oam_isin_field, oam_document_type_field, company_number_field], wrap=True), ft.Row([oam_date_from_field, oam_date_to_field, oam_endpoint_field, companies_house_key_field, ft.OutlinedButton("Discover official filings", key="filings.discover-oam", icon=ft.Icons.SEARCH, on_click=discover_oam)], wrap=True), ft.Row([manual_country_field, manual_instrument_field, manual_document_type_field, manual_published_field, manual_available_field], wrap=True), ft.Row([manual_source_url_field, ft.OutlinedButton("Archive manual official filing", key="filings.import-manual-official", icon=ft.Icons.UPLOAD_FILE, on_click=import_manual_filing)], wrap=True), result], spacing=8))
 
@@ -503,24 +672,38 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             result.value = "ETF document import cancelled; no data changed."
             page.update()
             return
-        path = Path(files[0].path) if files[0].path else None
-        try:
-            if path is None or not path.exists():
-                raise ValueError("a readable local path is required")
-            document = import_etf_document(
+
+        def action(path: Path, action_id: str) -> str:
+            retained_path = _retain_picker_source(
                 path,
+                "etf_factsheets",
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+            if retained_path is None:
+                raise ActivityUnavailableError("ETF document import requires a readable selected file.")
+            document = import_etf_document(
+                retained_path,
                 instrument_id=str(instrument_field.value or state.selected_etf or "").strip(),
                 document_type=str(document_type_field.value or "factsheet"),
                 document_date=str(document_date_field.value or "").strip() or None,
                 authority="issuer_document",
                 configured_instrument_ids=state.snapshot.config.universe.enabled_ids,
+                publish_guard=lambda: state.activity_publication(action_id),
             )
-            result.value = f"ETF {document.document_type} registered for {document.instrument_id}; registry persisted with checksum {document.sha256[:12]}...."
-            state.last_message = result.value
-        except Exception as exc:
-            state.fail_activity("Import ETF document", exc)
-            result.value = f"ETF document import failed safely: {state.last_message or type(exc).__name__}; no data changed."
-        page.update()
+            return f"ETF {document.document_type} registered for {document.instrument_id}; registry persisted with checksum {document.sha256[:12]}...."
+
+        selected = files[0]
+        suffix = Path(str(getattr(selected, "name", "document.pdf"))).suffix or ".pdf"
+        _run_picker_activity(
+            page,
+            state,
+            result,
+            "Import ETF factsheet",
+            "Importing selected ETF document",
+            selected,
+            suffix,
+            action,
+        )
 
     async def import_report(_event: ft.ControlEvent) -> None:
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf"], with_data=True)
@@ -530,13 +713,12 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             return
         selected = files[0]
         suffix = Path(str(getattr(selected, "name", "report.pdf"))).suffix or ".pdf"
-        try:
-            with _materialise_picker_file(selected, suffix) as path:
-                if path is None:
-                    raise ValueError("a readable local PDF is required")
-                instrument_id = str(instrument_field.value or state.selected_etf or "").strip()
-                etf = next((item for item in state.snapshot.config.universe.etfs if item.id == instrument_id), None)
-                imported = import_etf_report(EtfReportImportRequest(
+
+        def action(path: Path, action_id: str) -> str:
+            instrument_id = str(instrument_field.value or state.selected_etf or "").strip()
+            etf = next((item for item in state.snapshot.config.universe.etfs if item.id == instrument_id), None)
+            imported = import_etf_report(
+                EtfReportImportRequest(
                     instrument_id=instrument_id,
                     document_kind=str(report_kind_field.value or "prospectus"),
                     source_authority="issuer_document",
@@ -544,15 +726,26 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                     expected_isin=etf.isin if etf is not None else None,
                     source_url=str(report_source_field.value or "").strip(),
                     configured_instrument_ids=tuple(state.snapshot.config.universe.configured_enabled_ids),
-                ))
+                ),
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
             row = read_etf_report_records().loc[lambda frame: frame["source_id"].astype(str).eq(imported.source_id)]
             fingerprint = str(row.iloc[0]["stored_extraction_sha256"]) if not row.empty else ""
-            report_status.value = f"ETF {imported.document.document_kind} import: {imported.extraction_status}; source={imported.source_id}; fingerprint={fingerprint}; review remains advisory and non-executable."
             review_source_field.value = imported.source_id
             review_fingerprint_field.value = fingerprint
-        except Exception as exc:
-            report_status.value = f"ETF report import failed safely: {type(exc).__name__}; no parsed authority granted."
-        page.update()
+            _require_disclosure_available("ETF report import", imported)
+            return f"ETF {imported.document.document_kind} import: {imported.extraction_status}; source={imported.source_id}; fingerprint={fingerprint}; review remains advisory and non-executable."
+
+        _run_picker_activity(
+            page,
+            state,
+            report_status,
+            "Import ETF report",
+            "Importing bounded ETF report",
+            selected,
+            suffix,
+            action,
+        )
 
     def review_report(decision: str) -> None:
         try:
@@ -574,23 +767,36 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             result.value = "ETF holdings import cancelled; no data changed."
             page.update()
             return
-        path = Path(files[0].path) if files[0].path else None
-        try:
-            if path is None or not path.exists():
-                raise ValueError("a readable local holdings path is required")
-            imported = import_etf_holdings_with_document(
+        def action(path: Path, action_id: str) -> str:
+            retained_path = _retain_picker_source(
                 path,
+                "etf_holdings",
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+            if retained_path is None:
+                raise ActivityUnavailableError("ETF holdings import requires a readable selected file.")
+            imported = import_etf_holdings_with_document(
+                retained_path,
                 str(instrument_field.value or state.selected_etf or "").strip(),
                 str(holdings_date_field.value or "").strip() or None,
                 "manual_unverified",
                 configured_instrument_ids=state.snapshot.config.universe.enabled_ids,
+                publish_guard=lambda: state.activity_publication(action_id),
             )
-            result.value = f"ETF holdings imported for {instrument_field.value}: completeness={imported.completeness}, freshness={imported.freshness}, confidence={imported.confidence:.2f}."
-            state.last_message = result.value
-        except Exception as exc:
-            state.fail_activity("Import ETF holdings", exc)
-            result.value = f"ETF holdings import failed safely: {state.last_message or type(exc).__name__}; existing holdings were preserved."
-        page.update()
+            return f"ETF holdings imported for {instrument_field.value}: completeness={imported.completeness}, freshness={imported.freshness}, confidence={imported.confidence:.2f}."
+
+        selected = files[0]
+        suffix = Path(str(getattr(selected, "name", "holdings.csv"))).suffix or ".csv"
+        _run_picker_activity(
+            page,
+            state,
+            result,
+            "Import ETF holdings",
+            "Importing selected holdings",
+            selected,
+            suffix,
+            action,
+        )
 
     async def import_kid(_event: ft.ControlEvent) -> None:
         from etf_cockpit.parsers.priips_kid import parse_priips_kid
@@ -598,46 +804,41 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf"], with_data=True)
         if not files:
             result.value = "PRIIPs KID import cancelled; no data changed."
-        else:
-            try:
-                _start_disclosure_import(state, result, "Import PRIIPs KID")
-                page.update()
-                with _materialise_picker_file(files[0], ".pdf") as path:
-                    state.update_activity("Parsing PRIIPs KID", "Parsing the selected KID PDF.", completed_units=1, total_units=3)
-                    result.value = "Import PRIIPs KID in progress: parsing selected PDF..."
-                    page.update()
-                    path = _retain_picker_source(path, "priips_kids")
-                    instrument_id = str(instrument_field.value or state.selected_etf or "").strip()
-                    etf = next((item for item in state.snapshot.config.universe.etfs if item.id == instrument_id), None)
-                    expected_isin = etf.isin if etf is not None else None
-                    parsed = parse_priips_kid(path, expected_isin=expected_isin) if path and path.exists() else None
-                    if parsed is None:
-                        raise ValueError("PRIIPs import requires a readable PDF")
-                    else:
-                        record = parsed.records[0] if parsed.records else None
-                        document_date = record.document_date if record is not None else str(document_date_field.value or "").strip() or None
-                        state.update_activity("Registering KID evidence", "Persisting parsed KID and checksum-backed provenance.", completed_units=2, total_units=3)
-                        result.value = "Import PRIIPs KID in progress: registering evidence..."
-                        page.update()
-                        document = persist_priips_kid_with_document(
-                            parsed,
-                            instrument_id,
-                            path,
-                            document_date=document_date,
-                            configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
-                        )
-                        registry = read_document_registry(path=document.with_name("fund_documents.parquet"))
-                        registered = registry.loc[registry["instrument_id"].astype(str).eq(instrument_id)]
-                        document_row = _latest_document_row(registered, "kid")
-                        document_checksum = _document_checksum(document_row)
-                        warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
-                        result.value = f"PRIIPs KID {instrument_id}: records={len(parsed.records)}, confidence={record.extraction_confidence if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
-                state.finish_activity(result.value)
-                state.last_message = result.value
-            except Exception as exc:
-                state.fail_activity("Import PRIIPs KID", exc)
-                result.value = f"PRIIPs import failed safely: {state.last_message}"
-        page.update()
+            page.update()
+            return
+
+        def action(path: Path, action_id: str) -> str:
+            state.update_activity("Parsing PRIIPs KID", "Parsing the selected KID PDF.", completed_units=1, total_units=3, expected_action_id=action_id)
+            retained_path = _retain_picker_source(
+                path,
+                "priips_kids",
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+            instrument_id = str(instrument_field.value or state.selected_etf or "").strip()
+            etf = next((item for item in state.snapshot.config.universe.etfs if item.id == instrument_id), None)
+            expected_isin = etf.isin if etf is not None else None
+            parsed = parse_priips_kid(retained_path, expected_isin=expected_isin) if retained_path else None
+            if parsed is None:
+                raise ValueError("PRIIPs import requires a readable PDF")
+            record = parsed.records[0] if parsed.records else None
+            document_date = record.document_date if record is not None else str(document_date_field.value or "").strip() or None
+            state.update_activity("Registering KID evidence", "Persisting parsed KID and checksum-backed provenance.", completed_units=2, total_units=3, expected_action_id=action_id)
+            document = persist_priips_kid_with_document(
+                parsed,
+                instrument_id,
+                retained_path,
+                document_date=document_date,
+                configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+            registry = read_document_registry(path=document.with_name("fund_documents.parquet"))
+            registered = registry.loc[registry["instrument_id"].astype(str).eq(instrument_id)]
+            document_checksum = _document_checksum(_latest_document_row(registered, "kid"))
+            warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
+            _require_disclosure_available("PRIIPs KID import", parsed)
+            return f"PRIIPs KID {instrument_id}: records={len(parsed.records)}, confidence={record.extraction_confidence if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
+
+        _run_picker_activity(page, state, result, "Import PRIIPs KID", "Parsing PRIIPs KID", files[0], ".pdf", action)
 
     async def import_methodology(_event: ft.ControlEvent) -> None:
         from etf_cockpit.parsers.index_methodology import parse_index_methodology
@@ -645,50 +846,54 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf"], with_data=True)
         if not files:
             result.value = "Methodology import cancelled; no data changed."
-        else:
-            try:
-                _start_disclosure_import(state, result, "Import index methodology")
-                page.update()
-                with _materialise_picker_file(files[0], ".pdf") as path:
-                    state.update_activity("Parsing index methodology", "Parsing the selected methodology PDF.", completed_units=1, total_units=3)
-                    result.value = "Import index methodology in progress: parsing selected PDF..."
-                    page.update()
-                    path = _retain_picker_source(path, "index_methodology")
-                    instrument_id = str(instrument_field.value or state.selected_etf or "").strip()
-                    provider = str(provider_field.value or "").strip()
-                    parsed = parse_index_methodology(path, provider) if path and path.exists() else None
-                    if parsed is None:
-                        raise ValueError("Methodology import requires a readable PDF")
-                    else:
-                        stored_holdings = _read_frame(FUND_HOLDINGS_PATH)
-                        holdings = pd.DataFrame()
-                        if "instrument_id" in stored_holdings.columns:
-                            holdings = stored_holdings.loc[stored_holdings["instrument_id"].astype(str).eq(instrument_id)].copy()
-                        from etf_cockpit.parsers.index_methodology import apply_methodology_holdings_assessment
+            page.update()
+            return
 
-                        parsed = apply_methodology_holdings_assessment(parsed, holdings)
-                        record = parsed.records[0] if parsed.records else None
-                        state.update_activity("Registering methodology evidence", "Persisting parsed methodology and checksum-backed provenance.", completed_units=2, total_units=3)
-                        result.value = "Import index methodology in progress: registering evidence..."
-                        page.update()
-                        document = persist_index_methodology_with_document(
-                            parsed,
-                            instrument_id,
-                            path,
-                            configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
-                        )
-                        registry = read_document_registry(path=document.with_name("fund_documents.parquet"))
-                        registered = registry.loc[registry["instrument_id"].astype(str).eq(instrument_id)]
-                        document_row = _latest_document_row(registered, "methodology")
-                        document_checksum = _document_checksum(document_row)
-                        warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
-                        result.value = f"Methodology {instrument_id}/{provider or 'unknown provider'}: records={len(parsed.records)}, version={record.version if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
-                state.finish_activity(result.value)
-                state.last_message = result.value
-            except Exception as exc:
-                state.fail_activity("Import index methodology", exc)
-                result.value = f"Methodology import failed safely: {state.last_message}"
-        page.update()
+        def action(path: Path, action_id: str) -> str:
+            from etf_cockpit.parsers.index_methodology import apply_methodology_holdings_assessment
+
+            state.update_activity("Parsing index methodology", "Parsing the selected methodology PDF.", completed_units=1, total_units=3, expected_action_id=action_id)
+            retained_path = _retain_picker_source(
+                path,
+                "index_methodology",
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+            instrument_id = str(instrument_field.value or state.selected_etf or "").strip()
+            provider = str(provider_field.value or "").strip()
+            parsed = parse_index_methodology(retained_path, provider) if retained_path else None
+            if parsed is None:
+                raise ValueError("Methodology import requires a readable PDF")
+            stored_holdings = _read_frame(FUND_HOLDINGS_PATH)
+            holdings = pd.DataFrame()
+            if "instrument_id" in stored_holdings.columns:
+                holdings = stored_holdings.loc[stored_holdings["instrument_id"].astype(str).eq(instrument_id)].copy()
+            parsed = apply_methodology_holdings_assessment(parsed, holdings)
+            record = parsed.records[0] if parsed.records else None
+            state.update_activity("Registering methodology evidence", "Persisting parsed methodology and checksum-backed provenance.", completed_units=2, total_units=3, expected_action_id=action_id)
+            document = persist_index_methodology_with_document(
+                parsed,
+                instrument_id,
+                retained_path,
+                configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+            registry = read_document_registry(path=document.with_name("fund_documents.parquet"))
+            registered = registry.loc[registry["instrument_id"].astype(str).eq(instrument_id)]
+            document_checksum = _document_checksum(_latest_document_row(registered, "methodology"))
+            warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
+            _require_disclosure_available("Methodology import", parsed)
+            return f"Methodology {instrument_id}/{provider or 'unknown provider'}: records={len(parsed.records)}, version={record.version if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
+
+        _run_picker_activity(
+            page,
+            state,
+            result,
+            "Import index methodology",
+            "Parsing index methodology",
+            files[0],
+            ".pdf",
+            action,
+        )
 
     return panel(
         ft.Column(

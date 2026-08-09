@@ -4,6 +4,7 @@ import hashlib
 import json
 import threading
 import traceback
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -13,6 +14,15 @@ from typing import Callable, Iterable
 from etf_cockpit.core.session_log import log_event, new_action_id, redact_text
 
 
+PublicationScopeFactory = Callable[[], AbstractContextManager[None]]
+
+
+def publication_scope(factory: PublicationScopeFactory | None) -> AbstractContextManager[None]:
+    """Return one optional lock-held durable-publication scope."""
+
+    return factory() if factory is not None else nullcontext()
+
+
 class WorkflowStatus(StrEnum):
     RUNNING = "running"
     SUCCESS = "success"
@@ -20,6 +30,62 @@ class WorkflowStatus(StrEnum):
     MANUAL_REVIEW = "manual_review"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+@dataclass(frozen=True)
+class LongRunningActionSpec:
+    label: str
+    handler: str
+    control_key: str
+
+
+LONG_RUNNING_ACTION_SPECS: dict[str, LongRunningActionSpec] = {
+    "yfinance_fetch": LongRunningActionSpec("Refresh yfinance data", "AppState.refresh_yfinance_data", "dashboard.refresh-yfinance"),
+    "validation": LongRunningActionSpec("Validate current data", "AppState.renew_data_dry_run", "dashboard.renew-import"),
+    "algorithms": LongRunningActionSpec("Run algorithms", "AppState.run_algorithm_scores", "dashboard.run-algorithms"),
+    "baseline_forecast": LongRunningActionSpec("Running baseline forecasts", "ForecastService.run_forecasts:baseline", "dashboard.run-forecasting-models"),
+    "timesfm_forecast": LongRunningActionSpec("Checking cached TimesFM forecasts", "ForecastService.run_forecasts:timesfm", "dashboard.run-forecasting-models"),
+    "toto_forecast": LongRunningActionSpec("Checking cached Toto forecasts", "ForecastService.run_forecasts:toto", "dashboard.run-forecasting-models"),
+    "forecasts": LongRunningActionSpec("Run forecasting models", "AppState.run_forecasting_models", "dashboard.run-forecasting-models"),
+    "scoreboard_write": LongRunningActionSpec("Write scoreboard", "AppState._write_current_scoreboard", "dashboard.run-algorithms"),
+    "audit_export": LongRunningActionSpec("Export audit packet", "AppState.export_audit_packet", "dashboard.export-audit"),
+    "cache_rebuild": LongRunningActionSpec("Rebuild generated cache", "jobs.clean_generated_cache", "jobs.resource-cache-cleanup"),
+    "notes_news_import": LongRunningActionSpec("Import manual_news", "dashboard.import_file:manual_news", "dashboard.import-manual-notes"),
+    "holdings_factsheet_import": LongRunningActionSpec("Import ETF holdings", "trust_evidence.import_holdings", "etf-disclosures.import-holdings"),
+    "macro_news_refresh": LongRunningActionSpec("Refresh macro/news context", "macro_factors.refresh_context", "macro.refresh-context"),
+    "sec_companyfacts_fetch": LongRunningActionSpec("Fetch SEC companyfacts", "AppState.fetch_sec_companyfacts", "filings.fetch-sec"),
+    "sec_companyfacts_import": LongRunningActionSpec("Import SEC companyfacts", "AppState.import_sec_companyfacts", "filings.import-sec"),
+    "esef_discovery": LongRunningActionSpec("Discover ESEF filings", "AppState.discover_esef_filings", "filings.discover-esef"),
+    "esef_download": LongRunningActionSpec("Download ESEF package", "AppState.download_esef_package", "filings.download-esef"),
+    "esef_import": LongRunningActionSpec("Import ESEF package", "AppState.import_esef_package", "filings.import-esef"),
+    "oam_discovery": LongRunningActionSpec("Discover official filings", "AppState.discover_oam", "filings.discover-oam"),
+    "manual_official_filing_import": LongRunningActionSpec("Archive manual official filing", "AppState.import_manual_official_filing", "filings.import-manual-official"),
+}
+LONG_RUNNING_ACTIONS: dict[str, str] = {
+    key: spec.label for key, spec in LONG_RUNNING_ACTION_SPECS.items()
+}
+LONG_RUNNING_ACTION_CONTROL_KEYS: dict[str, tuple[str, ...]] = {
+    key: (spec.control_key,) for key, spec in LONG_RUNNING_ACTION_SPECS.items()
+}
+LONG_RUNNING_ACTION_CONTROL_KEYS.update(
+    {
+        "validation": ("dashboard.renew-import", "dashboard.renew-dry-run"),
+        "audit_export": (
+            "dashboard.export-audit",
+            "import-export.export-audit-packet",
+            "chatgpt.export-audit",
+        ),
+        "holdings_factsheet_import": (
+            "etf-disclosures.import-holdings",
+            "etf-disclosures.import-document",
+            "etf-disclosures.import-report",
+            "etf-disclosures.import-kid",
+            "etf-disclosures.import-methodology",
+            "dashboard.import-etf-factsheets",
+            "dashboard.import-etf-holdings",
+        ),
+    }
+)
 
 
 @dataclass(frozen=True)

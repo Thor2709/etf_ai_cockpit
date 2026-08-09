@@ -12,15 +12,18 @@ from pathlib import Path
 from typing import Any
 
 from etf_cockpit.core.constants import APP_VERSION
+from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.paths import LOG_DIR, ROOT, ensure_project_dirs
 
 SESSION_LOG_PATH = LOG_DIR / "session.jsonl"
 SCHEMA_VERSION = "1.0"
+SESSION_LOG_MAX_EVENTS = 5000
 
 _LOCK = threading.Lock()
 _SESSION_ID = uuid.uuid4().hex
 _SEQUENCE = 0
 _INITIALISED = False
+_EVENT_COUNTS: dict[Path, int] = {}
 
 _SECRET_KEY_RE = re.compile(
     r"(api[_-]?key|access[_-]?token|client[_-]?secret|token|secret|password|passwd|authorization|bearer)",
@@ -58,6 +61,10 @@ def init_session_log(
             SESSION_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
             if clear:
                 SESSION_LOG_PATH.write_text("", encoding="utf-8")
+            else:
+                _recover_incomplete_session_tail(SESSION_LOG_PATH)
+                _compact_session_log(SESSION_LOG_PATH, max_events=SESSION_LOG_MAX_EVENTS)
+            _EVENT_COUNTS[SESSION_LOG_PATH] = _session_log_event_count(SESSION_LOG_PATH)
             _INITIALISED = True
         log_event(
             event_type="session_start",
@@ -262,6 +269,64 @@ def append_event(event: dict[str, Any], *, path: Path = SESSION_LOG_PATH) -> Non
     _append_event(event, path=path)
 
 
+def _compact_session_log(path: Path, *, max_events: int) -> None:
+    """Bound the canonical trace while retaining a valid hash-chained tail."""
+
+    if max_events < 1 or not path.exists():
+        return
+    rows = path.read_text(encoding="utf-8", errors="strict").splitlines()
+    if len(rows) <= max_events:
+        return
+    retained = [json.loads(row) for row in rows[-max_events:] if row.strip()]
+    prior_hash: str | None = None
+    rewritten: list[str] = []
+    for event in retained:
+        event["prior_event_hash"] = prior_hash
+        event.pop("event_hash", None)
+        event["event_hash"] = _event_hash(event)
+        prior_hash = str(event["event_hash"])
+        rewritten.append(json.dumps(event, ensure_ascii=True, default=str, sort_keys=True))
+    payload = ("\n".join(rewritten) + "\n").encode("utf-8")
+    atomic_write_bytes(path, payload, _validate_compacted_session_log)
+
+
+def _recover_incomplete_session_tail(path: Path) -> None:
+    """Apply the canonical reader's bounded incomplete-tail recovery before append."""
+
+    if not path.exists():
+        return
+    from etf_cockpit.operations.event_store import load_events_with_tail_recovery
+
+    load_events_with_tail_recovery(path)
+
+
+def _validate_compacted_session_log(path: Path) -> None:
+    """Validate staged JSONL with the runtime reader and its hash chain."""
+
+    from etf_cockpit.operations.event_store import load_events_with_tail_recovery
+
+    events, recovery = load_events_with_tail_recovery(path)
+    if recovery.quarantined_tail:
+        raise ValueError("Compacted session log contains an incomplete tail")
+    rows = [json.loads(row) for row in path.read_text(encoding="utf-8", errors="strict").splitlines() if row.strip()]
+    if len(events) != len(rows):
+        raise ValueError("Compacted session log event count changed during validation")
+    prior_hash: str | None = None
+    for index, event in enumerate(rows, start=1):
+        stored_hash = str(event.pop("event_hash", ""))
+        if event.get("prior_event_hash") != prior_hash:
+            raise ValueError(f"Compacted session log hash chain breaks before row {index}")
+        if not stored_hash or _event_hash(event) != stored_hash:
+            raise ValueError(f"Compacted session log event hash is invalid at row {index}")
+        prior_hash = stored_hash
+
+
+def _session_log_event_count(path: Path) -> int:
+    if not path.exists():
+        return 0
+    return sum(bool(row.strip()) for row in path.read_text(encoding="utf-8", errors="strict").splitlines())
+
+
 def _append_event(event: dict[str, Any], *, path: Path | None = None) -> None:
     try:
         ensure_project_dirs()
@@ -269,12 +334,19 @@ def _append_event(event: dict[str, Any], *, path: Path | None = None) -> None:
         event = _redact(event)
         with _LOCK:
             target.parent.mkdir(parents=True, exist_ok=True)
+            event_count = _EVENT_COUNTS.get(target)
+            if event_count is None:
+                event_count = _session_log_event_count(target)
+            if event_count >= SESSION_LOG_MAX_EVENTS:
+                _compact_session_log(target, max_events=SESSION_LOG_MAX_EVENTS - 1)
+                event_count = min(event_count, SESSION_LOG_MAX_EVENTS - 1)
             event["event_id"] = str(event.get("event_id") or uuid.uuid4().hex)
             event["prior_event_hash"] = _last_event_hash(target)
             event.pop("event_hash", None)
             event["event_hash"] = _event_hash(event)
             with target.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(event, ensure_ascii=True, default=str, sort_keys=True) + "\n")
+            _EVENT_COUNTS[target] = event_count + 1
     except Exception:
         pass
 

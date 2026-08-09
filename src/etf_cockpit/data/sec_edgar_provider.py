@@ -20,6 +20,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes, atomic_write_json
+from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority
 from etf_cockpit.parsers.contracts import RawDocument
 
@@ -98,25 +99,45 @@ class SecEdgarProvider:
         self._sleep = sleep
         self._last_request_at: float | None = None
 
-    def fetch_companyfacts(self, cik: str) -> RawDocument:
+    def fetch_companyfacts(
+        self,
+        cik: str,
+        *,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> RawDocument:
         cik_text = _normalise_cik(cik)
         return self._fetch(
             f"{self.BASE_URL}/api/xbrl/companyfacts/CIK{cik_text}.json",
             f"companyfacts_{cik_text}.json",
             "sec_companyfacts",
             cik_text,
+            publish_guard=publish_guard,
         )
 
-    def fetch_submissions(self, cik: str) -> RawDocument:
+    def fetch_submissions(
+        self,
+        cik: str,
+        *,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> RawDocument:
         cik_text = _normalise_cik(cik)
         return self._fetch(
             f"{self.BASE_URL}/submissions/CIK{cik_text}.json",
             f"submissions_{cik_text}.json",
             "sec_submissions",
             cik_text,
+            publish_guard=publish_guard,
         )
 
-    def _fetch(self, url: str, filename: str, document_type: str, expected_cik: str) -> RawDocument:
+    def _fetch(
+        self,
+        url: str,
+        filename: str,
+        document_type: str,
+        expected_cik: str,
+        *,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> RawDocument:
         cache_path = self.cache_dir / filename
         metadata_path = cache_path.with_name(f"{cache_path.name}.meta.json")
         metadata = _read_metadata(metadata_path)
@@ -142,7 +163,8 @@ class SecEdgarProvider:
                         raise ValueError("SEC cached payload checksum mismatch")
                     _validate_identity(_parse_json(cached_payload), expected_cik)
                     immutable_path = _immutable_cache_path(cache_path, cached_sha)
-                    _ensure_immutable_payload(immutable_path, cached_payload, expected_cik)
+                    with publication_scope(publish_guard):
+                        _ensure_immutable_payload(immutable_path, cached_payload, expected_cik)
                     return RawDocument(
                         immutable_path,
                         url,
@@ -162,10 +184,12 @@ class SecEdgarProvider:
                 _validate_identity(parsed, expected_cik)
                 payload_sha = _sha256(payload)
                 immutable_path = _immutable_cache_path(cache_path, payload_sha)
-                _ensure_immutable_payload(immutable_path, payload, expected_cik)
+                with publication_scope(publish_guard):
+                    _ensure_immutable_payload(immutable_path, payload, expected_cik)
                 # Validation happens before replacement, so malformed/wrong-entity
                 # responses cannot corrupt an already-good local cache.
-                atomic_write_bytes(cache_path, payload, lambda candidate: _validate_json_file(candidate, expected_cik))
+                with publication_scope(publish_guard):
+                    atomic_write_bytes(cache_path, payload, lambda candidate: _validate_json_file(candidate, expected_cik))
                 next_metadata = {
                     "schema_version": 1,
                     "source_url": url,
@@ -175,7 +199,8 @@ class SecEdgarProvider:
                     "etag": response.headers.get("ETag", ""),
                     "last_modified": response.headers.get("Last-Modified", ""),
                 }
-                atomic_write_json(metadata_path, next_metadata)
+                with publication_scope(publish_guard):
+                    atomic_write_json(metadata_path, next_metadata)
                 return RawDocument(
                     immutable_path,
                     url,

@@ -12,6 +12,7 @@ import pandas as pd
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import CLEAN_DIR
+from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 
 
 FUND_DOCUMENTS_PATH = CLEAN_DIR / "fund_documents.parquet"
@@ -356,6 +357,7 @@ def import_etf_document(
     expected_sha256: str | None = None,
     destination: Path | None = None,
     configured_instrument_ids: Iterable[str] | None = None,
+    publish_guard: PublicationScopeFactory | None = None,
 ) -> FundDocument:
     """Register one local ETF disclosure and persist a complete inventory.
 
@@ -382,7 +384,8 @@ def import_etf_document(
             ids.extend(value for value in existing["instrument_id"].dropna().astype(str).map(str.strip) if value)
         ids.append(str(instrument_id).strip())
         inventory = build_document_inventory(ids, [*existing.to_dict("records"), document])
-        _write_document_registry_locked(inventory, destination=destination)
+        with publication_scope(publish_guard):
+            _write_document_registry_locked(inventory, destination=destination)
     return document
 
 
