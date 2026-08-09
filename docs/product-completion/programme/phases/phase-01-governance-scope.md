@@ -55,7 +55,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0006` | `P3` | `closed` | `analysis-and-validation` | - | - | - | - |
 | `ISSUE-0009` | `P3` | `closed` | `programme-governance` | - | - | - | - |
 | `ISSUE-0010` | `P2` | `integrated` | `programme-governance` | - | - | - | `ISSUE-0030`, `ISSUE-0057`, `ISSUE-0147` |
-| `ISSUE-0012` | `P0` | `in_progress` | `programme-governance` | - | - | - | `ISSUE-0077`, `ISSUE-0117`, `ISSUE-0139` |
+| `ISSUE-0012` | `P0` | `integrated` | `programme-governance` | - | - | - | `ISSUE-0077`, `ISSUE-0117`, `ISSUE-0139` |
 | `ISSUE-0013` | `P0` | `integrated` | `platform-and-operations` | - | - | - | `ISSUE-0141`, `ISSUE-0145`, `ISSUE-0152`, `UPDATEV2-0029` |
 | `ISSUE-0014` | `P0/P1` | `in_progress` | `programme-governance` | - | - | - | `ISSUE-0045`, `ISSUE-0143`, `ISSUE-0152` |
 | `ISSUE-0015` | `P1` | `implemented_initially` | `programme-governance` | - | - | - | `ISSUE-0070`, `ISSUE-0075`, `ISSUE-0152` |

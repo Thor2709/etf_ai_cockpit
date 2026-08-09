@@ -538,6 +538,21 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   correction now asserts that reservation, explicit owner release and durable
   cancellation log; no runtime behavior or authority changes. Repeat both
   exact-head reviews and fresh Linux, Windows and terminal H-tier validation.
+- Final product head `043c14f8f88aa79911e378a390477521584d4da3`
+  received independent whole-diff and risk approval. H-tier run `31326072782`
+  passed preflight, supply chain, Linux, Windows and terminal validation after
+  the single documented retry of a native pandas C-parser crash. PR #663
+  merged that exact head as `c9efd6b351db76290e3371314d67c986406168f5`.
+  Clean lifecycle branch `codex/issue0012-lifecycle-20260810` starts at that
+  exact main and contains only the canonical two-hop
+  `in_progress -> implemented_initially -> integrated` completion, mechanical
+  projections and append-only status-replay authority. The live plan SHA is
+  `8e3778a20cd1b1c64da5c69347238c017c932f56d1f16649bd7a2dd8847fe3aa`;
+  aggregate authority is
+  `60d2ce9cc6057817850dcb42ca1ed7e51c5ddbb96d9415280d557e134bcc7206`.
+  Review and E-tier exact-head validation remain before merge, followed by the
+  ordered writer and mandatory zero-action generic readback. ISSUE-0014 is the
+  next implementation-order dependency-ready product issue after convergence.
 
 ## ISSUE-0104 product chronology
 
