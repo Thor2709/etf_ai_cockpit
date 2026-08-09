@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import date
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,15 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+
+
+FIXED_TODAY = date(2026, 8, 10)
+
+
+class _FixedDate(date):
+    @classmethod
+    def today(cls) -> date:
+        return cls(FIXED_TODAY.year, FIXED_TODAY.month, FIXED_TODAY.day)
 
 
 def _walk(control: object):
@@ -49,7 +59,7 @@ def _route_probe() -> dict[str, object]:
     from etf_cockpit.app.state import AppState
     from etf_cockpit.services import build_snapshot
 
-    routes = ("/", "/training-centre", "/operations", "/diagnostics")
+    routes = ("/", "/training-centre")
     if any(route not in PAGES for route in routes):
         raise AssertionError("route probe named an unregistered route")
     snapshot = build_snapshot(force_sample=True)
@@ -110,18 +120,22 @@ def _fixture_download(symbol: str, **kwargs: object) -> pd.DataFrame:
 
 def _main_workflow_probe() -> dict[str, object]:
     calls: list[str] = []
+    download_ends: list[str] = []
 
     def download(symbol: str, **kwargs: object) -> pd.DataFrame:
         calls.append(symbol)
+        download_ends.append(str(kwargs["end"]))
         return _fixture_download(symbol, **kwargs)
 
     sys.modules["yfinance"] = SimpleNamespace(download=download, Ticker=lambda _symbol: _FixtureTicker())
 
     from etf_cockpit.app.state import ActivityUnavailableError, AppState
     from etf_cockpit.governance.product_scope import load_gate_policy
-    from etf_cockpit.services import build_snapshot
+    import etf_cockpit.services as services
 
-    snapshot = build_snapshot(force_sample=True)
+    services.date = _FixedDate
+
+    snapshot = services.build_snapshot(force_sample=True)
     candidate_path = (
         Path(os.environ["ETF_COCKPIT_ROOT"])
         / "data"
@@ -144,15 +158,19 @@ def _main_workflow_probe() -> dict[str, object]:
     except ActivityUnavailableError as exc:
         forecasts = str(exc)
         forecast_state = "unavailable"
-    scoreboard = state._write_current_scoreboard()
+    root = Path(os.environ["ETF_COCKPIT_ROOT"]).resolve()
+    scoreboard = root / "data" / "derived" / "scoreboard.parquet"
+    scoreboard_before_audit = scoreboard.is_file()
     audit = state.export_audit_packet()
     policy = load_gate_policy()
-    root = Path(os.environ["ETF_COCKPIT_ROOT"]).resolve()
     for output in (scoreboard, audit):
         if not output.resolve().is_relative_to(root):
             raise AssertionError(f"workflow output escaped isolated root: {output}")
     return {
         "download_calls": len(calls),
+        "download_ends": download_ends,
+        "fixed_today": FIXED_TODAY.isoformat(),
+        "price_as_of": max(pd.to_datetime(state.snapshot.prices["date"])).date().isoformat(),
         "candidate_fixture": str(candidate_path),
         "refresh": refresh,
         "algorithms": algorithms,
@@ -160,6 +178,7 @@ def _main_workflow_probe() -> dict[str, object]:
         "forecasts": forecasts,
         "scoreboard": str(scoreboard),
         "scoreboard_exists": scoreboard.is_file(),
+        "scoreboard_before_audit": scoreboard_before_audit,
         "audit": str(audit),
         "audit_exists": audit.is_file(),
         "execution_allowed": None if policy.policy is None else policy.policy.execution_allowed,

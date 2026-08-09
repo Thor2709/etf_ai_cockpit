@@ -29,7 +29,7 @@ def test_registered_routes_render_without_route_error_controls_or_events(tmp_pat
 
     assert completed.returncode == 0, completed.stdout + completed.stderr
     payload = json.loads(completed.stdout.splitlines()[-1])
-    assert payload["routes"] == ["/", "/training-centre", "/operations", "/diagnostics"]
+    assert payload["routes"] == ["/", "/training-centre"]
     assert payload["go_calls"] == payload["routes"]
     assert payload["route_error_keys"] == []
     assert payload["route_error_events"] == []

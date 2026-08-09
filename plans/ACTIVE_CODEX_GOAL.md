@@ -571,6 +571,14 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   Hosted run `31330623071` is stale evidence: preflight failed before the Linux
   and Windows package jobs. Canonical issue status and authority remain
   unchanged pending corrected exact-head review and required H-tier validation.
+  Whole-diff review approved first replacement head
+  `396e366c4bfe2617d0b0353d14e89b9ffe18f2b7`; risk review rejected it for
+  incomplete DNS/datagram denial, an unpinned workflow date and checksum-
+  ambiguous proposal negatives. Its run `31332248276` is stale after changed-
+  test preflight exceeded 240 seconds. One bounded correction now covers all
+  four findings; all 16 focused journeys pass locally in 169 seconds with
+  exact date provenance, and generator, Ruff, compile and diff checks pass.
+  Freeze one replacement head for both reviews and fresh H-tier validation.
 
 ## ISSUE-0104 product chronology
 

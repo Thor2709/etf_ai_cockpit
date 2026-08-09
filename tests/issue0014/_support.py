@@ -62,6 +62,10 @@ def write_paper_proposal(root: Path, proposal: dict[str, object]) -> None:
     path.write_text(json.dumps(proposal, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def recompute_decision_checksum(proposal: dict[str, object]) -> str:
+    return _digest({key: value for key, value in proposal.items() if key != "decision_checksum"})
+
+
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 

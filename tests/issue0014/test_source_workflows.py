@@ -39,9 +39,11 @@ from tests.issue0014._support import (
     copy_repository_runtime,
     isolated_environment,
     paper_proposal,
+    recompute_decision_checksum,
     sha256_text,
     write_paper_proposal,
 )
+from tests.issue0014._socket_guard import install
 
 
 def _api_snapshot() -> SimpleNamespace:
@@ -106,9 +108,35 @@ def test_optional_yfinance_transport_timeout_is_visible_and_non_destructive(
     assert policy.policy is not None and policy.policy.execution_allowed is False
 
 
-def test_complete_suite_denies_non_loopback_sockets() -> None:
-    with pytest.raises(PermissionError, match="denied non-loopback"):
-        socket.create_connection(("198.51.100.1", 443), timeout=0.01)
+def test_complete_suite_denies_non_loopback_dns_and_datagrams_without_transmitting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def resolved(*_args: object, **_kwargs: object) -> list[object]:
+        calls.append("dns")
+        return []
+
+    def sent(*_args: object, **_kwargs: object) -> int:
+        calls.append("udp")
+        return 0
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolved)
+    monkeypatch.setattr(socket.socket, "sendto", sent)
+    restore = install()
+    try:
+        with pytest.raises(PermissionError, match="denied non-loopback hostname"):
+            socket.getaddrinfo("example.invalid", 443)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as datagram:
+            with pytest.raises(PermissionError, match="denied non-loopback datagram"):
+                datagram.sendto(b"blocked", ("198.51.100.1", 53))
+        assert calls == []
+        assert socket.getaddrinfo("127.0.0.1", 80) == []
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as datagram:
+            assert datagram.sendto(b"allowed", ("127.0.0.1", 9)) == 0
+        assert calls == ["dns", "udp"]
+    finally:
+        restore()
 
 
 def test_migration_backs_up_managed_legacy_data_and_large_universe_repeats(tmp_path: Path) -> None:
@@ -236,9 +264,11 @@ def test_paper_application_api_rejects_unsafe_or_unvalidated_proposals(
     proposal_id = str(proposal["proposal_id"])
     if tamper == "execution":
         proposal["execution_allowed"] = True
+        proposal["decision_checksum"] = recompute_decision_checksum(proposal)
         write_paper_proposal(tmp_path, proposal)
     elif tamper == "authority":
         proposal["authority_policy_checksum"] = "0" * 64
+        proposal["decision_checksum"] = recompute_decision_checksum(proposal)
         write_paper_proposal(tmp_path, proposal)
     api = LocalApplicationApi(_api_snapshot, root=tmp_path)
     api.open_paper_account(PaperAccountOpenRequest(initial_cash=1_000))
@@ -286,6 +316,9 @@ def test_canonical_main_workflow_composes_real_local_apis_without_network(tmp_pa
     assert completed.returncode == 0, completed.stdout + completed.stderr
     payload = json.loads(completed.stdout.splitlines()[-1])
     assert payload["download_calls"] > 0
+    assert set(payload["download_ends"]) == {"2026-08-09", "2026-08-10"}
+    assert payload["fixed_today"] == "2026-08-10"
+    assert payload["price_as_of"] == "2026-08-07"
     candidate_fixture = Path(payload["candidate_fixture"])
     assert candidate_fixture.is_file() and candidate_fixture.is_relative_to(runtime_root)
     assert "Validated and committed" in payload["refresh"]
@@ -293,6 +326,7 @@ def test_canonical_main_workflow_composes_real_local_apis_without_network(tmp_pa
     assert payload["forecast_state"] in {"available", "unavailable"}
     assert payload["forecasts"].strip()
     assert payload["scoreboard_exists"] is True
+    assert payload["scoreboard_before_audit"] is True
     assert payload["audit_exists"] is True
     assert payload["execution_allowed"] is False
     assert Path(payload["scoreboard"]).is_relative_to(runtime_root)
