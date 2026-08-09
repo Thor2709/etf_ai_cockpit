@@ -435,6 +435,20 @@ picker terminal. Focused ISSUE-0012, Ruff, compileall and diff checks pass.
 Freeze the replacement exact head after this checkpoint and repeat both
 reviews plus fresh H-tier Linux, Windows and terminal validation.
 
+Final product head `043c14f8f88aa79911e378a390477521584d4da3`
+received independent whole-diff and risk approval. H-tier run `31326072782`
+passed preflight, supply chain, Linux, Windows and terminal validation after
+one documented retry of a native pandas C-parser crash. PR #663 merged that
+exact head as `c9efd6b351db76290e3371314d67c986406168f5`. Clean lifecycle branch
+`codex/issue0012-lifecycle-20260810` starts at that exact main and carries only
+the canonical ordered two-hop completion, mechanical projections and
+append-only authority. Its live plan SHA is
+`8e3778a20cd1b1c64da5c69347238c017c932f56d1f16649bd7a2dd8847fe3aa` and
+aggregate authority is
+`60d2ce9cc6057817850dcb42ca1ed7e51c5ddbb96d9415280d557e134bcc7206`.
+Next is exact-head E-tier review/validation, merge, writer plus zero-action
+readback, then dependency-ready ISSUE-0014.
+
 ## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head
