@@ -253,6 +253,26 @@ and aggregate authority
 `c417a1345e877422ea30dcaac81a23bf1cf72cf544edec2186a8f0a85a05572b`,
 with one post-merge replay write and mandatory zero-action generic readback.
 
+Completion PR #661 merged exact head
+`0d789d0550a38c107b427bec40ac6bfff98ce5da` as
+`a80aa32a3c6ffaeb5e7075d152c2d4cce9e888ea`. Writer `31301505274`
+returned `applied_and_verified` with an acceptance receipt and
+`zero_action_readback=true`; generic exact-main plan
+`da8f7f0f36d1a9c9124b02634176b51b3e9e11cddbebcf39457cdeec9f615ef1`
+has no actions. GitHub issue #15 resolves to `integrated` and
+`execution_allowed=false` remains.
+
+ISSUE-0012 product commit
+`7cf66f9aea285d29e4881aa53c2e9817baccbbbf` is locally green and
+frozen. Exact-main lifecycle preparation reproduced
+`ISSUE-0012: status replay transition history prefix must be a list`; its
+isolated one-action plan SHA is
+`8e3778a20cd1b1c64da5c69347238c017c932f56d1f16649bd7a2dd8847fe3aa`.
+Clean H-tier branch `codex/issue0012-bootstrap-replay-repair-v2-20260809`
+allows the empty prefix only for complete fixed ISSUE-0011 and ISSUE-0012 B00
+records. Every other identity and malformed source fails closed; no lifecycle,
+dependency, retry, external-write or execution authority changes.
+
 ## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head

@@ -512,13 +512,20 @@ def test_status_replay_preparation_is_deterministic_and_exactly_two_hops(
         prepare.prepare(root, plan, remote, source_sha=source, mode="status_replay")
 
 
+@pytest.mark.parametrize(
+    ("stable_id", "issue_number", "phase"),
+    (
+        ("ISSUE-0011", 15, "phase-08-frontend-api"),
+        ("ISSUE-0012", 16, "phase-01-governance-scope"),
+    ),
+)
 def test_status_replay_preparation_accepts_only_exact_legacy_bootstrap_prefix(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    stable_id: str,
+    issue_number: int,
+    phase: str,
 ) -> None:
-    stable_id = "ISSUE-0011"
-    issue_number = 15
-    phase = "phase-08-frontend-api"
     root, source, bootstrap_record = _repo(
         tmp_path,
         initial_status="in_progress",
@@ -556,7 +563,7 @@ def test_status_replay_preparation_accepts_only_exact_legacy_bootstrap_prefix(
     legacy_source = {
         "acceptance_evidence": [],
         "dependency_edge_evidence": {},
-        "phase": "phase-08-frontend-api",
+        "phase": phase,
         "programme_status": "in_progress",
         "status_transition": {
             "from": "in_progress",
@@ -673,18 +680,19 @@ def test_status_replay_preparation_accepts_only_exact_legacy_bootstrap_prefix(
         head="a" * 40,
     )
 
-    with pytest.raises(ValueError, match="legacy bootstrap"):
-        validate_status_replay_prefix_shape(
-            "ISSUE-0012",
-            None,
-            [],
-            programme_status="in_progress",
-            dependency_edge_evidence={},
-            verified_commit=legacy_source["verified_commit"],
-            verified_date=legacy_source["verified_date"],
-            status_transition=legacy_source["status_transition"],
-            allow_legacy_bootstrap_origin=True,
-        )
+    for rejected_id in ("ISSUE-0013", "ISSUE-0179"):
+        with pytest.raises(ValueError, match="legacy bootstrap"):
+            validate_status_replay_prefix_shape(
+                rejected_id,
+                None,
+                [],
+                programme_status="in_progress",
+                dependency_edge_evidence={},
+                verified_commit=legacy_source["verified_commit"],
+                verified_date=legacy_source["verified_date"],
+                status_transition=legacy_source["status_transition"],
+                allow_legacy_bootstrap_origin=True,
+            )
 
     for mutate in (
         lambda record: record.update(
@@ -694,8 +702,12 @@ def test_status_replay_preparation_accepts_only_exact_legacy_bootstrap_prefix(
                 "review_reference": "B00 canonical import from audited programme state",
             }
         ),
+        lambda record: record.update(phase="phase-09-quality-release-security"),
+        lambda record: record.update(verified_date="2026-07-22"),
+        lambda record: record.update(verified_commit="0" * 40),
         lambda record: record.update(acceptance_evidence=[{"status": "in_progress"}]),
         lambda record: record.update(transition_history=[]),
+        lambda record: record.update(transition_history=["not-an-event"]),
         lambda record: record.update(programme_status="implemented_initially"),
         lambda record: record.update(dependency_edge_evidence={"ISSUE-0001": {}}),
         lambda record: record.update(unexpected_field="not-authorized"),
