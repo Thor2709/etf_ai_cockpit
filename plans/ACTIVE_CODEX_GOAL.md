@@ -476,6 +476,24 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   regressions pass, and Ruff, compileall and diff checks pass. Freeze one new
   exact head after this checkpoint, then repeat both reviews and fresh H-tier
   Linux, Windows and terminal validation; rejected-head evidence is stale.
+- Exact head `fb9ebd6dff118dfa19a784245f09d4534b88c33d` was rejected
+  after both parallel reviewers completed. The newly demonstrated final gap
+  was cancellation reachability: validation, renew imports and cache cleanup
+  did not rerender the persistent shell at start, while accepted ChatGPT and
+  Import/Export audit controls still ran synchronously and their retry paths
+  did not re-enter each complete operation. Its hosted run `31319351588`
+  passed preflight, including the corrected changed-test window, but was
+  cancelled/disregarded during Linux/Windows packaging after review rejected
+  the head. Correction commit
+  `e3df8c194fd3b85077dfa532f9b564ce72207d12` immediately exposes the shell
+  cancel control for every affected start, routes all three registered audit
+  exports through background owned lifecycles, restores cancellation and
+  retries each full operation including ChatGPT archive validation. The
+  generated action-control catalog now enumerates every registered control.
+  Focused ISSUE-0012 passes 71 tests; the exact changed-test set passes in
+  115.5 seconds without warnings, with Ruff, compileall and diff checks green.
+  Freeze one final exact head after this checkpoint and repeat both reviews
+  plus fresh H-tier Linux, Windows and terminal validation.
 
 ## ISSUE-0104 product chronology
 
