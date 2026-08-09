@@ -348,6 +348,19 @@ and diff checks. Protected clean-price-store coverage makes the new head
 H-tier; repeat both exact-head reviews and hosted Linux, Windows and terminal
 validation. All prior hosted runs are stale.
 
+Exact head `2edf3a41a078e3db4a7f2033bf318cb2c4283c39` whole-diff
+review found the remaining in-scope gap: SEC/OAM/ESEF/manual filing controls
+bypassed the shared lifecycle. Correction commit `116c80c1` routes all seven
+controls through canonical activity ownership, guarded publication,
+unavailable/redacted terminals and shell refresh, and adds catalog entries.
+Focused evidence passed 49 ISSUE-0012 and 156 filing/trust/UI tests,
+deterministic SEC cancellation publication evidence, Ruff, compileall and diff
+checks. Risk review separately reproduced cross-process session-log contention
+and pre-existing crash-atomicity gaps in broad financial/audit writers; retain
+them as later persistence-hardening evidence and do not expand this product
+issue into a new locking or generation framework. Repeat scoped whole-diff and
+risk review plus the full H-tier hosted gate on the final head.
+
 ## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head

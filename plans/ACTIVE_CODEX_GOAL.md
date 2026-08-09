@@ -420,6 +420,19 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   Protected clean-price-store coverage makes the new checkpointed head H-tier;
   repeat both reviews and hosted Linux, Windows and terminal validation. Prior
   hosted runs are stale.
+- Exact head `2edf3a41a078e3db4a7f2033bf318cb2c4283c39` whole-diff
+  review found the remaining in-scope gap: SEC/OAM/ESEF/manual filing controls
+  bypassed the shared lifecycle. Correction commit `116c80c1` routes all
+  seven controls through canonical activity ownership, guarded publication,
+  unavailable/redacted terminals and shell refresh, and adds their catalog
+  entries. Focused evidence passed 49 ISSUE-0012 and 156 filing/trust/UI tests,
+  deterministic SEC cancellation publication evidence, Ruff, compileall and
+  diff checks. Risk review separately reproduced cross-process session-log
+  contention and pre-existing crash-atomicity gaps in broad financial/audit
+  writers; record those as later persistence hardening and do not expand this
+  product issue into a new locking or generation framework. Repeat scoped
+  whole-diff and risk review plus full H-tier hosted validation on the final
+  head.
 
 ## ISSUE-0104 product chronology
 
