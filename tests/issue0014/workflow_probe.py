@@ -59,9 +59,7 @@ def _route_probe() -> dict[str, object]:
     from etf_cockpit.app.state import AppState
     from etf_cockpit.services import build_snapshot
 
-    routes = ("/", "/training-centre")
-    if any(route not in PAGES for route in routes):
-        raise AssertionError("route probe named an unregistered route")
+    routes = tuple(PAGES)
     snapshot = build_snapshot(force_sample=True)
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     page = _Page()

@@ -490,7 +490,13 @@ browser probe exceeded its 120-second subprocess limit only in the four-worker
 safe lane; both serial repetitions passed. Classify that resource-heavy Flet
 probe into the existing serial/flet lane without changing product, workflow or
 validation authority, then freeze one final replacement head for both reviews
-and fresh validation.
+and fresh validation. Both reviewers rejected replacement head
+`b353740b67b0528fb42d51de13bb2c5fb807b7a1` after jointly demonstrating that
+its purported all-routes probe still named only `/` and `/training-centre`
+while production registers every route in `PAGES`; run `31339056458` was
+cancelled and discarded as stale. The single consolidated correction derives
+and exercises the complete production route registry while retaining the
+existing serial/flet partition.
 
 ## ISSUE-0104 product chronology
 

@@ -7,6 +7,7 @@ import sys
 
 import pytest
 
+from etf_cockpit.app.router import PAGES
 from tests.issue0014._support import (
     ROOT,
     copy_repository_runtime,
@@ -27,15 +28,15 @@ def test_registered_routes_render_without_route_error_controls_or_events(tmp_pat
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=120,
+        timeout=300,
         check=False,
     )
 
     assert completed.returncode == 0, completed.stdout + completed.stderr
     payload = json.loads(completed.stdout.splitlines()[-1])
-    assert payload["routes"] == ["/", "/training-centre"]
+    assert payload["routes"] == list(PAGES)
     assert payload["initial_route"] == "/"
-    assert payload["go_calls"] == ["/training-centre"]
+    assert payload["go_calls"] == list(PAGES)[1:]
     assert payload["route_error_keys"] == []
     assert payload["route_error_events"] == []
     assert Path(payload["root"]) == runtime_root
