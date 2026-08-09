@@ -388,6 +388,23 @@ Ruff, compileall and diff checks. Freeze one checkpoint head after this
 chronology update, then run both scoped reviews and fresh H-tier Linux,
 Windows and terminal validation against that exact head.
 
+Exact head `de06050914635a3bb736f504e39c3bf73021cbbc` was rejected
+after both parallel reviewers completed. The complete finding set is late
+success text surviving canonical cancellation in generic helpers, synchronous
+cache rebuild without safe retry, and synchronous notes/news import without
+reachable cancellation or retry. Hosted H-tier run `31317068279` passed
+generation, smoke and supply-chain controls but timed out its six-module
+changed-test selection at 240 seconds before package jobs. Correction commit
+`633e64607c070c05e6306aab3de6a0a1b17f4a3d` restores canonical cancelled
+messages in affected finalizers, moves both actions onto the existing
+background lifecycle, guards cache deletion and preserves retry. Five lightly
+edited broad test modules are restored to base while their unchanged full-suite
+assertions pass; the actual changed-test set is ISSUE-0012 plus Flet startup
+and passes locally below the hosted window. Focused ISSUE-0012 and correction
+regressions, Ruff, compileall and diff checks pass. Freeze one new exact head
+after this checkpoint and repeat both reviews plus fresh H-tier Linux, Windows
+and terminal validation; rejected-head evidence is stale.
+
 ## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head

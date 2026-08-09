@@ -458,6 +458,24 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   recovery/startup evidence passed with Ruff, compileall and diff checks.
   Freeze one checkpoint head after this chronology update; both scoped reviews
   and fresh H-tier Linux, Windows and terminal validation remain required.
+- Exact head `de06050914635a3bb736f504e39c3bf73021cbbc` was rejected
+  after both parallel reviewers completed. Their consolidated findings were
+  late success text surviving canonical cancellation in generic helpers,
+  synchronous cache rebuild without safe retry, and synchronous notes/news
+  imports without reachable cancellation or retry. Hosted H-tier run
+  `31317068279` separately passed generation, smoke and supply-chain controls
+  but timed out its six-module changed-test selection at 240 seconds before
+  Linux/Windows packaging. Correction commit
+  `633e64607c070c05e6306aab3de6a0a1b17f4a3d` restores canonical cancelled
+  messages in every affected finalizer, moves both actions onto the existing
+  background lifecycle, guards cache deletion and preserves safe retry. Five
+  lightly edited broad test modules are restored to base without weakening
+  their full-suite assertions; the actual changed-test set is now ISSUE-0012
+  plus Flet startup and passes locally below the hosted window. The five
+  restored modules also pass independently, focused ISSUE-0012 and correction
+  regressions pass, and Ruff, compileall and diff checks pass. Freeze one new
+  exact head after this checkpoint, then repeat both reviews and fresh H-tier
+  Linux, Windows and terminal validation; rejected-head evidence is stale.
 
 ## ISSUE-0104 product chronology
 
