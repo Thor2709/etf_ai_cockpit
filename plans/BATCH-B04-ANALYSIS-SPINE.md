@@ -197,8 +197,14 @@ passive fields falsely declared as input actions were removed from metadata;
 their UI is unchanged. The 225 contracts now generate 283 non-executable
 actions (203 controls, 40 routes and 40 commands), and two focused selections
 pass 87 tests. H classification and fresh hosted Linux/Windows requirements
-are unchanged. Because canonical ISSUE-0011 is already `in_progress`, this
-product PR changes no status or dependency edge; after exact reviewed merge,
+are unchanged. Exact head
+`de14e2ea9f4dc366067ea6fc3e0bb0f03041c491` passed whole-diff review but
+risk review found that direct dispatch did not return its preserved terminal
+result. The final correction returns that existing result and directly asserts
+completed/failed status, signal, message and replay state; its focused
+regression, Ruff, compile and diff hygiene pass. Because canonical ISSUE-0011
+is already `in_progress`, this product PR changes no status or dependency
+edge; after exact reviewed merge,
 use the existing aggregate `in_progress -> implemented_initially -> integrated`
 writer transaction and require zero-action generic readback.
 

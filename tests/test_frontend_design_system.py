@@ -162,9 +162,12 @@ def test_palette_control_dispatch_preserves_terminal_result_and_prevents_reinvoc
     assert result.on_click.__name__ == "select_palette_command"
     assert contract.callback == "navigate_palette_command"
     event = SimpleNamespace(control=result)
-    result.on_click(event)
-    result.on_click(event)
+    completed = result.on_click(event)
+    replayed = result.on_click(event)
     assert selected == ["/comparison"]
+    assert completed.status == replayed.status == "completed"
+    assert completed.replayed is False and replayed.replayed is True
+    assert (replayed.signal, replayed.visible_message) == (completed.signal, completed.visible_message)
 
     attempts: list[str] = []
 
@@ -184,10 +187,13 @@ def test_palette_control_dispatch_preserves_terminal_result_and_prevents_reinvoc
         control for control in _walk(failed_view) if getattr(control, "key", None) == "shell.command.comparison"
     )
     failed_event = SimpleNamespace(control=failed_result)
-    failed_result.on_click(failed_event)
+    failed = failed_result.on_click(failed_event)
     first_failure = failed_state.last_message
-    failed_result.on_click(failed_event)
+    failed_replay = failed_result.on_click(failed_event)
     assert attempts == ["/comparison"]
+    assert failed.status == failed_replay.status == "failed"
+    assert failed.replayed is False and failed_replay.replayed is True
+    assert (failed_replay.signal, failed_replay.visible_message) == (failed.signal, failed.visible_message)
     assert failed_state.last_message == first_failure
     assert contract.controlled_error_signal in first_failure
     assert "Action failed safely: RuntimeError: controlled palette failure" in first_failure

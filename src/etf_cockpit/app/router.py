@@ -246,6 +246,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         )
         if result.status == "failed":
             show_palette_message(f"{result.signal} · {result.visible_message}")
+        return result
 
     def render_palette_results(event: ft.ControlEvent) -> None:
         query = str(getattr(getattr(event, "control", None), "value", None) or "")

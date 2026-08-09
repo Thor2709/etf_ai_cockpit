@@ -252,7 +252,12 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   removed from metadata without changing their UI. The resulting 225 metadata
   contracts generate 283 actions (203 controls, 40 routes and 40 commands),
   all non-executable. Two focused selections pass 87 tests; H classification
-  and fresh hosted Linux/Windows requirements are unchanged.
+  and fresh hosted Linux/Windows requirements are unchanged. Exact head
+  `de14e2ea9f4dc366067ea6fc3e0bb0f03041c491` passed whole-diff review but
+  risk review found that direct dispatch did not return its preserved terminal
+  result. The final correction returns that existing result and directly
+  asserts completed/failed status, signal, message and replay state; its
+  focused regression, Ruff, compile and diff hygiene pass.
 - ISSUE-0011 is already canonically `in_progress`; the product PR therefore
   carries no artificial status or dependency transaction. Before product
   merge, retain exact product/review/gate evidence and the post-merge writer
