@@ -2,11 +2,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
+import socket
+import subprocess
+import sys
 
 from etf_cockpit.governance.product_scope import load_gate_policy
 from etf_cockpit.portfolio.paper_trading import _digest
 from etf_cockpit.portfolio.proposal_policy import REQUIRED_GATES, current_authority_policy_checksum
+
+
+ROOT = Path(__file__).resolve().parents[2]
+NETWORK_GUARD = Path(__file__).resolve().parent / "network_guard"
 
 
 def paper_proposal(*, instrument_id: str = "VWCE", quantity_delta: float = 10.0) -> dict[str, object]:
@@ -55,3 +64,80 @@ def write_paper_proposal(root: Path, proposal: dict[str, object]) -> None:
 
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def copy_repository_runtime(destination: Path, *, packaging: bool = False) -> Path:
+    """Copy the exact runtime/packaging inputs without generated or mutable data."""
+
+    destination.mkdir(parents=True)
+    for directory in ("src", "configs", "scripts"):
+        shutil.copytree(ROOT / directory, destination / directory)
+    if packaging:
+        for name in (
+            "pyproject.toml",
+            "MANIFEST.in",
+            "README.md",
+            "requirements.txt",
+            "requirements-parsers.txt",
+        ):
+            shutil.copy2(ROOT / name, destination / name)
+    return destination
+
+
+def isolated_environment(runtime_root: Path) -> dict[str, str]:
+    environment = os.environ.copy()
+    python_path = os.pathsep.join(
+        [str(NETWORK_GUARD), str(ROOT), str(runtime_root / "src"), environment.get("PYTHONPATH", "")]
+    ).rstrip(os.pathsep)
+    environment.update(
+        {
+            "ETF_COCKPIT_ROOT": str(runtime_root),
+            "ETF_COCKPIT_OFFLINE": "1",
+            "ETF_COCKPIT_OPEN_BROWSER": "0",
+            "ETF_COCKPIT_SOCKET_GUARD": "1",
+            "PYTHONHASHSEED": "0",
+            "PYTHONPATH": python_path,
+            "TZ": "UTC",
+        }
+    )
+    return environment
+
+
+def free_loopback_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        return int(reservation.getsockname()[1])
+
+
+def run_offline_smoke(
+    root: Path,
+    smoke_script: Path | None,
+    *,
+    timeout: int = 60,
+) -> subprocess.CompletedProcess[str]:
+    if smoke_script is None or not smoke_script.is_file():
+        raise RuntimeError("packaged offline smoke artifact is missing")
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(smoke_script),
+            "--mode",
+            "offline",
+            "--port",
+            str(free_loopback_port()),
+            "--timeout",
+            str(timeout),
+        ],
+        cwd=root,
+        env=isolated_environment(root),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout + 30,
+        check=False,
+    )
+    if completed.returncode:
+        detail = (completed.stdout + "\n" + completed.stderr).strip()
+        raise RuntimeError(f"packaged offline smoke was not runnable ({completed.returncode}): {detail}")
+    return completed

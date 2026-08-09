@@ -560,16 +560,17 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   SHA `999f68c57c2ec349c21280aa94b751a6dac5130a9d03981d2d63a72bdf743f7c`.
   GitHub issue #16 and canonical state now agree on `integrated`, with
   `execution_allowed=false`.
-- ISSUE-0014 is the next implementation-order dependency-ready product issue.
-  Clean branch `codex/issue0014-product-20260810` starts from exact main
-  `c8a7da624c97f1a04191fd3ad1b7880bca83feec`. The bounded additive scope is
-  one deterministic local-only runner plus separate source, packaged and
-  browser workflow suites covering offline import, optional online failure,
-  migration, a 250-instrument universe, training, paper simulation, recovery,
-  package parity and loopback startup. Initial implementation head
-  `913e0d395c5e68132be9c2f53361002c5ae18848` passes all 10 journeys, dry-run,
-  Ruff, compileall and diff hygiene. Finish the checkpoint, then freeze for
-  independent whole-diff/risk review and required H-tier validation.
+- ISSUE-0014 remains the next implementation-order dependency-ready product
+  issue. Both independent reviewers rejected exact head
+  `a66c66ad6c2f941b6640d81320988b0b8af9e129`; this consolidated correction
+  replaces simulated package/browser evidence with the real sdist artifact,
+  registered routes and loopback HTTP startup, and adds canonical local
+  refresh/algorithm/forecast/scoreboard/audit APIs, managed migration backup,
+  valid interrupted-write recovery, runner-wide socket denial, provider-
+  transport failure and application-API paper restart/rejection regressions.
+  Hosted run `31330623071` is stale evidence: preflight failed before the Linux
+  and Windows package jobs. Canonical issue status and authority remain
+  unchanged pending corrected exact-head review and required H-tier validation.
 
 ## ISSUE-0104 product chronology
 
