@@ -2675,3 +2675,12 @@ those sources under existing checksum-addressed raw evidence before registry
 writes and derives the exact seven-control set from UI acceptance. Rejected-
 head CI is stale; focused checks, both exact-head reviews and fresh H-tier
 Linux, Windows and terminal gates remain required.
+
+`TRUTHFUL_AUTHORITY_CORRECTION` exact head
+`daa23b34a6c54faf5b0c0d85920cbc442a94e65f` passed the complete focused
+review surface but masked the real holdings callback by rewriting
+`manual_unverified` as `issuer` in its durability test. The narrow correction
+allows only structurally valid non-score manual context through the existing
+atomic holdings/document group, preserves unknown authority and false score
+eligibility, binds truthful manual evidence and removes the rewrite. Fresh
+exact-head reviews and H-tier Linux, Windows and terminal gates are required.

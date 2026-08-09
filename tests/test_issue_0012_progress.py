@@ -1847,10 +1847,9 @@ def test_disclosure_browser_picker_bytes_retain_registry_source_after_worker(
         import_holdings = trust_evidence_module.import_etf_holdings_with_document
 
         def import_holdings_with_destinations(path, *args, **kwargs):
-            valid_args = (*args[:2], "issuer", *args[3:])
             return import_holdings(
                 path,
-                *valid_args,
+                *args,
                 holdings_destination=holdings_path,
                 registry_destination=registry_path,
                 **kwargs,
@@ -1884,6 +1883,10 @@ def test_disclosure_browser_picker_bytes_retain_registry_source_after_worker(
         stored = services_module.pd.read_parquet(holdings_path)
         bound = stored.loc[stored["document_source_id"].astype(str).eq(str(registered.iloc[0]["source_id"]))]
         assert not bound.empty
+        assert stored["source"].eq("manual_unverified").all()
+        assert stored["authority"].eq("unknown").all()
+        assert stored["score_eligible"].eq(False).all()
+        assert registered.iloc[0]["authority"] == "manual_unverified"
 
 
 @pytest.mark.parametrize("category", ["holdings", "kid"])

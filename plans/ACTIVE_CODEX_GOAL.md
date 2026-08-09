@@ -521,6 +521,15 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   before those registry writes and derives the exact seven-control set from
   UI acceptance. Its hosted evidence is stale; focused checks, both reviews
   and fresh H-tier Linux, Windows and terminal gates remain required.
+- Exact head `daa23b34a6c54faf5b0c0d85920cbc442a94e65f` passed 109 focused
+  cases in whole-diff review but received one truthful-authority risk finding:
+  its new holdings test rewrote `manual_unverified` to `issuer`, masking the
+  production callback's pre-persistence rejection. The narrow final repair
+  permits only structurally valid non-score manual context in the existing
+  atomic holdings/document importer, preserves `source=manual_unverified`,
+  `authority=unknown`, `score_eligible=false`, binds the document with
+  `manual_unverified` authority and removes the test rewrite. Rejected-head CI
+  is stale; both reviews and fresh H-tier gates remain required.
 
 ## ISSUE-0104 product chronology
 
