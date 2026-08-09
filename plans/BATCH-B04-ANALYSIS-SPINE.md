@@ -243,7 +243,15 @@ The clean completion lane reproduced one deterministic defect because the B00
 canonical import predates ISSUE-0011 transition history. One bounded H repair
 therefore recognizes only the exact bootstrap-empty `in_progress` origin in
 all three replay validators; it does not change hops, dependencies, authority,
-retry behavior or `execution_allowed=false`.
+retry behavior or `execution_allowed=false`. Repair PR #660 merged exact
+reviewed head `3ee6f811495149a4a526ea1335cd941a6012c766` as
+`79ef677112f89c74b0ac652ede04a4411646b4d9` after H-tier run
+`31299002822` passed Linux, Windows and terminal validation. The completion
+lane is rebased onto that exact main; its one live action targets issue #15 at
+plan SHA `5081667a34d01125c464d622c59a9fce715c9097d5d7f5cf08e67ba9e4317ea0`
+and aggregate authority
+`c417a1345e877422ea30dcaac81a23bf1cf72cf544edec2186a8f0a85a05572b`,
+with one post-merge replay write and mandatory zero-action generic readback.
 
 ## ISSUE-0104 product chronology
 
