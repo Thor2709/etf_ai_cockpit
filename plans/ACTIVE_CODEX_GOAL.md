@@ -195,6 +195,34 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   `planned -> implemented_initially` and asserts every selected skip is absent
   from `CONTROL_ALLOWED_TRANSITIONS`, eliminating dependence on future
   canonical status ordering.
+- Final completion head `4abb1d92830801d73045aa1499f4cec71caec8a4`
+  received both independent approvals, passed guard `31286274630` and O-tier
+  release run `31286274627`, then merged in PR #658 as exact main
+  `f6104403ab0f5e4e007700e5cbc1870429370f27`. Writer `31286431060`
+  applied one aggregate proposal and receipt with
+  `terminal_status=applied_and_verified` and `zero_action_readback=true`;
+  convergence `31286431065` passed. GitHub issue #14 and canonical state agree
+  on `integrated`; fresh generic plan
+  `51be8c545bc6f962076d2c310067748d72ab9a519378c09c18119040e768dafc`
+  has zero actions and `execution_allowed=false` remains.
+- ISSUE-0011 is dependency-ready and selected next. Clean branch
+  `codex/issue0011-product-20260809` starts at exact main
+  `f6104403ab0f5e4e007700e5cbc1870429370f27`. Its bounded product scope is a
+  deterministic main-UI action inventory generated from registered controls,
+  routes and command metadata, with stable unique IDs, bound command
+  contracts, visible failure states, six required workflow lanes and no
+  execution authority. The implementation currently produces 308 actions
+  (228 controls, 40 routes and 40 commands); 12 focused contract, palette and
+  accessibility tests plus ruff, compile and diff checks pass. Broader local
+  Flet smoke attempts emitted passing results but did not terminate cleanly,
+  so exact hosted package validation remains required.
+- ISSUE-0011 is already canonically `in_progress`; the product PR therefore
+  carries no artificial status or dependency transaction. Before product
+  merge, retain exact product/review/gate evidence and the post-merge writer
+  expectation. After the reviewed merge exists, prepare the existing atomic
+  `in_progress -> implemented_initially -> integrated` replay against that
+  exact product commit and require the authorized writer plus zero-action
+  generic readback.
 
 ## ISSUE-0104 product chronology
 

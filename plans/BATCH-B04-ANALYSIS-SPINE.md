@@ -146,6 +146,30 @@ showed `planned -> in_progress` in the dynamic table was legal. The final
 test-only closure changes that pair to `planned -> implemented_initially` and
 asserts every chosen pair is absent from the canonical allowed-transition set.
 
+Final head `4abb1d92830801d73045aa1499f4cec71caec8a4` received both
+independent approvals, passed guard `31286274630` and O-tier run
+`31286274627`, and merged in PR #658 as
+`f6104403ab0f5e4e007700e5cbc1870429370f27`. Writer `31286431060` returned
+`applied_and_verified` with one aggregate proposal/receipt and zero-action
+readback; convergence `31286431065` passed. GitHub issue #14 projects
+`integrated`; fresh generic plan
+`51be8c545bc6f962076d2c310067748d72ab9a519378c09c18119040e768dafc`
+has no actions and `execution_allowed=false` remains.
+
+ISSUE-0011 is the next dependency-ready product issue. Clean branch
+`codex/issue0011-product-20260809` starts at that exact main and implements
+only the main-UI action reliability contract: deterministic inventory from
+control/route/command metadata, unique stable IDs, command bindings, visible
+failure states and research, training, paper, broker-read-only, recovery and
+live-stage lane coverage with no execution authority. Current output is 308
+actions (228 controls, 40 routes and 40 commands); 12 focused tests and static
+checks pass. Local broader Flet smoke emitted passing output without clean
+termination, so hosted package validation remains required. Because canonical
+ISSUE-0011 is already `in_progress`, this product PR changes no status or
+dependency edge; after exact reviewed merge, use the existing aggregate
+`in_progress -> implemented_initially -> integrated` writer transaction and
+require zero-action generic readback.
+
 ## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head

@@ -12,6 +12,24 @@ class PaletteCommand:
     title: str
     workspace: str
 
+    @property
+    def command_id(self) -> str:
+        """Stable command identity independent of result ordering or labels."""
+
+        return f"palette:{self.route.strip('/').replace('/', '-') or 'home'}"
+
+    @property
+    def callback(self) -> str:
+        return "navigate_to"
+
+    @property
+    def success_signal(self) -> str:
+        return "route_changed"
+
+    @property
+    def controlled_error_signal(self) -> str:
+        return "no_matching_workspace"
+
 
 def all_commands(
     pages: Mapping[str, tuple[str, object]],
