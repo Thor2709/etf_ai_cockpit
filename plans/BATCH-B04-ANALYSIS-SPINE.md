@@ -482,7 +482,15 @@ preflight absence of the configured setuptools backend. Keep real sdist
 execution when the backend exists, assert the exact isolated-build command
 everywhere, and leave authoritative package execution mandatory in the H-tier
 package job. Freeze one final replacement head for both reviews and fresh
-validation.
+validation. Both reviews approved exact head
+`48682c5ea4510cec950a01b3316060563f66d70c`. H-tier run `31334147828`
+passed preflight, supply chain, both release packages and terminal validation,
+but its repeated report-only pilots demonstrated that the new all-routes
+browser probe exceeded its 120-second subprocess limit only in the four-worker
+safe lane; both serial repetitions passed. Classify that resource-heavy Flet
+probe into the existing serial/flet lane without changing product, workflow or
+validation authority, then freeze one final replacement head for both reviews
+and fresh validation.
 
 ## ISSUE-0104 product chronology
 

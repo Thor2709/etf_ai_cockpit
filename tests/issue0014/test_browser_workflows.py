@@ -5,6 +5,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 from tests.issue0014._support import (
     ROOT,
     copy_repository_runtime,
@@ -13,6 +15,8 @@ from tests.issue0014._support import (
 )
 
 
+@pytest.mark.serial
+@pytest.mark.xdist_group("flet")
 def test_registered_routes_render_without_route_error_controls_or_events(tmp_path: Path) -> None:
     runtime_root = copy_repository_runtime(tmp_path / "browser-routes")
     completed = subprocess.run(
