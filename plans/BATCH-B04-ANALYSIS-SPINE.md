@@ -223,8 +223,16 @@ event wrappers against the existing available-symbol set. The exact two-file
 MyPy command passes without error-code exclusions; the unavailable PyYAML stub
 uses the repository's narrow import annotation. Thirty focused tests, Ruff,
 compile and diff hygiene pass. The 225-contract/283-action non-executable inventory, package
-mechanics and H classification remain unchanged. Because canonical ISSUE-0011
-is already `in_progress`, this product PR changes no status or dependency
+mechanics and H classification remain unchanged. Exact head
+`1944caa539d0f63ed0de52ccdd7e9cb6dfc3abec` received both independent
+approvals. H-tier run `31293133592` passed Linux full tests, package build,
+source/package parity and every policy check, but Linux package smoke failed
+because the extracted sdist's partial `tests/` tree was mistaken for a
+repository checkout. The bounded correction requires acceptance-test files
+only when a `.git` checkout marker exists and adds the exact
+package-versus-checkout regression; the runtime contract and 283-action
+inventory are unchanged. Fresh exact-head H gates remain required. Because
+canonical ISSUE-0011 is already `in_progress`, this product PR changes no status or dependency
 edge; after exact reviewed merge, use the existing aggregate `in_progress ->
 implemented_initially -> integrated` writer transaction and require zero-action
 generic readback.

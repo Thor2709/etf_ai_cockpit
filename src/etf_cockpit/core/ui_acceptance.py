@@ -214,7 +214,12 @@ def load_ui_acceptance_contracts(path: Path | None = None) -> tuple[UIAcceptance
             raise ValueError(f"unsupported UI acceptance control type: {item.control_type}")
         acceptance_path = Path(item.acceptance_test)
         source_root = source.parents[1]
-        if (source_root / "tests").is_dir() and not acceptance_path.is_absolute() and not (source_root / acceptance_path).is_file():
+        if (
+            (source_root / ".git").exists()
+            and (source_root / "tests").is_dir()
+            and not acceptance_path.is_absolute()
+            and not (source_root / acceptance_path).is_file()
+        ):
             raise ValueError(f"UI acceptance test does not exist: {item.acceptance_test} ({item.key})")
     return tuple(contracts)
 

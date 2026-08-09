@@ -281,7 +281,16 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   narrow import annotation. The 30-test focused selection, Ruff, compile and
   diff hygiene pass. The exact
   225-contract/283-action non-executable inventory, package mechanics and H
-  classification remain unchanged.
+  classification remain unchanged. Exact head
+  `1944caa539d0f63ed0de52ccdd7e9cb6dfc3abec` received both independent
+  approvals. H-tier run `31293133592` passed Linux full tests, package build,
+  source/package parity and every policy check, but Linux package smoke failed
+  because the extracted sdist's partial `tests/` tree was mistaken for a
+  repository checkout and an intentionally absent acceptance-test source was
+  required at runtime. The bounded package correction requires acceptance-test
+  files only when a `.git` checkout marker exists and adds the exact
+  package-versus-checkout regression. The runtime contract and 283-action
+  inventory are unchanged; fresh exact-head H gates remain required.
 - ISSUE-0011 is already canonically `in_progress`; the product PR therefore
   carries no artificial status or dependency transaction. Before product
   merge, retain exact product/review/gate evidence and the post-merge writer

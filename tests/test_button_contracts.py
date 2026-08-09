@@ -50,6 +50,27 @@ def test_button_inventory_covers_registered_routes_and_control_metadata() -> Non
     assert all(item.success_signal and item.controlled_error_signal for item in contracts)
 
 
+def test_packaged_contract_does_not_require_repository_test_sources(tmp_path: Path) -> None:
+    package_root = tmp_path / "package"
+    config_dir = package_root / "configs"
+    config_dir.mkdir(parents=True)
+    (package_root / "tests").mkdir()
+    metadata = config_dir / "ui_acceptance.yaml"
+    metadata.write_text(
+        "version: 3\ncontrols:\n"
+        "  - {key: packaged.action, route: /, control_label: Packaged action, callback: callback, "
+        "success_signal: auto, controlled_error_signal: auto, "
+        "acceptance_test: tests/test_not_packaged.py, control_type: button}\n",
+        encoding="utf-8",
+    )
+
+    assert load_ui_acceptance_contracts(metadata)[0].key == "packaged.action"
+
+    (package_root / ".git").write_text("gitdir: repository-metadata\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="UI acceptance test does not exist"):
+        load_ui_acceptance_contracts(metadata)
+
+
 def test_source_discovery_covers_constructor_post_binding_inputs_and_file_pickers() -> None:
     controls = discover_actionable_controls(Path("src/etf_cockpit/app"))
     assert controls["dashboard.refresh-yfinance"].events == ("on_click",)
