@@ -77,6 +77,10 @@ LONG_RUNNING_ACTION_CONTROL_KEYS.update(
         ),
         "holdings_factsheet_import": (
             "etf-disclosures.import-holdings",
+            "etf-disclosures.import-document",
+            "etf-disclosures.import-report",
+            "etf-disclosures.import-kid",
+            "etf-disclosures.import-methodology",
             "dashboard.import-etf-factsheets",
             "dashboard.import-etf-holdings",
         ),

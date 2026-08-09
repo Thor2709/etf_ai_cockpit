@@ -11,6 +11,7 @@ import time
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from etf_cockpit.app import state as app_state_module
 from etf_cockpit.app.pages.dashboard import _activity_panel
@@ -751,7 +752,9 @@ def test_import_export_audit_control_is_cancellable_and_retryable(tmp_path, monk
 
 
 def test_long_running_contract_points_to_real_handlers_and_registered_controls() -> None:
-    acceptance = Path("configs/ui_acceptance.yaml").read_text(encoding="utf-8")
+    acceptance_path = Path("configs/ui_acceptance.yaml")
+    acceptance = acceptance_path.read_text(encoding="utf-8")
+    accepted_controls = yaml.safe_load(acceptance)["controls"]
     assert tuple(LONG_RUNNING_ACTION_SPECS) == tuple(LONG_RUNNING_ACTIONS)
     for key, spec in LONG_RUNNING_ACTION_SPECS.items():
         assert spec.handler and spec.control_key, key
@@ -768,6 +771,10 @@ def test_long_running_contract_points_to_real_handlers_and_registered_controls()
     )
     assert LONG_RUNNING_ACTION_CONTROL_KEYS["holdings_factsheet_import"] == (
         "etf-disclosures.import-holdings",
+        "etf-disclosures.import-document",
+        "etf-disclosures.import-report",
+        "etf-disclosures.import-kid",
+        "etf-disclosures.import-methodology",
         "dashboard.import-etf-factsheets",
         "dashboard.import-etf-holdings",
     )
@@ -777,6 +784,14 @@ def test_long_running_contract_points_to_real_handlers_and_registered_controls()
             reverse_catalog.setdefault(control_key, set()).add(action_key)
     assert reverse_catalog["dashboard.import-etf-factsheets"] == {"holdings_factsheet_import"}
     assert reverse_catalog["dashboard.import-etf-holdings"] == {"holdings_factsheet_import"}
+    accepted_disclosure_imports = {
+        control["key"]
+        for control in accepted_controls
+        if control["route"] == "/etf-disclosures"
+        and control["control_type"] == "button"
+        and control["key"].startswith("etf-disclosures.import-")
+    }
+    assert accepted_disclosure_imports <= reverse_catalog.keys()
     assert reverse_catalog["dashboard.run-forecasting-models"] == {
         "baseline_forecast",
         "timesfm_forecast",

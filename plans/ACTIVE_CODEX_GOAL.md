@@ -506,6 +506,13 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   picker terminal. Focused ISSUE-0012, Ruff, compileall and diff checks pass.
   Freeze the replacement exact head after this checkpoint and repeat both
   reviews plus fresh H-tier Linux, Windows and terminal validation.
+- Exact head `0216f820eb7c111cd95c0bc287d50e05e6b526c0` received whole-diff
+  approval and one consolidated risk-review finding: four accepted disclosure
+  import controls were absent from reverse-complete action-control coverage.
+  The bounded correction adds those existing controls and derives the reverse
+  completeness regression from the accepted disclosure-import buttons. Its
+  hosted evidence is stale; freeze one replacement head after focused checks,
+  then repeat both reviews and fresh H-tier Linux, Windows and terminal gates.
 
 ## ISSUE-0104 product chronology
 

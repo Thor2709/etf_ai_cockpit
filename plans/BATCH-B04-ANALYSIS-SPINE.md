@@ -2657,3 +2657,11 @@ unchanged. The isolated product implementation is stable at
 review. After readiness converges, rebase that product head onto the new exact
 main and run fresh H-tier review and authoritative Linux/Windows package gates
 before merge and automatic lifecycle completion.
+
+`CORRECTION` UPDATEV2-0018 exact head
+`0216f820eb7c111cd95c0bc287d50e05e6b526c0` received whole-diff approval
+and one risk-review blocker: four accepted disclosure-import buttons were
+missing from reverse-complete long-running control coverage. One bounded pass
+adds those existing controls and an acceptance-derived reverse regression.
+Rejected-head CI is stale; focused checks, both exact-head reviews and fresh
+H-tier Linux, Windows and terminal gates are required on the replacement head.
