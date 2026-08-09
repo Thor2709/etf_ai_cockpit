@@ -48,11 +48,11 @@ identity, exact parent/head, candidate, plan, ledger and workflow attestation.
 The unchanged completion authority remains exactly two hops,
 `in_progress -> implemented_initially -> integrated`. No retry, compensation,
 ambiguous-write recovery or broader mutation authority is permitted.
-The exact audited B00 source for ISSUE-0011, which began canonically
-`in_progress` before transition history existed, may use an empty replay
-prefix only when its complete fixed source record validates. The appended path
-remains the same exact two hops; every other issue, unknown source field,
-malformed value or inconsistent prefix fails closed.
+The exact audited B00 sources for ISSUE-0011 and ISSUE-0012, which began
+canonically `in_progress` before transition history existed, may use an empty
+replay prefix only when their complete fixed source record validates. The
+appended path remains the same exact two hops; every other issue, unknown
+source field, malformed value or inconsistent prefix fails closed.
 The exact active-goal and current `plans/BATCH-B04-ANALYSIS-SPINE.md`
 checkpoint chronology files are evidence-only and do not inflate an otherwise
 E control transaction; invented or other plan paths fail upward. Genuine H
