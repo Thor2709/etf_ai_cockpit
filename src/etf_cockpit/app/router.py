@@ -49,7 +49,7 @@ from etf_cockpit.app.pages.release_readiness import release_readiness_page
 from etf_cockpit.app.pages.programme_map import programme_map_page
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.session_log import log_event
-from etf_cockpit.core.ui_acceptance import command_contract_from_metadata
+from etf_cockpit.core.ui_acceptance import UIInvocationResult, command_contract_from_metadata
 
 PAGES = {
     "/": ("Simple Scores", dashboard_page),
@@ -216,7 +216,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
 
     palette_results = ft.Container(visible=False)
     palette_commands: dict[str, object] = {}
-    palette_invocations = {}
+    palette_invocations: dict[str, UIInvocationResult] = {}
 
     def navigate_palette_command(event: ft.ControlEvent) -> None:
         route = str(getattr(getattr(event, "control", None), "data", "") or "")
@@ -231,12 +231,12 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         if callable(getattr(page, "update", None)):
             page.update()
 
-    def select_palette_command(event: ft.ControlEvent) -> None:
+    def select_palette_command(event: ft.ControlEvent) -> UIInvocationResult | None:
         route = str(getattr(getattr(event, "control", None), "data", "") or "")
         command = palette_commands.get(route)
         if command is None:
             show_palette_message("Selected command has no registered route")
-            return
+            return None
         contract = command_contract_from_metadata(command)
         result = contract.invoke(
             navigate_palette_command,

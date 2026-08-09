@@ -140,6 +140,29 @@ def test_actionable_controls_reject_unresolved_or_invented_callbacks(
         )
 
 
+def test_actionable_control_rejects_undefined_named_callback(tmp_path: Path) -> None:
+    contract = next(
+        item
+        for item in load_ui_acceptance_contracts()
+        if item.key == "training-centre.synthetic-scenario"
+    )
+    source_root = tmp_path / "app"
+    source_root.mkdir()
+    (source_root / "controls.py").write_text(
+        'ft.TextButton(key="training-centre.synthetic-scenario", on_click=undefined_callback)\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        ValueError,
+        match="unresolved callbacks: training-centre.synthetic-scenario",
+    ):
+        validate_ui_acceptance_inventory(
+            (replace(contract, callback="undefined_callback"),),
+            (contract.route,),
+            source_root=source_root,
+        )
+
+
 def test_orphan_input_contract_is_rejected_instead_of_omitted() -> None:
     contracts = load_ui_acceptance_contracts()
     template = next(item for item in contracts if item.control_type == "input")

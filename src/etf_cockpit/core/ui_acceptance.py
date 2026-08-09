@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import builtins
 import importlib.metadata
 import json
 import re
@@ -88,7 +89,7 @@ class UICommandContract:
 
     def invoke(
         self,
-        callback: Callable[[object | None], object],
+        callback: Callable[..., object],
         event: object | None = None,
         *,
         invoked: dict[str, UIInvocationResult],
@@ -583,6 +584,11 @@ def discover_actionable_controls(source_root: Path) -> dict[str, DiscoveredContr
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         except (OSError, SyntaxError):
             continue
+        parents = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
         assigned_controls: dict[str, tuple[str, str]] = {}
         for node in ast.walk(tree):
             if not isinstance(node, (ast.Assign, ast.AnnAssign)):
@@ -625,7 +631,13 @@ def discover_actionable_controls(source_root: Path) -> dict[str, DiscoveredContr
                     continue
                 missing.append(location)
             else:
-                _record_discovered(found, key, event_nodes, location)
+                _record_discovered(
+                    found,
+                    key,
+                    event_nodes,
+                    location,
+                    available_symbols=_available_callback_symbols(tree, node, parents),
+                )
         for node in ast.walk(tree):
             if not isinstance(node, (ast.Assign, ast.AnnAssign)):
                 continue
@@ -636,7 +648,13 @@ def discover_actionable_controls(source_root: Path) -> dict[str, DiscoveredContr
                 continue
             key, construction_location = assigned_controls[target.value.id]
             location = f"{path.as_posix()}:{node.lineno}"
-            _record_discovered(found, key, {target.attr: node.value}, f"{construction_location},{location}")
+            _record_discovered(
+                found,
+                key,
+                {target.attr: node.value},
+                f"{construction_location},{location}",
+                available_symbols=_available_callback_symbols(tree, node, parents),
+            )
     if missing:
         found["<missing>"] = {"callbacks": [], "events": [], "locations": missing}
     return {
@@ -661,26 +679,41 @@ def _record_discovered(
     key: str,
     event_nodes: Mapping[str, ast.AST | None],
     location: str,
+    *,
+    available_symbols: set[str],
 ) -> None:
     if key == "shell.command-palette" and {"on_change", "on_submit"} <= event_nodes.keys():
         for event_name, callback_node in event_nodes.items():
             event_key = f"{key}.{event_name.replace('_', '-')}"
-            _record_discovered(found, event_key, {event_name: callback_node}, location)
+            _record_discovered(
+                found,
+                event_key,
+                {event_name: callback_node},
+                location,
+                available_symbols=available_symbols,
+            )
         return
     row = found.setdefault(key, {"callbacks": [], "events": [], "locations": []})
     row["locations"].append(location)
     for event_name, callback_node in event_nodes.items():
         row["events"].append(event_name)
-        callback = _callback_name(callback_node)
+        callback = _callback_name(callback_node, available_symbols=available_symbols)
         if callback:
             row["callbacks"].append(callback)
 
 
-def _callback_name(node: ast.AST | None) -> str:
-    if isinstance(node, (ast.Name, ast.Attribute)):
+def _callback_name(node: ast.AST | None, *, available_symbols: set[str]) -> str:
+    if isinstance(node, ast.Name):
+        if hasattr(node, "lineno") and node.id not in available_symbols:
+            return ""
+        return node.id
+    if isinstance(node, ast.Attribute):
         return _call_name(node)
     if isinstance(node, ast.IfExp):
-        return _callback_name(node.body) or _callback_name(node.orelse)
+        return _callback_name(node.body, available_symbols=available_symbols) or _callback_name(
+            node.orelse,
+            available_symbols=available_symbols,
+        )
     if isinstance(node, ast.Lambda):
         for child in ast.walk(node.body):
             if isinstance(child, ast.Call):
@@ -688,6 +721,71 @@ def _callback_name(node: ast.AST | None) -> str:
                 if name not in {"getattr", "setattr", "str", "list", "tuple"}:
                     return name
     return ""
+
+
+def _available_callback_symbols(
+    tree: ast.Module,
+    node: ast.AST,
+    parents: Mapping[ast.AST, ast.AST],
+) -> set[str]:
+    """Return names bound in the source scopes enclosing one event binding."""
+
+    scopes: list[ast.AST] = [tree]
+    current = parents.get(node)
+    while current is not None:
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            scopes.append(current)
+        current = parents.get(current)
+    symbols = set(dir(builtins))
+    for scope in reversed(scopes):
+        symbols.update(_scope_bindings(scope))
+    return symbols
+
+
+def _scope_bindings(scope: ast.AST) -> set[str]:
+    collector = _BindingCollector()
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        collector.names.update(argument.arg for argument in scope.args.posonlyargs)
+        collector.names.update(argument.arg for argument in scope.args.args)
+        collector.names.update(argument.arg for argument in scope.args.kwonlyargs)
+        if scope.args.vararg is not None:
+            collector.names.add(scope.args.vararg.arg)
+        if scope.args.kwarg is not None:
+            collector.names.add(scope.args.kwarg.arg)
+    statements = (
+        scope.body
+        if isinstance(scope, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        else ()
+    )
+    for statement in statements:
+        collector.visit(statement)
+    return collector.names
+
+
+class _BindingCollector(ast.NodeVisitor):
+    """Collect bindings in one scope without descending into child scopes."""
+
+    def __init__(self) -> None:
+        self.names: set[str] = set()
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, ast.Store):
+            self.names.add(node.id)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.names.add(node.name)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.names.add(node.name)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.names.add(node.name)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        self.names.update(alias.asname or alias.name.split(".", 1)[0] for alias in node.names)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        self.names.update(alias.asname or alias.name for alias in node.names if alias.name != "*")
 
 
 def _call_name(node: ast.AST) -> str:

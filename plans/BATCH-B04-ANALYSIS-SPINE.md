@@ -202,11 +202,21 @@ are unchanged. Exact head
 risk review found that direct dispatch did not return its preserved terminal
 result. The final correction returns that existing result and directly asserts
 completed/failed status, signal, message and replay state; its focused
-regression, Ruff, compile and diff hygiene pass. Because canonical ISSUE-0011
-is already `in_progress`, this product PR changes no status or dependency
-edge; after exact reviewed merge,
-use the existing aggregate `in_progress -> implemented_initially -> integrated`
-writer transaction and require zero-action generic readback.
+regression, Ruff, compile and diff hygiene pass. Exact head
+`962d3bca6ccffca5f4d4548640689b6d7d52415c` was then rejected for accepting
+an undefined direct named event callback and declaring the terminal-result
+palette handler as returning `None`. The bounded uncommitted correction
+resolves direct source callback names against module imports/definitions and
+enclosing parameters/local bindings while preserving nested, imported,
+parameter, post-construction, attribute and lambda forms; the palette handler
+now returns `UIInvocationResult | None` explicitly. The 29-test focused
+selection, targeted two-file MyPy with return checking, Ruff, compile and diff
+hygiene pass. The exact 225-contract/283-action non-executable inventory and H
+classification remain unchanged. Because canonical ISSUE-0011 is already
+`in_progress`, this product PR changes no status or dependency edge; after
+exact reviewed merge, use the existing aggregate `in_progress ->
+implemented_initially -> integrated` writer transaction and require
+zero-action generic readback.
 
 ## ISSUE-0104 product chronology
 

@@ -257,7 +257,18 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   risk review found that direct dispatch did not return its preserved terminal
   result. The final correction returns that existing result and directly
   asserts completed/failed status, signal, message and replay state; its
-  focused regression, Ruff, compile and diff hygiene pass.
+  focused regression, Ruff, compile and diff hygiene pass. Exact head
+  `962d3bca6ccffca5f4d4548640689b6d7d52415c` was then rejected because a
+  direct named event callback was accepted even when its symbol was undefined,
+  and `select_palette_command` still declared `None` despite returning the
+  preserved `UIInvocationResult`. The bounded uncommitted correction checks
+  direct source callback names against module imports/definitions and their
+  enclosing parameters/local bindings while preserving nested, imported,
+  parameter, post-construction, attribute and lambda callback forms. The
+  palette handler now returns `UIInvocationResult | None` explicitly. The
+  29-test focused selection, targeted two-file MyPy with return checking,
+  Ruff, compile and diff hygiene pass; the exact 225-contract/283-action
+  non-executable inventory and H classification remain unchanged.
 - ISSUE-0011 is already canonically `in_progress`; the product PR therefore
   carries no artificial status or dependency transaction. Before product
   merge, retain exact product/review/gate evidence and the post-merge writer
