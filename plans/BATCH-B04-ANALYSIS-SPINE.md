@@ -235,7 +235,15 @@ inventory are unchanged. Fresh exact-head H gates remain required. Because
 canonical ISSUE-0011 is already `in_progress`, this product PR changes no status or dependency
 edge; after exact reviewed merge, use the existing aggregate `in_progress ->
 implemented_initially -> integrated` writer transaction and require zero-action
-generic readback.
+generic readback. Product PR #659 merged reviewed exact head
+`b782a9f75d4e6653ddc6ee1dbd733e8e775c24cc` as
+`18b93e91ed8c9152e509d70ae0548b57550606fa` after H-tier run
+`31295173994` passed Linux, Windows, package smoke and terminal validation.
+The clean completion lane reproduced one deterministic defect because the B00
+canonical import predates ISSUE-0011 transition history. One bounded H repair
+therefore recognizes only the exact bootstrap-empty `in_progress` origin in
+all three replay validators; it does not change hops, dependencies, authority,
+retry behavior or `execution_allowed=false`.
 
 ## ISSUE-0104 product chronology
 

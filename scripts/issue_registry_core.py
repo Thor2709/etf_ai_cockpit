@@ -1560,8 +1560,31 @@ def validate_status_replay_prefix_shape(
     verified_commit: object,
     verified_date: object,
     status_transition: object,
+    allow_legacy_bootstrap_origin: bool = False,
 ) -> None:
     """Validate the complete canonical prefix before a bounded status replay."""
+    if allow_legacy_bootstrap_origin and transition_history in (None, []):
+        if (
+            issue_id != "ISSUE-0011"
+            or acceptance_evidence != []
+            or programme_status != "in_progress"
+            or dependency_edge_evidence != {}
+            or status_transition
+            != {
+                "from": "in_progress",
+                "to": "in_progress",
+                "review_reference": "B00 canonical import from audited programme state",
+            }
+            or verified_commit != "452d44034197cd5d837c1854603eea030e02acf6"
+            or verified_date != "2026-07-21"
+        ):
+            raise ValueError(f"{issue_id}: legacy bootstrap replay prefix is malformed")
+        _validate_review_date(
+            issue_id,
+            verified_date,
+            context="legacy bootstrap replay prefix",
+        )
+        return
     if not isinstance(transition_history, list):
         raise ValueError(f"{issue_id}: status replay transition history prefix must be a list")
     replayed_status: object | None = None
@@ -1599,7 +1622,15 @@ def validate_status_replay_prefix_shape(
             raise ValueError(f"{issue_id}: status replay transition history has an invalid downgrade flag")
         replayed_status = target
         ordinary_events.append(event)
-    if not ordinary_events or ordinary_events[0].get("from") != "planned":
+    if allow_legacy_bootstrap_origin:
+        if [
+            (event.get("from"), event.get("to")) for event in ordinary_events
+        ] != [
+            ("in_progress", "implemented_initially"),
+            ("implemented_initially", "integrated"),
+        ]:
+            raise ValueError(f"{issue_id}: legacy bootstrap replay path is malformed")
+    elif not ordinary_events or ordinary_events[0].get("from") != "planned":
         raise ValueError(f"{issue_id}: status replay transition history lacks its planned origin")
     if not isinstance(acceptance_evidence, list):
         raise ValueError(f"{issue_id}: status replay acceptance evidence prefix must be a list")
@@ -1662,6 +1693,25 @@ def validate_status_replay_prefix_shape(
     }
     if status_transition != expected_transition:
         raise ValueError(f"{issue_id}: status replay terminal transition does not match history")
+
+
+def is_issue0011_legacy_replay_source(
+    issue_id: str, record: object
+) -> bool:
+    """Recognise the one audited B00 source record missing replay history."""
+    return issue_id == "ISSUE-0011" and record == {
+        "acceptance_evidence": [],
+        "dependency_edge_evidence": {},
+        "phase": "phase-08-frontend-api",
+        "programme_status": "in_progress",
+        "status_transition": {
+            "from": "in_progress",
+            "review_reference": "B00 canonical import from audited programme state",
+            "to": "in_progress",
+        },
+        "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+        "verified_date": "2026-07-21",
+    }
 
 
 def validate_control_transition_event(
@@ -2043,6 +2093,7 @@ def ready_records(registry: dict[str, Any]) -> list[dict[str, Any]]:
 __all__ = [
     "CLOSED_LEDGER",
     "CLASSIFICATIONS",
+    "is_issue0011_legacy_replay_source",
     "EDGE_EVIDENCE_STATES",
     "FINAL_RELEASE_SOURCE",
     "OPEN_LEDGER",

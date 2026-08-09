@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import json
 import copy
+import hashlib
+import json
 import subprocess
 from pathlib import Path
 
@@ -17,18 +18,24 @@ from scripts.issue_registry_core import (
 )
 from scripts import prepare_github_mutation_authority as prepare
 from scripts import sync_github_issues as sync
+from scripts import validation_summary
 
 
-def _record(status: str = "integrated") -> dict[str, object]:
+def _record(
+    status: str = "integrated",
+    *,
+    stable_id: str = "ISSUE-0179",
+    phase: str = "phase-01-governance-scope",
+) -> dict[str, object]:
     return {
-        "canonical_id": "ISSUE-0179",
+        "canonical_id": stable_id,
         "title": "Atomic programme generation",
         "classification": "proposed_new",
         "ledger_state": "open",
         "programme_status": status,
         "priority": "P1",
         "owner": "programme-governance",
-        "phase": "phase-01-governance-scope",
+        "phase": phase,
         "blocking_dependencies": [],
         "required_inputs": [],
         "activation_dependencies": [],
@@ -39,14 +46,19 @@ def _record(status: str = "integrated") -> dict[str, object]:
     }
 
 
-def _remote() -> list[dict[str, object]]:
+def _remote(
+    *, stable_id: str = "ISSUE-0179", number: int = 179,
+    phase: str = "phase-01-governance-scope",
+) -> list[dict[str, object]]:
     return [
         {
             "id": "4179",
             "node_id": "ISSUE_NODE_179",
-            "number": 179,
+            "number": number,
             "title": "Atomic programme generation",
-            "body": sync.managed_block(_record("implemented_initially")),
+            "body": sync.managed_block(
+                _record("implemented_initially", stable_id=stable_id, phase=phase)
+            ),
             "state": "OPEN",
             "url": "https://example.invalid/issues/179",
             "comments": [],
@@ -54,14 +66,19 @@ def _remote() -> list[dict[str, object]]:
     ]
 
 
-def _bootstrap(initial_status: str = "implemented_initially") -> dict[str, object]:
+def _bootstrap(
+    initial_status: str = "implemented_initially",
+    *,
+    stable_id: str = "ISSUE-0179",
+    number: int = 179,
+) -> dict[str, object]:
     return gateway.build_authority_record(
         "legacy_bootstrap",
         {
             "legacy_issues": [
                 {
-                    "stable_id": "ISSUE-0179",
-                    "issue_number": 179,
+                    "stable_id": stable_id,
+                    "issue_number": number,
                     "database_id": "4179",
                     "node_id": "ISSUE_NODE_179",
                     "initial_status": initial_status,
@@ -74,7 +91,11 @@ def _bootstrap(initial_status: str = "implemented_initially") -> dict[str, objec
 
 
 def _repo(
-    tmp_path: Path, *, initial_status: str = "implemented_initially"
+    tmp_path: Path,
+    *,
+    initial_status: str = "implemented_initially",
+    stable_id: str = "ISSUE-0179",
+    number: int = 179,
 ) -> tuple[Path, str, dict[str, object]]:
     root = tmp_path / "repo"
     root.mkdir()
@@ -85,7 +106,7 @@ def _repo(
         cwd=root,
         check=True,
     )
-    bootstrap = _bootstrap(initial_status)
+    bootstrap = _bootstrap(initial_status, stable_id=stable_id, number=number)
     ledger = root / gateway.AUTHORITY_PATH
     ledger.parent.mkdir(parents=True)
     ledger.write_bytes(gateway.authority_ledger_bytes([bootstrap]))
@@ -102,7 +123,12 @@ def _repo(
     return root, source, bootstrap
 
 
-def _control_state(record: dict[str, object], generation_base: str) -> dict[str, object]:
+def _control_state(
+    record: dict[str, object],
+    generation_base: str,
+    *,
+    stable_id: str = "ISSUE-0179",
+) -> dict[str, object]:
     return {
         "metadata": {
             "bootstrap": False,
@@ -118,7 +144,7 @@ def _control_state(record: dict[str, object], generation_base: str) -> dict[str,
                 "title": "Governance, scope and completion contract",
             }
         ],
-        "records": {"ISSUE-0179": record},
+        "records": {stable_id: record},
         "schema_version": "1.0",
     }
 
@@ -484,6 +510,207 @@ def test_status_replay_preparation_is_deterministic_and_exactly_two_hops(
     )
     with pytest.raises(ValueError, match="dependency evidence is inconsistent"):
         prepare.prepare(root, plan, remote, source_sha=source, mode="status_replay")
+
+
+def test_status_replay_preparation_accepts_only_exact_legacy_bootstrap_prefix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stable_id = "ISSUE-0011"
+    issue_number = 15
+    phase = "phase-08-frontend-api"
+    root, source, bootstrap_record = _repo(
+        tmp_path,
+        initial_status="in_progress",
+        stable_id=stable_id,
+        number=issue_number,
+    )
+    reviewed_commit = "9" * 40
+    common = {
+        "evidence_references": ["tests/test_status_replay.py"],
+        "review_reference": "PR #replay",
+        "reviewer": "reviewer",
+        "reviewed_date": "2026-08-02",
+        "verified_commit": reviewed_commit,
+        "allow_downgrade": False,
+    }
+    hops = [
+        {"from": "in_progress", "to": "implemented_initially", **common},
+        {"from": "implemented_initially", "to": "integrated", **common},
+    ]
+    evidence = [
+        {
+            "status": event["to"],
+            **{
+                key: event[key]
+                for key in (
+                    "evidence_references",
+                    "review_reference",
+                    "reviewer",
+                    "reviewed_date",
+                )
+            },
+        }
+        for event in hops
+    ]
+    legacy_source = {
+        "acceptance_evidence": [],
+        "dependency_edge_evidence": {},
+        "phase": "phase-08-frontend-api",
+        "programme_status": "in_progress",
+        "status_transition": {
+            "from": "in_progress",
+            "to": "in_progress",
+            "review_reference": "B00 canonical import from audited programme state",
+        },
+        "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+        "verified_date": "2026-07-21",
+    }
+    current_record = completion.project_status_replay_record(
+        legacy_source, hops, evidence, stable_id=stable_id
+    )
+    control_path = root / "issues/programme_control_state.json"
+    control_path.parent.mkdir(parents=True, exist_ok=True)
+    control_path.write_text(
+        json.dumps(_control_state(legacy_source, source, stable_id=stable_id)),
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "legacy source status"], cwd=root, check=True)
+    source = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True
+    ).strip()
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/origin/main", source],
+        cwd=root,
+        check=True,
+    )
+    registry_path = root / "issues/issue_registry.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "records": [
+                    _record("integrated", stable_id=stable_id, phase=phase)
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    control_path.write_text(
+        json.dumps(_control_state(current_record, source, stable_id=stable_id)),
+        encoding="utf-8",
+    )
+    remote = [
+        dict(
+            _remote(stable_id=stable_id, number=issue_number, phase=phase)[0],
+            body=sync.managed_block(
+                _record("in_progress", stable_id=stable_id, phase=phase)
+            ),
+        )
+    ]
+    plan = sync.plan_actions(
+        {
+            "records": [
+                _record("integrated", stable_id=stable_id, phase=phase)
+            ]
+        },
+        remote,
+        historical_map={},
+        authority_records=[bootstrap_record],
+    )
+
+    candidate, _ledger, _manifest = prepare.prepare(
+        root, plan, remote, source_sha=source, mode="status_replay"
+    )
+    assert candidate is not None
+    replay = json.loads(candidate)["expected_replay"]
+    assert replay["transition_history_prefix"] == []
+    assert replay["acceptance_evidence_prefix"] == []
+    assert replay["transition_history_append"] == hops
+
+    candidate_sha = hashlib.sha256(candidate).hexdigest()
+    terminal_evidence = {
+        **json.loads(candidate),
+        "mode": "validate",
+        "expected_head_sha": "a" * 40,
+        "terminal_status": "validated",
+        "zero_action_readback": None,
+        "candidate_blob_sha256": candidate_sha,
+        "action_scope": [
+            {
+                "kind": "update",
+                "stable_id": stable_id,
+                "remote_number": issue_number,
+                "managed_field_deltas": ["Programme status"],
+            }
+        ],
+        "mutation": {
+            "transport": "github_issue_comment_append",
+            "transport_contract": "one_aggregate_proposal_one_receipt",
+            "replay_hops": hops,
+            "reviewed_product_commit": reviewed_commit,
+            "candidate_blob_sha256": candidate_sha,
+            "plan_sha256": plan["plan_sha256"],
+            "authority_id": "f" * 64,
+            "candidate_blob_oid": "d" * 40,
+        },
+    }
+    monkeypatch.setattr(
+        validation_summary,
+        "_control_state_record_at",
+        lambda _root, ref, _issue: legacy_source if ref == source else current_record,
+    )
+    monkeypatch.setattr(
+        validation_summary,
+        "_committed_candidate_blob_sha256",
+        lambda *_args: candidate_sha,
+    )
+    validation_summary._validate_replay_candidate_evidence(
+        terminal_evidence,
+        json.loads(candidate),
+        root=root,
+        base=source,
+        head="a" * 40,
+    )
+
+    with pytest.raises(ValueError, match="legacy bootstrap"):
+        validate_status_replay_prefix_shape(
+            "ISSUE-0012",
+            None,
+            [],
+            programme_status="in_progress",
+            dependency_edge_evidence={},
+            verified_commit=legacy_source["verified_commit"],
+            verified_date=legacy_source["verified_date"],
+            status_transition=legacy_source["status_transition"],
+            allow_legacy_bootstrap_origin=True,
+        )
+
+    for mutate in (
+        lambda record: record.update(
+            status_transition={
+                "from": "planned",
+                "to": "in_progress",
+                "review_reference": "B00 canonical import from audited programme state",
+            }
+        ),
+        lambda record: record.update(acceptance_evidence=[{"status": "in_progress"}]),
+        lambda record: record.update(transition_history=[]),
+        lambda record: record.update(programme_status="implemented_initially"),
+        lambda record: record.update(dependency_edge_evidence={"ISSUE-0001": {}}),
+        lambda record: record.update(unexpected_field="not-authorized"),
+    ):
+        malformed_source = copy.deepcopy(legacy_source)
+        mutate(malformed_source)
+        monkeypatch.setattr(
+            prepare,
+            "load_control_state_at",
+            lambda *_args, record=malformed_source: _control_state(
+                record, source, stable_id=stable_id
+            ),
+        )
+        with pytest.raises(ValueError):
+            prepare.prepare(root, plan, remote, source_sha=source, mode="status_replay")
 
 
 def test_authoritative_control_state_fixture_has_history_and_fails_closed() -> None:
