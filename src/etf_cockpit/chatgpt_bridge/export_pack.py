@@ -6,7 +6,7 @@ import zipfile
 from dataclasses import asdict
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable, TypeVar
 
 import pandas as pd
 
@@ -17,6 +17,7 @@ from etf_cockpit.core.paths import AUDIT_PACKETS_DIR, CONFIG_DIR, DERIVED_DIR, R
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, copy_session_log_to
 from etf_cockpit.core.types import DataQualityReport, SignalResult
 from etf_cockpit.core.versioning import RUN_MANIFEST_DIR, VERSION_REGISTRY_PATH, write_version_registry
+from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.data.fx_data import fx_data_inventory
 from etf_cockpit.data.manual_notes import MANUAL_NEWS_CLEAN_PATH, load_manual_news, manual_news_markdown
 from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, FUNDAMENTAL_RAW_DIR, load_fundamental_evidence
@@ -65,6 +66,9 @@ from etf_cockpit.governance.capability_scope import strategy_capability_export
 from etf_cockpit.governance.supply_chain_intake import supply_chain_intake_report
 from etf_cockpit.portfolio.allocation import allocation_frame
 from etf_cockpit.signals.simple_scores import load_simple_scoreboard
+
+
+_Published = TypeVar("_Published")
 
 
 # Backwards-compatible name for older scripts/tests; new exports default to data/audit_packets.
@@ -275,9 +279,14 @@ def export_review_pack(
     *,
     as_of_date: date,
     data_report: DataQualityReport | None = None,
+    publish_guard: PublicationScopeFactory | None = None,
 ) -> Path:
+    def publish(operation: Callable[[], _Published]) -> _Published:
+        with publication_scope(publish_guard):
+            return operation()
+
     export_dir = CHATGPT_EXPORTS_DIR / f"audit_packet_{as_of_date:%Y-%m-%d}"
-    export_dir.mkdir(parents=True, exist_ok=True)
+    publish(lambda: export_dir.mkdir(parents=True, exist_ok=True))
     allocation = allocation_frame(config, holdings)
     portfolio_summary = {
         "as_of_date": as_of_date.isoformat(),
@@ -287,10 +296,10 @@ def export_review_pack(
         "holdings": _audit_portfolio_holdings(config, allocation, holdings),
         "risk_limits": config.risks.portfolio_limits.model_dump(),
     }
-    (export_dir / "00_prompt.md").write_text(CHATGPT_REVIEW_PROMPT, encoding="utf-8")
-    (export_dir / "01_portfolio_summary.json").write_text(json.dumps(portfolio_summary, indent=2, default=str), encoding="utf-8")
+    publish(lambda: (export_dir / "00_prompt.md").write_text(CHATGPT_REVIEW_PROMPT, encoding="utf-8"))
+    publish(lambda: (export_dir / "01_portfolio_summary.json").write_text(json.dumps(portfolio_summary, indent=2, default=str), encoding="utf-8"))
     signal_table = pd.DataFrame(_signal_rows(signals, config), columns=SIGNAL_TABLE_COLUMNS)
-    signal_table.to_csv(export_dir / "02_signal_table.csv", index=False)
+    publish(lambda: signal_table.to_csv(export_dir / "02_signal_table.csv", index=False))
     latest_features = features.sort_values("date").groupby("etf_id").tail(1)
     metric_columns = [
         "etf_id",
@@ -308,10 +317,10 @@ def export_review_pack(
         "relative_strength_60d",
         "liquidity_score",
     ]
-    latest_features[[col for col in metric_columns if col in latest_features.columns]].to_csv(
+    publish(lambda: latest_features[[col for col in metric_columns if col in latest_features.columns]].to_csv(
         export_dir / "03_etf_detail_metrics.csv", index=False
-    )
-    pd.DataFrame(
+    ))
+    publish(lambda: pd.DataFrame(
         [
             {
                 "model_name": model,
@@ -331,7 +340,7 @@ def export_review_pack(
             for signal in signals
             for model, version in signal.model_versions_used.items()
         ]
-    ).to_csv(export_dir / "04_model_forecasts.csv", index=False)
+    ).to_csv(export_dir / "04_model_forecasts.csv", index=False))
     if "strategy_name" in backtest.results.columns:
         main_strategy = backtest.results[backtest.results["strategy_name"] == "signal_strategy"].to_dict(orient="records")
         benchmark_rows = backtest.results[backtest.results["strategy_name"] != "signal_strategy"].to_dict(orient="records")
@@ -355,7 +364,7 @@ def export_review_pack(
         ],
         "last_walk_forward_periods": [backtest.metadata.get("walk_forward_periods", 0)],
     }
-    (export_dir / "05_backtest_summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
+    publish(lambda: (export_dir / "05_backtest_summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8"))
     manual_news = load_manual_news(MANUAL_NEWS_CLEAN_PATH)
     news_markdown = manual_news_markdown(manual_news)
     canonical_news = load_news_items(NEWS_CONTEXT_PATH)
@@ -377,16 +386,16 @@ def export_review_pack(
                 f"eligibility={row.get('eligibility', 'not_score_eligible')} | source={row.get('source', 'unavailable')} | "
                 f"missing={row.get('missing_fields', 'none') or 'none'} | executable_authority=false\n"
             )
-    (export_dir / "06_recent_news_events.md").write_text(news_markdown, encoding="utf-8")
-    (export_dir / "07_questions_for_chatgpt.md").write_text(
+    publish(lambda: (export_dir / "06_recent_news_events.md").write_text(news_markdown, encoding="utf-8"))
+    publish(lambda: (export_dir / "07_questions_for_chatgpt.md").write_text(
         "- Which app signals are too weak after costs?\n- Which risks should downgrade buy/add/trim actions?\n- Are AI forecasts adding value versus simple baselines?\n",
         encoding="utf-8",
-    )
-    (export_dir / "08_response_schema.json").write_text((CONFIG_DIR / "chatgpt_schema.json").read_text(encoding="utf-8"), encoding="utf-8")
-    (export_dir / "09_readme.md").write_text(
+    ))
+    publish(lambda: (export_dir / "08_response_schema.json").write_text((CONFIG_DIR / "chatgpt_schema.json").read_text(encoding="utf-8"), encoding="utf-8"))
+    publish(lambda: (export_dir / "09_readme.md").write_text(
         "This audit packet is for manual external review only. It must not be treated as trading authority.\n",
         encoding="utf-8",
-    )
+    ))
     validation_report = {
         "as_of_date": as_of_date.isoformat(),
         "trading_allowed": False,
@@ -394,7 +403,7 @@ def export_review_pack(
         "issues": [asdict(issue) for issue in data_report.issues] if data_report else [],
         "dataset_metadata": [asdict(meta) for meta in data_report.dataset_metadata] if data_report else [],
     }
-    (export_dir / "10_validation_report.json").write_text(json.dumps(validation_report, indent=2, default=str), encoding="utf-8")
+    publish(lambda: (export_dir / "10_validation_report.json").write_text(json.dumps(validation_report, indent=2, default=str), encoding="utf-8"))
     risk_gate_report = {
         "as_of_date": as_of_date.isoformat(),
         "signals": [
@@ -408,15 +417,15 @@ def export_review_pack(
             for signal in signals
         ],
     }
-    (export_dir / "11_risk_gate_report.json").write_text(json.dumps(risk_gate_report, indent=2, default=str), encoding="utf-8")
+    publish(lambda: (export_dir / "11_risk_gate_report.json").write_text(json.dumps(risk_gate_report, indent=2, default=str), encoding="utf-8"))
     reference_inventory = reference_data_inventory()
-    (export_dir / "12_reference_data_inventory.json").write_text(json.dumps(reference_inventory, indent=2, default=str), encoding="utf-8")
+    publish(lambda: (export_dir / "12_reference_data_inventory.json").write_text(json.dumps(reference_inventory, indent=2, default=str), encoding="utf-8"))
     fx_inventory = fx_data_inventory()
-    (export_dir / "13_fx_inventory.json").write_text(json.dumps(fx_inventory, indent=2, default=str), encoding="utf-8")
-    derived_manifest = _export_derived_evidence(export_dir)
-    evidence_manifest = _export_trust_critical_evidence(export_dir, config)
+    publish(lambda: (export_dir / "13_fx_inventory.json").write_text(json.dumps(fx_inventory, indent=2, default=str), encoding="utf-8"))
+    derived_manifest = publish(lambda: _export_derived_evidence(export_dir))
+    evidence_manifest = publish(lambda: _export_trust_critical_evidence(export_dir, config))
     edge_cost_path = export_dir / "evidence_export" / "edge_cost.csv"
-    edge_cost_path.parent.mkdir(parents=True, exist_ok=True)
+    publish(lambda: edge_cost_path.parent.mkdir(parents=True, exist_ok=True))
     edge_columns = [
         column
         for column in (
@@ -427,19 +436,19 @@ def export_review_pack(
         )
         if column in signal_table.columns
     ]
-    signal_table[edge_columns].to_csv(edge_cost_path, index=False)
+    publish(lambda: signal_table[edge_columns].to_csv(edge_cost_path, index=False))
     _include_file(edge_cost_path, "edge_cost.csv", evidence_manifest)
     vintage_manifest_path = export_dir / "evidence_export" / "bitemporal_vintage_manifest.json"
-    _write_bitemporal_manifest(vintage_manifest_path)
+    publish(lambda: _write_bitemporal_manifest(vintage_manifest_path))
     _include_file(vintage_manifest_path, "bitemporal_vintage_manifest.json", evidence_manifest)
     trust_manifest_path = export_dir / "evidence_export" / "trust_critical_manifest.json"
-    trust_manifest_path.write_text(json.dumps(evidence_manifest, indent=2, default=str), encoding="utf-8")
+    publish(lambda: trust_manifest_path.write_text(json.dumps(evidence_manifest, indent=2, default=str), encoding="utf-8"))
     _include_file(trust_manifest_path, "trust_critical_manifest.json", evidence_manifest)
-    _export_decision_journal_summary(export_dir / "evidence_export" / "decision_journal_summary.json")
-    _export_macro_warehouse_summary(export_dir / "evidence_export" / "macro_warehouse_summary.json")
-    _export_data_catalogue_summary(export_dir / "evidence_export" / "data_catalogue_summary.json")
-    _export_strategy_capability_matrix(export_dir / "evidence_export" / "governance" / "strategy_capability_matrix.json")
-    _export_settings_bundle(export_dir / "evidence_export" / "configs" / "settings_bundle.json")
+    publish(lambda: _export_decision_journal_summary(export_dir / "evidence_export" / "decision_journal_summary.json"))
+    publish(lambda: _export_macro_warehouse_summary(export_dir / "evidence_export" / "macro_warehouse_summary.json"))
+    publish(lambda: _export_data_catalogue_summary(export_dir / "evidence_export" / "data_catalogue_summary.json"))
+    publish(lambda: _export_strategy_capability_matrix(export_dir / "evidence_export" / "governance" / "strategy_capability_matrix.json"))
+    publish(lambda: _export_settings_bundle(export_dir / "evidence_export" / "configs" / "settings_bundle.json"))
     combined = [
         "# Combined External Audit Packet",
         "",
@@ -479,13 +488,17 @@ def export_review_pack(
         json.dumps(evidence_manifest, indent=2),
         "```",
     ]
-    (export_dir / "combined_review_packet.md").write_text("\n".join(combined), encoding="utf-8")
-    _write_audit_manifest(export_dir, derived_manifest, evidence_manifest)
+    publish(lambda: (export_dir / "combined_review_packet.md").write_text("\n".join(combined), encoding="utf-8"))
+    publish(lambda: _write_audit_manifest(export_dir, derived_manifest, evidence_manifest))
     zip_path = export_dir.with_suffix(".zip")
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for file in export_dir.rglob("*"):
-            if file.is_file():
-                archive.write(file, arcname=file.relative_to(export_dir))
+
+    def write_archive() -> None:
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for file in export_dir.rglob("*"):
+                if file.is_file():
+                    archive.write(file, arcname=file.relative_to(export_dir))
+
+    publish(write_archive)
     return zip_path
 
 

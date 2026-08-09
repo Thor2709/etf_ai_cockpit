@@ -377,6 +377,7 @@ def _run_action(page: ft.Page, state: AppState, label: str, action: Callable[[],
             if not state.workflow_controller.is_cancel_requested(action_id):
                 state.fail_activity(label, exc, retry_callback=action, expected_action_id=action_id)
         finally:
+            state.release_activity(action_id)
             _rebuild(page, state)
 
     threading.Thread(target=worker, daemon=True).start()
@@ -414,7 +415,9 @@ def _run_dialog_action(page: ft.Page, state: AppState, result_text: ft.Text, lab
                 return
             state.fail_activity(label, exc, retry_callback=action, expected_action_id=action_id)
             result_text.value = state.last_message
-        page.update()
+        finally:
+            state.release_activity(action_id)
+            _rebuild(page, state)
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -446,7 +449,9 @@ def _export_pack(page: ft.Page, state: AppState) -> None:
                 retry_callback=state.export_audit_packet,
                 expected_action_id=action_id,
             )
-        _rebuild(page, state)
+        finally:
+            state.release_activity(action_id)
+            _rebuild(page, state)
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -515,19 +520,11 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
                 allow_multiple=False,
                 with_data=True,
             )
-        except Exception as exc:
-            state.fail_activity(f"Import {dataset_type}", exc, expected_action_id=action_id)
-            result_text.value = f"Local file picker unavailable: {exc}"
-            page.update()
-            return
-
-        if not files:
-            result_text.value = "No local file selected."
-            state.finish_activity("No local file selected.", expected_action_id=action_id)
-            page.update()
-            return
-        selected = files[0]
-        try:
+            if not files:
+                result_text.value = "No local file selected."
+                state.finish_activity("No local file selected.", expected_action_id=action_id)
+                return
+            selected = files[0]
             state.update_activity(f"Validating selected {dataset_type} file", expected_action_id=action_id)
             page.update()
             with state.share_activity(action_id):
@@ -543,7 +540,9 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
                 return
             state.fail_activity(f"Import {dataset_type}", exc, expected_action_id=action_id)
             result_text.value = state.last_message
-        page.update()
+        finally:
+            state.release_activity(action_id)
+            _rebuild(page, state)
 
     async def import_prices(_event: ft.ControlEvent) -> None:
         await import_file("prices")

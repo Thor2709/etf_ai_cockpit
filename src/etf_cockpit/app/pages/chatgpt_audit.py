@@ -77,6 +77,14 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
     authority_matrix = load_authority_matrix()
     version_summary = compatibility_summary(build_version_registry())
 
+    def refresh_shell() -> None:
+        if not hasattr(page, "views"):
+            page.update()
+            return
+        from etf_cockpit.app.router import render_shell
+
+        render_shell(page, state, getattr(page, "route", "") or state.snapshot.config.ui.default_page)
+
     def start_activity(label: str, step: str, target: ft.Text) -> str | None:
         if state.current_activity is not None:
             target.value = f"{label} blocked: {state.current_activity.label} is already running."
@@ -105,7 +113,9 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
                 return
             state.fail_activity("Export audit packet", exc, retry_callback=state.export_audit_packet, expected_action_id=action_id)
             output.value = state.last_message
-        page.update()
+        finally:
+            state.release_activity(action_id)
+            refresh_shell()
 
     def import_audit(_event: ft.ControlEvent) -> None:
         action_id = start_activity("Import external audit response", "Validating audit JSON", output)
@@ -114,13 +124,17 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
         output.value = "Validating and importing audit commentary..."
         page.update()
         try:
-            audit = ChatGPTBridge(state.snapshot.config).import_audit_json(Path(path_field.value))
+            with state.activity_publication(action_id):
+                audit = ChatGPTBridge(state.snapshot.config).import_audit_json(Path(path_field.value))
             output.value = f"Imported audit commentary {audit.review_date}: {audit.overall_view}. It remains non-executable evidence."
             state.finish_activity(output.value, expected_action_id=action_id)
         except Exception as exc:
-            state.fail_activity("Import external audit response", exc, expected_action_id=action_id)
-            output.value = f"Import rejected: {exc}"
-        page.update()
+            if not state.activity_was_cancelled(action_id):
+                state.fail_activity("Import external audit response", exc, expected_action_id=action_id)
+            output.value = state.last_message
+        finally:
+            state.release_activity(action_id)
+            refresh_shell()
 
     def check_llm(_event: ft.ControlEvent) -> None:
         action_id = start_activity("Check LM Studio", "Checking local LLM endpoint", llm_output)
@@ -133,9 +147,12 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
             llm_output.value = f"{status.status}: {status.message}" + (f" Model: {status.model}" if status.model else "")
             state.finish_activity(llm_output.value, expected_action_id=action_id)
         except Exception as exc:
-            state.fail_activity("Check LM Studio", exc, expected_action_id=action_id)
+            if not state.activity_was_cancelled(action_id):
+                state.fail_activity("Check LM Studio", exc, expected_action_id=action_id)
             llm_output.value = state.last_message
-        page.update()
+        finally:
+            state.release_activity(action_id)
+            refresh_shell()
 
     def run_local_llm_audit(_event: ft.ControlEvent) -> None:
         action_id = start_activity("Generate local LLM commentary", "Preparing audit context", llm_output)
@@ -155,21 +172,25 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
             else:
                 if status.context_snapshot is None:
                     raise ValueError("Local LLM generation did not retain its immutable context snapshot")
-                saved_path = save_local_audit_commentary(
-                    commentary,
-                    model=status.model,
-                    context=status.context_snapshot,
-                    request_envelope=status.request_envelope,
-                    response_payload=status.response_payload,
-                    generation_time=status.generation_time,
-                )
+                with state.activity_publication(action_id):
+                    saved_path = save_local_audit_commentary(
+                        commentary,
+                        model=status.model,
+                        context=status.context_snapshot,
+                        request_envelope=status.request_envelope,
+                        response_payload=status.response_payload,
+                        generation_time=status.generation_time,
+                    )
                 llm_output.value = f"Saved local LLM thesis diary: {saved_path}\n{commentary.summary}"
                 diary_output.value = _thesis_diary_text()
                 state.finish_activity(f"Saved local LLM commentary: {saved_path}", output_path=saved_path, expected_action_id=action_id)
         except Exception as exc:
-            state.fail_activity("Generate local LLM commentary", exc, expected_action_id=action_id)
-            llm_output.value = f"Local LLM audit ignored: {exc}"
-        page.update()
+            if not state.activity_was_cancelled(action_id):
+                state.fail_activity("Generate local LLM commentary", exc, expected_action_id=action_id)
+            llm_output.value = state.last_message
+        finally:
+            state.release_activity(action_id)
+            refresh_shell()
 
     return ft.Column(
         [

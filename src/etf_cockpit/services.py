@@ -31,6 +31,7 @@ from etf_cockpit.core.paths import (
 )
 from etf_cockpit.core.timing import record_cache_event, timed_step
 from etf_cockpit.core.types import DataQualityReport, ForecastResult, SignalResult
+from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.core.versioning import (
     current_settings_identity,
     current_settings_revision,
@@ -320,7 +321,13 @@ class DataService:
         result = GenericHTTPProvider(section).fetch_prices([], date.today(), date.today())
         return result.message
 
-    def refresh_yfinance_data(self, *, years: int = 5, include_reference_data: bool = True) -> str:
+    def refresh_yfinance_data(
+        self,
+        *,
+        years: int = 5,
+        include_reference_data: bool = True,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> str:
         self.last_operation_succeeded = False
         end_date = date.today()
         start_date = end_date.replace(year=end_date.year - years)
@@ -334,7 +341,8 @@ class DataService:
         block_issues = [issue.message for issue in report.issues if issue.severity == "block"]
         if block_issues:
             return "Yahoo Finance prices fetched but not committed because validation blocked them: " + "; ".join(block_issues)
-        commit_result = commit_price_import(result)
+        with publication_scope(publish_guard):
+            commit_result = commit_price_import(result)
         messages.append(
             (
                 f"{result.message} Validated and committed {commit_result.rows} price rows. "
@@ -352,13 +360,14 @@ class DataService:
                     messages.append(f"{dataset_type}: {reference_result.message}")
                     continue
                 try:
-                    reference_commit = commit_reference_import(
-                        reference_result,
-                        dataset_type,
-                        known_etfs=context["known_etfs"],
-                        isin_to_etf_id=context["isin_to_etf_id"],
-                        ticker_to_etf_id=context["ticker_to_etf_id"],
-                    )
+                    with publication_scope(publish_guard):
+                        reference_commit = commit_reference_import(
+                            reference_result,
+                            dataset_type,
+                            known_etfs=context["known_etfs"],
+                            isin_to_etf_id=context["isin_to_etf_id"],
+                            ticker_to_etf_id=context["ticker_to_etf_id"],
+                        )
                 except Exception as exc:
                     messages.append(f"{dataset_type}: fetched but not committed because validation failed: {exc}")
                     continue
@@ -372,8 +381,13 @@ class DataService:
         self.last_operation_succeeded = True
         return "\n".join(messages)
 
-    def run_yfinance_candidate_analysis(self, *, years: int = 5) -> str:
-        result = refresh_candidate_analysis(self.config, years=years)
+    def run_yfinance_candidate_analysis(
+        self,
+        *,
+        years: int = 5,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> str:
+        result = refresh_candidate_analysis(self.config, years=years, publish_guard=publish_guard)
         return (
             f"YFinance candidate algorithms refreshed for {result.rows} instruments as of {result.effective_as_of}. "
             f"Report: {result.csv_path}."
@@ -388,6 +402,7 @@ class DataService:
         use_cache: bool = True,
         live_optional_models: bool = True,
         progress_callback: Callable[[str, int, int], None] | None = None,
+        publish_guard: PublicationScopeFactory | None = None,
     ) -> str:
         self.last_operation_succeeded = False
         settings_revision = current_settings_revision()
@@ -424,6 +439,7 @@ class DataService:
                     output_path=output,
                     horizons=horizons,
                     progress_callback=progress_callback,
+                    publish_guard=publish_guard,
                 )
                 universe_summary = _forecast_status_summary(universe_forecasts)
                 universe_mode = "refreshed"
@@ -438,6 +454,7 @@ class DataService:
                 output_path=output,
                 horizons=horizons,
                 progress_callback=progress_callback,
+                publish_guard=publish_guard,
             )
             universe_summary = _forecast_status_summary(universe_forecasts)
             universe_mode = "refreshed"
@@ -471,6 +488,7 @@ class DataService:
                         candidate_data.prices,
                         output_path=candidate_output,
                         horizons=horizons,
+                        publish_guard=publish_guard,
                     )
                     candidate_summary = _forecast_status_summary(candidate_forecasts)
                     candidate_as_of = candidate_data.effective_as_of
@@ -494,6 +512,7 @@ class DataService:
                         candidate_data.prices,
                         output_path=candidate_output,
                         horizons=horizons,
+                        publish_guard=publish_guard,
                     )
                     candidate_summary = _forecast_status_summary(candidate_forecasts)
                     candidate_as_of = candidate_data.effective_as_of
@@ -507,7 +526,14 @@ class DataService:
         self.last_operation_succeeded = True
         return "\n".join(messages)
 
-    def import_local_file(self, path: Path, dataset_type: str = "prices", *, commit: bool = False) -> ProviderResult:
+    def import_local_file(
+        self,
+        path: Path,
+        dataset_type: str = "prices",
+        *,
+        commit: bool = False,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> ProviderResult:
         result = ManualLocalFileProvider().import_file(path, dataset_type)
         if dataset_type == "prices" and result.ok and result.data is not None:
             report = validate_prices(result.data)
@@ -515,7 +541,8 @@ class DataService:
                 issues = "; ".join(issue.message for issue in report.issues if issue.severity == "block")
                 return ProviderResult(result.provider_name, dataset_type, "error", f"Imported prices failed validation: {issues}", result.data, result.metadata)
             if commit:
-                commit_result = commit_price_import(result)
+                with publication_scope(publish_guard):
+                    commit_result = commit_price_import(result)
                 return ProviderResult(
                     result.provider_name,
                     dataset_type,
@@ -546,7 +573,8 @@ class DataService:
                     result.metadata,
                 )
             if commit:
-                commit_result = commit_manual_news_import(result, known_etfs=known_etfs)
+                with publication_scope(publish_guard):
+                    commit_result = commit_manual_news_import(result, known_etfs=known_etfs)
                 warning_suffix = f" Warnings: {'; '.join(commit_result.warnings)}" if commit_result.warnings else ""
                 return ProviderResult(
                     result.provider_name,
@@ -592,13 +620,14 @@ class DataService:
                     result.metadata,
                 )
             if commit:
-                commit_result = commit_reference_import(
-                    result,
-                    resolved_type,
-                    known_etfs=context["known_etfs"],
-                    isin_to_etf_id=context["isin_to_etf_id"],
-                    ticker_to_etf_id=context["ticker_to_etf_id"],
-                )
+                with publication_scope(publish_guard):
+                    commit_result = commit_reference_import(
+                        result,
+                        resolved_type,
+                        known_etfs=context["known_etfs"],
+                        isin_to_etf_id=context["isin_to_etf_id"],
+                        ticker_to_etf_id=context["ticker_to_etf_id"],
+                    )
                 warning_suffix = f" Warnings: {'; '.join(commit_result.warnings)}" if commit_result.warnings else ""
                 return ProviderResult(
                     result.provider_name,
@@ -638,7 +667,8 @@ class DataService:
                     result.metadata,
                 )
             if commit:
-                commit_result = commit_fx_import(result)
+                with publication_scope(publish_guard):
+                    commit_result = commit_fx_import(result)
                 warning_suffix = f" Warnings: {'; '.join(commit_result.warnings)}" if commit_result.warnings else ""
                 return ProviderResult(
                     result.provider_name,
@@ -726,6 +756,7 @@ class ForecastService:
         output_path: Path | None = None,
         horizons: list[int] | None = None,
         progress_callback: Callable[[str, int, int], None] | None = None,
+        publish_guard: PublicationScopeFactory | None = None,
     ) -> list[ForecastResult]:
         settings_identity = current_settings_identity()
         price_frame = prices if prices is not None else load_prices()
@@ -763,19 +794,20 @@ class ForecastService:
         if progress_callback is not None:
             progress_callback("Checking cached Toto forecasts", 3, 4)
         forecasts.extend(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id))
-        ensure_run_manifest(
-            run_id,
-            (
-                "schema:local-storage",
-                "dataset:prices",
-                "policy:model-settings",
-                "formula:score-engine-v3",
-                "model:baseline",
-                "model:timesfm",
-                "model:toto",
-            ),
-            settings_identity=settings_identity,
-        )
+        with publication_scope(publish_guard):
+            ensure_run_manifest(
+                run_id,
+                (
+                    "schema:local-storage",
+                    "dataset:prices",
+                    "policy:model-settings",
+                    "formula:score-engine-v3",
+                    "model:baseline",
+                    "model:timesfm",
+                    "model:toto",
+                ),
+                settings_identity=settings_identity,
+            )
         if progress_callback is not None:
             progress_callback("Writing forecast outputs", 3, 4)
         self._write_forecasts(
@@ -783,6 +815,7 @@ class ForecastService:
             as_of_date,
             output_path=output_path,
             settings_revision=str(settings_identity["settings_revision"]),
+            publish_guard=publish_guard,
         )
         return forecasts
 
@@ -849,6 +882,7 @@ class ForecastService:
         *,
         output_path: Path | None = None,
         settings_revision: str | None = None,
+        publish_guard: PublicationScopeFactory | None = None,
     ) -> None:
         output = output_path or FORECASTS_DIR / f"forecast_results_{as_of_date:%Y%m%d}.csv"
         payload = pd.DataFrame([_forecast_to_row(forecast) for forecast in forecasts]).to_csv(index=False).encode("utf-8")
@@ -857,12 +891,14 @@ class ForecastService:
             _validate_csv(path)
 
         with timed_step("forecasts", "write_output"):
-            atomic_write_bytes(output, payload, validate)
-        _write_universe_cache_metadata(
-            output,
-            _current_universe_revision(),
-            settings_revision or current_settings_revision(),
-        )
+            with publication_scope(publish_guard):
+                atomic_write_bytes(output, payload, validate)
+        with publication_scope(publish_guard):
+            _write_universe_cache_metadata(
+                output,
+                _current_universe_revision(),
+                settings_revision or current_settings_revision(),
+            )
 
 
 class SignalService:
@@ -1147,8 +1183,18 @@ class ChatGPTBridge:
         signals: list[SignalResult],
         backtest: BacktestReport,
         data_report: DataQualityReport | None = None,
+        publish_guard: PublicationScopeFactory | None = None,
     ) -> Path:
-        return export_review_pack(self.config, holdings, features, signals, backtest, as_of_date=as_of_date, data_report=data_report)
+        return export_review_pack(
+            self.config,
+            holdings,
+            features,
+            signals,
+            backtest,
+            as_of_date=as_of_date,
+            data_report=data_report,
+            publish_guard=publish_guard,
+        )
 
     def import_audit_json(self, path: Path) -> ChatGPTAudit | ChatGPTAuditV2:
         return import_audit_json(path, self.config)

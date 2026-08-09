@@ -10,6 +10,7 @@ from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.portfolio_imports import PortfolioImportApplication
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, DERIVED_DIR, ROOT
+from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.application.ui_facade import (
     DecisionJournal,
     ContentAddressedCache,
@@ -45,11 +46,25 @@ def _record_export_terminal(
             expected_action_id=action_id,
         )
         return
+    state.update_activity(
+        "Export unavailable",
+        output_path=destination,
+        expected_action_id=action_id,
+    )
     state.fail_activity(
         label,
         RuntimeError(error or "export was unavailable"),
         expected_action_id=action_id,
     )
+
+
+def _refresh_activity_shell(page: ft.Page, state: AppState) -> None:
+    if not hasattr(page, "views"):
+        page.update()
+        return
+    from etf_cockpit.app.router import render_shell
+
+    render_shell(page, state, getattr(page, "route", "") or state.snapshot.config.ui.default_page)
 
 
 def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
@@ -164,14 +179,15 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         action_id = state.begin_activity(label, "Committing validated import").action_id
         try:
             output_path = None
-            state.assert_activity_publishable(action_id)
             if selected_preview.import_type == "portfolio_history":
-                portfolio_result = portfolio_imports.commit(selected_preview)
+                with state.activity_publication(action_id):
+                    portfolio_result = portfolio_imports.commit(selected_preview)
                 message = f"Portfolio import {portfolio_result.status}: batch {portfolio_result.batch_id}; accepted={portfolio_result.accepted}, quarantined={portfolio_result.quarantined}, duplicates={portfolio_result.duplicates}, corrections={portfolio_result.corrections} (execution_allowed=false)."
             else:
                 service = ImportService(ROOT)
                 service.register(selected_preview)
-                generic_result = service.commit(selected_preview.preview_id)
+                with state.activity_publication(action_id):
+                    generic_result = service.commit(selected_preview.preview_id)
                 output_path = generic_result.destination
                 message = f"Import committed: {generic_result.rows} rows at {generic_result.destination} (execution_allowed=false)."
             show(message, colour=theme.GREEN)
@@ -190,9 +206,11 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         except Exception as exc:
             if state.activity_was_cancelled(action_id):
                 return
-            failure = f"Import failed: {type(exc).__name__}: {exc}; previous clean state preserved."
-            show(failure, colour=theme.RED)
             state.fail_activity(label, exc, expected_action_id=action_id)
+            show(state.last_message, colour=theme.RED)
+        finally:
+            state.release_activity(action_id)
+            _refresh_activity_shell(page, state)
 
     commit_button.on_click = commit
 
@@ -216,7 +234,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             staging_report.color = theme.AMBER if mapped["staging_status"].eq("quarantined").any() else theme.GREEN
             page.update()
         except Exception as exc:
-            show(f"Mapping rejected: {type(exc).__name__}: {exc}; prior staging revision preserved.", colour=theme.RED)
+            show(f"Mapping rejected: {type(exc).__name__}: {redact_text(str(exc))}; prior staging revision preserved.", colour=theme.RED)
 
     def reconcile_portfolio(_event: ft.ControlEvent) -> None:
         try:
@@ -224,7 +242,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             reconciliation_status.value = f"Rebuilt from zero: {len(result.holdings)} holding positions, {len(result.cash)} cash balances, {len(result.active_events)} active rows; accounting={'balanced' if result.balanced else 'unbalanced'}; reconciliation_errors={list(result.reconciliation_errors) or 'none'}; quarantined={len(result.quarantined)} ({'complete' if result.quarantined.empty else 'manual review'}); execution_allowed=false."
             reconciliation_status.color = theme.GREEN if result.balanced and result.quarantined.empty else theme.AMBER
         except Exception as exc:
-            reconciliation_status.value = f"Reconciliation unavailable: {type(exc).__name__}: {exc}; no data changed."
+            reconciliation_status.value = f"Reconciliation unavailable: {type(exc).__name__}: {redact_text(str(exc))}; no data changed."
             reconciliation_status.color = theme.RED
         page.update()
 
@@ -234,7 +252,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             reconciliation_status.value = f"Rollback recorded for {rollback_batch.value}; rebuild required; execution_allowed=false."
             reconciliation_status.color = theme.GREEN
         except Exception as exc:
-            reconciliation_status.value = f"Rollback blocked: {type(exc).__name__}: {exc}; no data changed."
+            reconciliation_status.value = f"Rollback blocked: {type(exc).__name__}: {redact_text(str(exc))}; no data changed."
             reconciliation_status.color = theme.RED
         page.update()
 
@@ -244,7 +262,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             reconciliation_status.value = f"Canonical portfolio history exported to {destination}; quarantined rows excluded."
             reconciliation_status.color = theme.GREEN
         except Exception as exc:
-            reconciliation_status.value = f"Portfolio export unavailable: {type(exc).__name__}: {exc}; no placeholder written."
+            reconciliation_status.value = f"Portfolio export unavailable: {type(exc).__name__}: {redact_text(str(exc))}; no placeholder written."
             reconciliation_status.color = theme.RED
         page.update()
 
@@ -270,8 +288,8 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             return
         action_id = state.begin_activity(label, "Validating cache source").action_id
         try:
-            state.assert_activity_publishable(action_id)
-            result = ContentAddressedCache(ROOT).store_local_file(bulk_source_id.value or "local-bulk-source", source)
+            with state.activity_publication(action_id):
+                result = ContentAddressedCache(ROOT).store_local_file(bulk_source_id.value or "local-bulk-source", source)
             bulk_status.value = f"Cached and checksum-verified {result.manifest.source_id}: {result.manifest.content_sha256[:16]}…; version {result.manifest.version}; raw object is immutable."
             bulk_status.color = theme.GREEN
             state.update_activity(
@@ -290,10 +308,12 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         except Exception as exc:
             if state.activity_was_cancelled(action_id):
                 return
-            bulk_status.value = f"Bulk cache rejected: {type(exc).__name__}: {exc}; no partial object was promoted."
-            bulk_status.color = theme.RED
             state.fail_activity(label, exc, expected_action_id=action_id)
-        page.update()
+            bulk_status.value = state.last_message
+            bulk_status.color = theme.RED
+        finally:
+            state.release_activity(action_id)
+            _refresh_activity_shell(page, state)
 
     cache_report = bulk_cache_health(ROOT)
     cache_summary = f"Status={cache_report['status']} | objects={cache_report['object_count']} | manifests={cache_report['manifest_count']} | staged={cache_report['staged_file_count']} | promoted generations={cache_report['promoted_generation_count']} | network_calls=false"
@@ -312,7 +332,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             manifest = create_backup([DATA_DIR, CONFIG_DIR, ROOT / "pyproject.toml", ROOT / "CHANGELOG.md"], Path(backup_path.value or "backup.zip"))
             show(f"Backup created at {manifest.archive}; {len(manifest.checksums)} files; checksum manifest validated.", colour=theme.GREEN)
         except Exception as exc:
-            show(f"Backup failed: {type(exc).__name__}: {exc}.", colour=theme.RED)
+            show(f"Backup failed: {type(exc).__name__}: {redact_text(str(exc))}.", colour=theme.RED)
 
     def validate_restore_preview(_event: ft.ControlEvent) -> None:
         nonlocal restore_preview
@@ -391,7 +411,6 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             return
         action_id = state.begin_activity(label, "Preparing export").action_id
         try:
-            state.assert_activity_publishable(action_id)
             if category == "audit_packet":
                 with state.share_activity(action_id):
                     destination = state.export_audit_packet()
@@ -400,7 +419,8 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             else:
                 frame = _export_frame(category)
                 destination = Path(export_path.value or ROOT / "exports" / f"{category}.csv") if category == "scoreboard" else ROOT / "exports" / f"{category}.csv"
-                result = export_table(category, frame, destination)
+                with state.activity_publication(action_id):
+                    result = export_table(category, frame, destination)
                 state.last_export_path = result.destination
                 message = f"Export {'complete' if result.ok else 'unavailable'}: {result.destination}; {result.error or f'{result.rows} rows'}."
             result_ok = True
@@ -408,7 +428,6 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             if category != "audit_packet":
                 result_ok = bool(result.ok)
                 result_error = result.error
-            show(message, colour=theme.GREEN if result_ok else theme.RED)
             _record_export_terminal(
                 state,
                 label=label,
@@ -418,11 +437,15 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
                 error=result_error,
                 action_id=action_id,
             )
+            show(message if result_ok else state.last_message, colour=theme.GREEN if result_ok else theme.RED)
         except Exception as exc:
             if state.activity_was_cancelled(action_id):
                 return
-            show(f"Export unavailable: {category}: {type(exc).__name__}: {exc}.", colour=theme.RED)
             state.fail_activity(label, exc, expected_action_id=action_id)
+            show(state.last_message, colour=theme.RED)
+        finally:
+            state.release_activity(action_id)
+            _refresh_activity_shell(page, state)
 
     def export_scoreboard(_event: ft.ControlEvent) -> None:
         export_category("scoreboard")

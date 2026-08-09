@@ -4,6 +4,7 @@ import hashlib
 import json
 import threading
 import traceback
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -11,6 +12,15 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from etf_cockpit.core.session_log import log_event, new_action_id, redact_text
+
+
+PublicationScopeFactory = Callable[[], AbstractContextManager[None]]
+
+
+def publication_scope(factory: PublicationScopeFactory | None) -> AbstractContextManager[None]:
+    """Return one optional lock-held durable-publication scope."""
+
+    return factory() if factory is not None else nullcontext()
 
 
 class WorkflowStatus(StrEnum):

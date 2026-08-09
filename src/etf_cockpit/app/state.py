@@ -17,7 +17,7 @@ from etf_cockpit.core.paths import CLEAN_DIR, FILINGS_STATEMENTS_PATH, RAW_DIR, 
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event
 from etf_cockpit.core.errors import ErrorStore, classify_exception
 from etf_cockpit.core.timing import timed_step
-from etf_cockpit.core.workflow import WorkflowController, WorkflowStatus, WorkflowStep, WorkflowTransitionError
+from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowController, WorkflowStatus, WorkflowStep, WorkflowTransitionError, publication_scope
 from etf_cockpit.application.api import LocalApplicationApi
 from etf_cockpit.data.trust_artifacts import IDENTITY_PATH, refresh_static_trust_artifacts, write_trust_artifacts_for_scores
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
@@ -115,6 +115,9 @@ def _tracked_activity(label: str, step: str) -> Callable[[Callable[..., _Tracked
                         expected_action_id=action_id,
                     )
                 raise
+            finally:
+                if owns_activity and self.activity_was_cancelled(action_id):
+                    self.release_activity(action_id)
 
         return cast(Callable[..., _TrackedResult], wrapped)
 
@@ -271,6 +274,7 @@ class AppState:
     workflow_controller: WorkflowController = field(default_factory=WorkflowController, repr=False)
     error_store: ErrorStore = field(default_factory=ErrorStore, repr=False)
     _activity_context: threading.local = field(default_factory=threading.local, repr=False)
+    _activity_lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
     universe_cache_revision: str = ""
     selected_instrument_score: SimpleInstrumentScore | None = None
     financial_projection: dict[str, object] | None = None
@@ -385,15 +389,16 @@ class AppState:
             self._activity_context.action_id = previous
 
     def require_activity(self, expected_action_id: str | None) -> ActivityEntry:
-        entry = self.current_activity
-        if entry is None:
-            raise WorkflowTransitionError("No running activity owns this publication.")
-        if not expected_action_id or entry.action_id != expected_action_id:
-            raise WorkflowTransitionError("The running activity is owned by another action.")
-        result = self.workflow_controller.get(expected_action_id)
-        if result is None or result.status is not WorkflowStatus.RUNNING or result.cancel_requested:
-            raise WorkflowTransitionError(f"Workflow {expected_action_id} is no longer publishable.")
-        return entry
+        with self._activity_lock:
+            entry = self.current_activity
+            if entry is None:
+                raise WorkflowTransitionError("No running activity owns this publication.")
+            if not expected_action_id or entry.action_id != expected_action_id:
+                raise WorkflowTransitionError("The running activity is owned by another action.")
+            result = self.workflow_controller.get(expected_action_id)
+            if result is None or result.status is not WorkflowStatus.RUNNING or result.cancel_requested:
+                raise WorkflowTransitionError(f"Workflow {expected_action_id} is no longer publishable.")
+            return entry
 
     def activity_was_cancelled(self, action_id: str) -> bool:
         result = self.workflow_controller.get(action_id)
@@ -403,20 +408,29 @@ class AppState:
         action_id = expected_action_id or self.shared_activity_id
         return self.require_activity(action_id).action_id
 
+    @contextmanager
+    def activity_publication(self, expected_action_id: str | None = None):
+        """Authorize and hold ownership for exactly one durable publication."""
+
+        with self._activity_lock:
+            self.require_activity(expected_action_id or self.shared_activity_id)
+            yield
+
     def begin_activity(self, label: str, step: str | None = None) -> ActivityEntry:
-        if self.current_activity is not None:
-            raise WorkflowTransitionError(f"{self.current_activity.label} already owns the activity slot.")
-        action_id = self.workflow_controller.start(label, label)
-        entry = ActivityEntry(
-            label=label,
-            status="running",
-            step=step or label,
-            started_at=_utc_now(),
-            action_id=action_id,
-            message=f"{label} started.",
-        )
-        self.current_activity = entry
-        self.last_message = entry.message
+        with self._activity_lock:
+            if self.current_activity is not None:
+                raise WorkflowTransitionError(f"{self.current_activity.label} already owns the activity slot.")
+            action_id = self.workflow_controller.start(label, label)
+            entry = ActivityEntry(
+                label=label,
+                status="running",
+                step=step or label,
+                started_at=_utc_now(),
+                action_id=action_id,
+                message=f"{label} started.",
+            )
+            self.current_activity = entry
+            self.last_message = entry.message
         log_event(
             event_type="button_click",
             severity="info",
@@ -489,23 +503,24 @@ class AppState:
         )
 
     def finish_activity(self, message: str, output_path: Path | str | None = None, label: str | None = None, *, expected_action_id: str | None = None) -> ActivityEntry:
-        entry = self.require_activity(expected_action_id or self.shared_activity_id)
-        resolved_output_path = entry.output_path if output_path is None else str(output_path)
-        result = self.workflow_controller.finish(
-            entry.action_id,
-            WorkflowStatus.SUCCESS,
-            message,
-            () if resolved_output_path is None else (resolved_output_path,),
-        )
-        entry.status = "success"
-        entry.step = "Complete"
-        entry.finished_at = _utc_now()
-        entry.message = result.message
-        entry.output_path = resolved_output_path
-        entry.error = None
-        self.current_activity = None
-        self.last_message = message
-        self.recent_activity = (self.recent_activity + [entry])[-8:]
+        with self._activity_lock:
+            entry = self.require_activity(expected_action_id or self.shared_activity_id)
+            resolved_output_path = entry.output_path if output_path is None else str(output_path)
+            result = self.workflow_controller.finish(
+                entry.action_id,
+                WorkflowStatus.SUCCESS,
+                message,
+                () if resolved_output_path is None else (resolved_output_path,),
+            )
+            entry.status = "success"
+            entry.step = "Complete"
+            entry.finished_at = _utc_now()
+            entry.message = result.message
+            entry.output_path = resolved_output_path
+            entry.error = None
+            self.current_activity = None
+            self.last_message = message
+            self.recent_activity = (self.recent_activity + [entry])[-8:]
         log_event(
             event_type="activity_complete",
             severity="info",
@@ -538,17 +553,18 @@ class AppState:
         retry_callback=None,
         expected_action_id: str | None = None,
     ) -> ActivityEntry:
-        entry = self.require_activity(expected_action_id or self.shared_activity_id)
-        _, retryable = classify_exception(exc)
-        result = self.workflow_controller.fail(entry.action_id, exc, retryable=retryable)
-        entry.status = "failed"
-        entry.step = "Failed"
-        entry.finished_at = _utc_now()
-        entry.message = f"{label} failed: {result.message}"
-        entry.error = result.message
-        self.current_activity = None
-        self.last_message = entry.message
-        self.recent_activity = (self.recent_activity + [entry])[-8:]
+        with self._activity_lock:
+            entry = self.require_activity(expected_action_id or self.shared_activity_id)
+            _, retryable = classify_exception(exc)
+            result = self.workflow_controller.fail(entry.action_id, exc, retryable=retryable)
+            entry.status = "failed"
+            entry.step = "Failed"
+            entry.finished_at = _utc_now()
+            entry.message = f"{label} failed: {result.message}"
+            entry.error = result.message
+            self.current_activity = None
+            self.last_message = entry.message
+            self.recent_activity = (self.recent_activity + [entry])[-8:]
         self.error_store.record_exception(
             action_id=entry.action_id,
             exc=exc,
@@ -585,19 +601,19 @@ class AppState:
 
     def cancel_activity(self, message: str = "Cancelled by user", *, expected_action_id: str | None = None) -> ActivityEntry | None:
         """Request cancellation and publish a terminal, readable activity state."""
-        entry = self.current_activity
-        if entry is None:
-            return None
-        if expected_action_id is not None and entry.action_id != expected_action_id:
-            raise WorkflowTransitionError("The requested activity is owned by another action.")
-        result = self.workflow_controller.cancel(entry.action_id, message)
-        entry.status = result.status.value
-        entry.step = "Cancelled"
-        entry.finished_at = _utc_now()
-        entry.message = result.message
-        self.current_activity = None
-        self.last_message = result.message
-        self.recent_activity = (self.recent_activity + [entry])[-8:]
+        with self._activity_lock:
+            entry = self.current_activity
+            if entry is None:
+                return None
+            if expected_action_id is not None and entry.action_id != expected_action_id:
+                raise WorkflowTransitionError("The requested activity is owned by another action.")
+            result = self.workflow_controller.cancel(entry.action_id, message)
+            entry.status = result.status.value
+            entry.step = "Cancelled"
+            entry.finished_at = _utc_now()
+            entry.message = result.message
+            self.last_message = result.message
+            self.recent_activity = (self.recent_activity + [entry])[-8:]
         log_event(
             event_type="activity_cancelled",
             severity="info",
@@ -611,6 +627,17 @@ class AppState:
             path=ACTIVITY_LOG_PATH,
         )
         return entry
+
+    def release_activity(self, expected_action_id: str) -> None:
+        """Release a terminal activity reservation after its owning callback exits."""
+
+        with self._activity_lock:
+            entry = self.current_activity
+            if entry is None or entry.action_id != expected_action_id:
+                return
+            result = self.workflow_controller.get(expected_action_id)
+            if result is not None and result.status is not WorkflowStatus.RUNNING:
+                self.current_activity = None
 
     def current_activity_view(self):
         """Project the latest visible workflow state from the session trace."""
@@ -644,7 +671,7 @@ class AppState:
         action_id = self.current_activity.action_id if self.current_activity else "yfinance"
         with timed_step(action_id, "yfinance_refresh"):
             service = DataService(self.snapshot.config)
-            message = service.refresh_yfinance_data()
+            message = service.refresh_yfinance_data(publish_guard=self.activity_publication)
             if getattr(service, "last_operation_succeeded", True):
                 self.snapshot = build_snapshot(force_sample=False)
                 self._write_current_scoreboard()
@@ -658,7 +685,9 @@ class AppState:
     def run_algorithm_scores(self) -> str:
         action_id = self.current_activity.action_id if self.current_activity else "algorithms"
         with timed_step(action_id, "algorithm_scores"):
-            message = DataService(self.snapshot.config).run_yfinance_candidate_analysis()
+            message = DataService(self.snapshot.config).run_yfinance_candidate_analysis(
+                publish_guard=self.activity_publication
+            )
             self.snapshot = build_snapshot(force_sample=False)
             scoreboard_path = self._write_current_scoreboard()
             self.last_message = "Algorithms refreshed from yfinance data."
@@ -678,6 +707,7 @@ class AppState:
                     completed_units=completed,
                     total_units=total,
                 ),
+                publish_guard=self.activity_publication,
             )
             if not getattr(service, "last_operation_succeeded", True):
                 self.last_message = message
@@ -703,13 +733,14 @@ class AppState:
 
     @_tracked_activity("Import local upload", "Writing selected upload")
     def import_local_upload(self, file_name: str, content: bytes, dataset_type: str = "prices") -> str:
-        self.assert_activity_publishable()
         upload_dir = RAW_DIR / "browser_uploads"
-        upload_dir.mkdir(parents=True, exist_ok=True)
+        with self.activity_publication():
+            upload_dir.mkdir(parents=True, exist_ok=True)
         safe_name = Path(file_name).name or "uploaded_prices.csv"
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         upload_path = upload_dir / f"{timestamp}_{safe_name}"
-        upload_path.write_bytes(content)
+        with self.activity_publication():
+            upload_path.write_bytes(content)
         return self._import_and_refresh(upload_path, dataset_type)
 
     def import_sec_companyfacts(self, path: Path, *, instrument_id: str | None = None) -> str:
@@ -788,12 +819,15 @@ class AppState:
 
         try:
             package_path = Path(path)
-            raw_path, source_sha256 = _preserve_esef_raw(package_path)
+            raw_path, source_sha256 = _preserve_esef_raw(
+                package_path,
+                publish_guard=self.activity_publication,
+            )
             parsed = parse_esef_package(package_path)
             if not parsed.success or not parsed.records:
                 warning_codes = ", ".join(warning.code for warning in parsed.warnings)
                 self.last_message = f"ESEF import unavailable: {warning_codes or 'validation failed'}. Raw filing retained at {raw_path}; no clean data changed."
-                return self.last_message
+                raise ActivityUnavailableError(self.last_message)
             if parsed.source_sha256 != source_sha256:
                 raise ValueError("ESEF source checksum changed during parsing")
             lei = next((record.entity_lei for record in parsed.records if record.entity_lei and record.entity_lei != "unknown"), "unknown")
@@ -808,14 +842,15 @@ class AppState:
                 source_provider=provider_id,
             )
             source = RawDocument(raw_path, source_url, datetime.now(timezone.utc), parsed.source_sha256, provider_id, "esef_report_package", "application/octet-stream", 200)
-            write_statement_evidence(
-                source,
-                records,
-                STATEMENT_FACTS_PATH,
-                FILINGS_STATEMENTS_PATH,
-                instrument_id=resolved_instrument_id,
-                vendor_records=_load_vendor_statement_claims(resolved_instrument_id),
-            )
+            with self.activity_publication():
+                write_statement_evidence(
+                    source,
+                    records,
+                    STATEMENT_FACTS_PATH,
+                    FILINGS_STATEMENTS_PATH,
+                    instrument_id=resolved_instrument_id,
+                    vendor_records=_load_vendor_statement_claims(resolved_instrument_id),
+                )
             warning_codes = ", ".join(sorted({f"{warning.code}:{warning.severity}" for warning in parsed.warnings})) or "none"
             mapping_counts = {
                 "mapped": sum(record.mapping_status == "mapped" for record in parsed.records),
@@ -826,9 +861,11 @@ class AppState:
             authority = "official_filing" if provider_id == "filings_xbrl_org" else "manual_review"
             self.last_message = f"ESEF import complete: {len(records)} facts, warnings={warning_codes}, mapping={mapping_counts}; source_authority={authority}.{review_note}"
             return self.last_message
+        except ActivityUnavailableError:
+            raise
         except Exception as exc:
             self.last_message = f"ESEF import unavailable: {type(exc).__name__}. No data changed; scoring and execution were not started."
-            return self.last_message
+            raise ActivityUnavailableError(self.last_message) from exc
 
     def discover_esef_filings(self, country: str = "NL", limit: int = 10, *, cache_dir: Path | None = None) -> str:
         """Discover official ESEF filings with an explicit unavailable state."""
@@ -950,7 +987,12 @@ class AppState:
             return self.last_message
     def _import_and_refresh(self, path: Path, dataset_type: str = "prices") -> str:
         self.assert_activity_publishable()
-        result = DataService(self.snapshot.config).import_local_file(Path(path), dataset_type, commit=True)
+        result = DataService(self.snapshot.config).import_local_file(
+            Path(path),
+            dataset_type,
+            commit=True,
+            publish_guard=self.activity_publication,
+        )
         self.last_message = result.message
         if not result.ok:
             raise ActivityUnavailableError(result.message)
@@ -975,6 +1017,7 @@ class AppState:
             self.snapshot.signals,
             self.snapshot.backtest,
             self.snapshot.data_report,
+            publish_guard=self.activity_publication,
         )
         self.last_export_path = path
         self.last_message = f"Audit packet exported: {path}"
@@ -1009,26 +1052,27 @@ class AppState:
     def _write_current_scoreboard(self) -> Path:
         candidate_report, _ = load_latest_candidate_report()
         regime = build_market_regime(self.snapshot.prices, candidate_report)
-        self.assert_activity_publishable()
-        write_market_regime(regime)
+        with self.activity_publication():
+            write_market_regime(regime)
         calibration = evaluate_forecast_calibration(load_forecast_history(), self.snapshot.prices)
-        self.assert_activity_publishable()
-        write_forecast_calibration(calibration)
+        with self.activity_publication():
+            write_forecast_calibration(calibration)
         scores = build_simple_instrument_scores(
             self.snapshot.config,
             self.snapshot.signals,
             self.snapshot.forecasts,
             self.snapshot.prices,
         )
-        self.assert_activity_publishable()
-        path = write_simple_scoreboard(scores)
+        with self.activity_publication():
+            path = write_simple_scoreboard(scores)
         try:
-            write_trust_artifacts_for_scores(
-                self.snapshot.config,
-                scores,
-                simple_scoreboard_frame(scores),
-                prices=self.snapshot.prices,
-            )
+            with self.activity_publication():
+                write_trust_artifacts_for_scores(
+                    self.snapshot.config,
+                    scores,
+                    simple_scoreboard_frame(scores),
+                    prices=self.snapshot.prices,
+                )
         except Exception:
             pass
         return path
@@ -1037,7 +1081,11 @@ class AppState:
 MAX_LOCAL_ESEF_BYTES = 300 * 1024 * 1024
 
 
-def _preserve_esef_raw(package_path: Path) -> tuple[Path, str]:
+def _preserve_esef_raw(
+    package_path: Path,
+    *,
+    publish_guard: PublicationScopeFactory | None = None,
+) -> tuple[Path, str]:
     if not package_path.is_file():
         raise FileNotFoundError(f"ESEF package is not a readable file: {package_path}")
     if package_path.stat().st_size > MAX_LOCAL_ESEF_BYTES:
@@ -1048,7 +1096,8 @@ def _preserve_esef_raw(package_path: Path) -> tuple[Path, str]:
     if raw_path.exists():
         _validate_esef_raw_checksum(raw_path, source_sha256)
     else:
-        atomic_write_bytes(raw_path, payload, lambda candidate: _validate_esef_raw_checksum(candidate, source_sha256))
+        with publication_scope(publish_guard):
+            atomic_write_bytes(raw_path, payload, lambda candidate: _validate_esef_raw_checksum(candidate, source_sha256))
     return raw_path, source_sha256
 
 

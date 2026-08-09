@@ -15,6 +15,7 @@ import pandas as pd
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import CLEAN_DIR
+from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.data.fund_documents import (
     FUND_DOCUMENTS_PATH,
     build_document_inventory,
@@ -582,6 +583,7 @@ def import_etf_holdings_with_document(
     registry_destination: Path | None = None,
     configured_instrument_ids: list[str] | tuple[str, ...] | None = None,
     today: str | date | datetime | None = None,
+    publish_guard: PublicationScopeFactory | None = None,
 ) -> HoldingsNormalisationResult:
     """Import eligible holdings and register their source in one atomic group."""
     holdings_destination = Path(holdings_destination or FUND_HOLDINGS_PATH)
@@ -624,7 +626,8 @@ def import_etf_holdings_with_document(
                 AtomicWriteRequest(registry_destination, parquet_payload(inventory), validate_parquet_file),
                 AtomicWriteRequest(registry_csv_destination, inventory.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
             )
-            atomic_write_group(requests)
+            with publication_scope(publish_guard):
+                atomic_write_group(requests)
     return result
 
 

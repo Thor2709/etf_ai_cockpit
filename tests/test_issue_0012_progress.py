@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 import threading
@@ -14,10 +15,16 @@ from etf_cockpit.app.pages.dashboard import _activity_panel
 from etf_cockpit.app.pages.dashboard import _run_action
 from etf_cockpit.app.pages.import_export import _record_export_terminal
 from etf_cockpit.app.pages import jobs as jobs_page_module
+from etf_cockpit.app.pages import chatgpt_audit as chatgpt_audit_module
+from etf_cockpit.app.pages import import_export as import_export_page_module
+from etf_cockpit.app.pages import trust_evidence as trust_evidence_module
 from etf_cockpit.app.state import ActivityEntry, ActivityUnavailableError, AppState, _read_recent_activity
 from etf_cockpit.core import session_log
 from etf_cockpit.core.workflow import LONG_RUNNING_ACTIONS, LONG_RUNNING_ACTION_SPECS, WorkflowTransitionError
 from etf_cockpit import services as services_module
+from etf_cockpit.data import fund_holdings as fund_holdings_module
+from etf_cockpit.data import trade_candidate_analysis as candidate_analysis_module
+from etf_cockpit.parsers.contracts import ParseResult, ParseWarning
 from etf_cockpit.services import ForecastService
 from etf_cockpit.services import build_snapshot
 
@@ -272,8 +279,38 @@ def test_activity_ownership_and_cancellation_do_not_adopt_or_replace_actions(tmp
         state.update_activity("Late update", expected_action_id=action_id)
     with pytest.raises(WorkflowTransitionError):
         state.finish_activity("Late success", expected_action_id=action_id)
+    assert state.current_activity is not None
+    with pytest.raises(WorkflowTransitionError):
+        state.begin_activity("Replacement", "Starting")
+    state.release_activity(action_id)
     assert state.current_activity is None
     assert [(entry.action_id, entry.status) for entry in state.recent_activity] == [(action_id, "cancelled")]
+
+
+def test_concurrent_begin_activity_creates_exactly_one_controller_record(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "session.jsonl")
+    state = _state()
+    barrier = threading.Barrier(3)
+    started: list[str] = []
+    rejected: list[Exception] = []
+
+    def begin(label: str) -> None:
+        barrier.wait()
+        try:
+            started.append(state.begin_activity(label, "Starting").action_id)
+        except Exception as exc:
+            rejected.append(exc)
+
+    workers = [threading.Thread(target=begin, args=(f"Action {index}",)) for index in range(2)]
+    for worker in workers:
+        worker.start()
+    barrier.wait()
+    for worker in workers:
+        worker.join(timeout=2)
+
+    assert len(started) == 1
+    assert len(rejected) == 1 and isinstance(rejected[0], WorkflowTransitionError)
+    assert [result.action_id for result in state.workflow_controller.active()] == started
 
 
 def test_cancelled_dashboard_action_cannot_publish_or_create_orphan(tmp_path, monkeypatch) -> None:
@@ -331,7 +368,7 @@ def test_normal_return_unavailable_results_are_failed_activities(action_kind, tm
         def __init__(self, _config) -> None:
             self.last_operation_succeeded = False
 
-        def refresh_yfinance_data(self) -> str:
+        def refresh_yfinance_data(self, **_kwargs) -> str:
             return "Provider unavailable without changing local data."
 
         def import_local_file(self, *_args, **_kwargs):
@@ -425,3 +462,196 @@ def test_forecast_service_emits_model_steps_at_execution_boundaries(monkeypatch)
         "toto-call",
         "Writing forecast outputs",
     ]
+
+
+def test_cancel_guard_blocks_real_price_and_forecast_write_boundaries(tmp_path, monkeypatch) -> None:
+    snapshot = _snapshot()
+    service = services_module.DataService(snapshot.config)
+    provider_result = SimpleNamespace(ok=True, data=snapshot.prices.copy(), message="prices fetched")
+    provider = SimpleNamespace(fetch_prices=lambda *_args: provider_result)
+    monkeypatch.setattr(services_module.YFinanceProvider, "from_config", staticmethod(lambda _config: provider))
+    monkeypatch.setattr(services_module, "validate_prices", lambda *_args, **_kwargs: SimpleNamespace(issues=[]))
+    price_commit_called = False
+
+    def commit_prices(_result):
+        nonlocal price_commit_called
+        price_commit_called = True
+
+    monkeypatch.setattr(services_module, "commit_price_import", commit_prices)
+
+    def cancelled() -> None:
+        raise WorkflowTransitionError("cancelled before publication")
+
+    with pytest.raises(WorkflowTransitionError, match="cancelled"):
+        service.refresh_yfinance_data(include_reference_data=False, publish_guard=cancelled)
+    assert price_commit_called is False
+
+    output = tmp_path / "forecast.csv"
+    with pytest.raises(WorkflowTransitionError, match="cancelled"):
+        ForecastService(snapshot.config)._write_forecasts([], date(2026, 8, 9), output_path=output, publish_guard=cancelled)
+    assert not output.exists()
+
+
+def test_cancel_guard_blocks_real_candidate_report_and_holdings_atomic_group(tmp_path, monkeypatch) -> None:
+    snapshot = _snapshot()
+    candidates = services_module.pd.DataFrame({"instrument_id": ["VWCE"], "yahoo_symbol": ["VWCE.DE"]})
+    prices = services_module.pd.DataFrame({"date": ["2026-08-08"], "etf_id": ["VWCE"], "adjusted_close": [100.0]})
+    candidate_data = candidate_analysis_module.CandidatePriceData(candidates, prices, date(2026, 8, 8), "fixture")
+    monkeypatch.setattr(candidate_analysis_module, "fetch_candidate_prices", lambda *_args, **_kwargs: candidate_data)
+    monkeypatch.setattr(candidate_analysis_module, "fetch_candidate_fundamentals", lambda *_args: services_module.pd.DataFrame())
+    monkeypatch.setattr(candidate_analysis_module, "analyse_candidate_prices", lambda *_args, **_kwargs: services_module.pd.DataFrame({"instrument_id": ["VWCE"]}))
+    monkeypatch.setattr(candidate_analysis_module, "REPORTS_DIR", tmp_path / "reports")
+
+    def cancelled() -> None:
+        raise WorkflowTransitionError("cancelled before publication")
+
+    with pytest.raises(WorkflowTransitionError, match="cancelled"):
+        candidate_analysis_module.refresh_candidate_analysis(snapshot.config, publish_guard=cancelled)
+    assert not (tmp_path / "reports").exists()
+
+    source = tmp_path / "holdings.csv"
+    services_module.pd.DataFrame({"security": ["Issuer"], "ticker": ["ISS"], "weight": [1.0]}).to_csv(source, index=False)
+    holdings_destination = tmp_path / "holdings.parquet"
+    registry_destination = tmp_path / "documents.parquet"
+    with pytest.raises(WorkflowTransitionError, match="cancelled"):
+        fund_holdings_module.import_etf_holdings_with_document(
+            source,
+            "VWCE",
+            "2026-08-08",
+            holdings_destination=holdings_destination,
+            registry_destination=registry_destination,
+            today="2026-08-09",
+            publish_guard=cancelled,
+        )
+    assert not holdings_destination.exists()
+    assert not registry_destination.exists()
+
+    disclosure_source = tmp_path / "factsheet.pdf"
+    disclosure_source.write_bytes(b"issuer disclosure")
+    monkeypatch.setattr(trust_evidence_module, "RAW_DIR", tmp_path / "raw")
+    with pytest.raises(WorkflowTransitionError, match="cancelled"):
+        trust_evidence_module._retain_picker_source(disclosure_source, "factsheets", publish_guard=cancelled)
+    assert not (tmp_path / "raw").exists()
+
+
+def test_holdings_publication_scope_serialises_cancellation_and_rejects_later_write(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "session.jsonl")
+    state = _state()
+    action_id = state.begin_activity("Import ETF holdings", "Publishing holdings").action_id
+    source = tmp_path / "holdings.csv"
+    services_module.pd.DataFrame({"security": ["Issuer"], "ticker": ["ISS"], "weight": [1.0]}).to_csv(source, index=False)
+    write_entered = threading.Event()
+    release_write = threading.Event()
+    cancellation_returned = threading.Event()
+    writes: list[int] = []
+    worker_errors: list[Exception] = []
+
+    def blocking_atomic_write(_requests) -> None:
+        writes.append(1)
+        write_entered.set()
+        assert release_write.wait(2)
+
+    monkeypatch.setattr(fund_holdings_module, "atomic_write_group", blocking_atomic_write)
+
+    def publish_holdings(capture_error: bool = True) -> None:
+        try:
+            fund_holdings_module.import_etf_holdings_with_document(
+                source,
+                "VWCE",
+                "2026-08-08",
+                holdings_destination=tmp_path / "holdings.parquet",
+                registry_destination=tmp_path / "documents.parquet",
+                today="2026-08-09",
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+        except Exception as exc:
+            if not capture_error:
+                raise
+            worker_errors.append(exc)
+
+    worker = threading.Thread(target=publish_holdings)
+    worker.start()
+    assert write_entered.wait(2)
+
+    def cancel() -> None:
+        state.cancel_activity(expected_action_id=action_id)
+        cancellation_returned.set()
+
+    canceller = threading.Thread(target=cancel)
+    canceller.start()
+    assert not cancellation_returned.wait(0.1)
+    release_write.set()
+    worker.join(timeout=2)
+    assert cancellation_returned.wait(2)
+    canceller.join(timeout=2)
+    assert not worker_errors
+    assert writes == [1]
+
+    with pytest.raises(WorkflowTransitionError):
+        publish_holdings(False)
+    assert writes == [1]
+    state.release_activity(action_id)
+
+
+def test_esef_normal_unavailable_result_is_failed_terminal(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "session.jsonl")
+    source = tmp_path / "report.zip"
+    source.write_bytes(b"not an ESEF package")
+    monkeypatch.setattr(app_state_module, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(
+        app_state_module,
+        "parse_esef_package",
+        lambda _path: ParseResult((), (ParseWarning("invalid_package", "invalid", "error"),), "esef", "1", "unused", False),
+    )
+    state = _state()
+    action_id = state.begin_activity("Import ESEF package", "Reading package").action_id
+    with state.share_activity(action_id), pytest.raises(ActivityUnavailableError) as raised:
+        state.import_esef_package(source)
+    state.fail_activity("Import ESEF package", raised.value, expected_action_id=action_id)
+
+    assert state.recent_activity[-1].status == "failed"
+    assert "unavailable" in state.recent_activity[-1].message.lower()
+
+
+@pytest.mark.parametrize("page_kind", ["import_export", "chatgpt_audit"])
+def test_non_dashboard_terminal_rebuilds_shell_and_redacts_secret(page_kind, tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / f"{page_kind}.jsonl")
+    state = _state()
+    page = SimpleNamespace(route="/", views=[], services=[], overlay=[], update=lambda: None)
+    rebuilt: list[str] = []
+    monkeypatch.setattr("etf_cockpit.app.router.render_shell", lambda _page, _state, route: rebuilt.append(route))
+
+    if page_kind == "import_export":
+        monkeypatch.setattr(
+            import_export_page_module,
+            "export_table",
+            lambda category, frame, destination: SimpleNamespace(
+                ok=False,
+                destination=destination,
+                error="api_key=raw-export-secret",
+                rows=0,
+            ),
+        )
+        control = import_export_page_module.import_export_page(page, state)
+        button = next(item for item in _walk(control) if getattr(item, "key", None) == "import-export.export-scoreboard")
+    else:
+        class FailingBridge:
+            def __init__(self, _config) -> None:
+                pass
+
+            def import_audit_json(self, _path):
+                raise ValueError("token=raw-audit-secret")
+
+        monkeypatch.setattr(chatgpt_audit_module, "ChatGPTBridge", FailingBridge)
+        monkeypatch.setattr(chatgpt_audit_module, "_thesis_diary_text", lambda: "No persisted diary entries.")
+        control = chatgpt_audit_module.chatgpt_audit_page(page, state)
+        button = next(item for item in _walk(control) if getattr(item, "key", None) == "chatgpt.import-audit")
+
+    button.on_click(SimpleNamespace())
+
+    visible = " ".join(_texts(control))
+    assert "raw-export-secret" not in visible
+    assert "raw-audit-secret" not in visible
+    assert "***redacted***" in visible
+    assert state.recent_activity[-1].status == "failed"
+    assert rebuilt == ["/"]

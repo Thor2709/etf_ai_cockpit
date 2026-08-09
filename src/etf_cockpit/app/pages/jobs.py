@@ -52,12 +52,12 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
             return
         action_id = state.begin_activity(label, "Inspecting generated cache").action_id
         try:
-            state.assert_activity_publishable(action_id)
-            result = generated_cache_cleanup(
-                Path.cwd(),
-                maximum_bytes=int(selected_profile["job_disk_limit_mb"]) * 1024 * 1024,
-                apply=True,
-            )
+            with state.activity_publication(action_id):
+                result = generated_cache_cleanup(
+                    Path.cwd(),
+                    maximum_bytes=int(selected_profile["job_disk_limit_mb"]) * 1024 * 1024,
+                    apply=True,
+                )
             removed = len(result.get("removed", []))
             cleanup_message.value = (
                 f"Generated-cache cleanup: {result['status']}; removed {removed} reproducible file(s)."
@@ -89,7 +89,14 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
             state.fail_activity(label, exc, expected_action_id=action_id)
             cleanup_message.value = state.last_message
             cleanup_message.color = theme.RED
-        page.update()
+        finally:
+            state.release_activity(action_id)
+            if not hasattr(page, "views"):
+                page.update()
+            else:
+                from etf_cockpit.app.router import render_shell
+
+                render_shell(page, state, getattr(page, "route", "") or state.snapshot.config.ui.default_page)
 
     resource_panel = panel(
         ft.Column(
