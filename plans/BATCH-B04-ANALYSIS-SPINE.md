@@ -373,6 +373,21 @@ startup, error-recovery, trust and button evidence passed with Ruff, compileall
 and diff checks. Re-run both scoped reviews and the full H-tier Linux/Windows/
 terminal gate on the final checkpointed head.
 
+Exact head `5336501786e19bdb6102b7dd5517fb032f2d6cb1` was rejected
+after both scoped reviewers completed. The consolidated defects were
+worker-lifetime handling of byte-backed browser uploads, stale success text
+after cancellation, absent official-filing retry re-entry, synchronous
+document/report/holdings/KID/methodology imports, ESEF discovery publishing
+after cancellation and path-only picker handling. Correction commit
+`8bb8bfcdf38e9b1ce23595bf789f29c96e3da343` uses the existing background
+lifecycle for every affected import, keeps path/byte uploads readable for the
+worker lifetime, restores canonical cancellation text, binds ESEF publication
+to the owning action and makes retry callbacks re-enter the lifecycle. Focused
+ISSUE-0012 and coupled trust/button/error-recovery/startup evidence passed with
+Ruff, compileall and diff checks. Freeze one checkpoint head after this
+chronology update, then run both scoped reviews and fresh H-tier Linux,
+Windows and terminal validation against that exact head.
+
 ## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head

@@ -444,6 +444,20 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   ISSUE-0012, startup, error-recovery, trust and button evidence passed with
   Ruff, compileall and diff checks. Re-run both scoped reviews and the full
   H-tier Linux/Windows/terminal gate on the final checkpointed head.
+- Exact head `5336501786e19bdb6102b7dd5517fb032f2d6cb1` was rejected
+  after both scoped reviewers completed. Their consolidated findings were
+  worker-lifetime handling of byte-backed browser uploads, stale success text
+  after cancellation, missing official-filing retry re-entry, synchronous
+  document/report/holdings/KID/methodology imports, ESEF discovery publishing
+  after cancellation and path-only picker handling. Correction commit
+  `8bb8bfcdf38e9b1ce23595bf789f29c96e3da343` routes every affected import
+  through the existing background lifecycle, materialises path/byte uploads
+  for exactly the worker lifetime, restores canonical cancellation messages,
+  binds ESEF publication to the owning action and makes retry callbacks
+  re-enter that lifecycle. Focused ISSUE-0012 and coupled trust/button/error-
+  recovery/startup evidence passed with Ruff, compileall and diff checks.
+  Freeze one checkpoint head after this chronology update; both scoped reviews
+  and fresh H-tier Linux, Windows and terminal validation remain required.
 
 ## ISSUE-0104 product chronology
 
