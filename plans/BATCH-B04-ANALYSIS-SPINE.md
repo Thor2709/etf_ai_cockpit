@@ -133,7 +133,15 @@ replay, exact reviewed product/validation evidence, generated projections and
 the required append-only authority transaction. No product or dependency-edge
 change is in scope. Classification remains E-tier; because the unchanged
 base-anchored reusable sidecar predates the ISSUE-0010 product diff, the hosted
-package gate remains required and is not bypassed.
+package gate remains required and is not bypassed. Risk review approved frozen
+head `cfbe45a129f0e0ce47341bde514f6f1ab99570a3`; whole-diff review rejected it
+only because a generic negative fixture hard-coded `closed` as ISSUE-0010's
+skip after that became its legal next hop. Stale run `31285303818` was
+cancelled. The single consolidated test correction dynamically selects a
+record with a legal two-step forward skip and the exact reproduction passes.
+The replacement now classifies O-tier; cadence is known and not due, so its
+hosted run requires preflight, supply-chain and terminal validation but not
+Linux/Windows packages.
 
 ## ISSUE-0104 product chronology
 

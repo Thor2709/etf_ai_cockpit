@@ -178,7 +178,18 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   classifier keeps this control-only transaction E-tier. The base-anchored
   reusable sidecar predates ISSUE-0010's product changes, so it cannot
   self-authorize replacement in this transaction and the hosted package gate
-  remains required.
+  remains required. Frozen head `cfbe45a129f0e0ce47341bde514f6f1ab99570a3`
+  received risk approval, but whole-diff review found one stale generic
+  control-plane negative fixture: after ISSUE-0010 became `integrated`, its
+  hard-coded `closed` target was legal rather than a skip. Stale release run
+  `31285303818` was cancelled. The consolidated test-only correction now
+  chooses a canonical record with an available two-step forward skip and
+  derives that invalid target, preserving the rejection across later status
+  changes; the exact reproduction suite passes. Because this required test
+  correction is an ordinary test surface, the replacement transaction
+  classifies O-tier; exact-main cadence is known and not due, so hosted
+  preflight, supply-chain and terminal validation remain required while Linux
+  and Windows packages are not required for this replacement head.
 
 ## ISSUE-0104 product chronology
 
