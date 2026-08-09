@@ -16,6 +16,7 @@ try:
     from scripts import sync_github_issues as sync
     from scripts.issue_registry_core import (
         control_state_record,
+        is_issue0011_legacy_replay_source,
         load_control_state,
         load_control_state_at,
         validate_status_replay_prefix_shape,
@@ -26,6 +27,7 @@ except ModuleNotFoundError:
     import sync_github_issues as sync
     from issue_registry_core import (  # type: ignore[no-redef]
         control_state_record,
+        is_issue0011_legacy_replay_source,
         load_control_state,
         load_control_state_at,
         validate_status_replay_prefix_shape,
@@ -139,7 +141,7 @@ def prepare(
         source_evidence = source_record.get("acceptance_evidence")
         current_history = current_record.get("transition_history")
         current_evidence = current_record.get("acceptance_evidence")
-        legacy_bootstrap = "transition_history" not in source_record
+        legacy_bootstrap = is_issue0011_legacy_replay_source(stable_id, source_record)
         validate_status_replay_prefix_shape(
             stable_id,
             source_history,

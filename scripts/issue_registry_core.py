@@ -1565,7 +1565,8 @@ def validate_status_replay_prefix_shape(
     """Validate the complete canonical prefix before a bounded status replay."""
     if allow_legacy_bootstrap_origin and transition_history in (None, []):
         if (
-            acceptance_evidence != []
+            issue_id != "ISSUE-0011"
+            or acceptance_evidence != []
             or programme_status != "in_progress"
             or dependency_edge_evidence != {}
             or status_transition
@@ -1574,8 +1575,8 @@ def validate_status_replay_prefix_shape(
                 "to": "in_progress",
                 "review_reference": "B00 canonical import from audited programme state",
             }
-            or not isinstance(verified_commit, str)
-            or re.fullmatch(r"[0-9a-f]{40}", verified_commit) is None
+            or verified_commit != "452d44034197cd5d837c1854603eea030e02acf6"
+            or verified_date != "2026-07-21"
         ):
             raise ValueError(f"{issue_id}: legacy bootstrap replay prefix is malformed")
         _validate_review_date(
@@ -1692,6 +1693,25 @@ def validate_status_replay_prefix_shape(
     }
     if status_transition != expected_transition:
         raise ValueError(f"{issue_id}: status replay terminal transition does not match history")
+
+
+def is_issue0011_legacy_replay_source(
+    issue_id: str, record: object
+) -> bool:
+    """Recognise the one audited B00 source record missing replay history."""
+    return issue_id == "ISSUE-0011" and record == {
+        "acceptance_evidence": [],
+        "dependency_edge_evidence": {},
+        "phase": "phase-08-frontend-api",
+        "programme_status": "in_progress",
+        "status_transition": {
+            "from": "in_progress",
+            "review_reference": "B00 canonical import from audited programme state",
+            "to": "in_progress",
+        },
+        "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+        "verified_date": "2026-07-21",
+    }
 
 
 def validate_control_transition_event(
@@ -2073,6 +2093,7 @@ def ready_records(registry: dict[str, Any]) -> list[dict[str, Any]]:
 __all__ = [
     "CLOSED_LEDGER",
     "CLASSIFICATIONS",
+    "is_issue0011_legacy_replay_source",
     "EDGE_EVIDENCE_STATES",
     "FINAL_RELEASE_SOURCE",
     "OPEN_LEDGER",

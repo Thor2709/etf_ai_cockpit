@@ -27,6 +27,7 @@ try:
         CONTROL_ALLOWED_TRANSITIONS,
         REGISTRY_PATH,
         control_state_record,
+        is_issue0011_legacy_replay_source,
         load_control_state_at,
         validate_control_transition_event,
         validate_status_replay_prefix_shape,
@@ -38,6 +39,7 @@ except ModuleNotFoundError:
         CONTROL_ALLOWED_TRANSITIONS,
         REGISTRY_PATH,
         control_state_record,
+        is_issue0011_legacy_replay_source,
         load_control_state_at,
         validate_control_transition_event,
         validate_status_replay_prefix_shape,
@@ -818,9 +820,7 @@ def _validate_status_replay_candidate(
     history_append = cast(list[dict[str, Any]], history_append)
     evidence_prefix = cast(list[dict[str, Any]], evidence_prefix)
     evidence_append = cast(list[dict[str, Any]], evidence_append)
-    legacy_bootstrap = (
-        isinstance(source_record, dict) and "transition_history" not in source_record
-    )
+    legacy_bootstrap = is_issue0011_legacy_replay_source(stable_id, source_record)
     validate_status_replay_prefix_shape(
         stable_id,
         history_prefix,
