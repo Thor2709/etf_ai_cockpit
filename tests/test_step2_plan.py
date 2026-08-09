@@ -128,6 +128,8 @@ def test_app_state_cancellation_is_readable_and_durable(tmp_path: Path, monkeypa
     assert entry.status == "cancelled"
     assert entry.step == "Cancelled"
     assert entry.message == "Cancelled by user"
+    assert state.current_activity is entry
+    state.release_activity(entry.action_id)
     assert state.current_activity is None
     assert "activity_cancelled" in activity_path.read_text(encoding="utf-8")
 

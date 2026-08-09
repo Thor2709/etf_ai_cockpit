@@ -530,6 +530,14 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   `authority=unknown`, `score_eligible=false`, binds the document with
   `manual_unverified` authority and removes the test rewrite. Rejected-head CI
   is stale; both reviews and fresh H-tier gates remain required.
+- Exact head `a1e1f756343453850991c7eb3ade23f443d1c78c` received both code/risk
+  approvals, but Linux H-tier run `31324672892` deterministically failed one
+  unchanged legacy cancellation assertion. The newer reviewed ownership
+  contract reserves a cancelled activity until its callback exits so late
+  publication cannot overlap a replacement action. The bounded test-only
+  correction now asserts that reservation, explicit owner release and durable
+  cancellation log; no runtime behavior or authority changes. Repeat both
+  exact-head reviews and fresh Linux, Windows and terminal H-tier validation.
 
 ## ISSUE-0104 product chronology
 

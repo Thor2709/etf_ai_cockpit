@@ -2684,3 +2684,12 @@ allows only structurally valid non-score manual context through the existing
 atomic holdings/document group, preserves unknown authority and false score
 eligibility, binds truthful manual evidence and removes the rewrite. Fresh
 exact-head reviews and H-tier Linux, Windows and terminal gates are required.
+
+`GATE_CORRECTION` exact head
+`a1e1f756343453850991c7eb3ade23f443d1c78c` received both reviewer
+approvals, but Linux H-tier run `31324672892` exposed one stale legacy test
+that expected immediate cancellation-slot release. The reviewed contract
+reserves cancelled ownership until callback exit to reject late publication.
+The test-only correction asserts reservation, explicit owner release and the
+durable cancellation event. Runtime behavior and authority remain unchanged;
+fresh exact-head reviews and H-tier Linux/Windows/terminal gates are required.
