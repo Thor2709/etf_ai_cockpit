@@ -4,22 +4,22 @@
   "allowed_status_transitions": [
     {
       "from": "in_progress",
-      "issue_id": "ISSUE-0010",
+      "issue_id": "ISSUE-0011",
       "to": "integrated"
     }
   ],
-  "base_commit": "dbb53c04a17327b8b97a73c8841c5368c2e82c9f",
-  "branch": "codex/issue0010-completion-20260809",
+  "base_commit": "79ef677112f89c74b0ac652ede04a4411646b4d9",
+  "branch": "codex/issue0011-completion-20260809",
   "issue_ids": [
-    "ISSUE-0010"
+    "ISSUE-0011"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "fb7904c01da32d874b74c0b09e90a2915d6f19cd8d132623c251854df34f01af",
+    "base_registry_sha256": "d66fec351ec685a5b7eb74dc6ad383ab9fca21f2a1ff4377e147abe38cc7edde",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "d66fec351ec685a5b7eb74dc6ad383ab9fca21f2a1ff4377e147abe38cc7edde",
-    "reason": "Replay only ISSUE-0010 through the ordered in_progress to implemented_initially to integrated completion contract using the exact reviewed product and validation evidence; preserve dependencies, acceptance criteria, external authority and execution_allowed=false.",
+    "proposed_registry_sha256": "b46b570df73cf4ba59ebd6d18d0c3512dc7d77ab2828c2693231f201a6d189e0",
+    "reason": "Replay only ISSUE-0011 through the ordered in_progress to implemented_initially to integrated completion contract using the exact reviewed product and validation evidence; preserve dependencies, acceptance criteria, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

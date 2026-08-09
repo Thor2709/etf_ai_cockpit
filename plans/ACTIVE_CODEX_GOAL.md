@@ -306,7 +306,17 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   `transition_history` existed. The single bounded H repair accepts only that
   exact bootstrap-empty origin across preparation, writer and terminal
   validation; the ordered two hops, authority, dependency state and
-  `execution_allowed=false` remain unchanged.
+  `execution_allowed=false` remain unchanged. Repair PR #660 merged reviewed
+  exact head `3ee6f811495149a4a526ea1335cd941a6012c766` as
+  `79ef677112f89c74b0ac652ede04a4411646b4d9` after H-tier run
+  `31299002822` passed Linux, Windows and terminal validation. The preserved
+  completion lane is rebased onto that exact main and prepares only GitHub
+  issue #15 at live plan SHA
+  `5081667a34d01125c464d622c59a9fce715c9097d5d7f5cf08e67ba9e4317ea0`
+  under aggregate authority
+  `c417a1345e877422ea30dcaac81a23bf1cf72cf544edec2186a8f0a85a05572b`;
+  the expected post-merge writer and generic readback remain one applied
+  replay followed by zero actions.
 
 ## ISSUE-0104 product chronology
 
