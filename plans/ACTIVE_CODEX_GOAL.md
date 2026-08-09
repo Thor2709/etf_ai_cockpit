@@ -576,9 +576,13 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   incomplete DNS/datagram denial, an unpinned workflow date and checksum-
   ambiguous proposal negatives. Its run `31332248276` is stale after changed-
   test preflight exceeded 240 seconds. One bounded correction now covers all
-  four findings; all 16 focused journeys pass locally in 169 seconds with
-  exact date provenance, and generator, Ruff, compile and diff checks pass.
-  Freeze one replacement head for both reviews and fresh H-tier validation.
+  four findings. Both reviews approved exact head
+  `f25e006a506d2c141b42544ad3dca64e7fe4c831`, but fresh run `31333048454`
+  deterministically reproduced the 240-second Linux changed-test timeout.
+  The final bounded correction removes only duplicate initial snapshot and
+  route rendering; all 16 journeys retain their assertions and pass locally
+  in 140 seconds. Freeze one replacement head for both reviews and fresh
+  H-tier validation.
 
 ## ISSUE-0104 product chronology
 

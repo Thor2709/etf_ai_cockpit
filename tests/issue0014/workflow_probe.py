@@ -67,7 +67,7 @@ def _route_probe() -> dict[str, object]:
     page = _Page()
     initialise_page(page, state)
     route_error_keys: list[str] = []
-    for route in routes:
+    for route in routes[1:]:
         navigate_to(page, state, route)
         route_error_keys.extend(
             str(getattr(control, "key", ""))
@@ -85,6 +85,7 @@ def _route_probe() -> dict[str, object]:
         ]
     return {
         "routes": list(routes),
+        "initial_route": routes[0],
         "go_calls": page.go_calls,
         "route_error_keys": route_error_keys,
         "route_error_events": [value for value in event_types if value == "route_render_failure"],
@@ -130,12 +131,12 @@ def _main_workflow_probe() -> dict[str, object]:
     sys.modules["yfinance"] = SimpleNamespace(download=download, Ticker=lambda _symbol: _FixtureTicker())
 
     from etf_cockpit.app.state import ActivityUnavailableError, AppState
+    from etf_cockpit.core.config import load_config
     from etf_cockpit.governance.product_scope import load_gate_policy
     import etf_cockpit.services as services
 
     services.date = _FixedDate
-
-    snapshot = services.build_snapshot(force_sample=True)
+    config = load_config()
     candidate_path = (
         Path(os.environ["ETF_COCKPIT_ROOT"])
         / "data"
@@ -149,7 +150,8 @@ def _main_workflow_probe() -> dict[str, object]:
         "VWCE,Vanguard FTSE All-World,VWCE.DE,primary,etf\n",
         encoding="utf-8",
     )
-    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    initial_snapshot = SimpleNamespace(config=config)
+    state = AppState(snapshot=initial_snapshot, selected_etf=config.ui.default_etf)
     refresh = state.refresh_yfinance_data()
     algorithms = state.run_algorithm_scores()
     try:
