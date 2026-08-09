@@ -494,6 +494,18 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   115.5 seconds without warnings, with Ruff, compileall and diff checks green.
   Freeze one final exact head after this checkpoint and repeat both reviews
   plus fresh H-tier Linux, Windows and terminal validation.
+- Exact head `2a91dd466be9a70d868a82c53956181f7b10b738` was rejected
+  after both parallel reviewers completed. All runtime lifecycle findings were
+  accepted; the complete residual set was two missing Dashboard holdings/
+  factsheet keys in reverse action-control coverage and an empty file-picker
+  terminal that cleared activity before the final shell rerender. Hosted run
+  `31320604306` passed corrected preflight but was cancelled/disregarded during
+  Linux/Windows packaging after rejection. Correction commit
+  `72792c1c3533e4d4c25b05fd10ef270f1555c7e2` adds exact and reverse catalog
+  coverage, records both accepted Dashboard controls and always rerenders the
+  picker terminal. Focused ISSUE-0012, Ruff, compileall and diff checks pass.
+  Freeze the replacement exact head after this checkpoint and repeat both
+  reviews plus fresh H-tier Linux, Windows and terminal validation.
 
 ## ISSUE-0104 product chronology
 
