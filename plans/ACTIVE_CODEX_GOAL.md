@@ -375,9 +375,9 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   the remaining startup tests in bounded groups, 31 workflow/resource/macro
   tests, 21 button/accessibility tests, 54 import/report tests, 3 forecast
   tests, 10 event-log/redaction tests, Ruff, compileall and diff checks. The
-  persistence surface makes the replacement product head H-tier; freeze it
-  only after this checkpoint and run whole-diff review, risk review and the
-  exact-head Linux/Windows/terminal release gate concurrently.
+  exact classifier keeps the replacement product head O-tier with no packaged
+  gate due; freeze it only after this checkpoint and run whole-diff review,
+  risk review and the exact-head hosted release gate concurrently.
 
 ## ISSUE-0104 product chronology
 

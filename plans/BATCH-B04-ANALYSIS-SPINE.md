@@ -303,10 +303,9 @@ marks normal-return unavailable results as failures, reports real forecast
 stage boundaries, makes macro/news refresh reachable, redacts cache failures
 and renders start/output/error evidence. Focused lifecycle, startup, workflow,
 resource, UI, import/report, forecast and event-log evidence passed alongside
-Ruff, compileall and diff checks. Because the changed session trace is a
-persistence surface, the replacement product head is H-tier and requires
-parallel whole-diff review, risk review and exact-head Linux/Windows/terminal
-validation before merge.
+Ruff, compileall and diff checks. Exact classification keeps the replacement
+product head O-tier with no packaged gate due; it requires parallel whole-diff
+review, risk review and exact-head hosted release validation before merge.
 
 ## ISSUE-0104 product chronology
 
