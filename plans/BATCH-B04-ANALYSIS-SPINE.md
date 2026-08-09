@@ -141,7 +141,10 @@ cancelled. The single consolidated test correction dynamically selects a
 record with a legal two-step forward skip and the exact reproduction passes.
 The replacement now classifies O-tier; cadence is known and not due, so its
 hosted run requires preflight, supply-chain and terminal validation but not
-Linux/Windows packages.
+Linux/Windows packages. Whole-diff re-review approved; risk re-review then
+showed `planned -> in_progress` in the dynamic table was legal. The final
+test-only closure changes that pair to `planned -> implemented_initially` and
+asserts every chosen pair is absent from the canonical allowed-transition set.
 
 ## ISSUE-0104 product chronology
 

@@ -189,7 +189,12 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   correction is an ordinary test surface, the replacement transaction
   classifies O-tier; exact-main cadence is known and not due, so hosted
   preflight, supply-chain and terminal validation remain required while Linux
-  and Windows packages are not required for this replacement head.
+  and Windows packages are not required for this replacement head. Whole-diff
+  re-review approved, but risk re-review found the correction's `planned ->
+  in_progress` table entry was itself legal. The final test-only closure maps
+  `planned -> implemented_initially` and asserts every selected skip is absent
+  from `CONTROL_ALLOWED_TRANSITIONS`, eliminating dependence on future
+  canonical status ordering.
 
 ## ISSUE-0104 product chronology
 

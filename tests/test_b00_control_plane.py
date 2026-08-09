@@ -632,7 +632,7 @@ def test_registry_entrypoint_rejects_handcrafted_invalid_transition_events(
 ) -> None:
     prior = json.loads((ROOT / issue_registry_core.CONTROL_STATE_PATH).read_text(encoding="utf-8"))
     skip_targets = {
-        "planned": "in_progress",
+        "planned": "implemented_initially",
         "ready": "implemented_initially",
         "in_progress": "integrated",
         "implemented_initially": "closed",
@@ -644,6 +644,10 @@ def test_registry_entrypoint_rejects_handcrafted_invalid_transition_events(
             if record["programme_status"] in skip_targets
         )
     source = prior["records"][issue_id]["programme_status"]
+    if case == "skip":
+        assert skip_targets[source] not in issue_registry_core.CONTROL_ALLOWED_TRANSITIONS.get(
+            source, frozenset()
+        )
     legal_target = {
         "planned": "ready",
         "ready": "in_progress",
