@@ -62,6 +62,7 @@ def init_session_log(
             if clear:
                 SESSION_LOG_PATH.write_text("", encoding="utf-8")
             else:
+                _recover_incomplete_session_tail(SESSION_LOG_PATH)
                 _compact_session_log(SESSION_LOG_PATH, max_events=SESSION_LOG_MAX_EVENTS)
             _EVENT_COUNTS[SESSION_LOG_PATH] = _session_log_event_count(SESSION_LOG_PATH)
             _INITIALISED = True
@@ -287,6 +288,16 @@ def _compact_session_log(path: Path, *, max_events: int) -> None:
         rewritten.append(json.dumps(event, ensure_ascii=True, default=str, sort_keys=True))
     payload = ("\n".join(rewritten) + "\n").encode("utf-8")
     atomic_write_bytes(path, payload, _validate_compacted_session_log)
+
+
+def _recover_incomplete_session_tail(path: Path) -> None:
+    """Apply the canonical reader's bounded incomplete-tail recovery before append."""
+
+    if not path.exists():
+        return
+    from etf_cockpit.operations.event_store import load_events_with_tail_recovery
+
+    load_events_with_tail_recovery(path)
 
 
 def _validate_compacted_session_log(path: Path) -> None:

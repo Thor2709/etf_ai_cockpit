@@ -364,6 +364,12 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
     )
     progress_strip: ft.Control
     if state.current_activity is not None:
+        running_action_id = state.current_activity.action_id
+
+        def cancel_running_activity(_event: ft.ControlEvent) -> None:
+            state.cancel_activity(expected_action_id=running_action_id)
+            render_shell(page, state, route)
+
         progress_strip = ft.Container(
             bgcolor=theme.SURFACE,
             border=border_only(bottom=ft.BorderSide(width=1, color=theme.BORDER)),
@@ -375,6 +381,12 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
                             ft.ProgressRing(width=16, height=16, stroke_width=2, color=theme.CYAN),
                             ft.Text(state.current_activity.label, color=theme.TEXT, size=theme.FONT_SM, weight=ft.FontWeight.BOLD),
                             ft.Text(state.current_activity.step, color=theme.MUTED, size=theme.FONT_SM, expand=True),
+                            ft.TextButton(
+                                "Cancel",
+                                key="activity.cancel",
+                                icon=ft.Icons.CANCEL_OUTLINED,
+                                on_click=cancel_running_activity,
+                            ),
                         ],
                         spacing=8,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,

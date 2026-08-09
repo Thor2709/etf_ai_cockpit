@@ -5,6 +5,7 @@ import hashlib
 import os
 from pathlib import Path
 import tempfile
+import threading
 from typing import Callable, Iterator
 
 import flet as ft
@@ -15,7 +16,7 @@ from etf_cockpit.app.components.cards import evidence_chip, panel, section_heade
 from etf_cockpit.app.state import ActivityUnavailableError, AppState
 from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.paths import RAW_DIR, STATEMENT_FACTS_PATH
-from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
+from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
 from etf_cockpit.application.ui_facade import (
     BENCHMARK_ATTRIBUTION_PATH,
     CORRELATION_CLUSTERS_PATH,
@@ -130,10 +131,12 @@ def _document_checksum(row: pd.Series | None) -> str:
 def _start_disclosure_import(state: AppState, result: ft.Control, label: str) -> str | None:
     """Expose a durable running state before a disclosure parser begins."""
 
-    if state.current_activity is not None:
-        result.value = f"{label} blocked: {state.current_activity.label} is already running."
+    try:
+        action_id = state.begin_activity(label, "Reading selected document").action_id
+    except WorkflowTransitionError:
+        owner = state.current_activity.label if state.current_activity is not None else "Another action"
+        result.value = f"{label} blocked: {owner} is already running."
         return None
-    action_id = state.begin_activity(label, "Reading selected document").action_id
     result.value = f"{label} in progress: reading selected document..."
     return action_id
 
@@ -154,30 +157,40 @@ def _run_official_filing_action(
     label: str,
     step: str,
     action: Callable[[str], str],
-) -> None:
+) -> threading.Thread | None:
     """Run one filing control through the shared durable activity lifecycle."""
 
-    if state.current_activity is not None:
-        result.value = f"{label} blocked: {state.current_activity.label} is already running."
+    try:
+        action_id = state.begin_activity(label, "Preparing official filing action").action_id
+    except WorkflowTransitionError:
+        owner = state.current_activity.label if state.current_activity is not None else "Another action"
+        result.value = f"{label} blocked: {owner} is already running."
         page.update()
-        return
-    action_id = state.begin_activity(label, "Preparing official filing action").action_id
+        return None
     result.value = f"{label} in progress: {step.lower()}..."
     _refresh_activity_shell(page, state)
-    try:
-        with state.share_activity(action_id):
-            state.update_activity(step, expected_action_id=action_id)
+
+    def worker() -> None:
+        try:
+            with state.share_activity(action_id):
+                state.update_activity(step, expected_action_id=action_id)
+                _refresh_activity_shell(page, state)
+                message = action(action_id)
+            if state.activity_was_cancelled(action_id):
+                return
+            state.finish_activity(message, expected_action_id=action_id)
+            result.value = message
+        except Exception as exc:
+            if not state.activity_was_cancelled(action_id):
+                state.fail_activity(label, exc, expected_action_id=action_id)
+            result.value = state.last_message
+        finally:
+            state.release_activity(action_id)
             _refresh_activity_shell(page, state)
-            message = action(action_id)
-        state.finish_activity(message, expected_action_id=action_id)
-        result.value = message
-    except Exception as exc:
-        if not state.activity_was_cancelled(action_id):
-            state.fail_activity(label, exc, expected_action_id=action_id)
-        result.value = state.last_message
-    finally:
-        state.release_activity(action_id)
-        _refresh_activity_shell(page, state)
+
+    background = threading.Thread(target=worker, daemon=True)
+    background.start()
+    return background
 
 
 def _filing_unavailable(message: str) -> str:
@@ -620,17 +633,18 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
     review_note_field = ft.TextField(label="Review note (optional)", width=260)
 
     async def import_document(_event: ft.ControlEvent) -> None:
+        action_id: str | None = None
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf", "csv", "xlsx", "xls"], with_data=True)
         if not files:
             result.value = "ETF document import cancelled; no data changed."
             page.update()
             return
-        action_id = _start_disclosure_import(state, result, "Import ETF factsheet")
-        if action_id is None:
-            page.update()
-            return
         path = Path(files[0].path) if files[0].path else None
         try:
+            action_id = _start_disclosure_import(state, result, "Import ETF factsheet")
+            if action_id is None:
+                page.update()
+                return
             if path is None or not path.exists():
                 raise ValueError("a readable local path is required")
             state.assert_activity_publishable(action_id)
@@ -647,26 +661,28 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             state.last_message = result.value
             state.finish_activity(result.value, expected_action_id=action_id)
         except Exception as exc:
-            if not state.activity_was_cancelled(action_id):
+            if action_id is not None and not state.activity_was_cancelled(action_id):
                 state.fail_activity("Import ETF document", exc, expected_action_id=action_id)
             result.value = f"ETF document import failed safely: {state.last_message or type(exc).__name__}; no data changed."
         finally:
-            state.release_activity(action_id)
+            if action_id is not None:
+                state.release_activity(action_id)
             _refresh_activity_shell(page, state)
 
     async def import_report(_event: ft.ControlEvent) -> None:
+        action_id: str | None = None
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf"], with_data=True)
         if not files:
             report_status.value = "ETF report import cancelled; no data changed."
             page.update()
             return
-        action_id = _start_disclosure_import(state, report_status, "Import ETF report")
-        if action_id is None:
-            page.update()
-            return
         selected = files[0]
         suffix = Path(str(getattr(selected, "name", "report.pdf"))).suffix or ".pdf"
         try:
+            action_id = _start_disclosure_import(state, report_status, "Import ETF report")
+            if action_id is None:
+                page.update()
+                return
             with _materialise_picker_file(selected, suffix) as path:
                 if path is None:
                     raise ValueError("a readable local PDF is required")
@@ -693,11 +709,12 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             _require_disclosure_available("ETF report import", imported)
             state.finish_activity(report_status.value, expected_action_id=action_id)
         except Exception as exc:
-            if not state.activity_was_cancelled(action_id):
+            if action_id is not None and not state.activity_was_cancelled(action_id):
                 state.fail_activity("Import ETF report", exc, expected_action_id=action_id)
             report_status.value = f"ETF report import failed safely: {type(exc).__name__}; no parsed authority granted."
         finally:
-            state.release_activity(action_id)
+            if action_id is not None:
+                state.release_activity(action_id)
             _refresh_activity_shell(page, state)
 
     def review_report(decision: str) -> None:
@@ -715,17 +732,18 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         page.update()
 
     async def import_holdings(_event: ft.ControlEvent) -> None:
+        action_id: str | None = None
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["csv", "xlsx", "xls"], with_data=True)
         if not files:
             result.value = "ETF holdings import cancelled; no data changed."
             page.update()
             return
-        action_id = _start_disclosure_import(state, result, "Import ETF holdings")
-        if action_id is None:
-            page.update()
-            return
         path = Path(files[0].path) if files[0].path else None
         try:
+            action_id = _start_disclosure_import(state, result, "Import ETF holdings")
+            if action_id is None:
+                page.update()
+                return
             if path is None or not path.exists():
                 raise ValueError("a readable local holdings path is required")
             state.assert_activity_publishable(action_id)
@@ -741,16 +759,18 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             state.last_message = result.value
             state.finish_activity(result.value, expected_action_id=action_id)
         except Exception as exc:
-            if not state.activity_was_cancelled(action_id):
+            if action_id is not None and not state.activity_was_cancelled(action_id):
                 state.fail_activity("Import ETF holdings", exc, expected_action_id=action_id)
             result.value = f"ETF holdings import failed safely: {state.last_message or type(exc).__name__}; existing holdings were preserved."
         finally:
-            state.release_activity(action_id)
+            if action_id is not None:
+                state.release_activity(action_id)
             _refresh_activity_shell(page, state)
 
     async def import_kid(_event: ft.ControlEvent) -> None:
         from etf_cockpit.parsers.priips_kid import parse_priips_kid
 
+        action_id: str | None = None
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf"], with_data=True)
         if not files:
             result.value = "PRIIPs KID import cancelled; no data changed."
@@ -801,16 +821,18 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                 state.finish_activity(result.value, expected_action_id=action_id)
                 state.last_message = result.value
             except Exception as exc:
-                if not state.activity_was_cancelled(action_id):
+                if action_id is not None and not state.activity_was_cancelled(action_id):
                     state.fail_activity("Import PRIIPs KID", exc, expected_action_id=action_id)
                 result.value = f"PRIIPs import failed safely: {state.last_message}"
             finally:
-                state.release_activity(action_id)
+                if action_id is not None:
+                    state.release_activity(action_id)
                 _refresh_activity_shell(page, state)
 
     async def import_methodology(_event: ft.ControlEvent) -> None:
         from etf_cockpit.parsers.index_methodology import parse_index_methodology
 
+        action_id: str | None = None
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf"], with_data=True)
         if not files:
             result.value = "Methodology import cancelled; no data changed."
@@ -865,11 +887,12 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                 state.finish_activity(result.value, expected_action_id=action_id)
                 state.last_message = result.value
             except Exception as exc:
-                if not state.activity_was_cancelled(action_id):
+                if action_id is not None and not state.activity_was_cancelled(action_id):
                     state.fail_activity("Import index methodology", exc, expected_action_id=action_id)
                 result.value = f"Methodology import failed safely: {state.last_message}"
             finally:
-                state.release_activity(action_id)
+                if action_id is not None:
+                    state.release_activity(action_id)
                 _refresh_activity_shell(page, state)
 
     return panel(

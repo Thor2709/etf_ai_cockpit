@@ -19,7 +19,10 @@ from etf_cockpit.app.pages import jobs as jobs_page_module
 from etf_cockpit.app.pages import chatgpt_audit as chatgpt_audit_module
 from etf_cockpit.app.pages import import_export as import_export_page_module
 from etf_cockpit.app.pages import trust_evidence as trust_evidence_module
+from etf_cockpit.app.pages import errors_recovery as errors_recovery_module
+from etf_cockpit.app import router as router_module
 from etf_cockpit.app.state import ActivityEntry, ActivityUnavailableError, AppState, _read_recent_activity
+from etf_cockpit.core.errors import ErrorStore
 from etf_cockpit.core import session_log
 from etf_cockpit.core.workflow import (
     LONG_RUNNING_ACTIONS,
@@ -43,6 +46,7 @@ from etf_cockpit.data.oam_adapters import (
 )
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
 from etf_cockpit.parsers.contracts import ParseResult, ParseWarning
+from etf_cockpit.operations.event_store import load_events_with_tail_recovery
 from etf_cockpit.services import ForecastService
 from etf_cockpit.services import build_snapshot
 
@@ -302,6 +306,38 @@ def test_session_log_compaction_replace_failure_preserves_canonical_bytes(tmp_pa
         session_log._compact_session_log(log_path, max_events=3)
 
     assert log_path.read_bytes() == original
+
+
+@pytest.mark.parametrize("event_count,max_events", [(2, 10), (5, 5)])
+def test_startup_recovers_truncated_tail_before_append_and_compaction(
+    event_count, max_events, tmp_path, monkeypatch
+) -> None:
+    log_path = tmp_path / "session.jsonl"
+    monkeypatch.setattr(session_log, "SESSION_LOG_PATH", log_path)
+    monkeypatch.setattr(session_log, "SESSION_LOG_MAX_EVENTS", max_events)
+    session_log._EVENT_COUNTS.pop(log_path, None)
+    for index in range(event_count):
+        session_log.log_event(event_type="valid_prefix", operation=str(index), path=log_path)
+    valid_prefix = log_path.read_bytes()
+    with log_path.open("ab") as handle:
+        handle.write(b'{"incomplete":')
+
+    session_log.init_session_log(clear=False, route="/")
+    events, recovery = load_events_with_tail_recovery(log_path)
+    rows = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+
+    assert recovery.quarantined_tail is False
+    assert list(tmp_path.glob("session.jsonl.tail-*.quarantine"))
+    assert any(row["event_type"] == "session_start" for row in rows)
+    assert len(rows) <= max_events
+    if event_count < max_events:
+        assert log_path.read_bytes().startswith(valid_prefix)
+    controller = WorkflowController()
+    action_id = controller.start("tail recovery", "Tail recovery")
+    controller.finish(action_id, WorkflowStatus.SUCCESS, "Recovered", ())
+    event_types = [event.event_type for event in load_events_with_tail_recovery(log_path)[0]]
+    assert "workflow_start" in event_types
+    assert "workflow_finish" in event_types
 
 
 def test_activity_ownership_and_cancellation_do_not_adopt_or_replace_actions(tmp_path, monkeypatch) -> None:
@@ -1154,7 +1190,7 @@ def test_official_filing_helper_shares_owner_and_redacts_failed_terminal(tmp_pat
         state._record_activity_output("Official filing output published", tmp_path / "filing.parquet")
         return "Discovery complete."
 
-    trust_evidence_module._run_official_filing_action(
+    worker = trust_evidence_module._run_official_filing_action(
         page,
         state,
         result,
@@ -1162,6 +1198,8 @@ def test_official_filing_helper_shares_owner_and_redacts_failed_terminal(tmp_pat
         "Querying official structured export",
         successful_action,
     )
+    assert worker is not None
+    worker.join(timeout=2)
 
     assert observed == [state.recent_activity[-1].action_id]
     assert state.recent_activity[-1].status == "success"
@@ -1170,7 +1208,7 @@ def test_official_filing_helper_shares_owner_and_redacts_failed_terminal(tmp_pat
 
     failed_state = _state()
     failed_result = SimpleNamespace(value="")
-    trust_evidence_module._run_official_filing_action(
+    worker = trust_evidence_module._run_official_filing_action(
         page,
         failed_state,
         failed_result,
@@ -1178,10 +1216,106 @@ def test_official_filing_helper_shares_owner_and_redacts_failed_terminal(tmp_pat
         "Fetching official company facts",
         lambda _action_id: (_ for _ in ()).throw(RuntimeError("api_key=raw-filing-secret")),
     )
+    assert worker is not None
+    worker.join(timeout=2)
 
     assert failed_state.recent_activity[-1].status == "failed"
     assert "raw-filing-secret" not in failed_result.value
     assert "***redacted***" in failed_result.value
+
+
+def test_official_filing_visible_cancel_stops_late_publication(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "filing-cancel.jsonl")
+    state = _state()
+    page = SimpleNamespace(views=[], route="/missing", width=1200, update=lambda: None)
+    result = SimpleNamespace(value="")
+    fetched = threading.Event()
+    release = threading.Event()
+    writes: list[str] = []
+
+    def blocking_action(action_id: str) -> str:
+        fetched.set()
+        assert release.wait(2)
+        with state.activity_publication(action_id):
+            writes.append("published")
+        return "Published."
+
+    worker = trust_evidence_module._run_official_filing_action(
+        page,
+        state,
+        result,
+        "Download official filing",
+        "Fetching filing",
+        blocking_action,
+    )
+    assert worker is not None and fetched.wait(2)
+    shell = router_module.build_shell(page, state, "/missing")
+    cancel = next(control for control in _walk(shell) if getattr(control, "key", None) == "activity.cancel")
+    cancel.on_click(SimpleNamespace(control=cancel))
+    release.set()
+    worker.join(timeout=2)
+
+    assert not writes
+    assert state.recent_activity[-1].status == "cancelled"
+    assert state.current_activity is None
+
+
+@pytest.mark.parametrize("label", ["Import PRIIPs KID", "Import index methodology"])
+def test_disclosure_import_concurrent_loser_is_readably_blocked(label) -> None:
+    state = _state()
+    barrier = threading.Barrier(2)
+    results = [SimpleNamespace(value=""), SimpleNamespace(value="")]
+    action_ids: list[str | None] = []
+
+    def start(result) -> None:
+        barrier.wait()
+        action_ids.append(trust_evidence_module._start_disclosure_import(state, result, label))
+
+    workers = [threading.Thread(target=start, args=(result,)) for result in results]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=2)
+
+    assert sum(action_id is not None for action_id in action_ids) == 1
+    assert any("blocked:" in result.value and "already running" in result.value for result in results)
+    state.cancel_activity(expected_action_id=state.current_activity.action_id)
+    state.release_activity(state.current_activity.action_id)
+
+
+def test_tracked_retry_reenters_canonical_wrapper(tmp_path, monkeypatch) -> None:
+    log_path = tmp_path / "session.jsonl"
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", log_path)
+    monkeypatch.setattr(session_log, "SESSION_LOG_PATH", log_path)
+    attempts = 0
+
+    class RetryService:
+        def __init__(self, _config):
+            self.last_operation_succeeded = True
+
+        def refresh_yfinance_data(self, **_kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise TimeoutError("provider timeout")
+            return "Provider refresh complete."
+
+    state = _state()
+    state.error_store = ErrorStore(tmp_path / "errors.jsonl")
+    monkeypatch.setattr(app_state_module, "DataService", RetryService)
+    monkeypatch.setattr(app_state_module, "build_snapshot", lambda **_kwargs: state.snapshot)
+    monkeypatch.setattr(state, "_write_current_scoreboard", lambda: tmp_path / "scores.parquet")
+    monkeypatch.setattr(router_module, "render_shell", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(TimeoutError):
+        state.refresh_yfinance_data()
+    first = state.error_store.recent()[0]
+    errors_recovery_module._retry(SimpleNamespace(), state, first.error_id)
+
+    rows = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    assert attempts == 2
+    assert sum(row.get("event_type") == "workflow_start" for row in rows) == 2
+    assert [entry.status for entry in state.recent_activity[-2:]] == ["failed", "success"]
 
 
 @pytest.mark.parametrize("category", ["esef", "oam"])
@@ -1247,7 +1381,7 @@ def test_official_filing_normal_unavailable_result_is_failed_and_redacted(
 
         label = "Discover official filings"
 
-    trust_evidence_module._run_official_filing_action(
+    worker = trust_evidence_module._run_official_filing_action(
         page,
         state,
         result_control,
@@ -1255,6 +1389,8 @@ def test_official_filing_normal_unavailable_result_is_failed_and_redacted(
         "Querying official filing source",
         action,
     )
+    assert worker is not None
+    worker.join(timeout=2)
 
     assert state.recent_activity[-1].status == "failed"
     assert "raw-esef-secret" not in result_control.value

@@ -111,7 +111,7 @@ def _tracked_activity(label: str, step: str) -> Callable[[Callable[..., _Tracked
                     self.fail_activity(
                         label,
                         exc,
-                        retry_callback=lambda: function(self, *args, **kwargs),
+                        retry_callback=lambda: wrapped(self, *args, **kwargs),
                         expected_action_id=action_id,
                     )
                 raise

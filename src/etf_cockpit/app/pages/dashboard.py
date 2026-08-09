@@ -375,7 +375,12 @@ def _run_action(page: ft.Page, state: AppState, label: str, action: Callable[[],
             state.finish_activity(message, label=label, expected_action_id=action_id)
         except Exception as exc:
             if not state.workflow_controller.is_cancel_requested(action_id):
-                state.fail_activity(label, exc, retry_callback=action, expected_action_id=action_id)
+                state.fail_activity(
+                    label,
+                    exc,
+                    retry_callback=lambda: (_run_action(page, state, label, action), "Retry started.")[1],
+                    expected_action_id=action_id,
+                )
         finally:
             state.release_activity(action_id)
             _rebuild(page, state)
@@ -413,7 +418,15 @@ def _run_dialog_action(page: ft.Page, state: AppState, result_text: ft.Text, lab
         except Exception as exc:
             if state.activity_was_cancelled(action_id):
                 return
-            state.fail_activity(label, exc, retry_callback=action, expected_action_id=action_id)
+            state.fail_activity(
+                label,
+                exc,
+                retry_callback=lambda: (
+                    _run_dialog_action(page, state, result_text, label, step, action),
+                    "Retry started.",
+                )[1],
+                expected_action_id=action_id,
+            )
             result_text.value = state.last_message
         finally:
             state.release_activity(action_id)
