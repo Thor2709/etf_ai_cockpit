@@ -263,8 +263,8 @@ has no actions. GitHub issue #15 resolves to `integrated` and
 `execution_allowed=false` remains.
 
 ISSUE-0012 product commit
-`7cf66f9aea285d29e4881aa53c2e9817baccbbbf` is locally green and
-preserved for rebase onto repaired main. Exact-main lifecycle preparation reproduced
+`43fcbca8f5960af7f54f48bb94e0d08682f49c78` is rebased onto repaired
+main and remains locally green. Exact-main lifecycle preparation reproduced
 `ISSUE-0012: status replay transition history prefix must be a list`; its
 isolated one-action plan SHA is
 `8e3778a20cd1b1c64da5c69347238c017c932f56d1f16649bd7a2dd8847fe3aa`.
@@ -277,7 +277,7 @@ other identity and malformed source fails closed. No lifecycle, dependency,
 retry, external-write or execution authority changes.
 
 ISSUE-0012 remains the next product issue. Clean branch
-`codex/issue0012-product-20260809` rebases onto exact main
+`codex/issue0012-product-20260809` starts at exact main
 `5718ed5a2cb961985a215a25277951c271c4571d`. Its bounded scope extends the
 existing persistent activity/run-log and visible progress contract across all
 declared long-running workflows, preserving local-first operation and all

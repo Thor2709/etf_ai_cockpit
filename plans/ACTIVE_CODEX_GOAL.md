@@ -330,8 +330,8 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   `execution_allowed=false` remains.
 - ISSUE-0012 is the next implementation-order, dependency-ready issue. Product
   commit
-  `7cf66f9aea285d29e4881aa53c2e9817baccbbbf` is locally green and
-  preserved for rebase onto the repaired main. Exact-main lifecycle preparation reproduced
+  `43fcbca8f5960af7f54f48bb94e0d08682f49c78` is rebased onto the
+  repaired main and remains locally green. Exact-main lifecycle preparation reproduced
   `ISSUE-0012: status replay transition history prefix must be a list`; the
   failed projection remains isolated in worktree
   `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0012_lifecycle_premerge`
@@ -346,7 +346,7 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   behavior, authority and `execution_allowed=false` are unchanged. Product
   worktree
   `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0011_readback`,
-  branch `codex/issue0012-product-20260809`, now rebases onto exact main
+  branch `codex/issue0012-product-20260809` starts at exact main
   `5718ed5a2cb961985a215a25277951c271c4571d`. Scope is the existing shared
   workflow-status service and persistent activity/run-log contract extended
   across every declared long-running workflow, with visible started/step/
