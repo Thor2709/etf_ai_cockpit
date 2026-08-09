@@ -11,7 +11,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, section_header
 from etf_cockpit.app.components.simple_scores import score_colour, simple_score_grouped_sections, simple_score_legend
 from etf_cockpit.app.components.states import state_panel
-from etf_cockpit.app.state import AppState
+from etf_cockpit.app.state import ActivityUnavailableError, AppState, activity_result_error
 from etf_cockpit.core.paths import FORECASTS_DIR
 from etf_cockpit.application.ui_facade import (
     NEWS_CLEAN_PATH,
@@ -263,6 +263,7 @@ def _activity_panel(state: AppState, *, page: ft.Page | None = None) -> ft.Contr
                     bgcolor=theme.SURFACE_2,
                 ),
                 ft.Text(f"Current step: {current.step}", color=theme.MUTED),
+                ft.Text(f"Started: {current.started_at}", color=theme.MUTED, size=11),
             ]
         )
     else:
@@ -274,12 +275,13 @@ def _activity_panel(state: AppState, *, page: ft.Page | None = None) -> ft.Contr
         for entry in recent:
             colour = theme.GREEN if entry.status == "success" else theme.RED if entry.status == "failed" else theme.CYAN
             output = f" | output: {Path(entry.output_path).name}" if entry.output_path else ""
+            error = f" | error: {entry.error}" if entry.error else ""
             rows.append(
                 ft.Column(
                     [
                         evidence_chip(entry.status, entry.label, colour),
                         ft.Text(
-                            f"{entry.finished_at or entry.started_at} | {entry.message}{output}",
+                            f"{entry.finished_at or entry.started_at} | {entry.message}{output}{error}",
                             color=theme.MUTED,
                             size=11,
                             max_lines=3,
@@ -355,26 +357,34 @@ def _run_action(page: ft.Page, state: AppState, label: str, action: Callable[[],
         try:
             if state.workflow_controller.is_cancel_requested(action_id):
                 return
-            state.update_activity("Running local workflow")
+            state.update_activity("Running local workflow", expected_action_id=action_id)
             try:
                 page.update()
             except Exception:
                 pass
-            message = action()
+            with state.share_activity(action_id):
+                result = action()
+            failure = activity_result_error(result)
+            if failure:
+                raise ActivityUnavailableError(failure)
+            message = str(result).strip() if result is not None else str(state.last_message or "").strip()
+            if not message:
+                raise RuntimeError("Tracked action completed without a readable result message.")
             if state.workflow_controller.is_cancel_requested(action_id):
                 return
-            state.finish_activity(message, label=label)
+            state.finish_activity(message, label=label, expected_action_id=action_id)
         except Exception as exc:
-            if state.workflow_controller.is_cancel_requested(action_id):
-                return
-            state.fail_activity(label, exc, retry_callback=action)
-        _rebuild(page, state)
+            if not state.workflow_controller.is_cancel_requested(action_id):
+                state.fail_activity(label, exc, retry_callback=action, expected_action_id=action_id)
+        finally:
+            _rebuild(page, state)
 
     threading.Thread(target=worker, daemon=True).start()
 
 
 def _cancel_activity(page: ft.Page | None, state: AppState) -> None:
-    state.cancel_activity()
+    action_id = state.current_activity.action_id if state.current_activity is not None else None
+    state.cancel_activity(expected_action_id=action_id)
     if page is not None:
         _rebuild(page, state)
 
@@ -384,17 +394,25 @@ def _run_dialog_action(page: ft.Page, state: AppState, result_text: ft.Text, lab
         result_text.value = f"{state.current_activity.label} is still running. Please wait for it to finish."
         page.update()
         return
-    state.begin_activity(label, step)
+    entry = state.begin_activity(label, step)
+    action_id = entry.action_id
     result_text.value = f"{step}..."
     page.update()
 
     def worker() -> None:
         try:
-            message = action()
+            with state.share_activity(action_id):
+                raw_result = action()
+            failure = activity_result_error(raw_result)
+            if failure:
+                raise ActivityUnavailableError(failure)
+            message = str(raw_result).strip() if raw_result is not None else str(state.last_message or "").strip()
             result_text.value = message
-            state.finish_activity(message, label=label)
+            state.finish_activity(message, label=label, expected_action_id=action_id)
         except Exception as exc:
-            state.fail_activity(label, exc, retry_callback=action)
+            if state.activity_was_cancelled(action_id):
+                return
+            state.fail_activity(label, exc, retry_callback=action, expected_action_id=action_id)
             result_text.value = state.last_message
         page.update()
 
@@ -406,15 +424,28 @@ def _export_pack(page: ft.Page, state: AppState) -> None:
         state.last_message = f"{state.current_activity.label} is still running. Please wait for it to finish."
         _rebuild(page, state)
         return
-    state.begin_activity("Export audit packet", "Writing audit packet")
+    entry = state.begin_activity("Export audit packet", "Writing audit packet")
+    action_id = entry.action_id
     _rebuild(page, state)
 
     def worker() -> None:
         try:
-            path = state.export_audit_packet()
-            state.finish_activity(f"Audit packet exported: {path}", output_path=path)
+            with state.share_activity(action_id):
+                path = state.export_audit_packet()
+            state.finish_activity(
+                f"Audit packet exported: {path}",
+                output_path=path,
+                expected_action_id=action_id,
+            )
         except Exception as exc:
-            state.fail_activity("Export audit packet", exc, retry_callback=state.export_audit_packet)
+            if state.activity_was_cancelled(action_id):
+                return
+            state.fail_activity(
+                "Export audit packet",
+                exc,
+                retry_callback=state.export_audit_packet,
+                expected_action_id=action_id,
+            )
         _rebuild(page, state)
 
     threading.Thread(target=worker, daemon=True).start()
@@ -473,7 +504,8 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
             pass
 
     async def import_file(dataset_type: str) -> None:
-        state.begin_activity(f"Import {dataset_type}", "Opening local file picker")
+        entry = state.begin_activity(f"Import {dataset_type}", "Opening local file picker")
+        action_id = entry.action_id
         result_text.value = f"Opening local file picker for {dataset_type}..."
         page.update()
         try:
@@ -484,29 +516,32 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
                 with_data=True,
             )
         except Exception as exc:
-            state.fail_activity(f"Import {dataset_type}", exc)
+            state.fail_activity(f"Import {dataset_type}", exc, expected_action_id=action_id)
             result_text.value = f"Local file picker unavailable: {exc}"
             page.update()
             return
 
         if not files:
             result_text.value = "No local file selected."
-            state.finish_activity("No local file selected.")
+            state.finish_activity("No local file selected.", expected_action_id=action_id)
             page.update()
             return
         selected = files[0]
         try:
-            state.update_activity(f"Validating selected {dataset_type} file")
+            state.update_activity(f"Validating selected {dataset_type} file", expected_action_id=action_id)
             page.update()
-            if selected.path:
-                result_text.value = state.validate_local_import(selected.path, dataset_type)
-            elif selected.bytes is not None:
-                result_text.value = state.import_local_upload(selected.name, selected.bytes, dataset_type)
-            else:
-                result_text.value = "Selected file did not expose a path or readable bytes."
-            state.finish_activity(result_text.value)
+            with state.share_activity(action_id):
+                if selected.path:
+                    result_text.value = state.validate_local_import(selected.path, dataset_type)
+                elif selected.bytes is not None:
+                    result_text.value = state.import_local_upload(selected.name, selected.bytes, dataset_type)
+                else:
+                    raise ActivityUnavailableError("Selected file did not expose a path or readable bytes.")
+            state.finish_activity(result_text.value, expected_action_id=action_id)
         except Exception as exc:
-            state.fail_activity(f"Import {dataset_type}", exc)
+            if state.activity_was_cancelled(action_id):
+                return
+            state.fail_activity(f"Import {dataset_type}", exc, expected_action_id=action_id)
             result_text.value = state.last_message
         page.update()
 

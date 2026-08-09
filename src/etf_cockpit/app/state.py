@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import wraps
 import json
 import os
 from pathlib import Path
+import threading
 from typing import Any, Callable, TypeVar, cast
 
 from etf_cockpit.core.config import AppConfig, save_provider_settings
@@ -15,7 +17,7 @@ from etf_cockpit.core.paths import CLEAN_DIR, FILINGS_STATEMENTS_PATH, RAW_DIR, 
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event
 from etf_cockpit.core.errors import ErrorStore, classify_exception
 from etf_cockpit.core.timing import timed_step
-from etf_cockpit.core.workflow import WorkflowController, WorkflowStatus, WorkflowStep
+from etf_cockpit.core.workflow import WorkflowController, WorkflowStatus, WorkflowStep, WorkflowTransitionError
 from etf_cockpit.application.api import LocalApplicationApi
 from etf_cockpit.data.trust_artifacts import IDENTITY_PATH, refresh_static_trust_artifacts, write_trust_artifacts_for_scores
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
@@ -49,6 +51,23 @@ ACTIVITY_LOG_PATH = SESSION_LOG_PATH
 _TrackedResult = TypeVar("_TrackedResult")
 
 
+class ActivityUnavailableError(RuntimeError):
+    """A local action returned a readable unavailable result without raising."""
+
+
+def activity_result_error(result: object) -> str | None:
+    """Return a bounded typed failure message for normal-return result objects."""
+
+    ok = getattr(result, "ok", None)
+    status = getattr(result, "status", None)
+    status_value = getattr(status, "value", status)
+    failed = ok is False or status_value in {"failed", "unavailable", "error", "blocked"}
+    if not failed:
+        return None
+    message = getattr(result, "error", None) or getattr(result, "message", None) or status_value
+    return str(message or "Action was unavailable.").strip()
+
+
 def _tracked_activity(label: str, step: str) -> Callable[[Callable[..., _TrackedResult]], Callable[..., _TrackedResult]]:
     """Give direct callers the same lifecycle as callbacks using the dashboard helper.
 
@@ -60,25 +79,41 @@ def _tracked_activity(label: str, step: str) -> Callable[[Callable[..., _Tracked
     def decorate(function: Callable[..., _TrackedResult]) -> Callable[..., _TrackedResult]:
         @wraps(function)
         def wrapped(self: "AppState", *args: Any, **kwargs: Any) -> _TrackedResult:
-            owns_activity = self.current_activity is None
-            if owns_activity:
-                self.begin_activity(label, step)
+            shared_action_id = self.shared_activity_id
+            owns_activity = shared_action_id is None and self.current_activity is None
+            if shared_action_id is not None:
+                entry = self.require_activity(shared_action_id)
+                self.update_activity(step, expected_action_id=entry.action_id)
+            elif owns_activity:
+                entry = self.begin_activity(label, step)
             else:
-                self.update_activity(step)
+                raise WorkflowTransitionError(
+                    f"{self.current_activity.label if self.current_activity else 'Another action'} owns the activity slot."
+                )
+            action_id = entry.action_id
             try:
-                result = function(self, *args, **kwargs)
+                with self.share_activity(action_id):
+                    result = function(self, *args, **kwargs)
+                failure = activity_result_error(result)
+                if failure:
+                    raise ActivityUnavailableError(failure)
                 output_path = result if isinstance(result, Path) else None
                 if self.current_activity is not None and output_path is not None:
-                    self.update_activity("Writing output", output_path=output_path)
+                    self.update_activity("Writing output", output_path=output_path, expected_action_id=action_id)
                 if owns_activity:
                     message = str(result).strip() if result is not None else str(self.last_message or "").strip()
                     if not message:
                         raise RuntimeError("Tracked action completed without a readable result message.")
-                    self.finish_activity(message, output_path=output_path, label=label)
+                    self.finish_activity(message, output_path=output_path, label=label, expected_action_id=action_id)
                 return result
             except Exception as exc:
-                if owns_activity:
-                    self.fail_activity(label, exc, retry_callback=lambda: function(self, *args, **kwargs))
+                if owns_activity and not self.activity_was_cancelled(action_id):
+                    self.fail_activity(
+                        label,
+                        exc,
+                        retry_callback=lambda: function(self, *args, **kwargs),
+                        expected_action_id=action_id,
+                    )
                 raise
 
         return cast(Callable[..., _TrackedResult], wrapped)
@@ -169,7 +204,7 @@ def _read_recent_activity(limit: int = 8) -> list[ActivityEntry]:
         events, _ = load_events_with_tail_recovery(ACTIVITY_LOG_PATH)
     except Exception:
         return []
-    terminal_events = {"activity_complete", "activity_failed", "activity_cancelled"}
+    terminal_events = {"activity_complete", "activity_failed", "activity_cancelled", "activity_interrupted"}
     grouped: dict[str, list[dict[str, Any]]] = {}
     for event in events:
         if not event.action_id:
@@ -181,30 +216,47 @@ def _read_recent_activity(limit: int = 8) -> list[ActivityEntry]:
     entries: list[ActivityEntry] = []
     for action_events in grouped.values():
         terminal = next((item for item in reversed(action_events) if item.get("event_type") in terminal_events), None)
-        if terminal is None:
-            continue
+        interrupted = terminal is None
+        terminal = action_events[-1] if terminal is None else terminal
         terminal_summary = terminal.get("output_summary") or {}
         latest_update = next((item for item in reversed(action_events) if item.get("event_type") == "activity_update"), {})
         latest_summary = latest_update.get("output_summary") or {}
         first_summary = (action_events[0].get("output_summary") or {}) if action_events else {}
         file_paths = terminal.get("file_paths") or []
         output_path = terminal_summary.get("output_path") or (file_paths[0] if file_paths else None)
-        status = str(terminal.get("status") or "unknown")
+        status = "interrupted" if interrupted else str(terminal.get("status") or "unknown")
+        interruption_message = "Application restarted before this action reached a terminal state."
         entries.append(
             ActivityEntry(
                 label=str(terminal.get("button_label") or terminal.get("feature") or "Workflow action"),
                 status=status,
-                step=str(terminal_summary.get("step") or ("Cancelled" if status == "cancelled" else "Failed" if status == "failed" else "Complete")),
+                step=str(terminal_summary.get("step") or ("Interrupted" if interrupted else "Cancelled" if status == "cancelled" else "Failed" if status == "failed" else "Complete")),
                 started_at=str(terminal_summary.get("started_at") or first_summary.get("started_at") or action_events[0].get("timestamp_local") or action_events[0].get("timestamp_utc") or ""),
                 action_id=str(terminal.get("action_id") or ""),
                 finished_at=str(terminal_summary.get("finished_at") or terminal.get("timestamp_local") or terminal.get("timestamp_utc") or ""),
-                message=str(terminal.get("user_message") or terminal_summary.get("message") or ""),
+                message=interruption_message if interrupted else str(terminal.get("user_message") or terminal_summary.get("message") or ""),
                 output_path=None if output_path is None else str(output_path),
                 completed_units=int(terminal_summary.get("completed_units", latest_summary.get("completed_units", 0)) or 0),
                 total_units=None if terminal_summary.get("total_units", latest_summary.get("total_units")) is None else int(terminal_summary.get("total_units", latest_summary.get("total_units"))),
-                error=None if terminal_summary.get("error") is None else str(terminal_summary.get("error")),
+                error=interruption_message if interrupted else None if terminal_summary.get("error") is None else str(terminal_summary.get("error")),
             )
         )
+        if interrupted:
+            recovered = entries[-1]
+            log_event(
+                event_type="activity_interrupted",
+                severity="warning",
+                action_id=recovered.action_id,
+                component="app_state",
+                button_label=recovered.label,
+                feature=recovered.label,
+                operation="recover_interrupted_activity",
+                status="interrupted",
+                file_paths=recovered.output_path,
+                output_summary=recovered.to_dict(),
+                user_message=recovered.message,
+                path=ACTIVITY_LOG_PATH,
+            )
     return entries[-limit:]
 
 
@@ -218,6 +270,7 @@ class AppState:
     recent_activity: list[ActivityEntry] = field(default_factory=list)
     workflow_controller: WorkflowController = field(default_factory=WorkflowController, repr=False)
     error_store: ErrorStore = field(default_factory=ErrorStore, repr=False)
+    _activity_context: threading.local = field(default_factory=threading.local, repr=False)
     universe_cache_revision: str = ""
     selected_instrument_score: SimpleInstrumentScore | None = None
     financial_projection: dict[str, object] | None = None
@@ -315,9 +368,44 @@ class AppState:
                 # Lightweight embedding snapshots may not carry a full report.
                 self.snapshot.backtest = None
 
+    @property
+    def shared_activity_id(self) -> str | None:
+        return getattr(self._activity_context, "action_id", None)
+
+    @contextmanager
+    def share_activity(self, action_id: str):
+        """Explicitly bind a nested callback to the activity it may mutate."""
+
+        self.require_activity(action_id)
+        previous = self.shared_activity_id
+        self._activity_context.action_id = action_id
+        try:
+            yield
+        finally:
+            self._activity_context.action_id = previous
+
+    def require_activity(self, expected_action_id: str | None) -> ActivityEntry:
+        entry = self.current_activity
+        if entry is None:
+            raise WorkflowTransitionError("No running activity owns this publication.")
+        if not expected_action_id or entry.action_id != expected_action_id:
+            raise WorkflowTransitionError("The running activity is owned by another action.")
+        result = self.workflow_controller.get(expected_action_id)
+        if result is None or result.status is not WorkflowStatus.RUNNING or result.cancel_requested:
+            raise WorkflowTransitionError(f"Workflow {expected_action_id} is no longer publishable.")
+        return entry
+
+    def activity_was_cancelled(self, action_id: str) -> bool:
+        result = self.workflow_controller.get(action_id)
+        return bool(result and result.status is WorkflowStatus.CANCELLED)
+
+    def assert_activity_publishable(self, expected_action_id: str | None = None) -> str:
+        action_id = expected_action_id or self.shared_activity_id
+        return self.require_activity(action_id).action_id
+
     def begin_activity(self, label: str, step: str | None = None) -> ActivityEntry:
         if self.current_activity is not None:
-            return self.current_activity
+            raise WorkflowTransitionError(f"{self.current_activity.label} already owns the activity slot.")
         action_id = self.workflow_controller.start(label, label)
         entry = ActivityEntry(
             label=label,
@@ -363,46 +451,45 @@ class AppState:
         completed_units: int = 0,
         total_units: int | None = None,
         output_path: Path | str | None = None,
+        expected_action_id: str | None = None,
     ) -> None:
-        if self.current_activity is None:
-            self.begin_activity(step, step)
-        assert self.current_activity is not None
-        self.current_activity.step = step
-        self.current_activity.completed_units = max(0, int(completed_units))
-        self.current_activity.total_units = None if total_units is None else max(0, int(total_units))
+        entry = self.require_activity(expected_action_id or self.shared_activity_id)
+        entry.step = step
+        entry.completed_units = max(0, int(completed_units))
+        entry.total_units = None if total_units is None else max(0, int(total_units))
         if output_path is not None:
-            self.current_activity.output_path = str(output_path)
+            entry.output_path = str(output_path)
         if message is not None:
-            self.current_activity.message = message
+            entry.message = message
             self.last_message = message
         else:
             self.last_message = step
-        with timed_step(self.current_activity.action_id, step):
+        with timed_step(entry.action_id, step):
             self.workflow_controller.step(
-                self.current_activity.action_id,
-                WorkflowStep(step, self.current_activity.message or step, completed_units, total_units),
+                entry.action_id,
+                WorkflowStep(step, entry.message or step, completed_units, total_units),
             )
         log_event(
             event_type="activity_update",
             severity="info",
-            action_id=self.current_activity.action_id,
+            action_id=entry.action_id,
             component="app_state",
-            button_label=self.current_activity.label,
-            feature=self.current_activity.label,
+            button_label=entry.label,
+            feature=entry.label,
             operation="activity_step",
             status="running",
             output_summary={
                 "step": step,
                 "message": self.last_message,
-                "completed_units": self.current_activity.completed_units,
-                "total_units": self.current_activity.total_units,
-                "output_path": self.current_activity.output_path,
+                "completed_units": entry.completed_units,
+                "total_units": entry.total_units,
+                "output_path": entry.output_path,
             },
             path=ACTIVITY_LOG_PATH,
         )
 
-    def finish_activity(self, message: str, output_path: Path | str | None = None, label: str | None = None) -> ActivityEntry:
-        entry = self.current_activity or self.begin_activity(label or "Workflow action", "Completing")
+    def finish_activity(self, message: str, output_path: Path | str | None = None, label: str | None = None, *, expected_action_id: str | None = None) -> ActivityEntry:
+        entry = self.require_activity(expected_action_id or self.shared_activity_id)
         resolved_output_path = entry.output_path if output_path is None else str(output_path)
         result = self.workflow_controller.finish(
             entry.action_id,
@@ -449,8 +536,9 @@ class AppState:
         exc: Exception,
         *,
         retry_callback=None,
+        expected_action_id: str | None = None,
     ) -> ActivityEntry:
-        entry = self.current_activity or self.begin_activity(label, "Failed")
+        entry = self.require_activity(expected_action_id or self.shared_activity_id)
         _, retryable = classify_exception(exc)
         result = self.workflow_controller.fail(entry.action_id, exc, retryable=retryable)
         entry.status = "failed"
@@ -495,11 +583,13 @@ class AppState:
         )
         return entry
 
-    def cancel_activity(self, message: str = "Cancelled by user") -> ActivityEntry | None:
+    def cancel_activity(self, message: str = "Cancelled by user", *, expected_action_id: str | None = None) -> ActivityEntry | None:
         """Request cancellation and publish a terminal, readable activity state."""
         entry = self.current_activity
         if entry is None:
             return None
+        if expected_action_id is not None and entry.action_id != expected_action_id:
+            raise WorkflowTransitionError("The requested activity is owned by another action.")
         result = self.workflow_controller.cancel(entry.action_id, message)
         entry.status = result.status.value
         entry.step = "Cancelled"
@@ -561,6 +651,7 @@ class AppState:
                 self.last_message = "YFinance data refreshed."
             else:
                 self.last_message = message
+                raise ActivityUnavailableError(message)
             return message
 
     @_tracked_activity("Run algorithms", "Running deterministic algorithms")
@@ -578,10 +669,19 @@ class AppState:
     def run_forecasting_models(self) -> str:
         action_id = self.current_activity.action_id if self.current_activity else "forecasts"
         with timed_step(action_id, "forecast_models"):
-            self.update_activity("Running baseline forecasts", completed_units=1, total_units=4)
-            self.update_activity("Checking cached TimesFM forecasts", completed_units=2, total_units=4)
-            self.update_activity("Checking cached Toto forecasts", completed_units=3, total_units=4)
-            message = DataService(self.snapshot.config).run_yfinance_forecasts(horizons=[60], live_optional_models=False)
+            service = DataService(self.snapshot.config)
+            message = service.run_yfinance_forecasts(
+                horizons=[60],
+                live_optional_models=False,
+                progress_callback=lambda stage, completed, total: self.update_activity(
+                    stage,
+                    completed_units=completed,
+                    total_units=total,
+                ),
+            )
+            if not getattr(service, "last_operation_succeeded", True):
+                self.last_message = message
+                raise ActivityUnavailableError(message)
             self.snapshot = build_snapshot(force_sample=False)
             scoreboard_path = self._write_current_scoreboard()
             self.update_activity("Forecasts and scoreboard complete", completed_units=4, total_units=4, output_path=scoreboard_path)
@@ -603,6 +703,7 @@ class AppState:
 
     @_tracked_activity("Import local upload", "Writing selected upload")
     def import_local_upload(self, file_name: str, content: bytes, dataset_type: str = "prices") -> str:
+        self.assert_activity_publishable()
         upload_dir = RAW_DIR / "browser_uploads"
         upload_dir.mkdir(parents=True, exist_ok=True)
         safe_name = Path(file_name).name or "uploaded_prices.csv"
@@ -848,10 +949,12 @@ class AppState:
             self.last_message = f"ESEF download unavailable: {type(exc).__name__}. Local data was not changed."
             return self.last_message
     def _import_and_refresh(self, path: Path, dataset_type: str = "prices") -> str:
+        self.assert_activity_publishable()
         result = DataService(self.snapshot.config).import_local_file(Path(path), dataset_type, commit=True)
         self.last_message = result.message
-        if result.ok:
-            self.snapshot = build_snapshot(force_sample=False)
+        if not result.ok:
+            raise ActivityUnavailableError(result.message)
+        self.snapshot = build_snapshot(force_sample=False)
         return result.message
 
     @_tracked_activity("Refresh macro/news context", "Refreshing local context")
@@ -861,7 +964,9 @@ class AppState:
 
     @_tracked_activity("Export audit packet", "Writing audit packet")
     def export_audit_packet(self) -> Path:
+        self.assert_activity_publishable()
         self._write_current_scoreboard()
+        self.assert_activity_publishable()
         bridge = ChatGPTBridge(self.snapshot.config)
         path = bridge.export_review_pack(
             self.snapshot.data_report.as_of_date,
@@ -904,8 +1009,10 @@ class AppState:
     def _write_current_scoreboard(self) -> Path:
         candidate_report, _ = load_latest_candidate_report()
         regime = build_market_regime(self.snapshot.prices, candidate_report)
+        self.assert_activity_publishable()
         write_market_regime(regime)
         calibration = evaluate_forecast_calibration(load_forecast_history(), self.snapshot.prices)
+        self.assert_activity_publishable()
         write_forecast_calibration(calibration)
         scores = build_simple_instrument_scores(
             self.snapshot.config,
@@ -913,6 +1020,7 @@ class AppState:
             self.snapshot.forecasts,
             self.snapshot.prices,
         )
+        self.assert_activity_publishable()
         path = write_simple_scoreboard(scores)
         try:
             write_trust_artifacts_for_scores(

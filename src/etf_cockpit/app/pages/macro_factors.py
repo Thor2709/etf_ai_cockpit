@@ -6,6 +6,7 @@ import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.pages.dashboard import _run_action
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import MacroWarehouse, MacroWarehouseError
 from etf_cockpit.core.paths import ROOT
@@ -13,7 +14,10 @@ from etf_cockpit.features.macro import build_macro_context
 
 
 def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
-    del page
+    def refresh_context(_event: ft.ControlEvent) -> None:
+        if page is not None:
+            _run_action(page, state, "Refresh macro/news context", state.refresh_signals)
+
     warehouse = MacroWarehouse()
     try:
         price_dates = state.snapshot.prices.get("date") if hasattr(state.snapshot.prices, "get") else None
@@ -97,6 +101,12 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
             section_header(
                 "Macro and Factors",
                 "Local, versioned macro, factor, risk-free and benchmark snapshots; no remote fetch or execution authority.",
+            ),
+            ft.OutlinedButton(
+                "Refresh local macro/news context",
+                key="macro.refresh-context",
+                icon=ft.Icons.REFRESH,
+                on_click=refresh_context if page is not None else None,
             ),
             panel(
                 ft.Column(

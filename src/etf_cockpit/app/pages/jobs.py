@@ -45,12 +45,14 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
 
     def clean_generated_cache(_event: ft.ControlEvent) -> None:
         label = "Rebuild generated cache"
-        owns_activity = state.current_activity is None
-        if owns_activity:
-            state.begin_activity(label, "Inspecting generated cache")
-        else:
-            state.update_activity("Inspecting generated cache")
+        if state.current_activity is not None:
+            cleanup_message.value = f"Generated-cache cleanup blocked: {state.current_activity.label} is running."
+            cleanup_message.color = theme.RED
+            page.update()
+            return
+        action_id = state.begin_activity(label, "Inspecting generated cache").action_id
         try:
+            state.assert_activity_publishable(action_id)
             result = generated_cache_cleanup(
                 Path.cwd(),
                 maximum_bytes=int(selected_profile["job_disk_limit_mb"]) * 1024 * 1024,
@@ -61,17 +63,31 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
                 f"Generated-cache cleanup: {result['status']}; removed {removed} reproducible file(s)."
             )
             cleanup_message.color = theme.RED if result["status"] in {"failed", "unavailable"} else theme.GREEN
-            state.update_activity("Cache cleanup complete", completed_units=1, total_units=1)
-            if owns_activity:
+            if result["status"] in {"failed", "unavailable"}:
+                state.fail_activity(
+                    label,
+                    RuntimeError(str(result.get("error") or result.get("message") or result["status"])),
+                    expected_action_id=action_id,
+                )
+                cleanup_message.value = state.last_message
+            else:
+                state.update_activity(
+                    "Cache cleanup complete",
+                    completed_units=1,
+                    total_units=1,
+                    expected_action_id=action_id,
+                )
                 state.finish_activity(
                     cleanup_message.value,
                     output_path=result.get("cache_path"),
                     label=label,
+                    expected_action_id=action_id,
                 )
         except Exception as exc:
-            if owns_activity:
-                state.fail_activity(label, exc)
-            cleanup_message.value = f"Generated-cache cleanup failed: {type(exc).__name__}: {exc}"
+            if state.activity_was_cancelled(action_id):
+                return
+            state.fail_activity(label, exc, expected_action_id=action_id)
+            cleanup_message.value = state.last_message
             cleanup_message.color = theme.RED
         page.update()
 

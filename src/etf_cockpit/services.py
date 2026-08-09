@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from collections import Counter
+from collections.abc import Callable
 from datetime import date
 import json
 from pathlib import Path
@@ -386,7 +387,9 @@ class DataService:
         horizons: list[int] | None = None,
         use_cache: bool = True,
         live_optional_models: bool = True,
+        progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> str:
+        self.last_operation_succeeded = False
         settings_revision = current_settings_revision()
         prices = load_prices()
         if prices.empty:
@@ -405,6 +408,10 @@ class DataService:
                 record_cache_event("forecast", "invalidation", action_id="forecasts", detail="unreadable output")
                 universe_forecast_frame = None
             if universe_forecast_frame is not None:
+                if progress_callback is not None:
+                    progress_callback("Running baseline forecasts", 1, 4)
+                    progress_callback("Checking cached TimesFM forecasts", 2, 4)
+                    progress_callback("Checking cached Toto forecasts", 3, 4)
                 record_cache_event("forecast", "hit", action_id="forecasts")
                 universe_summary = _forecast_frame_status_summary(universe_forecast_frame)
                 universe_mode = "reused from cache"
@@ -416,6 +423,7 @@ class DataService:
                     prices,
                     output_path=output,
                     horizons=horizons,
+                    progress_callback=progress_callback,
                 )
                 universe_summary = _forecast_status_summary(universe_forecasts)
                 universe_mode = "refreshed"
@@ -429,6 +437,7 @@ class DataService:
                 prices,
                 output_path=output,
                 horizons=horizons,
+                progress_callback=progress_callback,
             )
             universe_summary = _forecast_status_summary(universe_forecasts)
             universe_mode = "refreshed"
@@ -495,6 +504,7 @@ class DataService:
                     f"{candidate_summary}. Output: {candidate_output}."
                 )
             )
+        self.last_operation_succeeded = True
         return "\n".join(messages)
 
     def import_local_file(self, path: Path, dataset_type: str = "prices", *, commit: bool = False) -> ProviderResult:
@@ -715,6 +725,7 @@ class ForecastService:
         *,
         output_path: Path | None = None,
         horizons: list[int] | None = None,
+        progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> list[ForecastResult]:
         settings_identity = current_settings_identity()
         price_frame = prices if prices is not None else load_prices()
@@ -730,6 +741,8 @@ class ForecastService:
             f"forecast_{as_of_date:%Y%m%d}",
             settings_identity=settings_identity,
         )
+        if progress_callback is not None:
+            progress_callback("Running baseline forecasts", 1, 4)
         for etf_id in etf_ids:
             if etf_id not in pivot:
                 continue
@@ -744,7 +757,11 @@ class ForecastService:
                     benchmark_returns=benchmark_returns,
                 )
             )
+        if progress_callback is not None:
+            progress_callback("Checking cached TimesFM forecasts", 2, 4)
         forecasts.extend(self._run_timesfm_forecasts(pivot, etf_ids, horizons, as_of_date, run_id))
+        if progress_callback is not None:
+            progress_callback("Checking cached Toto forecasts", 3, 4)
         forecasts.extend(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id))
         ensure_run_manifest(
             run_id,
@@ -759,6 +776,8 @@ class ForecastService:
             ),
             settings_identity=settings_identity,
         )
+        if progress_callback is not None:
+            progress_callback("Writing forecast outputs", 3, 4)
         self._write_forecasts(
             forecasts,
             as_of_date,

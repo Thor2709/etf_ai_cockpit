@@ -120,11 +120,15 @@ def _document_checksum(row: pd.Series | None) -> str:
     return "" if value is None or pd.isna(value) else str(value)
 
 
-def _start_disclosure_import(state: AppState, result: ft.Control, label: str) -> None:
+def _start_disclosure_import(state: AppState, result: ft.Control, label: str) -> str | None:
     """Expose a durable running state before a disclosure parser begins."""
 
-    state.begin_activity(label, "Reading selected document")
+    if state.current_activity is not None:
+        result.value = f"{label} blocked: {state.current_activity.label} is already running."
+        return None
+    action_id = state.begin_activity(label, "Reading selected document").action_id
     result.value = f"{label} in progress: reading selected document..."
+    return action_id
 
 
 def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
@@ -400,10 +404,17 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         else:
             selected = files[0]
             path = Path(selected.path) if selected.path else None
+            if state.current_activity is not None:
+                result.value = f"ESEF import blocked: {state.current_activity.label} is already running."
+                page.update()
+                return
+            action_id = state.begin_activity("Import ESEF package", "Reading selected package").action_id
             try:
+                state.assert_activity_publishable(action_id)
                 result.value = state.import_esef_package(path) if path and path.exists() else "ESEF import requires a readable local package."
+                state.finish_activity(result.value, expected_action_id=action_id)
             except Exception as exc:
-                state.fail_activity("Import ESEF package", exc)
+                state.fail_activity("Import ESEF package", exc, expected_action_id=action_id)
                 result.value = f"ESEF import failed safely: {state.last_message}"
         page.update()
 
@@ -504,11 +515,15 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             result.value = "ETF document import cancelled; no data changed."
             page.update()
             return
-        _start_disclosure_import(state, result, "Import ETF factsheet")
+        action_id = _start_disclosure_import(state, result, "Import ETF factsheet")
+        if action_id is None:
+            page.update()
+            return
         path = Path(files[0].path) if files[0].path else None
         try:
             if path is None or not path.exists():
                 raise ValueError("a readable local path is required")
+            state.assert_activity_publishable(action_id)
             document = import_etf_document(
                 path,
                 instrument_id=str(instrument_field.value or state.selected_etf or "").strip(),
@@ -519,9 +534,9 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             )
             result.value = f"ETF {document.document_type} registered for {document.instrument_id}; registry persisted with checksum {document.sha256[:12]}...."
             state.last_message = result.value
-            state.finish_activity(result.value)
+            state.finish_activity(result.value, expected_action_id=action_id)
         except Exception as exc:
-            state.fail_activity("Import ETF document", exc)
+            state.fail_activity("Import ETF document", exc, expected_action_id=action_id)
             result.value = f"ETF document import failed safely: {state.last_message or type(exc).__name__}; no data changed."
         page.update()
 
@@ -531,7 +546,10 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             report_status.value = "ETF report import cancelled; no data changed."
             page.update()
             return
-        _start_disclosure_import(state, report_status, "Import ETF report")
+        action_id = _start_disclosure_import(state, report_status, "Import ETF report")
+        if action_id is None:
+            page.update()
+            return
         selected = files[0]
         suffix = Path(str(getattr(selected, "name", "report.pdf"))).suffix or ".pdf"
         try:
@@ -540,6 +558,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                     raise ValueError("a readable local PDF is required")
                 instrument_id = str(instrument_field.value or state.selected_etf or "").strip()
                 etf = next((item for item in state.snapshot.config.universe.etfs if item.id == instrument_id), None)
+                state.assert_activity_publishable(action_id)
                 imported = import_etf_report(EtfReportImportRequest(
                     instrument_id=instrument_id,
                     document_kind=str(report_kind_field.value or "prospectus"),
@@ -554,9 +573,9 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             report_status.value = f"ETF {imported.document.document_kind} import: {imported.extraction_status}; source={imported.source_id}; fingerprint={fingerprint}; review remains advisory and non-executable."
             review_source_field.value = imported.source_id
             review_fingerprint_field.value = fingerprint
-            state.finish_activity(report_status.value)
+            state.finish_activity(report_status.value, expected_action_id=action_id)
         except Exception as exc:
-            state.fail_activity("Import ETF report", exc)
+            state.fail_activity("Import ETF report", exc, expected_action_id=action_id)
             report_status.value = f"ETF report import failed safely: {type(exc).__name__}; no parsed authority granted."
         page.update()
 
@@ -580,11 +599,15 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             result.value = "ETF holdings import cancelled; no data changed."
             page.update()
             return
-        _start_disclosure_import(state, result, "Import ETF holdings")
+        action_id = _start_disclosure_import(state, result, "Import ETF holdings")
+        if action_id is None:
+            page.update()
+            return
         path = Path(files[0].path) if files[0].path else None
         try:
             if path is None or not path.exists():
                 raise ValueError("a readable local holdings path is required")
+            state.assert_activity_publishable(action_id)
             imported = import_etf_holdings_with_document(
                 path,
                 str(instrument_field.value or state.selected_etf or "").strip(),
@@ -594,9 +617,9 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             )
             result.value = f"ETF holdings imported for {instrument_field.value}: completeness={imported.completeness}, freshness={imported.freshness}, confidence={imported.confidence:.2f}."
             state.last_message = result.value
-            state.finish_activity(result.value)
+            state.finish_activity(result.value, expected_action_id=action_id)
         except Exception as exc:
-            state.fail_activity("Import ETF holdings", exc)
+            state.fail_activity("Import ETF holdings", exc, expected_action_id=action_id)
             result.value = f"ETF holdings import failed safely: {state.last_message or type(exc).__name__}; existing holdings were preserved."
         page.update()
 
@@ -608,10 +631,13 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             result.value = "PRIIPs KID import cancelled; no data changed."
         else:
             try:
-                _start_disclosure_import(state, result, "Import PRIIPs KID")
+                action_id = _start_disclosure_import(state, result, "Import PRIIPs KID")
+                if action_id is None:
+                    page.update()
+                    return
                 page.update()
                 with _materialise_picker_file(files[0], ".pdf") as path:
-                    state.update_activity("Parsing PRIIPs KID", "Parsing the selected KID PDF.", completed_units=1, total_units=3)
+                    state.update_activity("Parsing PRIIPs KID", "Parsing the selected KID PDF.", completed_units=1, total_units=3, expected_action_id=action_id)
                     result.value = "Import PRIIPs KID in progress: parsing selected PDF..."
                     page.update()
                     path = _retain_picker_source(path, "priips_kids")
@@ -624,9 +650,10 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                     else:
                         record = parsed.records[0] if parsed.records else None
                         document_date = record.document_date if record is not None else str(document_date_field.value or "").strip() or None
-                        state.update_activity("Registering KID evidence", "Persisting parsed KID and checksum-backed provenance.", completed_units=2, total_units=3)
+                        state.update_activity("Registering KID evidence", "Persisting parsed KID and checksum-backed provenance.", completed_units=2, total_units=3, expected_action_id=action_id)
                         result.value = "Import PRIIPs KID in progress: registering evidence..."
                         page.update()
+                        state.assert_activity_publishable(action_id)
                         document = persist_priips_kid_with_document(
                             parsed,
                             instrument_id,
@@ -640,10 +667,10 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                         document_checksum = _document_checksum(document_row)
                         warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
                         result.value = f"PRIIPs KID {instrument_id}: records={len(parsed.records)}, confidence={record.extraction_confidence if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
-                state.finish_activity(result.value)
+                state.finish_activity(result.value, expected_action_id=action_id)
                 state.last_message = result.value
             except Exception as exc:
-                state.fail_activity("Import PRIIPs KID", exc)
+                state.fail_activity("Import PRIIPs KID", exc, expected_action_id=action_id)
                 result.value = f"PRIIPs import failed safely: {state.last_message}"
         page.update()
 
@@ -655,10 +682,13 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             result.value = "Methodology import cancelled; no data changed."
         else:
             try:
-                _start_disclosure_import(state, result, "Import index methodology")
+                action_id = _start_disclosure_import(state, result, "Import index methodology")
+                if action_id is None:
+                    page.update()
+                    return
                 page.update()
                 with _materialise_picker_file(files[0], ".pdf") as path:
-                    state.update_activity("Parsing index methodology", "Parsing the selected methodology PDF.", completed_units=1, total_units=3)
+                    state.update_activity("Parsing index methodology", "Parsing the selected methodology PDF.", completed_units=1, total_units=3, expected_action_id=action_id)
                     result.value = "Import index methodology in progress: parsing selected PDF..."
                     page.update()
                     path = _retain_picker_source(path, "index_methodology")
@@ -676,9 +706,10 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
 
                         parsed = apply_methodology_holdings_assessment(parsed, holdings)
                         record = parsed.records[0] if parsed.records else None
-                        state.update_activity("Registering methodology evidence", "Persisting parsed methodology and checksum-backed provenance.", completed_units=2, total_units=3)
+                        state.update_activity("Registering methodology evidence", "Persisting parsed methodology and checksum-backed provenance.", completed_units=2, total_units=3, expected_action_id=action_id)
                         result.value = "Import index methodology in progress: registering evidence..."
                         page.update()
+                        state.assert_activity_publishable(action_id)
                         document = persist_index_methodology_with_document(
                             parsed,
                             instrument_id,
@@ -691,10 +722,10 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                         document_checksum = _document_checksum(document_row)
                         warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
                         result.value = f"Methodology {instrument_id}/{provider or 'unknown provider'}: records={len(parsed.records)}, version={record.version if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
-                state.finish_activity(result.value)
+                state.finish_activity(result.value, expected_action_id=action_id)
                 state.last_message = result.value
             except Exception as exc:
-                state.fail_activity("Import index methodology", exc)
+                state.fail_activity("Import index methodology", exc, expected_action_id=action_id)
                 result.value = f"Methodology import failed safely: {state.last_message}"
         page.update()
 

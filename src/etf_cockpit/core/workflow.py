@@ -22,23 +22,30 @@ class WorkflowStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
-# The product-level contract is intentionally data-only.  It keeps the UI
-# action inventory and focused evidence aligned without introducing another
-# workflow implementation or changing execution authority.
+@dataclass(frozen=True)
+class LongRunningActionSpec:
+    label: str
+    handler: str
+    control_key: str
+
+
+LONG_RUNNING_ACTION_SPECS: dict[str, LongRunningActionSpec] = {
+    "yfinance_fetch": LongRunningActionSpec("Refresh yfinance data", "AppState.refresh_yfinance_data", "dashboard.refresh-yfinance"),
+    "validation": LongRunningActionSpec("Validate current data", "AppState.renew_data_dry_run", "dashboard.renew-import"),
+    "algorithms": LongRunningActionSpec("Run algorithms", "AppState.run_algorithm_scores", "dashboard.run-algorithms"),
+    "baseline_forecast": LongRunningActionSpec("Running baseline forecasts", "ForecastService.run_forecasts:baseline", "dashboard.run-forecasting-models"),
+    "timesfm_forecast": LongRunningActionSpec("Checking cached TimesFM forecasts", "ForecastService.run_forecasts:timesfm", "dashboard.run-forecasting-models"),
+    "toto_forecast": LongRunningActionSpec("Checking cached Toto forecasts", "ForecastService.run_forecasts:toto", "dashboard.run-forecasting-models"),
+    "forecasts": LongRunningActionSpec("Run forecasting models", "AppState.run_forecasting_models", "dashboard.run-forecasting-models"),
+    "scoreboard_write": LongRunningActionSpec("Write scoreboard", "AppState._write_current_scoreboard", "dashboard.run-algorithms"),
+    "audit_export": LongRunningActionSpec("Export audit packet", "AppState.export_audit_packet", "dashboard.export-audit"),
+    "cache_rebuild": LongRunningActionSpec("Rebuild generated cache", "jobs.clean_generated_cache", "jobs.resource-cache-cleanup"),
+    "notes_news_import": LongRunningActionSpec("Import manual_news", "dashboard.import_file:manual_news", "dashboard.import-manual-notes"),
+    "holdings_factsheet_import": LongRunningActionSpec("Import ETF holdings", "trust_evidence.import_holdings", "etf-disclosures.import-holdings"),
+    "macro_news_refresh": LongRunningActionSpec("Refresh macro/news context", "macro_factors.refresh_context", "macro.refresh-context"),
+}
 LONG_RUNNING_ACTIONS: dict[str, str] = {
-    "yfinance_fetch": "Refresh yfinance data",
-    "validation": "Validate current data",
-    "algorithms": "Run algorithms",
-    "baseline_forecast": "Running baseline forecasts",
-    "timesfm_forecast": "Checking cached TimesFM forecasts",
-    "toto_forecast": "Checking cached Toto forecasts",
-    "forecasts": "Run forecasting models",
-    "scoreboard_write": "Write scoreboard",
-    "audit_export": "Export audit packet",
-    "cache_rebuild": "Rebuild generated cache",
-    "notes_news_import": "Import manual_news",
-    "holdings_factsheet_import": "Import ETF holdings",
-    "macro_news_refresh": "Refresh macro/news context",
+    key: spec.label for key, spec in LONG_RUNNING_ACTION_SPECS.items()
 }
 
 
