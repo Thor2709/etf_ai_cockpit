@@ -378,6 +378,21 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   exact classifier keeps the replacement product head O-tier with no packaged
   gate due; freeze it only after this checkpoint and run whole-diff review,
   risk review and the exact-head hosted release gate concurrently.
+- Replacement head `f82ddaf8748787bf9ea51fdbf37eff933ecdd511`
+  passed hosted run `31306934161` but both reviewers rejected its cancellation
+  publication boundary, so that CI evidence is stale. The whole-diff review
+  also found non-atomic concurrent starts, raw UI exceptions, ESEF unavailable
+  success and stale non-dashboard progress rendering. One final consolidated
+  correction commit `eff4ba5c` makes activity starts atomic, reserves cancelled
+  ownership until callback exit, and uses the same lock for one verified
+  durable publication at a time. Cancellation therefore wins before a write
+  or waits for that write and rejects every later write. It also redacts UI
+  failures, records ESEF unavailability as failed and rebuilds the shared shell
+  on non-dashboard terminal events. Focused correction evidence passed 24
+  ISSUE-0012 tests and 201 coupled workflow/startup/import/holdings/disclosure/
+  release-hardening tests plus Ruff, compileall and diff checks. Re-freeze only
+  after this checkpoint, then repeat both reviews and hosted O-tier validation
+  against one exact head.
 
 ## ISSUE-0104 product chronology
 

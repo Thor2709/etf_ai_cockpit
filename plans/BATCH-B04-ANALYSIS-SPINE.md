@@ -307,6 +307,20 @@ Ruff, compileall and diff checks. Exact classification keeps the replacement
 product head O-tier with no packaged gate due; it requires parallel whole-diff
 review, risk review and exact-head hosted release validation before merge.
 
+Replacement head `f82ddaf8748787bf9ea51fdbf37eff933ecdd511`
+passed hosted run `31306934161`, but both reviewers rejected its cancellation
+publication boundary, making that CI evidence stale. The whole-diff review
+also found non-atomic concurrent starts, raw UI exceptions, ESEF unavailable
+success and stale non-dashboard progress rendering. Final consolidated
+correction commit `eff4ba5c` makes starts atomic, reserves cancelled ownership
+until callback exit and holds the shared activity lock across each single
+verified durable publication. Cancellation now wins before a write or waits
+for it and rejects every later publication. UI failures are redacted, ESEF
+unavailability fails and terminal non-dashboard handlers rebuild the shell.
+Focused evidence passed 24 ISSUE-0012 tests and 201 coupled tests plus Ruff,
+compileall and diff checks. The next exact head must repeat whole-diff review,
+risk review and hosted O-tier validation together.
+
 ## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head
