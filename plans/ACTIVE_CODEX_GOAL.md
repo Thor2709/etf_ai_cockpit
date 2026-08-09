@@ -393,6 +393,19 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   release-hardening tests plus Ruff, compileall and diff checks. Re-freeze only
   after this checkpoint, then repeat both reviews and hosted O-tier validation
   against one exact head.
+- Exact head `aadea38329f051523c18e235b67040c1852d5150` was rejected by
+  both parallel reviewers for five newly demonstrated terminal-integrity
+  defects: an update/cancel mutation race, non-atomic session-log compaction,
+  unguarded snapshot-derived writes, disclosure unavailability recorded as
+  success and remaining raw job/provider errors. Consolidated correction
+  commit `9e77291d` linearizes update mutation with the controller transition,
+  stages/validates/fsyncs/atomically replaces compacted history, scopes feature
+  and backtest publications, re-raises cancellation from reference import,
+  fails unavailable disclosure terminals and removes raw exception text.
+  Focused evidence passed 33 ISSUE-0012 tests, 143 directly affected tests and
+  41 yfinance/release-hardening tests plus Ruff, compileall and diff checks.
+  Repeat both independent reviews and hosted O-tier validation against the
+  final checkpointed head; do not reuse the rejected head's evidence.
 
 ## ISSUE-0104 product chronology
 

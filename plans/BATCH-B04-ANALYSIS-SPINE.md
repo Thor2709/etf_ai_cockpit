@@ -321,6 +321,19 @@ Focused evidence passed 24 ISSUE-0012 tests and 201 coupled tests plus Ruff,
 compileall and diff checks. The next exact head must repeat whole-diff review,
 risk review and hosted O-tier validation together.
 
+Exact head `aadea38329f051523c18e235b67040c1852d5150` was then
+rejected by both reviewers for five newly demonstrated terminal-integrity
+defects: an update/cancel mutation race, non-atomic session-log compaction,
+unguarded snapshot-derived writes, disclosure unavailability shown as success
+and remaining raw job/provider errors. Consolidated correction commit
+`9e77291d` linearizes updates with the controller transition, atomically stages
+and validates compacted history, scopes feature/backtest publications,
+re-raises cancellation, fails unavailable disclosure terminals and removes
+raw exception text. Focused evidence passed 33 ISSUE-0012, 143 directly
+affected and 41 yfinance/release-hardening tests plus Ruff, compileall and
+diff checks. The final checkpointed head requires both reviews and hosted
+O-tier validation afresh; rejected-head evidence is not reusable.
+
 ## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head
