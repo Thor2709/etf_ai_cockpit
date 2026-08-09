@@ -283,6 +283,17 @@ existing persistent activity/run-log and visible progress contract across all
 declared long-running workflows, preserving local-first operation and all
 execution and external-write boundaries.
 
+Fresh repaired exact-main lifecycle proof produced one ISSUE-0012 action at
+plan SHA
+`8e3778a20cd1b1c64da5c69347238c017c932f56d1f16649bd7a2dd8847fe3aa`
+and aggregate authority
+`e1b1ea5d819d666f8a1b8b2d27ce683772ad35dd1f59de8e6458e5ff102004f1`.
+The guard correctly rejects combining it with the product PR because product
+commit `43fcbca8f5960af7f54f48bb94e0d08682f49c78` is not yet an ancestor
+of the reviewed generation base. Keep the product PR product-only, then
+regenerate this compact completion transaction from its exact reviewed merge
+and require the ordered writer plus zero-action generic readback.
+
 ## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head
