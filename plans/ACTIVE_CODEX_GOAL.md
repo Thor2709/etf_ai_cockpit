@@ -363,6 +363,21 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   therefore remains product-only; immediately after its exact reviewed merge,
   regenerate the already-proved compact completion transaction from the new
   main, validate the writer, and require zero-action generic readback.
+- Product PR #663 head `b1023cf53a4634c8fc4c7263660677ffc10364a3`
+  was rejected by both exact-head reviewers. Their persistence, cancellation,
+  runtime-binding, terminal-status, redaction and visible-timestamp findings
+  were collected before one consolidated correction. Correction commit
+  `3303ac2f` preserves the session trace across restart, binds every publication
+  to its owning action and cancellation state, records unavailable outcomes as
+  failures, emits forecast stages at their actual service boundaries, exposes
+  the macro/news action, redacts cache errors and renders start/output/error
+  evidence. Attributable focused evidence passed 18 lifecycle/startup tests,
+  the remaining startup tests in bounded groups, 31 workflow/resource/macro
+  tests, 21 button/accessibility tests, 54 import/report tests, 3 forecast
+  tests, 10 event-log/redaction tests, Ruff, compileall and diff checks. The
+  persistence surface makes the replacement product head H-tier; freeze it
+  only after this checkpoint and run whole-diff review, risk review and the
+  exact-head Linux/Windows/terminal release gate concurrently.
 
 ## ISSUE-0104 product chronology
 

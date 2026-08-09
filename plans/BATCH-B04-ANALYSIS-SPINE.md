@@ -294,6 +294,20 @@ of the reviewed generation base. Keep the product PR product-only, then
 regenerate this compact completion transaction from its exact reviewed merge
 and require the ordered writer plus zero-action generic readback.
 
+Product PR #663 head `b1023cf53a4634c8fc4c7263660677ffc10364a3`
+was rejected by both exact-head reviewers. All persistence, cancellation,
+runtime-binding, terminal-status, redaction and visible-timestamp findings
+were consolidated into correction commit `3303ac2f`. The correction retains
+restart history, enforces action-ID publication ownership and cancellation,
+marks normal-return unavailable results as failures, reports real forecast
+stage boundaries, makes macro/news refresh reachable, redacts cache failures
+and renders start/output/error evidence. Focused lifecycle, startup, workflow,
+resource, UI, import/report, forecast and event-log evidence passed alongside
+Ruff, compileall and diff checks. Because the changed session trace is a
+persistence surface, the replacement product head is H-tier and requires
+parallel whole-diff review, risk review and exact-head Linux/Windows/terminal
+validation before merge.
+
 ## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head
