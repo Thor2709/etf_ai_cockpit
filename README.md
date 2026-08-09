@@ -30,6 +30,16 @@ For a command-line smoke test without opening the UI:
 
 The workflow smoke harness accepts `source`, `native`, `portable-native`, `launcher`, `first-run` and `offline` modes. It requires a local HTTP-ready app for each mode and removes only processes it started. `offline` prevents the harness itself from making remote requests; it does not certify that every provider is unavailable without a separate provider fixture test.
 
+### ISSUE-0014 workflow contract
+
+Run the complete deterministic, local-only workflow contract from a clean checkout with:
+
+```text
+python scripts/issue0014_workflow.py
+```
+
+The runner executes separate source, packaged and browser suites with `ETF_COCKPIT_OFFLINE=1`, fixed hash ordering and UTC. Fixtures cover offline local import, optional online failure, migrations, a 250-instrument universe, training, paper-broker simulation, recovery, package parity and loopback browser startup. No live external network or execution authority is used; every journey asserts `execution_allowed=false`. Use `python scripts/issue0014_workflow.py --dry-run` to inspect the exact suite commands.
+
 The configured market-data backbone is Yahoo Finance through `yfinance`. The validated clean store under `data/clean` is refreshed from yfinance, then algorithms, backtests and TimesFM/Toto forecasts run from that same yfinance price panel. Sample data remains available only as a fallback/test generator.
 
 ## Main Workflows
