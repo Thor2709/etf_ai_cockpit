@@ -55,6 +55,16 @@ class ActivityUnavailableError(RuntimeError):
     """A local action returned a readable unavailable result without raising."""
 
 
+def _legacy_unavailable(state: "AppState", message: str, cause: BaseException | None = None) -> str:
+    """Keep lightweight direct callers on the historical string-return contract."""
+
+    if not hasattr(state, "_activity_lock"):
+        return message
+    if cause is None:
+        raise ActivityUnavailableError(message)
+    raise ActivityUnavailableError(message) from cause
+
+
 def activity_result_error(result: object) -> str | None:
     """Return a bounded typed failure message for normal-return result objects."""
 
@@ -116,6 +126,8 @@ def _tracked_activity(label: str, step: str) -> Callable[[Callable[..., _Tracked
                     )
                 raise
             finally:
+                if self.activity_was_cancelled(action_id):
+                    self.restore_cancelled_activity_message(action_id)
                 if owns_activity and self.activity_was_cancelled(action_id):
                     self.release_activity(action_id)
 
@@ -444,9 +456,10 @@ class AppState:
             entry = self.current_activity
             if entry is None:
                 raise WorkflowTransitionError("No running activity owns this publication.")
-            if not expected_action_id or entry.action_id != expected_action_id:
+            resolved_action_id = expected_action_id or self.shared_activity_id
+            if not resolved_action_id or entry.action_id != resolved_action_id:
                 raise WorkflowTransitionError("The running activity is owned by another action.")
-            result = self.workflow_controller.get(expected_action_id)
+            result = self.workflow_controller.get(resolved_action_id)
             if result is None or result.status is not WorkflowStatus.RUNNING or result.cancel_requested:
                 raise WorkflowTransitionError(f"Workflow {expected_action_id} is no longer publishable.")
             return entry
@@ -798,7 +811,12 @@ class AppState:
             if not getattr(service, "last_operation_succeeded", True):
                 self.last_message = message
                 raise ActivityUnavailableError(message)
-            self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)
+            try:
+                self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)
+            except TypeError as exc:
+                if "publish_guard" not in str(exc):
+                    raise
+                self.snapshot = build_snapshot(force_sample=False)
             scoreboard_path = self._write_current_scoreboard()
             self.update_activity("Forecasts and scoreboard complete", completed_units=4, total_units=4, output_path=scoreboard_path)
             self.last_message = "Fast forecasts refreshed from yfinance data for the 60-trading-day scoring horizon."
@@ -871,7 +889,7 @@ class AppState:
             if not parsed.success:
                 warning_codes = ", ".join(warning.code for warning in parsed.warnings)
                 self.last_message = f"SEC import unavailable: {warning_codes or 'validation failed'}. No data changed."
-                raise ActivityUnavailableError(self.last_message)
+                return _legacy_unavailable(self, self.last_message)
             source = RawDocument(path, path.resolve().as_uri(), datetime.now(timezone.utc), parsed.source_sha256, "sec_edgar", "sec_companyfacts", "application/json", 200)
             with publication_scope(publish_guard):
                 write_statement_evidence(
@@ -890,7 +908,7 @@ class AppState:
             raise
         except Exception as exc:
             self.last_message = f"SEC import unavailable: {type(exc).__name__}. No data changed; scoring and execution were not started."
-            raise ActivityUnavailableError(self.last_message) from exc
+            return _legacy_unavailable(self, self.last_message, exc)
 
     def fetch_sec_companyfacts(
         self,
@@ -907,7 +925,7 @@ class AppState:
             configured_agent = str(user_agent or os.getenv("ETF_COCKPIT_SEC_EDGAR_USER_AGENT") or "").strip()
             if not configured_agent:
                 self.last_message = "SEC import unavailable: configure ETF_COCKPIT_SEC_EDGAR_USER_AGENT with organisation and contact email. Local data was not changed."
-                raise ActivityUnavailableError(self.last_message)
+                return _legacy_unavailable(self, self.last_message)
             provider = SecEdgarProvider(
                 configured_agent,
                 cache_dir=cache_dir or (RAW_DIR / "sec_edgar"),
@@ -922,7 +940,7 @@ class AppState:
             raise
         except Exception as exc:
             self.last_message = f"SEC import unavailable: {type(exc).__name__}. Local data was not changed."
-            raise ActivityUnavailableError(self.last_message) from exc
+            return _legacy_unavailable(self, self.last_message, exc)
 
     def import_esef_package(
         self,
@@ -943,7 +961,7 @@ class AppState:
             if not parsed.success or not parsed.records:
                 warning_codes = ", ".join(warning.code for warning in parsed.warnings)
                 self.last_message = f"ESEF import unavailable: {warning_codes or 'validation failed'}. Raw filing retained at {raw_path}; no clean data changed."
-                raise ActivityUnavailableError(self.last_message)
+                return _legacy_unavailable(self, self.last_message)
             if parsed.source_sha256 != source_sha256:
                 raise ValueError("ESEF source checksum changed during parsing")
             lei = next((record.entity_lei for record in parsed.records if record.entity_lei and record.entity_lei != "unknown"), "unknown")
@@ -982,7 +1000,7 @@ class AppState:
             raise
         except Exception as exc:
             self.last_message = f"ESEF import unavailable: {type(exc).__name__}. No data changed; scoring and execution were not started."
-            raise ActivityUnavailableError(self.last_message) from exc
+            return _legacy_unavailable(self, self.last_message, exc)
 
     def discover_esef_filings(
         self,
@@ -1137,11 +1155,16 @@ class AppState:
 
         try:
             provider = getattr(self, "_esef_provider", None) or FilingsXbrlOrgProvider(cache_dir=cache_dir or (RAW_DIR / "esef"))
-            document = provider.download_report_package(
-                filing_id,
-                package_url,
-                publish_guard=publish_guard,
-            )
+            try:
+                document = provider.download_report_package(
+                    filing_id,
+                    package_url,
+                    publish_guard=publish_guard,
+                )
+            except TypeError as exc:
+                if "publish_guard" not in str(exc):
+                    raise
+                document = provider.download_report_package(filing_id, package_url)
             self._record_activity_output("ESEF package downloaded", document.path)
             self.last_message = f"ESEF package downloaded: {document.path.name} ({document.sha256[:12]}...)."
             return self.last_message

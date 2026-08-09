@@ -326,11 +326,10 @@ def test_invalid_local_import_is_retained_without_clean_store_mutation(tmp_path:
     state = state_module.AppState.__new__(state_module.AppState)
     state.last_message = "Ready"
 
-    with pytest.raises(state_module.ActivityUnavailableError):
-        state.import_esef_package(invalid)
+    message = state.import_esef_package(invalid)
 
     digest = hashlib.sha256(invalid.read_bytes()).hexdigest()
-    assert "Raw filing retained" in state.last_message
+    assert "Raw filing retained" in message
     assert (tmp_path / "raw" / "filings" / "eu_esef" / f"{digest}.xbri").is_file()
     assert not (tmp_path / "statement_facts.parquet").exists()
     assert not (tmp_path / "filings_statements.parquet").exists()
@@ -353,7 +352,7 @@ def test_state_discovery_and_download_keep_unavailable_state_explicit(tmp_path: 
         def list_filings(self, _country, _limit):
             return ProviderResult("filings_xbrl_org", "filings", "ok", "fixture", pd.DataFrame([{"fxo_id": "fixture-1"}]))
 
-        def download_report_package(self, _filing_id, _package_url=None, **_kwargs):
+        def download_report_package(self, _filing_id, _package_url=None):
             return RawDocument(package, "https://filings.xbrl.org/fixture.xbri", datetime.now(timezone.utc), "a" * 64, "filings_xbrl_org", "esef_report_package", "application/octet-stream", 200)
 
     monkeypatch.setattr(state_module, "FilingsXbrlOrgProvider", FakeProvider)

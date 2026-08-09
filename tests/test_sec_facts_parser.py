@@ -5,8 +5,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
 from etf_cockpit.parsers.contracts import RawDocument
 from etf_cockpit.parsers.esef_ixbrl import XbrlFact
@@ -208,10 +206,9 @@ def test_sec_import_rejects_mismatched_supplied_instrument_id(tmp_path: Path, mo
     state = state_module.AppState.__new__(state_module.AppState)
     state.last_message = "Ready"
 
-    with pytest.raises(state_module.ActivityUnavailableError):
-        state.import_sec_companyfacts(payload_path, instrument_id="WRONG")
+    message = state.import_sec_companyfacts(payload_path, instrument_id="WRONG")
 
-    assert "No data changed" in state.last_message
+    assert "No data changed" in message
     assert not facts_path.exists()
     assert not inventory_path.exists()
 
@@ -317,11 +314,10 @@ def test_sec_import_rolls_back_when_atomic_evidence_publish_fails(tmp_path: Path
     state = state_module.AppState.__new__(state_module.AppState)
     state.last_message = "Ready"
 
-    with pytest.raises(state_module.ActivityUnavailableError):
-        state.import_sec_companyfacts(payload_path)
+    message = state.import_sec_companyfacts(payload_path)
 
-    assert "No data changed" in state.last_message
-    assert "scoring and execution were not started" in state.last_message
+    assert "No data changed" in message
+    assert "scoring and execution were not started" in message
     assert not (tmp_path / "statement_facts.parquet").exists()
     assert not (tmp_path / "filings_statements.parquet").exists()
 
@@ -382,8 +378,7 @@ def test_sec_network_fetch_requires_configured_contact_user_agent(monkeypatch) -
     state = state_module.AppState.__new__(state_module.AppState)
     state.last_message = "Ready"
 
-    with pytest.raises(state_module.ActivityUnavailableError):
-        state.fetch_sec_companyfacts("789019")
+    message = state.fetch_sec_companyfacts("789019")
 
-    assert "configure ETF_COCKPIT_SEC_EDGAR_USER_AGENT" in state.last_message
-    assert "contact@example.invalid" not in state.last_message
+    assert "configure ETF_COCKPIT_SEC_EDGAR_USER_AGENT" in message
+    assert "contact@example.invalid" not in message

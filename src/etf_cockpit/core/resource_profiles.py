@@ -18,6 +18,7 @@ import shutil
 from typing import Callable
 
 from etf_cockpit.core.performance import PerformanceBudgetError, build_performance_report
+from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 
 
 RESOURCE_PROFILE_SCHEMA_VERSION = "resource-profiles.v1"
@@ -251,7 +252,13 @@ def estimate_workflow_resources(workflow_type: str, *, requested_profile: str = 
     return estimate
 
 
-def generated_cache_cleanup(root: Path | None, *, maximum_bytes: int, apply: bool = False) -> dict[str, object]:
+def generated_cache_cleanup(
+    root: Path | None,
+    *,
+    maximum_bytes: int,
+    apply: bool = False,
+    publish_guard: PublicationScopeFactory | None = None,
+) -> dict[str, object]:
     """Plan or apply oldest-first cleanup in the dedicated generated cache only."""
 
     if maximum_bytes < 0:
@@ -292,7 +299,8 @@ def generated_cache_cleanup(root: Path | None, *, maximum_bytes: int, apply: boo
     if apply:
         for relative, path, _size in selected:
             try:
-                path.unlink()
+                with publication_scope(publish_guard):
+                    path.unlink()
                 removed.append(relative)
             except OSError as exc:
                 failures.append(f"{relative}:{type(exc).__name__}")

@@ -44,30 +44,30 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
         f"Generated-cache cleanup: {cleanup_status}.", color=theme.MUTED
     )
 
-    def clean_generated_cache(_event: ft.ControlEvent) -> None:
+    def run_cache_cleanup(action_id: str) -> None:
         label = "Rebuild generated cache"
-        if state.current_activity is not None:
-            cleanup_message.value = f"Generated-cache cleanup blocked: {state.current_activity.label} is running."
-            cleanup_message.color = theme.RED
-            page.update()
-            return
-        action_id = state.begin_activity(label, "Inspecting generated cache").action_id
         try:
-            with state.activity_publication(action_id):
+            with state.share_activity(action_id):
                 result = generated_cache_cleanup(
                     Path.cwd(),
                     maximum_bytes=int(selected_profile["job_disk_limit_mb"]) * 1024 * 1024,
                     apply=True,
+                    publish_guard=lambda: state.activity_publication(action_id),
                 )
+            if state.activity_was_cancelled(action_id):
+                return
             removed = len(result.get("removed", []))
             cleanup_message.value = (
                 f"Generated-cache cleanup: {result['status']}; removed {removed} reproducible file(s)."
             )
             cleanup_message.color = theme.RED if result["status"] in {"failed", "unavailable"} else theme.GREEN
             if result["status"] in {"failed", "unavailable"}:
+                safe_error = redact_text(str(result.get("error") or result.get("message") or result["status"]))
+                cleanup_message.value = f"{label} failed: {safe_error}"
                 state.fail_activity(
                     label,
-                    RuntimeError(str(result.get("error") or result.get("message") or result["status"])),
+                    TimeoutError(safe_error),
+                    retry_callback=lambda: start_cache_cleanup(),
                     expected_action_id=action_id,
                 )
                 cleanup_message.value = state.last_message
@@ -87,10 +87,21 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
         except Exception as exc:
             if state.activity_was_cancelled(action_id):
                 return
-            state.fail_activity(label, exc, expected_action_id=action_id)
-            cleanup_message.value = state.last_message
+            safe_error = redact_text(str(exc))
+            cleanup_message.value = f"{label} failed: {safe_error}"
             cleanup_message.color = theme.RED
+            state.fail_activity(
+                label,
+                TimeoutError(safe_error),
+                retry_callback=lambda: start_cache_cleanup(),
+                expected_action_id=action_id,
+            )
+            cleanup_message.value = state.last_message
         finally:
+            cancelled_message = state.restore_cancelled_activity_message(action_id)
+            if cancelled_message is not None:
+                cleanup_message.value = cancelled_message
+                cleanup_message.color = theme.MUTED
             state.release_activity(action_id)
             if not hasattr(page, "views"):
                 page.update()
@@ -98,6 +109,30 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
                 from etf_cockpit.app.router import render_shell
 
                 render_shell(page, state, getattr(page, "route", "") or state.snapshot.config.ui.default_page)
+
+    def start_cache_cleanup() -> threading.Thread | None:
+        label = "Rebuild generated cache"
+        if state.current_activity is not None:
+            cleanup_message.value = f"Generated-cache cleanup blocked: {state.current_activity.label} is running."
+            cleanup_message.color = theme.RED
+            page.update()
+            return None
+        try:
+            action_id = state.begin_activity(label, "Inspecting generated cache").action_id
+        except Exception as exc:
+            cleanup_message.value = f"Generated-cache cleanup unavailable: {type(exc).__name__}."
+            cleanup_message.color = theme.RED
+            page.update()
+            return None
+        cleanup_message.value = "Generated-cache cleanup in progress..."
+        cleanup_message.color = theme.MUTED
+        page.update()
+        worker = threading.Thread(target=run_cache_cleanup, args=(action_id,), daemon=True)
+        worker.start()
+        return worker
+
+    def clean_generated_cache(_event: ft.ControlEvent) -> None:
+        start_cache_cleanup()
 
     resource_panel = panel(
         ft.Column(

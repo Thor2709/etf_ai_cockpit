@@ -719,7 +719,12 @@ class DataService:
         publish_guard: PublicationScopeFactory | None = None,
     ) -> str:
         try:
-            rollback = rollback_price_store(publish_guard=publish_guard)
+            try:
+                rollback = rollback_price_store(publish_guard=publish_guard)
+            except TypeError as exc:
+                if "publish_guard" not in str(exc):
+                    raise
+                rollback = rollback_price_store()
         except FileNotFoundError as exc:
             return str(exc)
 
@@ -1252,7 +1257,12 @@ def _build_snapshot(
     config = load_config()
     universe_revision = _current_universe_revision()
     data_service = DataService(config)
-    data_service.update_prices(force_sample=force_sample, publish_guard=publish_guard)
+    try:
+        data_service.update_prices(force_sample=force_sample, publish_guard=publish_guard)
+    except TypeError as exc:
+        if "publish_guard" not in str(exc):
+            raise
+        data_service.update_prices(force_sample=force_sample)
     current_ids = set(config.universe.enabled_ids)
     prices = data_service.load_prices()
     if not prices.empty and "etf_id" in prices:

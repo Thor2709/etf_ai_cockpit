@@ -38,6 +38,13 @@ def _go_to(page: ft.Page, state: AppState, route: str) -> None:
     navigate_to(page, state, route)
 
 
+def _restore_cancelled_result(state: AppState, action_id: str, *controls: ft.Control) -> None:
+    message = state.restore_cancelled_activity_message(action_id)
+    if message is not None:
+        for control in controls:
+            control.value = message
+
+
 def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
     narrow = float(getattr(page, "width", 0) or state.snapshot.config.ui.window_width) < 760
     scores = build_simple_instrument_scores(
@@ -382,6 +389,7 @@ def _run_action(page: ft.Page, state: AppState, label: str, action: Callable[[],
                     expected_action_id=action_id,
                 )
         finally:
+            _restore_cancelled_result(state, action_id)
             state.release_activity(action_id)
             _rebuild(page, state)
 
@@ -429,6 +437,7 @@ def _run_dialog_action(page: ft.Page, state: AppState, result_text: ft.Text, lab
             )
             result_text.value = state.last_message
         finally:
+            _restore_cancelled_result(state, action_id, result_text)
             state.release_activity(action_id)
             _rebuild(page, state)
 
@@ -463,6 +472,7 @@ def _export_pack(page: ft.Page, state: AppState) -> None:
                 expected_action_id=action_id,
             )
         finally:
+            _restore_cancelled_result(state, action_id)
             state.release_activity(action_id)
             _rebuild(page, state)
 
@@ -521,9 +531,73 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
         except Exception:
             pass
 
+    def start_import_worker(
+        dataset_type: str,
+        action_id: str,
+        *,
+        selected_path: str | None = None,
+        selected_bytes: bytes | None = None,
+        selected_name: str = "upload",
+    ) -> threading.Thread:
+        def worker() -> None:
+            try:
+                state.update_activity(
+                    f"Validating selected {dataset_type} file",
+                    expected_action_id=action_id,
+                )
+                with state.share_activity(action_id):
+                    if selected_path:
+                        message = state.validate_local_import(selected_path, dataset_type)
+                    elif selected_bytes is not None:
+                        message = state.import_local_upload(selected_name, selected_bytes, dataset_type)
+                    else:
+                        raise ActivityUnavailableError("Selected file did not expose a path or readable bytes.")
+                state.finish_activity(message, expected_action_id=action_id)
+            except Exception as exc:
+                if not state.activity_was_cancelled(action_id):
+                    state.fail_activity(
+                        f"Import {dataset_type}",
+                        exc,
+                        retry_callback=lambda: start_import(
+                            dataset_type,
+                            selected_path=selected_path,
+                            selected_bytes=selected_bytes,
+                            selected_name=selected_name,
+                        ),
+                        expected_action_id=action_id,
+                    )
+            finally:
+                _restore_cancelled_result(state, action_id, result_text)
+                state.release_activity(action_id)
+                _rebuild(page, state)
+
+        background = threading.Thread(target=worker, daemon=True)
+        background.start()
+        return background
+
+    def start_import(
+        dataset_type: str,
+        *,
+        selected_path: str | None = None,
+        selected_bytes: bytes | None = None,
+        selected_name: str = "upload",
+    ) -> threading.Thread:
+        entry = state.begin_activity(f"Import {dataset_type}", "Validating selected file")
+        action_id = entry.action_id
+        result_text.value = f"Importing selected {dataset_type} file..."
+        page.update()
+        return start_import_worker(
+            dataset_type,
+            action_id,
+            selected_path=selected_path,
+            selected_bytes=selected_bytes,
+            selected_name=selected_name,
+        )
+
     async def import_file(dataset_type: str) -> None:
         entry = state.begin_activity(f"Import {dataset_type}", "Opening local file picker")
         action_id = entry.action_id
+        worker_started = False
         result_text.value = f"Opening local file picker for {dataset_type}..."
         page.update()
         try:
@@ -538,24 +612,30 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
                 state.finish_activity("No local file selected.", expected_action_id=action_id)
                 return
             selected = files[0]
-            state.update_activity(f"Validating selected {dataset_type} file", expected_action_id=action_id)
-            page.update()
-            with state.share_activity(action_id):
-                if selected.path:
-                    result_text.value = state.validate_local_import(selected.path, dataset_type)
-                elif selected.bytes is not None:
-                    result_text.value = state.import_local_upload(selected.name, selected.bytes, dataset_type)
-                else:
-                    raise ActivityUnavailableError("Selected file did not expose a path or readable bytes.")
-            state.finish_activity(result_text.value, expected_action_id=action_id)
+            selected_path = str(selected.path) if getattr(selected, "path", None) else None
+            selected_bytes = bytes(selected.bytes) if getattr(selected, "bytes", None) is not None else None
+            selected_name = str(getattr(selected, "name", "upload"))
+            if state.activity_was_cancelled(action_id):
+                return
+            start_import_worker(
+                dataset_type,
+                action_id,
+                selected_path=selected_path,
+                selected_bytes=selected_bytes,
+                selected_name=selected_name,
+            )
+            worker_started = True
+            return
         except Exception as exc:
             if state.activity_was_cancelled(action_id):
                 return
             state.fail_activity(f"Import {dataset_type}", exc, expected_action_id=action_id)
             result_text.value = state.last_message
         finally:
-            state.release_activity(action_id)
-            _rebuild(page, state)
+            if not worker_started and state.current_activity is not None and state.current_activity.action_id == action_id:
+                _restore_cancelled_result(state, action_id, result_text)
+                state.release_activity(action_id)
+                _rebuild(page, state)
 
     async def import_prices(_event: ft.ControlEvent) -> None:
         await import_file("prices")

@@ -209,6 +209,9 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             state.fail_activity(label, exc, expected_action_id=action_id)
             show(state.last_message, colour=theme.RED)
         finally:
+            cancelled_message = state.restore_cancelled_activity_message(action_id)
+            if cancelled_message is not None:
+                show(cancelled_message)
             state.release_activity(action_id)
             _refresh_activity_shell(page, state)
 
@@ -312,6 +315,10 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             bulk_status.value = state.last_message
             bulk_status.color = theme.RED
         finally:
+            cancelled_message = state.restore_cancelled_activity_message(action_id)
+            if cancelled_message is not None:
+                bulk_status.value = cancelled_message
+                bulk_status.color = theme.MUTED
             state.release_activity(action_id)
             _refresh_activity_shell(page, state)
 
@@ -444,6 +451,9 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             state.fail_activity(label, exc, expected_action_id=action_id)
             show(state.last_message, colour=theme.RED)
         finally:
+            cancelled_message = state.restore_cancelled_activity_message(action_id)
+            if cancelled_message is not None:
+                show(cancelled_message)
             state.release_activity(action_id)
             _refresh_activity_shell(page, state)
 

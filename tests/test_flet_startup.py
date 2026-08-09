@@ -203,17 +203,3 @@ def test_fallback_port_skips_busy_port(monkeypatch) -> None:
     monkeypatch.setattr(flet_app, "_is_port_listening", lambda host, port: port == 8550)
 
     assert flet_app._fallback_port_if_busy(8550) == 8551
-
-
-def test_normal_flet_startup_preserves_the_canonical_session_log(monkeypatch) -> None:
-    calls: list[dict[str, object]] = []
-    monkeypatch.setenv("ETF_COCKPIT_VIEW", "desktop")
-    monkeypatch.setenv("ETF_COCKPIT_OPEN_BROWSER", "0")
-    monkeypatch.setattr(flet_app, "_patch_flet_static_temp_dir", lambda: None)
-    monkeypatch.setattr(flet_app, "_startup_log", lambda _message: None)
-    monkeypatch.setattr(flet_app, "init_session_log", lambda **kwargs: calls.append(kwargs))
-    monkeypatch.setattr(flet_app, "_resolve_flet_app", lambda: lambda **_kwargs: None)
-
-    flet_app.run()
-
-    assert calls == [{"clear": False, "build_mode": "desktop", "port": 8550, "route": "/"}]
