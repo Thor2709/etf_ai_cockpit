@@ -361,6 +361,18 @@ them as later persistence-hardening evidence and do not expand this product
 issue into a new locking or generation framework. Repeat scoped whole-diff and
 risk review plus the full H-tier hosted gate on the final head.
 
+Exact head `39a7016ee9742979d6e0eff237672b4556af1e72` was rejected
+for four scoped recovery gaps: truncated-tail startup append failure,
+synchronous filing work without a reachable cancel control, disclosure
+losing-start cleanup and retries bypassing canonical activity ownership.
+Correction commit `d8dd2344` applies existing bounded tail recovery before
+append/compaction, runs official filing work in the existing background pattern
+with a persistent-shell cancel control, handles atomic-start losers safely and
+makes retries re-enter the decorated lifecycle wrapper. Focused ISSUE-0012,
+startup, error-recovery, trust and button evidence passed with Ruff, compileall
+and diff checks. Re-run both scoped reviews and the full H-tier Linux/Windows/
+terminal gate on the final checkpointed head.
+
 ## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head
