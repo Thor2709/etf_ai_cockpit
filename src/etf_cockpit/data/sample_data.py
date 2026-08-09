@@ -8,6 +8,7 @@ import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import PORTFOLIOS_DIR, RAW_DIR, ensure_project_dirs
+from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 
 
 def generate_sample_prices(config: AppConfig, periods: int = 900, end_date: date | None = None) -> pd.DataFrame:
@@ -116,13 +117,19 @@ def generate_sample_holdings(config: AppConfig, prices: pd.DataFrame, portfolio_
     return pd.DataFrame(rows)
 
 
-def ensure_sample_files(config: AppConfig, force: bool = False) -> tuple[Path, Path]:
-    ensure_project_dirs()
+def ensure_sample_files(
+    config: AppConfig,
+    force: bool = False,
+    *,
+    publish_guard: PublicationScopeFactory | None = None,
+) -> tuple[Path, Path]:
     price_path = RAW_DIR / "prices" / "sample_prices.csv"
     holdings_path = PORTFOLIOS_DIR / "current_holdings.csv"
     if force or not price_path.exists() or not holdings_path.exists():
         prices = generate_sample_prices(config)
         holdings = generate_sample_holdings(config, prices)
-        prices.to_csv(price_path, index=False)
-        holdings.to_csv(holdings_path, index=False)
+        with publication_scope(publish_guard):
+            ensure_project_dirs()
+            prices.to_csv(price_path, index=False)
+            holdings.to_csv(holdings_path, index=False)
     return price_path, holdings_path

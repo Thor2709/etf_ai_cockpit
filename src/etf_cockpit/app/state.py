@@ -14,7 +14,7 @@ from etf_cockpit.core.config import AppConfig, save_provider_settings
 from etf_cockpit.core.atomic_io import atomic_write_bytes, sha256_file
 from etf_cockpit.core.migrations import run_startup_migrations
 from etf_cockpit.core.paths import CLEAN_DIR, FILINGS_STATEMENTS_PATH, RAW_DIR, ROOT, STATEMENT_FACTS_PATH
-from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event
+from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event, redact_text
 from etf_cockpit.core.errors import ErrorStore, classify_exception
 from etf_cockpit.core.timing import timed_step
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowController, WorkflowStatus, WorkflowStep, WorkflowTransitionError, publication_scope
@@ -207,44 +207,95 @@ def _read_recent_activity(limit: int = 8) -> list[ActivityEntry]:
         events, _ = load_events_with_tail_recovery(ACTIVITY_LOG_PATH)
     except Exception:
         return []
-    terminal_events = {"activity_complete", "activity_failed", "activity_cancelled", "activity_interrupted"}
+    activity_terminal_events = {"activity_complete", "activity_failed", "activity_cancelled", "activity_interrupted"}
+    relevant_events = {
+        "workflow_start",
+        "workflow_step",
+        "workflow_finish",
+        "activity_update",
+        *activity_terminal_events,
+    }
     grouped: dict[str, list[dict[str, Any]]] = {}
     for event in events:
         if not event.action_id:
             continue
         data = event.model_dump(mode="json")
-        if event.event_type in {"activity_update", *terminal_events}:
+        if event.event_type in relevant_events:
             grouped.setdefault(str(event.action_id), []).append(data)
 
     entries: list[ActivityEntry] = []
     for action_events in grouped.values():
-        terminal = next((item for item in reversed(action_events) if item.get("event_type") in terminal_events), None)
-        interrupted = terminal is None
-        terminal = action_events[-1] if terminal is None else terminal
-        terminal_summary = terminal.get("output_summary") or {}
+        workflow_start = next((item for item in action_events if item.get("event_type") == "workflow_start"), None)
+        workflow_finish = next((item for item in reversed(action_events) if item.get("event_type") == "workflow_finish"), None)
+        workflow_step = next((item for item in reversed(action_events) if item.get("event_type") == "workflow_step"), None)
+        activity_terminals = [item for item in action_events if item.get("event_type") in activity_terminal_events]
+        if workflow_finish is not None:
+            workflow_status = str(workflow_finish.get("status") or "unknown")
+            compatible_statuses = {workflow_status}
+            if workflow_status in {"unavailable", "manual_review"}:
+                compatible_statuses.add("failed")
+            activity_terminal = next(
+                (item for item in reversed(activity_terminals) if item.get("status") in compatible_statuses),
+                None,
+            )
+        elif workflow_start is not None:
+            activity_terminal = next(
+                (item for item in reversed(activity_terminals) if item.get("event_type") == "activity_interrupted"),
+                None,
+            )
+        else:
+            activity_terminal = activity_terminals[-1] if activity_terminals else None
         latest_update = next((item for item in reversed(action_events) if item.get("event_type") == "activity_update"), {})
         latest_summary = latest_update.get("output_summary") or {}
-        first_summary = (action_events[0].get("output_summary") or {}) if action_events else {}
-        file_paths = terminal.get("file_paths") or []
+        terminal_summary = (activity_terminal or {}).get("output_summary") or {}
+        workflow_step_summary = (workflow_step or {}).get("output_summary") or {}
+        workflow_step_data = workflow_step_summary.get("step") or {}
+        lifecycle_start = workflow_start or action_events[0]
+        lifecycle_terminal = workflow_finish or activity_terminal
+        interrupted = workflow_start is not None and workflow_finish is None
+        if workflow_finish is not None:
+            status = str(workflow_finish.get("status") or "unknown")
+        elif interrupted:
+            status = "interrupted"
+        elif activity_terminal is not None:
+            status = str(activity_terminal.get("status") or "unknown")
+        else:
+            status = "interrupted"
+            interrupted = True
+        file_paths = (workflow_finish or activity_terminal or {}).get("file_paths") or []
+        workflow_outputs = ((workflow_finish or {}).get("output_summary") or {}).get("outputs") or []
         output_path = terminal_summary.get("output_path") or (file_paths[0] if file_paths else None)
-        status = "interrupted" if interrupted else str(terminal.get("status") or "unknown")
+        if output_path is None and workflow_outputs:
+            output_path = workflow_outputs[0]
         interruption_message = "Application restarted before this action reached a terminal state."
+        terminal_message = str(
+            (activity_terminal or {}).get("user_message")
+            or terminal_summary.get("message")
+            or (workflow_finish or {}).get("user_message")
+            or latest_summary.get("message")
+            or (workflow_step or {}).get("user_message")
+            or ""
+        )
+        default_step = "Interrupted" if interrupted else "Cancelled" if status == "cancelled" else "Failed" if status in {"failed", "unavailable"} else "Complete"
+        step = str(terminal_summary.get("step") or latest_summary.get("step") or workflow_step_data.get("key") or workflow_step_data.get("label") or default_step)
+        completed_units = int(terminal_summary.get("completed_units", latest_summary.get("completed_units", workflow_step_data.get("completed_units", 0))) or 0)
+        total_value = terminal_summary.get("total_units", latest_summary.get("total_units", workflow_step_data.get("total_units")))
         entries.append(
             ActivityEntry(
-                label=str(terminal.get("button_label") or terminal.get("feature") or "Workflow action"),
+                label=str((activity_terminal or {}).get("button_label") or latest_update.get("button_label") or lifecycle_start.get("feature") or "Workflow action"),
                 status=status,
-                step=str(terminal_summary.get("step") or ("Interrupted" if interrupted else "Cancelled" if status == "cancelled" else "Failed" if status == "failed" else "Complete")),
-                started_at=str(terminal_summary.get("started_at") or first_summary.get("started_at") or action_events[0].get("timestamp_local") or action_events[0].get("timestamp_utc") or ""),
-                action_id=str(terminal.get("action_id") or ""),
-                finished_at=str(terminal_summary.get("finished_at") or terminal.get("timestamp_local") or terminal.get("timestamp_utc") or ""),
-                message=interruption_message if interrupted else str(terminal.get("user_message") or terminal_summary.get("message") or ""),
+                step=step,
+                started_at=str(terminal_summary.get("started_at") or latest_summary.get("started_at") or lifecycle_start.get("timestamp_local") or lifecycle_start.get("timestamp_utc") or ""),
+                action_id=str(lifecycle_start.get("action_id") or ""),
+                finished_at=None if interrupted else str(terminal_summary.get("finished_at") or (lifecycle_terminal or {}).get("timestamp_local") or (lifecycle_terminal or {}).get("timestamp_utc") or ""),
+                message=interruption_message if interrupted else terminal_message,
                 output_path=None if output_path is None else str(output_path),
-                completed_units=int(terminal_summary.get("completed_units", latest_summary.get("completed_units", 0)) or 0),
-                total_units=None if terminal_summary.get("total_units", latest_summary.get("total_units")) is None else int(terminal_summary.get("total_units", latest_summary.get("total_units"))),
-                error=interruption_message if interrupted else None if terminal_summary.get("error") is None else str(terminal_summary.get("error")),
+                completed_units=completed_units,
+                total_units=None if total_value is None else int(total_value),
+                error=interruption_message if interrupted else str(terminal_summary.get("error") or terminal_message) if status in {"failed", "unavailable"} else None,
             )
         )
-        if interrupted:
+        if interrupted and not any(item.get("event_type") == "activity_interrupted" for item in action_events):
             recovered = entries[-1]
             log_event(
                 event_type="activity_interrupted",
@@ -665,8 +716,11 @@ class AppState:
 
     @_tracked_activity("Check API/yfinance provider", "Checking provider configuration")
     def renew_data_api_status(self) -> str:
-        message = DataService(self.snapshot.config).api_update_status()
+        service = DataService(self.snapshot.config)
+        message = redact_text(service.api_update_status(publish_guard=self.activity_publication))
         self.last_message = message
+        if not service.last_operation_succeeded:
+            raise ActivityUnavailableError(message)
         self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)
         return message
 
@@ -725,7 +779,7 @@ class AppState:
 
     @_tracked_activity("Rollback prices", "Searching previous clean price snapshot")
     def rollback_latest_prices(self) -> str:
-        message = DataService(self.snapshot.config).rollback_latest_price_import()
+        message = DataService(self.snapshot.config).rollback_latest_price_import(publish_guard=self.activity_publication)
         self.last_message = message
         if message.startswith("Rolled back prices"):
             self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)

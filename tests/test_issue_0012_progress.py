@@ -21,9 +21,19 @@ from etf_cockpit.app.pages import import_export as import_export_page_module
 from etf_cockpit.app.pages import trust_evidence as trust_evidence_module
 from etf_cockpit.app.state import ActivityEntry, ActivityUnavailableError, AppState, _read_recent_activity
 from etf_cockpit.core import session_log
-from etf_cockpit.core.workflow import LONG_RUNNING_ACTIONS, LONG_RUNNING_ACTION_SPECS, WorkflowTransitionError
+from etf_cockpit.core.workflow import (
+    LONG_RUNNING_ACTIONS,
+    LONG_RUNNING_ACTION_SPECS,
+    WorkflowController,
+    WorkflowStatus,
+    WorkflowStep,
+    WorkflowTransitionError,
+)
 from etf_cockpit import services as services_module
+from etf_cockpit.data import duckdb_store as duckdb_store_module
 from etf_cockpit.data import fund_holdings as fund_holdings_module
+from etf_cockpit.data import import_pipeline as import_pipeline_module
+from etf_cockpit.data import sample_data as sample_data_module
 from etf_cockpit.data import trade_candidate_analysis as candidate_analysis_module
 from etf_cockpit.parsers.contracts import ParseResult, ParseWarning
 from etf_cockpit.services import ForecastService
@@ -846,3 +856,246 @@ def test_non_dashboard_terminal_rebuilds_shell_and_redacts_secret(page_kind, tmp
     assert "***redacted***" in visible
     assert state.recent_activity[-1].status == "failed"
     assert rebuilt == ["/"]
+
+
+def test_restart_recovers_interrupted_workflow_step_without_activity_events(tmp_path, monkeypatch) -> None:
+    log_path = tmp_path / "session.jsonl"
+    monkeypatch.setattr(session_log, "SESSION_LOG_PATH", log_path)
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", log_path)
+    controller = WorkflowController()
+    action_id = controller.start("Refresh sample data", "Refresh sample data")
+    controller.step(action_id, WorkflowStep("sample_prices", "Writing sample prices", 1, 3))
+
+    recovered = _read_recent_activity()
+
+    assert len(recovered) == 1
+    assert recovered[0].action_id == action_id
+    assert recovered[0].status == "interrupted"
+    assert recovered[0].step == "sample_prices"
+    assert recovered[0].completed_units == 1
+    assert recovered[0].total_units == 3
+    assert recovered[0].started_at
+    assert _read_recent_activity()[0].action_id == action_id
+    rows = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    assert sum(row["event_type"] == "activity_interrupted" for row in rows) == 1
+
+
+@pytest.mark.parametrize("terminal", ["success", "failed", "cancelled"])
+def test_restart_recovers_canonical_workflow_terminal_without_activity_terminal(
+    terminal, tmp_path, monkeypatch
+) -> None:
+    log_path = tmp_path / f"{terminal}.jsonl"
+    monkeypatch.setattr(session_log, "SESSION_LOG_PATH", log_path)
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", log_path)
+    controller = WorkflowController()
+    action_id = controller.start("Canonical action", "Canonical action")
+    controller.step(action_id, WorkflowStep("publish", "Publishing output", 2, 2))
+    if terminal == "success":
+        controller.finish(action_id, WorkflowStatus.SUCCESS, "Output ready.", (tmp_path / "output.csv",))
+    elif terminal == "failed":
+        controller.fail(action_id, ValueError("token=restart-secret"), retryable=False)
+    else:
+        controller.cancel(action_id, "Cancelled at publication boundary.")
+
+    recovered = _read_recent_activity()
+
+    assert len(recovered) == 1
+    assert recovered[0].action_id == action_id
+    assert recovered[0].status == terminal
+    assert recovered[0].started_at
+    assert recovered[0].finished_at
+    assert recovered[0].completed_units == 2
+    assert recovered[0].total_units == 2
+    if terminal == "success":
+        assert recovered[0].message == "Output ready."
+        assert recovered[0].output_path == str(tmp_path / "output.csv")
+    elif terminal == "failed":
+        assert "restart-secret" not in recovered[0].message
+        assert recovered[0].error == recovered[0].message
+    else:
+        assert recovered[0].message == "Cancelled at publication boundary."
+        assert recovered[0].error is None
+
+
+def test_sample_publication_scope_serialises_cancel_and_rejects_clean_store_write(tmp_path, monkeypatch) -> None:
+    state = _state()
+    action_id = state.begin_activity("Refresh sample data", "Publishing sample files").action_id
+    raw_dir = tmp_path / "raw"
+    portfolios_dir = tmp_path / "portfolios"
+    raw_dir.joinpath("prices").mkdir(parents=True)
+    portfolios_dir.mkdir(parents=True)
+    monkeypatch.setattr(sample_data_module, "RAW_DIR", raw_dir)
+    monkeypatch.setattr(sample_data_module, "PORTFOLIOS_DIR", portfolios_dir)
+    monkeypatch.setattr(duckdb_store_module, "PRICE_PARQUET", tmp_path / "clean" / "prices.parquet")
+    entered = threading.Event()
+    release = threading.Event()
+    cancelled = threading.Event()
+    worker_errors: list[Exception] = []
+    writes: list[str] = []
+    original_to_csv = services_module.pd.DataFrame.to_csv
+    original_initialise = services_module.initialise_store
+
+    def blocking_to_csv(frame, path, *args, **kwargs):
+        writes.append(Path(path).name)
+        if len(writes) == 1:
+            entered.set()
+            assert release.wait(2)
+        return original_to_csv(frame, path, *args, **kwargs)
+
+    def initialise_after_cancel(*args, **kwargs):
+        assert cancelled.wait(2)
+        return original_initialise(*args, **kwargs)
+
+    monkeypatch.setattr(services_module.pd.DataFrame, "to_csv", blocking_to_csv)
+    monkeypatch.setattr(services_module, "initialise_store", initialise_after_cancel)
+
+    def run_update() -> None:
+        try:
+            services_module.DataService(state.snapshot.config).update_prices(
+                force_sample=True,
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+        except Exception as exc:
+            worker_errors.append(exc)
+
+    worker = threading.Thread(target=run_update)
+    worker.start()
+    assert entered.wait(2)
+    canceller = threading.Thread(
+        target=lambda: (state.cancel_activity(expected_action_id=action_id), cancelled.set())
+    )
+    canceller.start()
+    assert not cancelled.wait(0.1)
+    release.set()
+    assert cancelled.wait(2)
+    worker.join(timeout=2)
+    canceller.join(timeout=2)
+
+    assert writes == ["sample_prices.csv", "current_holdings.csv"]
+    assert not (tmp_path / "clean" / "prices.parquet").exists()
+    assert any(isinstance(exc, WorkflowTransitionError) for exc in worker_errors)
+    state.release_activity(action_id)
+
+
+def test_rollback_publication_scope_serialises_cancel_and_rejects_later_restore(tmp_path, monkeypatch) -> None:
+    state = _state()
+    action_id = state.begin_activity("Rollback prices", "Restoring prices").action_id
+    snapshots = tmp_path / "snapshots"
+    snapshots.mkdir()
+    frame = services_module.pd.DataFrame({"date": ["2026-08-08"], "etf_id": ["VWCE"], "adjusted_close": [100.0]})
+    snapshot_path = snapshots / "001_previous_prices.parquet"
+    frame.to_parquet(snapshot_path, index=False)
+    entered = threading.Event()
+    release = threading.Event()
+    cancelled = threading.Event()
+    writes = 0
+    original_write = import_pipeline_module._write_price_stores_atomically
+
+    def blocking_write(*args, **kwargs):
+        nonlocal writes
+        writes += 1
+        entered.set()
+        assert release.wait(2)
+        return original_write(*args, **kwargs)
+
+    monkeypatch.setattr(import_pipeline_module, "_write_price_stores_atomically", blocking_write)
+
+    def restore() -> None:
+        import_pipeline_module.rollback_latest_price_import(
+            clean_path=tmp_path / "clean" / "prices.parquet",
+            compatibility_path=tmp_path / "validated" / "prices.parquet",
+            snapshots_dir=snapshots,
+            publish_guard=lambda: state.activity_publication(action_id),
+        )
+
+    worker = threading.Thread(target=restore)
+    worker.start()
+    assert entered.wait(2)
+    canceller = threading.Thread(
+        target=lambda: (state.cancel_activity(expected_action_id=action_id), cancelled.set())
+    )
+    canceller.start()
+    assert not cancelled.wait(0.1)
+    release.set()
+    worker.join(timeout=2)
+    assert cancelled.wait(2)
+    canceller.join(timeout=2)
+    assert writes == 1
+    with pytest.raises(WorkflowTransitionError):
+        restore()
+    assert writes == 1
+    state.release_activity(action_id)
+
+
+def test_api_status_publication_scope_serialises_cancel_and_redacts_unavailable(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "session.jsonl")
+    state = _state()
+    section = state.snapshot.config.data_providers.section("prices")
+    monkeypatch.setattr(section, "active_provider", "yfinance")
+    price_result = SimpleNamespace(ok=True, data=state.snapshot.prices.copy(), message="prices fetched")
+    unavailable = SimpleNamespace(ok=False, data=None, message="unavailable")
+    entered = threading.Event()
+    release = threading.Event()
+    cancelled = threading.Event()
+    worker_errors: list[Exception] = []
+
+    def fetch_reference_after_cancel(*_args):
+        assert cancelled.wait(2)
+        return unavailable
+
+    provider = SimpleNamespace(
+        fetch_prices=lambda *_args: price_result,
+        fetch_etf_metadata=fetch_reference_after_cancel,
+        fetch_etf_holdings=lambda *_args: unavailable,
+    )
+    monkeypatch.setattr(services_module.YFinanceProvider, "from_config", staticmethod(lambda _config: provider))
+    monkeypatch.setattr(services_module, "validate_prices", lambda *_args, **_kwargs: SimpleNamespace(issues=[]))
+
+    def guarded_snapshot(*, force_sample=False, publish_guard=None):
+        with publish_guard():
+            return state.snapshot
+
+    monkeypatch.setattr(app_state_module, "build_snapshot", guarded_snapshot)
+
+    def blocking_commit(_result):
+        entered.set()
+        assert release.wait(2)
+        return SimpleNamespace(rows=1, clean_path="prices", previous_snapshot_path=None)
+
+    monkeypatch.setattr(services_module, "commit_price_import", blocking_commit)
+
+    def run_status() -> None:
+        try:
+            state.renew_data_api_status()
+        except Exception as exc:
+            worker_errors.append(exc)
+
+    worker = threading.Thread(target=run_status)
+    worker.start()
+    assert entered.wait(2)
+    action_id = state.current_activity.action_id
+    canceller = threading.Thread(
+        target=lambda: (state.cancel_activity(expected_action_id=action_id), cancelled.set())
+    )
+    canceller.start()
+    assert not cancelled.wait(0.1)
+    release.set()
+    assert cancelled.wait(2)
+    worker.join(timeout=2)
+    canceller.join(timeout=2)
+    assert any(isinstance(exc, WorkflowTransitionError) for exc in worker_errors)
+    assert state.recent_activity[-1].status == "cancelled"
+
+    failed_provider = SimpleNamespace(
+        fetch_prices=lambda *_args: SimpleNamespace(
+            ok=False,
+            data=None,
+            message="Yahoo unavailable: api_key=raw-api-status-secret",
+        )
+    )
+    monkeypatch.setattr(services_module.YFinanceProvider, "from_config", staticmethod(lambda _config: failed_provider))
+    with pytest.raises(ActivityUnavailableError):
+        state.renew_data_api_status()
+    assert state.recent_activity[-1].status == "failed"
+    assert "raw-api-status-secret" not in state.recent_activity[-1].message
+    assert "***redacted***" in state.recent_activity[-1].message

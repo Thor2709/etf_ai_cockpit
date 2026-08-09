@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig, ETFConfig, ProviderSection
+from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.data.providers import DataProvider, PriceProvider, ProviderResult
 from etf_cockpit.data.provenance import metadata_from_frame
 from etf_cockpit.data.universe_store import support_decision
@@ -102,7 +103,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
                 else:
                     frames.append(frame)
             except Exception as exc:
-                errors.append(f"{etf_id}/{yahoo_symbol}: {type(exc).__name__}: {exc}")
+                errors.append(redact_text(f"{etf_id}/{yahoo_symbol}: {type(exc).__name__}: {exc}"))
         if not frames:
             return ProviderResult(self.name, "prices", "error", "Yahoo Finance returned no usable price rows. " + "; ".join(errors))
         data = pd.concat(frames, ignore_index=True).sort_values(["etf_id", "date"])
@@ -180,7 +181,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
             try:
                 rows.append(self._metadata_row(etf_id, yahoo_symbol))
             except Exception as exc:
-                errors.append(f"{etf_id}/{yahoo_symbol}: {type(exc).__name__}: {exc}")
+                errors.append(redact_text(f"{etf_id}/{yahoo_symbol}: {type(exc).__name__}: {exc}"))
         if not rows:
             return ProviderResult(self.name, "etf_metadata", "error", "Yahoo Finance returned no usable metadata. " + "; ".join(errors))
         data = pd.DataFrame(rows)

@@ -237,9 +237,14 @@ class DataService:
         self.config = config
         self.last_operation_succeeded = True
 
-    def update_prices(self, force_sample: bool = False) -> None:
-        ensure_sample_files(self.config, force=force_sample)
-        initialise_store(self.config, force_sample=force_sample)
+    def update_prices(
+        self,
+        force_sample: bool = False,
+        *,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> None:
+        ensure_sample_files(self.config, force=force_sample, publish_guard=publish_guard)
+        initialise_store(self.config, force_sample=force_sample, publish_guard=publish_guard)
 
     def load_prices(self, etf_ids: list[str] | None = None, start: date | None = None, end: date | None = None) -> pd.DataFrame:
         prices = load_prices()
@@ -315,12 +320,13 @@ class DataService:
             ]
         )
 
-    def api_update_status(self) -> str:
+    def api_update_status(self, *, publish_guard: PublicationScopeFactory | None = None) -> str:
         section = self.config.data_providers.section("prices")
         if section.active_provider.lower() == "yfinance":
-            return self.refresh_yfinance_data()
+            return self.refresh_yfinance_data(publish_guard=publish_guard)
         result = GenericHTTPProvider(section).fetch_prices([], date.today(), date.today())
-        return result.message
+        self.last_operation_succeeded = result.ok
+        return redact_text(str(result.message))
 
     def refresh_yfinance_data(
         self,
@@ -337,7 +343,7 @@ class DataService:
 
         result = provider.fetch_prices([], start_date, end_date)
         if not result.ok or result.data is None:
-            return result.message
+            return redact_text(str(result.message))
         report = validate_prices(result.data, as_of_date=end_date)
         block_issues = [issue.message for issue in report.issues if issue.severity == "block"]
         if block_issues:
@@ -707,9 +713,13 @@ class DataService:
             "ticker_to_etf_id": {etf.ticker: etf.id for etf in etfs if etf.ticker},
         }
 
-    def rollback_latest_price_import(self) -> str:
+    def rollback_latest_price_import(
+        self,
+        *,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> str:
         try:
-            rollback = rollback_price_store()
+            rollback = rollback_price_store(publish_guard=publish_guard)
         except FileNotFoundError as exc:
             return str(exc)
 
@@ -1242,7 +1252,7 @@ def _build_snapshot(
     config = load_config()
     universe_revision = _current_universe_revision()
     data_service = DataService(config)
-    data_service.update_prices(force_sample=force_sample)
+    data_service.update_prices(force_sample=force_sample, publish_guard=publish_guard)
     current_ids = set(config.universe.enabled_ids)
     prices = data_service.load_prices()
     if not prices.empty and "etf_id" in prices:

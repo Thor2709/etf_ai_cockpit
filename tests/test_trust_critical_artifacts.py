@@ -121,7 +121,7 @@ def test_snapshot_retains_configured_manual_holdings_for_audit_export(monkeypatc
         def __init__(self, _config):
             pass
 
-        def update_prices(self, force_sample=False):
+        def update_prices(self, force_sample=False, **_kwargs):
             return None
 
         def load_prices(self):
