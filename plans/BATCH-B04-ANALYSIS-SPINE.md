@@ -446,8 +446,25 @@ append-only authority. Its live plan SHA is
 `8e3778a20cd1b1c64da5c69347238c017c932f56d1f16649bd7a2dd8847fe3aa` and
 aggregate authority is
 `60d2ce9cc6057817850dcb42ca1ed7e51c5ddbb96d9415280d557e134bcc7206`.
-Next is exact-head E-tier review/validation, merge, writer plus zero-action
-readback, then dependency-ready ISSUE-0014.
+Both exact-head reviews approved after fresh lifecycle run `31328999996`
+passed Linux, Windows and terminal validation and guard `31328999997` passed.
+PR #664 merged exact head `30be81ef0c73059331cbe9b2268e66f9f02314c6`
+as `c8a7da624c97f1a04191fd3ad1b7880bca83feec`. Writer `31330290295`
+returned `applied_and_verified`, one aggregate proposal and receipt, and
+`zero_action_readback=true`; generic live readback is zero-action at plan SHA
+`999f68c57c2ec349c21280aa94b751a6dac5130a9d03981d2d63a72bdf743f7c`.
+GitHub issue #16 now projects `integrated`; `execution_allowed=false` remains.
+
+ISSUE-0014 is next and dependency-ready by canonical blocking dependencies.
+Clean branch `codex/issue0014-product-20260810` starts at exact main
+`c8a7da624c97f1a04191fd3ad1b7880bca83feec`. Its bounded additive test/runner
+scope separates source, packaged and browser journeys and covers clean
+offline import, optional online failure, migration, a 250-instrument universe,
+training, paper simulation, recovery, package parity and loopback startup.
+Initial head `913e0d395c5e68132be9c2f53361002c5ae18848` passes all 10
+journeys, dry-run, Ruff, compileall and diff hygiene. Next is one final
+checkpoint commit, then parallel exact-head whole-diff/risk review and
+required H-tier CI.
 
 ## ISSUE-0104 product chronology
 
