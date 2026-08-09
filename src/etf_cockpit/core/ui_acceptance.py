@@ -12,7 +12,7 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Callable, Iterable, Literal
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from etf_cockpit.core.paths import CONFIG_DIR
 
@@ -357,10 +357,14 @@ def generate_ui_action_inventory(
             )
         )
 
-    page_titles = {
-        str(route): str(value[0])
-        for route, value in registered_routes.items()
-    } if isinstance(registered_routes, Mapping) else {str(route): str(route) for route in routes}
+    page_titles = (
+        {
+            str(route): str(value[0]) if isinstance(value, tuple) and value else str(route)
+            for route, value in registered_routes.items()
+        }
+        if isinstance(registered_routes, Mapping)
+        else {str(route): str(route) for route in routes}
+    )
     for route in routes:
         route = str(route)
         actions.append(
@@ -559,7 +563,7 @@ def _default_contract_path() -> Path:
     except importlib.metadata.PackageNotFoundError as exc:
         raise FileNotFoundError("ui_acceptance.yaml is unavailable from source and installed package") from exc
     installed_candidates = (
-        Path(distribution.locate_file("")) / "configs" / "ui_acceptance.yaml",
+        Path(str(distribution.locate_file(""))) / "configs" / "ui_acceptance.yaml",
         Path(sys.prefix) / "configs" / "ui_acceptance.yaml",
     )
     for candidate in installed_candidates:
@@ -568,7 +572,7 @@ def _default_contract_path() -> Path:
     for item in distribution.files or ():
         candidate = Path(str(item).replace("\\", "/"))
         if candidate.as_posix().endswith("/configs/ui_acceptance.yaml"):
-            resolved = Path(distribution.locate_file(item))
+            resolved = Path(str(distribution.locate_file(item)))
             if resolved.is_file():
                 return resolved
     raise FileNotFoundError("installed package does not contain configs/ui_acceptance.yaml")
@@ -719,6 +723,8 @@ def _callback_name(node: ast.AST | None, *, available_symbols: set[str]) -> str:
             if isinstance(child, ast.Call):
                 name = _call_name(child.func)
                 if name not in {"getattr", "setattr", "str", "list", "tuple"}:
+                    if isinstance(child.func, ast.Name) and name not in available_symbols:
+                        return ""
                     return name
     return ""
 

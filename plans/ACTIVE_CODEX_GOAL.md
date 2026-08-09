@@ -268,7 +268,20 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   palette handler now returns `UIInvocationResult | None` explicitly. The
   29-test focused selection, targeted two-file MyPy with return checking,
   Ruff, compile and diff hygiene pass; the exact 225-contract/283-action
-  non-executable inventory and H classification remain unchanged.
+  non-executable inventory and H classification remain unchanged. Exact head
+  `ceb1fd963f303cf1b68e528cbdfdda397196f39d` was then blocked because the
+  full targeted MyPy command still found an un-narrowed route-metadata index
+  and two `importlib.metadata.SimplePath` conversions, while a lambda wrapper
+  could still call an undefined callback name. The final bounded uncommitted
+  correction narrows page-title metadata to a non-empty tuple, converts
+  installed distribution paths through their string representation, and
+  validates direct names called inside lambda event wrappers against the same
+  available-symbol set. The exact two-file MyPy command passes without
+  error-code exclusions; the unavailable PyYAML stub uses the repository's
+  narrow import annotation. The 30-test focused selection, Ruff, compile and
+  diff hygiene pass. The exact
+  225-contract/283-action non-executable inventory, package mechanics and H
+  classification remain unchanged.
 - ISSUE-0011 is already canonically `in_progress`; the product PR therefore
   carries no artificial status or dependency transaction. Before product
   merge, retain exact product/review/gate evidence and the post-merge writer

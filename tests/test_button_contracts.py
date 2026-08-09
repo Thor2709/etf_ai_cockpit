@@ -140,7 +140,14 @@ def test_actionable_controls_reject_unresolved_or_invented_callbacks(
         )
 
 
-def test_actionable_control_rejects_undefined_named_callback(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "callback_source",
+    ["undefined_callback", "lambda event: undefined_callback(event)"],
+)
+def test_actionable_control_rejects_undefined_named_callback(
+    tmp_path: Path,
+    callback_source: str,
+) -> None:
     contract = next(
         item
         for item in load_ui_acceptance_contracts()
@@ -149,7 +156,7 @@ def test_actionable_control_rejects_undefined_named_callback(tmp_path: Path) -> 
     source_root = tmp_path / "app"
     source_root.mkdir()
     (source_root / "controls.py").write_text(
-        'ft.TextButton(key="training-centre.synthetic-scenario", on_click=undefined_callback)\n',
+        f'ft.TextButton(key="training-centre.synthetic-scenario", on_click={callback_source})\n',
         encoding="utf-8",
     )
     with pytest.raises(
