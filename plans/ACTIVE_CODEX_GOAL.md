@@ -297,7 +297,16 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   expectation. After the reviewed merge exists, prepare the existing atomic
   `in_progress -> implemented_initially -> integrated` replay against that
   exact product commit and require the authorized writer plus zero-action
-  generic readback.
+  generic readback. Product PR #659 merged independently approved exact head
+  `b782a9f75d4e6653ddc6ee1dbd733e8e775c24cc` as
+  `18b93e91ed8c9152e509d70ae0548b57550606fa` after H-tier run
+  `31295173994` passed Linux, Windows, package smoke and terminal validation.
+  The clean completion lane then reproduced one deterministic legacy-prefix
+  defect: B00 imported ISSUE-0011 directly as `in_progress` before
+  `transition_history` existed. The single bounded H repair accepts only that
+  exact bootstrap-empty origin across preparation, writer and terminal
+  validation; the ordered two hops, authority, dependency state and
+  `execution_allowed=false` remain unchanged.
 
 ## ISSUE-0104 product chronology
 

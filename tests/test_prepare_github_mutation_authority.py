@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import copy
+import json
 import subprocess
 from pathlib import Path
 
@@ -484,6 +484,118 @@ def test_status_replay_preparation_is_deterministic_and_exactly_two_hops(
     )
     with pytest.raises(ValueError, match="dependency evidence is inconsistent"):
         prepare.prepare(root, plan, remote, source_sha=source, mode="status_replay")
+
+
+def test_status_replay_preparation_accepts_only_exact_legacy_bootstrap_prefix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, source, _bootstrap_record = _repo(tmp_path, initial_status="in_progress")
+    reviewed_commit = "9" * 40
+    common = {
+        "evidence_references": ["tests/test_status_replay.py"],
+        "review_reference": "PR #replay",
+        "reviewer": "reviewer",
+        "reviewed_date": "2026-08-02",
+        "verified_commit": reviewed_commit,
+        "allow_downgrade": False,
+    }
+    hops = [
+        {"from": "in_progress", "to": "implemented_initially", **common},
+        {"from": "implemented_initially", "to": "integrated", **common},
+    ]
+    evidence = [
+        {
+            "status": event["to"],
+            **{
+                key: event[key]
+                for key in (
+                    "evidence_references",
+                    "review_reference",
+                    "reviewer",
+                    "reviewed_date",
+                )
+            },
+        }
+        for event in hops
+    ]
+    legacy_source = {
+        "acceptance_evidence": [],
+        "dependency_edge_evidence": {},
+        "phase": "phase-08-frontend-api",
+        "programme_status": "in_progress",
+        "status_transition": {
+            "from": "in_progress",
+            "to": "in_progress",
+            "review_reference": "B00 canonical import from audited programme state",
+        },
+        "verified_commit": "4" * 40,
+        "verified_date": "2026-07-21",
+    }
+    current_record = completion.project_status_replay_record(
+        legacy_source, hops, evidence, stable_id="ISSUE-0179"
+    )
+    control_path = root / "issues/programme_control_state.json"
+    control_path.parent.mkdir(parents=True, exist_ok=True)
+    control_path.write_text(
+        json.dumps(_control_state(legacy_source, source)), encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "legacy source status"], cwd=root, check=True)
+    source = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True
+    ).strip()
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/origin/main", source],
+        cwd=root,
+        check=True,
+    )
+    registry_path = root / "issues/issue_registry.json"
+    registry_path.write_text(
+        json.dumps({"records": [_record("integrated")]}), encoding="utf-8"
+    )
+    control_path.write_text(
+        json.dumps(_control_state(current_record, source)), encoding="utf-8"
+    )
+    remote = [dict(_remote()[0], body=sync.managed_block(_record("in_progress")))]
+    plan = sync.plan_actions(
+        {"records": [_record("integrated")]},
+        remote,
+        historical_map={},
+        authority_records=[_bootstrap("in_progress")],
+    )
+
+    candidate, _ledger, _manifest = prepare.prepare(
+        root, plan, remote, source_sha=source, mode="status_replay"
+    )
+    assert candidate is not None
+    replay = json.loads(candidate)["expected_replay"]
+    assert replay["transition_history_prefix"] == []
+    assert replay["acceptance_evidence_prefix"] == []
+    assert replay["transition_history_append"] == hops
+
+    for mutate in (
+        lambda record: record.update(
+            status_transition={
+                "from": "planned",
+                "to": "in_progress",
+                "review_reference": "B00 canonical import from audited programme state",
+            }
+        ),
+        lambda record: record.update(acceptance_evidence=[{"status": "in_progress"}]),
+        lambda record: record.update(transition_history=[]),
+        lambda record: record.update(programme_status="implemented_initially"),
+        lambda record: record.update(dependency_edge_evidence={"ISSUE-0001": {}}),
+    ):
+        malformed_source = copy.deepcopy(legacy_source)
+        mutate(malformed_source)
+        monkeypatch.setattr(
+            prepare,
+            "load_control_state_at",
+            lambda *_args, record=malformed_source: _control_state(record, source),
+        )
+        with pytest.raises(ValueError):
+            prepare.prepare(root, plan, remote, source_sha=source, mode="status_replay")
 
 
 def test_authoritative_control_state_fixture_has_history_and_fails_closed() -> None:

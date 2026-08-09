@@ -818,6 +818,9 @@ def _validate_status_replay_candidate(
     history_append = cast(list[dict[str, Any]], history_append)
     evidence_prefix = cast(list[dict[str, Any]], evidence_prefix)
     evidence_append = cast(list[dict[str, Any]], evidence_append)
+    legacy_bootstrap = (
+        isinstance(source_record, dict) and "transition_history" not in source_record
+    )
     validate_status_replay_prefix_shape(
         stable_id,
         history_prefix,
@@ -831,6 +834,7 @@ def _validate_status_replay_candidate(
         verified_commit=(source_record.get("verified_commit") if isinstance(source_record, dict) else None),
         verified_date=(source_record.get("verified_date") if isinstance(source_record, dict) else None),
         status_transition=(source_record.get("status_transition") if isinstance(source_record, dict) else None),
+        allow_legacy_bootstrap_origin=legacy_bootstrap,
     )
     if len(history_append) != 2 or len(evidence_append) != 2:
         raise ValueError("status replay requires exactly two matching appended entries")
@@ -895,7 +899,10 @@ def _validate_status_replay_candidate(
         verified_commit=source_record.get("verified_commit"),
         verified_date=source_record.get("verified_date"),
         status_transition=source_record.get("status_transition"),
+        allow_legacy_bootstrap_origin=legacy_bootstrap,
     )
+    if legacy_bootstrap:
+        source_history = []
     validate_status_replay_prefix_shape(
         stable_id,
         current_history,
@@ -905,6 +912,7 @@ def _validate_status_replay_candidate(
         verified_commit=current_record.get("verified_commit"),
         verified_date=current_record.get("verified_date"),
         status_transition=current_record.get("status_transition"),
+        allow_legacy_bootstrap_origin=legacy_bootstrap,
     )
     if (
         source_record.get("programme_status") != "in_progress"

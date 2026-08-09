@@ -370,6 +370,7 @@ def _validate_replay_candidate_evidence(
     stable_id = str(replay["stable_id"])
     source_record = _control_state_record_at(root, base, stable_id)
     current_record = _control_state_record_at(root, head, stable_id)
+    legacy_bootstrap = "transition_history" not in source_record
     validate_status_replay_prefix_shape(
         stable_id,
         replay.get("transition_history_prefix"),
@@ -379,6 +380,7 @@ def _validate_replay_candidate_evidence(
         verified_commit=source_record.get("verified_commit"),
         verified_date=source_record.get("verified_date"),
         status_transition=source_record.get("status_transition"),
+        allow_legacy_bootstrap_origin=legacy_bootstrap,
     )
     validate_status_replay_prefix_shape(
         stable_id,
@@ -389,6 +391,7 @@ def _validate_replay_candidate_evidence(
         verified_commit=source_record.get("verified_commit"),
         verified_date=source_record.get("verified_date"),
         status_transition=source_record.get("status_transition"),
+        allow_legacy_bootstrap_origin=legacy_bootstrap,
     )
     validate_status_replay_prefix_shape(
         stable_id,
@@ -399,9 +402,11 @@ def _validate_replay_candidate_evidence(
         verified_commit=current_record.get("verified_commit"),
         verified_date=current_record.get("verified_date"),
         status_transition=current_record.get("status_transition"),
+        allow_legacy_bootstrap_origin=legacy_bootstrap,
     )
+    source_history = [] if legacy_bootstrap else source_record.get("transition_history")
     if (
-        replay["transition_history_prefix"] != source_record.get("transition_history")
+        replay["transition_history_prefix"] != source_history
         or replay["acceptance_evidence_prefix"]
         != source_record.get("acceptance_evidence")
         or current_record.get("transition_history")

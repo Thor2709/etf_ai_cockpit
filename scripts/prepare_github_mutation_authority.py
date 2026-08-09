@@ -139,6 +139,7 @@ def prepare(
         source_evidence = source_record.get("acceptance_evidence")
         current_history = current_record.get("transition_history")
         current_evidence = current_record.get("acceptance_evidence")
+        legacy_bootstrap = "transition_history" not in source_record
         validate_status_replay_prefix_shape(
             stable_id,
             source_history,
@@ -148,6 +149,7 @@ def prepare(
             verified_commit=source_record.get("verified_commit"),
             verified_date=source_record.get("verified_date"),
             status_transition=source_record.get("status_transition"),
+            allow_legacy_bootstrap_origin=legacy_bootstrap,
         )
         validate_status_replay_prefix_shape(
             stable_id,
@@ -158,7 +160,10 @@ def prepare(
             verified_commit=current_record.get("verified_commit"),
             verified_date=current_record.get("verified_date"),
             status_transition=current_record.get("status_transition"),
+            allow_legacy_bootstrap_origin=legacy_bootstrap,
         )
+        if legacy_bootstrap:
+            source_history = []
         if not all(
             isinstance(value, list)
             for value in (
