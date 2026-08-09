@@ -163,6 +163,9 @@ def _edge_rows(
 
 def _validate_decision(record: Mapping[str, Any], decision: Mapping[str, Any]) -> None:
     issue_id = _strict_string(decision.get("issue_id"), "issue_id")
+    ledger_state = record.get("ledger_state")
+    if ledger_state not in {"open", "closed"}:
+        raise ValueError(f"canonical record ledger_state must be open or closed for {issue_id}")
     expected_dependencies = _strict_string_tuple(record.get("blocking_dependencies", []), "blocking_dependencies")
     expected_activation = _strict_string_tuple(record.get("activation_dependencies", []), "activation_dependencies")
     record_inputs = (
@@ -185,7 +188,7 @@ def _validate_decision(record: Mapping[str, Any], decision: Mapping[str, Any]) -
         field="activation_edges",
         expected_dependencies=expected_activation,
     )
-    derived_ready = record.get("ledger_state") != "closed" and all(edge["resolved"] is True for edge in edges)
+    derived_ready = ledger_state == "open" and all(edge["resolved"] is True for edge in edges)
     derived_activation_ready = all(edge["resolved"] is True for edge in activation_edges)
     if ready is not derived_ready:
         raise ValueError(f"readiness ready is inconsistent with canonical closure evidence for {issue_id}")

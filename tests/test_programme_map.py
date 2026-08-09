@@ -14,6 +14,7 @@ def _record(**overrides: object) -> dict[str, object]:
         "title": "Programme map",
         "phase": "phase-01-governance-scope",
         "priority": "P1",
+        "ledger_state": "open",
         "programme_status": "planned",
         "package_status": "Open",
         "blocking_dependencies": ["ISSUE-0001"],
@@ -199,4 +200,41 @@ def test_programme_map_cannot_overstate_readiness_over_unresolved_edge() -> None
     }
 
     with pytest.raises(ValueError, match="inconsistent"):
+        build_programme_map(_registry(record, decision))
+
+
+def test_programme_map_rejects_missing_ledger_state() -> None:
+    record = _record(blocking_dependencies=[])
+    record.pop("ledger_state")
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": True,
+        "reason_codes": ["READY_NO_BLOCKING_DEPENDENCIES"],
+        "edges": [],
+        "required_inputs": ["ISSUE-0002"],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+
+    with pytest.raises(ValueError, match="ledger_state must be open or closed"):
+        build_programme_map(_registry(record, decision))
+
+
+def test_programme_map_rejects_unknown_ledger_state() -> None:
+    record = _record(blocking_dependencies=[], ledger_state="unknown")
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": True,
+        "reason_codes": ["READY_NO_BLOCKING_DEPENDENCIES"],
+        "edges": [],
+        "required_inputs": ["ISSUE-0002"],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+
+    with pytest.raises(ValueError, match="ledger_state must be open or closed"):
         build_programme_map(_registry(record, decision))
