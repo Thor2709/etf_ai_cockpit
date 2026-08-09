@@ -120,8 +120,31 @@ in 71.8 seconds and risk review approved; stale H run `31281223390` was
 cancelled after whole-diff review required every malformed variant to exercise
 both generic registry entrypoints and nested synthetic executable-authority
 metadata to fail closed. The bounded correction restores those assertions and
-recursively rejects the marker across dict/list/tuple metadata. Freeze one
-replacement head for both reviews and fresh H-tier CI; no adjacent hardening.
+recursively rejects the marker across dict/list/tuple metadata. Final reviewed
+head `19bbee09aef0f4bb19faa72183510c0dc5975973` passed guard `31281965468`
+and full H-tier run `31281965469`, then merged in PR #657 as
+`dbb53c04a17327b8b97a73c8841c5368c2e82c9f`. Ordered writer `31284329688`
+applied only `planned -> in_progress` with terminal verification and
+zero-action readback; convergence `31284329681` passed and
+`execution_allowed=false` remains. Clean completion branch
+`codex/issue0010-completion-20260809` starts at that exact main and records
+only the existing atomic `in_progress -> implemented_initially -> integrated`
+replay, exact reviewed product/validation evidence, generated projections and
+the required append-only authority transaction. No product or dependency-edge
+change is in scope. Classification remains E-tier; because the unchanged
+base-anchored reusable sidecar predates the ISSUE-0010 product diff, the hosted
+package gate remains required and is not bypassed. Risk review approved frozen
+head `cfbe45a129f0e0ce47341bde514f6f1ab99570a3`; whole-diff review rejected it
+only because a generic negative fixture hard-coded `closed` as ISSUE-0010's
+skip after that became its legal next hop. Stale run `31285303818` was
+cancelled. The single consolidated test correction dynamically selects a
+record with a legal two-step forward skip and the exact reproduction passes.
+The replacement now classifies O-tier; cadence is known and not due, so its
+hosted run requires preflight, supply-chain and terminal validation but not
+Linux/Windows packages. Whole-diff re-review approved; risk re-review then
+showed `planned -> in_progress` in the dynamic table was legal. The final
+test-only closure changes that pair to `planned -> implemented_initially` and
+asserts every chosen pair is absent from the canonical allowed-transition set.
 
 ## ISSUE-0104 product chronology
 
