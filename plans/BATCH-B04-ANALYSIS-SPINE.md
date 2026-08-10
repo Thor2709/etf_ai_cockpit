@@ -3039,3 +3039,15 @@ rejects repeated same-tier identities and makes ambiguous onboarding matches
 fail before writes. Complete focused identity, persistence, application and
 presentation-boundary checks pass. Freeze the documented head for final review
 and H-tier Linux/Windows/terminal gates.
+
+`CONSOLIDATED_INTEGRITY_CORRECTION` final review rejected exact head
+`8abbce95706a5b18b71514615d2395a9aa00c46f` for five reproduced gaps: active
+config bypassed canonical universe integrity, onboarding settings lacked CAS,
+backup durability was overstated, malformed ISIN authority was accepted, and
+disabled unresolved tickers were re-enabled on resave. Run `31407286024` is
+cancelled and stale. Commit `b959929168417b3642e42d6edf0464a2b83cbb8c`
+uses the canonical decoder at the application boundary, checksum-binds the
+onboarding CAS, records backup unavailable/not enabled, validates verified
+ISIN shape/status and preserves unresolved disabled state. The complete focused
+integrity/concurrency/application/architecture surface passes. Freeze the
+documented head for final review and H-tier Linux/Windows/terminal gates.

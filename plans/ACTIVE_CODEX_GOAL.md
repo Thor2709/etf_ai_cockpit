@@ -124,6 +124,19 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   ID/ticker/ISIN round-trip, triplet and no-write regressions plus the affected
   onboarding, universe, application and presentation-boundary suite pass.
   Freeze the documented head for final review and H-tier gates.
+- Final review rejected `8abbce95706a5b18b71514615d2395a9aa00c46f`
+  with five demonstrated persistence/integrity gaps: application config bypassed
+  canonical universe integrity, onboarding lacked its own stale-writer CAS,
+  backup state overstated durability, malformed ISIN authority was accepted,
+  and unresolved disabled tickers could be re-enabled on resave. Run
+  `31407286024` was cancelled and is stale. Consolidated H-tier commit
+  `b959929168417b3642e42d6edf0464a2b83cbb8c` routes active config through the
+  canonical decoder, adds checksum-bound onboarding CAS, records backup as
+  unavailable/not enabled, validates verified ISIN shape/status, and preserves
+  unresolved disabled ticker state. Deterministic integrity, concurrency,
+  backup-state, ISIN and resave regressions plus the affected application,
+  scheduler and architecture suite pass. Freeze the documented head for final
+  review and complete H-tier gates.
 
 ## Superseded ISSUE-0016 product checkpoint
 
