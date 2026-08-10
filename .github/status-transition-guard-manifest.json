@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "in_progress",
-      "issue_id": "ISSUE-0014",
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0015",
       "to": "integrated"
     }
   ],
-  "base_commit": "35007496ae5052ef5ac41ede746ed76f1a48ab87",
-  "branch": "codex/issue0014-lifecycle-20260810",
+  "base_commit": "70cf36d6be6033c1ffa6ab9cfa71204fe68ca8c8",
+  "branch": "codex/issue0015-lifecycle-20260810",
   "issue_ids": [
-    "ISSUE-0014"
+    "ISSUE-0015"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "9353bdceaa035ed977471befcdc2145302bbb567fd4e7309d3905339d9dc02bf",
+    "base_registry_sha256": "256fa674784cbbc4553a8fd760b23b00f974a5f0ba31e4ccf4363ef04f8f4143",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "256fa674784cbbc4553a8fd760b23b00f974a5f0ba31e4ccf4363ef04f8f4143",
-    "reason": "Replay only ISSUE-0014 through the ordered in_progress to implemented_initially to integrated completion contract using product PR #665 merge commit 0f45b6e7ece668c0cad9e34e6022b2cbaf53d619 and its exact review and H-tier validation evidence; preserve dependencies, acceptance criteria, external authority and execution_allowed=false.",
+    "proposed_registry_sha256": "84b579504a8aca4835f95f724c9404d7f6347edaa9b3d6b396e4d7b53cfc340c",
+    "reason": "Complete only ISSUE-0015 from implemented_initially to integrated using product PR #669 merge commit 70cf36d6be6033c1ffa6ab9cfa71204fe68ca8c8 and its exact independent reviews and tier-O validation evidence; preserve dependencies, acceptance criteria, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

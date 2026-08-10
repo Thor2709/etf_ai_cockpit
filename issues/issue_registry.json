@@ -9695,7 +9695,19 @@
       "write_conflict_group": "programme-governance"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #669 merged exact independently approved head 406408c8c70f3938000499fbecf672d3faf48e76 as 70cf36d6be6033c1ffa6ab9cfa71204fe68ca8c8",
+            "Release run 31378744478 passed fresh tier-O classifier, supply chain, product/protected preflight and authoritative terminal validation on the exact reviewed head",
+            "Acceptance evidence confirms canonical registry/readiness/closure validation, separate implementation/release/data/model/paper/live authority, fail-closed malformed or partial input handling and execution_allowed=false"
+          ],
+          "review_reference": "PR #669 exact-head whole-diff and risk reviews plus tier-O validation",
+          "reviewed_date": "2026-08-10",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0015",
@@ -9719,7 +9731,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P1",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -9744,8 +9756,8 @@
       "source_record_id": "ISSUE-0015",
       "source_title": "Add app-level feature map / roadmap page",
       "title": "Add app-level feature map / roadmap page",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "70cf36d6be6033c1ffa6ab9cfa71204fe68ca8c8",
+      "verified_date": "2026-08-10",
       "why": "Users and developers need a truthful map of complete, partial, research-only, optional and rejected capabilities.",
       "write_conflict_group": "programme-governance"
     },
@@ -27871,7 +27883,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "3daeb66bb11442df41194dfc60a7a8c29817d2d3275c06160613b91639a39df8",
+    "programme_control_state_sha256": "323adb33393d31e9bae58bb18adaaafc45a06746545b30252a39ead307b68652",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
