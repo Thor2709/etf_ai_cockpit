@@ -21,6 +21,13 @@ starts at exact main `c8a7da624c97f1a04191fd3ad1b7880bca83feec` and adds only th
 exact outcome/lane rule and fail-closed regression. Review and full H-tier
 validation precede merge; PR #665 must then be rebased and revalidated once.
 Canonical lifecycle and `execution_allowed=false` remain unchanged.
+Both first-head verdicts were collected: risk review approved
+`9495b4eb5b26c2eec894fdbcc1d4b1b9b2070da6`, while whole-diff review
+rejected only its self-referential predicate test. Run `31349420262` was
+cancelled and is stale. The consolidated correction hard-codes the exact test
+and lanes, exercises complete aggregation, and proves rejection of an extra
+lane, reversed outcomes and an unrelated test. Focused validation passes;
+freeze one replacement head for both reviews and fresh H-tier validation.
 
 ## Current ISSUE-0010 product lane
 

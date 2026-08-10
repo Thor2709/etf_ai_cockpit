@@ -31,6 +31,15 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   artifacts with zero other differences. Exact-head review and full H-tier
   validation are required before merge; then rebase PR #665 and repeat its
   invalidated exact-head review and validation once.
+- Both verdicts for first repair head
+  `9495b4eb5b26c2eec894fdbcc1d4b1b9b2070da6` were collected: risk review
+  approved, while whole-diff review rejected only a self-referential predicate
+  test that could not detect a wrong constant or omitted lane. Run
+  `31349420262` was cancelled and is stale. The consolidated test correction
+  hard-codes the exact contract, exercises complete report aggregation, and
+  proves rejection of an extra lane, reversed outcomes and an unrelated test;
+  focused tests, Ruff, mypy, compile, generator check and diff hygiene pass.
+  Freeze one replacement head for both reviews and fresh H-tier validation.
 
 ## Current ISSUE-0010 product checkpoint
 

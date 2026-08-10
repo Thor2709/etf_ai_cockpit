@@ -711,23 +711,78 @@ def test_cross_platform_aggregation_accepts_only_known_pid_outcome_difference(tm
     assert report["status"] == "passed"
 
 
-def test_cross_platform_aggregation_accepts_only_known_posix_memory_limit_difference() -> None:
-    nodeid = aggregate_parallel_pilot._POSIX_MEMORY_LIMIT_NODEID
+def test_cross_platform_aggregation_accepts_only_known_posix_memory_limit_difference(
+    tmp_path: Path,
+) -> None:
+    nodeid = (
+        "tests/test_etf_report_parser.py::"
+        "test_memory_limit_configuration_has_a_platform_specific_stdlib_path"
+    )
+    expected_lanes = ("full_serial", "candidate_unsafe", "candidate_combined")
 
-    for lane in aggregate_parallel_pilot._POSIX_MEMORY_LIMIT_LANES:
-        assert aggregate_parallel_pilot._platform_outcome_is_allowed(
-            lane, nodeid, "passed", "skipped"
+    def reports_with_difference(
+        *,
+        changed_nodeid: str = nodeid,
+        lanes: tuple[str, ...] = expected_lanes,
+        linux_outcome: str = "passed",
+        windows_outcome: str = "skipped",
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        linux = _pilot_report()
+        windows = _pilot_report()
+        for payload, outcome in ((linux, linux_outcome), (windows, windows_outcome)):
+            for lane_name in lanes:
+                lane = payload["lanes"][lane_name]
+                for index, current_nodeids in enumerate(lane["executed_nodeids"]):
+                    current = list(current_nodeids)
+                    replaced = current[0]
+                    current[0] = changed_nodeid
+                    current.sort()
+                    outcomes = {
+                        current_nodeid: value
+                        for current_nodeid, value in lane["result_outcomes"][index].items()
+                        if current_nodeid != replaced
+                    }
+                    outcomes[changed_nodeid] = outcome
+                    lane["executed_nodeids"][index] = current
+                    lane["result_outcomes"][index] = outcomes
+                    lane["collection_fingerprints"][index] = hashlib.sha256(
+                        json.dumps(current, separators=(",", ":")).encode("utf-8")
+                    ).hexdigest()
+                    lane["result_fingerprints"][index] = hashlib.sha256(
+                        json.dumps(outcomes, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                    ).hexdigest()
+                payload["lane_fingerprints"][lane_name]["collection"] = lane[
+                    "collection_fingerprints"
+                ]
+                payload["lane_fingerprints"][lane_name]["results"] = lane[
+                    "result_fingerprints"
+                ]
+        return linux, windows
+
+    linux_path = tmp_path / "linux.json"
+    windows_path = tmp_path / "windows.json"
+
+    linux, windows = reports_with_difference()
+    _write_platform_reports(
+        linux_path, windows_path, linux_report=linux, windows_report=windows
+    )
+    assert aggregate_parallel_pilot.compare_reports(linux_path, windows_path)["status"] == "passed"
+
+    for reports in (
+        reports_with_difference(lanes=("candidate_safe",)),
+        reports_with_difference(linux_outcome="skipped", windows_outcome="passed"),
+        reports_with_difference(changed_nodeid="tests/unrelated.py::test_case"),
+    ):
+        _write_platform_reports(
+            linux_path,
+            windows_path,
+            linux_report=reports[0],
+            windows_report=reports[1],
         )
-
-    assert not aggregate_parallel_pilot._platform_outcome_is_allowed(
-        "candidate_safe", nodeid, "passed", "skipped"
-    )
-    assert not aggregate_parallel_pilot._platform_outcome_is_allowed(
-        "full_serial", nodeid, "skipped", "passed"
-    )
-    assert not aggregate_parallel_pilot._platform_outcome_is_allowed(
-        "full_serial", "tests/unrelated.py::test_case", "passed", "skipped"
-    )
+        assert (
+            aggregate_parallel_pilot.compare_reports(linux_path, windows_path)["status"]
+            == "divergent"
+        )
 
 
 def test_cross_platform_aggregation_rejects_tampered_or_missing_cache(tmp_path: Path) -> None:
