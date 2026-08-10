@@ -44,6 +44,11 @@ Both replacement reviewers rejected head
 parity gap: reviewed edge dates were not constrained to canonical
 `YYYY-MM-DD`. The sole follow-up adds that exact check and regression without
 changing lifecycle, dependencies or authority.
+Both reviewers then rejected `a90182bf7674c3409446f31f4a4eac0ac71fd76a`
+for accepting IDs, unknown dependencies, local-only closure and missing edge
+records that canonical validation rejects. The exact bounded closure enforces
+the existing ID/reference/edge-coverage invariants and adds their fail-closed
+regressions without changing workflow, lifecycle or execution authority.
 
 ## Superseded ISSUE-0014 validation repair
 

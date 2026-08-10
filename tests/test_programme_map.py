@@ -23,14 +23,63 @@ def _record(**overrides: object) -> dict[str, object]:
         "related_issues": ["ISSUE-0004"],
     }
     record.update(overrides)
+    if "dependency_edge_evidence" not in overrides:
+        record["dependency_edge_evidence"] = {
+            dependency: {
+                "schema_version": "1.0",
+                "state": "unresolved",
+                "evidence_references": [],
+                "contract_reference": "",
+                "reviewer": "",
+                "reviewed_date": "",
+            }
+            for dependency in record.get("blocking_dependencies", [])
+        }
     return record
 
 
 def _registry(record: dict[str, object], decision: dict[str, object]) -> dict[str, object]:
+    referenced = {
+        dependency
+        for field in (
+            "blocking_dependencies",
+            "required_inputs",
+            "activation_dependencies",
+            "downstream_issues",
+            "related_issues",
+        )
+        for dependency in record.get(field, [])
+    }
+    supporting_records = [
+        _record(
+            canonical_id=dependency,
+            blocking_dependencies=[],
+            required_inputs=[],
+            activation_dependencies=[],
+            downstream_issues=[],
+            related_issues=[],
+        )
+        for dependency in sorted(referenced)
+        if dependency != record["canonical_id"]
+    ]
+    supporting_decisions = [
+        {
+            "issue_id": dependency["canonical_id"],
+            "ready": True,
+            "reason_codes": ["READY_NO_BLOCKING_DEPENDENCIES"],
+            "edges": [],
+            "required_inputs": [],
+            "activation_ready": True,
+            "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+            "activation_edges": [],
+            "execution_allowed": False,
+        }
+        for dependency in supporting_records
+    ]
     return {
         "policy": {"execution_allowed": False},
-        "records": [record],
-        "readiness": [decision],
+        "records": [record, *supporting_records],
+        "readiness": [decision, *supporting_decisions],
     }
 
 
@@ -131,21 +180,32 @@ def test_programme_map_fails_closed_for_malformed_registry(tmp_path: Path) -> No
 
 
 def test_programme_map_fails_closed_for_missing_or_partial_readiness() -> None:
-    record = _record(blocking_dependencies=[])
+    record = _record(
+        blocking_dependencies=[], required_inputs=[], downstream_issues=[], related_issues=[]
+    )
     with pytest.raises(ValueError, match="complete readiness list"):
         build_programme_map({"policy": {"execution_allowed": False}, "records": [record]})
     with pytest.raises(ValueError, match="partial"):
         build_programme_map(
             {
                 "policy": {"execution_allowed": False},
-                "records": [record, _record(canonical_id="ISSUE-0016")],
+                "records": [
+                    record,
+                    _record(
+                        canonical_id="ISSUE-0016",
+                        blocking_dependencies=[],
+                        required_inputs=[],
+                        downstream_issues=[],
+                        related_issues=[],
+                    ),
+                ],
                 "readiness": [
                     {
                         "issue_id": "ISSUE-0015",
                         "ready": True,
                         "reason_codes": ["READY_NO_BLOCKING_DEPENDENCIES"],
                         "edges": [],
-                        "required_inputs": ["ISSUE-0002"],
+                        "required_inputs": [],
                         "activation_ready": True,
                         "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
                         "activation_edges": [],
@@ -269,7 +329,7 @@ def test_programme_map_rejects_reviewed_edge_with_malformed_date() -> None:
         "execution_allowed": False,
     }
 
-    with pytest.raises(ValueError, match="inconsistent"):
+    with pytest.raises(ValueError, match="edge evidence is malformed"):
         build_programme_map(_registry(record, decision))
 
 
@@ -293,7 +353,116 @@ def test_programme_map_load_blocks_surrounding_whitespace_in_canonical_id(tmp_pa
 
     assert result.status == "blocked"
     assert result.entries == ()
-    assert "surrounding whitespace" in result.error
+    assert "canonical issue ID" in result.error
+
+
+@pytest.mark.parametrize("canonical_id", ["BAD-ID", "ISSUE-999"])
+def test_programme_map_load_blocks_noncanonical_ids(tmp_path: Path, canonical_id: str) -> None:
+    path = tmp_path / "issue_registry.json"
+    record = _record(
+        canonical_id=canonical_id,
+        blocking_dependencies=[],
+        required_inputs=[],
+        downstream_issues=[],
+        related_issues=[],
+    )
+    decision = {
+        "issue_id": canonical_id,
+        "ready": True,
+        "reason_codes": ["READY_NO_BLOCKING_DEPENDENCIES"],
+        "edges": [],
+        "required_inputs": [],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+    path.write_text(json.dumps(_registry(record, decision)), encoding="utf-8")
+
+    result = load_programme_map(tmp_path, path)
+
+    assert result.status == "blocked"
+    assert result.entries == ()
+
+
+def test_programme_map_rejects_unknown_dependency_and_missing_edge_evidence() -> None:
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": False,
+        "reason_codes": ["BLOCKED_UNRESOLVED_DEPENDENCY"],
+        "edges": [
+            {
+                "dependency_id": "ISSUE-9999",
+                "resolved": False,
+                "reason_code": "EDGE_UNRESOLVED",
+                "evidence_state": "unresolved",
+            }
+        ],
+        "required_inputs": [],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+    record = _record(
+        blocking_dependencies=["ISSUE-9999"],
+        required_inputs=[],
+        downstream_issues=[],
+        related_issues=[],
+        dependency_edge_evidence={},
+    )
+    registry = _registry(record, decision)
+    registry["records"] = [record]
+    registry["readiness"] = [decision]
+
+    with pytest.raises(ValueError, match="unknown blocking_dependencies"):
+        build_programme_map(registry)
+
+    supporting = _record(
+        canonical_id="ISSUE-9999",
+        blocking_dependencies=[],
+        required_inputs=[],
+        downstream_issues=[],
+        related_issues=[],
+    )
+    registry["records"].append(supporting)
+    registry["readiness"].append(
+        {
+            "issue_id": "ISSUE-9999",
+            "ready": True,
+            "reason_codes": ["READY_NO_BLOCKING_DEPENDENCIES"],
+            "edges": [],
+            "required_inputs": [],
+            "activation_ready": True,
+            "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+            "activation_edges": [],
+            "execution_allowed": False,
+        }
+    )
+    with pytest.raises(ValueError, match="edge evidence is malformed"):
+        build_programme_map(registry)
+
+
+def test_programme_map_rejects_local_only_closure_authority() -> None:
+    record = _record(
+        blocking_dependencies=[], required_inputs=[], downstream_issues=[], related_issues=[]
+    )
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": True,
+        "reason_codes": ["READY_NO_BLOCKING_DEPENDENCIES"],
+        "edges": [],
+        "required_inputs": [],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+    registry = _registry(record, decision)
+    registry["local_only_records"] = [{"canonical_id": "ISSUE-0001", "ledger_state": "closed"}]
+
+    with pytest.raises(ValueError, match="folded into canonical records"):
+        build_programme_map(registry)
 
 
 def test_programme_map_rejects_missing_ledger_state() -> None:

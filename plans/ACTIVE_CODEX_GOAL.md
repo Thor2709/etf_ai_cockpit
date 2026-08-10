@@ -60,6 +60,13 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   nonblank but not constrained to the generator's exact `YYYY-MM-DD` shape.
   The sole follow-up enforces that existing canonical rule and adds the exact
   malformed-date regression; no lifecycle, dependency or authority changes.
+- Both reviewers then rejected `a90182bf7674c3409446f31f4a4eac0ac71fd76a`
+  for the remaining canonical schema boundary: arbitrary/unknown IDs,
+  non-folded local-only closure and absent per-blocking-edge evidence could be
+  accepted even though canonical validation rejects them. The bounded closure
+  enforces the existing canonical ID pattern and reference set, requires exact
+  edge-evidence coverage, rejects nonempty local-only records, and adds the
+  reproduced fail-closed regressions. No broader validator or workflow change.
 
 ## Superseded ISSUE-0014 validation-repair checkpoint
 

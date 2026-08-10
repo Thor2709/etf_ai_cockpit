@@ -28,6 +28,7 @@ _PROGRAMME_STATUSES = frozenset(
     }
 )
 _EDGE_EVIDENCE_STATES = frozenset({"unresolved", "complete", "partial_interface", "waived"})
+_ISSUE_ID_RE = re.compile(r"(?:ISSUE|UPDATEV2)-\d{4}")
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,13 @@ def _strict_string(value: object, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"canonical registry field {field} must be a non-empty string")
     return value.strip()
+
+
+def _strict_issue_id(value: object, field: str) -> str:
+    issue_id = _strict_string(value, field)
+    if value != issue_id or _ISSUE_ID_RE.fullmatch(issue_id) is None:
+        raise ValueError(f"canonical registry field {field} must be a canonical issue ID")
+    return issue_id
 
 
 def _strict_string_tuple(value: object, field: str) -> tuple[str, ...]:
@@ -216,10 +224,11 @@ def _validate_decision(
         field="activation_edges",
         expected_dependencies=expected_activation,
     )
-    evidence_by_edge = record.get("dependency_edge_evidence", {})
-    if not isinstance(evidence_by_edge, Mapping) or any(
-        not isinstance(dependency, str) or dependency not in expected_dependencies
-        for dependency in evidence_by_edge
+    evidence_by_edge = record.get("dependency_edge_evidence")
+    if (
+        not isinstance(evidence_by_edge, Mapping)
+        or set(evidence_by_edge) != set(expected_dependencies)
+        or any(not _edge_evidence_is_valid(evidence) for evidence in evidence_by_edge.values())
     ):
         raise ValueError(f"canonical dependency edge evidence is malformed for {issue_id}")
 
@@ -352,36 +361,47 @@ def build_programme_map(registry: Mapping[str, Any], *, registry_sha256: str = "
     record_ids: list[str] = []
     records_by_id: dict[str, Mapping[str, Any]] = {}
     for record in records:
-        canonical_id = _strict_string(record.get("canonical_id"), "canonical_id")
-        if record.get("canonical_id") != canonical_id:
-            raise ValueError("canonical registry field canonical_id must not contain surrounding whitespace")
+        canonical_id = _strict_issue_id(record.get("canonical_id"), "canonical_id")
         record_ids.append(canonical_id)
         records_by_id[canonical_id] = record
         if "programme_status" in record and record["programme_status"] not in (None, ""):
             programme_status = _strict_string(record["programme_status"], "programme_status")
             if programme_status not in _PROGRAMME_STATUSES:
                 raise ValueError(f"unsupported programme_status for {canonical_id}: {programme_status}")
-        for field in ("blocking_dependencies", "activation_dependencies"):
-            _strict_string_tuple(record.get(field, []), field)
+        for field in (
+            "blocking_dependencies",
+            "required_inputs",
+            "activation_dependencies",
+            "downstream_issues",
+            "related_issues",
+        ):
+            for dependency in _strict_string_tuple(record.get(field, []), field):
+                _strict_issue_id(dependency, field)
     if len(set(record_ids)) != len(record_ids):
         raise ValueError("canonical issue registry contains duplicate canonical_id values")
+    known_ids = set(record_ids)
+    for canonical_id, record in records_by_id.items():
+        for field in (
+            "blocking_dependencies",
+            "required_inputs",
+            "activation_dependencies",
+            "downstream_issues",
+            "related_issues",
+        ):
+            unknown = set(_strict_string_tuple(record.get(field, []), field)) - known_ids
+            if unknown:
+                raise ValueError(f"canonical record {canonical_id} contains unknown {field}")
     closed_ids = {issue_id for issue_id, record in records_by_id.items() if record.get("ledger_state") == "closed"}
     local_only_records = registry.get("local_only_records", [])
     if not isinstance(local_only_records, list) or not all(isinstance(record, Mapping) for record in local_only_records):
         raise ValueError("canonical local-only records must be a list of objects")
-    for record in local_only_records:
-        local_id = _strict_string(record.get("canonical_id"), "local_only_records.canonical_id")
-        if record.get("canonical_id") != local_id:
-            raise ValueError("canonical local-only ID must not contain surrounding whitespace")
-        if record.get("ledger_state") == "closed":
-            closed_ids.add(local_id)
+    if local_only_records:
+        raise ValueError("canonical local-only records must be folded into canonical records")
     decisions: dict[str, Mapping[str, Any]] = {}
     for decision in readiness:
         if not isinstance(decision, Mapping):
             raise ValueError("canonical readiness entries must be objects")
-        issue_id = _strict_string(decision.get("issue_id"), "issue_id")
-        if decision.get("issue_id") != issue_id:
-            raise ValueError("canonical readiness issue_id must not contain surrounding whitespace")
+        issue_id = _strict_issue_id(decision.get("issue_id"), "issue_id")
         if issue_id in decisions:
             raise ValueError(f"canonical readiness contains duplicate issue_id {issue_id}")
         record = records_by_id.get(issue_id)
