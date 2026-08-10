@@ -15,7 +15,19 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
 ## Current ISSUE-0014 validation-repair checkpoint
 
-- Product PR #665 remains frozen at independently approved exact head
+- Product PR #665 merged independently approved exact head
+  `576b5837e0ee096f9762c38122a7b439193001d4` as exact main
+  `0f45b6e7ece668c0cad9e34e6022b2cbaf53d619`. H-tier run `31355486697`
+  passed preflight, supply chain, Linux and Windows packages, terminal
+  validation, both repeated pilots and cross-platform aggregation.
+- Clean branch `codex/issue0014-bootstrap-replay-repair-20260810` starts at
+  that exact main. Lifecycle preparation deterministically failed because the
+  audited B00 ISSUE-0014 source predates transition history but the exact
+  legacy bootstrap allowlist covered only ISSUE-0011 and ISSUE-0012. The sole
+  H-tier correction adds ISSUE-0014's complete fixed source identity and a
+  fail-closed parameterized regression; no replay shape, writer, authority,
+  dependency edge, product code or execution permission changes.
+- An earlier Product PR #665 checkpoint was frozen at exact head
   `5ef8429547a36b6e127a142bb4e81b2e07f35fc6`; canonical lifecycle and
   `execution_allowed=false` are unchanged.
 - H-tier run `31345050975` passed preflight, supply chain, Linux and Windows

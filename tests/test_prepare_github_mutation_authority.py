@@ -517,6 +517,7 @@ def test_status_replay_preparation_is_deterministic_and_exactly_two_hops(
     (
         ("ISSUE-0011", 15, "phase-08-frontend-api"),
         ("ISSUE-0012", 16, "phase-01-governance-scope"),
+        ("ISSUE-0014", 18, "phase-01-governance-scope"),
     ),
 )
 def test_status_replay_preparation_accepts_only_exact_legacy_bootstrap_prefix(
@@ -680,7 +681,7 @@ def test_status_replay_preparation_accepts_only_exact_legacy_bootstrap_prefix(
         head="a" * 40,
     )
 
-    for rejected_id in ("ISSUE-0013", "ISSUE-0179"):
+    for rejected_id in ("ISSUE-0013", "ISSUE-0015", "ISSUE-0179"):
         with pytest.raises(ValueError, match="legacy bootstrap"):
             validate_status_replay_prefix_shape(
                 rejected_id,

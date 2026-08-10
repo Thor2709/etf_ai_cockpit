@@ -549,6 +549,19 @@ test probe. The single bounded correction binds candidate analysis to the
 probe's existing fixed date and asserts that every download uses that date;
 production, authority and workflow code stay unchanged.
 
+Final exact head `576b5837e0ee096f9762c38122a7b439193001d4` received both
+independent approvals. H-tier run `31355486697` passed preflight, supply chain,
+Linux and Windows packages, terminal validation, both repeated pilots and
+cross-platform aggregation; PR #665 merged it as exact main
+`0f45b6e7ece668c0cad9e34e6022b2cbaf53d619`. Canonical two-hop lifecycle
+preparation then reproduced one exact control defect: ISSUE-0014 has the same
+audited B00 history-free `in_progress` source shape as ISSUE-0012 but was not
+in the fixed bootstrap allowlist. Clean H-tier branch
+`codex/issue0014-bootstrap-replay-repair-20260810` adds only ISSUE-0014's exact
+fixed identity plus fail-closed regression and durable workflow wording.
+After full review and validation, resume the preserved lifecycle transaction;
+`execution_allowed=false` remains.
+
 ## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head

@@ -1565,7 +1565,7 @@ def validate_status_replay_prefix_shape(
     """Validate the complete canonical prefix before a bounded status replay."""
     if allow_legacy_bootstrap_origin and transition_history in (None, []):
         if (
-            issue_id not in {"ISSUE-0011", "ISSUE-0012"}
+            issue_id not in {"ISSUE-0011", "ISSUE-0012", "ISSUE-0014"}
             or acceptance_evidence != []
             or programme_status != "in_progress"
             or dependency_edge_evidence != {}
@@ -1702,6 +1702,7 @@ def is_issue0011_legacy_replay_source(
     phase = {
         "ISSUE-0011": "phase-08-frontend-api",
         "ISSUE-0012": "phase-01-governance-scope",
+        "ISSUE-0014": "phase-01-governance-scope",
     }.get(issue_id)
     if phase is None:
         return False
