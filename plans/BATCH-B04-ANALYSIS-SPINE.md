@@ -3007,3 +3007,13 @@ canonical and onboarding universe writers, adds both deterministic regressions,
 and capability-skips the Windows-only test. Focused affected tests, Ruff,
 compile and diff hygiene pass. Freeze one documented replacement head for both
 exact-head reviews and fresh Linux/Windows/terminal validation.
+
+`FINAL_PRODUCT_CORRECTION` risk review approved exact head
+`4842e62dec7349cc793f9e3a5ddafc2926a198e7`, but whole-diff review reproduced
+cross-tier record collapse despite the preserved policy and acceptance of an
+unsupported persisted encrypted-backup claim. Run `31401913671` is cancelled
+and stale. Commit `9ae2fceab6a39643c33acc2f25bb88e9ea23495c` preserves
+records under the existing canonical duplicate semantics and makes unsupported
+persisted backup metadata fail closed. Both regressions and the affected
+focused/static checks pass. Freeze the documented replacement for final
+parallel exact-head review and fresh H-tier Linux/Windows/terminal gates.

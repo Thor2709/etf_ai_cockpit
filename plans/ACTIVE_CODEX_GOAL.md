@@ -91,6 +91,18 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   junction test. The affected onboarding/universe/application surface, Ruff,
   compile and diff hygiene pass. Freeze one replacement head and repeat both
   exact-head reviews plus fresh Linux, Windows and terminal validation.
+- Risk review approved replacement head
+  `4842e62dec7349cc793f9e3a5ddafc2926a198e7`, while whole-diff review
+  reproduced two remaining bounded defects: permitted cross-tier duplicate
+  records were collapsed even though their policy flag survived, and persisted
+  unsupported encrypted-backup metadata was accepted. Run `31401913671` was
+  cancelled and is stale. Commit `9ae2fceab6a39643c33acc2f25bb88e9ea23495c`
+  now preserves records according to the canonical same-tier/cross-tier policy
+  and makes unsupported persisted backup preferences fail closed. Both
+  regressions plus the affected focused suite, Ruff, compile and diff hygiene
+  pass. Freeze this documented head for final exact-head reviews and fresh
+  H-tier Linux/Windows/terminal validation; no further scope expansion is
+  authorised absent a newly demonstrated defect.
 
 ## Superseded ISSUE-0016 product checkpoint
 
