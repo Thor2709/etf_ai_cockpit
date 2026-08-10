@@ -711,6 +711,25 @@ def test_cross_platform_aggregation_accepts_only_known_pid_outcome_difference(tm
     assert report["status"] == "passed"
 
 
+def test_cross_platform_aggregation_accepts_only_known_posix_memory_limit_difference() -> None:
+    nodeid = aggregate_parallel_pilot._POSIX_MEMORY_LIMIT_NODEID
+
+    for lane in aggregate_parallel_pilot._POSIX_MEMORY_LIMIT_LANES:
+        assert aggregate_parallel_pilot._platform_outcome_is_allowed(
+            lane, nodeid, "passed", "skipped"
+        )
+
+    assert not aggregate_parallel_pilot._platform_outcome_is_allowed(
+        "candidate_safe", nodeid, "passed", "skipped"
+    )
+    assert not aggregate_parallel_pilot._platform_outcome_is_allowed(
+        "full_serial", nodeid, "skipped", "passed"
+    )
+    assert not aggregate_parallel_pilot._platform_outcome_is_allowed(
+        "full_serial", "tests/unrelated.py::test_case", "passed", "skipped"
+    )
+
+
 def test_cross_platform_aggregation_rejects_tampered_or_missing_cache(tmp_path: Path) -> None:
     linux = tmp_path / "linux.json"
     windows = tmp_path / "windows.json"

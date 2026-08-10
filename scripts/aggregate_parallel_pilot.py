@@ -41,6 +41,11 @@ _KNOWN_PLATFORM_OUTCOMES = {
     "tests/test_pid_liveness.py::test_windows_pid_probe_does_not_terminate_a_child_process",
 }
 _KNOWN_PLATFORM_LANES = {"full_serial", "candidate_safe", "candidate_combined"}
+_POSIX_MEMORY_LIMIT_NODEID = (
+    "tests/test_etf_report_parser.py::"
+    "test_memory_limit_configuration_has_a_platform_specific_stdlib_path"
+)
+_POSIX_MEMORY_LIMIT_LANES = {"full_serial", "candidate_unsafe", "candidate_combined"}
 
 
 def _cache_key(inputs: Mapping[str, object]) -> str:
@@ -77,11 +82,17 @@ def _cache_is_valid(cache: object, platform_label: str | None = None) -> bool:
 def _platform_outcome_is_allowed(
     lane: str, nodeid: str, linux: str, windows: str
 ) -> bool:
-    return (
+    known_windows_probe = (
         lane in _KNOWN_PLATFORM_LANES
         and nodeid in _KNOWN_PLATFORM_OUTCOMES
         and (linux, windows) == ("skipped", "passed")
     )
+    known_posix_memory_limit = (
+        lane in _POSIX_MEMORY_LIMIT_LANES
+        and nodeid == _POSIX_MEMORY_LIMIT_NODEID
+        and (linux, windows) == ("passed", "skipped")
+    )
+    return known_windows_probe or known_posix_memory_limit
 
 
 def _percentile(values: list[float], percentile: float) -> float:

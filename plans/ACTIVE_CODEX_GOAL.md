@@ -13,6 +13,25 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
+## Current ISSUE-0014 validation-repair checkpoint
+
+- Product PR #665 remains frozen at independently approved exact head
+  `5ef8429547a36b6e127a142bb4e81b2e07f35fc6`; canonical lifecycle and
+  `execution_allowed=false` are unchanged.
+- H-tier run `31345050975` passed preflight, supply chain, Linux and Windows
+  release packages, terminal validation and both repeated platform pilots.
+  Cross-platform aggregation alone failed because the exact POSIX memory-limit
+  parser test passed on Linux and intentionally skipped on Windows, while its
+  existing platform-specific contract was absent from the explicit aggregator
+  allowlist.
+- Clean branch `codex/pilot-platform-outcome-repair-20260810` starts at exact
+  main `c8a7da624c97f1a04191fd3ad1b7880bca83feec`. Its sole H-tier repair adds
+  that exact test, outcome direction and three observed lanes plus a
+  fail-closed regression. The corrected aggregator accepts the preserved run
+  artifacts with zero other differences. Exact-head review and full H-tier
+  validation are required before merge; then rebase PR #665 and repeat its
+  invalidated exact-head review and validation once.
+
 ## Current ISSUE-0010 product checkpoint
 
 - ISSUE-0104 completion PR #656 merged independently approved exact head

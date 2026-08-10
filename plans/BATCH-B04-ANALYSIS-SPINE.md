@@ -9,6 +9,19 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
+## Current ISSUE-0014 validation repair
+
+PR #665 remains frozen at independently approved exact head
+`5ef8429547a36b6e127a142bb4e81b2e07f35fc6`. H-tier run `31345050975`
+passed every authoritative package and platform pilot, but aggregation rejected
+the intentional Linux-pass/Windows-skip outcome of the POSIX memory-limit
+parser test because that exact contract was missing from its platform
+allowlist. Isolated branch `codex/pilot-platform-outcome-repair-20260810`
+starts at exact main `c8a7da624c97f1a04191fd3ad1b7880bca83feec` and adds only the
+exact outcome/lane rule and fail-closed regression. Review and full H-tier
+validation precede merge; PR #665 must then be rebased and revalidated once.
+Canonical lifecycle and `execution_allowed=false` remain unchanged.
+
 ## Current ISSUE-0010 product lane
 
 ISSUE-0104 completion PR #656 merged independently approved exact head
