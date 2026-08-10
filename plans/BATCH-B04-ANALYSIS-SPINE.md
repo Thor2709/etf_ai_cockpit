@@ -33,6 +33,12 @@ that a partial subset of the required three-lane signature still passed. Run
 `31349890546` is cancelled and stale. The final correction requires equality
 with the complete observed lane set and adds one full-path regression per
 omitted lane; freeze one final head for both reviews and H-tier validation.
+Whole-diff review approved `4ce827bec114bf340be7b92b2a02829cfc30843f`,
+but risk review reproduced a complete first repetition masking a partial second
+repetition because lanes were unioned across samples. Run `31350158760` is
+cancelled and stale. The exact correction enforces the complete lane signature
+per affected repetition and adds that second-repetition omission regression;
+repeat both final reviews and fresh H-tier validation on one replacement head.
 
 ## Current ISSUE-0010 product lane
 

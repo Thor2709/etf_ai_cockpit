@@ -790,6 +790,29 @@ def test_cross_platform_aggregation_accepts_only_known_posix_memory_limit_differ
             == "divergent"
         )
 
+    linux, windows = reports_with_difference()
+    windows_lane = windows["lanes"]["candidate_unsafe"]
+    windows_lane["result_outcomes"][1][nodeid] = "passed"
+    windows_lane["result_fingerprints"][1] = hashlib.sha256(
+        json.dumps(
+            windows_lane["result_outcomes"][1],
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    windows["lane_fingerprints"]["candidate_unsafe"]["results"] = windows_lane[
+        "result_fingerprints"
+    ]
+    _write_platform_reports(
+        linux_path, windows_path, linux_report=linux, windows_report=windows
+    )
+    report = aggregate_parallel_pilot.compare_reports(linux_path, windows_path)
+    assert report["status"] == "divergent"
+    assert report["differences"]["posix_memory_limit.lanes[1]"] == {
+        "expected": ["candidate_combined", "candidate_unsafe", "full_serial"],
+        "actual": ["candidate_combined", "full_serial"],
+    }
+
 
 def test_cross_platform_aggregation_rejects_tampered_or_missing_cache(tmp_path: Path) -> None:
     linux = tmp_path / "linux.json"

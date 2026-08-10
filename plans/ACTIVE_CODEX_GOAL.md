@@ -45,7 +45,14 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   three-lane signature; run `31349890546` is cancelled and stale. The final
   bounded correction requires the complete observed lane set to equal the
   exact three-lane contract and adds full-path regressions for each omitted
-  lane. Freeze one final head for both reviews and fresh H-tier validation.
+  lane. Whole-diff review approved head
+  `4ce827bec114bf340be7b92b2a02829cfc30843f`, while risk review reproduced
+  one final defect: unioning lanes across repetitions let a complete first
+  repetition mask a partial second one. Run `31350158760` is cancelled and
+  stale. The exact correction tracks and enforces the complete lane signature
+  independently for every affected repetition and adds the reproduced
+  second-repetition omission regression. Freeze the replacement head for both
+  final reviews and fresh H-tier validation.
 
 ## Current ISSUE-0010 product checkpoint
 
