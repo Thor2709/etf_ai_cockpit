@@ -84,6 +84,12 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   were not bound to actual records, and duplicate JSON keys used last-key-wins
   parsing. The exact follow-up checks both existing count identities and uses
   duplicate-key-rejecting JSON parsing with policy/record/readiness probes.
+- Whole-diff review approved `7947d6fd65d5b0cb04b1385b90c1b9fc8fb127a0`;
+  risk review reproduced one remaining count-type gap where JSON `true` could
+  satisfy a one-record count. The single consolidated correction requires both
+  declared counts to be exact integers and adds boolean/fractional regressions;
+  focused roadmap/UI tests, Ruff and diff hygiene pass. Freeze one replacement
+  head and repeat both reviews with fresh tier-O hosted validation.
 
 ## Superseded ISSUE-0014 validation-repair checkpoint
 

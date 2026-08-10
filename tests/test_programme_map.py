@@ -780,6 +780,32 @@ def test_programme_map_rejects_jointly_truncated_registry_and_readiness() -> Non
         build_programme_map(registry)
 
 
+@pytest.mark.parametrize("declared_count", [True, 1.0])
+def test_programme_map_rejects_non_integer_declared_record_counts(declared_count: object) -> None:
+    record = _record(
+        blocking_dependencies=[], required_inputs=[], downstream_issues=[], related_issues=[]
+    )
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": True,
+        "reason_codes": ["READY_NO_BLOCKING_DEPENDENCIES"],
+        "edges": [],
+        "required_inputs": [],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+    registry = _registry(record, decision)
+    registry["counts"] = {
+        "package_records": declared_count,
+        "canonical_records": declared_count,
+    }
+
+    with pytest.raises(ValueError, match="declared record count"):
+        build_programme_map(registry)
+
+
 @pytest.mark.parametrize(
     ("needle", "replacement"),
     [

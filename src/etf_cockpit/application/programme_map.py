@@ -401,7 +401,8 @@ def build_programme_map(registry: Mapping[str, Any], *, registry_sha256: str = "
         raise ValueError("canonical issue registry records must not be empty")
     counts = registry.get("counts")
     if not isinstance(counts, Mapping) or any(
-        counts.get(field) != len(records) for field in ("package_records", "canonical_records")
+        type(counts.get(field)) is not int or counts.get(field) != len(records)
+        for field in ("package_records", "canonical_records")
     ):
         raise ValueError("canonical issue registry declared record count is inconsistent")
 

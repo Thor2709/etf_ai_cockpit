@@ -64,6 +64,12 @@ Whole-diff review approved `3296ebb707f82728bcd43efa34cc42e3b3d57bba`;
 risk review found only unbound declared record counts and default JSON
 last-key-wins parsing. The exact follow-up validates both existing count fields
 and rejects duplicate keys at every JSON object depth, with focused probes.
+Whole-diff review approved `7947d6fd65d5b0cb04b1385b90c1b9fc8fb127a0`;
+risk review reproduced one final type gap where JSON `true` could satisfy the
+count for a jointly truncated one-record registry. The consolidated correction
+requires exact integer counts and adds boolean/fractional regressions. Focused
+roadmap/UI tests, Ruff and diff hygiene pass; repeat both reviews and fresh
+tier-O hosted validation on one replacement head.
 
 ## Superseded ISSUE-0014 validation repair
 
