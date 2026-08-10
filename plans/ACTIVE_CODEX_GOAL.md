@@ -13,7 +13,50 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
-## Current ISSUE-0015 product checkpoint
+## Current ISSUE-0016 product checkpoint
+
+- ISSUE-0015 product PR #669 merged exact independently approved head
+  `406408c8c70f3938000499fbecf672d3faf48e76` as
+  `70cf36d6be6033c1ffa6ab9cfa71204fe68ca8c8`. Lifecycle PR #670 merged exact
+  reviewed head `dd9e4ba44511abfcdfc4a4049e1a0303022c2f60` as exact main
+  `6fe3b410395d14593f9a9b67fd5180e68e862e9a`; Linux, Windows and terminal
+  validation passed in run `31380194815`.
+- Ordered writer run `31382654403` applied and verified only ISSUE-0015
+  `implemented_initially -> integrated` with
+  `zero_action_readback=true`. Generic convergence run `31382654316` passed,
+  and a fresh generic exact-main readback reports zero create, update, close,
+  reopen or blocked actions with authority reconciliation accepted.
+  `execution_allowed=false` remains unchanged.
+- ISSUE-0016, "Full product navigation redesign", is the next canonical
+  implementation-order issue. It is P1, dependency-ready, activation-ready,
+  has no blocking or activation dependencies, and requires the task-oriented
+  frontend-v2 navigation across Home, Discover, Instrument, Portfolio, Models,
+  Backtest/Paper, Data Health, Audit and Settings with search and command
+  palette.
+- Clean product worktree
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0016_product`,
+  branch `codex/issue0016-product-20260810`, starts at exact base/head
+  `6fe3b410395d14593f9a9b67fd5180e68e862e9a` with an initially empty diff.
+  Inspection against current exact main found the existing PR #371 product
+  implementation complete with no reproducible gap. The focused palette,
+  frontend-shell, startup, accessibility and governance suite plus Ruff passes;
+  independent criterion review maps every required workspace, search and
+  command-palette behavior to runtime evidence. No speculative product rewrite
+  is warranted.
+- The bounded transaction records only ISSUE-0016
+  `implemented_initially -> integrated`, its acceptance evidence and mechanical
+  projections. Fresh live plan
+  `3a45c6c3892f1a74d52fcad082ec65beeacf95d5cff73b50b5ead7a72023fdaf`
+  contains exactly one update; candidate authority is
+  `b34e62fd600f7baa7ed389a61af6803ac4cf0ad788721df508b011d1fb4ee433`
+  and append-only sequence-21 authority is
+  `d8f48eb20e9b83a1e992ba8803199b65b39561c22221aaa73b2bd5a309c6207c`.
+  Generator/check mode, registry validation, status guard and diff hygiene pass;
+  `execution_allowed=false`. Freeze the complete head, run both exact-head
+  reviews and hosted validation in parallel, then require ordered writer and
+  generic zero-action readback.
+
+## Superseded ISSUE-0015 product checkpoint
 
 - ISSUE-0014 product PR #665 merged exact reviewed head
   `576b5837e0ee096f9762c38122a7b439193001d4` as

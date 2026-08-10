@@ -9762,7 +9762,19 @@
       "write_conflict_group": "programme-governance"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #371 merged the searchable command palette and nine-workspace responsive shell as a2d9b0894fd30d9a11712d27e8b62e9a8786ccaa",
+            "Current exact main 6fe3b410395d14593f9a9b67fd5180e68e862e9a passes the focused command-palette, frontend-design-system, startup, accessibility and governance acceptance suite plus Ruff",
+            "Independent read-only scout mapped every canonical ISSUE-0016 workspace, search and command-palette criterion to current runtime behavior and tests with no remaining product gap"
+          ],
+          "review_reference": "Product PR #371 plus current exact-main ISSUE-0016 acceptance verification",
+          "reviewed_date": "2026-08-10",
+          "reviewer": "Codex root orchestrator and independent scout",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0016",
@@ -9787,7 +9799,7 @@
       "package_status": "Open",
       "phase": "phase-08-frontend-api",
       "priority": "P1",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -9813,8 +9825,8 @@
       "source_record_id": "ISSUE-0016",
       "source_title": "Full product navigation redesign",
       "title": "Full product navigation redesign",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "a2d9b0894fd30d9a11712d27e8b62e9a8786ccaa",
+      "verified_date": "2026-08-10",
       "why": "Institutional-style workflows require coherent journeys rather than an ever-growing sidebar of technical pages.",
       "write_conflict_group": "frontend-and-api"
     },
@@ -27883,7 +27895,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "323adb33393d31e9bae58bb18adaaafc45a06746545b30252a39ead307b68652",
+    "programme_control_state_sha256": "3ef96aa280d58eb3e810bd463630e6475f6e9f7c4b044d2db516174fccd97c13",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

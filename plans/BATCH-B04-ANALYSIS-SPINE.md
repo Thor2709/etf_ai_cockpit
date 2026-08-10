@@ -9,7 +9,36 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
-## Current ISSUE-0015 product lane
+## Current ISSUE-0016 product lane
+
+ISSUE-0015 product PR #669 and lifecycle PR #670 are merged through exact main
+`6fe3b410395d14593f9a9b67fd5180e68e862e9a`. Exact-head review and run
+`31380194815` passed Linux, Windows and terminal validation. Ordered writer
+`31382654403` applied and verified the sole ISSUE-0015 status update with
+`zero_action_readback=true`; generic convergence `31382654316` and a fresh
+exact-main readback are zero action, and `execution_allowed=false` remains.
+
+ISSUE-0016 is now selected as the next canonical implementation-order issue.
+It is P1, dependency-ready and activation-ready with no blocking dependencies.
+Clean branch `codex/issue0016-product-20260810` starts at exact main
+`6fe3b410395d14593f9a9b67fd5180e68e862e9a`. Its bounded scope is the required
+task-oriented frontend-v2 navigation across Home, Discover, Instrument,
+Portfolio, Models, Backtest/Paper, Data Health, Audit and Settings, including
+search and command palette. Current exact-main inspection and focused tests
+confirm PR #371 already satisfies that product contract; independent read-only
+criterion review found no reproducible gap, so no speculative product code is
+added. The sole lifecycle transaction is `implemented_initially -> integrated`
+with one-update plan
+`3a45c6c3892f1a74d52fcad082ec65beeacf95d5cff73b50b5ead7a72023fdaf`,
+candidate authority
+`b34e62fd600f7baa7ed389a61af6803ac4cf0ad788721df508b011d1fb4ee433`
+and append-only sequence-21 authority
+`d8f48eb20e9b83a1e992ba8803199b65b39561c22221aaa73b2bd5a309c6207c`.
+Generator/check mode, registry validation and status guard pass with
+`execution_allowed=false`; freeze for both exact-head reviews and hosted
+validation, then require writer acceptance and generic zero-action readback.
+
+## Superseded ISSUE-0015 product lane
 
 ISSUE-0014 lifecycle PR #668 merged exact reviewed head
 `827225cb3b5f5f509dc024c713d9fa93efa35ad0` as exact main
