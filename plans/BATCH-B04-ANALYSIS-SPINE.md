@@ -9,7 +9,28 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
-## Current ISSUE-0014 validation repair
+## Current ISSUE-0015 product lane
+
+ISSUE-0014 lifecycle PR #668 merged exact reviewed head
+`827225cb3b5f5f509dc024c713d9fa93efa35ad0` as exact main
+`830a00a84eebdb26e1099f3cb003898e9b0ceab2`. Writer `31369949128` applied and
+verified the sole aggregate two-hop replay with `zero_action_readback=true`;
+generic convergence `31369949140` and the fresh exact-main plan are zero action,
+reconciliation projects `integrated`, and `execution_allowed=false` remains.
+
+ISSUE-0015 is the next canonical implementation-order, dependency-ready issue.
+Clean branch `codex/issue0015-product-20260810` rebases the prepared product
+checkpoint onto that exact main. Its four-file scope completes the existing
+`/roadmap` page by requiring complete, consistent canonical registry,
+readiness, dependency-edge and closure evidence, failing closed on malformed or
+partial inputs, retaining separate implementation/release/data/model/paper/live
+dimensions and preserving `execution_allowed=false`. Focused programme-map/UI
+tests, Ruff, compile and diff hygiene pass. Complete exact-head classification,
+lifecycle preparation, parallel whole-diff/risk review and required hosted CI
+before merge; then require writer acceptance and generic zero-action readback
+for the legal `implemented_initially -> integrated` completion.
+
+## Superseded ISSUE-0014 validation repair
 
 PR #665 remains frozen at independently approved exact head
 `5ef8429547a36b6e127a142bb4e81b2e07f35fc6`. H-tier run `31345050975`

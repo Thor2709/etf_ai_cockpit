@@ -13,7 +13,40 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
-## Current ISSUE-0014 validation-repair checkpoint
+## Current ISSUE-0015 product checkpoint
+
+- ISSUE-0014 product PR #665 merged exact reviewed head
+  `576b5837e0ee096f9762c38122a7b439193001d4` as
+  `0f45b6e7ece668c0cad9e34e6022b2cbaf53d619`; lifecycle PR #668 merged exact
+  reviewed head `827225cb3b5f5f509dc024c713d9fa93efa35ad0` as exact main
+  `830a00a84eebdb26e1099f3cb003898e9b0ceab2`. Ordered writer `31369949128`
+  applied and verified the single aggregate `in_progress ->
+  implemented_initially -> integrated` replay with two writes and
+  `zero_action_readback=true`; generic convergence `31369949140` and the fresh
+  exact-main readback both passed with zero actions. Reconciliation projects
+  ISSUE-0014 `integrated` and `execution_allowed=false` remains.
+- ISSUE-0015 is the next implementation-order issue and is canonically
+  dependency-ready: priority P1, no blocking or activation dependencies,
+  status `implemented_initially`, and required change "Drive the page from the
+  canonical dependency and closure registry; show implementation, release,
+  data, model, paper and live authority separately."
+- Clean worktree
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0015_product`,
+  branch `codex/issue0015-product-20260810`, was rebased from its prepared
+  two-commit checkpoint onto exact base
+  `830a00a84eebdb26e1099f3cb003898e9b0ceab2`. The bounded four-file product
+  diff makes the existing `/roadmap` projection validate complete canonical
+  registry, readiness, dependency-edge and closure evidence; fail closed on
+  malformed or partial state; keep authority dimensions separate; and expose
+  the unchanged `execution_allowed=false` policy. Focused programme-map and UI
+  tests, Ruff, compile and diff hygiene pass after rebase.
+- Before merge, complete checkpoint chronology, classify and validate the exact
+  head, prepare every legal lifecycle component for the sole
+  `implemented_initially -> integrated` completion, launch both independent
+  reviews and required hosted CI on the same frozen head, and require the
+  ordered writer plus generic zero-action readback after merge.
+
+## Superseded ISSUE-0014 validation-repair checkpoint
 
 - Product PR #665 merged independently approved exact head
   `576b5837e0ee096f9762c38122a7b439193001d4` as exact main
