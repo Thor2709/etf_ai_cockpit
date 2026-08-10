@@ -93,6 +93,59 @@ def test_onboarding_preserves_cross_tier_duplicate_records(tmp_path) -> None:
     }
 
 
+def test_merge_records_preserves_same_id_across_tiers_when_allowed() -> None:
+    primary = UniverseRecord("SAME-ID", "Primary", "NO0000000001", "verified", "PRIMARY", "stock", "primary")
+    secondary = UniverseRecord("SAME-ID", "Secondary", "NO0000000002", "verified", "SECONDARY", "stock", "secondary")
+
+    records = onboarding_module._merge_records((primary,), (secondary,), allow_cross_tier_duplicates=True)
+
+    assert records == (primary, secondary)
+
+
+def test_merge_records_preserves_same_ticker_across_tiers_when_allowed() -> None:
+    primary = UniverseRecord("PRIMARY", "Primary", "NO0000000001", "verified", "SHARED", "stock", "primary")
+    secondary = UniverseRecord("SECONDARY", "Secondary", "NO0000000002", "verified", "SHARED", "stock", "secondary")
+
+    records = onboarding_module._merge_records((primary,), (secondary,), allow_cross_tier_duplicates=True)
+
+    assert records == (primary, secondary)
+
+
+def test_merge_records_replaces_same_tier_ticker_collision() -> None:
+    original = UniverseRecord("ORIGINAL", "Original", "NO0000000001", "verified", "SHARED", "stock", "secondary")
+    replacement = UniverseRecord("REPLACEMENT", "Replacement", "NO0000000002", "verified", "SHARED", "stock", "secondary")
+
+    records = onboarding_module._merge_records((original,), (replacement,))
+
+    assert records == (replacement,)
+
+
+def test_merge_records_replaces_same_tier_isin_collision() -> None:
+    original = UniverseRecord("ORIGINAL", "Original", "NO0000000001", "verified", "ORIGINAL", "stock", "secondary")
+    replacement = UniverseRecord("REPLACEMENT", "Replacement", "NO0000000001", "verified", "REPLACEMENT", "stock", "secondary")
+
+    records = onboarding_module._merge_records((original,), (replacement,))
+
+    assert records == (replacement,)
+
+
+@pytest.mark.parametrize("identity", ("instrument_id", "ticker", "isin"))
+def test_merge_records_replaces_disallowed_cross_tier_collision(identity: str) -> None:
+    values = {
+        "instrument_id": "SHARED-ID",
+        "ticker": "SHARED",
+        "isin": "NO0000000001",
+    }
+    original = UniverseRecord("ORIGINAL", "Original", "NO0000000002", "verified", "ORIGINAL", "stock", "primary")
+    replacement = UniverseRecord("REPLACEMENT", "Replacement", "NO0000000003", "verified", "REPLACEMENT", "stock", "secondary")
+    original = UniverseRecord(**{**original.__dict__, identity: values[identity]})
+    replacement = UniverseRecord(**{**replacement.__dict__, identity: values[identity]})
+
+    records = onboarding_module._merge_records((original,), (replacement,), allow_cross_tier_duplicates=False)
+
+    assert records == (replacement,)
+
+
 def test_onboarding_group_conflicts_with_canonical_save_after_precondition(tmp_path, monkeypatch) -> None:
     initial = save_universe(
         (UniverseRecord("INITIAL", "Initial", "NO0000000001", "verified", "INITIAL"),),

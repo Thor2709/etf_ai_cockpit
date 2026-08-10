@@ -19,7 +19,7 @@ from etf_cockpit.application.settings import ANALYSIS_DEPTHS, HORIZONS, OUTPUT_C
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.application.ui_facade import UniverseRecord, import_legacy_universe, legal_terms_report, load_universe, resource_profile_report, save_universe, source_policy_rows, validate_import
+from etf_cockpit.application.ui_facade import UNKNOWN_ISIN_VALUES, UniverseRecord, import_legacy_universe, legal_terms_report, load_universe, resource_profile_report, save_universe, source_policy_rows, validate_import
 
 
 @dataclass(frozen=True)
@@ -633,21 +633,40 @@ def _merge_records(
     *groups: Iterable[UniverseRecord],
     allow_cross_tier_duplicates: bool = False,
 ) -> tuple[UniverseRecord, ...]:
-    merged: dict[str, UniverseRecord] = {}
+    merged: list[UniverseRecord] = []
     for group in groups:
         for record in group:
-            record_id = record.instrument_id.casefold()
-            ticker = record.ticker.casefold()
-            previous = merged.get(record_id)
-            if previous is not None:
-                merged.pop(record_id)
-            for duplicate_id, duplicate in tuple(merged.items()):
-                if duplicate.ticker.casefold() != ticker:
-                    continue
-                if duplicate.tier == record.tier or not allow_cross_tier_duplicates:
-                    merged.pop(duplicate_id, None)
-            merged[record_id] = record
-    return tuple(merged[key] for key in sorted(merged))
+            identities = _record_identity_values(record)
+
+            merged = [
+                existing
+                for existing in merged
+                if not (
+                    (existing.tier.strip().casefold() == record.tier.strip().casefold() or not allow_cross_tier_duplicates)
+                    and any(
+                        value
+                        and value == _record_identity_values(existing).get(identity)
+                        for identity, value in identities.items()
+                    )
+                )
+            ]
+            merged.append(record)
+    return tuple(sorted(merged, key=lambda record: record.instrument_id.casefold()))
+
+
+def _record_identity_values(record: UniverseRecord) -> dict[str, str]:
+    identities = {
+        "instrument_id": record.instrument_id.strip().casefold(),
+        "ticker": record.ticker.strip().casefold(),
+    }
+    isin = record.isin.strip().casefold()
+    if (
+        isin
+        and isin not in UNKNOWN_ISIN_VALUES
+        and record.isin_status.strip().casefold() not in {"needs_verification", "unknown", "unresolved"}
+    ):
+        identities["isin"] = isin
+    return identities
 
 
 def _bulk_bootstrap(profile: OnboardingProfile, supplied_root: Path, storage_root: Path) -> BootstrapResult:
