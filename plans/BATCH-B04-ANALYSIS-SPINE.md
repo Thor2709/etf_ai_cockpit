@@ -562,6 +562,23 @@ fixed identity plus fail-closed regression and durable workflow wording.
 After full review and validation, resume the preserved lifecycle transaction;
 `execution_allowed=false` remains.
 
+Both reviewers approved repair head
+`5e2a4358e825168b27194582bd30a69b47c5a7ca`. H-tier run `31364891591`
+passed preflight, supply chain, Linux, Windows and terminal validation; PR #667
+merged it as exact main `35007496ae5052ef5ac41ede746ed76f1a48ab87`.
+The preserved lifecycle branch fast-forwarded to that exact base and now
+contains only the legal ISSUE-0014 two-hop canonical completion, mechanical
+projections and append-only sequence-19 authority. Fresh live plan
+`956b10f1cc6b1501c3246aa6ee009b3478c8fe58ee965ec12de995ac690c7b5c`
+binds candidate ref
+`474bf56be46ae61e756103e4c90570db9879984cfed2b3f0f346ec7da7763387`
+and authority
+`fa4fb0c9731d6ec134362d9ca08b583db0ea715609650ea934fa500805e71bcf`
+to product PR #665 merge `0f45b6e7ece668c0cad9e34e6022b2cbaf53d619`;
+`execution_allowed=false`. Complete exact-head E-tier review/validation,
+merge, writer and zero-action readback, then transplant the prepared
+dependency-ready ISSUE-0015 product lane.
+
 ## ISSUE-0104 product chronology
 
 Readiness PR #654 merged independently approved exact head

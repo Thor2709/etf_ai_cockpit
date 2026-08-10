@@ -27,6 +27,21 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   H-tier correction adds ISSUE-0014's complete fixed source identity and a
   fail-closed parameterized regression; no replay shape, writer, authority,
   dependency edge, product code or execution permission changes.
+- Both independent reviewers approved repair head
+  `5e2a4358e825168b27194582bd30a69b47c5a7ca`; H-tier run `31364891591`
+  passed preflight, supply chain, Linux, Windows and terminal validation. PR
+  #667 merged it as exact main `35007496ae5052ef5ac41ede746ed76f1a48ab87`.
+- The preserved lifecycle lane fast-forwarded cleanly to that exact main and
+  now contains only ISSUE-0014's ordered `in_progress -> implemented_initially
+  -> integrated` canonical transaction, mechanical projections, candidate and
+  append-only sequence-19 authority. The fresh live plan is
+  `956b10f1cc6b1501c3246aa6ee009b3478c8fe58ee965ec12de995ac690c7b5c`,
+  candidate ref is
+  `474bf56be46ae61e756103e4c90570db9879984cfed2b3f0f346ec7da7763387`
+  and aggregate authority is
+  `fa4fb0c9731d6ec134362d9ca08b583db0ea715609650ea934fa500805e71bcf`.
+  `execution_allowed=false`; exact-head E-tier review/validation, merge,
+  ordered writer and generic zero-action readback remain.
 - An earlier Product PR #665 checkpoint was frozen at exact head
   `5ef8429547a36b6e127a142bb4e81b2e07f35fc6`; canonical lifecycle and
   `execution_allowed=false` are unchanged.
