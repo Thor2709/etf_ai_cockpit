@@ -3027,3 +3027,15 @@ instrument-ID, ticker and verified-ISIN same-tier/cross-tier semantics, with
 focused regressions for each identity. Onboarding, universe and presentation
 boundary checks plus Ruff, compile and diff hygiene pass. Freeze one documented
 replacement head for final exact-head review and H-tier gates.
+
+`IDENTITY_ROUND_TRIP_CORRECTION` both reviewers rejected exact head
+`3059a24623a60a4a0ab0e98964e1602aeff79403` after reproducing canonical
+validation/decoder disagreement, incomplete per-tier identity tracking and an
+ambiguous onboarding replacement that collapsed two records. Run
+`31405719378` is cancelled and stale. Commit
+`2023d1c7faebf18742a744e92d8f2c4aa89639a8` tracks complete tier sets for
+ID/ticker/verified ISIN, preserves legal schema-v3 cross-tier round trips,
+rejects repeated same-tier identities and makes ambiguous onboarding matches
+fail before writes. Complete focused identity, persistence, application and
+presentation-boundary checks pass. Freeze the documented head for final review
+and H-tier Linux/Windows/terminal gates.

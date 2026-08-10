@@ -112,6 +112,18 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   across all three canonical identities. The focused onboarding, universe and
   presentation-boundary guards plus Ruff, compile and diff hygiene pass. Freeze
   this documented head for final exact-head review and H-tier gates.
+- Both final reviewers rejected `3059a24623a60a4a0ab0e98964e1602aeff79403`
+  after reproducing one canonical identity-integrity defect: validation allowed
+  legal cross-tier identities that schema-v3 reload dropped, tier tracking could
+  miss a third same-tier reuse, and onboarding could collapse two distinct
+  records when an incoming row matched them through different identities. Run
+  `31405719378` was cancelled and is stale. Bounded H-tier commit
+  `2023d1c7faebf18742a744e92d8f2c4aa89639a8` tracks all tiers per canonical
+  ID/ticker/verified-ISIN, round-trips legal cross-tier records, rejects repeated
+  same-tier identity, and fails onboarding before writes on ambiguous matches.
+  ID/ticker/ISIN round-trip, triplet and no-write regressions plus the affected
+  onboarding, universe, application and presentation-boundary suite pass.
+  Freeze the documented head for final review and H-tier gates.
 
 ## Superseded ISSUE-0016 product checkpoint
 
