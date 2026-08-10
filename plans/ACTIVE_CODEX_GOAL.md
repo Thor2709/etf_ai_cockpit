@@ -137,6 +137,16 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   backup-state, ISIN and resave regressions plus the affected application,
   scheduler and architecture suite pass. Freeze the documented head for final
   review and complete H-tier gates.
+- Parallel review rejected `b702dc288257226b875ea4326464b0038da13c47`
+  because active config unnecessarily rejected valid schema-v2 snapshots and
+  cross-tier duplicate instrument IDs conflicted with the application's global
+  row-key/CRUD contract. Run `31410039718` was cancelled and is stale. Smallest
+  safe commit `a7347395ffb006e3bf8721555e07d89388e7a038` restores canonical schema-v2
+  active loading, makes instrument IDs globally case-insensitively unique, and
+  retains cross-tier override only for ticker and verified ISIN. Onboarding
+  deterministically replaces a same-ID row rather than creating duplicate row
+  authority. Focused universe/onboarding/application/UI/architecture checks
+  pass. Freeze the documented head for final review and H-tier gates.
 
 ## Superseded ISSUE-0016 product checkpoint
 

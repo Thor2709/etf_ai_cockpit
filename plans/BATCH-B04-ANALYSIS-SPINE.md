@@ -3051,3 +3051,14 @@ onboarding CAS, records backup unavailable/not enabled, validates verified
 ISIN shape/status and preserves unresolved disabled state. The complete focused
 integrity/concurrency/application/architecture surface passes. Freeze the
 documented head for final review and H-tier Linux/Windows/terminal gates.
+
+`GLOBAL_ROW_IDENTITY_CORRECTION` parallel review rejected exact head
+`b702dc288257226b875ea4326464b0038da13c47` because active config rejected
+supported schema-v2 snapshots and duplicate cross-tier instrument IDs were
+incompatible with global application/UI/CRUD row identity. Run `31410039718`
+is cancelled and stale. Commit `a7347395ffb006e3bf8721555e07d89388e7a038`
+restores canonical schema-v2 loading, enforces global case-insensitive IDs,
+retains cross-tier ticker/verified-ISIN override and makes onboarding replace
+same-ID rows deterministically. The complete focused persistence, application,
+UI and architecture surface passes. Freeze the documented head for final review
+and H-tier Linux/Windows/terminal gates.
