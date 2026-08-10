@@ -147,6 +147,16 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   deterministically replaces a same-ID row rather than creating duplicate row
   authority. Focused universe/onboarding/application/UI/architecture checks
   pass. Freeze the documented head for final review and H-tier gates.
+- Parallel review rejected `a5efafe7eb1fc80f582500e1aee3bf3cdd3b035d`
+  for six bounded compatibility/truth gaps: dotted/underscore ticker ID aliasing,
+  non-boolean legacy override flags, boolean bootstrap row counts, stale
+  unresolved-symbol metadata, overstated sample row counts and a misleading
+  duplicate-policy label. Run `31413658110` was cancelled and is stale. Commit
+  `14d50990583d583f9cbd88fd3977eebb7622aa23` preserves exact ticker IDs,
+  validates legacy policy and onboarding evidence types/content, reports only
+  newly selected sample rows and states the constrained override accurately.
+  Focused onboarding/universe/application/UI/architecture checks pass. Freeze
+  the documented head for final review and H-tier gates.
 
 ## Superseded ISSUE-0016 product checkpoint
 

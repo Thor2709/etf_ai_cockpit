@@ -3062,3 +3062,14 @@ retains cross-tier ticker/verified-ISIN override and makes onboarding replace
 same-ID rows deterministically. The complete focused persistence, application,
 UI and architecture surface passes. Freeze the documented head for final review
 and H-tier Linux/Windows/terminal gates.
+
+`COMPATIBILITY_TRUTH_CORRECTION` parallel review rejected exact head
+`a5efafe7eb1fc80f582500e1aee3bf3cdd3b035d` for dotted/underscore ticker ID
+aliasing, non-boolean legacy policy, boolean row evidence, stale unresolved
+metadata, overstated sample counts and an inaccurate override label. Run
+`31413658110` is cancelled and stale. Commit
+`14d50990583d583f9cbd88fd3977eebb7622aa23` preserves exact ticker IDs, strictly
+validates evidence and legacy policy, recomputes unresolved equality, reports
+only new sample rows and states the override boundary accurately. Complete
+focused product, persistence, UI and architecture checks pass. Freeze the
+documented head for final review and H-tier Linux/Windows/terminal gates.
