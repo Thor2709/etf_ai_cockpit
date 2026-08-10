@@ -77,6 +77,22 @@ def test_onboarding_preserves_existing_cross_tier_duplicate_policy(tmp_path) -> 
     assert load_universe(tmp_path).allow_cross_tier_duplicates is True
 
 
+def test_onboarding_preserves_cross_tier_duplicate_records(tmp_path) -> None:
+    primary = UniverseRecord("DUP-PRIMARY", "Primary", "NO0000000001", "verified", "DUP", "stock", "primary")
+    save_universe((primary,), expected_revision="", root=tmp_path, allow_cross_tier_duplicates=True)
+
+    complete_onboarding(
+        OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", tickers=("DUP",), bootstrap_mode="bulk"),
+        tmp_path,
+    )
+
+    records = load_universe(tmp_path).records
+    assert {(record.instrument_id, record.tier) for record in records} == {
+        ("DUP-PRIMARY", "primary"),
+        ("DUP", "secondary"),
+    }
+
+
 def test_onboarding_group_conflicts_with_canonical_save_after_precondition(tmp_path, monkeypatch) -> None:
     initial = save_universe(
         (UniverseRecord("INITIAL", "Initial", "NO0000000001", "verified", "INITIAL"),),
@@ -475,6 +491,19 @@ def test_onboarding_load_fails_closed_for_partial_or_enabled_execution_settings(
     payload["setup"]["execution"]["execution_allowed"] = True
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="safety defaults"):
+        load_onboarding(tmp_path)
+
+
+@pytest.mark.parametrize("preference", ("disabled", "encrypted", "unsupported"))
+def test_onboarding_load_rejects_unsupported_persisted_backup_preference(tmp_path, preference: str) -> None:
+    complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+    path = onboarding_module.ROOT / "configs" / "onboarding.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["profile"]["backup_preference"] = preference
+    payload["setup"]["privacy"]["backup_preference"] = preference
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="backup_preference"):
         load_onboarding(tmp_path)
 
 

@@ -629,21 +629,24 @@ def _sample_records() -> tuple[UniverseRecord, ...]:
     )
 
 
-def _merge_records(*groups: Iterable[UniverseRecord]) -> tuple[UniverseRecord, ...]:
+def _merge_records(
+    *groups: Iterable[UniverseRecord],
+    allow_cross_tier_duplicates: bool = False,
+) -> tuple[UniverseRecord, ...]:
     merged: dict[str, UniverseRecord] = {}
-    ticker_ids: dict[str, str] = {}
     for group in groups:
         for record in group:
             record_id = record.instrument_id.casefold()
             ticker = record.ticker.casefold()
             previous = merged.get(record_id)
             if previous is not None:
-                ticker_ids.pop(previous.ticker.casefold(), None)
-            duplicate_id = ticker_ids.get(ticker)
-            if duplicate_id is not None and duplicate_id != record_id:
-                merged.pop(duplicate_id, None)
+                merged.pop(record_id)
+            for duplicate_id, duplicate in tuple(merged.items()):
+                if duplicate.ticker.casefold() != ticker:
+                    continue
+                if duplicate.tier == record.tier or not allow_cross_tier_duplicates:
+                    merged.pop(duplicate_id, None)
             merged[record_id] = record
-            ticker_ids[ticker] = record_id
     return tuple(merged[key] for key in sorted(merged))
 
 
@@ -798,7 +801,12 @@ def complete_onboarding(
             for record in sample_fixture
             if record.ticker.casefold() not in occupied_tickers and record.instrument_id.casefold() not in occupied_ids
         )
-        records = _merge_records(existing_records, samples, profile_records)
+        records = _merge_records(
+            existing_records,
+            samples,
+            profile_records,
+            allow_cross_tier_duplicates=current.allow_cross_tier_duplicates,
+        )
         sample_tickers = {record.ticker.casefold() for record in sample_fixture}
         sample_rows = sum(record.ticker.casefold() in sample_tickers for record in records)
         bootstrap = BootstrapResult(
@@ -812,7 +820,11 @@ def complete_onboarding(
     else:
         bootstrap = _bulk_bootstrap(profile, supplied_root, storage_root)
         if profile_records:
-            records = _merge_records(existing_records, profile_records)
+            records = _merge_records(
+                existing_records,
+                profile_records,
+                allow_cross_tier_duplicates=current.allow_cross_tier_duplicates,
+            )
             candidate_records = records
         else:
             records = existing_records
@@ -913,6 +925,8 @@ def load_onboarding(_root: Path | None = None) -> OnboardingProfile:
     execution = setup.get("execution")
     if not all(isinstance(value, dict) for value in (providers, bootstrap, privacy, execution)):
         raise ValueError("onboarding setup sections are incomplete")
+    if privacy.get("backup_preference") != "local":
+        raise ValueError("onboarding backup_preference is unsupported")
     if setup.get("resolved_storage_root") != storage_root.as_posix():
         raise ValueError("onboarding resolved storage root is invalid")
     if setup.get("storage_location") != "project_local":
