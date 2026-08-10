@@ -551,17 +551,45 @@
       "verified_date": "2026-08-10"
     },
     "ISSUE-0016": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #371 merged the searchable command palette and nine-workspace responsive shell as a2d9b0894fd30d9a11712d27e8b62e9a8786ccaa",
+            "Current exact main 6fe3b410395d14593f9a9b67fd5180e68e862e9a passes the focused command-palette, frontend-design-system, startup, accessibility and governance acceptance suite plus Ruff",
+            "Independent read-only scout mapped every canonical ISSUE-0016 workspace, search and command-palette criterion to current runtime behavior and tests with no remaining product gap"
+          ],
+          "review_reference": "Product PR #371 plus current exact-main ISSUE-0016 acceptance verification",
+          "reviewed_date": "2026-08-10",
+          "reviewer": "Codex root orchestrator and independent scout",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-08-frontend-api",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "Product PR #371 plus current exact-main ISSUE-0016 acceptance verification",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #371 merged the searchable command palette and nine-workspace responsive shell as a2d9b0894fd30d9a11712d27e8b62e9a8786ccaa",
+            "Current exact main 6fe3b410395d14593f9a9b67fd5180e68e862e9a passes the focused command-palette, frontend-design-system, startup, accessibility and governance acceptance suite plus Ruff",
+            "Independent read-only scout mapped every canonical ISSUE-0016 workspace, search and command-palette criterion to current runtime behavior and tests with no remaining product gap"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "Product PR #371 plus current exact-main ISSUE-0016 acceptance verification",
+          "reviewed_date": "2026-08-10",
+          "reviewer": "Codex root orchestrator and independent scout",
+          "to": "integrated",
+          "verified_commit": "a2d9b0894fd30d9a11712d27e8b62e9a8786ccaa"
+        }
+      ],
+      "verified_commit": "a2d9b0894fd30d9a11712d27e8b62e9a8786ccaa",
+      "verified_date": "2026-08-10"
     },
     "ISSUE-0017": {
       "acceptance_evidence": [],
