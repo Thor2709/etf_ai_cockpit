@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from etf_cockpit.data.universe_store import support_decision
-from etf_cockpit.app.pages.onboarding import OnboardingProfile, complete_onboarding, load_onboarding, onboarding_page, validate_onboarding
+from etf_cockpit.data.universe_store import load_universe, support_decision
+from etf_cockpit.app.pages.onboarding import OnboardingProfile, ProviderQuotaExceeded, TickerValidationResult, complete_onboarding, load_onboarding, onboarding_page, validate_onboarding
 import flet as ft
 import etf_cockpit.app.pages.onboarding as onboarding_module
 
@@ -33,8 +33,10 @@ def test_offline_onboarding_persists_profile_and_disables_unresolved_tickers(tmp
     result = complete_onboarding(profile, tmp_path, online=False)
     assert result.saved is True
     assert result.unresolved_symbols == ("UNKNOWN", "VWCE.DE")
-    assert result.records[0].enabled is False
-    assert result.records[1].enabled is False
+    by_ticker = {record.ticker: record for record in result.records}
+    assert by_ticker["UNKNOWN"].enabled is False
+    assert by_ticker["VWCE.DE"].enabled is False
+    assert by_ticker["MSFT"].enabled is True
     assert (tmp_path / "configs" / "onboarding.json").exists()
     assert load_onboarding(tmp_path).optional_provider_status == ()
     assert json.loads((tmp_path / "configs" / "onboarding.json").read_text(encoding="utf-8"))["unresolved_symbols"] == ["UNKNOWN", "VWCE.DE"]
@@ -50,8 +52,9 @@ def test_offline_onboarding_keeps_configured_local_ticker_enabled(tmp_path) -> N
     profile = OnboardingProfile("EUR", "Europe", ("etf",), "balanced", "medium", tickers=("VWCE.DE", "MISSING"))
     result = complete_onboarding(profile, tmp_path, online=False)
     assert result.unresolved_symbols == ("MISSING",)
-    assert result.records[0].enabled is True
-    assert result.records[1].enabled is False
+    by_ticker = {record.ticker: record for record in result.records}
+    assert by_ticker["VWCE.DE"].enabled is True
+    assert by_ticker["MISSING"].enabled is False
 
 
 def test_onboarding_ui_exposes_opt_in_online_validator_seam() -> None:
@@ -144,19 +147,29 @@ def test_complete_offline_setup_persists_all_choices_and_disabled_execution(tmp_
     )
 
     result = complete_onboarding(profile, tmp_path, online=False)
-    payload = json.loads((tmp_path / "configs" / "onboarding.json").read_text(encoding="utf-8"))
+    selected_root = tmp_path / "local-data"
+    payload = json.loads((selected_root / "configs" / "onboarding.json").read_text(encoding="utf-8"))
 
     assert result.saved is True
+    assert result.storage_root == selected_root.as_posix()
     assert result.optional_provider_status == (("yfinance", "not_configured"),)
+    assert not (tmp_path / "configs" / "onboarding.json").exists()
+    assert (tmp_path / "configs" / "onboarding-location.json").exists()
+    assert load_onboarding(tmp_path).storage_location == selected_root.as_posix()
+    assert load_onboarding(selected_root).storage_location == selected_root.as_posix()
     assert payload["schema_version"] == "onboarding.v2"
-    assert payload["setup"]["storage_location"] == (tmp_path / "local-data").as_posix()
+    assert payload["setup"]["storage_location"] == selected_root.as_posix()
+    assert payload["setup"]["resolved_storage_root"] == selected_root.as_posix()
     assert payload["setup"]["hardware_profile"] == "recommended"
     assert payload["setup"]["providers"] == {
         "mandatory": ["manual_local"],
         "optional": ["yfinance"],
         "optional_status": {"yfinance": "not_configured"},
     }
-    assert payload["setup"]["bootstrap"] == {"mode": "bulk", "offline": True}
+    assert payload["setup"]["bootstrap"]["mode"] == "bulk"
+    assert payload["setup"]["bootstrap"]["status"] == "unavailable"
+    assert "Select a local" in payload["setup"]["bootstrap"]["message"]
+    assert payload["setup"]["bootstrap"]["execution_allowed"] is False
     assert payload["setup"]["privacy"] == {"backup_preference": "encrypted", "encryption_preference": "user_managed"}
     assert payload["setup"]["execution"] == {
         "broker_write_enabled": False,
@@ -165,6 +178,47 @@ def test_complete_offline_setup_persists_all_choices_and_disabled_execution(tmp_
         "staged_execution_enabled": False,
     }
     assert payload["execution_allowed"] is False
+
+
+def test_bulk_bootstrap_imports_explicit_local_prices_into_selected_root(tmp_path) -> None:
+    source = tmp_path / "official-prices.csv"
+    source.write_text(
+        "date,instrument_id,adjusted_close\n2026-08-07,VWCE,100.25\n2026-08-08,VWCE,101.00\n",
+        encoding="utf-8",
+    )
+    profile = OnboardingProfile(
+        "EUR",
+        "Europe",
+        ("etf",),
+        "medium",
+        "3M",
+        storage_location="selected-bulk",
+        bootstrap_mode="bulk",
+        bulk_source_path="official-prices.csv",
+    )
+
+    result = complete_onboarding(profile, tmp_path)
+    selected_root = tmp_path / "selected-bulk"
+    payload = json.loads((selected_root / "configs" / "onboarding.json").read_text(encoding="utf-8"))
+
+    assert result.bootstrap is not None
+    assert result.bootstrap.status == "ready"
+    assert result.bootstrap.rows == 2
+    assert result.bootstrap.market_data_status == "available"
+    assert (selected_root / "data" / "clean" / "prices.parquet").is_file()
+    assert payload["setup"]["bootstrap"]["source_path"] == source.as_posix()
+    assert payload["setup"]["bootstrap"]["execution_allowed"] is False
+    assert payload["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("location", ("../escape", "https://example.test/data", r"\\server\share"))
+def test_storage_location_rejects_traversal_uri_and_unc(tmp_path, location: str) -> None:
+    with pytest.raises(ValueError, match="storage_location"):
+        complete_onboarding(
+            OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", storage_location=location),
+            tmp_path,
+        )
+    assert not (tmp_path / "configs" / "onboarding-location.json").exists()
 
 
 def test_onboarding_load_fails_closed_for_partial_or_enabled_execution_settings(tmp_path) -> None:
@@ -206,6 +260,82 @@ def test_optional_quota_failure_is_visible_non_blocking_and_does_not_corrupt_pri
     assert before != after_quota
 
 
+def test_online_quota_exception_is_non_blocking_visible_and_not_retried(tmp_path) -> None:
+    calls: list[str] = []
+
+    def quota_validator(ticker: str) -> bool:
+        calls.append(ticker)
+        raise ProviderQuotaExceeded("yfinance")
+
+    profile = OnboardingProfile(
+        "EUR",
+        "Europe",
+        ("stock",),
+        "medium",
+        "3M",
+        tickers=("ONE", "TWO"),
+        optional_providers=("yfinance",),
+        bootstrap_mode="bulk",
+    )
+    result = complete_onboarding(profile, tmp_path, online=True, validator=quota_validator)
+    payload = json.loads((tmp_path / "configs" / "onboarding.json").read_text(encoding="utf-8"))
+
+    assert calls == ["ONE"]
+    assert result.saved is True
+    assert result.optional_provider_status == (("yfinance", "quota_exceeded"),)
+    assert result.bootstrap is not None and result.bootstrap.status == "unavailable"
+    assert load_onboarding(tmp_path).optional_provider_status == (("yfinance", "quota_exceeded"),)
+    assert payload["setup"]["providers"]["optional_status"] == {"yfinance": "quota_exceeded"}
+    assert payload["execution_allowed"] is False
+
+
+def test_ui_typed_quota_result_is_visible_and_saves_offline_setup(tmp_path, monkeypatch) -> None:
+    class _Page:
+        def __init__(self) -> None:
+            self.updates = 0
+
+        def update(self) -> None:
+            self.updates += 1
+
+    calls: list[str] = []
+
+    def quota_validator(ticker: str) -> TickerValidationResult:
+        calls.append(ticker)
+        return TickerValidationResult("quota_unavailable", "yfinance")
+
+    def walk(item):
+        if not isinstance(item, ft.Control):
+            return
+        yield item
+        for attr in ("controls", "actions"):
+            for child in getattr(item, attr, ()) or ():
+                yield from walk(child)
+        content = getattr(item, "content", None)
+        if content is not None:
+            yield from walk(content)
+
+    page = _Page()
+    control = onboarding_page(page, None, validator=quota_validator)
+    controls = tuple(walk(control))
+    toggle = next(item for item in controls if isinstance(item, ft.Checkbox) and item.key == "onboarding.online-validation")
+    ticker_field = next(item for item in controls if isinstance(item, ft.TextField) and item.label == "Initial tickers (comma separated)")
+    save = next(item for item in controls if isinstance(item, ft.Button) and item.key == "onboarding.save")
+    status = next(item for item in controls if isinstance(item, ft.Text) and item.key == "onboarding.status")
+    toggle.value = True
+    ticker_field.value = "ONE, TWO"
+    monkeypatch.chdir(tmp_path)
+
+    save.on_click(None)
+
+    payload = json.loads((tmp_path / "configs" / "onboarding.json").read_text(encoding="utf-8"))
+    assert calls == ["ONE"]
+    assert page.updates == 1
+    assert "quota_exceeded" in str(status.value)
+    assert "mandatory setup was not blocked" in str(status.value)
+    assert payload["setup"]["providers"]["optional_status"] == {"yfinance": "quota_exceeded"}
+    assert payload["execution_allowed"] is False
+
+
 def test_onboarding_round_trip_is_deterministic_and_rejects_unsafe_execution_choices(tmp_path) -> None:
     profile = OnboardingProfile(
         "EUR", "Europe", ("stock",), "medium", "3M",
@@ -213,8 +343,9 @@ def test_onboarding_round_trip_is_deterministic_and_rejects_unsafe_execution_cho
         encryption_preference="enabled",
         backup_preference="enabled",
     )
-    complete_onboarding(profile, tmp_path)
-    path = tmp_path / "configs" / "onboarding.json"
+    result = complete_onboarding(profile, tmp_path)
+    selected_root = tmp_path / "data" / "local"
+    path = selected_root / "configs" / "onboarding.json"
     first = path.read_bytes()
     loaded = load_onboarding(tmp_path)
     complete_onboarding(loaded, tmp_path)
@@ -224,6 +355,13 @@ def test_onboarding_round_trip_is_deterministic_and_rejects_unsafe_execution_cho
     assert loaded.backup_preference == "local"
     assert loaded.execution_allowed is False
     assert loaded.staged_execution_enabled is False
+    assert (selected_root / "configs" / "universe_store.json").is_file()
+    assert not (tmp_path / "configs" / "onboarding.json").exists()
+    assert result.bootstrap is not None
+    assert result.bootstrap.status == "ready"
+    assert result.bootstrap.market_data_status == "unavailable"
+    assert {record.instrument_id for record in load_universe(selected_root).records} >= {"VWCE", "MSFT"}
+    assert not (selected_root / "data" / "clean" / "prices.parquet").exists()
 
     with pytest.raises(ValueError, match="execution_allowed"):
         complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", execution_allowed=True), tmp_path)

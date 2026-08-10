@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from collections.abc import Mapping
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Literal
 
 import flet as ft
 import yaml
@@ -14,9 +14,9 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.settings import ANALYSIS_DEPTHS, HORIZONS, OUTPUT_CURRENCIES, RISK_PROFILES
-from etf_cockpit.core.atomic_io import atomic_write_bytes
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
 from etf_cockpit.core.config import load_config
-from etf_cockpit.application.ui_facade import UniverseRecord, legal_terms_report, load_universe, resource_profile_report, save_universe, source_policy_rows
+from etf_cockpit.application.ui_facade import ImportService, UniverseRecord, import_legacy_universe, legal_terms_report, load_universe, resource_profile_report, save_universe, source_policy_rows, validate_import
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,7 @@ class OnboardingProfile:
     execution_allowed: bool = False
     staged_execution_enabled: bool = False
     optional_provider_status: tuple[tuple[str, str], ...] = ()
+    bulk_source_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,33 @@ class OnboardingValidation:
     valid: bool
     errors: tuple[str, ...]
     unresolved_symbols: tuple[str, ...]
+    optional_provider_status: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class TickerValidationResult:
+    status: Literal["valid", "invalid", "unavailable", "quota_exceeded", "quota_unavailable"]
+    provider_id: str = "yfinance"
+
+
+class ProviderQuotaExceeded(RuntimeError):
+    """Recognised optional-provider quota result; callers must not retry."""
+
+    def __init__(self, provider_id: str = "yfinance") -> None:
+        self.provider_id = _text(provider_id).casefold() or "yfinance"
+        super().__init__(f"optional provider quota exceeded: {self.provider_id}")
+
+
+@dataclass(frozen=True)
+class BootstrapResult:
+    mode: str
+    status: Literal["ready", "unavailable"]
+    rows: int
+    output_paths: tuple[str, ...]
+    message: str
+    source_path: str = ""
+    market_data_status: str = "unavailable"
+    execution_allowed: bool = False
 
 
 @dataclass(frozen=True)
@@ -54,6 +82,8 @@ class OnboardingResult:
     records: tuple[UniverseRecord, ...]
     revision: str = ""
     optional_provider_status: tuple[tuple[str, str], ...] = ()
+    storage_root: str = ""
+    bootstrap: BootstrapResult | None = None
 
 
 _TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9._-]{0,20}$", re.IGNORECASE)
@@ -61,6 +91,7 @@ _ASSET_SCOPES = {"etf", "stock", "fund", "bond", "both", "stock+etf", "all"}
 _RISK_MAP = {"conservative": "safe", "balanced": "medium", "growth": "aggressive", **{item: item for item in RISK_PROFILES}}
 _HORIZON_MAP = {"short": "1M", "medium": "3M", "long": "9M", **{item.casefold(): item for item in HORIZONS}}
 ONBOARDING_SCHEMA_VERSION = "onboarding.v2"
+ONBOARDING_POINTER_SCHEMA_VERSION = "onboarding-location.v1"
 _HARDWARE_PROFILES = {"auto", "minimum", "recommended", "high"}
 _BOOTSTRAP_MODES = {"sample", "bulk"}
 _MANDATORY_PROVIDERS = {"local", "manual_local", "issuer_document", "filings_xbrl_org", "sec_edgar", "index_provider"}
@@ -68,6 +99,7 @@ _OPTIONAL_PROVIDERS = _MANDATORY_PROVIDERS | {"yfinance", "stooq", "fred", "rss"
 _OPTIONAL_PROVIDER_STATUSES = {"available", "disabled", "missing", "not_configured", "quota_exceeded", "unavailable"}
 _ENCRYPTION_PREFERENCES = {"disabled", "user_managed"}
 _BACKUP_PREFERENCES = {"disabled", "local", "encrypted"}
+_SAMPLE_INSTRUMENT_IDS = ("VWCE", "MSFT")
 
 
 def _text(value: object) -> str:
@@ -95,12 +127,62 @@ def _normalise_storage_location(value: object) -> str:
     location = _text(value)
     if not location:
         raise ValueError("storage_location is required")
-    if "\x00" in location or "://" in location or location.startswith(("//", "\\\\")):
+    if location.casefold() == "project_local":
+        return "project_local"
+    uri_scheme = re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", location)
+    windows_drive = re.match(r"^[A-Za-z]:[\\/]", location)
+    if "\x00" in location or "://" in location or location.startswith(("//", "\\\\")) or uri_scheme and not windows_drive:
         raise ValueError("storage_location must be a local filesystem path")
     path = Path(location)
     if ".." in path.parts or ".." in re.split(r"[\\/]", location):
         raise ValueError("storage_location must not contain parent traversal")
     return path.as_posix()
+
+
+def _resolve_local_path(value: object, supplied_root: Path, *, field: str, project_local: bool = False) -> Path:
+    supplied = Path(supplied_root).resolve()
+    normalised = _normalise_storage_location(value)
+    if normalised == "project_local":
+        if project_local:
+            return supplied
+        raise ValueError(f"{field} must identify an explicit local file")
+    candidate = Path(normalised)
+    if candidate.is_absolute():
+        return candidate.resolve()
+    resolved = (supplied / candidate).resolve()
+    if not resolved.is_relative_to(supplied):
+        raise ValueError(f"{field} must remain beneath the supplied root")
+    return resolved
+
+
+def _selected_storage_root(profile: OnboardingProfile, supplied_root: Path) -> Path:
+    return _resolve_local_path(profile.storage_location, supplied_root, field="storage_location", project_local=True)
+
+
+def _pointer_path(root: Path) -> Path:
+    return Path(root).resolve() / "configs" / "onboarding-location.json"
+
+
+def _onboarding_document_path(root: Path) -> tuple[Path, Path]:
+    supplied = Path(root).resolve()
+    direct = supplied / "configs" / "onboarding.json"
+    pointer_path = _pointer_path(supplied)
+    if not pointer_path.is_file():
+        if direct.is_file():
+            return direct, supplied
+        raise ValueError(f"onboarding settings cannot be loaded: {direct} does not exist")
+    try:
+        pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError) as exc:
+        raise ValueError(f"onboarding settings cannot be loaded: {exc}") from exc
+    if not isinstance(pointer, dict) or pointer.get("schema_version") != ONBOARDING_POINTER_SCHEMA_VERSION:
+        raise ValueError("onboarding storage pointer schema is unsupported")
+    if pointer.get("execution_allowed") is not False:
+        raise ValueError("onboarding storage pointer execution_allowed must remain false")
+    selected = _resolve_local_path(pointer.get("storage_root"), supplied, field="storage pointer")
+    if not selected.is_absolute() or pointer.get("storage_root") != selected.as_posix():
+        raise ValueError("onboarding storage pointer must contain the canonical absolute local root")
+    return selected / "configs" / "onboarding.json", selected
 
 
 def _normalise_preference(value: object, *, field: str, allowed: set[str], aliases: Mapping[str, str]) -> str:
@@ -148,7 +230,11 @@ def _setup_payload(profile: OnboardingProfile) -> dict[str, object]:
             "optional": list(optional),
             "optional_status": status_map,
         },
-        "bootstrap": {"mode": _text(profile.bootstrap_mode).casefold(), "offline": True},
+        "bootstrap": {
+            "mode": _text(profile.bootstrap_mode).casefold(),
+            "offline": True,
+            "bulk_source_path": _normalise_storage_location(profile.bulk_source_path) if _text(profile.bulk_source_path) else "",
+        },
         "privacy": {
             "encryption_preference": _normalise_preference(
                 profile.encryption_preference,
@@ -212,6 +298,7 @@ def _canonical_profile(profile: OnboardingProfile) -> tuple[dict[str, object], d
             "optional_providers": providers["optional"],
             "optional_provider_status": providers["optional_status"],
             "bootstrap_mode": bootstrap["mode"],
+            "bulk_source_path": bootstrap["bulk_source_path"],
             "encryption_preference": privacy["encryption_preference"],
             "backup_preference": privacy["backup_preference"],
             "execution_allowed": False,
@@ -249,22 +336,75 @@ def _profile_tickers(profile: OnboardingProfile) -> tuple[str, ...]:
 def validate_tickers(
     tickers: Iterable[str],
     *,
-    validator: Callable[[str], bool] | None = None,
+    validator: Callable[[str], bool | TickerValidationResult] | None = None,
     online: bool = False,
     local_evidence: Iterable[str] = (),
 ) -> tuple[str, ...]:
+    unresolved, _statuses = _validate_tickers_with_status(
+        tickers,
+        validator=validator,
+        online=online,
+        local_evidence=local_evidence,
+    )
+    return unresolved
+
+
+def _validate_tickers_with_status(
+    tickers: Iterable[str],
+    *,
+    validator: Callable[[str], bool | TickerValidationResult] | None,
+    online: bool,
+    local_evidence: Iterable[str],
+) -> tuple[tuple[str, ...], tuple[tuple[str, str], ...]]:
     evidence = {str(value).strip().upper() for value in local_evidence if str(value).strip()}
     unresolved: list[str] = []
+    provider_status: dict[str, str] = {}
+    validator_blocked = False
     for raw in tickers:
         symbol = raw.strip().upper()
         if not symbol:
             continue
         valid = bool(_TICKER_RE.fullmatch(symbol))
         if valid and online and validator is not None:
-            try:
-                valid = bool(validator(symbol))
-            except Exception:
-                valid = False
+            provider_id = "yfinance"
+            if validator_blocked:
+                valid = symbol in evidence
+            else:
+                try:
+                    result = validator(symbol)
+                except ProviderQuotaExceeded as exc:
+                    provider_id = exc.provider_id
+                    if provider_id not in _OPTIONAL_PROVIDERS:
+                        raise ValueError(f"unsupported validator provider: {provider_id}") from exc
+                    provider_status[provider_id] = "quota_exceeded"
+                    validator_blocked = True
+                    valid = symbol in evidence
+                except Exception:
+                    provider_status[provider_id] = "unavailable"
+                    validator_blocked = True
+                    valid = symbol in evidence
+                else:
+                    if isinstance(result, TickerValidationResult):
+                        provider_id = _text(result.provider_id).casefold() or "yfinance"
+                        if provider_id not in _OPTIONAL_PROVIDERS:
+                            raise ValueError(f"unsupported validator provider: {provider_id}")
+                        status = _text(result.status).casefold()
+                        if status in {"quota_exceeded", "quota_unavailable"}:
+                            provider_status[provider_id] = "quota_exceeded"
+                            validator_blocked = True
+                            valid = symbol in evidence
+                        elif status == "unavailable":
+                            provider_status[provider_id] = "unavailable"
+                            validator_blocked = True
+                            valid = symbol in evidence
+                        elif status == "valid":
+                            valid = True
+                        elif status == "invalid":
+                            valid = False
+                        else:
+                            raise ValueError(f"unsupported validator status: {status}")
+                    else:
+                        valid = bool(result)
         elif valid:
             # Offline onboarding is local-first: a shape-valid symbol is not
             # evidence of a real instrument. Existing local universe/config
@@ -272,7 +412,7 @@ def validate_tickers(
             valid = symbol in evidence
         if not valid or symbol.startswith("UNKNOWN") or symbol.startswith("UNRESOLVED"):
             unresolved.append(symbol)
-    return tuple(sorted(set(unresolved)))
+    return tuple(sorted(set(unresolved))), tuple(sorted(provider_status.items()))
 
 
 def _local_ticker_evidence(root: Path) -> tuple[str, ...]:
@@ -303,7 +443,7 @@ def _local_ticker_evidence(root: Path) -> tuple[str, ...]:
 def validate_onboarding(
     profile: OnboardingProfile,
     *,
-    validator: Callable[[str], bool] | None = None,
+    validator: Callable[[str], bool | TickerValidationResult] | None = None,
     online: bool = False,
     root: Path | None = None,
 ) -> OnboardingValidation:
@@ -326,13 +466,13 @@ def validate_onboarding(
         _canonical_profile(profile)
     except (TypeError, ValueError):
         errors.append("setup")
-    unresolved = validate_tickers(
+    unresolved, observed_status = _validate_tickers_with_status(
         _profile_tickers(profile),
         validator=validator,
         online=online,
         local_evidence=_local_ticker_evidence(root) if root is not None else (),
     )
-    return OnboardingValidation(not errors, tuple(errors), unresolved)
+    return OnboardingValidation(not errors, tuple(errors), unresolved, observed_status)
 
 
 def _onboarding_records(profile: OnboardingProfile, unresolved: tuple[str, ...]) -> tuple[UniverseRecord, ...]:
@@ -360,52 +500,225 @@ def _onboarding_records(profile: OnboardingProfile, unresolved: tuple[str, ...])
     return tuple(rows)
 
 
+def _sample_records(supplied_root: Path) -> tuple[UniverseRecord, ...]:
+    candidates = (
+        Path(supplied_root).resolve() / "configs" / "universe.yaml",
+        Path(__file__).resolve().parents[4] / "configs" / "universe.yaml",
+    )
+    by_id: dict[str, UniverseRecord] = {}
+    for fixture in candidates:
+        if fixture.is_file():
+            imported = import_legacy_universe(fixture)
+            candidate_records = {record.instrument_id: record for record in imported.records}
+            if all(instrument_id in candidate_records for instrument_id in _SAMPLE_INSTRUMENT_IDS):
+                by_id = candidate_records
+                break
+    if not by_id:
+        raise ValueError("bundled sample universe fixture is unavailable or incomplete")
+    return tuple(
+        replace(
+            by_id[instrument_id],
+            tier="secondary",
+            group="Offline onboarding sample",
+            data_policy="daily",
+            enabled=True,
+            notes="Bundled identity-only onboarding sample; local adjusted price history is not included.",
+        )
+        for instrument_id in _SAMPLE_INSTRUMENT_IDS
+    )
+
+
+def _merge_records(*groups: Iterable[UniverseRecord]) -> tuple[UniverseRecord, ...]:
+    merged: dict[str, UniverseRecord] = {}
+    ticker_ids: dict[str, str] = {}
+    for group in groups:
+        for record in group:
+            record_id = record.instrument_id.casefold()
+            ticker = record.ticker.casefold()
+            previous = merged.get(record_id)
+            if previous is not None:
+                ticker_ids.pop(previous.ticker.casefold(), None)
+            duplicate_id = ticker_ids.get(ticker)
+            if duplicate_id is not None and duplicate_id != record_id:
+                merged.pop(duplicate_id, None)
+            merged[record_id] = record
+            ticker_ids[ticker] = record_id
+    return tuple(merged[key] for key in sorted(merged))
+
+
+def _bulk_bootstrap(profile: OnboardingProfile, supplied_root: Path, storage_root: Path) -> BootstrapResult:
+    if not _text(profile.bulk_source_path):
+        return BootstrapResult(
+            "bulk",
+            "unavailable",
+            0,
+            (),
+            "Select a local CSV/Parquet price file with date, instrument identity and adjusted-close columns.",
+        )
+    source = _resolve_local_path(profile.bulk_source_path, supplied_root, field="bulk_source_path")
+    if not source.is_file():
+        return BootstrapResult("bulk", "unavailable", 0, (), f"Local bulk file is unavailable: {source}", source.as_posix())
+    preview = validate_import("prices", source)
+    if not preview.valid:
+        detail = "; ".join(preview.errors) or "validation_failed"
+        return BootstrapResult("bulk", "unavailable", 0, (), f"Local bulk file is not importable: {detail}", source.as_posix())
+    columns = {column.casefold() for column in preview.columns}
+    if not columns.intersection({"adjusted_close", "adj_close"}):
+        return BootstrapResult(
+            "bulk",
+            "unavailable",
+            0,
+            (),
+            "Local bulk prices require an explicit adjusted_close or adj_close column; raw close was not imported.",
+            source.as_posix(),
+        )
+    try:
+        service = ImportService(storage_root)
+        service.register(preview)
+        committed = service.commit(preview.preview_id)
+    except (OSError, TypeError, ValueError) as exc:
+        return BootstrapResult("bulk", "unavailable", 0, (), f"Local bulk import failed without replacing prior data: {type(exc).__name__}: {exc}", source.as_posix())
+    destination = Path(committed.destination).resolve()
+    if not destination.is_relative_to(storage_root):
+        raise ValueError("bulk import destination escaped selected storage root")
+    return BootstrapResult(
+        "bulk",
+        "ready",
+        committed.rows,
+        (destination.relative_to(storage_root).as_posix(),),
+        "Local bulk price file imported; no network or provider key was used.",
+        source.as_posix(),
+        "available",
+    )
+
+
+def _bootstrap_payload(result: BootstrapResult) -> dict[str, object]:
+    return {
+        "mode": result.mode,
+        "offline": True,
+        "status": result.status,
+        "rows": result.rows,
+        "output_paths": list(result.output_paths),
+        "message": result.message,
+        "source_path": result.source_path,
+        "market_data_status": result.market_data_status,
+        "execution_allowed": False,
+    }
+
+
 def complete_onboarding(
     profile: OnboardingProfile,
     root: Path,
     *,
     online: bool = False,
-    validator: Callable[[str], bool] | None = None,
+    validator: Callable[[str], bool | TickerValidationResult] | None = None,
     optional_provider_status: Mapping[str, str] | None = None,
     provider_status: Mapping[str, str] | None = None,
 ) -> OnboardingResult:
-    root = Path(root).resolve()
+    supplied_root = Path(root).resolve()
     statuses = dict(optional_provider_status or {})
     if provider_status is not None:
         if statuses:
             raise ValueError("provide only one optional provider status mapping")
         statuses = dict(provider_status)
     if statuses:
-        profile = OnboardingProfile(**{**profile.__dict__, "optional_provider_status": tuple(statuses.items())})
+        profile = replace(profile, optional_provider_status=tuple(statuses.items()))
+    storage_root = _selected_storage_root(profile, supplied_root)
     profile_payload, setup_payload = _canonical_profile(profile)
-    validation = validate_onboarding(profile, validator=validator, online=online, root=root)
+    validation = validate_onboarding(profile, validator=validator, online=online, root=storage_root)
     if not validation.valid:
         raise ValueError("Onboarding validation failed: " + ", ".join(validation.errors))
-    records = _onboarding_records(profile, validation.unresolved_symbols)
-    revision = ""
-    if records:
-        revision = save_universe(records, expected_revision="", root=root).revision
+    if validation.optional_provider_status:
+        observed = dict(profile.optional_provider_status)
+        observed.update(dict(validation.optional_provider_status))
+        optional = tuple(sorted(set(profile.optional_providers) | set(observed)))
+        profile = replace(profile, optional_providers=optional, optional_provider_status=tuple(sorted(observed.items())))
+        profile_payload, setup_payload = _canonical_profile(profile)
+
+    profile_records = _onboarding_records(profile, validation.unresolved_symbols)
+    current = load_universe(storage_root)
+    existing_records = current.records
+    legacy_universe = storage_root / "configs" / "universe.yaml"
+    if not existing_records and legacy_universe.is_file():
+        existing_records = import_legacy_universe(legacy_universe).records
+    bootstrap: BootstrapResult
+    if profile.bootstrap_mode.casefold() == "sample":
+        sample_fixture = _sample_records(supplied_root)
+        occupied_tickers = {record.ticker.casefold() for record in (*existing_records, *profile_records)}
+        occupied_ids = {record.instrument_id.casefold() for record in (*existing_records, *profile_records)}
+        samples = tuple(
+            record
+            for record in sample_fixture
+            if record.ticker.casefold() not in occupied_tickers and record.instrument_id.casefold() not in occupied_ids
+        )
+        records = _merge_records(existing_records, samples, profile_records)
+        saved = save_universe(records, expected_revision=current.revision, root=storage_root)
+        revision = saved.revision
+        sample_tickers = {record.ticker.casefold() for record in sample_fixture}
+        sample_rows = sum(record.ticker.casefold() in sample_tickers for record in records)
+        bootstrap = BootstrapResult(
+            "sample",
+            "ready",
+            sample_rows,
+            (saved.path.relative_to(storage_root).as_posix(),),
+            "Bundled identity-only sample created; import local adjusted price history before analysis.",
+        )
+    else:
+        bootstrap = _bulk_bootstrap(profile, supplied_root, storage_root)
+        if profile_records:
+            saved = save_universe(_merge_records(existing_records, profile_records), expected_revision=current.revision, root=storage_root)
+            revision = saved.revision
+        else:
+            revision = current.revision
+
+    setup_payload["resolved_storage_root"] = storage_root.as_posix()
+    bootstrap_payload = _bootstrap_payload(bootstrap)
+    bootstrap_payload["bulk_source_path"] = profile_payload["bulk_source_path"]
+    setup_payload["bootstrap"] = bootstrap_payload
     payload = {
         "schema_version": ONBOARDING_SCHEMA_VERSION,
         "profile": profile_payload,
         "setup": setup_payload,
         "unresolved_symbols": list(validation.unresolved_symbols),
+        "storage_root": storage_root.as_posix(),
         "execution_allowed": False,
     }
-    path = Path(root) / "configs" / "onboarding.json"
+    path = storage_root / "configs" / "onboarding.json"
     encoded = (json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    atomic_write_bytes(path, encoded, lambda candidate: json.loads(candidate.read_text(encoding="utf-8")))
+    pointer = {
+        "schema_version": ONBOARDING_POINTER_SCHEMA_VERSION,
+        "storage_root": storage_root.as_posix(),
+        "execution_allowed": False,
+    }
+    pointer_bytes = (json.dumps(pointer, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    atomic_write_group(
+        (
+            AtomicWriteRequest(path, encoded, lambda candidate: json.loads(candidate.read_text(encoding="utf-8"))),
+            AtomicWriteRequest(_pointer_path(supplied_root), pointer_bytes, lambda candidate: json.loads(candidate.read_text(encoding="utf-8"))),
+        )
+    )
     provider_payload = setup_payload["providers"]
     assert isinstance(provider_payload, dict)
     status_payload = provider_payload["optional_status"]
     assert isinstance(status_payload, dict)
-    return OnboardingResult(True, validation.unresolved_symbols, records, revision, tuple(sorted((str(key), str(value)) for key, value in status_payload.items())))
+    records = _merge_records(existing_records, profile_records)
+    if bootstrap.mode == "sample":
+        records = load_universe(storage_root).records
+    return OnboardingResult(
+        True,
+        validation.unresolved_symbols,
+        records,
+        revision,
+        tuple(sorted((str(key), str(value)) for key, value in status_payload.items())),
+        storage_root.as_posix(),
+        bootstrap,
+    )
 
 
 def load_onboarding(root: Path) -> OnboardingProfile:
-    """Load one complete onboarding document; malformed state fails closed."""
+    """Load from an actual storage root or follow its safe supplied-root pointer."""
 
-    path = Path(root).resolve() / "configs" / "onboarding.json"
+    path, storage_root = _onboarding_document_path(root)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, TypeError) as exc:
@@ -414,6 +727,8 @@ def load_onboarding(root: Path) -> OnboardingProfile:
         raise ValueError("onboarding settings schema is unsupported")
     if payload.get("execution_allowed") is not False:
         raise ValueError("onboarding execution_allowed must remain false")
+    if payload.get("storage_root") != storage_root.as_posix():
+        raise ValueError("onboarding storage root does not match its document location")
     raw_profile = payload.get("profile")
     setup = payload.get("setup")
     if not isinstance(raw_profile, dict) or not isinstance(setup, dict):
@@ -424,8 +739,28 @@ def load_onboarding(root: Path) -> OnboardingProfile:
     execution = setup.get("execution")
     if not all(isinstance(value, dict) for value in (providers, bootstrap, privacy, execution)):
         raise ValueError("onboarding setup sections are incomplete")
-    if bootstrap.get("offline") is not True or execution.get("execution_allowed") is not False:
+    if setup.get("resolved_storage_root") != storage_root.as_posix():
+        raise ValueError("onboarding resolved storage root is invalid")
+    if bootstrap.get("offline") is not True or bootstrap.get("execution_allowed") is not False or execution.get("execution_allowed") is not False:
         raise ValueError("onboarding setup safety defaults are invalid")
+    if bootstrap.get("status") not in {"ready", "unavailable"} or bootstrap.get("mode") not in _BOOTSTRAP_MODES:
+        raise ValueError("onboarding bootstrap state is invalid")
+    if not isinstance(bootstrap.get("rows"), int) or int(bootstrap["rows"]) < 0 or not isinstance(bootstrap.get("output_paths"), list):
+        raise ValueError("onboarding bootstrap evidence is invalid")
+    if not _text(bootstrap.get("message")) or bootstrap.get("market_data_status") not in {"available", "unavailable"}:
+        raise ValueError("onboarding bootstrap evidence is incomplete")
+    output_paths: list[Path] = []
+    for raw_output in bootstrap["output_paths"]:
+        if not isinstance(raw_output, str) or not raw_output or Path(raw_output).is_absolute() or ".." in Path(raw_output).parts:
+            raise ValueError("onboarding bootstrap output path is unsafe")
+        output = (storage_root / raw_output).resolve()
+        if not output.is_relative_to(storage_root) or not output.is_file():
+            raise ValueError("onboarding bootstrap output is unavailable")
+        output_paths.append(output)
+    if bootstrap["status"] == "ready" and not output_paths:
+        raise ValueError("ready onboarding bootstrap requires a local output")
+    if bootstrap["status"] == "unavailable" and output_paths:
+        raise ValueError("unavailable onboarding bootstrap cannot claim outputs")
     if execution.get("staged_execution_enabled") is not False or execution.get("paper_enabled") is not False or execution.get("broker_write_enabled") is not False:
         raise ValueError("onboarding staged-execution defaults must remain disabled")
     mirrored_profile = {
@@ -435,6 +770,7 @@ def load_onboarding(root: Path) -> OnboardingProfile:
         "optional_providers": providers.get("optional"),
         "optional_provider_status": providers.get("optional_status"),
         "bootstrap_mode": bootstrap.get("mode"),
+        "bulk_source_path": bootstrap.get("bulk_source_path"),
         "encryption_preference": privacy.get("encryption_preference"),
         "backup_preference": privacy.get("backup_preference"),
         "execution_allowed": False,
@@ -461,8 +797,9 @@ def load_onboarding(root: Path) -> OnboardingProfile:
             False,
             False,
             tuple(sorted((str(key), str(value)) for key, value in providers["optional_status"].items())),
+            str(bootstrap["bulk_source_path"]),
         )
-        validation = validate_onboarding(profile, root=Path(root).resolve())
+        validation = validate_onboarding(profile, root=storage_root)
         unresolved = payload.get("unresolved_symbols")
         if not validation.valid or not isinstance(unresolved, list) or any(not isinstance(item, str) for item in unresolved):
             raise ValueError("onboarding settings do not match their validated profile")
@@ -482,7 +819,7 @@ def onboarding_page(
     page: ft.Page,
     state: AppState,
     *,
-    validator: Callable[[str], bool] | None = None,
+    validator: Callable[[str], bool | TickerValidationResult] | None = None,
 ) -> ft.Control:
     base_currency = ft.Dropdown(label="Output currency", value="EUR", options=[ft.dropdown.Option(item) for item in OUTPUT_CURRENCIES], width=180, dense=True)
     region = ft.TextField(label="Region", value="Europe", width=220, dense=True)
@@ -495,6 +832,7 @@ def onboarding_page(
     mandatory_provider = ft.Dropdown(label="Mandatory provider", value="manual_local", options=[ft.dropdown.Option(item) for item in sorted(_MANDATORY_PROVIDERS)], width=220, dense=True)
     optional_providers = ft.TextField(label="Optional providers (comma separated)", hint_text="yfinance, fred", width=280, dense=True)
     bootstrap_mode = ft.Dropdown(label="Offline bootstrap", value="sample", options=[ft.dropdown.Option(item) for item in sorted(_BOOTSTRAP_MODES)], width=180, dense=True)
+    bulk_source_path = ft.TextField(label="Local bulk price file", hint_text="data/import/prices.csv", width=280, dense=True, key="onboarding.bulk-source")
     encryption_preference = ft.Dropdown(label="Encryption", value="disabled", options=[ft.dropdown.Option(item) for item in sorted(_ENCRYPTION_PREFERENCES)], width=180, dense=True)
     backup_preference = ft.Dropdown(label="Backups", value="local", options=[ft.dropdown.Option(item) for item in sorted(_BACKUP_PREFERENCES)], width=180, dense=True)
     tickers = ft.TextField(
@@ -508,7 +846,7 @@ def onboarding_page(
         disabled=validator is None,
         key="onboarding.online-validation",
     )
-    status = ft.Text("", color=theme.MUTED, selectable=True)
+    status = ft.Text("", color=theme.MUTED, selectable=True, key="onboarding.status")
     source_rows = source_policy_rows(Path.cwd())
     source_summary = "\n".join(
         f"{row['provider_id']}: tier={row['source_tier']} | {row['optionality']} | cache={row['cache_status']} | network={row['network']}"
@@ -529,6 +867,8 @@ def onboarding_page(
     def submit(_event: ft.ControlEvent) -> None:
         values = tuple(value.strip() for value in (tickers.value or "").split(",") if value.strip())
         selected_optional = tuple(value.strip() for value in (optional_providers.value or "").split(",") if value.strip())
+        if online_validation.value and validator is not None and "yfinance" not in {item.casefold() for item in selected_optional}:
+            selected_optional = (*selected_optional, "yfinance")
         profile = OnboardingProfile(
             base_currency.value or "",
             region.value or "",
@@ -546,6 +886,7 @@ def onboarding_page(
             backup_preference.value or "",
             False,
             False,
+            bulk_source_path=bulk_source_path.value or "",
         )
         try:
             result = complete_onboarding(
@@ -555,7 +896,7 @@ def onboarding_page(
                 validator=validator,
             )
             if result.revision and state is not None:
-                refreshed_config = load_config()
+                refreshed_config = load_config(Path(result.storage_root) / "configs") if result.storage_root else load_config()
                 apply_method = getattr(state, "apply_universe_config", None)
                 if callable(apply_method):
                     apply_method(refreshed_config, result.revision)
@@ -565,14 +906,15 @@ def onboarding_page(
                     state.universe_cache_revision = result.revision
             optional_status = ", ".join(f"{provider}: {state}" for provider, state in result.optional_provider_status if state == "quota_exceeded")
             suffix = f" Optional provider status: {optional_status}; mandatory setup was not blocked." if optional_status else ""
-            status.value = f"Saved locally. {len(result.unresolved_symbols)} unresolved ticker(s) remain disabled; no refresh or model run was started.{suffix}"
+            bootstrap_status = f" Bootstrap {result.bootstrap.mode}: {result.bootstrap.status} — {result.bootstrap.message}" if result.bootstrap else ""
+            status.value = f"Saved locally at {result.storage_root}. {len(result.unresolved_symbols)} unresolved ticker(s) remain disabled; no refresh or model run was started.{bootstrap_status}{suffix}"
         except Exception as exc:
             status.value = f"Setup not saved: {exc}"
         page.update()
 
     return ft.Column(
         [
-            panel(ft.Column([section_header("First-run setup", "Create a local watchlist without requiring network access."), ft.Text(f"{jurisdiction_disclaimer} Offline or unresolved tickers remain disabled until validated. Online validation is opt-in and requires an injected provider callback.", color=theme.MUTED), ft.Row([base_currency, region, scope, risk, horizon, analysis_depth], wrap=True), ft.Row([storage_location, hardware_profile, mandatory_provider, optional_providers, bootstrap_mode, encryption_preference, backup_preference], wrap=True), ft.Text("Mandatory providers are offline-compatible. Optional provider absence or quota failure is recorded visibly and never blocks setup.", color=theme.MUTED, size=11), ft.Text("Quick/Medium/High/Full are versioned analysis-effort selections; warm/cold timing effects remain unavailable until ISSUE-0175.", color=theme.MUTED, size=11), ft.ResponsiveRow([ft.Container(content=tickers, col={"xs": 12, "md": 9}), ft.Container(content=ft.Button("Save setup", key="onboarding.save", icon=ft.Icons.SAVE, on_click=submit), col={"xs": 12, "md": 3})], spacing=8, run_spacing=8), online_validation, status], spacing=10)),
+            panel(ft.Column([section_header("First-run setup", "Create a local watchlist without requiring network access."), ft.Text(f"{jurisdiction_disclaimer} Offline or unresolved tickers remain disabled until validated. Online validation is opt-in and requires an injected provider callback.", color=theme.MUTED), ft.Row([base_currency, region, scope, risk, horizon, analysis_depth], wrap=True), ft.Row([storage_location, hardware_profile, mandatory_provider, optional_providers, bootstrap_mode, bulk_source_path, encryption_preference, backup_preference], wrap=True), ft.Text("Sample creates a shipped identity-only universe without fabricated prices. Bulk accepts only an explicit local price file and remains visibly unavailable when absent or invalid.", color=theme.MUTED, size=11), ft.Text("Mandatory providers are offline-compatible. Optional provider absence or quota failure is recorded visibly and never blocks setup.", color=theme.MUTED, size=11), ft.Text("Quick/Medium/High/Full are versioned analysis-effort selections; warm/cold timing effects remain unavailable until ISSUE-0175.", color=theme.MUTED, size=11), ft.ResponsiveRow([ft.Container(content=tickers, col={"xs": 12, "md": 9}), ft.Container(content=ft.Button("Save setup", key="onboarding.save", icon=ft.Icons.SAVE, on_click=submit), col={"xs": 12, "md": 3})], spacing=8, run_spacing=8), online_validation, status], spacing=10)),
             panel(ft.Column([section_header("Hardware and resource readiness", "Local profile selection, pre-job limits and graceful degradation. No telemetry or cloud compute is used."), ft.SelectionArea(ft.Text("\n".join(resource_lines), color=theme.MUTED)), ft.SelectionArea(ft.Text("CPU-only baseline remains available; optional foundation models are never required.", color=theme.GREEN))], spacing=6)),
             panel(ft.Column([section_header("Authority boundary", "Setup stores preferences only. It never grants broker/provider write authority or starts execution."), ft.Text("execution_allowed=false | staged_execution_enabled=false | paper_enabled=false | broker_write_enabled=false", color=theme.AMBER)])),
             panel(ft.Column([section_header("Data source policy", "Choose local imports or replayable official evidence for the mandatory path. Online validation is optional and never required for setup."), ft.Text(source_summary, color=theme.MUTED, size=11, selectable=True), ft.Text(f"Terms acknowledgement: {legal_report['review_status']}; restricted sources are not redistributed. Registry checksum: {legal_report['registry_sha256']}", color=theme.AMBER, size=11, selectable=True)])),
