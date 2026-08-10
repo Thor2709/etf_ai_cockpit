@@ -3017,3 +3017,13 @@ records under the existing canonical duplicate semantics and makes unsupported
 persisted backup metadata fail closed. Both regressions and the affected
 focused/static checks pass. Freeze the documented replacement for final
 parallel exact-head review and fresh H-tier Linux/Windows/terminal gates.
+
+`CANONICAL_IDENTITY_CORRECTION` risk review approved exact head
+`8c125409f1b388e696620205035fa2a553d696cf`, while whole-diff review reproduced
+an onboarding merge mismatch for same-ID cross-tier records and verified ISIN
+collisions. Run `31403933793` is cancelled and stale. Commit
+`9304f1386047da4f6773e1901dbd44e5ba1c10b1` applies the existing canonical
+instrument-ID, ticker and verified-ISIN same-tier/cross-tier semantics, with
+focused regressions for each identity. Onboarding, universe and presentation
+boundary checks plus Ruff, compile and diff hygiene pass. Freeze one documented
+replacement head for final exact-head review and H-tier gates.

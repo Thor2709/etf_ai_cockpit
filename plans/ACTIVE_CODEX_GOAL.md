@@ -103,6 +103,15 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   pass. Freeze this documented head for final exact-head reviews and fresh
   H-tier Linux/Windows/terminal validation; no further scope expansion is
   authorised absent a newly demonstrated defect.
+- Risk review again approved `8c125409f1b388e696620205035fa2a553d696cf`,
+  while whole-diff review reproduced the remaining identity gap: onboarding's
+  local merge did not fully apply canonical instrument-ID, ticker and verified
+  ISIN semantics. Run `31403933793` was cancelled and is stale. Commit
+  `9304f1386047da4f6773e1901dbd44e5ba1c10b1` now preserves legal cross-tier
+  identity duplicates and replaces later same-tier or disallowed collisions
+  across all three canonical identities. The focused onboarding, universe and
+  presentation-boundary guards plus Ruff, compile and diff hygiene pass. Freeze
+  this documented head for final exact-head review and H-tier gates.
 
 ## Superseded ISSUE-0016 product checkpoint
 
