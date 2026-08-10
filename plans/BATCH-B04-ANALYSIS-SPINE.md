@@ -2958,3 +2958,16 @@ first-run onboarding implementation against its storage, hardware, provider,
 offline bootstrap, encryption/backup and staged-execution acceptance contract;
 make only a reproduced bounded correction. Product and lifecycle preparation
 must preserve all authority boundaries and `execution_allowed=false`.
+
+`CORRECTED` initial product commit
+`cb2149963d497f2235edc5cb1d35cc9af2fe82ee` was rejected after independent
+criterion review reproduced unused selected storage, metadata-only bootstrap
+and absent quota-to-UI propagation. One consolidated correction produced exact
+product commit `f6fd24678be4c13730d2c821f9d3ed2d9bc9edce`; independent re-review approved
+all criteria and the focused onboarding, import/export and atomic-I/O suites.
+Same-PR lifecycle preparation then failed closed because the existing guard
+requires the reviewed product commit to be an ancestor of the PR base. The
+invalid authority lane remains unpublished. The clean product-only lane now
+freezes for H-tier review and validation; after merge, one automatic lifecycle
+transaction will bind the real merged product commit and require writer plus
+zero-action generic readback. `execution_allowed=false` remains unchanged.

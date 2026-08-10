@@ -33,13 +33,27 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   offline sample/bulk bootstrap, encryption/backup preferences and explicit
   staged-execution defaults.
 - Clean product worktree
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0017_product`,
-  branch `codex/issue0017-product-20260810`, starts at exact base/head
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0017_product_final`,
+  branch `codex/issue0017-product-final-20260810`, starts at exact base/head
   `9d3550589f8aacbe6686a1e07711007e50bef9cf` with an empty diff. Inspect the
   existing verified implementation and focused tests first, implement only a
   reproduced acceptance gap, then prepare the complete legal lifecycle
   transaction before freezing one review head. Preserve local-first behavior,
   all existing safety and authority boundaries, and `execution_allowed=false`.
+- Initial product commit `cb2149963d497f2235edc5cb1d35cc9af2fe82ee`
+  was rejected after independent criterion review reproduced unused selected
+  storage, metadata-only bootstrap and absent quota-to-UI propagation. One
+  consolidated correction produced exact product commit
+  `f6fd24678be4c13730d2c821f9d3ed2d9bc9edce`; independent re-review approved
+  all criteria and the focused onboarding, import/export and atomic-I/O suites.
+- Same-PR lifecycle preparation failed closed because the existing guard
+  requires `verified_commit` to be an ancestor of the reviewed PR base. The
+  invalid candidate/authority lane is preserved locally and will not be
+  published. Freeze this product-only head for H-tier review and validation;
+  after merge, prepare the single automatic ISSUE-0017
+  `implemented_initially -> integrated` transaction against the real merged
+  product commit, then require ordered writer and generic zero-action readback.
+  `execution_allowed=false` remains unchanged.
 
 ## Superseded ISSUE-0016 product checkpoint
 
