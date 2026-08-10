@@ -49,6 +49,12 @@ for accepting IDs, unknown dependencies, local-only closure and missing edge
 records that canonical validation rejects. The exact bounded closure enforces
 the existing ID/reference/edge-coverage invariants and adds their fail-closed
 regressions without changing workflow, lifecycle or execution authority.
+Reviewers rejected `b0266a75add96621258f0cdb5a6d47c9a6bda63c` for the remaining
+partial-record inputs: omitted authority fields, normalized/duplicate
+references, impossible dates, required-input mismatch and absent status. The
+single combined closure requires those existing raw fields and values exactly
+and adds their fail-closed regressions; canonical state and authority remain
+unchanged.
 
 ## Superseded ISSUE-0014 validation repair
 

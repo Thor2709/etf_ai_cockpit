@@ -19,6 +19,7 @@ def _record(**overrides: object) -> dict[str, object]:
         "package_status": "Open",
         "blocking_dependencies": ["ISSUE-0001"],
         "required_inputs": ["ISSUE-0002"],
+        "activation_dependencies": [],
         "downstream_issues": ["ISSUE-0003"],
         "related_issues": ["ISSUE-0004"],
     }
@@ -333,6 +334,39 @@ def test_programme_map_rejects_reviewed_edge_with_malformed_date() -> None:
         build_programme_map(_registry(record, decision))
 
 
+def test_programme_map_rejects_impossible_reviewed_edge_date() -> None:
+    evidence = {
+        "schema_version": "1.0",
+        "state": "complete",
+        "evidence_references": ["review/evidence.json"],
+        "contract_reference": "EDGE-CONTRACT-1",
+        "reviewer": "independent-reviewer",
+        "reviewed_date": "2026-02-30",
+    }
+    record = _record(dependency_edge_evidence={"ISSUE-0001": evidence})
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": True,
+        "reason_codes": ["READY_BLOCKING_EDGES_RESOLVED"],
+        "edges": [
+            {
+                "dependency_id": "ISSUE-0001",
+                "resolved": True,
+                "reason_code": "EDGE_EVIDENCE_COMPLETE",
+                "evidence_state": "complete",
+            }
+        ],
+        "required_inputs": ["ISSUE-0002"],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+
+    with pytest.raises(ValueError, match="edge evidence is malformed"):
+        build_programme_map(_registry(record, decision))
+
+
 def test_programme_map_load_blocks_surrounding_whitespace_in_canonical_id(tmp_path: Path) -> None:
     path = tmp_path / "issue_registry.json"
     record = _record(canonical_id=" ISSUE-0015 ", blocking_dependencies=[])
@@ -463,6 +497,84 @@ def test_programme_map_rejects_local_only_closure_authority() -> None:
 
     with pytest.raises(ValueError, match="folded into canonical records"):
         build_programme_map(registry)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "blocking_dependencies",
+        "required_inputs",
+        "activation_dependencies",
+        "downstream_issues",
+        "related_issues",
+    ],
+)
+def test_programme_map_rejects_missing_dependency_fields(field: str) -> None:
+    record = _record(
+        blocking_dependencies=[], required_inputs=[], downstream_issues=[], related_issues=[]
+    )
+    record.pop(field)
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": True,
+        "reason_codes": ["READY_NO_BLOCKING_DEPENDENCIES"],
+        "edges": [],
+        "required_inputs": [],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+
+    with pytest.raises(ValueError, match=f"{field} is required"):
+        build_programme_map({"policy": {"execution_allowed": False}, "records": [record], "readiness": [decision]})
+
+
+def test_programme_map_rejects_normalized_or_duplicate_dependency_references() -> None:
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": False,
+        "reason_codes": ["BLOCKED_UNRESOLVED_DEPENDENCY"],
+        "edges": [],
+        "required_inputs": [],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+    for dependencies in ([" ISSUE-0001 "], ["ISSUE-0001", "ISSUE-0001"]):
+        record = _record(
+            blocking_dependencies=dependencies,
+            required_inputs=[],
+            downstream_issues=[],
+            related_issues=[],
+            dependency_edge_evidence={},
+        )
+        with pytest.raises(ValueError, match="blocking_dependencies"):
+            build_programme_map(
+                {"policy": {"execution_allowed": False}, "records": [record], "readiness": [decision]}
+            )
+
+
+def test_programme_map_rejects_missing_programme_status() -> None:
+    record = _record(
+        blocking_dependencies=[], required_inputs=[], downstream_issues=[], related_issues=[]
+    )
+    record.pop("programme_status")
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": True,
+        "reason_codes": ["READY_NO_BLOCKING_DEPENDENCIES"],
+        "edges": [],
+        "required_inputs": [],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+
+    with pytest.raises(ValueError, match="programme_status"):
+        build_programme_map({"policy": {"execution_allowed": False}, "records": [record], "readiness": [decision]})
 
 
 def test_programme_map_rejects_missing_ledger_state() -> None:

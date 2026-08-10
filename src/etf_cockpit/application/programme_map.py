@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -97,9 +98,14 @@ def _strict_issue_id(value: object, field: str) -> str:
 def _strict_string_tuple(value: object, field: str) -> tuple[str, ...]:
     if not isinstance(value, list):
         raise ValueError(f"canonical registry field {field} must be a list of strings")
-    if any(not isinstance(item, str) or not item.strip() for item in value):
+    if any(
+        not isinstance(item, str) or not item.strip() or item != item.strip()
+        for item in value
+    ):
         raise ValueError(f"canonical registry field {field} contains a malformed value")
-    return tuple(sorted(set(item.strip() for item in value)))
+    if len(set(value)) != len(value):
+        raise ValueError(f"canonical registry field {field} contains duplicate values")
+    return tuple(sorted(value))
 
 
 def _strict_codes(value: object, field: str) -> tuple[str, ...]:
@@ -189,7 +195,13 @@ def _edge_evidence_is_valid(evidence: object) -> bool:
         for field in ("contract_reference", "reviewer", "reviewed_date")
     ):
         return False
-    return re.fullmatch(r"\d{4}-\d{2}-\d{2}", evidence["reviewed_date"]) is not None
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", evidence["reviewed_date"]) is None:
+        return False
+    try:
+        date.fromisoformat(evidence["reviewed_date"])
+    except ValueError:
+        return False
+    return True
 
 
 def _validate_decision(
@@ -204,13 +216,9 @@ def _validate_decision(
         raise ValueError(f"canonical record ledger_state must be open or closed for {issue_id}")
     expected_dependencies = _strict_string_tuple(record.get("blocking_dependencies", []), "blocking_dependencies")
     expected_activation = _strict_string_tuple(record.get("activation_dependencies", []), "activation_dependencies")
-    record_inputs = (
-        _strict_string_tuple(record["required_inputs"], "required_inputs")
-        if "required_inputs" in record
-        else None
-    )
+    record_inputs = _strict_string_tuple(record.get("required_inputs"), "required_inputs")
     decision_inputs = _strict_string_tuple(decision.get("required_inputs"), "readiness.required_inputs")
-    if record_inputs is not None and decision_inputs != record_inputs:
+    if decision_inputs != record_inputs:
         raise ValueError(f"readiness required_inputs does not match record {issue_id}")
     ready = _strict_bool(decision.get("ready"), f"{issue_id}.ready")
     activation_ready = _strict_bool(decision.get("activation_ready"), f"{issue_id}.activation_ready")
@@ -364,10 +372,9 @@ def build_programme_map(registry: Mapping[str, Any], *, registry_sha256: str = "
         canonical_id = _strict_issue_id(record.get("canonical_id"), "canonical_id")
         record_ids.append(canonical_id)
         records_by_id[canonical_id] = record
-        if "programme_status" in record and record["programme_status"] not in (None, ""):
-            programme_status = _strict_string(record["programme_status"], "programme_status")
-            if programme_status not in _PROGRAMME_STATUSES:
-                raise ValueError(f"unsupported programme_status for {canonical_id}: {programme_status}")
+        programme_status = _strict_string(record.get("programme_status"), "programme_status")
+        if programme_status not in _PROGRAMME_STATUSES:
+            raise ValueError(f"unsupported programme_status for {canonical_id}: {programme_status}")
         for field in (
             "blocking_dependencies",
             "required_inputs",
@@ -375,7 +382,9 @@ def build_programme_map(registry: Mapping[str, Any], *, registry_sha256: str = "
             "downstream_issues",
             "related_issues",
         ):
-            for dependency in _strict_string_tuple(record.get(field, []), field):
+            if field not in record:
+                raise ValueError(f"canonical registry field {field} is required")
+            for dependency in _strict_string_tuple(record[field], field):
                 _strict_issue_id(dependency, field)
     if len(set(record_ids)) != len(record_ids):
         raise ValueError("canonical issue registry contains duplicate canonical_id values")

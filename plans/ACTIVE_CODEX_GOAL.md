@@ -67,6 +67,12 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   enforces the existing canonical ID pattern and reference set, requires exact
   edge-evidence coverage, rejects nonempty local-only records, and adds the
   reproduced fail-closed regressions. No broader validator or workflow change.
+- Reviewers rejected `b0266a75add96621258f0cdb5a6d47c9a6bda63c` for the final
+  partial-record set: omitted dependency/input fields, whitespace or duplicate
+  references, impossible reviewed dates, required-input mismatch and missing
+  programme status. The consolidated closure now requires those existing raw
+  canonical fields and semantic values exactly, with focused regressions; it
+  does not change canonical content, dependencies, lifecycle or authority.
 
 ## Superseded ISSUE-0014 validation-repair checkpoint
 
