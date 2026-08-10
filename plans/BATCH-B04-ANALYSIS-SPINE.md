@@ -38,7 +38,14 @@ but risk review reproduced a complete first repetition masking a partial second
 repetition because lanes were unioned across samples. Run `31350158760` is
 cancelled and stale. The exact correction enforces the complete lane signature
 per affected repetition and adds that second-repetition omission regression;
-repeat both final reviews and fresh H-tier validation on one replacement head.
+both final reviewers approved exact head
+`1af5bc4f9361e0100994fcfc0d5116a0d10768e2`. H-tier run `31350660155`
+passed both packages, terminal validation, both repeated pilots and aggregation;
+PR #666 merged it as main `784d10fe5e1d4c2a602e5a5cf5485379d50da924`.
+PR #665 incorporates that exact main through commit
+`599f5a4e81e453916e4cdcf3320d1929aded3449` with product and lifecycle state
+unchanged. Run coupled checks, then freeze one replacement product head for
+both reviews and fresh H-tier validation. `execution_allowed=false` remains.
 
 ## Current ISSUE-0010 product lane
 

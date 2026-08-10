@@ -51,8 +51,18 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   repetition mask a partial second one. Run `31350158760` is cancelled and
   stale. The exact correction tracks and enforces the complete lane signature
   independently for every affected repetition and adds the reproduced
-  second-repetition omission regression. Freeze the replacement head for both
-  final reviews and fresh H-tier validation.
+  second-repetition omission regression. Both final reviewers approved exact
+  head `1af5bc4f9361e0100994fcfc0d5116a0d10768e2`; H-tier run
+  `31350660155` passed classifier, preflight, supply chain, Linux and Windows
+  release packages, terminal validation, both repeated platform pilots and
+  cross-platform aggregation. PR #666 merged that exact head as main
+  `784d10fe5e1d4c2a602e5a5cf5485379d50da924`.
+- PR #665 now incorporates that exact main through integration commit
+  `599f5a4e81e453916e4cdcf3320d1929aded3449` without changing ISSUE-0014
+  product behavior or canonical lifecycle. Revalidate byte-clean generation,
+  classifier and directly coupled repair tests, then freeze one replacement
+  product head for both independent reviews and fresh H-tier validation.
+  `execution_allowed=false` remains unchanged.
 
 ## Current ISSUE-0010 product checkpoint
 
