@@ -131,9 +131,11 @@ def _main_workflow_probe() -> dict[str, object]:
     from etf_cockpit.app.state import ActivityUnavailableError, AppState
     from etf_cockpit.core.config import load_config
     from etf_cockpit.governance.product_scope import load_gate_policy
+    import etf_cockpit.data.trade_candidate_analysis as trade_candidate_analysis
     import etf_cockpit.services as services
 
     services.date = _FixedDate
+    trade_candidate_analysis.date = _FixedDate
     config = load_config()
     candidate_path = (
         Path(os.environ["ETF_COCKPIT_ROOT"])

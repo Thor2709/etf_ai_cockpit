@@ -601,7 +601,15 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   only `/` and `/training-centre` while production registers every route in
   `PAGES`; run `31339056458` was cancelled and discarded as stale. The single
   consolidated correction derives and exercises the complete production route
-  registry while retaining the existing serial/flet partition.
+  registry while retaining the existing serial/flet partition. Both reviewers
+  approved exact head `3e80a31b7d31245076625dbec9292bb3c5e95754`.
+  H-tier run `31339637212` passed preflight, supply chain, both authoritative
+  release packages, terminal validation and the Linux parallel pilot, but its
+  second Windows serial repetition crossed UTC midnight and exposed one
+  unpinned host-date path in the test probe. The single bounded correction
+  binds candidate analysis to the probe's existing fixed date and asserts that
+  every download uses that date; production, authority and workflow code stay
+  unchanged.
 
 ## ISSUE-0104 product chronology
 

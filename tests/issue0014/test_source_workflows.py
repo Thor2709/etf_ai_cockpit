@@ -316,7 +316,7 @@ def test_canonical_main_workflow_composes_real_local_apis_without_network(tmp_pa
     assert completed.returncode == 0, completed.stdout + completed.stderr
     payload = json.loads(completed.stdout.splitlines()[-1])
     assert payload["download_calls"] > 0
-    assert set(payload["download_ends"]) == {"2026-08-09", "2026-08-10"}
+    assert set(payload["download_ends"]) == {"2026-08-10"}
     assert payload["fixed_today"] == "2026-08-10"
     assert payload["price_as_of"] == "2026-08-07"
     candidate_fixture = Path(payload["candidate_fixture"])
