@@ -2983,3 +2983,15 @@ configuration; empty-machine policy fallback and valid-scope persistence are
 covered; unsupported plaintext backup claims fail before writes. Focused and
 Windows changed validation pass. Freeze the documented replacement head, then
 repeat both reviews and fresh H-tier Linux/Windows/terminal validation.
+
+`FINAL_BOUNDED_CORRECTION` re-review rejected
+`d6abc257d27a657e3286915551265da5b08ac008` for a reproduced junction swap and
+for selected root/profile not governing restart and the durable scheduler; run
+`31394272704` is cancelled and stale. Commit
+`437c935ae9416c6723dd04880ccc45a21c3fd5f1` narrows storage truthfully to the
+existing canonical project-local runtime root, rejects custom roots before any
+write, removes CWD authority, applies persisted hardware limits to the actual
+scheduler and revalidates destination identity inside grouped publication.
+The focused 148-test surface has 147 passes and one platform-capability skip;
+static checks pass. Freeze one final documented head and repeat both exact-head
+reviews plus fresh H-tier Linux/Windows/terminal validation.

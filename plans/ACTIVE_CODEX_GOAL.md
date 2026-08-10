@@ -68,6 +68,17 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   writes. Focused onboarding, import/export, universe, jobs, resource-profile
   and atomic-I/O tests plus Windows changed validation pass. Freeze one final
   documented head for both reviews and fresh H-tier package validation.
+- Re-review rejected `d6abc257d27a657e3286915551265da5b08ac008` only
+  for runtime-root/scheduler propagation and a reproduced junction swap; run
+  `31394272704` is cancelled and stale. The final bounded correction
+  `437c935ae9416c6723dd04880ccc45a21c3fd5f1` keeps the existing canonical
+  project-local runtime root explicit, rejects unsupported custom roots before
+  writes, removes incidental-CWD authority, applies the persisted hardware
+  profile to the real durable scheduler at restart and same-session setup, and
+  revalidates destination identity under the grouped-write precondition. The
+  148-test focused surface has 147 passes and one platform-capability skip;
+  Ruff, compile and diff hygiene pass. Freeze the fully documented replacement
+  head for final parallel reviews and fresh H-tier validation.
 
 ## Superseded ISSUE-0016 product checkpoint
 
