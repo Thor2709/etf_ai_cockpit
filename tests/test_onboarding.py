@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 
 import pytest
 
@@ -8,6 +10,18 @@ from etf_cockpit.data.universe_store import load_universe, support_decision
 from etf_cockpit.app.pages.onboarding import OnboardingProfile, ProviderQuotaExceeded, TickerValidationResult, complete_onboarding, load_onboarding, onboarding_page, validate_onboarding
 import flet as ft
 import etf_cockpit.app.pages.onboarding as onboarding_module
+
+
+@pytest.fixture(autouse=True)
+def canonical_project_root(tmp_path, monkeypatch):
+    source_root = onboarding_module.ROOT
+    configs = tmp_path / "configs"
+    configs.mkdir(exist_ok=True)
+    for name in ("universe.yaml", "data_source_policy.yaml", "legal_terms_registry.yaml"):
+        source = source_root / "configs" / name
+        if source.is_file():
+            shutil.copyfile(source, configs / name)
+    monkeypatch.setattr(onboarding_module, "ROOT", tmp_path)
 
 
 def test_supported_and_rejected_asset_decisions_are_explicit() -> None:
@@ -34,7 +48,7 @@ def test_legacy_positional_ticker_is_normalised_to_a_loadable_scope(tmp_path) ->
 
     assert result.saved is True
     assert load_onboarding(tmp_path).tickers == ("WAT",)
-    payload = json.loads((tmp_path / "configs" / "onboarding.json").read_text(encoding="utf-8"))
+    payload = json.loads((onboarding_module.ROOT / "configs" / "onboarding.json").read_text(encoding="utf-8"))
     assert payload["profile"]["asset_scope"] == ["stock"]
 
 
@@ -55,21 +69,21 @@ def test_offline_onboarding_persists_profile_and_disables_unresolved_tickers(tmp
     )
     result = complete_onboarding(profile, tmp_path, online=False)
     assert result.saved is True
-    assert result.unresolved_symbols == ("UNKNOWN", "VWCE.DE")
+    assert result.unresolved_symbols == ("UNKNOWN",)
     by_ticker = {record.ticker: record for record in result.records}
     assert by_ticker["UNKNOWN"].enabled is False
-    assert by_ticker["VWCE.DE"].enabled is False
+    assert by_ticker["VWCE.DE"].enabled is True
     assert by_ticker["MSFT"].enabled is True
     assert (tmp_path / "configs" / "onboarding.json").exists()
     assert load_onboarding(tmp_path).optional_provider_status == ()
-    assert json.loads((tmp_path / "configs" / "onboarding.json").read_text(encoding="utf-8"))["unresolved_symbols"] == ["UNKNOWN", "VWCE.DE"]
+    assert json.loads((onboarding_module.ROOT / "configs" / "onboarding.json").read_text(encoding="utf-8"))["unresolved_symbols"] == ["UNKNOWN"]
 
 
 def test_offline_onboarding_keeps_configured_local_ticker_enabled(tmp_path) -> None:
     configs = tmp_path / "configs"
-    configs.mkdir()
+    configs.mkdir(exist_ok=True)
     (configs / "universe.yaml").write_text(
-        "etfs:\n  - id: VWCE\n    name: Vanguard\n    ticker: VWCE.DE\n    role: core\n",
+        "etfs:\n  - id: VWCE\n    name: Vanguard\n    ticker: VWCE.DE\n    role: core\n  - id: MSFT\n    name: Microsoft\n    ticker: MSFT\n    role: secondary\n",
         encoding="utf-8",
     )
     profile = OnboardingProfile("EUR", "Europe", ("etf",), "balanced", "medium", tickers=("VWCE.DE", "MISSING"))
@@ -114,11 +128,26 @@ def test_onboarding_page_constructs_from_empty_cwd_with_bundled_policy(tmp_path,
     assert "Data source policy unavailable" not in str(control)
 
 
+def test_onboarding_save_uses_canonical_root_from_unrelated_cwd(tmp_path, monkeypatch) -> None:
+    unrelated = tmp_path.parent / f"{tmp_path.name}-unrelated"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
+
+    result = complete_onboarding(
+        OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"),
+        unrelated,
+    )
+
+    assert result.storage_root == onboarding_module.ROOT.resolve().as_posix()
+    assert (onboarding_module.ROOT / "configs" / "onboarding.json").is_file()
+    assert not (unrelated / "configs" / "onboarding.json").exists()
+
+
 def test_persisted_hardware_profile_is_used_by_onboarding_readiness(tmp_path, monkeypatch) -> None:
     complete_onboarding(
         OnboardingProfile(
             "EUR", "Europe", ("stock",), "medium", "3M",
-            storage_location="selected", hardware_profile="recommended",
+            storage_location="project_local", hardware_profile="recommended",
         ),
         tmp_path,
     )
@@ -153,9 +182,13 @@ def test_onboarding_save_reloads_active_state(monkeypatch) -> None:
     class _State:
         def __init__(self) -> None:
             self.applied: tuple[object, str] | None = None
+            self.refreshed_profile: str | None = None
 
         def apply_universe_config(self, config, revision: str) -> None:
             self.applied = (config, revision)
+
+        def refresh_runtime_profile(self, profile: str) -> None:
+            self.refreshed_profile = profile
 
     refreshed_config = object()
     monkeypatch.setattr(onboarding_module, "load_config", lambda: refreshed_config)
@@ -186,6 +219,7 @@ def test_onboarding_save_reloads_active_state(monkeypatch) -> None:
     )
     save.on_click(None)
     assert state.applied == (refreshed_config, "onboarding-revision")
+    assert state.refreshed_profile == "auto"
 
 
 def test_complete_offline_setup_persists_all_choices_and_disabled_execution(tmp_path) -> None:
@@ -195,7 +229,7 @@ def test_complete_offline_setup_persists_all_choices_and_disabled_execution(tmp_
         ("stock", "etf"),
         "medium",
         "3M",
-        storage_location=str(tmp_path / "local-data"),
+        storage_location="project_local",
         hardware_profile="recommended",
         mandatory_providers=("manual_local",),
         optional_providers=("yfinance",),
@@ -205,19 +239,17 @@ def test_complete_offline_setup_persists_all_choices_and_disabled_execution(tmp_
     )
 
     result = complete_onboarding(profile, tmp_path, online=False)
-    selected_root = tmp_path / "local-data"
+    selected_root = tmp_path
     payload = json.loads((selected_root / "configs" / "onboarding.json").read_text(encoding="utf-8"))
 
     assert result.saved is True
     assert result.storage_root == selected_root.as_posix()
     assert result.optional_provider_status == (("yfinance", "not_configured"),)
-    assert not (tmp_path / "configs" / "onboarding.json").exists()
-    assert (tmp_path / "configs" / "onboarding-location.json").exists()
-    assert load_onboarding(tmp_path).storage_location == selected_root.as_posix()
-    assert load_onboarding(selected_root).storage_location == selected_root.as_posix()
+    assert load_onboarding(tmp_path).storage_location == "project_local"
+    assert load_onboarding(selected_root).storage_location == "project_local"
     assert payload["schema_version"] == "onboarding.v2"
-    assert payload["setup"]["storage_location"] == selected_root.as_posix()
-    assert payload["setup"]["resolved_storage_root"] == selected_root.as_posix()
+    assert payload["setup"]["storage_location"] == "project_local"
+    assert payload["setup"]["resolved_storage_root"] == tmp_path.as_posix()
     assert payload["setup"]["hardware_profile"] == "recommended"
     assert payload["setup"]["providers"] == {
         "mandatory": ["manual_local"],
@@ -250,13 +282,13 @@ def test_valid_bulk_bootstrap_is_explicitly_unavailable_without_price_writes(tmp
         ("etf",),
         "medium",
         "3M",
-        storage_location="selected-bulk",
+        storage_location="project_local",
         bootstrap_mode="bulk",
         bulk_source_path="official-prices.csv",
     )
 
     result = complete_onboarding(profile, tmp_path)
-    selected_root = tmp_path / "selected-bulk"
+    selected_root = tmp_path
     payload = json.loads((selected_root / "configs" / "onboarding.json").read_text(encoding="utf-8"))
 
     assert result.bootstrap is not None
@@ -270,14 +302,14 @@ def test_valid_bulk_bootstrap_is_explicitly_unavailable_without_price_writes(tmp
     assert payload["execution_allowed"] is False
 
 
-@pytest.mark.parametrize("location", ("../escape", "https://example.test/data", r"\\server\share"))
+@pytest.mark.parametrize("location", ("selected", "../escape", "https://example.test/data", r"\\server\share"))
 def test_storage_location_rejects_traversal_uri_and_unc(tmp_path, location: str) -> None:
     with pytest.raises(ValueError, match="storage_location"):
         complete_onboarding(
             OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", storage_location=location),
             tmp_path,
         )
-    assert not (tmp_path / "configs" / "onboarding-location.json").exists()
+    assert not (tmp_path / "configs" / "onboarding.json").exists()
 
 
 def test_group_publish_failure_leaves_all_onboarding_outputs_absent(tmp_path, monkeypatch) -> None:
@@ -290,6 +322,38 @@ def test_group_publish_failure_leaves_all_onboarding_outputs_absent(tmp_path, mo
 
     assert not list(tmp_path.rglob("onboarding*.json"))
     assert not (tmp_path / "configs" / "universe_store.json").exists()
+
+
+def test_group_publish_revalidates_destination_identity_after_guard_precondition(tmp_path, monkeypatch) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    original = onboarding_module.atomic_write_group
+
+    def swap_before_writer_resolution(requests, **kwargs):
+        configs = onboarding_module.ROOT / "configs"
+        original_configs = tmp_path / "configs-original"
+        configs.rename(original_configs)
+        junction = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(configs), str(outside)],
+            capture_output=True,
+            text=True,
+        )
+        if junction.returncode != 0:
+            original_configs.rename(configs)
+            pytest.skip("directory junctions are unavailable on this platform")
+        try:
+            return original(requests, **kwargs)
+        finally:
+            configs.rmdir()
+            original_configs.rename(configs)
+
+    monkeypatch.setattr(onboarding_module, "atomic_write_group", swap_before_writer_resolution)
+    with pytest.raises(ValueError, match="symlink"):
+        complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+
+    assert not (outside / "onboarding.json").exists()
+    assert not (outside / "universe_store.json").exists()
+    assert list(outside.iterdir()) == []
 
 
 @pytest.mark.parametrize("preference", ("disabled", "encrypted"))
@@ -323,7 +387,7 @@ def test_descendant_symlink_fails_before_onboarding_writes(tmp_path) -> None:
 
 def test_onboarding_load_fails_closed_for_partial_or_enabled_execution_settings(tmp_path) -> None:
     complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
-    path = tmp_path / "configs" / "onboarding.json"
+    path = onboarding_module.ROOT / "configs" / "onboarding.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
 
     payload["setup"].pop("privacy")
@@ -342,7 +406,7 @@ def test_onboarding_load_fails_closed_for_partial_or_enabled_execution_settings(
 def test_optional_quota_failure_is_visible_non_blocking_and_does_not_corrupt_prior_state(tmp_path) -> None:
     baseline = OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M")
     complete_onboarding(baseline, tmp_path)
-    path = tmp_path / "configs" / "onboarding.json"
+    path = onboarding_module.ROOT / "configs" / "onboarding.json"
     before = path.read_bytes()
 
     quota_profile = OnboardingProfile(
@@ -378,7 +442,7 @@ def test_online_quota_exception_is_non_blocking_visible_and_not_retried(tmp_path
         bootstrap_mode="bulk",
     )
     result = complete_onboarding(profile, tmp_path, online=True, validator=quota_validator)
-    payload = json.loads((tmp_path / "configs" / "onboarding.json").read_text(encoding="utf-8"))
+    payload = json.loads((onboarding_module.ROOT / "configs" / "onboarding.json").read_text(encoding="utf-8"))
 
     assert calls == ["ONE"]
     assert result.saved is True
@@ -427,7 +491,7 @@ def test_ui_typed_quota_result_is_visible_and_saves_offline_setup(tmp_path, monk
 
     save.on_click(None)
 
-    payload = json.loads((tmp_path / "configs" / "onboarding.json").read_text(encoding="utf-8"))
+    payload = json.loads((onboarding_module.ROOT / "configs" / "onboarding.json").read_text(encoding="utf-8"))
     assert calls == ["ONE"]
     assert page.updates == 1
     assert "quota_exceeded" in str(status.value)
@@ -439,24 +503,23 @@ def test_ui_typed_quota_result_is_visible_and_saves_offline_setup(tmp_path, monk
 def test_onboarding_round_trip_is_deterministic_and_rejects_unsafe_execution_choices(tmp_path) -> None:
     profile = OnboardingProfile(
         "EUR", "Europe", ("stock",), "medium", "3M",
-        storage_location="data/local",
+        storage_location="project_local",
         encryption_preference="enabled",
         backup_preference="enabled",
     )
     result = complete_onboarding(profile, tmp_path)
-    selected_root = tmp_path / "data" / "local"
+    selected_root = tmp_path
     path = selected_root / "configs" / "onboarding.json"
     first = path.read_bytes()
     loaded = load_onboarding(tmp_path)
     complete_onboarding(loaded, tmp_path)
     assert path.read_bytes() == first
-    assert loaded.storage_location == "data/local"
+    assert loaded.storage_location == "project_local"
     assert loaded.encryption_preference == "user_managed"
     assert loaded.backup_preference == "local"
     assert loaded.execution_allowed is False
     assert loaded.staged_execution_enabled is False
     assert (selected_root / "configs" / "universe_store.json").is_file()
-    assert not (tmp_path / "configs" / "onboarding.json").exists()
     assert result.bootstrap is not None
     assert result.bootstrap.status == "ready"
     assert result.bootstrap.market_data_status == "unavailable"

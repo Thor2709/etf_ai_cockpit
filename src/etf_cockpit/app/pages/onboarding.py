@@ -18,6 +18,7 @@ from etf_cockpit.app.state import AppState
 from etf_cockpit.application.settings import ANALYSIS_DEPTHS, HORIZONS, OUTPUT_CURRENCIES, RISK_PROFILES
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
 from etf_cockpit.core.config import load_config
+from etf_cockpit.core.paths import ROOT
 from etf_cockpit.application.ui_facade import UniverseRecord, import_legacy_universe, legal_terms_report, load_universe, resource_profile_report, save_universe, source_policy_rows, validate_import
 
 
@@ -93,7 +94,6 @@ _ASSET_SCOPES = {"etf", "stock", "fund", "bond", "both", "stock+etf", "all"}
 _RISK_MAP = {"conservative": "safe", "balanced": "medium", "growth": "aggressive", **{item: item for item in RISK_PROFILES}}
 _HORIZON_MAP = {"short": "1M", "medium": "3M", "long": "9M", **{item.casefold(): item for item in HORIZONS}}
 ONBOARDING_SCHEMA_VERSION = "onboarding.v2"
-ONBOARDING_POINTER_SCHEMA_VERSION = "onboarding-location.v1"
 _HARDWARE_PROFILES = {"auto", "minimum", "recommended", "high"}
 _BOOTSTRAP_MODES = {"sample", "bulk"}
 _MANDATORY_PROVIDERS = {"local", "manual_local", "issuer_document", "filings_xbrl_org", "sec_edgar", "index_provider"}
@@ -127,27 +127,35 @@ def _choice_values(values: object, *, field: str) -> tuple[str, ...]:
 
 def _normalise_storage_location(value: object) -> str:
     location = _text(value)
-    if not location:
-        raise ValueError("storage_location is required")
     if location.casefold() == "project_local":
         return "project_local"
+    raise ValueError(
+        "storage_location must be project_local; custom runtime roots are unsupported. "
+        "Choose project-local storage and retry."
+    )
+
+
+def _normalise_local_file(value: object, *, field: str) -> str:
+    location = _text(value)
+    if not location:
+        raise ValueError(f"{field} is required")
+    if "\x00" in location or location.startswith(("//", "\\\\")):
+        raise ValueError(f"{field} must be a local project file")
     uri_scheme = re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", location)
     windows_drive = re.match(r"^[A-Za-z]:[\\/]", location)
-    if "\x00" in location or "://" in location or location.startswith(("//", "\\\\")) or uri_scheme and not windows_drive:
-        raise ValueError("storage_location must be a local filesystem path")
-    path = Path(location)
-    if ".." in path.parts or ".." in re.split(r"[\\/]", location):
-        raise ValueError("storage_location must not contain parent traversal")
-    return path.as_posix()
+    if "://" in location or (uri_scheme and not windows_drive):
+        raise ValueError(f"{field} must be a local project file")
+    if ".." in re.split(r"[\\/]", location):
+        raise ValueError(f"{field} must not contain parent traversal")
+    return Path(location).as_posix()
 
 
 def _resolve_local_path(value: object, supplied_root: Path, *, field: str, project_local: bool = False) -> Path:
     supplied = Path(supplied_root).resolve()
-    normalised = _normalise_storage_location(value)
-    if normalised == "project_local":
-        if project_local:
-            return supplied
-        raise ValueError(f"{field} must identify an explicit local file")
+    if project_local:
+        _normalise_storage_location(value)
+        return supplied
+    normalised = _normalise_local_file(value, field=field)
     candidate = Path(normalised)
     if candidate.is_absolute():
         return candidate.resolve()
@@ -157,12 +165,9 @@ def _resolve_local_path(value: object, supplied_root: Path, *, field: str, proje
     return resolved
 
 
-def _selected_storage_root(profile: OnboardingProfile, supplied_root: Path) -> Path:
-    return _resolve_local_path(profile.storage_location, supplied_root, field="storage_location", project_local=True)
-
-
-def _pointer_path(root: Path) -> Path:
-    return Path(root).resolve() / "configs" / "onboarding-location.json"
+def _selected_storage_root(profile: OnboardingProfile) -> Path:
+    _normalise_storage_location(profile.storage_location)
+    return ROOT.resolve()
 
 
 def _absolute_path(path: Path) -> Path:
@@ -179,6 +184,35 @@ def _reject_symlink_path(path: Path, *, field: str) -> None:
         current /= part
         if current.is_symlink():
             raise ValueError(f"{field} contains a symlink: {current}")
+
+
+class _CheckedDestination:
+    """Revalidate a destination before the atomic writer resolves it."""
+
+    def __init__(self, path: Path, field: str) -> None:
+        self._path = Path(path)
+        self._field = field
+
+    def _check(self) -> None:
+        _reject_symlink_path(self._path, field=self._field)
+
+    def __fspath__(self) -> str:
+        self._check()
+        return os.fspath(self._path)
+
+    @property
+    def parent(self) -> Path:
+        self._check()
+        return self._path.parent
+
+    @property
+    def name(self) -> str:
+        self._check()
+        return self._path.name
+
+    def resolve(self, *args: object, **kwargs: object) -> Path:
+        self._check()
+        return self._path.resolve(*args, **kwargs)
 
 
 def _existing_volume(path: Path) -> tuple[str, int | str]:
@@ -218,17 +252,6 @@ def _preflight_onboarding_destinations(paths: Iterable[tuple[Path, str]]) -> Non
         raise ValueError("onboarding outputs do not have one grouped local transaction root") from exc
 
 
-def resolve_onboarding_storage_root(root: Path) -> Path:
-    """Resolve the selected local root without replacing the active config."""
-
-    supplied = Path(root).resolve()
-    pointer = _pointer_path(supplied)
-    if not pointer.is_file():
-        return supplied
-    _reject_symlink_path(pointer, field="onboarding storage pointer")
-    return _onboarding_document_path(supplied)[1]
-
-
 def overlay_universe_config(active_config: object, selected_config: object) -> object:
     """Overlay only the selected universe onto the active non-universe config."""
 
@@ -248,32 +271,10 @@ def overlay_universe_config(active_config: object, selected_config: object) -> o
         return selected_config
 
 
-def _onboarding_document_path(root: Path) -> tuple[Path, Path]:
-    supplied = Path(root).resolve()
-    direct = supplied / "configs" / "onboarding.json"
-    pointer_path = _pointer_path(supplied)
-    if not pointer_path.is_file():
-        if direct.is_file():
-            return direct, supplied
-        raise ValueError(f"onboarding settings cannot be loaded: {direct} does not exist")
-    _reject_symlink_path(pointer_path, field="onboarding storage pointer")
-    try:
-        pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError) as exc:
-        raise ValueError(f"onboarding settings cannot be loaded: {exc}") from exc
-    if not isinstance(pointer, dict) or pointer.get("schema_version") != ONBOARDING_POINTER_SCHEMA_VERSION:
-        raise ValueError("onboarding storage pointer schema is unsupported")
-    if pointer.get("execution_allowed") is not False:
-        raise ValueError("onboarding storage pointer execution_allowed must remain false")
-    raw_storage_root = pointer.get("storage_root")
-    raw_storage_path = Path(str(raw_storage_root))
-    if not raw_storage_path.is_absolute():
-        raw_storage_path = supplied / raw_storage_path
-    _reject_symlink_path(raw_storage_path, field="selected storage root")
-    selected = _resolve_local_path(raw_storage_root, supplied, field="storage pointer")
-    if not selected.is_absolute() or pointer.get("storage_root") != selected.as_posix():
-        raise ValueError("onboarding storage pointer must contain the canonical absolute local root")
-    return selected / "configs" / "onboarding.json", selected
+def _onboarding_document_path(_root: Path | None = None) -> tuple[Path, Path]:
+    canonical = ROOT.resolve()
+    direct = canonical / "configs" / "onboarding.json"
+    return direct, canonical
 
 
 def _normalise_preference(value: object, *, field: str, allowed: set[str], aliases: Mapping[str, str]) -> str:
@@ -324,7 +325,7 @@ def _setup_payload(profile: OnboardingProfile) -> dict[str, object]:
         "bootstrap": {
             "mode": _text(profile.bootstrap_mode).casefold(),
             "offline": True,
-            "bulk_source_path": _normalise_storage_location(profile.bulk_source_path) if _text(profile.bulk_source_path) else "",
+            "bulk_source_path": _normalise_local_file(profile.bulk_source_path, field="bulk_source_path") if _text(profile.bulk_source_path) else "",
         },
         "privacy": {
             "encryption_preference": _normalise_preference(
@@ -603,11 +604,8 @@ def _onboarding_records(profile: OnboardingProfile, unresolved: tuple[str, ...])
     return tuple(rows)
 
 
-def _sample_records(supplied_root: Path) -> tuple[UniverseRecord, ...]:
-    candidates = (
-        Path(supplied_root).resolve() / "configs" / "universe.yaml",
-        Path(__file__).resolve().parents[4] / "configs" / "universe.yaml",
-    )
+def _sample_records() -> tuple[UniverseRecord, ...]:
+    candidates = (ROOT.resolve() / "configs" / "universe.yaml",)
     by_id: dict[str, UniverseRecord] = {}
     for fixture in candidates:
         if fixture.is_file():
@@ -718,6 +716,14 @@ def _assert_universe_revision(path: Path, expected_revision: str) -> None:
         )
 
 
+def _revalidate_onboarding_destinations(destinations: Iterable[tuple[Path, str]]) -> None:
+    """Recheck path identity after atomic group guards are held."""
+
+    for destination, field in destinations:
+        _reject_symlink_path(destination, field=field)
+        _reject_symlink_path(destination.parent, field=f"{field} parent")
+
+
 def _bootstrap_payload(result: BootstrapResult) -> dict[str, object]:
     return {
         "mode": result.mode,
@@ -741,7 +747,8 @@ def complete_onboarding(
     optional_provider_status: Mapping[str, str] | None = None,
     provider_status: Mapping[str, str] | None = None,
 ) -> OnboardingResult:
-    supplied_root = Path(root).resolve()
+    del root
+    supplied_root = ROOT.resolve()
     statuses = dict(optional_provider_status or {})
     if provider_status is not None:
         if statuses:
@@ -749,7 +756,7 @@ def complete_onboarding(
         statuses = dict(provider_status)
     if statuses:
         profile = replace(profile, optional_provider_status=tuple(statuses.items()))
-    storage_root = _selected_storage_root(profile, supplied_root)
+    storage_root = _selected_storage_root(profile)
     profile_payload, setup_payload = _canonical_profile(profile)
     privacy_payload = setup_payload["privacy"]
     assert isinstance(privacy_payload, dict)
@@ -777,7 +784,7 @@ def complete_onboarding(
     bootstrap: BootstrapResult
     candidate_records: tuple[UniverseRecord, ...] | None
     if profile.bootstrap_mode.casefold() == "sample":
-        sample_fixture = _sample_records(supplied_root)
+        sample_fixture = _sample_records()
         occupied_tickers = {record.ticker.casefold() for record in (*existing_records, *profile_records)}
         occupied_ids = {record.instrument_id.casefold() for record in (*existing_records, *profile_records)}
         samples = tuple(
@@ -807,13 +814,11 @@ def complete_onboarding(
             revision = current.revision
 
     path = storage_root / "configs" / "onboarding.json"
-    pointer_path = _pointer_path(supplied_root)
     universe_path = storage_root / "configs" / "universe_store.json"
     prices_path = storage_root / "data" / "clean" / "prices.parquet"
     _preflight_onboarding_destinations(
         (
             (path, "onboarding settings"),
-            (pointer_path, "onboarding storage pointer"),
             (universe_path, "universe store"),
             (prices_path, "canonical prices"),
         )
@@ -841,28 +846,27 @@ def complete_onboarding(
         "execution_allowed": False,
     }
     encoded = (json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    pointer = {
-        "schema_version": ONBOARDING_POINTER_SCHEMA_VERSION,
-        "storage_root": storage_root.as_posix(),
-        "execution_allowed": False,
-    }
-    pointer_bytes = (json.dumps(pointer, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
     requests = [
-        AtomicWriteRequest(path, encoded, lambda candidate: json.loads(candidate.read_text(encoding="utf-8"))),
-        AtomicWriteRequest(pointer_path, pointer_bytes, lambda candidate: json.loads(candidate.read_text(encoding="utf-8"))),
+        AtomicWriteRequest(_CheckedDestination(path, "onboarding settings"), encoded, lambda candidate: json.loads(candidate.read_text(encoding="utf-8"))),
     ]
     if universe_payload is not None:
         requests.append(
             AtomicWriteRequest(
-                universe_path,
+                _CheckedDestination(universe_path, "universe store"),
                 universe_payload,
                 lambda candidate: json.loads(candidate.read_text(encoding="utf-8")),
             )
         )
-    atomic_write_group(
-        requests,
-        precondition=lambda: _assert_universe_revision(universe_path, current.revision),
-    )
+    def precondition() -> None:
+        destinations = (
+            (path, "onboarding settings"),
+            (universe_path, "universe store"),
+            (prices_path, "canonical prices"),
+        )
+        _revalidate_onboarding_destinations(destinations)
+        _assert_universe_revision(universe_path, current.revision)
+
+    atomic_write_group(requests, precondition=precondition)
     provider_payload = setup_payload["providers"]
     assert isinstance(provider_payload, dict)
     status_payload = provider_payload["optional_status"]
@@ -878,10 +882,10 @@ def complete_onboarding(
     )
 
 
-def load_onboarding(root: Path) -> OnboardingProfile:
-    """Load from an actual storage root or follow its safe supplied-root pointer."""
+def load_onboarding(_root: Path | None = None) -> OnboardingProfile:
+    """Load the persisted profile from the canonical project-local root."""
 
-    path, storage_root = _onboarding_document_path(root)
+    path, storage_root = _onboarding_document_path()
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, TypeError) as exc:
@@ -904,6 +908,8 @@ def load_onboarding(root: Path) -> OnboardingProfile:
         raise ValueError("onboarding setup sections are incomplete")
     if setup.get("resolved_storage_root") != storage_root.as_posix():
         raise ValueError("onboarding resolved storage root is invalid")
+    if setup.get("storage_location") != "project_local":
+        raise ValueError("onboarding storage location is unsupported; choose project-local storage")
     if bootstrap.get("offline") is not True or bootstrap.get("execution_allowed") is not False or execution.get("execution_allowed") is not False:
         raise ValueError("onboarding setup safety defaults are invalid")
     if bootstrap.get("status") not in {"ready", "unavailable"} or bootstrap.get("mode") not in _BOOTSTRAP_MODES:
@@ -990,7 +996,13 @@ def onboarding_page(
     risk = ft.Dropdown(label="Risk profile", value="medium", options=[ft.dropdown.Option(item) for item in RISK_PROFILES], width=220, dense=True)
     horizon = ft.Dropdown(label="Target horizon", value="3M", options=[ft.dropdown.Option(item) for item in HORIZONS], width=180, dense=True)
     analysis_depth = ft.Dropdown(label="Analysis depth", value="medium", options=[ft.dropdown.Option(item) for item in ANALYSIS_DEPTHS], width=180, dense=True)
-    storage_location = ft.TextField(label="Storage location", value="project_local", width=220, dense=True)
+    storage_location = ft.Dropdown(
+        label="Storage location",
+        value="project_local",
+        options=[ft.dropdown.Option("project_local", "Project-local")],
+        width=220,
+        dense=True,
+    )
     hardware_profile = ft.Dropdown(label="Hardware profile", value="auto", options=[ft.dropdown.Option(item) for item in sorted(_HARDWARE_PROFILES)], width=180, dense=True)
     mandatory_provider = ft.Dropdown(label="Mandatory provider", value="manual_local", options=[ft.dropdown.Option(item) for item in sorted(_MANDATORY_PROVIDERS)], width=220, dense=True)
     optional_providers = ft.TextField(label="Optional providers (comma separated)", hint_text="yfinance, fred", width=280, dense=True)
@@ -1010,18 +1022,16 @@ def onboarding_page(
         key="onboarding.online-validation",
     )
     status = ft.Text("", color=theme.MUTED, selectable=True, key="onboarding.status")
-    project_root = Path(__file__).resolve().parents[4]
+    project_root = ROOT.resolve()
     try:
-        source_rows = source_policy_rows(Path.cwd())
+        source_rows = source_policy_rows(project_root, project_root / "configs" / "data_source_policy.yaml")
         source_summary = "\n".join(
             f"{row['provider_id']}: tier={row['source_tier']} | {row['optionality']} | cache={row['cache_status']} | network={row['network']}"
             for row in source_rows
         )
     except (OSError, ValueError):
         try:
-            source_rows = source_policy_rows(
-                Path.cwd(), project_root / "configs" / "data_source_policy.yaml"
-            )
+            source_rows = source_policy_rows(project_root, project_root / "configs" / "data_source_policy.yaml")
             source_summary = (
                 "Current-directory policy unavailable; using bundled local policy.\n"
                 + "\n".join(
@@ -1032,12 +1042,10 @@ def onboarding_page(
         except (OSError, ValueError) as exc:
             source_summary = f"Data source policy unavailable: {type(exc).__name__}; mandatory policy choices require explicit local action."
     try:
-        legal_report = legal_terms_report(Path.cwd())
+        legal_report = legal_terms_report(project_root, project_root / "configs" / "legal_terms_registry.yaml")
     except (OSError, ValueError):
         try:
-            legal_report = legal_terms_report(
-                Path.cwd(), project_root / "configs" / "legal_terms_registry.yaml"
-            )
+            legal_report = legal_terms_report(project_root, project_root / "configs" / "legal_terms_registry.yaml")
         except (OSError, ValueError):
             legal_report = {
                 "jurisdictions": [{"disclaimer": "Legal terms registry unavailable; review local terms before use."}],
@@ -1047,10 +1055,10 @@ def onboarding_page(
     jurisdiction_disclaimer = str(legal_report["jurisdictions"][0]["disclaimer"])
     selected_profile_id = "auto"
     try:
-        selected_profile_id = load_onboarding(Path.cwd()).hardware_profile
+        selected_profile_id = load_onboarding(ROOT).hardware_profile
     except ValueError:
         pass
-    resource_report = resource_profile_report(Path.cwd(), requested_profile=selected_profile_id)
+    resource_report = resource_profile_report(ROOT, requested_profile=selected_profile_id)
     selected_profile = resource_report["selected_profile"]
     resource_lines = [
         f"Selected profile: {selected_profile['profile_id']} ({resource_report['selected_status']}) | CPU {resource_report['snapshot']['cpu_cores']} core(s) | memory {resource_report['snapshot'].get('memory_available_mb') or resource_report['snapshot'].get('memory_total_mb') or 'n/a'} MB available/total | disk {resource_report['snapshot'].get('disk_free_mb') or 'n/a'} MB free",
@@ -1087,12 +1095,12 @@ def onboarding_page(
         try:
             result = complete_onboarding(
                 profile,
-                Path.cwd(),
+                ROOT,
                 online=bool(online_validation.value),
                 validator=validator,
             )
             if result.revision and state is not None:
-                refreshed_config = load_config(Path(result.storage_root) / "configs") if result.storage_root else load_config()
+                refreshed_config = load_config(ROOT / "configs") if result.storage_root else load_config()
                 if result.storage_root and getattr(state, "snapshot", None) is not None:
                     refreshed_config = overlay_universe_config(state.snapshot.config, refreshed_config)
                 apply_method = getattr(state, "apply_universe_config", None)
@@ -1102,6 +1110,10 @@ def onboarding_page(
                     state.snapshot.config = refreshed_config
                     state.snapshot.universe_revision = result.revision
                     state.universe_cache_revision = result.revision
+            if state is not None:
+                refresh_profile = getattr(state, "refresh_runtime_profile", None)
+                if callable(refresh_profile):
+                    refresh_profile(profile.hardware_profile)
             optional_status = ", ".join(f"{provider}: {state}" for provider, state in result.optional_provider_status if state == "quota_exceeded")
             suffix = f" Optional provider status: {optional_status}; mandatory setup was not blocked." if optional_status else ""
             bootstrap_status = f" Bootstrap {result.bootstrap.mode}: {result.bootstrap.status} — {result.bootstrap.message}" if result.bootstrap else ""
@@ -1112,7 +1124,7 @@ def onboarding_page(
 
     return ft.Column(
         [
-            panel(ft.Column([section_header("First-run setup", "Create a local watchlist without requiring network access."), ft.Text(f"{jurisdiction_disclaimer} Offline or unresolved tickers remain disabled until validated. Online validation is opt-in and requires an injected provider callback.", color=theme.MUTED), ft.Row([base_currency, region, scope, risk, horizon, analysis_depth], wrap=True), ft.Row([storage_location, hardware_profile, mandatory_provider, optional_providers, bootstrap_mode, bulk_source_path, encryption_preference, backup_preference], wrap=True), ft.Text("Sample creates a shipped identity-only universe without fabricated prices. Bulk accepts only an explicit local price file and remains visibly unavailable when absent or invalid.", color=theme.MUTED, size=11), ft.Text("Mandatory providers are offline-compatible. Optional provider absence or quota failure is recorded visibly and never blocks setup.", color=theme.MUTED, size=11), ft.Text("Quick/Medium/High/Full are versioned analysis-effort selections; warm/cold timing effects remain unavailable until ISSUE-0175.", color=theme.MUTED, size=11), ft.ResponsiveRow([ft.Container(content=tickers, col={"xs": 12, "md": 9}), ft.Container(content=ft.Button("Save setup", key="onboarding.save", icon=ft.Icons.SAVE, on_click=submit), col={"xs": 12, "md": 3})], spacing=8, run_spacing=8), online_validation, status], spacing=10)),
+            panel(ft.Column([section_header("First-run setup", "Create a local watchlist without requiring network access."), ft.Text(f"{jurisdiction_disclaimer} Offline or unresolved tickers remain disabled until validated. Online validation is opt-in and requires an injected provider callback.", color=theme.MUTED), ft.Row([base_currency, region, scope, risk, horizon, analysis_depth], wrap=True), ft.Row([storage_location, ft.Text(f"Project-local runtime root: {ROOT}", color=theme.MUTED), hardware_profile, mandatory_provider, optional_providers, bootstrap_mode, bulk_source_path, encryption_preference, backup_preference], wrap=True), ft.Text("Sample creates a shipped identity-only universe without fabricated prices. Bulk accepts only an explicit local price file and remains visibly unavailable when absent or invalid.", color=theme.MUTED, size=11), ft.Text("Mandatory providers are offline-compatible. Optional provider absence or quota failure is recorded visibly and never blocks setup.", color=theme.MUTED, size=11), ft.Text("Quick/Medium/High/Full are versioned analysis-effort selections; warm/cold timing effects remain unavailable until ISSUE-0175.", color=theme.MUTED, size=11), ft.ResponsiveRow([ft.Container(content=tickers, col={"xs": 12, "md": 9}), ft.Container(content=ft.Button("Save setup", key="onboarding.save", icon=ft.Icons.SAVE, on_click=submit), col={"xs": 12, "md": 3})], spacing=8, run_spacing=8), online_validation, status], spacing=10)),
             panel(ft.Column([section_header("Hardware and resource readiness", "Local profile selection, pre-job limits and graceful degradation. No telemetry or cloud compute is used."), ft.SelectionArea(ft.Text("\n".join(resource_lines), color=theme.MUTED)), ft.SelectionArea(ft.Text("CPU-only baseline remains available; optional foundation models are never required.", color=theme.GREEN))], spacing=6)),
             panel(ft.Column([section_header("Authority boundary", "Setup stores preferences only. It never grants broker/provider write authority or starts execution."), ft.Text("execution_allowed=false | staged_execution_enabled=false | paper_enabled=false | broker_write_enabled=false", color=theme.AMBER)])),
             panel(ft.Column([section_header("Data source policy", "Choose local imports or replayable official evidence for the mandatory path. Online validation is optional and never required for setup."), ft.Text(source_summary, color=theme.MUTED, size=11, selectable=True), ft.Text(f"Terms acknowledgement: {legal_report['review_status']}; restricted sources are not redistributed. Registry checksum: {legal_report['registry_sha256']}", color=theme.AMBER, size=11, selectable=True)])),

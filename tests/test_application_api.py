@@ -22,6 +22,7 @@ from etf_cockpit.application.contracts import (
     RefreshDataCommand,
     SubmitWorkflowCommand,
 )
+from etf_cockpit.app import state as state_module
 
 
 def _snapshot() -> SimpleNamespace:
@@ -199,6 +200,36 @@ def test_workflow_commands_use_the_single_local_scheduler_and_are_cancelable(tmp
     cancelled = api.execute(CancelWorkflowCommand(idempotency_key="cancel-001", workflow_id=submitted.resource_id))
     assert cancelled.status is ApiStatus.ACCEPTED
     assert api.get_jobs().items[0].status == "cancelled"
+
+
+def test_app_state_runtime_uses_persisted_profile_for_submission_and_claim(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.app.pages import onboarding as onboarding_module
+    from etf_cockpit.app.state import AppState
+
+    monkeypatch.setattr(state_module, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        onboarding_module,
+        "load_onboarding",
+        lambda _root=None: SimpleNamespace(hardware_profile="minimum"),
+    )
+
+    state = AppState(snapshot=_snapshot(), selected_etf="ETF1")
+    scheduler = state.application_api._scheduler
+    assert scheduler.root == tmp_path.resolve()
+    assert scheduler.resource_policy.requested_profile == "minimum"
+
+    submitted = state.application_api.execute(
+        SubmitWorkflowCommand(
+            idempotency_key="state-workflow-001",
+            workflow_type="local_check",
+            label="State local check",
+            job_keys=("check",),
+        )
+    )
+    assert submitted.status is ApiStatus.ACCEPTED
+    claimed = scheduler.claim_next()
+    assert claimed is not None
+    assert claimed.resources["profile"] == "minimum"
 
 
 def test_jobs_page_consumes_application_api_view_models() -> None:
