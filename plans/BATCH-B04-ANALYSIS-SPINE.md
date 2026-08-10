@@ -2938,3 +2938,23 @@ reserves cancelled ownership until callback exit to reject late publication.
 The test-only correction asserts reservation, explicit owner release and the
 durable cancellation event. Runtime behavior and authority remain unchanged;
 fresh exact-head reviews and H-tier Linux/Windows/terminal gates are required.
+
+## ISSUE-0017 product checkpoint — 2026-08-10
+
+`MERGED` ISSUE-0016 PR #671 at exact reviewed head
+`89fb083f9c0244e376b39d85ccea5d96379377b1` as exact main
+`9d3550589f8aacbe6686a1e07711007e50bef9cf`; Linux, Windows and terminal
+validation passed. Writer run `31387114454` applied and verified only
+ISSUE-0016 `implemented_initially -> integrated` with zero-action readback,
+generic convergence `31387113274` passed, and a fresh exact-main readback is
+also zero-action with authority reconciliation accepted. GitHub issue #20
+projects the canonical integrated state without unrelated writes.
+
+`IN_PROGRESS` ISSUE-0017 is the next canonical implementation-order record.
+It is dependency-ready and activation-ready with no blocking dependencies.
+Clean lane `codex/issue0017-product-20260810` starts with an empty diff at exact
+main `9d3550589f8aacbe6686a1e07711007e50bef9cf`. Inspect and prove the existing
+first-run onboarding implementation against its storage, hardware, provider,
+offline bootstrap, encryption/backup and staged-execution acceptance contract;
+make only a reproduced bounded correction. Product and lifecycle preparation
+must preserve all authority boundaries and `execution_allowed=false`.

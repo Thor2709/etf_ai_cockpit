@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from etf_cockpit.data.universe_store import support_decision
-from etf_cockpit.app.pages.onboarding import OnboardingProfile, complete_onboarding, onboarding_page, validate_onboarding
+from etf_cockpit.app.pages.onboarding import OnboardingProfile, complete_onboarding, load_onboarding, onboarding_page, validate_onboarding
 import flet as ft
 import etf_cockpit.app.pages.onboarding as onboarding_module
 
@@ -32,6 +36,8 @@ def test_offline_onboarding_persists_profile_and_disables_unresolved_tickers(tmp
     assert result.records[0].enabled is False
     assert result.records[1].enabled is False
     assert (tmp_path / "configs" / "onboarding.json").exists()
+    assert load_onboarding(tmp_path).optional_provider_status == ()
+    assert json.loads((tmp_path / "configs" / "onboarding.json").read_text(encoding="utf-8"))["unresolved_symbols"] == ["UNKNOWN", "VWCE.DE"]
 
 
 def test_offline_onboarding_keeps_configured_local_ticker_enabled(tmp_path) -> None:
@@ -119,3 +125,107 @@ def test_onboarding_save_reloads_active_state(monkeypatch) -> None:
     )
     save.on_click(None)
     assert state.applied == (refreshed_config, "onboarding-revision")
+
+
+def test_complete_offline_setup_persists_all_choices_and_disabled_execution(tmp_path) -> None:
+    profile = OnboardingProfile(
+        "EUR",
+        "Europe",
+        ("stock", "etf"),
+        "medium",
+        "3M",
+        storage_location=str(tmp_path / "local-data"),
+        hardware_profile="recommended",
+        mandatory_providers=("manual_local",),
+        optional_providers=("yfinance",),
+        bootstrap_mode="bulk",
+        encryption_preference="user_managed",
+        backup_preference="encrypted",
+    )
+
+    result = complete_onboarding(profile, tmp_path, online=False)
+    payload = json.loads((tmp_path / "configs" / "onboarding.json").read_text(encoding="utf-8"))
+
+    assert result.saved is True
+    assert result.optional_provider_status == (("yfinance", "not_configured"),)
+    assert payload["schema_version"] == "onboarding.v2"
+    assert payload["setup"]["storage_location"] == (tmp_path / "local-data").as_posix()
+    assert payload["setup"]["hardware_profile"] == "recommended"
+    assert payload["setup"]["providers"] == {
+        "mandatory": ["manual_local"],
+        "optional": ["yfinance"],
+        "optional_status": {"yfinance": "not_configured"},
+    }
+    assert payload["setup"]["bootstrap"] == {"mode": "bulk", "offline": True}
+    assert payload["setup"]["privacy"] == {"backup_preference": "encrypted", "encryption_preference": "user_managed"}
+    assert payload["setup"]["execution"] == {
+        "broker_write_enabled": False,
+        "execution_allowed": False,
+        "paper_enabled": False,
+        "staged_execution_enabled": False,
+    }
+    assert payload["execution_allowed"] is False
+
+
+def test_onboarding_load_fails_closed_for_partial_or_enabled_execution_settings(tmp_path) -> None:
+    complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+    path = tmp_path / "configs" / "onboarding.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    payload["setup"].pop("privacy")
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="incomplete"):
+        load_onboarding(tmp_path)
+
+    complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["setup"]["execution"]["execution_allowed"] = True
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="safety defaults"):
+        load_onboarding(tmp_path)
+
+
+def test_optional_quota_failure_is_visible_non_blocking_and_does_not_corrupt_prior_state(tmp_path) -> None:
+    baseline = OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M")
+    complete_onboarding(baseline, tmp_path)
+    path = tmp_path / "configs" / "onboarding.json"
+    before = path.read_bytes()
+
+    quota_profile = OnboardingProfile(
+        "EUR", "Europe", ("stock",), "medium", "3M", optional_providers=("yfinance",)
+    )
+    result = complete_onboarding(quota_profile, tmp_path, provider_status={"yfinance": "quota_exceeded"})
+    assert result.saved is True
+    assert result.optional_provider_status == (("yfinance", "quota_exceeded"),)
+    assert load_onboarding(tmp_path).optional_provider_status == (("yfinance", "quota_exceeded"),)
+
+    after_quota = path.read_bytes()
+    with pytest.raises(ValueError, match="unsupported optional provider status"):
+        complete_onboarding(quota_profile, tmp_path, provider_status={"yfinance": "corrupt"})
+    assert path.read_bytes() == after_quota
+    assert before != after_quota
+
+
+def test_onboarding_round_trip_is_deterministic_and_rejects_unsafe_execution_choices(tmp_path) -> None:
+    profile = OnboardingProfile(
+        "EUR", "Europe", ("stock",), "medium", "3M",
+        storage_location="data/local",
+        encryption_preference="enabled",
+        backup_preference="enabled",
+    )
+    complete_onboarding(profile, tmp_path)
+    path = tmp_path / "configs" / "onboarding.json"
+    first = path.read_bytes()
+    loaded = load_onboarding(tmp_path)
+    complete_onboarding(loaded, tmp_path)
+    assert path.read_bytes() == first
+    assert loaded.storage_location == "data/local"
+    assert loaded.encryption_preference == "user_managed"
+    assert loaded.backup_preference == "local"
+    assert loaded.execution_allowed is False
+    assert loaded.staged_execution_enabled is False
+
+    with pytest.raises(ValueError, match="execution_allowed"):
+        complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", execution_allowed=True), tmp_path)
+    with pytest.raises(ValueError, match="staged execution"):
+        complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", staged_execution_enabled=True), tmp_path)
