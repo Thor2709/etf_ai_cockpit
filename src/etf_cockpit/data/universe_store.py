@@ -287,6 +287,12 @@ def _payload_revision(payload: Mapping[str, object]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def universe_payload_revision(payload: Mapping[str, object]) -> str:
+    """Return the canonical revision used by application-written stores."""
+
+    return _payload_revision(payload)
+
+
 def _policy_profile_payload(profile: InvestabilityPolicyProfile) -> dict[str, object]:
     return {
         "instrument_id": _text(profile.instrument_id),
@@ -773,6 +779,13 @@ def load_universe(root: Path | None = None) -> UniverseStoreSnapshot:
         except (TypeError, ValueError) as exc:
             legacy_decode_errors.append(f"legacy record {index} is malformed: {exc}")
     records = tuple(legacy_records)
+    persisted_revision = payload.get("revision")
+    if (
+        isinstance(persisted_revision, str)
+        and re.fullmatch(r"[0-9a-f]{64}", persisted_revision)
+        and persisted_revision != _payload_revision(payload)
+    ):
+        legacy_decode_errors.append("store revision checksum mismatch")
     legacy_allow_duplicates = payload.get("allow_cross_tier_duplicates", False)
     if not isinstance(legacy_allow_duplicates, bool):
         legacy_decode_errors.append("allow_cross_tier_duplicates must be a boolean")

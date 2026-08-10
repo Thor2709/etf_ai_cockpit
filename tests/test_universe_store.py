@@ -206,6 +206,27 @@ def test_legacy_schema_v2_rejects_non_boolean_cross_tier_policy(tmp_path: Path) 
         load_config(tmp_path / "configs")
 
 
+def test_application_written_schema_v2_checksum_rejects_unchanged_revision_tamper(tmp_path: Path) -> None:
+    path = tmp_path / "configs" / "universe_store.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps({"schema_version": 2, "revision": "legacy", "records": []}),
+        encoding="utf-8",
+    )
+    saved = save_universe((_record("LEGACY", ticker="LEGACY.OL"),), expected_revision="legacy", root=tmp_path)
+    assert saved.backup_path is not None
+    before_backup = saved.backup_path.read_bytes()
+    payload = json.loads(saved.path.read_text(encoding="utf-8"))
+    payload["records"][0]["enabled"] = False
+    saved.path.write_text(json.dumps(payload), encoding="utf-8")
+
+    snapshot = load_universe(tmp_path)
+    assert any("revision checksum mismatch" in error for error in snapshot.integrity_errors)
+    with pytest.raises(ConfigError, match="integrity failed"):
+        load_config(tmp_path / "configs")
+    assert saved.backup_path.read_bytes() == before_backup
+
+
 def test_universe_config_rejects_case_variant_ids_even_when_cross_tier_duplicates_allowed() -> None:
     with pytest.raises(ValueError, match="globally unique"):
         UniverseConfig(

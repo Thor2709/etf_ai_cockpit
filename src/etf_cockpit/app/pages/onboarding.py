@@ -20,7 +20,7 @@ from etf_cockpit.application.settings import ANALYSIS_DEPTHS, HORIZONS, OUTPUT_C
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.application.ui_facade import UniverseRecord, import_legacy_universe, is_valid_isin, legal_terms_report, load_universe, resource_profile_report, save_universe, source_policy_rows, validate_import, validate_universe
+from etf_cockpit.application.ui_facade import UniverseRecord, import_legacy_universe, is_valid_isin, legal_terms_report, load_universe, resource_profile_report, save_universe, source_policy_rows, universe_payload_revision, validate_import, validate_universe
 
 
 @dataclass(frozen=True)
@@ -803,6 +803,12 @@ def _assert_universe_revision(path: Path, expected_revision: str) -> None:
         # acquiring a nested reader guard would deadlock on Windows.
         payload = json.loads(path.read_text(encoding="utf-8"))
         actual = str(payload.get("revision") or "") if isinstance(payload, dict) else ""
+        if (
+            isinstance(payload, dict)
+            and re.fullmatch(r"[0-9a-f]{64}", actual)
+            and universe_payload_revision(payload) != actual
+        ):
+            raise ValueError("Onboarding universe integrity check failed before grouped publish")
     if actual != expected_revision:
         raise ValueError(
             f"Onboarding universe changed before grouped publish: expected {expected_revision or '<empty>'}, found {actual or '<empty>'}"
