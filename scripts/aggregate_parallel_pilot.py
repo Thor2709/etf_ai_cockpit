@@ -341,6 +341,7 @@ def compare_reports(linux_path: Path, windows_path: Path) -> dict[str, object]:
         if not isinstance(linux_lanes, dict) or not isinstance(windows_lanes, dict):
             linux_lanes = {}
             windows_lanes = {}
+        posix_memory_limit_difference_lanes: set[str] = set()
         for lane in _LANES:
             linux_record = linux_lanes.get(lane, {})
             windows_record = windows_lanes.get(lane, {})
@@ -376,6 +377,11 @@ def compare_reports(linux_path: Path, windows_path: Path) -> dict[str, object]:
                 windows_map = windows_outcomes[index]
                 if not isinstance(linux_map, dict) or not isinstance(windows_map, dict):
                     continue
+                if (
+                    linux_map.get(_POSIX_MEMORY_LIMIT_NODEID) == "passed"
+                    and windows_map.get(_POSIX_MEMORY_LIMIT_NODEID) == "skipped"
+                ):
+                    posix_memory_limit_difference_lanes.add(lane)
                 unexpected = {
                     nodeid: {"linux": linux_map.get(nodeid), "windows": windows_map.get(nodeid)}
                     for nodeid in nodeids
@@ -389,6 +395,14 @@ def compare_reports(linux_path: Path, windows_path: Path) -> dict[str, object]:
                 }
                 if unexpected:
                     differences[f"{lane}.result_outcomes[{index}]"] = unexpected
+        if (
+            posix_memory_limit_difference_lanes
+            and posix_memory_limit_difference_lanes != _POSIX_MEMORY_LIMIT_LANES
+        ):
+            differences["posix_memory_limit.lanes"] = {
+                "expected": sorted(_POSIX_MEMORY_LIMIT_LANES),
+                "actual": sorted(posix_memory_limit_difference_lanes),
+            }
         statuses = {"linux": linux.get("status"), "windows": windows.get("status")}
         if len(set(statuses.values())) != 1 or any(value != "passed" for value in statuses.values()):
             differences["status"] = statuses

@@ -39,7 +39,13 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   hard-codes the exact contract, exercises complete report aggregation, and
   proves rejection of an extra lane, reversed outcomes and an unrelated test;
   focused tests, Ruff, mypy, compile, generator check and diff hygiene pass.
-  Freeze one replacement head for both reviews and fresh H-tier validation.
+  Whole-diff re-review approved replacement head
+  `218b412804d128dac1b0cc5b0831da46a3738103`, while risk review demonstrated
+  that per-lane allowance still accepted a partial subset of the required
+  three-lane signature; run `31349890546` is cancelled and stale. The final
+  bounded correction requires the complete observed lane set to equal the
+  exact three-lane contract and adds full-path regressions for each omitted
+  lane. Freeze one final head for both reviews and fresh H-tier validation.
 
 ## Current ISSUE-0010 product checkpoint
 

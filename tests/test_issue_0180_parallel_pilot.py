@@ -772,6 +772,12 @@ def test_cross_platform_aggregation_accepts_only_known_posix_memory_limit_differ
         reports_with_difference(lanes=("candidate_safe",)),
         reports_with_difference(linux_outcome="skipped", windows_outcome="passed"),
         reports_with_difference(changed_nodeid="tests/unrelated.py::test_case"),
+        *(
+            reports_with_difference(
+                lanes=tuple(lane for lane in expected_lanes if lane != missing_lane)
+            )
+            for missing_lane in expected_lanes
+        ),
     ):
         _write_platform_reports(
             linux_path,

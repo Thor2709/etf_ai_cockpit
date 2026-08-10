@@ -27,7 +27,12 @@ rejected only its self-referential predicate test. Run `31349420262` was
 cancelled and is stale. The consolidated correction hard-codes the exact test
 and lanes, exercises complete aggregation, and proves rejection of an extra
 lane, reversed outcomes and an unrelated test. Focused validation passes;
-freeze one replacement head for both reviews and fresh H-tier validation.
+whole-diff re-review approved replacement head
+`218b412804d128dac1b0cc5b0831da46a3738103`, but risk review demonstrated
+that a partial subset of the required three-lane signature still passed. Run
+`31349890546` is cancelled and stale. The final correction requires equality
+with the complete observed lane set and adds one full-path regression per
+omitted lane; freeze one final head for both reviews and H-tier validation.
 
 ## Current ISSUE-0010 product lane
 
