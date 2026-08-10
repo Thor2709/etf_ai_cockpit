@@ -30,6 +30,26 @@ _PROGRAMME_STATUSES = frozenset(
 )
 _EDGE_EVIDENCE_STATES = frozenset({"unresolved", "complete", "partial_interface", "waived"})
 _ISSUE_ID_RE = re.compile(r"(?:ISSUE|UPDATEV2)-\d{4}")
+_PRIORITIES = frozenset({"P0", "P0/P1", "P1", "P1/P2", "P2", "P3"})
+_CLASSIFICATIONS = frozenset(
+    {
+        "current_open_retained",
+        "current_closed_reconciled",
+        "local_only_current",
+        "local_only_closed",
+        "proposed_new",
+    }
+)
+_EDGE_EVIDENCE_KEYS = frozenset(
+    {
+        "schema_version",
+        "state",
+        "evidence_references",
+        "contract_reference",
+        "reviewer",
+        "reviewed_date",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -178,17 +198,25 @@ def _edge_rows(
 
 
 def _edge_evidence_is_valid(evidence: object) -> bool:
-    if not isinstance(evidence, Mapping) or evidence.get("schema_version") != "1.0":
+    if (
+        not isinstance(evidence, Mapping)
+        or set(evidence) != _EDGE_EVIDENCE_KEYS
+        or evidence.get("schema_version") != "1.0"
+    ):
         return False
     state = evidence.get("state")
     if state not in _EDGE_EVIDENCE_STATES:
         return False
     references = evidence.get("evidence_references")
-    if not isinstance(references, list):
+    if not isinstance(references, list) or any(
+        not isinstance(reference, str) or not reference.strip() for reference in references
+    ):
         return False
     if state == "unresolved":
-        return True
-    if not references or any(not isinstance(value, str) or not value.strip() for value in references):
+        return references == [] and all(
+            evidence.get(field) == "" for field in ("contract_reference", "reviewer", "reviewed_date")
+        )
+    if not references:
         return False
     if not all(
         isinstance(evidence.get(field), str) and evidence[field].strip()
@@ -363,6 +391,18 @@ def build_programme_map(registry: Mapping[str, Any], *, registry_sha256: str = "
     if not records:
         raise ValueError("canonical issue registry records must not be empty")
 
+    roadmap_phases = registry.get("roadmap_phases")
+    if not isinstance(roadmap_phases, list) or not roadmap_phases:
+        raise ValueError("canonical registry roadmap_phases must be a non-empty list")
+    phase_ids: set[str] = set()
+    for phase in roadmap_phases:
+        if not isinstance(phase, Mapping):
+            raise ValueError("canonical roadmap phase entries must be objects")
+        phase_id = _strict_string(phase.get("phase"), "roadmap_phases.phase")
+        if phase_id in phase_ids:
+            raise ValueError("canonical roadmap phase IDs must be unique")
+        phase_ids.add(phase_id)
+
     readiness = registry.get("readiness")
     if not isinstance(readiness, list) or not readiness:
         raise ValueError("canonical issue registry must contain a complete readiness list")
@@ -375,6 +415,29 @@ def build_programme_map(registry: Mapping[str, Any], *, registry_sha256: str = "
         programme_status = _strict_string(record.get("programme_status"), "programme_status")
         if programme_status not in _PROGRAMME_STATUSES:
             raise ValueError(f"unsupported programme_status for {canonical_id}: {programme_status}")
+        if record.get("classification") not in _CLASSIFICATIONS:
+            raise ValueError(f"canonical record classification is invalid for {canonical_id}")
+        if record.get("priority") not in _PRIORITIES:
+            raise ValueError(f"canonical record priority is invalid for {canonical_id}")
+        if record.get("phase") not in phase_ids:
+            raise ValueError(f"canonical record phase is invalid for {canonical_id}")
+        required_types = {
+            "provenance": Mapping,
+            "verified_commit": str,
+            "verified_date": str,
+            "acceptance_evidence": list,
+            "capability_lane": str,
+            "release_blocking": bool,
+            "write_conflict_group": str,
+            "risk": Mapping,
+            "owner": str,
+        }
+        for field, expected_type in required_types.items():
+            value = record.get(field)
+            if not isinstance(value, expected_type) or (
+                expected_type is str and not value.strip()
+            ):
+                raise ValueError(f"canonical record field {field} is invalid for {canonical_id}")
         for field in (
             "blocking_dependencies",
             "required_inputs",
@@ -389,17 +452,49 @@ def build_programme_map(registry: Mapping[str, Any], *, registry_sha256: str = "
     if len(set(record_ids)) != len(record_ids):
         raise ValueError("canonical issue registry contains duplicate canonical_id values")
     known_ids = set(record_ids)
+    relationship_fields = (
+        "blocking_dependencies",
+        "required_inputs",
+        "activation_dependencies",
+        "downstream_issues",
+        "related_issues",
+    )
     for canonical_id, record in records_by_id.items():
-        for field in (
-            "blocking_dependencies",
-            "required_inputs",
-            "activation_dependencies",
-            "downstream_issues",
-            "related_issues",
-        ):
-            unknown = set(_strict_string_tuple(record.get(field, []), field)) - known_ids
+        for field in relationship_fields:
+            references = set(_strict_string_tuple(record[field], field))
+            if canonical_id in references:
+                raise ValueError(f"canonical record {canonical_id} contains a self-reference")
+            unknown = references - known_ids
             if unknown:
                 raise ValueError(f"canonical record {canonical_id} contains unknown {field}")
+
+    expected_downstream: dict[str, set[str]] = {issue_id: set() for issue_id in known_ids}
+    for source_id, record in records_by_id.items():
+        for field in ("blocking_dependencies", "required_inputs", "activation_dependencies"):
+            for dependency in _strict_string_tuple(record[field], field):
+                expected_downstream[dependency].add(source_id)
+    for issue_id, record in records_by_id.items():
+        if set(_strict_string_tuple(record["downstream_issues"], "downstream_issues")) != expected_downstream[issue_id]:
+            raise ValueError(f"canonical downstream links are inconsistent for {issue_id}")
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(issue_id: str) -> None:
+        if issue_id in visiting:
+            raise ValueError("canonical blocking dependency graph contains a cycle")
+        if issue_id in visited:
+            return
+        visiting.add(issue_id)
+        for dependency in _strict_string_tuple(
+            records_by_id[issue_id]["blocking_dependencies"], "blocking_dependencies"
+        ):
+            visit(dependency)
+        visiting.remove(issue_id)
+        visited.add(issue_id)
+
+    for issue_id in sorted(known_ids):
+        visit(issue_id)
     closed_ids = {issue_id for issue_id, record in records_by_id.items() if record.get("ledger_state") == "closed"}
     local_only_records = registry.get("local_only_records", [])
     if not isinstance(local_only_records, list) or not all(isinstance(record, Mapping) for record in local_only_records):

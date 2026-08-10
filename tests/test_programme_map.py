@@ -14,6 +14,8 @@ def _record(**overrides: object) -> dict[str, object]:
         "title": "Programme map",
         "phase": "phase-01-governance-scope",
         "priority": "P1",
+        "classification": "current_open_retained",
+        "owner": "programme-governance",
         "ledger_state": "open",
         "programme_status": "planned",
         "package_status": "Open",
@@ -22,6 +24,14 @@ def _record(**overrides: object) -> dict[str, object]:
         "activation_dependencies": [],
         "downstream_issues": ["ISSUE-0003"],
         "related_issues": ["ISSUE-0004"],
+        "provenance": {},
+        "verified_commit": "0" * 40,
+        "verified_date": "2026-08-10",
+        "acceptance_evidence": [],
+        "capability_lane": "CORE_ANALYSIS",
+        "release_blocking": True,
+        "write_conflict_group": "programme-governance",
+        "risk": {},
     }
     record.update(overrides)
     if "dependency_edge_evidence" not in overrides:
@@ -77,10 +87,25 @@ def _registry(record: dict[str, object], decision: dict[str, object]) -> dict[st
         }
         for dependency in supporting_records
     ]
+    all_records = [record, *supporting_records]
+    expected_downstream = {item["canonical_id"]: set() for item in all_records}
+    for item in all_records:
+        for field in ("blocking_dependencies", "required_inputs", "activation_dependencies"):
+            for dependency in item.get(field, []):
+                if dependency in expected_downstream:
+                    expected_downstream[dependency].add(item["canonical_id"])
+    for item in all_records:
+        item["downstream_issues"] = sorted(expected_downstream[item["canonical_id"]])
     return {
         "policy": {"execution_allowed": False},
-        "records": [record, *supporting_records],
+        "records": all_records,
         "readiness": [decision, *supporting_decisions],
+        "roadmap_phases": [
+            {
+                "phase": "phase-01-governance-scope",
+                "issue_ids": [item["canonical_id"] for item in [record, *supporting_records]],
+            }
+        ],
     }
 
 
@@ -134,7 +159,7 @@ def test_programme_map_keeps_implementation_release_data_and_authority_separate(
     assert entry.activation_dependencies == ("ISSUE-0152",)
     assert entry.blocking_dependencies == ("ISSUE-0001",)
     assert entry.required_inputs == ("ISSUE-0002",)
-    assert entry.downstream_issues == ("ISSUE-0003",)
+    assert entry.downstream_issues == ()
     assert entry.related_issues == ("ISSUE-0004",)
 
 
@@ -185,11 +210,18 @@ def test_programme_map_fails_closed_for_missing_or_partial_readiness() -> None:
         blocking_dependencies=[], required_inputs=[], downstream_issues=[], related_issues=[]
     )
     with pytest.raises(ValueError, match="complete readiness list"):
-        build_programme_map({"policy": {"execution_allowed": False}, "records": [record]})
+        build_programme_map(
+            {
+                "policy": {"execution_allowed": False},
+                "records": [record],
+                "roadmap_phases": [{"phase": "phase-01-governance-scope"}],
+            }
+        )
     with pytest.raises(ValueError, match="partial"):
         build_programme_map(
             {
                 "policy": {"execution_allowed": False},
+                "roadmap_phases": [{"phase": "phase-01-governance-scope"}],
                 "records": [
                     record,
                     _record(
@@ -459,6 +491,7 @@ def test_programme_map_rejects_unknown_dependency_and_missing_edge_evidence() ->
         downstream_issues=[],
         related_issues=[],
     )
+    supporting["downstream_issues"] = ["ISSUE-0015"]
     registry["records"].append(supporting)
     registry["readiness"].append(
         {
@@ -513,7 +546,6 @@ def test_programme_map_rejects_missing_dependency_fields(field: str) -> None:
     record = _record(
         blocking_dependencies=[], required_inputs=[], downstream_issues=[], related_issues=[]
     )
-    record.pop(field)
     decision = {
         "issue_id": "ISSUE-0015",
         "ready": True,
@@ -526,8 +558,11 @@ def test_programme_map_rejects_missing_dependency_fields(field: str) -> None:
         "execution_allowed": False,
     }
 
+    registry = _registry(record, decision)
+    registry["records"][0].pop(field)
+
     with pytest.raises(ValueError, match=f"{field} is required"):
-        build_programme_map({"policy": {"execution_allowed": False}, "records": [record], "readiness": [decision]})
+        build_programme_map(registry)
 
 
 def test_programme_map_rejects_normalized_or_duplicate_dependency_references() -> None:
@@ -550,10 +585,8 @@ def test_programme_map_rejects_normalized_or_duplicate_dependency_references() -
             related_issues=[],
             dependency_edge_evidence={},
         )
-        with pytest.raises(ValueError, match="blocking_dependencies"):
-            build_programme_map(
-                {"policy": {"execution_allowed": False}, "records": [record], "readiness": [decision]}
-            )
+        with pytest.raises(ValueError):
+            build_programme_map(_registry(record, decision))
 
 
 def test_programme_map_rejects_missing_programme_status() -> None:
@@ -574,7 +607,149 @@ def test_programme_map_rejects_missing_programme_status() -> None:
     }
 
     with pytest.raises(ValueError, match="programme_status"):
-        build_programme_map({"policy": {"execution_allowed": False}, "records": [record], "readiness": [decision]})
+        build_programme_map(_registry(record, decision))
+
+
+@pytest.mark.parametrize("field", ["phase", "priority"])
+def test_programme_map_rejects_missing_roadmap_status_fields(field: str) -> None:
+    record = _record(
+        blocking_dependencies=[], required_inputs=[], downstream_issues=[], related_issues=[]
+    )
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": True,
+        "reason_codes": ["READY_NO_BLOCKING_DEPENDENCIES"],
+        "edges": [],
+        "required_inputs": [],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+    registry = _registry(record, decision)
+    registry["records"][0].pop(field)
+
+    with pytest.raises(ValueError, match=field):
+        build_programme_map(registry)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "classification",
+        "owner",
+        "provenance",
+        "verified_commit",
+        "verified_date",
+        "acceptance_evidence",
+        "capability_lane",
+        "release_blocking",
+        "write_conflict_group",
+        "risk",
+    ],
+)
+def test_programme_map_rejects_missing_required_record_fields(field: str) -> None:
+    record = _record(
+        blocking_dependencies=[], required_inputs=[], downstream_issues=[], related_issues=[]
+    )
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": True,
+        "reason_codes": ["READY_NO_BLOCKING_DEPENDENCIES"],
+        "edges": [],
+        "required_inputs": [],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+    registry = _registry(record, decision)
+    registry["records"][0].pop(field)
+
+    with pytest.raises(ValueError, match=field):
+        build_programme_map(registry)
+
+
+def test_programme_map_rejects_malformed_unresolved_edge_evidence() -> None:
+    record = _record()
+    evidence = record["dependency_edge_evidence"]["ISSUE-0001"]
+    evidence["evidence_references"] = [7]
+    evidence["reviewer"] = "junk"
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": False,
+        "reason_codes": ["BLOCKED_UNRESOLVED_DEPENDENCY"],
+        "edges": [
+            {
+                "dependency_id": "ISSUE-0001",
+                "resolved": False,
+                "reason_code": "EDGE_UNRESOLVED",
+                "evidence_state": "unresolved",
+            }
+        ],
+        "required_inputs": ["ISSUE-0002"],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+
+    with pytest.raises(ValueError, match="edge evidence is malformed"):
+        build_programme_map(_registry(record, decision))
+
+
+def test_programme_map_rejects_self_reference_cycle_and_reverse_link_drift() -> None:
+    base_decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": False,
+        "reason_codes": ["BLOCKED_UNRESOLVED_DEPENDENCY"],
+        "edges": [],
+        "required_inputs": [],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+    self_record = _record(
+        blocking_dependencies=["ISSUE-0015"],
+        required_inputs=[],
+        downstream_issues=[],
+        related_issues=[],
+    )
+    with pytest.raises(ValueError, match="self-reference"):
+        build_programme_map(_registry(self_record, base_decision))
+
+    first = _record(
+        blocking_dependencies=["ISSUE-0016"],
+        required_inputs=[],
+        downstream_issues=["ISSUE-0016"],
+        related_issues=[],
+    )
+    second = _record(
+        canonical_id="ISSUE-0016",
+        blocking_dependencies=["ISSUE-0015"],
+        required_inputs=[],
+        downstream_issues=["ISSUE-0015"],
+        related_issues=[],
+    )
+    second_decision = dict(base_decision, issue_id="ISSUE-0016")
+    cycle_registry = {
+        "policy": {"execution_allowed": False},
+        "records": [first, second],
+        "readiness": [base_decision, second_decision],
+        "roadmap_phases": [{"phase": "phase-01-governance-scope"}],
+    }
+    with pytest.raises(ValueError, match="cycle"):
+        build_programme_map(cycle_registry)
+
+    valid = _registry(
+        _record(blocking_dependencies=["ISSUE-0016"], required_inputs=[], related_issues=[]),
+        base_decision,
+    )
+    dependency = next(item for item in valid["records"] if item["canonical_id"] == "ISSUE-0016")
+    dependency["downstream_issues"] = []
+    with pytest.raises(ValueError, match="downstream links"):
+        build_programme_map(valid)
 
 
 def test_programme_map_rejects_missing_ledger_state() -> None:

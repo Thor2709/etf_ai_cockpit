@@ -73,6 +73,12 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   programme status. The consolidated closure now requires those existing raw
   canonical fields and semantic values exactly, with focused regressions; it
   does not change canonical content, dependencies, lifecycle or authority.
+- Reviewers rejected `2858b94e0fcf820ecbf8e91ac5c6500d8439520a` for the final
+  canonical-record invariants consumed by the map: required typed metadata and
+  phase/priority, strict unresolved evidence, self/cycle rejection and exact
+  generated reverse links. The bounded closure mirrors those existing
+  canonical checks and focused probes only; it adds no new schema, status,
+  dependency, workflow or authority.
 
 ## Superseded ISSUE-0014 validation-repair checkpoint
 
