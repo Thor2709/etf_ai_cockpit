@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
+import zipfile
 
 import numpy as np
 import pandas as pd
@@ -94,7 +95,14 @@ def _route_probe() -> dict[str, object]:
 class _FixtureTicker:
     info = {"longName": "ISSUE-0014 fixture", "currency": "EUR", "quoteType": "ETF"}
     fast_info = {"currency": "EUR"}
-    funds_data = SimpleNamespace(fund_overview={}, fund_operations=pd.DataFrame(), top_holdings=pd.DataFrame())
+    funds_data = SimpleNamespace(
+        fund_overview={},
+        fund_operations=pd.DataFrame(),
+        top_holdings=pd.DataFrame(
+            {"Name": ["ISSUE-0014 holding"], "Holding Percent": [0.125]},
+            index=["FIXTURE-HOLDING"],
+        ),
+    )
 
 
 def _fixture_download(symbol: str, **kwargs: object) -> pd.DataFrame:
@@ -130,12 +138,15 @@ def _main_workflow_probe() -> dict[str, object]:
 
     from etf_cockpit.app.state import ActivityUnavailableError, AppState
     from etf_cockpit.core.config import load_config
+    from etf_cockpit.data.reference_data import reference_data_inventory
     from etf_cockpit.governance.product_scope import load_gate_policy
+    import etf_cockpit.data.yfinance_provider as yfinance_provider
     import etf_cockpit.data.trade_candidate_analysis as trade_candidate_analysis
     import etf_cockpit.services as services
 
     services.date = _FixedDate
     trade_candidate_analysis.date = _FixedDate
+    yfinance_provider.date = _FixedDate
     config = load_config()
     candidate_path = (
         Path(os.environ["ETF_COCKPIT_ROOT"])
@@ -164,6 +175,9 @@ def _main_workflow_probe() -> dict[str, object]:
     scoreboard = root / "data" / "derived" / "scoreboard.parquet"
     scoreboard_before_audit = scoreboard.is_file()
     audit = state.export_audit_packet()
+    committed_reference_inventory = reference_data_inventory()
+    with zipfile.ZipFile(audit) as archive:
+        audit_reference_inventory = json.loads(archive.read("12_reference_data_inventory.json"))
     policy = load_gate_policy()
     for output in (scoreboard, audit):
         if not output.resolve().is_relative_to(root):
@@ -183,6 +197,12 @@ def _main_workflow_probe() -> dict[str, object]:
         "scoreboard_before_audit": scoreboard_before_audit,
         "audit": str(audit),
         "audit_exists": audit.is_file(),
+        "committed_reference_dates": {
+            str(item["dataset_type"]): item.get("as_of_date") for item in committed_reference_inventory
+        },
+        "audit_reference_dates": {
+            str(item["dataset_type"]): item.get("as_of_date") for item in audit_reference_inventory
+        },
         "execution_allowed": None if policy.policy is None else policy.policy.execution_allowed,
         "root": str(root),
     }

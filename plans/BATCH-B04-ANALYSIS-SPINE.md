@@ -46,6 +46,12 @@ PR #665 incorporates that exact main through commit
 `599f5a4e81e453916e4cdcf3320d1929aded3449` with product and lifecycle state
 unchanged. Run coupled checks, then freeze one replacement product head for
 both reviews and fresh H-tier validation. `execution_allowed=false` remains.
+Replacement head `aee786ec7d1bf127864d1a2b84346427844019e9` received whole-diff
+approval, while risk review reproduced an unpinned yfinance reference-data
+clock. Run `31354453616` is cancelled and stale. The one consolidated
+correction pins the same fixed date for metadata and holdings and proves the
+committed and audit-packet provenance dates; focused validation, both reviews
+and fresh H-tier validation are required on one replacement head.
 
 ## Current ISSUE-0010 product lane
 

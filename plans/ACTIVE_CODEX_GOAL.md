@@ -63,6 +63,14 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   classifier and directly coupled repair tests, then freeze one replacement
   product head for both independent reviews and fresh H-tier validation.
   `execution_allowed=false` remains unchanged.
+- Replacement head `aee786ec7d1bf127864d1a2b84346427844019e9` received whole-diff
+  approval, while risk review reproduced one deterministic provenance defect:
+  the workflow fixture pinned price and candidate clocks but not the yfinance
+  reference-data provider clock. Its hosted run `31354453616` is cancelled and
+  stale. The single consolidated correction pins the same fixed date for ETF
+  metadata and holdings, supplies a real holdings fixture, and asserts both
+  committed and audit-packet reference dates. Freeze one new head after focused
+  validation, then repeat both reviews and fresh H-tier validation in parallel.
 
 ## Current ISSUE-0010 product checkpoint
 
