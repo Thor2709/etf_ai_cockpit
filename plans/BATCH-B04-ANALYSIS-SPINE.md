@@ -2995,3 +2995,15 @@ scheduler and revalidates destination identity inside grouped publication.
 The focused 148-test surface has 147 passes and one platform-capability skip;
 static checks pass. Freeze one final documented head and repeat both exact-head
 reviews plus fresh H-tier Linux/Windows/terminal validation.
+
+`CONSOLIDATED_PERSISTENCE_CORRECTION` exact head
+`9e5d097565739ef9e4d2259e4f2f9877766c4b4c` was rejected only after both
+parallel reviewers completed. They reproduced duplicate-policy loss and a
+post-precondition canonical universe save being overwritten; stale hosted run
+`31397877895` separately exposed the new junction regression invoking Windows
+`cmd` on Linux. Commit `279e61541bdd8b87c72cec5b51e06839842543e0`
+preserves the existing policy, shares the grouped guard and in-guard CAS across
+canonical and onboarding universe writers, adds both deterministic regressions,
+and capability-skips the Windows-only test. Focused affected tests, Ruff,
+compile and diff hygiene pass. Freeze one documented replacement head for both
+exact-head reviews and fresh Linux/Windows/terminal validation.

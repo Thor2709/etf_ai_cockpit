@@ -79,6 +79,18 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   148-test focused surface has 147 passes and one platform-capability skip;
   Ruff, compile and diff hygiene pass. Freeze the fully documented replacement
   head for final parallel reviews and fresh H-tier validation.
+- Final parallel review rejected `9e5d097565739ef9e4d2259e4f2f9877766c4b4c`
+  after reproducing two persistence defects: onboarding reset an existing
+  cross-tier-duplicate policy and a canonical universe save could be lost when
+  it committed after onboarding's first revision check. Hosted run
+  `31397877895` is stale and failed preflight because its Windows junction test
+  invoked `cmd` on Linux. Consolidated correction
+  `279e61541bdd8b87c72cec5b51e06839842543e0` preserves the policy, places the
+  canonical saver under the same grouped guard with an in-guard CAS, adds the
+  deterministic interleaving regression, and capability-skips the Windows-only
+  junction test. The affected onboarding/universe/application surface, Ruff,
+  compile and diff hygiene pass. Freeze one replacement head and repeat both
+  exact-head reviews plus fresh Linux, Windows and terminal validation.
 
 ## Superseded ISSUE-0016 product checkpoint
 
