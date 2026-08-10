@@ -742,11 +742,12 @@ def load_universe(root: Path | None = None) -> UniverseStoreSnapshot:
         )
     if schema_version >= 3:
         records, policy_profiles, integrity_errors = _decode_v3_store(payload)
+        allow_cross_tier_duplicates = payload.get("allow_cross_tier_duplicates", False)
         return UniverseStoreSnapshot(
             records,
             _text(payload.get("revision")),
             path,
-            _as_bool(payload.get("allow_cross_tier_duplicates", False)),
+            allow_cross_tier_duplicates if isinstance(allow_cross_tier_duplicates, bool) else False,
             policy_profiles,
             _policy_evidence(
                 records,
@@ -772,9 +773,13 @@ def load_universe(root: Path | None = None) -> UniverseStoreSnapshot:
         except (TypeError, ValueError) as exc:
             legacy_decode_errors.append(f"legacy record {index} is malformed: {exc}")
     records = tuple(legacy_records)
+    legacy_allow_duplicates = payload.get("allow_cross_tier_duplicates", False)
+    if not isinstance(legacy_allow_duplicates, bool):
+        legacy_decode_errors.append("allow_cross_tier_duplicates must be a boolean")
+        legacy_allow_duplicates = False
     legacy_report = validate_universe(
         records,
-        allow_cross_tier_duplicates=_as_bool(payload.get("allow_cross_tier_duplicates", False)),
+        allow_cross_tier_duplicates=legacy_allow_duplicates,
     )
     legacy_integrity_errors = tuple(legacy_decode_errors) + tuple(
         f"invalid legacy universe record: {error}" for error in legacy_report.errors
@@ -795,7 +800,7 @@ def load_universe(root: Path | None = None) -> UniverseStoreSnapshot:
         records,
         _text(payload.get("revision")),
         path,
-        _as_bool(payload.get("allow_cross_tier_duplicates", False)),
+        legacy_allow_duplicates,
         policy_profiles,
         _policy_evidence(
             records,

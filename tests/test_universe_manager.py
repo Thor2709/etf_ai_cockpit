@@ -109,6 +109,10 @@ def test_real_crud_controls_stage_changes_and_save_captured_revision(monkeypatch
         "universe.remove.A",
     } <= set(buttons)
     assert "universe.allow-cross-tier-duplicates" in controls
+    override = controls["universe.allow-cross-tier-duplicates"]
+    assert "ticker" in str(override.label).lower()
+    assert "verified isin" in str(override.label).lower()
+    assert "instrument ids stay globally unique" in str(override.label).lower()
 
     # Disable and add use the real callbacks, and neither callback invokes a
     # workflow service. The newly added record proves full add control wiring.

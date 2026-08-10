@@ -48,6 +48,17 @@ def test_onboarding_rejects_empty_scope_and_preserves_unresolved_symbols() -> No
     assert valid.unresolved_symbols == ("UNKNOWN",)
 
 
+def test_onboarding_keeps_dot_and_underscore_tickers_as_distinct_records() -> None:
+    records = onboarding_module._onboarding_records(
+        OnboardingProfile("EUR", "Europe", ("stock",), "balanced", "medium", tickers=("A.B", "A_B")),
+        (),
+    )
+
+    assert len(records) == 2
+    assert {record.instrument_id for record in records} == {"A.B", "A_B"}
+    assert {record.ticker for record in records} == {"A.B", "A_B"}
+
+
 def test_legacy_positional_ticker_is_normalised_to_a_loadable_scope(tmp_path) -> None:
     result = complete_onboarding(
         OnboardingProfile("EUR", "Europe", ("WAT",), "balanced", "medium"),
@@ -773,7 +784,7 @@ def test_onboarding_round_trip_is_deterministic_and_rejects_unsafe_execution_cho
     path = selected_root / "configs" / "onboarding.json"
     first = path.read_bytes()
     loaded = load_onboarding(tmp_path)
-    complete_onboarding(loaded, tmp_path)
+    second = complete_onboarding(loaded, tmp_path)
     assert path.read_bytes() == first
     assert loaded.storage_location == "project_local"
     assert loaded.encryption_preference == "user_managed"
@@ -783,6 +794,8 @@ def test_onboarding_round_trip_is_deterministic_and_rejects_unsafe_execution_cho
     assert (selected_root / "configs" / "universe_store.json").is_file()
     assert result.bootstrap is not None
     assert result.bootstrap.status == "ready"
+    assert second.bootstrap is not None
+    assert second.bootstrap.rows == 0
     assert result.bootstrap.market_data_status == "unavailable"
     assert {record.instrument_id for record in load_universe(selected_root).records} >= {"VWCE", "MSFT"}
     assert not (selected_root / "data" / "clean" / "prices.parquet").exists()
@@ -790,6 +803,33 @@ def test_onboarding_round_trip_is_deterministic_and_rejects_unsafe_execution_cho
         complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", execution_allowed=True), tmp_path)
     with pytest.raises(ValueError, match="staged execution"):
         complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", staged_execution_enabled=True), tmp_path)
+
+
+def test_load_onboarding_rejects_boolean_bootstrap_rows(tmp_path) -> None:
+    complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+    path = onboarding_module.ROOT / "configs" / "onboarding.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["setup"]["bootstrap"]["rows"] = True
+    payload["revision"] = onboarding_module._onboarding_payload_revision(payload)
+    payload["checksum"] = payload["revision"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="bootstrap evidence"):
+        load_onboarding(tmp_path)
+
+
+def test_load_onboarding_requires_exact_recomputed_unresolved_symbols(tmp_path) -> None:
+    profile = OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", tickers=("UNKNOWN",))
+    complete_onboarding(profile, tmp_path)
+    path = onboarding_module.ROOT / "configs" / "onboarding.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["unresolved_symbols"] = []
+    payload["revision"] = onboarding_module._onboarding_payload_revision(payload)
+    payload["checksum"] = payload["revision"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unresolved symbols"):
+        load_onboarding(tmp_path)
 
 
 def test_disabled_local_evidence_stays_unresolved_and_disabled_after_reload(tmp_path) -> None:

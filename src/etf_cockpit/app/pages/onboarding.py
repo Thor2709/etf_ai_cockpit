@@ -638,7 +638,7 @@ def _onboarding_records(profile: OnboardingProfile, unresolved: tuple[str, ...])
         asset_type = "etf" if scope == "etf" else "stock" if scope == "stock" else ("etf" if ticker.endswith((".DE", ".L", ".PA")) else "stock")
         rows.append(
             UniverseRecord(
-                instrument_id=ticker.replace(".", "_"),
+                instrument_id=ticker,
                 name=ticker,
                 ticker=ticker,
                 isin="needs_verification",
@@ -897,8 +897,7 @@ def complete_onboarding(
             profile_records,
             allow_cross_tier_duplicates=current.allow_cross_tier_duplicates,
         )
-        sample_tickers = {record.ticker.casefold() for record in sample_fixture}
-        sample_rows = sum(record.ticker.casefold() in sample_tickers for record in records)
+        sample_rows = len(samples)
         bootstrap = BootstrapResult(
             "sample",
             "ready",
@@ -1039,7 +1038,7 @@ def load_onboarding(_root: Path | None = None) -> OnboardingProfile:
         raise ValueError("onboarding setup safety defaults are invalid")
     if bootstrap.get("status") not in {"ready", "unavailable"} or bootstrap.get("mode") not in _BOOTSTRAP_MODES:
         raise ValueError("onboarding bootstrap state is invalid")
-    if not isinstance(bootstrap.get("rows"), int) or int(bootstrap["rows"]) < 0 or not isinstance(bootstrap.get("output_paths"), list):
+    if type(bootstrap.get("rows")) is not int or bootstrap["rows"] < 0 or not isinstance(bootstrap.get("output_paths"), list):
         raise ValueError("onboarding bootstrap evidence is invalid")
     if not _text(bootstrap.get("message")) or bootstrap.get("market_data_status") not in {"available", "unavailable"}:
         raise ValueError("onboarding bootstrap evidence is incomplete")
@@ -1102,7 +1101,7 @@ def load_onboarding(_root: Path | None = None) -> OnboardingProfile:
         if not validation.valid or not isinstance(unresolved, list) or any(not isinstance(item, str) for item in unresolved):
             raise ValueError("onboarding settings do not match their validated profile")
         canonical_unresolved = tuple(sorted(set(item.strip().upper() for item in unresolved if item.strip())))
-        if tuple(unresolved) != canonical_unresolved or not set(canonical_unresolved).issubset(set(_profile_tickers(profile))):
+        if tuple(unresolved) != canonical_unresolved or tuple(unresolved) != validation.unresolved_symbols:
             raise ValueError("onboarding unresolved symbols are invalid")
         _canonical_profile(profile)
     except (KeyError, TypeError, ValueError, AttributeError) as exc:

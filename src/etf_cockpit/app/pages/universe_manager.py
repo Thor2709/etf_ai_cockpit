@@ -147,7 +147,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         selectable=True,
     )
     allow_duplicates = ft.Checkbox(
-        label="Allow cross-tier duplicate IDs/tickers/ISINs (explicit override)",
+        label="Allow cross-tier duplicate tickers and verified ISINs (instrument IDs stay globally unique)",
         value=snapshot.allow_cross_tier_duplicates,
         key="universe.allow-cross-tier-duplicates",
     )

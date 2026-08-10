@@ -183,6 +183,29 @@ def test_active_config_accepts_valid_legacy_schema_v2_snapshot(tmp_path: Path) -
     assert load_universe(tmp_path).policy_evidence[0].state == "legacy_unmigrated"
 
 
+def test_legacy_schema_v2_rejects_non_boolean_cross_tier_policy(tmp_path: Path) -> None:
+    path = tmp_path / "configs" / "universe_store.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "revision": "legacy-revision",
+                "allow_cross_tier_duplicates": "true",
+                "records": [universe_store.asdict(_record("LEGACY", ticker="LEGACY.OL"))],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    snapshot = load_universe(tmp_path)
+
+    assert snapshot.allow_cross_tier_duplicates is False
+    assert any("allow_cross_tier_duplicates must be a boolean" in error for error in snapshot.integrity_errors)
+    with pytest.raises(ConfigError, match="integrity failed"):
+        load_config(tmp_path / "configs")
+
+
 def test_universe_config_rejects_case_variant_ids_even_when_cross_tier_duplicates_allowed() -> None:
     with pytest.raises(ValueError, match="globally unique"):
         UniverseConfig(
