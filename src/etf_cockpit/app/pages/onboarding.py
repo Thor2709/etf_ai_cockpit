@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 from collections.abc import Mapping
@@ -16,7 +18,7 @@ from etf_cockpit.app.state import AppState
 from etf_cockpit.application.settings import ANALYSIS_DEPTHS, HORIZONS, OUTPUT_CURRENCIES, RISK_PROFILES
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
 from etf_cockpit.core.config import load_config
-from etf_cockpit.application.ui_facade import ImportService, UniverseRecord, import_legacy_universe, legal_terms_report, load_universe, resource_profile_report, save_universe, source_policy_rows, validate_import
+from etf_cockpit.application.ui_facade import UniverseRecord, import_legacy_universe, legal_terms_report, load_universe, resource_profile_report, save_universe, source_policy_rows, validate_import
 
 
 @dataclass(frozen=True)
@@ -163,6 +165,89 @@ def _pointer_path(root: Path) -> Path:
     return Path(root).resolve() / "configs" / "onboarding-location.json"
 
 
+def _absolute_path(path: Path) -> Path:
+    return Path(os.path.abspath(str(path)))
+
+
+def _reject_symlink_path(path: Path, *, field: str) -> None:
+    absolute = _absolute_path(path)
+    resolved = absolute.resolve(strict=False)
+    if os.path.normcase(str(resolved)) != os.path.normcase(str(absolute)):
+        raise ValueError(f"{field} contains a symlink or escaped destination")
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            raise ValueError(f"{field} contains a symlink: {current}")
+
+
+def _existing_volume(path: Path) -> tuple[str, int | str]:
+    candidate = _absolute_path(path)
+    while not candidate.exists():
+        parent = candidate.parent
+        if parent == candidate:
+            break
+        candidate = parent
+    try:
+        return ("device", int(candidate.stat().st_dev))
+    except OSError as exc:
+        raise ValueError(f"cannot inspect storage volume for {path}: {exc}") from exc
+
+
+def _preflight_onboarding_destinations(paths: Iterable[tuple[Path, str]]) -> None:
+    destinations = tuple((_absolute_path(path), field) for path, field in paths)
+    if not destinations:
+        raise ValueError("onboarding has no destinations")
+    for destination, field in destinations:
+        _reject_symlink_path(destination, field=field)
+        _reject_symlink_path(destination.parent, field=f"{field} parent")
+        nearest = destination
+        while not nearest.exists():
+            parent = nearest.parent
+            if parent == nearest:
+                break
+            nearest = parent
+        if not nearest.exists() or not os.access(nearest, os.W_OK):
+            raise ValueError(f"onboarding destination is not writable: {destination}")
+    volumes = {_existing_volume(destination.parent) for destination, _field in destinations}
+    if len(volumes) != 1:
+        raise ValueError("onboarding outputs span storage volumes; grouped publish is unavailable")
+    try:
+        Path(os.path.commonpath([str(destination.parent) for destination, _field in destinations]))
+    except ValueError as exc:
+        raise ValueError("onboarding outputs do not have one grouped local transaction root") from exc
+
+
+def resolve_onboarding_storage_root(root: Path) -> Path:
+    """Resolve the selected local root without replacing the active config."""
+
+    supplied = Path(root).resolve()
+    pointer = _pointer_path(supplied)
+    if not pointer.is_file():
+        return supplied
+    _reject_symlink_path(pointer, field="onboarding storage pointer")
+    return _onboarding_document_path(supplied)[1]
+
+
+def overlay_universe_config(active_config: object, selected_config: object) -> object:
+    """Overlay only the selected universe onto the active non-universe config."""
+
+    selected_universe = getattr(selected_config, "universe", None)
+    if selected_universe is None:
+        return active_config
+    model_copy = getattr(active_config, "model_copy", None)
+    if callable(model_copy):
+        return model_copy(update={"universe": selected_universe})
+    try:
+        from copy import copy
+
+        result = copy(active_config)
+        result.universe = selected_universe
+        return result
+    except (AttributeError, TypeError):
+        return selected_config
+
+
 def _onboarding_document_path(root: Path) -> tuple[Path, Path]:
     supplied = Path(root).resolve()
     direct = supplied / "configs" / "onboarding.json"
@@ -171,6 +256,7 @@ def _onboarding_document_path(root: Path) -> tuple[Path, Path]:
         if direct.is_file():
             return direct, supplied
         raise ValueError(f"onboarding settings cannot be loaded: {direct} does not exist")
+    _reject_symlink_path(pointer_path, field="onboarding storage pointer")
     try:
         pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, TypeError) as exc:
@@ -179,7 +265,12 @@ def _onboarding_document_path(root: Path) -> tuple[Path, Path]:
         raise ValueError("onboarding storage pointer schema is unsupported")
     if pointer.get("execution_allowed") is not False:
         raise ValueError("onboarding storage pointer execution_allowed must remain false")
-    selected = _resolve_local_path(pointer.get("storage_root"), supplied, field="storage pointer")
+    raw_storage_root = pointer.get("storage_root")
+    raw_storage_path = Path(str(raw_storage_root))
+    if not raw_storage_path.is_absolute():
+        raw_storage_path = supplied / raw_storage_path
+    _reject_symlink_path(raw_storage_path, field="selected storage root")
+    selected = _resolve_local_path(raw_storage_root, supplied, field="storage pointer")
     if not selected.is_absolute() or pointer.get("storage_root") != selected.as_posix():
         raise ValueError("onboarding storage pointer must contain the canonical absolute local root")
     return selected / "configs" / "onboarding.json", selected
@@ -310,7 +401,8 @@ def _canonical_profile(profile: OnboardingProfile) -> tuple[dict[str, object], d
 
 def _canonical_scopes(values: Iterable[str]) -> tuple[str, ...]:
     scopes: list[str] = []
-    for raw in values:
+    raw_values = tuple(values)
+    for raw in raw_values:
         value = _text(raw).lower()
         if value in {"both", "stock+etf"}:
             scopes.extend(("stock", "etf"))
@@ -318,7 +410,18 @@ def _canonical_scopes(values: Iterable[str]) -> tuple[str, ...]:
             scopes.extend(("stock", "etf", "fund", "bond"))
         elif value in {"stock", "etf", "fund", "bond"}:
             scopes.append(value)
-    return tuple(dict.fromkeys(scopes))
+        elif not _TICKER_RE.fullmatch(value):
+            raise ValueError("asset_scope contains an unsupported scope or legacy ticker")
+    if scopes:
+        if len(scopes) != len(raw_values) and not all(_text(value).lower() in _ASSET_SCOPES for value in raw_values):
+            raise ValueError("asset_scope cannot mix scopes and legacy tickers")
+        return tuple(dict.fromkeys(scopes))
+    # Compatibility with the original positional ticker form is limited to
+    # shape-valid symbols and is normalised to the safe stock scope so the
+    # persisted document remains loadable.
+    if raw_values and all(_TICKER_RE.fullmatch(_text(value).upper()) for value in raw_values):
+        return ("stock",)
+    raise ValueError("asset_scope must contain a supported scope")
 
 
 def _profile_tickers(profile: OnboardingProfile) -> tuple[str, ...]:
@@ -572,24 +675,47 @@ def _bulk_bootstrap(profile: OnboardingProfile, supplied_root: Path, storage_roo
             "Local bulk prices require an explicit adjusted_close or adj_close column; raw close was not imported.",
             source.as_posix(),
         )
-    try:
-        service = ImportService(storage_root)
-        service.register(preview)
-        committed = service.commit(preview.preview_id)
-    except (OSError, TypeError, ValueError) as exc:
-        return BootstrapResult("bulk", "unavailable", 0, (), f"Local bulk import failed without replacing prior data: {type(exc).__name__}: {exc}", source.as_posix())
-    destination = Path(committed.destination).resolve()
-    if not destination.is_relative_to(storage_root):
-        raise ValueError("bulk import destination escaped selected storage root")
     return BootstrapResult(
         "bulk",
-        "ready",
-        committed.rows,
-        (destination.relative_to(storage_root).as_posix(),),
-        "Local bulk price file imported; no network or provider key was used.",
+        "unavailable",
+        0,
+        (),
+        "Local bulk source validated, but a canonical conflict-safe price import is unavailable; action required and zero price files were written.",
         source.as_posix(),
-        "available",
     )
+
+
+def _stage_universe_payload(
+    records: tuple[UniverseRecord, ...],
+    *,
+    expected_revision: str,
+    storage_root: Path,
+) -> tuple[bytes, str]:
+    """Build a canonical universe candidate without mutating the selected root."""
+
+    with tempfile.TemporaryDirectory(prefix="etf-cockpit-onboarding-") as temporary:
+        stage_root = Path(temporary)
+        stage_store = stage_root / "configs" / "universe_store.json"
+        target_store = storage_root / "configs" / "universe_store.json"
+        stage_store.parent.mkdir(parents=True, exist_ok=True)
+        if target_store.is_file():
+            stage_store.write_bytes(target_store.read_bytes())
+        saved = save_universe(records, expected_revision=expected_revision, root=stage_root)
+        return stage_store.read_bytes(), saved.revision
+
+
+def _assert_universe_revision(path: Path, expected_revision: str) -> None:
+    if not path.is_file():
+        actual = ""
+    else:
+        # The grouped writer already holds the complete guard closure here;
+        # acquiring a nested reader guard would deadlock on Windows.
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        actual = str(payload.get("revision") or "") if isinstance(payload, dict) else ""
+    if actual != expected_revision:
+        raise ValueError(
+            f"Onboarding universe changed before grouped publish: expected {expected_revision or '<empty>'}, found {actual or '<empty>'}"
+        )
 
 
 def _bootstrap_payload(result: BootstrapResult) -> dict[str, object]:
@@ -625,6 +751,13 @@ def complete_onboarding(
         profile = replace(profile, optional_provider_status=tuple(statuses.items()))
     storage_root = _selected_storage_root(profile, supplied_root)
     profile_payload, setup_payload = _canonical_profile(profile)
+    privacy_payload = setup_payload["privacy"]
+    assert isinstance(privacy_payload, dict)
+    backup_preference = str(privacy_payload["backup_preference"])
+    if backup_preference in {"disabled", "encrypted"}:
+        raise ValueError(
+            f"backup_preference={backup_preference} is unsupported by the local plaintext backup path; action required and no onboarding writes were made"
+        )
     validation = validate_onboarding(profile, validator=validator, online=online, root=storage_root)
     if not validation.valid:
         raise ValueError("Onboarding validation failed: " + ", ".join(validation.errors))
@@ -642,6 +775,7 @@ def complete_onboarding(
     if not existing_records and legacy_universe.is_file():
         existing_records = import_legacy_universe(legacy_universe).records
     bootstrap: BootstrapResult
+    candidate_records: tuple[UniverseRecord, ...] | None
     if profile.bootstrap_mode.casefold() == "sample":
         sample_fixture = _sample_records(supplied_root)
         occupied_tickers = {record.ticker.casefold() for record in (*existing_records, *profile_records)}
@@ -652,24 +786,47 @@ def complete_onboarding(
             if record.ticker.casefold() not in occupied_tickers and record.instrument_id.casefold() not in occupied_ids
         )
         records = _merge_records(existing_records, samples, profile_records)
-        saved = save_universe(records, expected_revision=current.revision, root=storage_root)
-        revision = saved.revision
         sample_tickers = {record.ticker.casefold() for record in sample_fixture}
         sample_rows = sum(record.ticker.casefold() in sample_tickers for record in records)
         bootstrap = BootstrapResult(
             "sample",
             "ready",
             sample_rows,
-            (saved.path.relative_to(storage_root).as_posix(),),
+            ((storage_root / "configs" / "universe_store.json").relative_to(storage_root).as_posix(),),
             "Bundled identity-only sample created; import local adjusted price history before analysis.",
         )
+        candidate_records = records
     else:
         bootstrap = _bulk_bootstrap(profile, supplied_root, storage_root)
         if profile_records:
-            saved = save_universe(_merge_records(existing_records, profile_records), expected_revision=current.revision, root=storage_root)
-            revision = saved.revision
+            records = _merge_records(existing_records, profile_records)
+            candidate_records = records
         else:
+            records = existing_records
+            candidate_records = None
             revision = current.revision
+
+    path = storage_root / "configs" / "onboarding.json"
+    pointer_path = _pointer_path(supplied_root)
+    universe_path = storage_root / "configs" / "universe_store.json"
+    prices_path = storage_root / "data" / "clean" / "prices.parquet"
+    _preflight_onboarding_destinations(
+        (
+            (path, "onboarding settings"),
+            (pointer_path, "onboarding storage pointer"),
+            (universe_path, "universe store"),
+            (prices_path, "canonical prices"),
+        )
+    )
+    universe_payload: bytes | None = None
+    if candidate_records is not None:
+        universe_payload, revision = _stage_universe_payload(
+            candidate_records,
+            expected_revision=current.revision,
+            storage_root=storage_root,
+        )
+    else:
+        revision = current.revision
 
     setup_payload["resolved_storage_root"] = storage_root.as_posix()
     bootstrap_payload = _bootstrap_payload(bootstrap)
@@ -683,7 +840,6 @@ def complete_onboarding(
         "storage_root": storage_root.as_posix(),
         "execution_allowed": False,
     }
-    path = storage_root / "configs" / "onboarding.json"
     encoded = (json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
     pointer = {
         "schema_version": ONBOARDING_POINTER_SCHEMA_VERSION,
@@ -691,19 +847,26 @@ def complete_onboarding(
         "execution_allowed": False,
     }
     pointer_bytes = (json.dumps(pointer, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    atomic_write_group(
-        (
-            AtomicWriteRequest(path, encoded, lambda candidate: json.loads(candidate.read_text(encoding="utf-8"))),
-            AtomicWriteRequest(_pointer_path(supplied_root), pointer_bytes, lambda candidate: json.loads(candidate.read_text(encoding="utf-8"))),
+    requests = [
+        AtomicWriteRequest(path, encoded, lambda candidate: json.loads(candidate.read_text(encoding="utf-8"))),
+        AtomicWriteRequest(pointer_path, pointer_bytes, lambda candidate: json.loads(candidate.read_text(encoding="utf-8"))),
+    ]
+    if universe_payload is not None:
+        requests.append(
+            AtomicWriteRequest(
+                universe_path,
+                universe_payload,
+                lambda candidate: json.loads(candidate.read_text(encoding="utf-8")),
+            )
         )
+    atomic_write_group(
+        requests,
+        precondition=lambda: _assert_universe_revision(universe_path, current.revision),
     )
     provider_payload = setup_payload["providers"]
     assert isinstance(provider_payload, dict)
     status_payload = provider_payload["optional_status"]
     assert isinstance(status_payload, dict)
-    records = _merge_records(existing_records, profile_records)
-    if bootstrap.mode == "sample":
-        records = load_universe(storage_root).records
     return OnboardingResult(
         True,
         validation.unresolved_symbols,
@@ -847,14 +1010,47 @@ def onboarding_page(
         key="onboarding.online-validation",
     )
     status = ft.Text("", color=theme.MUTED, selectable=True, key="onboarding.status")
-    source_rows = source_policy_rows(Path.cwd())
-    source_summary = "\n".join(
-        f"{row['provider_id']}: tier={row['source_tier']} | {row['optionality']} | cache={row['cache_status']} | network={row['network']}"
-        for row in source_rows
-    )
-    legal_report = legal_terms_report(Path.cwd())
+    project_root = Path(__file__).resolve().parents[4]
+    try:
+        source_rows = source_policy_rows(Path.cwd())
+        source_summary = "\n".join(
+            f"{row['provider_id']}: tier={row['source_tier']} | {row['optionality']} | cache={row['cache_status']} | network={row['network']}"
+            for row in source_rows
+        )
+    except (OSError, ValueError):
+        try:
+            source_rows = source_policy_rows(
+                Path.cwd(), project_root / "configs" / "data_source_policy.yaml"
+            )
+            source_summary = (
+                "Current-directory policy unavailable; using bundled local policy.\n"
+                + "\n".join(
+                    f"{row['provider_id']}: tier={row['source_tier']} | {row['optionality']} | cache={row['cache_status']} | network={row['network']}"
+                    for row in source_rows
+                )
+            )
+        except (OSError, ValueError) as exc:
+            source_summary = f"Data source policy unavailable: {type(exc).__name__}; mandatory policy choices require explicit local action."
+    try:
+        legal_report = legal_terms_report(Path.cwd())
+    except (OSError, ValueError):
+        try:
+            legal_report = legal_terms_report(
+                Path.cwd(), project_root / "configs" / "legal_terms_registry.yaml"
+            )
+        except (OSError, ValueError):
+            legal_report = {
+                "jurisdictions": [{"disclaimer": "Legal terms registry unavailable; review local terms before use."}],
+                "review_status": "unavailable",
+                "registry_sha256": "unavailable",
+            }
     jurisdiction_disclaimer = str(legal_report["jurisdictions"][0]["disclaimer"])
-    resource_report = resource_profile_report(Path.cwd())
+    selected_profile_id = "auto"
+    try:
+        selected_profile_id = load_onboarding(Path.cwd()).hardware_profile
+    except ValueError:
+        pass
+    resource_report = resource_profile_report(Path.cwd(), requested_profile=selected_profile_id)
     selected_profile = resource_report["selected_profile"]
     resource_lines = [
         f"Selected profile: {selected_profile['profile_id']} ({resource_report['selected_status']}) | CPU {resource_report['snapshot']['cpu_cores']} core(s) | memory {resource_report['snapshot'].get('memory_available_mb') or resource_report['snapshot'].get('memory_total_mb') or 'n/a'} MB available/total | disk {resource_report['snapshot'].get('disk_free_mb') or 'n/a'} MB free",
@@ -897,6 +1093,8 @@ def onboarding_page(
             )
             if result.revision and state is not None:
                 refreshed_config = load_config(Path(result.storage_root) / "configs") if result.storage_root else load_config()
+                if result.storage_root and getattr(state, "snapshot", None) is not None:
+                    refreshed_config = overlay_universe_config(state.snapshot.config, refreshed_config)
                 apply_method = getattr(state, "apply_universe_config", None)
                 if callable(apply_method):
                     apply_method(refreshed_config, result.revision)

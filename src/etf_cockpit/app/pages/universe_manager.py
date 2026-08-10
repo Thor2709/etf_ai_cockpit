@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+from pathlib import Path
 from typing import Iterable
 
 import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.pages.onboarding import overlay_universe_config, resolve_onboarding_storage_root
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import ROOT
@@ -121,7 +123,10 @@ def _table(
 def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
     # Capture the revision exactly once with the page snapshot. Save callbacks
     # must fail closed if another writer changes the store meanwhile.
-    snapshot = load_universe()
+    storage_root = resolve_onboarding_storage_root(Path.cwd())
+    if storage_root == Path.cwd().resolve() and ROOT != storage_root:
+        storage_root = ROOT
+    snapshot = load_universe() if storage_root == Path.cwd().resolve() else load_universe(storage_root)
     records = list(snapshot.records or records_from_config(state))
     policy_profiles = tuple(getattr(snapshot, "policy_profiles", ()))
     policy_states = {
@@ -165,7 +170,10 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         page.update()
 
     def _apply_saved_config(revision: str) -> None:
-        refreshed_config = load_config()
+        refreshed_config = load_config() if storage_root == Path.cwd().resolve() else load_config(storage_root / "configs")
+        active_config = getattr(getattr(state, "snapshot", None), "config", None)
+        if active_config is not None:
+            refreshed_config = overlay_universe_config(active_config, refreshed_config)
         apply_method = getattr(state, "apply_universe_config", None)
         if callable(apply_method):
             apply_method(refreshed_config, revision)
@@ -332,6 +340,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
             result = save_universe(
                 records,
                 expected_revision=expected_revision,
+                root=storage_root,
                 allow_cross_tier_duplicates=bool(allow_duplicates.value),
                 policy_profiles=(
                     tuple(
@@ -352,7 +361,11 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         page.update()
 
     def identity_dialog(record: UniverseRecord) -> None:
-        evidence = load_identity_projection(record.instrument_id)
+        evidence = (
+            load_identity_projection(record.instrument_id)
+            if storage_root == Path.cwd().resolve()
+            else load_identity_projection(record.instrument_id, storage_root=storage_root)
+        )
         resolution = str(evidence.get("identity_resolution_state", "unavailable"))
         confidence = str(evidence.get("identity_confidence", "unavailable"))
         safe_identity = (
@@ -402,7 +415,11 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         page.update()
 
     def classification_dialog(record: UniverseRecord) -> None:
-        evidence = load_classification_projection(record.instrument_id, storage_root=ROOT)
+        evidence = (
+            load_classification_projection(record.instrument_id)
+            if storage_root == Path.cwd().resolve()
+            else load_classification_projection(record.instrument_id, storage_root=storage_root)
+        )
         current = evidence.get("classification", {})
         current_context = current if isinstance(current, dict) else {}
         controls = {
@@ -456,7 +473,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
                 status.value = "Classification override rejected: change at least one non-empty field."
                 page.update()
                 return
-            result = save_classification_overrides(ROOT, selected)
+            result = save_classification_overrides(storage_root, selected)
             if result.get("status") != "saved":
                 status.value = (
                     "Classification override rejected: "
@@ -466,8 +483,8 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
                 return
             invalidate = getattr(state, "invalidate_classification_scores", None)
             if callable(invalidate):
-                invalidate(record.instrument_id, root=ROOT)
-            refreshed = load_classification_projection(record.instrument_id, storage_root=ROOT)
+                invalidate(record.instrument_id, root=storage_root)
+            refreshed = load_classification_projection(record.instrument_id, storage_root=storage_root)
             rendered.value = json.dumps(refreshed, sort_keys=True, indent=2, default=str)
             state_line.value = (
                 f"status={refreshed.get('status', 'unavailable')} | "

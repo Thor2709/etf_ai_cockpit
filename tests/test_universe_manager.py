@@ -9,6 +9,7 @@ import pandas as pd
 
 import etf_cockpit.app.pages.universe_manager as manager
 import etf_cockpit.app.pages.dashboard as dashboard
+from etf_cockpit.app.pages.onboarding import overlay_universe_config
 from etf_cockpit.app.pages.universe_manager import universe_manager_page
 from etf_cockpit.app.state import AppState
 from etf_cockpit.backtest.engine import BacktestReport
@@ -69,9 +70,22 @@ def _walk(control: ft.Control):
         yield from _walk(content)
 
 
+def test_selected_universe_overlay_retains_non_default_risk_and_cost_config() -> None:
+    active = _state().snapshot.config
+    active.risks.signal_limits.min_confidence_for_buy = 0.91
+    active.costs.cost_model.default_spread_bps = 17.0
+    selected = active.model_copy(update={"universe": UniverseConfig(etfs=[])})
+
+    merged = overlay_universe_config(active, selected)
+
+    assert merged.universe.etfs == []
+    assert merged.risks.signal_limits.min_confidence_for_buy == 0.91
+    assert merged.costs.cost_model.default_spread_bps == 17.0
+
+
 def test_real_crud_controls_stage_changes_and_save_captured_revision(monkeypatch) -> None:
     record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary", "", True, "daily", "EUR", "NO", "", "", "")
-    monkeypatch.setattr(manager, "load_universe", lambda: UniverseStoreSnapshot((record,), "captured-revision", Path("store.json")))
+    monkeypatch.setattr(manager, "load_universe", lambda *_args: UniverseStoreSnapshot((record,), "captured-revision", Path("store.json")))
     saved: list[tuple[tuple[UniverseRecord, ...], str]] = []
 
     def fake_save(records, expected_revision, **_kwargs):
@@ -148,7 +162,7 @@ def test_override_checkbox_rehydrates_from_store_snapshot(monkeypatch) -> None:
     monkeypatch.setattr(
         manager,
         "load_universe",
-        lambda: UniverseStoreSnapshot((record,), "revision", Path("store.json"), True),
+        lambda *_args: UniverseStoreSnapshot((record,), "revision", Path("store.json"), True),
     )
     page = _Page()
     root = universe_manager_page(page, _state())
@@ -182,7 +196,7 @@ def test_universe_table_distinguishes_policy_evidence_states(monkeypatch) -> Non
     monkeypatch.setattr(
         manager,
         "load_universe",
-        lambda: UniverseStoreSnapshot(
+        lambda *_args: UniverseStoreSnapshot(
             records,
             "revision",
             Path("store.json"),
@@ -220,7 +234,7 @@ def test_universe_store_integrity_failure_is_visible_as_manual_review(
     monkeypatch.setattr(
         manager,
         "load_universe",
-        lambda: UniverseStoreSnapshot(
+        lambda *_args: UniverseStoreSnapshot(
             (record,),
             "tampered-revision",
             Path("store.json"),
@@ -245,11 +259,11 @@ def test_universe_store_integrity_failure_is_visible_as_manual_review(
 
 def test_universe_identity_action_exposes_graph_conflict_review_and_authority(monkeypatch) -> None:
     record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary", "", True, "daily", "EUR", "NO", "", "", "")
-    monkeypatch.setattr(manager, "load_universe", lambda: UniverseStoreSnapshot((record,), "revision", Path("store.json")))
+    monkeypatch.setattr(manager, "load_universe", lambda *_args: UniverseStoreSnapshot((record,), "revision", Path("store.json")))
     monkeypatch.setattr(
         manager,
         "load_identity_projection",
-        lambda _instrument_id: {
+        lambda _instrument_id, **_kwargs: {
             "status": "available",
             "identity_confidence": "manual_review",
             "identity_resolution_state": "quarantined",
@@ -312,7 +326,7 @@ def test_universe_classification_action_exposes_fallback_and_saves_versioned_ove
     monkeypatch.setattr(
         manager,
         "load_universe",
-        lambda: UniverseStoreSnapshot((record,), "revision", Path("store.json")),
+        lambda *_args: UniverseStoreSnapshot((record,), "revision", Path("store.json")),
     )
     monkeypatch.setattr(manager, "ROOT", tmp_path)
     projections = [
@@ -420,7 +434,7 @@ def test_universe_classification_action_exposes_fallback_and_saves_versioned_ove
 
 def test_universe_tier_filter_uses_visible_scrollable_table(monkeypatch) -> None:
     record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary", "", True, "daily", "EUR", "NO", "", "", "")
-    monkeypatch.setattr(manager, "load_universe", lambda: UniverseStoreSnapshot((record,), "revision", Path("store.json")))
+    monkeypatch.setattr(manager, "load_universe", lambda *_args: UniverseStoreSnapshot((record,), "revision", Path("store.json")))
 
     root = universe_manager_page(_Page(), _state())
     tier = next(control for control in _walk(root) if isinstance(control, ft.Dropdown) and control.key == "universe.tier")
@@ -433,7 +447,7 @@ def test_universe_tier_filter_uses_visible_scrollable_table(monkeypatch) -> None
 
 def test_save_reloads_active_state_and_marks_universe_cache_revision(monkeypatch) -> None:
     record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary", "", True, "daily", "EUR", "NO", "", "", "")
-    monkeypatch.setattr(manager, "load_universe", lambda: UniverseStoreSnapshot((record,), "captured", Path("store.json")))
+    monkeypatch.setattr(manager, "load_universe", lambda *_args: UniverseStoreSnapshot((record,), "captured", Path("store.json")))
     refreshed_config = _state().snapshot.config
     refreshed_config.universe.etfs[0].enabled = False
     monkeypatch.setattr(manager, "load_config", lambda: refreshed_config)
@@ -462,7 +476,7 @@ def test_save_reloads_active_state_and_marks_universe_cache_revision(monkeypatch
     root = universe_manager_page(page, state)
     save_button = next(control for control in _walk(root) if isinstance(control, ft.Button) and control.key == "universe.save")
     save_button.on_click(None)
-    assert state.snapshot.config is refreshed_config
+    assert state.snapshot.config.universe == refreshed_config.universe
     assert state.snapshot.config.universe.enabled_ids == []
     assert state.universe_cache_revision == "saved-revision"
     assert state.workflow_calls == 0

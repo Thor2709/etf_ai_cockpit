@@ -8,9 +8,9 @@ import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.pages.onboarding import resolve_onboarding_storage_root
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.portfolio_imports import PortfolioImportApplication
-from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, DERIVED_DIR, ROOT
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.application.ui_facade import (
     DecisionJournal,
@@ -69,6 +69,10 @@ def _refresh_activity_shell(page: ft.Page, state: AppState) -> None:
 
 
 def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
+    storage_root = resolve_onboarding_storage_root(Path.cwd())
+    data_dir = storage_root / "data"
+    config_dir = storage_root / "configs"
+    derived_dir = data_dir / "derived"
     picker = ft.FilePicker(key="import-export.import.file-picker")
     try:
         page.services.append(picker)
@@ -82,7 +86,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     preview_text = ft.Text("Preview required before commit.", color=theme.MUTED, selectable=True, key="import-export.preview-status")
     commit_button = ft.OutlinedButton("Commit validated import", key="import-export.commit", disabled=True)
     selected_preview: ImportPreview | None = None
-    portfolio_imports = PortfolioImportApplication(ROOT)
+    portfolio_imports = PortfolioImportApplication(storage_root)
     staging_report = ft.Text(
         "No portfolio rows staged.",
         color=theme.MUTED,
@@ -107,7 +111,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     )
     portfolio_export_path = ft.TextField(
         label="Canonical portfolio export",
-        value=str(ROOT / "exports" / "portfolio_history.csv"),
+        value=str(storage_root / "exports" / "portfolio_history.csv"),
         expand=True,
         key="import-export.portfolio-export-path",
     )
@@ -185,7 +189,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
                     portfolio_result = portfolio_imports.commit(selected_preview)
                 message = f"Portfolio import {portfolio_result.status}: batch {portfolio_result.batch_id}; accepted={portfolio_result.accepted}, quarantined={portfolio_result.quarantined}, duplicates={portfolio_result.duplicates}, corrections={portfolio_result.corrections} (execution_allowed=false)."
             else:
-                service = ImportService(ROOT)
+                service = ImportService(storage_root)
                 service.register(selected_preview)
                 with state.activity_publication(action_id):
                     generic_result = service.commit(selected_preview.preview_id)
@@ -293,7 +297,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         action_id = state.begin_activity(label, "Validating cache source").action_id
         try:
             with state.activity_publication(action_id):
-                result = ContentAddressedCache(ROOT).store_local_file(bulk_source_id.value or "local-bulk-source", source)
+                result = ContentAddressedCache(storage_root).store_local_file(bulk_source_id.value or "local-bulk-source", source)
             bulk_status.value = f"Cached and checksum-verified {result.manifest.source_id}: {result.manifest.content_sha256[:16]}…; version {result.manifest.version}; raw object is immutable."
             bulk_status.color = theme.GREEN
             state.update_activity(
@@ -302,7 +306,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
                 total_units=1,
                 expected_action_id=action_id,
             )
-            cache = ContentAddressedCache(ROOT)
+            cache = ContentAddressedCache(storage_root)
             state.finish_activity(
                 bulk_status.value,
                 output_path=cache._manifest_path(result.manifest.source_id),
@@ -323,12 +327,12 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             state.release_activity(action_id)
             _refresh_activity_shell(page, state)
 
-    cache_report = bulk_cache_health(ROOT)
+    cache_report = bulk_cache_health(storage_root)
     cache_summary = f"Status={cache_report['status']} | objects={cache_report['object_count']} | manifests={cache_report['manifest_count']} | staged={cache_report['staged_file_count']} | promoted generations={cache_report['promoted_generation_count']} | network_calls=false"
 
-    export_path = ft.TextField(label="Export destination", value=str(ROOT / "exports" / "scoreboard.csv"), expand=True, key="import-export.export-path")
+    export_path = ft.TextField(label="Export destination", value=str(storage_root / "exports" / "scoreboard.csv"), expand=True, key="import-export.export-path")
 
-    backup_path = ft.TextField(label="Backup archive destination", value=str(ROOT / "backups" / "cockpit-backup.zip"), expand=True, key="import-export.backup-path")
+    backup_path = ft.TextField(label="Backup archive destination", value=str(storage_root / "backups" / "cockpit-backup.zip"), expand=True, key="import-export.backup-path")
     restore_path = ft.TextField(label="Restore archive", expand=True, key="import-export.restore-path")
     restore_status = ft.Text("Restore validation preview required; nothing will be written.", color=theme.MUTED, selectable=True, key="import-export.restore-status")
     restore_commit_button = ft.OutlinedButton("Commit restore", key="import-export.restore-commit", disabled=True)
@@ -337,7 +341,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
 
     def backup(_event: ft.ControlEvent) -> None:
         try:
-            manifest = create_backup([DATA_DIR, CONFIG_DIR, ROOT / "pyproject.toml", ROOT / "CHANGELOG.md"], Path(backup_path.value or "backup.zip"))
+            manifest = create_backup([data_dir, config_dir, storage_root / "pyproject.toml", storage_root / "CHANGELOG.md"], Path(backup_path.value or "backup.zip"))
             show(f"Backup created at {manifest.archive}; {len(manifest.checksums)} files; checksum manifest validated.", colour=theme.GREEN)
         except Exception as exc:
             show(f"Backup failed: {type(exc).__name__}: {redact_text(str(exc))}.", colour=theme.RED)
@@ -348,7 +352,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         restore_preview = validate_restore(archive)
         restore_commit_button.disabled = not restore_preview.valid
         restore_cancel_button.disabled = False
-        restore_status.value = f"Restore preview {'valid' if restore_preview.valid else 'rejected'} for {archive}; destination {ROOT}; {len(restore_preview.entries)} entries; errors={'; '.join(restore_preview.errors) or 'none'}."
+        restore_status.value = f"Restore preview {'valid' if restore_preview.valid else 'rejected'} for {archive}; destination {storage_root}; {len(restore_preview.entries)} entries; errors={'; '.join(restore_preview.errors) or 'none'}."
         restore_status.color = theme.GREEN if restore_preview.valid else theme.RED
         page.update()
 
@@ -359,7 +363,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             restore_status.color = theme.RED
             page.update()
             return
-        result = commit_restore(restore_preview, ROOT)
+        result = commit_restore(restore_preview, storage_root)
         restore_status.value = f"Restore {'complete' if result.ok else 'failed'} at {result.destination}; {result.error or f'{result.restored} files'}."
         restore_status.color = theme.GREEN if result.ok else theme.RED
         if result.ok:
@@ -387,7 +391,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
                 return frame
             return pd.DataFrame([getattr(signal, "__dict__", {}) for signal in getattr(state.snapshot, "signals", ())])
         if category == "watchlist":
-            scoreboard_path = DERIVED_DIR / "scoreboard.parquet"
+            scoreboard_path = derived_dir / "scoreboard.parquet"
             if scoreboard_path.exists():
                 frame = load_simple_scoreboard(scoreboard_path)
                 if "final_label" in frame.columns:
@@ -396,17 +400,17 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             rows = [getattr(signal, "__dict__", {}) for signal in getattr(state.snapshot, "signals", ()) if getattr(signal, "action", "") in {"watchlist", "hold_context"}]
             return pd.DataFrame(rows)
         if category == "paper_trade_journal":
-            path = ROOT / "data" / "derived" / "paper_trades.parquet"
+            path = data_dir / "derived" / "paper_trades.parquet"
             return pd.read_parquet(path) if path.exists() else None
         if category == "decision_journal":
             try:
-                records = [redact_private_fields(entry.model_dump(mode="json")) for entry in DecisionJournal().list_entries(root=DATA_DIR)]
+                records = [redact_private_fields(entry.model_dump(mode="json")) for entry in DecisionJournal().list_entries(root=data_dir)]
                 return pd.DataFrame(records)
             except JournalIntegrityError:
                 return None
         if category == "plan_issues_snapshot":
             rows = []
-            for path in (ROOT / "plan.md", ROOT / "ISSUES.md", ROOT / "issues" / "open.md", ROOT / "issues" / "closed.md"):
+            for path in (storage_root / "plan.md", storage_root / "ISSUES.md", storage_root / "issues" / "open.md", storage_root / "issues" / "closed.md"):
                 if path.is_file():
                     rows.append({"path": str(path), "content": path.read_text(encoding="utf-8")})
             return pd.DataFrame(rows) if rows else None
@@ -470,7 +474,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         action_id = state.begin_activity(label, "Preparing export").action_id
         try:
             frame = _export_frame(category)
-            destination = Path(export_path.value or ROOT / "exports" / f"{category}.csv") if category == "scoreboard" else ROOT / "exports" / f"{category}.csv"
+            destination = Path(export_path.value or storage_root / "exports" / f"{category}.csv") if category == "scoreboard" else storage_root / "exports" / f"{category}.csv"
             with state.activity_publication(action_id):
                 result = export_table(category, frame, destination)
             state.last_export_path = result.destination

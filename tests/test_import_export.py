@@ -575,7 +575,7 @@ def test_export_sources_use_live_data_journal_and_canonical_watchlist_store() ->
     from etf_cockpit.app.pages.import_export import import_export_page
 
     source = inspect.getsource(import_export_page)
-    assert "root=DATA_DIR" in source
+    assert "root=data_dir" in source
     assert "ContentAddressedCache" in source
     assert "Cache local source" in source
     assert "scoreboard.parquet" in source
