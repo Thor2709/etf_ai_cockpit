@@ -70,6 +70,16 @@ count for a jointly truncated one-record registry. The consolidated correction
 requires exact integer counts and adds boolean/fractional regressions. Focused
 roadmap/UI tests, Ruff and diff hygiene pass; repeat both reviews and fresh
 tier-O hosted validation on one replacement head.
+Replacement head `406408c8c70f3938000499fbecf672d3faf48e76` passed 46 focused
+tests, Ruff and diff hygiene, both exact-head reviews and tier-O run
+`31378744478`; PR #669 merged it as exact main
+`70cf36d6be6033c1ffa6ab9cfa71204fe68ca8c8`. Clean lifecycle branch
+`codex/issue0015-lifecycle-20260810` records only the legal direct
+`implemented_initially -> integrated` transition, mechanical projections,
+single-update plan `80858ee7873d8b479280e635575e351b96c377a7eb9736249d16a778ab401c7b`,
+status candidate and append-only sequence-20 authority. Run exact E-tier guards
+and review before merge, then require writer and generic zero-action readback;
+`execution_allowed=false` remains unchanged.
 
 ## Superseded ISSUE-0014 validation repair
 

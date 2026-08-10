@@ -90,6 +90,19 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   declared counts to be exact integers and adds boolean/fractional regressions;
   focused roadmap/UI tests, Ruff and diff hygiene pass. Freeze one replacement
   head and repeat both reviews with fresh tier-O hosted validation.
+- Replacement head `406408c8c70f3938000499fbecf672d3faf48e76` passed 46 focused
+  roadmap/UI/route tests, Ruff and diff hygiene; both exact-head reviewers
+  approved it and tier-O run `31378744478` passed classifier, supply chain,
+  product/protected preflight and terminal validation. Product PR #669 merged
+  that exact head as `70cf36d6be6033c1ffa6ab9cfa71204fe68ca8c8`.
+- Clean lifecycle branch `codex/issue0015-lifecycle-20260810` starts at that
+  exact main and contains only ISSUE-0015 `implemented_initially -> integrated`,
+  its mechanically generated projections, one status-completion candidate and
+  append-only sequence-20 authority. Fresh live plan
+  `80858ee7873d8b479280e635575e351b96c377a7eb9736249d16a778ab401c7b`
+  contains exactly one update; candidate and authority preserve
+  `execution_allowed=false`. Complete exact-head E-tier guards/review, merge,
+  then require the ordered writer and generic zero-action readback.
 
 ## Superseded ISSUE-0014 validation-repair checkpoint
 
