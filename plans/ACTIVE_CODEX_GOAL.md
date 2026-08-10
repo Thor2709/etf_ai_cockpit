@@ -45,6 +45,16 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   `implemented_initially -> integrated` completion, launch both independent
   reviews and required hosted CI on the same frozen head, and require the
   ordered writer plus generic zero-action readback after merge.
+- First frozen head `05d73bb1ccef2eba3a6a378707dc1dd1f5a640cc` is rejected
+  after both parallel verdicts were collected; its hosted evidence is stale.
+  Both reviewers reproduced inconsistent dependency/activation edge evidence
+  overstating readiness, and whole-diff review additionally reproduced a
+  whitespace canonical ID escaping through `StopIteration`. One consolidated
+  two-file correction recomputes the exact readiness projection from canonical
+  ledger and reviewed edge evidence, rejects inconsistent projection fields,
+  normalizes lookup without accepting malformed IDs, and adds both regressions.
+  Freeze one replacement head after focused validation, then repeat both
+  reviews and hosted tier-O validation in parallel.
 
 ## Superseded ISSUE-0014 validation-repair checkpoint
 

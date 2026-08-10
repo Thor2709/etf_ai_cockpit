@@ -26,6 +26,7 @@ _PROGRAMME_STATUSES = frozenset(
         "research_only",
     }
 )
+_EDGE_EVIDENCE_STATES = frozenset({"unresolved", "complete", "partial_interface", "waived"})
 
 
 @dataclass(frozen=True)
@@ -161,7 +162,28 @@ def _edge_rows(
     return tuple(rows)
 
 
-def _validate_decision(record: Mapping[str, Any], decision: Mapping[str, Any]) -> None:
+def _edge_evidence_is_valid(evidence: object) -> bool:
+    if not isinstance(evidence, Mapping) or evidence.get("schema_version") != "1.0":
+        return False
+    state = evidence.get("state")
+    if state not in _EDGE_EVIDENCE_STATES:
+        return False
+    references = evidence.get("evidence_references")
+    if not isinstance(references, list):
+        return False
+    if state == "unresolved":
+        return True
+    if not references or any(not isinstance(value, str) or not value.strip() for value in references):
+        return False
+    return all(isinstance(evidence.get(field), str) and evidence[field].strip() for field in ("contract_reference", "reviewer", "reviewed_date"))
+
+
+def _validate_decision(
+    record: Mapping[str, Any],
+    decision: Mapping[str, Any],
+    *,
+    closed_ids: frozenset[str],
+) -> None:
     issue_id = _strict_string(decision.get("issue_id"), "issue_id")
     ledger_state = record.get("ledger_state")
     if ledger_state not in {"open", "closed"}:
@@ -188,12 +210,88 @@ def _validate_decision(record: Mapping[str, Any], decision: Mapping[str, Any]) -
         field="activation_edges",
         expected_dependencies=expected_activation,
     )
-    derived_ready = ledger_state == "open" and all(edge["resolved"] is True for edge in edges)
-    derived_activation_ready = all(edge["resolved"] is True for edge in activation_edges)
-    if ready is not derived_ready:
-        raise ValueError(f"readiness ready is inconsistent with canonical closure evidence for {issue_id}")
-    if activation_ready is not derived_activation_ready:
-        raise ValueError(f"readiness activation_ready is inconsistent with canonical closure evidence for {issue_id}")
+    evidence_by_edge = record.get("dependency_edge_evidence", {})
+    if not isinstance(evidence_by_edge, Mapping) or any(
+        not isinstance(dependency, str) or dependency not in expected_dependencies
+        for dependency in evidence_by_edge
+    ):
+        raise ValueError(f"canonical dependency edge evidence is malformed for {issue_id}")
+
+    expected_edges: list[dict[str, object]] = []
+    invalid_edge = False
+    unresolved_edge = False
+    for dependency in expected_dependencies:
+        evidence = evidence_by_edge.get(dependency, {})
+        state = evidence.get("state", "unresolved") if isinstance(evidence, Mapping) else "unresolved"
+        if dependency in closed_ids:
+            resolved = True
+            reason_code = "DEPENDENCY_LEDGER_CLOSED"
+        elif state != "unresolved" and _edge_evidence_is_valid(evidence):
+            resolved = True
+            reason_code = f"EDGE_EVIDENCE_{str(state).upper()}"
+        elif state != "unresolved":
+            resolved = False
+            invalid_edge = True
+            reason_code = "EDGE_EVIDENCE_INVALID"
+        else:
+            resolved = False
+            unresolved_edge = True
+            reason_code = "EDGE_UNRESOLVED"
+        expected_edges.append(
+            {
+                "dependency_id": dependency,
+                "resolved": resolved,
+                "reason_code": reason_code,
+                "evidence_state": state,
+            }
+        )
+
+    if ledger_state == "closed":
+        expected_ready = False
+        expected_reasons = ["CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"]
+    elif invalid_edge:
+        expected_ready = False
+        expected_reasons = ["BLOCKED_INVALID_EDGE_EVIDENCE"]
+        if unresolved_edge:
+            expected_reasons.append("BLOCKED_UNRESOLVED_DEPENDENCY")
+    elif unresolved_edge:
+        expected_ready = False
+        expected_reasons = ["BLOCKED_UNRESOLVED_DEPENDENCY"]
+    else:
+        expected_ready = True
+        expected_reasons = ["READY_BLOCKING_EDGES_RESOLVED" if expected_edges else "READY_NO_BLOCKING_DEPENDENCIES"]
+
+    expected_activation_edges = [
+        {
+            "dependency_id": dependency,
+            "resolved": dependency in closed_ids,
+            "reason_code": (
+                "ACTIVATION_DEPENDENCY_LEDGER_CLOSED"
+                if dependency in closed_ids
+                else "ACTIVATION_EDGE_UNRESOLVED"
+            ),
+        }
+        for dependency in expected_activation
+    ]
+    expected_activation_ready = all(edge["resolved"] is True for edge in expected_activation_edges)
+    expected_activation_reasons = [
+        (
+            "ACTIVATION_READY_DEPENDENCIES_RESOLVED"
+            if expected_activation_edges
+            else "ACTIVATION_READY_NO_DEPENDENCIES"
+        )
+        if expected_activation_ready
+        else "ACTIVATION_BLOCKED_UNRESOLVED_DEPENDENCY"
+    ]
+    if (
+        ready is not expected_ready
+        or list(decision["reason_codes"]) != expected_reasons
+        or list(edges) != expected_edges
+        or activation_ready is not expected_activation_ready
+        or list(decision["activation_reason_codes"]) != expected_activation_reasons
+        or list(activation_edges) != expected_activation_edges
+    ):
+        raise ValueError(f"readiness projection is inconsistent with canonical closure evidence for {issue_id}")
 
 
 def _entry(record: Mapping[str, Any], decision: Mapping[str, Any] | None) -> ProgrammeMapEntry:
@@ -246,9 +344,13 @@ def build_programme_map(registry: Mapping[str, Any], *, registry_sha256: str = "
     if not isinstance(readiness, list) or not readiness:
         raise ValueError("canonical issue registry must contain a complete readiness list")
     record_ids: list[str] = []
+    records_by_id: dict[str, Mapping[str, Any]] = {}
     for record in records:
         canonical_id = _strict_string(record.get("canonical_id"), "canonical_id")
+        if record.get("canonical_id") != canonical_id:
+            raise ValueError("canonical registry field canonical_id must not contain surrounding whitespace")
         record_ids.append(canonical_id)
+        records_by_id[canonical_id] = record
         if "programme_status" in record and record["programme_status"] not in (None, ""):
             programme_status = _strict_string(record["programme_status"], "programme_status")
             if programme_status not in _PROGRAMME_STATUSES:
@@ -257,17 +359,29 @@ def build_programme_map(registry: Mapping[str, Any], *, registry_sha256: str = "
             _strict_string_tuple(record.get(field, []), field)
     if len(set(record_ids)) != len(record_ids):
         raise ValueError("canonical issue registry contains duplicate canonical_id values")
+    closed_ids = {issue_id for issue_id, record in records_by_id.items() if record.get("ledger_state") == "closed"}
+    local_only_records = registry.get("local_only_records", [])
+    if not isinstance(local_only_records, list) or not all(isinstance(record, Mapping) for record in local_only_records):
+        raise ValueError("canonical local-only records must be a list of objects")
+    for record in local_only_records:
+        local_id = _strict_string(record.get("canonical_id"), "local_only_records.canonical_id")
+        if record.get("canonical_id") != local_id:
+            raise ValueError("canonical local-only ID must not contain surrounding whitespace")
+        if record.get("ledger_state") == "closed":
+            closed_ids.add(local_id)
     decisions: dict[str, Mapping[str, Any]] = {}
     for decision in readiness:
         if not isinstance(decision, Mapping):
             raise ValueError("canonical readiness entries must be objects")
         issue_id = _strict_string(decision.get("issue_id"), "issue_id")
+        if decision.get("issue_id") != issue_id:
+            raise ValueError("canonical readiness issue_id must not contain surrounding whitespace")
         if issue_id in decisions:
             raise ValueError(f"canonical readiness contains duplicate issue_id {issue_id}")
-        record = next(record for record in records if record["canonical_id"] == issue_id) if issue_id in record_ids else None
+        record = records_by_id.get(issue_id)
         if record is None:
             raise ValueError(f"canonical readiness contains unknown issue_id {issue_id}")
-        _validate_decision(record, decision)
+        _validate_decision(record, decision, closed_ids=frozenset(closed_ids))
         decisions[issue_id] = decision
     if set(decisions) != set(record_ids):
         raise ValueError("canonical readiness list is partial")

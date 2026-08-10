@@ -203,6 +203,63 @@ def test_programme_map_cannot_overstate_readiness_over_unresolved_edge() -> None
         build_programme_map(_registry(record, decision))
 
 
+def test_programme_map_rejects_flipped_edge_and_activation_closure_evidence() -> None:
+    record = _record(
+        blocking_dependencies=["ISSUE-0001"],
+        activation_dependencies=["ISSUE-0152"],
+    )
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": True,
+        "reason_codes": ["READY_BLOCKING_EDGES_RESOLVED"],
+        "edges": [
+            {
+                "dependency_id": "ISSUE-0001",
+                "resolved": True,
+                "reason_code": "EDGE_UNRESOLVED",
+                "evidence_state": "unresolved",
+            }
+        ],
+        "required_inputs": ["ISSUE-0002"],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_DEPENDENCIES_RESOLVED"],
+        "activation_edges": [
+            {
+                "dependency_id": "ISSUE-0152",
+                "resolved": True,
+                "reason_code": "ACTIVATION_DEPENDENCY_LEDGER_CLOSED",
+            }
+        ],
+        "execution_allowed": False,
+    }
+
+    with pytest.raises(ValueError, match="inconsistent"):
+        build_programme_map(_registry(record, decision))
+
+
+def test_programme_map_load_blocks_surrounding_whitespace_in_canonical_id(tmp_path: Path) -> None:
+    path = tmp_path / "issue_registry.json"
+    record = _record(canonical_id=" ISSUE-0015 ", blocking_dependencies=[])
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": True,
+        "reason_codes": ["READY_NO_BLOCKING_DEPENDENCIES"],
+        "edges": [],
+        "required_inputs": ["ISSUE-0002"],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+    path.write_text(json.dumps(_registry(record, decision)), encoding="utf-8")
+
+    result = load_programme_map(tmp_path, path)
+
+    assert result.status == "blocked"
+    assert result.entries == ()
+    assert "surrounding whitespace" in result.error
+
+
 def test_programme_map_rejects_missing_ledger_state() -> None:
     record = _record(blocking_dependencies=[])
     record.pop("ledger_state")

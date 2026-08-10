@@ -30,6 +30,16 @@ lifecycle preparation, parallel whole-diff/risk review and required hosted CI
 before merge; then require writer acceptance and generic zero-action readback
 for the legal `implemented_initially -> integrated` completion.
 
+First frozen head `05d73bb1ccef2eba3a6a378707dc1dd1f5a640cc` is rejected and
+its hosted evidence is stale. After both verdicts were collected, the combined
+finding set is: flipped/inconsistent implementation or activation edge evidence
+can overstate readiness, and a whitespace canonical ID can escape fail-closed
+loading through `StopIteration`. The single consolidated correction derives and
+compares the complete readiness projection against canonical ledger and reviewed
+edge evidence, rejects malformed IDs consistently, and adds focused regressions.
+Run focused validation once, freeze one replacement head and repeat both reviews
+plus tier-O hosted validation in parallel.
+
 ## Superseded ISSUE-0014 validation repair
 
 PR #665 remains frozen at independently approved exact head
