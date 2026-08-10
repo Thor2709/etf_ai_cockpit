@@ -221,7 +221,7 @@ def validate_universe(
     errors: list[str] = []
     warnings: list[str] = []
     unknown: list[str] = []
-    ids: dict[str, set[str]] = {}
+    ids: set[str] = set()
     isins: dict[str, set[str]] = {}
     tickers: dict[str, set[str]] = {}
     for record in items:
@@ -231,13 +231,9 @@ def validate_universe(
         if not record.instrument_id:
             errors.append("instrument_id is required")
         elif record_id in ids:
-            if not (allow_cross_tier_duplicates and tier not in ids[record_id]):
-                errors.append(f"duplicate instrument_id: {record.instrument_id}")
-            else:
-                warnings.append(f"cross-tier duplicate override: instrument_id {record.instrument_id}")
-            ids[record_id].add(tier)
+            errors.append(f"duplicate instrument_id: {record.instrument_id}")
         else:
-            ids[record_id] = {tier}
+            ids.add(record_id)
         if not record.ticker:
             errors.append(f"ticker is required: {record.instrument_id}")
         elif not TICKER_PATTERN.fullmatch(record.ticker):
@@ -500,7 +496,7 @@ def _decode_v3_store(
 
     raw_records = payload.get("records")
     records: list[UniverseRecord] = []
-    record_id_tiers: dict[str, set[str]] = {}
+    record_ids: set[str] = set()
     if not isinstance(raw_records, list):
         errors.append("records must be a list")
         raw_records = []
@@ -514,12 +510,10 @@ def _decode_v3_store(
             errors.append(f"record {index} is malformed: {exc}")
             continue
         record_id = record.instrument_id.casefold()
-        tier = record.tier.casefold()
-        prior_tiers = record_id_tiers.setdefault(record_id, set())
-        if prior_tiers and (not allow_duplicates or tier in prior_tiers):
+        if record_id in record_ids:
             errors.append(f"duplicate universe record: {record.instrument_id}")
             continue
-        prior_tiers.add(tier)
+        record_ids.add(record_id)
         records.append(record)
     if isinstance(allow_duplicates, bool):
         report = validate_universe(
@@ -764,9 +758,26 @@ def load_universe(root: Path | None = None) -> UniverseStoreSnapshot:
             integrity_errors,
         )
 
-    records = tuple(
-        _normalise_record(UniverseRecord(**raw))
-        for raw in payload.get("records", ())
+    raw_records = payload.get("records", ())
+    if not isinstance(raw_records, list):
+        raise ValueError("legacy universe records must be a list")
+    legacy_decode_errors: list[str] = []
+    legacy_records: list[UniverseRecord] = []
+    for index, raw in enumerate(raw_records):
+        if not isinstance(raw, Mapping):
+            legacy_decode_errors.append(f"legacy record {index} must be an object")
+            continue
+        try:
+            legacy_records.append(_normalise_record(UniverseRecord(**raw)))
+        except (TypeError, ValueError) as exc:
+            legacy_decode_errors.append(f"legacy record {index} is malformed: {exc}")
+    records = tuple(legacy_records)
+    legacy_report = validate_universe(
+        records,
+        allow_cross_tier_duplicates=_as_bool(payload.get("allow_cross_tier_duplicates", False)),
+    )
+    legacy_integrity_errors = tuple(legacy_decode_errors) + tuple(
+        f"invalid legacy universe record: {error}" for error in legacy_report.errors
     )
     profiles: list[InvestabilityPolicyProfile] = []
     invalid_profiles: dict[str, str] = {}
@@ -791,9 +802,10 @@ def load_universe(root: Path | None = None) -> UniverseStoreSnapshot:
             policy_profiles,
             schema_version=schema_version,
             invalid_profiles=invalid_profiles,
+            store_integrity_errors=legacy_integrity_errors,
         ),
         schema_version,
-        (),
+        legacy_integrity_errors,
     )
 
 

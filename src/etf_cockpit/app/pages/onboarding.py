@@ -711,7 +711,8 @@ def _merge_records(
             replacement_ids = {
                 id(existing)
                 for existing in matches
-                if existing.tier.strip().casefold() == record.tier.strip().casefold()
+                if existing.instrument_id.strip().casefold() == record.instrument_id.strip().casefold()
+                or existing.tier.strip().casefold() == record.tier.strip().casefold()
                 or not allow_cross_tier_duplicates
             }
             merged = [existing for existing in merged if id(existing) not in replacement_ids]

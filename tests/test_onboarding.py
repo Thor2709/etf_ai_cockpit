@@ -93,14 +93,22 @@ def test_onboarding_preserves_cross_tier_duplicate_records(tmp_path) -> None:
     }
 
 
-def test_merge_records_preserves_same_id_across_tiers_when_allowed() -> None:
+def test_merge_records_replaces_same_id_across_tiers_even_when_allowed() -> None:
     primary = UniverseRecord("SAME-ID", "Primary", "NO0000000001", "verified", "PRIMARY", "stock", "primary")
     secondary = UniverseRecord("SAME-ID", "Secondary", "NO0000000002", "verified", "SECONDARY", "stock", "secondary")
 
-    records = onboarding_module._merge_records((primary,), (secondary,), allow_cross_tier_duplicates=True)
+    assert onboarding_module._merge_records(
+        (primary,), (secondary,), allow_cross_tier_duplicates=True
+    ) == (secondary,)
 
-    assert records == (primary, secondary)
 
+def test_merge_records_replaces_case_variant_id_across_tiers_even_when_allowed() -> None:
+    primary = UniverseRecord("SAME-ID", "Primary", "NO0000000001", "verified", "PRIMARY", "stock", "primary")
+    secondary = UniverseRecord("same-id", "Secondary", "NO0000000002", "verified", "SECONDARY", "stock", "secondary")
+
+    assert onboarding_module._merge_records(
+        (primary,), (secondary,), allow_cross_tier_duplicates=True
+    ) == (secondary,)
 
 def test_merge_records_preserves_same_ticker_across_tiers_when_allowed() -> None:
     primary = UniverseRecord("PRIMARY", "Primary", "NO0000000001", "verified", "SHARED", "stock", "primary")
@@ -175,7 +183,7 @@ def test_onboarding_ambiguous_identity_replacement_fails_before_any_write(tmp_pa
     assert not (tmp_path / "configs" / "onboarding.json").exists()
 
 
-@pytest.mark.parametrize("identity", ("instrument_id", "ticker", "isin"))
+@pytest.mark.parametrize("identity", ("ticker", "isin"))
 def test_merge_records_replaces_disallowed_cross_tier_collision(identity: str) -> None:
     values = {
         "instrument_id": "SHARED-ID",

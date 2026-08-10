@@ -26,7 +26,7 @@ from etf_cockpit.data.universe_store import (
     save_universe,
     validate_universe,
 )
-from etf_cockpit.core.config import _load_universe_config, load_config
+from etf_cockpit.core.config import ETFConfig, UniverseConfig, _load_universe_config, load_config
 from etf_cockpit.core.exceptions import ConfigError
 from etf_cockpit.app.pages.universe_manager import filter_records
 
@@ -53,12 +53,21 @@ def test_malformed_ticker_is_rejected_without_inventing_isin() -> None:
 
 
 def test_cross_tier_duplicate_override_is_explicit() -> None:
-    records = [_record("A", ticker="DUP", tier="primary"), _record("A", ticker="DUP", tier="secondary", isin="NO0000000002")]
+    records = [_record("A", ticker="DUP", tier="primary"), _record("B", ticker="DUP", tier="secondary", isin="NO0000000002")]
     rejected = validate_universe(records)
     assert rejected.valid is False
     accepted = validate_universe(records, allow_cross_tier_duplicates=True)
     assert accepted.valid is True
     assert any("override" in warning for warning in accepted.warnings)
+
+
+def test_instrument_id_is_globally_case_insensitive_even_with_cross_tier_override() -> None:
+    records = [_record("A", ticker="PRIMARY"), _record("a", ticker="SECONDARY", tier="secondary", isin="NO0000000002")]
+
+    report = validate_universe(records, allow_cross_tier_duplicates=True)
+
+    assert report.valid is False
+    assert any("duplicate instrument_id" in error for error in report.errors)
 
 
 def test_cross_tier_duplicate_identity_tracks_all_tiers() -> None:
@@ -78,7 +87,7 @@ def test_cross_tier_duplicate_identity_tracks_all_tiers() -> None:
 
 def test_crud_and_save_thread_cross_tier_override(tmp_path: Path) -> None:
     primary = _record("A", ticker="DUP", tier="primary")
-    secondary = _record("A", ticker="DUP", tier="secondary", isin="NO0000000002")
+    secondary = _record("B", ticker="DUP", tier="secondary", isin="NO0000000002")
     with pytest.raises(ValueError):
         add_record([primary], secondary)
     added = add_record([primary], secondary, allow_cross_tier_duplicates=True)
@@ -95,25 +104,28 @@ def test_crud_and_save_thread_cross_tier_override(tmp_path: Path) -> None:
     assert json.loads(saved.path.read_text(encoding="utf-8"))["allow_cross_tier_duplicates"] is True
 
 
-def test_v3_round_trip_preserves_legal_cross_tier_identity_duplicates_and_rejects_triplets(
+def test_v3_rejects_case_variant_id_before_save_and_load(
     tmp_path: Path,
 ) -> None:
     primary = _record("LEGAL", isin="NO0000000001", ticker="LEGAL", tier="primary")
-    secondary = _record("LEGAL", isin="NO0000000001", ticker="LEGAL", tier="secondary")
-    saved = save_universe(
-        (primary, secondary),
-        expected_revision="",
-        root=tmp_path,
-        allow_cross_tier_duplicates=True,
-    )
+    secondary = _record("legal", isin="NO0000000002", ticker="OTHER", tier="secondary")
+    with pytest.raises(ValueError, match="duplicate instrument_id"):
+        save_universe((primary, secondary), expected_revision="", root=tmp_path, allow_cross_tier_duplicates=True)
 
-    assert load_universe(tmp_path).records == (primary, secondary)
+    saved = save_universe((primary,), expected_revision="", root=tmp_path)
+    payload = json.loads(saved.path.read_text(encoding="utf-8"))
+    payload["records"].append(universe_store.asdict(secondary))
+    payload["revision"] = universe_store._payload_revision(payload)
+    saved.path.write_text(json.dumps(payload), encoding="utf-8")
+
+    snapshot = load_universe(tmp_path)
+    assert any("duplicate universe record" in error for error in snapshot.integrity_errors)
 
     before = saved.path.read_bytes()
     with pytest.raises(ValueError, match="duplicate instrument_id"):
         save_universe(
-            (primary, secondary, primary),
-            expected_revision=saved.revision,
+            (primary, secondary),
+            expected_revision=payload["revision"],
             root=tmp_path,
             allow_cross_tier_duplicates=True,
         )
@@ -143,19 +155,43 @@ def test_saved_universe_is_the_canonical_config_input(tmp_path: Path) -> None:
     assert config.universe.by_id()["ONLY"].provider_symbol == "ONLY.OL"
 
 
-def test_canonical_config_preserves_legal_same_id_cross_tier_records(tmp_path: Path) -> None:
+def test_canonical_config_rejects_same_id_cross_tier_records(tmp_path: Path) -> None:
     primary = _record("LEGAL", ticker="LEGAL", tier="primary")
-    secondary = _record("LEGAL", ticker="LEGAL", tier="secondary")
-    save_universe((primary, secondary), expected_revision="", root=tmp_path, allow_cross_tier_duplicates=True)
+    secondary = _record("legal", ticker="OTHER", tier="secondary", isin="NO0000000002")
+
+    with pytest.raises(ValueError, match="duplicate instrument_id"):
+        save_universe((primary, secondary), expected_revision="", root=tmp_path, allow_cross_tier_duplicates=True)
+
+
+def test_active_config_accepts_valid_legacy_schema_v2_snapshot(tmp_path: Path) -> None:
+    path = tmp_path / "configs" / "universe_store.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "revision": "legacy-revision",
+                "records": [universe_store.asdict(_record("LEGACY", ticker="LEGACY.OL"))],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     config = load_config(tmp_path / "configs")
 
-    assert [(item.id, item.analysis_tier) for item in config.universe.etfs] == [
-        ("LEGAL", "primary"),
-        ("LEGAL", "secondary"),
-    ]
-    assert config.universe.enabled_ids == ["LEGAL"]
-    assert config.universe.by_id()["LEGAL"].analysis_tier == "primary"
+    assert [item.id for item in config.universe.etfs] == ["LEGACY"]
+    assert load_universe(tmp_path).policy_evidence[0].state == "legacy_unmigrated"
+
+
+def test_universe_config_rejects_case_variant_ids_even_when_cross_tier_duplicates_allowed() -> None:
+    with pytest.raises(ValueError, match="globally unique"):
+        UniverseConfig(
+            etfs=[
+                ETFConfig(id="A", name="Primary", ticker="A", role="core", analysis_tier="primary"),
+                ETFConfig(id="a", name="Secondary", ticker="B", role="watchlist", analysis_tier="secondary"),
+            ],
+            allow_cross_tier_duplicates=True,
+        )
 
 
 def test_application_config_fails_closed_on_canonical_universe_integrity_error(tmp_path: Path) -> None:
@@ -308,7 +344,7 @@ def test_save_creates_backup_and_compatibility_exports(tmp_path: Path) -> None:
 
 def test_load_snapshot_preserves_cross_tier_override_state(tmp_path: Path) -> None:
     saved = save_universe(
-        [_record("A", ticker="A", tier="primary"), _record("A", ticker="A", tier="secondary", isin="NO0000000002")],
+        [_record("A", ticker="SHARED", tier="primary"), _record("B", ticker="SHARED", tier="secondary", isin="NO0000000002")],
         expected_revision="",
         root=tmp_path,
         allow_cross_tier_duplicates=True,

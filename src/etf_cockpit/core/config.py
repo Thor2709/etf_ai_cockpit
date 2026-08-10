@@ -61,14 +61,12 @@ class UniverseConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_unique_ids(self) -> "UniverseConfig":
-        ids: dict[str, set[str]] = {}
+        ids: set[str] = set()
         for etf in self.etfs:
             key = etf.id.casefold()
-            tier = etf.analysis_tier.casefold()
-            prior_tiers = ids.setdefault(key, set())
-            if prior_tiers and (not self.allow_cross_tier_duplicates or tier in prior_tiers):
-                raise ValueError(f"ETF ids must be unique within a tier: {etf.id}")
-            prior_tiers.add(tier)
+            if key in ids:
+                raise ValueError(f"ETF ids must be globally unique: {etf.id}")
+            ids.add(key)
         return self
 
     @property
@@ -76,28 +74,20 @@ class UniverseConfig(BaseModel):
         # The enabled universe is the scoring/provider boundary.  Research-
         # only, unsupported-frequency and high-risk records remain visible in
         # configuration but cannot silently enter normal workflows.
-        return list(dict.fromkeys(
+        return [
             etf.id
             for etf in self.etfs
             if etf.enabled
             and support_decision(etf.instrument_type, etf.data_policy, etf.leveraged, etf.inverse).score_eligible
-        ))
+        ]
 
     @property
     def configured_enabled_ids(self) -> list[str]:
         """Return enabled IDs including research/manual-review records."""
-        return list(dict.fromkeys(etf.id for etf in self.etfs if etf.enabled))
+        return [etf.id for etf in self.etfs if etf.enabled]
 
     def by_id(self) -> dict[str, ETFConfig]:
-        result: dict[str, ETFConfig] = {}
-        for etf in self.etfs:
-            prior = result.get(etf.id)
-            if prior is None or (
-                prior.analysis_tier.casefold() != "primary"
-                and etf.analysis_tier.casefold() == "primary"
-            ):
-                result[etf.id] = etf
-        return result
+        return {etf.id: etf for etf in self.etfs}
 
 
 class TargetPosition(BaseModel):
@@ -328,8 +318,8 @@ def _load_universe_config(config_dir: Path) -> UniverseConfig:
         return _universe_config_from_records(imported.records)
     try:
         snapshot = load_universe(config_dir.parent)
-        if snapshot.schema_version != 3:
-            raise ValueError("persisted universe must use schema version 3")
+        if snapshot.schema_version not in {2, 3}:
+            raise ValueError("persisted universe must use schema version 2 or 3")
         if snapshot.integrity_errors:
             raise ValueError("persisted universe integrity failed: " + "; ".join(snapshot.integrity_errors))
         return _universe_config_from_records(
