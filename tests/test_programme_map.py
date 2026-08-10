@@ -100,6 +100,7 @@ def _registry(record: dict[str, object], decision: dict[str, object]) -> dict[st
         "policy": {"execution_allowed": False},
         "records": all_records,
         "readiness": [decision, *supporting_decisions],
+        "counts": {"package_records": len(all_records), "canonical_records": len(all_records)},
         "roadmap_phases": [
             {
                 "phase": "phase-01-governance-scope",
@@ -214,6 +215,7 @@ def test_programme_map_fails_closed_for_missing_or_partial_readiness() -> None:
             {
                 "policy": {"execution_allowed": False},
                 "records": [record],
+                "counts": {"package_records": 1, "canonical_records": 1},
                 "roadmap_phases": [{"phase": "phase-01-governance-scope"}],
             }
         )
@@ -221,6 +223,7 @@ def test_programme_map_fails_closed_for_missing_or_partial_readiness() -> None:
         build_programme_map(
             {
                 "policy": {"execution_allowed": False},
+                "counts": {"package_records": 2, "canonical_records": 2},
                 "roadmap_phases": [{"phase": "phase-01-governance-scope"}],
                 "records": [
                     record,
@@ -480,6 +483,7 @@ def test_programme_map_rejects_unknown_dependency_and_missing_edge_evidence() ->
     registry = _registry(record, decision)
     registry["records"] = [record]
     registry["readiness"] = [decision]
+    registry["counts"] = {"package_records": 1, "canonical_records": 1}
 
     with pytest.raises(ValueError, match="unknown blocking_dependencies"):
         build_programme_map(registry)
@@ -493,6 +497,7 @@ def test_programme_map_rejects_unknown_dependency_and_missing_edge_evidence() ->
     )
     supporting["downstream_issues"] = ["ISSUE-0015"]
     registry["records"].append(supporting)
+    registry["counts"] = {"package_records": 2, "canonical_records": 2}
     registry["readiness"].append(
         {
             "issue_id": "ISSUE-9999",
@@ -737,6 +742,7 @@ def test_programme_map_rejects_self_reference_cycle_and_reverse_link_drift() -> 
         "policy": {"execution_allowed": False},
         "records": [first, second],
         "readiness": [base_decision, second_decision],
+        "counts": {"package_records": 2, "canonical_records": 2},
         "roadmap_phases": [{"phase": "phase-01-governance-scope"}],
     }
     with pytest.raises(ValueError, match="cycle"):
@@ -750,6 +756,65 @@ def test_programme_map_rejects_self_reference_cycle_and_reverse_link_drift() -> 
     dependency["downstream_issues"] = []
     with pytest.raises(ValueError, match="downstream links"):
         build_programme_map(valid)
+
+
+def test_programme_map_rejects_jointly_truncated_registry_and_readiness() -> None:
+    record = _record(
+        blocking_dependencies=[], required_inputs=[], downstream_issues=[], related_issues=[]
+    )
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": True,
+        "reason_codes": ["READY_NO_BLOCKING_DEPENDENCIES"],
+        "edges": [],
+        "required_inputs": [],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+    registry = _registry(record, decision)
+    registry["counts"] = {"package_records": 202, "canonical_records": 202}
+
+    with pytest.raises(ValueError, match="declared record count"):
+        build_programme_map(registry)
+
+
+@pytest.mark.parametrize(
+    ("needle", "replacement"),
+    [
+        ('"execution_allowed": false', '"execution_allowed": true, "execution_allowed": false'),
+        ('"canonical_id": "ISSUE-0015"', '"canonical_id": "ISSUE-0001", "canonical_id": "ISSUE-0015"'),
+        ('"issue_id": "ISSUE-0015"', '"issue_id": "ISSUE-0001", "issue_id": "ISSUE-0015"'),
+    ],
+)
+def test_programme_map_load_rejects_duplicate_json_keys(
+    tmp_path: Path, needle: str, replacement: str
+) -> None:
+    record = _record(
+        blocking_dependencies=[], required_inputs=[], downstream_issues=[], related_issues=[]
+    )
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": True,
+        "reason_codes": ["READY_NO_BLOCKING_DEPENDENCIES"],
+        "edges": [],
+        "required_inputs": [],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+    raw = json.dumps(_registry(record, decision))
+    assert needle in raw
+    path = tmp_path / "issue_registry.json"
+    path.write_text(raw.replace(needle, replacement, 1), encoding="utf-8")
+
+    result = load_programme_map(tmp_path, path)
+
+    assert result.status == "blocked"
+    assert result.entries == ()
+    assert "duplicate key" in result.error
 
 
 def test_programme_map_rejects_missing_ledger_state() -> None:

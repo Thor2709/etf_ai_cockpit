@@ -79,6 +79,11 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   generated reverse links. The bounded closure mirrors those existing
   canonical checks and focused probes only; it adds no new schema, status,
   dependency, workflow or authority.
+- Whole-diff review approved `3296ebb707f82728bcd43efa34cc42e3b3d57bba`;
+  risk review rejected only two outer-envelope gaps: declared package counts
+  were not bound to actual records, and duplicate JSON keys used last-key-wins
+  parsing. The exact follow-up checks both existing count identities and uses
+  duplicate-key-rejecting JSON parsing with policy/record/readiness probes.
 
 ## Superseded ISSUE-0014 validation-repair checkpoint
 

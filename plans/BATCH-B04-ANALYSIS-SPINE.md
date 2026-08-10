@@ -60,6 +60,10 @@ record/graph parity set: required typed metadata and phase/priority, strict
 unresolved evidence, self/cycle rejection and generated reverse links. The
 bounded closure mirrors only those existing canonical checks and adds focused
 probes; lifecycle, workflow and authority are unchanged.
+Whole-diff review approved `3296ebb707f82728bcd43efa34cc42e3b3d57bba`;
+risk review found only unbound declared record counts and default JSON
+last-key-wins parsing. The exact follow-up validates both existing count fields
+and rejects duplicate keys at every JSON object depth, with focused probes.
 
 ## Superseded ISSUE-0014 validation repair
 

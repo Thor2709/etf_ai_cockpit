@@ -141,6 +141,15 @@ def _strict_bool(value: object, field: str) -> bool:
     return value
 
 
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate key in canonical issue registry: {key}")
+        value[key] = item
+    return value
+
+
 def _release_state(record: Mapping[str, Any]) -> str:
     """Expose package status without claiming that it is release certification."""
 
@@ -390,6 +399,11 @@ def build_programme_map(registry: Mapping[str, Any], *, registry_sha256: str = "
         raise ValueError("canonical issue registry must contain a records list of objects")
     if not records:
         raise ValueError("canonical issue registry records must not be empty")
+    counts = registry.get("counts")
+    if not isinstance(counts, Mapping) or any(
+        counts.get(field) != len(records) for field in ("package_records", "canonical_records")
+    ):
+        raise ValueError("canonical issue registry declared record count is inconsistent")
 
     roadmap_phases = registry.get("roadmap_phases")
     if not isinstance(roadmap_phases, list) or not roadmap_phases:
@@ -544,7 +558,7 @@ def load_programme_map(root: Path, path: Path | None = None) -> ProgrammeMap:
     try:
         raw = registry_path.read_bytes()
         registry_sha256 = hashlib.sha256(raw).hexdigest()
-        value = json.loads(raw.decode("utf-8"))
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys)
         if not isinstance(value, dict):
             return _blocked("canonical issue registry root is not an object", registry_sha256)
         return build_programme_map(value, registry_sha256=registry_sha256)
