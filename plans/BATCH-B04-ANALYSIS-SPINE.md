@@ -3073,3 +3073,12 @@ validates evidence and legacy policy, recomputes unresolved equality, reports
 only new sample rows and states the override boundary accurately. Complete
 focused product, persistence, UI and architecture checks pass. Freeze the
 documented head for final review and H-tier Linux/Windows/terminal gates.
+
+`SCHEMA_V2_INTEGRITY_CORRECTION` whole-diff review approved product behavior at
+`fdc74518806b33b987138cefa04fc344e11d637e`, while risk review reproduced one
+application-written schema-v2 checksum gap. Run `31416908410` is cancelled and
+stale. Commit `f244709db135847508732cfd6398508928d8a3b3` verifies hash-shaped
+schema-v2 revisions during canonical load and onboarding's in-guard CAS,
+preserving non-hash legacy compatibility. Canonical/active-config tamper
+rejection and backup preservation regressions pass. Freeze the documented head
+for final review and H-tier Linux/Windows/terminal gates.

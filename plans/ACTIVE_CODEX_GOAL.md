@@ -157,6 +157,16 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   newly selected sample rows and states the constrained override accurately.
   Focused onboarding/universe/application/UI/architecture checks pass. Freeze
   the documented head for final review and H-tier gates.
+- Whole-diff review approved product behavior at
+  `fdc74518806b33b987138cefa04fc344e11d637e`, while risk review reproduced one
+  final integrity gap: application-written schema-v2 stores carried SHA-256
+  revisions that legacy loading did not verify. Run `31416908410` was cancelled
+  and is stale. Commit `f244709db135847508732cfd6398508928d8a3b3`
+  verifies hash-shaped schema-v2 revisions on load and under onboarding's held
+  group precondition while preserving genuinely legacy non-hash compatibility.
+  Tamper rejection through both canonical and active config loaders and backup
+  preservation are covered. Freeze the documented head for final review and
+  H-tier gates.
 
 ## Superseded ISSUE-0016 product checkpoint
 
