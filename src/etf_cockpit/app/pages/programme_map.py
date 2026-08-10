@@ -66,7 +66,7 @@ def _summary(map_data: ProgrammeMap) -> ft.Control:
                 ft.Row([status_badge("Registry", "loaded", colour=theme.GREEN), status_badge("Paper authority", "disabled", colour=theme.AMBER), status_badge("Live authority", "disabled", colour=theme.RED)], wrap=True, spacing=6),
                 ft.Text(f"Canonical issue records: {len(map_data.entries)} · implementation statuses: {status_counts}", color=theme.TEXT, selectable=True),
                 ft.Text(f"Registry SHA-256: {map_data.registry_sha256}", color=theme.MUTED, size=11, selectable=True),
-                ft.Text("Release is the registry package status, not release certification. Implementation readiness is derived only from ledger closure or reviewed edge evidence; programme status cannot resolve a blocker. Activation is separate and never grants execution. Paper and live execution remain disabled by policy.", color=theme.AMBER, size=11, selectable=True),
+                ft.Text("Release is the registry package status, not release certification. Implementation readiness is derived only from the canonical closure evidence; programme status cannot resolve a blocker. Activation is separate and never grants execution. Missing data/model evidence remains explicit, paper/live authority is disabled by policy, and execution_allowed=false.", color=theme.AMBER, size=11, selectable=True),
             ],
             spacing=8,
         )

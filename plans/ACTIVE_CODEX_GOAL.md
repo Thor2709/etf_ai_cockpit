@@ -13,7 +13,85 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
-## Current ISSUE-0014 validation-repair checkpoint
+## Current ISSUE-0015 product checkpoint
+
+- ISSUE-0014 product PR #665 merged exact reviewed head
+  `576b5837e0ee096f9762c38122a7b439193001d4` as
+  `0f45b6e7ece668c0cad9e34e6022b2cbaf53d619`; lifecycle PR #668 merged exact
+  reviewed head `827225cb3b5f5f509dc024c713d9fa93efa35ad0` as exact main
+  `830a00a84eebdb26e1099f3cb003898e9b0ceab2`. Ordered writer `31369949128`
+  applied and verified the single aggregate `in_progress ->
+  implemented_initially -> integrated` replay with two writes and
+  `zero_action_readback=true`; generic convergence `31369949140` and the fresh
+  exact-main readback both passed with zero actions. Reconciliation projects
+  ISSUE-0014 `integrated` and `execution_allowed=false` remains.
+- ISSUE-0015 is the next implementation-order issue and is canonically
+  dependency-ready: priority P1, no blocking or activation dependencies,
+  status `implemented_initially`, and required change "Drive the page from the
+  canonical dependency and closure registry; show implementation, release,
+  data, model, paper and live authority separately."
+- Clean worktree
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0015_product`,
+  branch `codex/issue0015-product-20260810`, was rebased from its prepared
+  two-commit checkpoint onto exact base
+  `830a00a84eebdb26e1099f3cb003898e9b0ceab2`. The bounded four-file product
+  diff makes the existing `/roadmap` projection validate complete canonical
+  registry, readiness, dependency-edge and closure evidence; fail closed on
+  malformed or partial state; keep authority dimensions separate; and expose
+  the unchanged `execution_allowed=false` policy. Focused programme-map and UI
+  tests, Ruff, compile and diff hygiene pass after rebase.
+- Before merge, complete checkpoint chronology, classify and validate the exact
+  head, prepare every legal lifecycle component for the sole
+  `implemented_initially -> integrated` completion, launch both independent
+  reviews and required hosted CI on the same frozen head, and require the
+  ordered writer plus generic zero-action readback after merge.
+- First frozen head `05d73bb1ccef2eba3a6a378707dc1dd1f5a640cc` is rejected
+  after both parallel verdicts were collected; its hosted evidence is stale.
+  Both reviewers reproduced inconsistent dependency/activation edge evidence
+  overstating readiness, and whole-diff review additionally reproduced a
+  whitespace canonical ID escaping through `StopIteration`. One consolidated
+  two-file correction recomputes the exact readiness projection from canonical
+  ledger and reviewed edge evidence, rejects inconsistent projection fields,
+  normalizes lookup without accepting malformed IDs, and adds both regressions.
+  Freeze one replacement head after focused validation, then repeat both
+  reviews and hosted tier-O validation in parallel.
+- Both replacement-head reviewers rejected `cb6255ebfa1505fd3b793c2d7c80cd182feb313f`
+  for one newly reproduced canonical-parity defect: reviewed edge dates were
+  nonblank but not constrained to the generator's exact `YYYY-MM-DD` shape.
+  The sole follow-up enforces that existing canonical rule and adds the exact
+  malformed-date regression; no lifecycle, dependency or authority changes.
+- Both reviewers then rejected `a90182bf7674c3409446f31f4a4eac0ac71fd76a`
+  for the remaining canonical schema boundary: arbitrary/unknown IDs,
+  non-folded local-only closure and absent per-blocking-edge evidence could be
+  accepted even though canonical validation rejects them. The bounded closure
+  enforces the existing canonical ID pattern and reference set, requires exact
+  edge-evidence coverage, rejects nonempty local-only records, and adds the
+  reproduced fail-closed regressions. No broader validator or workflow change.
+- Reviewers rejected `b0266a75add96621258f0cdb5a6d47c9a6bda63c` for the final
+  partial-record set: omitted dependency/input fields, whitespace or duplicate
+  references, impossible reviewed dates, required-input mismatch and missing
+  programme status. The consolidated closure now requires those existing raw
+  canonical fields and semantic values exactly, with focused regressions; it
+  does not change canonical content, dependencies, lifecycle or authority.
+- Reviewers rejected `2858b94e0fcf820ecbf8e91ac5c6500d8439520a` for the final
+  canonical-record invariants consumed by the map: required typed metadata and
+  phase/priority, strict unresolved evidence, self/cycle rejection and exact
+  generated reverse links. The bounded closure mirrors those existing
+  canonical checks and focused probes only; it adds no new schema, status,
+  dependency, workflow or authority.
+- Whole-diff review approved `3296ebb707f82728bcd43efa34cc42e3b3d57bba`;
+  risk review rejected only two outer-envelope gaps: declared package counts
+  were not bound to actual records, and duplicate JSON keys used last-key-wins
+  parsing. The exact follow-up checks both existing count identities and uses
+  duplicate-key-rejecting JSON parsing with policy/record/readiness probes.
+- Whole-diff review approved `7947d6fd65d5b0cb04b1385b90c1b9fc8fb127a0`;
+  risk review reproduced one remaining count-type gap where JSON `true` could
+  satisfy a one-record count. The single consolidated correction requires both
+  declared counts to be exact integers and adds boolean/fractional regressions;
+  focused roadmap/UI tests, Ruff and diff hygiene pass. Freeze one replacement
+  head and repeat both reviews with fresh tier-O hosted validation.
+
+## Superseded ISSUE-0014 validation-repair checkpoint
 
 - Product PR #665 merged independently approved exact head
   `576b5837e0ee096f9762c38122a7b439193001d4` as exact main

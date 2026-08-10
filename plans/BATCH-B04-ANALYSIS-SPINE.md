@@ -9,7 +9,69 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
-## Current ISSUE-0014 validation repair
+## Current ISSUE-0015 product lane
+
+ISSUE-0014 lifecycle PR #668 merged exact reviewed head
+`827225cb3b5f5f509dc024c713d9fa93efa35ad0` as exact main
+`830a00a84eebdb26e1099f3cb003898e9b0ceab2`. Writer `31369949128` applied and
+verified the sole aggregate two-hop replay with `zero_action_readback=true`;
+generic convergence `31369949140` and the fresh exact-main plan are zero action,
+reconciliation projects `integrated`, and `execution_allowed=false` remains.
+
+ISSUE-0015 is the next canonical implementation-order, dependency-ready issue.
+Clean branch `codex/issue0015-product-20260810` rebases the prepared product
+checkpoint onto that exact main. Its four-file scope completes the existing
+`/roadmap` page by requiring complete, consistent canonical registry,
+readiness, dependency-edge and closure evidence, failing closed on malformed or
+partial inputs, retaining separate implementation/release/data/model/paper/live
+dimensions and preserving `execution_allowed=false`. Focused programme-map/UI
+tests, Ruff, compile and diff hygiene pass. Complete exact-head classification,
+lifecycle preparation, parallel whole-diff/risk review and required hosted CI
+before merge; then require writer acceptance and generic zero-action readback
+for the legal `implemented_initially -> integrated` completion.
+
+First frozen head `05d73bb1ccef2eba3a6a378707dc1dd1f5a640cc` is rejected and
+its hosted evidence is stale. After both verdicts were collected, the combined
+finding set is: flipped/inconsistent implementation or activation edge evidence
+can overstate readiness, and a whitespace canonical ID can escape fail-closed
+loading through `StopIteration`. The single consolidated correction derives and
+compares the complete readiness projection against canonical ledger and reviewed
+edge evidence, rejects malformed IDs consistently, and adds focused regressions.
+Run focused validation once, freeze one replacement head and repeat both reviews
+plus tier-O hosted validation in parallel.
+Both replacement reviewers rejected head
+`cb6255ebfa1505fd3b793c2d7c80cd182feb313f` for one newly demonstrated
+parity gap: reviewed edge dates were not constrained to canonical
+`YYYY-MM-DD`. The sole follow-up adds that exact check and regression without
+changing lifecycle, dependencies or authority.
+Both reviewers then rejected `a90182bf7674c3409446f31f4a4eac0ac71fd76a`
+for accepting IDs, unknown dependencies, local-only closure and missing edge
+records that canonical validation rejects. The exact bounded closure enforces
+the existing ID/reference/edge-coverage invariants and adds their fail-closed
+regressions without changing workflow, lifecycle or execution authority.
+Reviewers rejected `b0266a75add96621258f0cdb5a6d47c9a6bda63c` for the remaining
+partial-record inputs: omitted authority fields, normalized/duplicate
+references, impossible dates, required-input mismatch and absent status. The
+single combined closure requires those existing raw fields and values exactly
+and adds their fail-closed regressions; canonical state and authority remain
+unchanged.
+Reviewers rejected `2858b94e0fcf820ecbf8e91ac5c6500d8439520a` for the final
+record/graph parity set: required typed metadata and phase/priority, strict
+unresolved evidence, self/cycle rejection and generated reverse links. The
+bounded closure mirrors only those existing canonical checks and adds focused
+probes; lifecycle, workflow and authority are unchanged.
+Whole-diff review approved `3296ebb707f82728bcd43efa34cc42e3b3d57bba`;
+risk review found only unbound declared record counts and default JSON
+last-key-wins parsing. The exact follow-up validates both existing count fields
+and rejects duplicate keys at every JSON object depth, with focused probes.
+Whole-diff review approved `7947d6fd65d5b0cb04b1385b90c1b9fc8fb127a0`;
+risk review reproduced one final type gap where JSON `true` could satisfy the
+count for a jointly truncated one-record registry. The consolidated correction
+requires exact integer counts and adds boolean/fractional regressions. Focused
+roadmap/UI tests, Ruff and diff hygiene pass; repeat both reviews and fresh
+tier-O hosted validation on one replacement head.
+
+## Superseded ISSUE-0014 validation repair
 
 PR #665 remains frozen at independently approved exact head
 `5ef8429547a36b6e127a142bb4e81b2e07f35fc6`. H-tier run `31345050975`
