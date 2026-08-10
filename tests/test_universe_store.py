@@ -374,7 +374,7 @@ def test_policy_profile_save_failure_leaves_prior_revision_atomic(
     def fail_atomic_write(*_args, **_kwargs):
         raise OSError("simulated publication failure")
 
-    monkeypatch.setattr(universe_store, "atomic_write_json", fail_atomic_write)
+    monkeypatch.setattr(universe_store, "atomic_write_group", fail_atomic_write)
     with pytest.raises(OSError, match="simulated publication failure"):
         save_universe((_record("A"),), saved.revision, root=tmp_path)
     assert path.read_bytes() == before

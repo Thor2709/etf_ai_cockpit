@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import threading
 
 import pytest
 
-from etf_cockpit.data.universe_store import load_universe, support_decision
+from etf_cockpit.data.universe_store import (
+    UniverseRecord,
+    UniverseRevisionConflict,
+    load_universe,
+    save_universe,
+    support_decision,
+)
 from etf_cockpit.app.pages.onboarding import OnboardingProfile, ProviderQuotaExceeded, TickerValidationResult, complete_onboarding, load_onboarding, onboarding_page, validate_onboarding
 import flet as ft
 import etf_cockpit.app.pages.onboarding as onboarding_module
@@ -50,6 +58,67 @@ def test_legacy_positional_ticker_is_normalised_to_a_loadable_scope(tmp_path) ->
     assert load_onboarding(tmp_path).tickers == ("WAT",)
     payload = json.loads((onboarding_module.ROOT / "configs" / "onboarding.json").read_text(encoding="utf-8"))
     assert payload["profile"]["asset_scope"] == ["stock"]
+
+
+def test_onboarding_preserves_existing_cross_tier_duplicate_policy(tmp_path) -> None:
+    duplicate_records = (
+        UniverseRecord("DUP-PRIMARY", "Primary", "NO0000000001", "verified", "DUP", "stock", "primary"),
+        UniverseRecord("DUP-SECONDARY", "Secondary", "NO0000000002", "verified", "DUP", "stock", "secondary"),
+    )
+    save_universe(
+        duplicate_records,
+        expected_revision="",
+        root=tmp_path,
+        allow_cross_tier_duplicates=True,
+    )
+
+    complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+
+    assert load_universe(tmp_path).allow_cross_tier_duplicates is True
+
+
+def test_onboarding_group_conflicts_with_canonical_save_after_precondition(tmp_path, monkeypatch) -> None:
+    initial = save_universe(
+        (UniverseRecord("INITIAL", "Initial", "NO0000000001", "verified", "INITIAL"),),
+        expected_revision="",
+        root=tmp_path,
+    )
+    canonical_started = threading.Event()
+    canonical_done = threading.Event()
+    canonical_errors: list[BaseException] = []
+    canonical_record = UniverseRecord("CANONICAL", "Canonical", "NO0000000002", "verified", "CANONICAL")
+
+    def canonical_update() -> None:
+        canonical_started.set()
+        try:
+            save_universe(
+                (UniverseRecord("INITIAL", "Initial", "NO0000000001", "verified", "INITIAL"), canonical_record),
+                expected_revision=initial.revision,
+                root=tmp_path,
+            )
+        except BaseException as error:
+            canonical_errors.append(error)
+        finally:
+            canonical_done.set()
+
+    original_assert = onboarding_module._assert_universe_revision
+    blocked_observed: list[bool] = []
+
+    def interleaving_assert(path, expected_revision) -> None:
+        original_assert(path, expected_revision)
+        worker = threading.Thread(target=canonical_update)
+        worker.start()
+        assert canonical_started.wait(timeout=1)
+        blocked_observed.append(not canonical_done.wait(timeout=0.25))
+
+    monkeypatch.setattr(onboarding_module, "_assert_universe_revision", interleaving_assert)
+    complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+
+    assert canonical_done.wait(timeout=5)
+    assert blocked_observed == [True]
+    assert len(canonical_errors) == 1
+    assert isinstance(canonical_errors[0], UniverseRevisionConflict)
+    assert "CANONICAL" not in {record.instrument_id for record in load_universe(tmp_path).records}
 
 
 def test_invalid_asset_scope_writes_nothing(tmp_path) -> None:
@@ -325,6 +394,8 @@ def test_group_publish_failure_leaves_all_onboarding_outputs_absent(tmp_path, mo
 
 
 def test_group_publish_revalidates_destination_identity_after_guard_precondition(tmp_path, monkeypatch) -> None:
+    if os.name != "nt":
+        pytest.skip("directory junction test requires Windows cmd")
     outside = tmp_path.parent / f"{tmp_path.name}-outside"
     outside.mkdir()
     original = onboarding_module.atomic_write_group
@@ -333,11 +404,15 @@ def test_group_publish_revalidates_destination_identity_after_guard_precondition
         configs = onboarding_module.ROOT / "configs"
         original_configs = tmp_path / "configs-original"
         configs.rename(original_configs)
-        junction = subprocess.run(
-            ["cmd", "/c", "mklink", "/J", str(configs), str(outside)],
-            capture_output=True,
-            text=True,
-        )
+        try:
+            junction = subprocess.run(
+                ["cmd", "/c", "mklink", "/J", str(configs), str(outside)],
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            original_configs.rename(configs)
+            pytest.skip("directory junction capability is unavailable")
         if junction.returncode != 0:
             original_configs.rename(configs)
             pytest.skip("directory junctions are unavailable on this platform")

@@ -687,6 +687,7 @@ def _stage_universe_payload(
     records: tuple[UniverseRecord, ...],
     *,
     expected_revision: str,
+    allow_cross_tier_duplicates: bool,
     storage_root: Path,
 ) -> tuple[bytes, str]:
     """Build a canonical universe candidate without mutating the selected root."""
@@ -698,7 +699,12 @@ def _stage_universe_payload(
         stage_store.parent.mkdir(parents=True, exist_ok=True)
         if target_store.is_file():
             stage_store.write_bytes(target_store.read_bytes())
-        saved = save_universe(records, expected_revision=expected_revision, root=stage_root)
+        saved = save_universe(
+            records,
+            expected_revision=expected_revision,
+            root=stage_root,
+            allow_cross_tier_duplicates=allow_cross_tier_duplicates,
+        )
         return stage_store.read_bytes(), saved.revision
 
 
@@ -828,6 +834,7 @@ def complete_onboarding(
         universe_payload, revision = _stage_universe_payload(
             candidate_records,
             expected_revision=current.revision,
+            allow_cross_tier_duplicates=current.allow_cross_tier_duplicates,
             storage_root=storage_root,
         )
     else:

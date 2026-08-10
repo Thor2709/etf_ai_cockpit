@@ -11,7 +11,7 @@ from typing import Iterable, Mapping
 
 import yaml
 
-from etf_cockpit.core.atomic_io import atomic_write_json, backup_paths
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, backup_paths
 from etf_cockpit.core.paths import ROOT
 
 
@@ -666,7 +666,26 @@ def save_universe(
         ]
     revision = _payload_revision(payload)
     payload["revision"] = revision
-    atomic_write_json(path, payload)
+    encoded = (json.dumps(payload, indent=2, default=str) + "\n").encode("utf-8")
+
+    def validate(path: Path) -> None:
+        json.loads(path.read_text(encoding="utf-8"))
+
+    def precondition() -> None:
+        if path.is_file():
+            current_payload = json.loads(path.read_text(encoding="utf-8"))
+            current = str(current_payload.get("revision") or "")
+        else:
+            current = ""
+        if current != expected_revision:
+            raise UniverseRevisionConflict(
+                f"Expected revision {expected_revision or '<empty>'}, found {current or '<empty>'}"
+            )
+
+    atomic_write_group(
+        (AtomicWriteRequest(path, encoded, validate),),
+        precondition=precondition,
+    )
     persisted = json.loads(path.read_text(encoding="utf-8"))
     if persisted.get("revision") != revision:
         raise IOError("Universe revision verification failed after atomic write")
