@@ -55,6 +55,11 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   normalizes lookup without accepting malformed IDs, and adds both regressions.
   Freeze one replacement head after focused validation, then repeat both
   reviews and hosted tier-O validation in parallel.
+- Both replacement-head reviewers rejected `cb6255ebfa1505fd3b793c2d7c80cd182feb313f`
+  for one newly reproduced canonical-parity defect: reviewed edge dates were
+  nonblank but not constrained to the generator's exact `YYYY-MM-DD` shape.
+  The sole follow-up enforces that existing canonical rule and adds the exact
+  malformed-date regression; no lifecycle, dependency or authority changes.
 
 ## Superseded ISSUE-0014 validation-repair checkpoint
 

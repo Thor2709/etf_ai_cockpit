@@ -39,6 +39,11 @@ compares the complete readiness projection against canonical ledger and reviewed
 edge evidence, rejects malformed IDs consistently, and adds focused regressions.
 Run focused validation once, freeze one replacement head and repeat both reviews
 plus tier-O hosted validation in parallel.
+Both replacement reviewers rejected head
+`cb6255ebfa1505fd3b793c2d7c80cd182feb313f` for one newly demonstrated
+parity gap: reviewed edge dates were not constrained to canonical
+`YYYY-MM-DD`. The sole follow-up adds that exact check and regression without
+changing lifecycle, dependencies or authority.
 
 ## Superseded ISSUE-0014 validation repair
 

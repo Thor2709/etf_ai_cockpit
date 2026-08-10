@@ -237,6 +237,42 @@ def test_programme_map_rejects_flipped_edge_and_activation_closure_evidence() ->
         build_programme_map(_registry(record, decision))
 
 
+def test_programme_map_rejects_reviewed_edge_with_malformed_date() -> None:
+    evidence = {
+        "schema_version": "1.0",
+        "state": "complete",
+        "evidence_references": ["review/evidence.json"],
+        "contract_reference": "EDGE-CONTRACT-1",
+        "reviewer": "independent-reviewer",
+        "reviewed_date": "not-a-date",
+    }
+    record = _record(
+        blocking_dependencies=["ISSUE-0001"],
+        dependency_edge_evidence={"ISSUE-0001": evidence},
+    )
+    decision = {
+        "issue_id": "ISSUE-0015",
+        "ready": True,
+        "reason_codes": ["READY_BLOCKING_EDGES_RESOLVED"],
+        "edges": [
+            {
+                "dependency_id": "ISSUE-0001",
+                "resolved": True,
+                "reason_code": "EDGE_EVIDENCE_COMPLETE",
+                "evidence_state": "complete",
+            }
+        ],
+        "required_inputs": ["ISSUE-0002"],
+        "activation_ready": True,
+        "activation_reason_codes": ["ACTIVATION_READY_NO_DEPENDENCIES"],
+        "activation_edges": [],
+        "execution_allowed": False,
+    }
+
+    with pytest.raises(ValueError, match="inconsistent"):
+        build_programme_map(_registry(record, decision))
+
+
 def test_programme_map_load_blocks_surrounding_whitespace_in_canonical_id(tmp_path: Path) -> None:
     path = tmp_path / "issue_registry.json"
     record = _record(canonical_id=" ISSUE-0015 ", blocking_dependencies=[])

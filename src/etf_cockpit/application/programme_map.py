@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -175,7 +176,12 @@ def _edge_evidence_is_valid(evidence: object) -> bool:
         return True
     if not references or any(not isinstance(value, str) or not value.strip() for value in references):
         return False
-    return all(isinstance(evidence.get(field), str) and evidence[field].strip() for field in ("contract_reference", "reviewer", "reviewed_date"))
+    if not all(
+        isinstance(evidence.get(field), str) and evidence[field].strip()
+        for field in ("contract_reference", "reviewer", "reviewed_date")
+    ):
+        return False
+    return re.fullmatch(r"\d{4}-\d{2}-\d{2}", evidence["reviewed_date"]) is not None
 
 
 def _validate_decision(
