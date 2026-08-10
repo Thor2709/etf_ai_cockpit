@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -19,7 +20,7 @@ from etf_cockpit.application.settings import ANALYSIS_DEPTHS, HORIZONS, OUTPUT_C
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.application.ui_facade import UNKNOWN_ISIN_VALUES, UniverseRecord, import_legacy_universe, legal_terms_report, load_universe, resource_profile_report, save_universe, source_policy_rows, validate_import
+from etf_cockpit.application.ui_facade import UniverseRecord, import_legacy_universe, is_valid_isin, legal_terms_report, load_universe, resource_profile_report, save_universe, source_policy_rows, validate_import, validate_universe
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,10 @@ class ProviderQuotaExceeded(RuntimeError):
     def __init__(self, provider_id: str = "yfinance") -> None:
         self.provider_id = _text(provider_id).casefold() or "yfinance"
         super().__init__(f"optional provider quota exceeded: {self.provider_id}")
+
+
+class OnboardingRevisionConflict(RuntimeError):
+    """The onboarding document changed after this setup was prepared."""
 
 
 @dataclass(frozen=True)
@@ -277,6 +282,45 @@ def _onboarding_document_path(_root: Path | None = None) -> tuple[Path, Path]:
     return direct, canonical
 
 
+def _onboarding_payload_revision(payload: Mapping[str, object]) -> str:
+    canonical = dict(payload)
+    canonical["revision"] = "pending"
+    canonical["checksum"] = "pending"
+    return hashlib.sha256(
+        json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _validate_onboarding_payload_checksum(payload: Mapping[str, object]) -> str:
+    revision = payload.get("revision")
+    checksum = payload.get("checksum")
+    if not isinstance(revision, str) or not revision or checksum != revision:
+        raise ValueError("onboarding settings revision/checksum is missing or inconsistent")
+    if revision != _onboarding_payload_revision(payload):
+        raise ValueError("onboarding settings checksum mismatch")
+    return revision
+
+
+def _read_onboarding_revision(path: Path) -> str:
+    if not path.exists():
+        return ""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError) as exc:
+        raise ValueError(f"onboarding settings cannot be read for compare-and-swap: {exc}") from exc
+    if not isinstance(payload, Mapping):
+        raise ValueError("onboarding settings root must be an object")
+    return _validate_onboarding_payload_checksum(payload)
+
+
+def _backup_state() -> dict[str, object]:
+    return {
+        "enabled": False,
+        "status": "unavailable",
+        "reason": "durable onboarding backups are not enabled; create one explicitly after setup",
+    }
+
+
 def _normalise_preference(value: object, *, field: str, allowed: set[str], aliases: Mapping[str, str]) -> str:
     preference = _text(value).casefold()
     preference = aliases.get(preference, preference)
@@ -340,6 +384,7 @@ def _setup_payload(profile: OnboardingProfile) -> dict[str, object]:
                 allowed=_BACKUP_PREFERENCES,
                 aliases={"off": "disabled", "none": "disabled", "enabled": "local", "encrypted_local": "encrypted"},
             ),
+            "backup_status": _backup_state(),
         },
         "execution": {
             "execution_allowed": False,
@@ -525,7 +570,7 @@ def _local_ticker_evidence(root: Path) -> tuple[str, ...]:
     root = Path(root)
     symbols: set[str] = set()
     try:
-        symbols.update(record.ticker.upper() for record in load_universe(root).records if record.ticker)
+        symbols.update(record.ticker.upper() for record in load_universe(root).records if record.ticker and record.enabled)
     except (OSError, ValueError, TypeError, KeyError):
         pass
     yaml_path = root / "configs" / "universe.yaml"
@@ -534,6 +579,11 @@ def _local_ticker_evidence(root: Path) -> tuple[str, ...]:
             payload = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
             for row in payload.get("etfs", ()) if isinstance(payload, dict) else ():
                 if not isinstance(row, dict):
+                    continue
+                enabled = row.get("enabled", True)
+                if isinstance(enabled, str):
+                    enabled = enabled.strip().casefold() not in {"false", "0", "no", "disabled"}
+                if not enabled:
                     continue
                 for key in ("ticker", "symbol", "provider_symbol", "yahoo_symbol", "yahoo_ticker"):
                     value = str(row.get(key) or "").strip().upper()
@@ -591,6 +641,8 @@ def _onboarding_records(profile: OnboardingProfile, unresolved: tuple[str, ...])
                 instrument_id=ticker.replace(".", "_"),
                 name=ticker,
                 ticker=ticker,
+                isin="needs_verification",
+                isin_status="needs_verification",
                 asset_type=asset_type,
                 tier="secondary",
                 group="Onboarding watchlist",
@@ -633,8 +685,13 @@ def _merge_records(
     *groups: Iterable[UniverseRecord],
     allow_cross_tier_duplicates: bool = False,
 ) -> tuple[UniverseRecord, ...]:
+    grouped = tuple(tuple(group) for group in groups)
+    for record in (record for group in grouped for record in group):
+        report = validate_universe((record,), allow_cross_tier_duplicates=allow_cross_tier_duplicates)
+        if not report.valid:
+            raise ValueError("Onboarding universe validation failed: " + "; ".join(report.errors))
     merged: list[UniverseRecord] = []
-    for group in groups:
+    for group in grouped:
         for record in group:
             identities = _record_identity_values(record)
             matches = [
@@ -669,9 +726,8 @@ def _record_identity_values(record: UniverseRecord) -> dict[str, str]:
     }
     isin = record.isin.strip().casefold()
     if (
-        isin
-        and isin not in UNKNOWN_ISIN_VALUES
-        and record.isin_status.strip().casefold() not in {"needs_verification", "unknown", "unresolved"}
+        record.isin_status.strip().casefold() == "verified"
+        and is_valid_isin(record.isin)
     ):
         identities["isin"] = isin
     return identities
@@ -793,6 +849,10 @@ def complete_onboarding(
     if statuses:
         profile = replace(profile, optional_provider_status=tuple(statuses.items()))
     storage_root = _selected_storage_root(profile)
+    path = storage_root / "configs" / "onboarding.json"
+    universe_path = storage_root / "configs" / "universe_store.json"
+    prices_path = storage_root / "data" / "clean" / "prices.parquet"
+    expected_onboarding_revision = _read_onboarding_revision(path)
     profile_payload, setup_payload = _canonical_profile(profile)
     privacy_payload = setup_payload["privacy"]
     assert isinstance(privacy_payload, dict)
@@ -813,6 +873,8 @@ def complete_onboarding(
 
     profile_records = _onboarding_records(profile, validation.unresolved_symbols)
     current = load_universe(storage_root)
+    if current.integrity_errors:
+        raise ValueError("Cannot complete onboarding with an invalid universe store: " + "; ".join(current.integrity_errors))
     existing_records = current.records
     legacy_universe = storage_root / "configs" / "universe.yaml"
     if not existing_records and legacy_universe.is_file():
@@ -858,9 +920,6 @@ def complete_onboarding(
             candidate_records = None
             revision = current.revision
 
-    path = storage_root / "configs" / "onboarding.json"
-    universe_path = storage_root / "configs" / "universe_store.json"
-    prices_path = storage_root / "data" / "clean" / "prices.parquet"
     _preflight_onboarding_destinations(
         (
             (path, "onboarding settings"),
@@ -885,15 +944,23 @@ def complete_onboarding(
     setup_payload["bootstrap"] = bootstrap_payload
     payload = {
         "schema_version": ONBOARDING_SCHEMA_VERSION,
+        "revision": "pending",
+        "checksum": "pending",
         "profile": profile_payload,
         "setup": setup_payload,
         "unresolved_symbols": list(validation.unresolved_symbols),
         "storage_root": storage_root.as_posix(),
         "execution_allowed": False,
     }
+    payload["revision"] = _onboarding_payload_revision(payload)
+    payload["checksum"] = payload["revision"]
     encoded = (json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
     requests = [
-        AtomicWriteRequest(_CheckedDestination(path, "onboarding settings"), encoded, lambda candidate: json.loads(candidate.read_text(encoding="utf-8"))),
+        AtomicWriteRequest(
+            _CheckedDestination(path, "onboarding settings"),
+            encoded,
+            lambda candidate: _validate_onboarding_payload_checksum(json.loads(candidate.read_text(encoding="utf-8"))),
+        ),
     ]
     if universe_payload is not None:
         requests.append(
@@ -910,6 +977,13 @@ def complete_onboarding(
             (prices_path, "canonical prices"),
         )
         _revalidate_onboarding_destinations(destinations)
+        actual_onboarding_revision = _read_onboarding_revision(path)
+        if actual_onboarding_revision != expected_onboarding_revision:
+            raise OnboardingRevisionConflict(
+                "Expected onboarding revision "
+                f"{expected_onboarding_revision or '<empty>'}, found "
+                f"{actual_onboarding_revision or '<empty>'}"
+            )
         _assert_universe_revision(universe_path, current.revision)
 
     atomic_write_group(requests, precondition=precondition)
@@ -954,6 +1028,8 @@ def load_onboarding(_root: Path | None = None) -> OnboardingProfile:
         raise ValueError("onboarding setup sections are incomplete")
     if privacy.get("backup_preference") != "local":
         raise ValueError("onboarding backup_preference is unsupported")
+    if privacy.get("backup_status") != _backup_state():
+        raise ValueError("onboarding backup status is unavailable or inconsistent")
     if setup.get("resolved_storage_root") != storage_root.as_posix():
         raise ValueError("onboarding resolved storage root is invalid")
     if setup.get("storage_location") != "project_local":
@@ -980,6 +1056,10 @@ def load_onboarding(_root: Path | None = None) -> OnboardingProfile:
         raise ValueError("unavailable onboarding bootstrap cannot claim outputs")
     if execution.get("staged_execution_enabled") is not False or execution.get("paper_enabled") is not False or execution.get("broker_write_enabled") is not False:
         raise ValueError("onboarding staged-execution defaults must remain disabled")
+    try:
+        _validate_onboarding_payload_checksum(payload)
+    except ValueError as exc:
+        raise ValueError(f"onboarding settings are invalid: {exc}") from exc
     mirrored_profile = {
         "storage_location": setup.get("storage_location"),
         "hardware_profile": setup.get("hardware_profile"),
@@ -1057,7 +1137,7 @@ def onboarding_page(
     bootstrap_mode = ft.Dropdown(label="Offline bootstrap", value="sample", options=[ft.dropdown.Option(item) for item in sorted(_BOOTSTRAP_MODES)], width=180, dense=True)
     bulk_source_path = ft.TextField(label="Local bulk price file", hint_text="data/import/prices.csv", width=280, dense=True, key="onboarding.bulk-source")
     encryption_preference = ft.Dropdown(label="Encryption", value="disabled", options=[ft.dropdown.Option(item) for item in sorted(_ENCRYPTION_PREFERENCES)], width=180, dense=True)
-    backup_preference = ft.Dropdown(label="Backups", value="local", options=[ft.dropdown.Option(item) for item in sorted(_BACKUP_PREFERENCES)], width=180, dense=True)
+    backup_preference = ft.Dropdown(label="Backups (unavailable during onboarding)", value="local", options=[ft.dropdown.Option(item) for item in sorted(_BACKUP_PREFERENCES)], width=180, dense=True)
     tickers = ft.TextField(
         label="Initial tickers (comma separated)",
         hint_text="VWCE.DE, MSFT",

@@ -16,6 +16,9 @@ from etf_cockpit.core.paths import ROOT
 
 
 UNKNOWN_ISIN_VALUES = {"", "unknown", "needs_verification", "n/a", "na", "none"}
+UNKNOWN_ISIN_STATUSES = {"needs_verification", "unknown", "unresolved"}
+VALID_ISIN_STATUSES = {"verified", "needs_verification"}
+ISIN_PATTERN = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
 TICKER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._=-]{0,31}$")
 CURRENT_INVESTABILITY_POLICY_VERSION = "investability-v1"
 POLICY_AUTHORITIES = {"official", "user_reviewed", "manual_review"}
@@ -172,20 +175,26 @@ def _as_bool(value: object) -> bool:
 
 
 def _is_unknown_isin(value: str, status: str) -> bool:
-    return status.strip().lower() in {"needs_verification", "unknown", "unresolved"} or value.strip().lower() in UNKNOWN_ISIN_VALUES
+    return status.strip().lower() in UNKNOWN_ISIN_STATUSES or value.strip().lower() in UNKNOWN_ISIN_VALUES
+
+
+def is_valid_isin(value: object) -> bool:
+    return isinstance(value, str) and bool(ISIN_PATTERN.fullmatch(value.strip().upper()))
 
 
 def _normalise_record(record: UniverseRecord) -> UniverseRecord:
     isin = _text(record.isin)
     status = _text(record.isin_status, "verified").lower()
-    if _is_unknown_isin(isin, status):
+    if status in {"unknown", "unresolved"}:
         isin = "needs_verification"
         status = "needs_verification"
+    elif status == "needs_verification" and isin.casefold() in UNKNOWN_ISIN_VALUES:
+        isin = "needs_verification"
     return replace(
         record,
         instrument_id=_text(record.instrument_id),
         name=_text(record.name, _text(record.instrument_id)),
-        isin=isin,
+        isin=isin.upper(),
         isin_status=status,
         ticker=_text(record.ticker).upper(),
         asset_type=_text(record.asset_type, "stock").lower(),
@@ -241,7 +250,12 @@ def validate_universe(
             tickers[ticker].add(tier)
         else:
             tickers[ticker] = {tier}
-        if _is_unknown_isin(record.isin, record.isin_status):
+        isin_status = record.isin_status.casefold()
+        if isin_status not in VALID_ISIN_STATUSES:
+            errors.append(f"invalid isin_status: {record.isin_status}")
+        elif isin_status == "verified" and not is_valid_isin(record.isin):
+            errors.append(f"malformed verified isin: {record.isin or '<empty>'}")
+        elif isin_status != "verified":
             unknown.append(record.instrument_id)
         elif record.isin.casefold() in isins:
             isin = record.isin.casefold()
@@ -261,7 +275,7 @@ def validate_universe(
             errors.append(f"unsupported asset type/frequency: {record.asset_type}/{record.data_policy}")
         if not record.enabled:
             warnings.append(f"disabled: {record.instrument_id}")
-        if _is_unknown_isin(record.isin, record.isin_status):
+        if isin_status != "verified":
             warnings.append(f"needs_verification: {record.instrument_id}")
     return UniverseValidationReport(not errors, tuple(errors), tuple(warnings), tuple(sorted(set(unknown))))
 
@@ -950,6 +964,9 @@ def import_legacy_universe(primary_yaml: Path, candidate_csv: Path | None = None
             continue
         seen.add(key)
         deduped.append(record)
+    report = validate_universe(deduped, allow_cross_tier_duplicates=True)
+    if not report.valid:
+        raise ValueError("Legacy universe validation failed: " + "; ".join(report.errors))
     return LegacyImportResult(tuple(deduped), tuple(warnings), tuple(path for path in (primary_yaml, candidate_path) if path is not None and path.exists()))
 
 

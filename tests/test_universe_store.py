@@ -27,11 +27,13 @@ from etf_cockpit.data.universe_store import (
     validate_universe,
 )
 from etf_cockpit.core.config import _load_universe_config, load_config
+from etf_cockpit.core.exceptions import ConfigError
 from etf_cockpit.app.pages.universe_manager import filter_records
 
 
 def _record(instrument_id: str, *, isin: str = "NO0000000001", ticker: str | None = None, tier: str = "primary") -> UniverseRecord:
-    return UniverseRecord(instrument_id, instrument_id, isin, "verified", ticker or instrument_id, "stock", tier, "stocks/equity certificates", True, "daily", "NOK", "NO", "", "", "")
+    status = "needs_verification" if isin.casefold() in {"needs_verification", "unknown"} else "verified"
+    return UniverseRecord(instrument_id, instrument_id, isin, status, ticker or instrument_id, "stock", tier, "stocks/equity certificates", True, "daily", "NOK", "NO", "", "", "")
 
 
 def test_duplicate_identity_and_unknown_isin_are_explicit(tmp_path: Path) -> None:
@@ -139,6 +141,57 @@ def test_saved_universe_is_the_canonical_config_input(tmp_path: Path) -> None:
 
     assert config.universe.enabled_ids == ["ONLY"]
     assert config.universe.by_id()["ONLY"].provider_symbol == "ONLY.OL"
+
+
+def test_canonical_config_preserves_legal_same_id_cross_tier_records(tmp_path: Path) -> None:
+    primary = _record("LEGAL", ticker="LEGAL", tier="primary")
+    secondary = _record("LEGAL", ticker="LEGAL", tier="secondary")
+    save_universe((primary, secondary), expected_revision="", root=tmp_path, allow_cross_tier_duplicates=True)
+
+    config = load_config(tmp_path / "configs")
+
+    assert [(item.id, item.analysis_tier) for item in config.universe.etfs] == [
+        ("LEGAL", "primary"),
+        ("LEGAL", "secondary"),
+    ]
+    assert config.universe.enabled_ids == ["LEGAL"]
+    assert config.universe.by_id()["LEGAL"].analysis_tier == "primary"
+
+
+def test_application_config_fails_closed_on_canonical_universe_integrity_error(tmp_path: Path) -> None:
+    saved = save_universe((_record("ONLY"),), expected_revision="", root=tmp_path)
+    path = saved.path
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["records"][0]["name"] = "tampered"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="integrity failed"):
+        load_config(tmp_path / "configs")
+
+
+@pytest.mark.parametrize(
+    ("isin", "isin_status"),
+    (("not-an-isin", "verified"), ("NO0000000001", "trusted")),
+)
+def test_invalid_verified_isin_authority_is_rejected_before_save(tmp_path: Path, isin: str, isin_status: str) -> None:
+    record = UniverseRecord("BAD", "Bad", isin, isin_status, "BAD", "stock", "primary")
+
+    report = validate_universe((record,))
+    assert report.valid is False
+    with pytest.raises(ValueError, match="isin"):
+        save_universe((record,), expected_revision="", root=tmp_path)
+
+
+def test_canonical_load_rejects_malformed_verified_isin(tmp_path: Path) -> None:
+    saved = save_universe((_record("BAD"),), expected_revision="", root=tmp_path)
+    path = saved.path
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["records"][0]["isin"] = "malformed"
+    payload["revision"] = universe_store._payload_revision(payload)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    snapshot = load_universe(tmp_path)
+    assert any("malformed verified isin" in error for error in snapshot.integrity_errors)
 
 
 def test_crud_operations_validate_and_mark_pending_refresh_without_running_workflows() -> None:

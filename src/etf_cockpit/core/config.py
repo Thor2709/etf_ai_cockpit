@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from etf_cockpit.core.constants import ALLOWED_ROLES
 from etf_cockpit.core.exceptions import ConfigError
 from etf_cockpit.core.paths import CONFIG_DIR
-from etf_cockpit.data.universe_store import import_legacy_universe, support_decision
+from etf_cockpit.data.universe_store import import_legacy_universe, load_universe, support_decision
 
 
 class ETFConfig(BaseModel):
@@ -57,12 +57,18 @@ class ETFConfig(BaseModel):
 
 class UniverseConfig(BaseModel):
     etfs: list[ETFConfig]
+    allow_cross_tier_duplicates: bool = False
 
     @model_validator(mode="after")
     def validate_unique_ids(self) -> "UniverseConfig":
-        ids = [etf.id for etf in self.etfs]
-        if len(ids) != len(set(ids)):
-            raise ValueError("ETF ids must be unique")
+        ids: dict[str, set[str]] = {}
+        for etf in self.etfs:
+            key = etf.id.casefold()
+            tier = etf.analysis_tier.casefold()
+            prior_tiers = ids.setdefault(key, set())
+            if prior_tiers and (not self.allow_cross_tier_duplicates or tier in prior_tiers):
+                raise ValueError(f"ETF ids must be unique within a tier: {etf.id}")
+            prior_tiers.add(tier)
         return self
 
     @property
@@ -70,20 +76,28 @@ class UniverseConfig(BaseModel):
         # The enabled universe is the scoring/provider boundary.  Research-
         # only, unsupported-frequency and high-risk records remain visible in
         # configuration but cannot silently enter normal workflows.
-        return [
+        return list(dict.fromkeys(
             etf.id
             for etf in self.etfs
             if etf.enabled
             and support_decision(etf.instrument_type, etf.data_policy, etf.leveraged, etf.inverse).score_eligible
-        ]
+        ))
 
     @property
     def configured_enabled_ids(self) -> list[str]:
         """Return enabled IDs including research/manual-review records."""
-        return [etf.id for etf in self.etfs if etf.enabled]
+        return list(dict.fromkeys(etf.id for etf in self.etfs if etf.enabled))
 
     def by_id(self) -> dict[str, ETFConfig]:
-        return {etf.id: etf for etf in self.etfs}
+        result: dict[str, ETFConfig] = {}
+        for etf in self.etfs:
+            prior = result.get(etf.id)
+            if prior is None or (
+                prior.analysis_tier.casefold() != "primary"
+                and etf.analysis_tier.casefold() == "primary"
+            ):
+                result[etf.id] = etf
+        return result
 
 
 class TargetPosition(BaseModel):
@@ -270,104 +284,58 @@ def load_config(config_dir: Path = CONFIG_DIR) -> AppConfig:
         raise ConfigError(f"Config validation failed: {exc}") from exc
 
 
+def _universe_config_from_records(records: Any, *, allow_cross_tier_duplicates: bool = False) -> UniverseConfig:
+    return UniverseConfig(
+        etfs=[
+            ETFConfig(
+                id=row.instrument_id,
+                name=row.name,
+                isin=row.isin if row.isin_status == "verified" else None,
+                ticker=row.ticker,
+                provider_symbol=row.ticker,
+                exchange="OSE" if row.asset_type in {"stock", "equity_certificate", "certificate"} else None,
+                currency=row.currency,
+                asset_class="equity",
+                region=row.region or None,
+                sector=row.sector or None,
+                theme=row.theme or None,
+                role="core" if row.tier == "primary" else "watchlist",
+                enabled=row.enabled,
+                instrument_type=row.asset_type,
+                analysis_tier=row.tier,
+                data_policy=row.data_policy,
+                source_group=row.group,
+                isin_status=row.isin_status,
+                notes=row.notes,
+                leveraged=row.leveraged,
+                inverse=row.inverse,
+            )
+            for row in records
+        ],
+        allow_cross_tier_duplicates=allow_cross_tier_duplicates,
+    )
+
+
 def _load_universe_config(config_dir: Path) -> UniverseConfig:
     persisted = config_dir / "universe_store.json"
     if not persisted.exists():
         primary_path = config_dir / "universe.yaml"
         if not primary_path.exists():
             return UniverseConfig(etfs=[])
-        payload = _read_yaml(primary_path)
         candidate_dir = config_dir.parent / "data" / "raw" / "trade_candidates"
         candidates = sorted(candidate_dir.glob("yahoo_trade_candidates_*.csv")) if candidate_dir.exists() else []
-        if candidates:
-            imported = import_legacy_universe(primary_path, candidates[-1])
-            return UniverseConfig(
-                etfs=[
-                    ETFConfig(
-                        id=row.instrument_id,
-                        name=row.name,
-                        isin=None if row.isin_status == "needs_verification" else row.isin,
-                        ticker=row.ticker,
-                        provider_symbol=row.ticker,
-                        exchange="OSE" if row.tier == "sparebanken" else None,
-                        currency=row.currency,
-                        asset_class="equity",
-                        region=row.region or None,
-                        sector=row.sector or None,
-                        theme=row.theme or None,
-                        role="core" if row.tier == "primary" else "watchlist",
-                        enabled=row.enabled,
-                        instrument_type=row.asset_type,
-                        analysis_tier=row.tier,
-                        data_policy=row.data_policy,
-                        source_group=row.group,
-                        isin_status=row.isin_status,
-                        notes=row.notes,
-                        leveraged=row.leveraged,
-                        inverse=row.inverse,
-                    )
-                    for row in imported.records
-                ]
-            )
-        normalised_etfs = []
-        for raw in payload.get("etfs", ()):
-            if not isinstance(raw, dict):
-                normalised_etfs.append(raw)
-                continue
-            row = dict(raw)
-            raw_isin = str(row.get("isin") or "").strip().lower()
-            isin_status = str(row.get("isin_status") or "").strip().lower()
-            if isin_status == "needs_verification" or raw_isin in {"", "unknown", "needs_verification"}:
-                row["isin"] = None
-            normalised_etfs.append(row)
-        return UniverseConfig(**{**payload, "etfs": normalised_etfs})
+        imported = import_legacy_universe(primary_path, candidates[-1] if candidates else None)
+        return _universe_config_from_records(imported.records)
     try:
-        payload = _read_json(persisted)
-        records = payload.get("records")
-        if not isinstance(records, list):
-            raise ValueError("persisted universe must contain a records list")
-        etfs: list[ETFConfig] = []
-        for raw in records:
-            if not isinstance(raw, dict):
-                raise ValueError("persisted universe records must be objects")
-            instrument_id = str(raw.get("instrument_id") or "").strip()
-            ticker = str(raw.get("ticker") or "").strip()
-            if not instrument_id or not ticker:
-                raise ValueError("persisted universe records require instrument_id and ticker")
-            isin_status = str(raw.get("isin_status") or "needs_verification").strip()
-            raw_isin = str(raw.get("isin") or "").strip()
-            isin = None if isin_status == "needs_verification" or raw_isin.lower() in {"", "unknown", "needs_verification"} else raw_isin
-            asset_type = str(raw.get("asset_type") or "stock").strip().lower()
-            tier = str(raw.get("tier") or "secondary").strip().lower()
-            etfs.append(
-                ETFConfig(
-                    id=instrument_id,
-                    name=str(raw.get("name") or instrument_id),
-                    isin=isin,
-                    ticker=ticker,
-                    provider_symbol=ticker,
-                    exchange="OSE" if asset_type in {"stock", "equity_certificate", "certificate"} else None,
-                    currency=str(raw.get("currency") or "NOK"),
-                    asset_class="equity",
-                    region=str(raw.get("region") or "") or None,
-                    sector=str(raw.get("sector") or "") or None,
-                    theme=str(raw.get("theme") or "") or None,
-                    role="core" if tier == "primary" else "watchlist",
-                    ter=None,
-                    max_weight=1.0,
-                    min_history_days=252,
-                    enabled=bool(raw.get("enabled", True)),
-                    instrument_type=asset_type,
-                    analysis_tier=tier,
-                    data_policy=str(raw.get("data_policy") or "daily"),
-                    source_group=str(raw.get("group") or ""),
-                    isin_status=isin_status,
-                    notes=str(raw.get("notes") or ""),
-                    leveraged=_as_bool(raw.get("leveraged", False)),
-                    inverse=_as_bool(raw.get("inverse", False)),
-                )
-            )
-        return UniverseConfig(etfs=etfs)
+        snapshot = load_universe(config_dir.parent)
+        if snapshot.schema_version != 3:
+            raise ValueError("persisted universe must use schema version 3")
+        if snapshot.integrity_errors:
+            raise ValueError("persisted universe integrity failed: " + "; ".join(snapshot.integrity_errors))
+        return _universe_config_from_records(
+            snapshot.records,
+            allow_cross_tier_duplicates=snapshot.allow_cross_tier_duplicates,
+        )
     except (OSError, ValueError, TypeError, KeyError) as exc:
         raise ConfigError(f"Could not read persisted universe {persisted}: {exc}") from exc
 
