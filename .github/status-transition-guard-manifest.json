@@ -4,22 +4,22 @@
   "allowed_status_transitions": [
     {
       "from": "in_progress",
-      "issue_id": "ISSUE-0012",
+      "issue_id": "ISSUE-0014",
       "to": "integrated"
     }
   ],
-  "base_commit": "c9efd6b351db76290e3371314d67c986406168f5",
-  "branch": "codex/issue0012-lifecycle-20260810",
+  "base_commit": "35007496ae5052ef5ac41ede746ed76f1a48ab87",
+  "branch": "codex/issue0014-lifecycle-20260810",
   "issue_ids": [
-    "ISSUE-0012"
+    "ISSUE-0014"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "b46b570df73cf4ba59ebd6d18d0c3512dc7d77ab2828c2693231f201a6d189e0",
+    "base_registry_sha256": "9353bdceaa035ed977471befcdc2145302bbb567fd4e7309d3905339d9dc02bf",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "9353bdceaa035ed977471befcdc2145302bbb567fd4e7309d3905339d9dc02bf",
-    "reason": "Replay only ISSUE-0012 through the ordered in_progress to implemented_initially to integrated completion contract using product PR #663 merge commit c9efd6b351db76290e3371314d67c986406168f5 and its exact review and H-tier validation evidence; preserve dependencies, acceptance criteria, external authority and execution_allowed=false.",
+    "proposed_registry_sha256": "256fa674784cbbc4553a8fd760b23b00f974a5f0ba31e4ccf4363ef04f8f4143",
+    "reason": "Replay only ISSUE-0014 through the ordered in_progress to implemented_initially to integrated completion contract using product PR #665 merge commit 0f45b6e7ece668c0cad9e34e6022b2cbaf53d619 and its exact review and H-tier validation evidence; preserve dependencies, acceptance criteria, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
