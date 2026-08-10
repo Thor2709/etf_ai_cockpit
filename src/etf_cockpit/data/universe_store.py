@@ -212,43 +212,46 @@ def validate_universe(
     errors: list[str] = []
     warnings: list[str] = []
     unknown: list[str] = []
-    ids: dict[str, tuple[str, str]] = {}
-    isins: dict[str, tuple[str, str]] = {}
-    tickers: dict[str, tuple[str, str]] = {}
+    ids: dict[str, set[str]] = {}
+    isins: dict[str, set[str]] = {}
+    tickers: dict[str, set[str]] = {}
     for record in items:
         record_id = record.instrument_id.casefold()
         ticker = record.ticker.casefold()
+        tier = record.tier.casefold()
         if not record.instrument_id:
             errors.append("instrument_id is required")
         elif record_id in ids:
-            prior_id, prior_tier = ids[record_id]
-            if not (allow_cross_tier_duplicates and prior_tier != record.tier):
+            if not (allow_cross_tier_duplicates and tier not in ids[record_id]):
                 errors.append(f"duplicate instrument_id: {record.instrument_id}")
             else:
                 warnings.append(f"cross-tier duplicate override: instrument_id {record.instrument_id}")
-        ids[record_id] = (record.instrument_id, record.tier)
+            ids[record_id].add(tier)
+        else:
+            ids[record_id] = {tier}
         if not record.ticker:
             errors.append(f"ticker is required: {record.instrument_id}")
         elif not TICKER_PATTERN.fullmatch(record.ticker):
             errors.append(f"malformed ticker: {record.ticker}")
         elif ticker in tickers:
-            prior_ticker, prior_tier = tickers[ticker]
-            if not (allow_cross_tier_duplicates and prior_tier != record.tier):
+            if not (allow_cross_tier_duplicates and tier not in tickers[ticker]):
                 errors.append(f"duplicate ticker: {record.ticker}")
             else:
                 warnings.append(f"cross-tier duplicate override: ticker {record.ticker}")
+            tickers[ticker].add(tier)
         else:
-            tickers[ticker] = (record.instrument_id, record.tier)
+            tickers[ticker] = {tier}
         if _is_unknown_isin(record.isin, record.isin_status):
             unknown.append(record.instrument_id)
         elif record.isin.casefold() in isins:
-            prior_isin, prior_tier = isins[record.isin.casefold()]
-            if not (allow_cross_tier_duplicates and prior_tier != record.tier):
+            isin = record.isin.casefold()
+            if not (allow_cross_tier_duplicates and tier not in isins[isin]):
                 errors.append(f"duplicate isin: {record.isin}")
             else:
                 warnings.append(f"cross-tier duplicate override: ISIN {record.isin}")
+            isins[isin].add(tier)
         else:
-            isins[record.isin.casefold()] = (record.instrument_id, record.tier)
+            isins[record.isin.casefold()] = {tier}
         if record.tier not in {"primary", "secondary", "sparebanken"}:
             errors.append(f"invalid tier: {record.tier}")
         decision = support_decision(record.asset_type, record.data_policy, record.leveraged, record.inverse)
@@ -477,9 +480,13 @@ def _decode_v3_store(
     if not persisted_revision or persisted_revision != _payload_revision(payload):
         errors.append("store revision checksum mismatch")
 
+    allow_duplicates = payload.get("allow_cross_tier_duplicates", False)
+    if not isinstance(allow_duplicates, bool):
+        errors.append("allow_cross_tier_duplicates must be a boolean")
+
     raw_records = payload.get("records")
     records: list[UniverseRecord] = []
-    record_ids: set[str] = set()
+    record_id_tiers: dict[str, set[str]] = {}
     if not isinstance(raw_records, list):
         errors.append("records must be a list")
         raw_records = []
@@ -492,20 +499,21 @@ def _decode_v3_store(
         except (TypeError, ValueError) as exc:
             errors.append(f"record {index} is malformed: {exc}")
             continue
-        if record.instrument_id in record_ids:
+        record_id = record.instrument_id.casefold()
+        tier = record.tier.casefold()
+        prior_tiers = record_id_tiers.setdefault(record_id, set())
+        if prior_tiers and (not allow_duplicates or tier in prior_tiers):
             errors.append(f"duplicate universe record: {record.instrument_id}")
             continue
-        record_ids.add(record.instrument_id)
+        prior_tiers.add(tier)
         records.append(record)
-    allow_duplicates = payload.get("allow_cross_tier_duplicates", False)
-    if not isinstance(allow_duplicates, bool):
-        errors.append("allow_cross_tier_duplicates must be a boolean")
-    else:
+    if isinstance(allow_duplicates, bool):
         report = validate_universe(
             records,
             allow_cross_tier_duplicates=allow_duplicates,
         )
         errors.extend(f"invalid universe record: {error}" for error in report.errors)
+    record_ids = {record.instrument_id for record in records}
 
     raw_profiles = payload.get("policy_profiles")
     profiles: list[InvestabilityPolicyProfile] = []

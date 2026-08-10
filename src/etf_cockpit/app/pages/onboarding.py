@@ -637,19 +637,27 @@ def _merge_records(
     for group in groups:
         for record in group:
             identities = _record_identity_values(record)
-
-            merged = [
+            matches = [
                 existing
                 for existing in merged
-                if not (
-                    (existing.tier.strip().casefold() == record.tier.strip().casefold() or not allow_cross_tier_duplicates)
-                    and any(
-                        value
-                        and value == _record_identity_values(existing).get(identity)
-                        for identity, value in identities.items()
-                    )
+                if any(
+                    value
+                    and value == _record_identity_values(existing).get(identity)
+                    for identity, value in identities.items()
                 )
             ]
+            if len(matches) > 1:
+                raise ValueError(
+                    "ambiguous onboarding identity replacement: "
+                    + ", ".join(sorted({existing.instrument_id for existing in matches}, key=str.casefold))
+                )
+            replacement_ids = {
+                id(existing)
+                for existing in matches
+                if existing.tier.strip().casefold() == record.tier.strip().casefold()
+                or not allow_cross_tier_duplicates
+            }
+            merged = [existing for existing in merged if id(existing) not in replacement_ids]
             merged.append(record)
     return tuple(sorted(merged, key=lambda record: record.instrument_id.casefold()))
 

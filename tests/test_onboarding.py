@@ -129,6 +129,36 @@ def test_merge_records_replaces_same_tier_isin_collision() -> None:
     assert records == (replacement,)
 
 
+def test_onboarding_ambiguous_identity_replacement_fails_before_any_write(tmp_path) -> None:
+    save_universe(
+        (
+            UniverseRecord("X", "X", "NO0000000001", "verified", "A", "stock", "primary"),
+            UniverseRecord("Y", "Y", "NO0000000002", "verified", "X", "stock", "secondary"),
+        ),
+        expected_revision="",
+        root=tmp_path,
+    )
+    universe_path = tmp_path / "configs" / "universe_store.json"
+    before = universe_path.read_bytes()
+
+    with pytest.raises(ValueError, match="ambiguous onboarding identity replacement"):
+        complete_onboarding(
+            OnboardingProfile(
+                "EUR",
+                "Europe",
+                ("stock",),
+                "medium",
+                "3M",
+                tickers=("X",),
+                bootstrap_mode="bulk",
+            ),
+            tmp_path,
+        )
+
+    assert universe_path.read_bytes() == before
+    assert not (tmp_path / "configs" / "onboarding.json").exists()
+
+
 @pytest.mark.parametrize("identity", ("instrument_id", "ticker", "isin"))
 def test_merge_records_replaces_disallowed_cross_tier_collision(identity: str) -> None:
     values = {

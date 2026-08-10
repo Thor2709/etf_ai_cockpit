@@ -59,6 +59,21 @@ def test_cross_tier_duplicate_override_is_explicit() -> None:
     assert any("override" in warning for warning in accepted.warnings)
 
 
+def test_cross_tier_duplicate_identity_tracks_all_tiers() -> None:
+    records = [
+        _record("A", ticker="DUP", tier="primary"),
+        _record("A", ticker="DUP", tier="secondary"),
+        _record("A", ticker="DUP", tier="primary"),
+    ]
+
+    report = validate_universe(records, allow_cross_tier_duplicates=True)
+
+    assert report.valid is False
+    assert any("duplicate instrument_id" in error for error in report.errors)
+    assert any("duplicate ticker" in error for error in report.errors)
+    assert any("duplicate isin" in error for error in report.errors)
+
+
 def test_crud_and_save_thread_cross_tier_override(tmp_path: Path) -> None:
     primary = _record("A", ticker="DUP", tier="primary")
     secondary = _record("A", ticker="DUP", tier="secondary", isin="NO0000000002")
@@ -76,6 +91,31 @@ def test_crud_and_save_thread_cross_tier_override(tmp_path: Path) -> None:
     saved = save_universe(added, expected_revision="", root=tmp_path, allow_cross_tier_duplicates=True)
     assert saved.record_count == 2
     assert json.loads(saved.path.read_text(encoding="utf-8"))["allow_cross_tier_duplicates"] is True
+
+
+def test_v3_round_trip_preserves_legal_cross_tier_identity_duplicates_and_rejects_triplets(
+    tmp_path: Path,
+) -> None:
+    primary = _record("LEGAL", isin="NO0000000001", ticker="LEGAL", tier="primary")
+    secondary = _record("LEGAL", isin="NO0000000001", ticker="LEGAL", tier="secondary")
+    saved = save_universe(
+        (primary, secondary),
+        expected_revision="",
+        root=tmp_path,
+        allow_cross_tier_duplicates=True,
+    )
+
+    assert load_universe(tmp_path).records == (primary, secondary)
+
+    before = saved.path.read_bytes()
+    with pytest.raises(ValueError, match="duplicate instrument_id"):
+        save_universe(
+            (primary, secondary, primary),
+            expected_revision=saved.revision,
+            root=tmp_path,
+            allow_cross_tier_duplicates=True,
+        )
+    assert saved.path.read_bytes() == before
 
 
 def test_save_uses_revision_conflict_protection(tmp_path: Path) -> None:
