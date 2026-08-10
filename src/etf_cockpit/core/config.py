@@ -318,10 +318,10 @@ def _load_universe_config(config_dir: Path) -> UniverseConfig:
         return _universe_config_from_records(imported.records)
     try:
         snapshot = load_universe(config_dir.parent)
-        if snapshot.schema_version not in {2, 3}:
-            raise ValueError("persisted universe must use schema version 2 or 3")
         if snapshot.integrity_errors:
             raise ValueError("persisted universe integrity failed: " + "; ".join(snapshot.integrity_errors))
+        if snapshot.schema_version != 3:
+            raise ValueError("legacy universe must be migrated before active use")
         return _universe_config_from_records(
             snapshot.records,
             allow_cross_tier_duplicates=snapshot.allow_cross_tier_duplicates,

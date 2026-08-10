@@ -163,7 +163,7 @@ def test_canonical_config_rejects_same_id_cross_tier_records(tmp_path: Path) -> 
         save_universe((primary, secondary), expected_revision="", root=tmp_path, allow_cross_tier_duplicates=True)
 
 
-def test_active_config_accepts_valid_legacy_schema_v2_snapshot(tmp_path: Path) -> None:
+def test_active_config_requires_explicit_migration_for_legacy_schema_v2_snapshot(tmp_path: Path) -> None:
     path = tmp_path / "configs" / "universe_store.json"
     path.parent.mkdir(parents=True)
     path.write_text(
@@ -177,9 +177,8 @@ def test_active_config_accepts_valid_legacy_schema_v2_snapshot(tmp_path: Path) -
         encoding="utf-8",
     )
 
-    config = load_config(tmp_path / "configs")
-
-    assert [item.id for item in config.universe.etfs] == ["LEGACY"]
+    with pytest.raises(ConfigError, match="must be migrated"):
+        load_config(tmp_path / "configs")
     assert load_universe(tmp_path).policy_evidence[0].state == "legacy_unmigrated"
 
 
@@ -209,22 +208,24 @@ def test_legacy_schema_v2_rejects_non_boolean_cross_tier_policy(tmp_path: Path) 
 def test_application_written_schema_v2_checksum_rejects_unchanged_revision_tamper(tmp_path: Path) -> None:
     path = tmp_path / "configs" / "universe_store.json"
     path.parent.mkdir(parents=True)
-    path.write_text(
-        json.dumps({"schema_version": 2, "revision": "legacy", "records": []}),
-        encoding="utf-8",
-    )
-    saved = save_universe((_record("LEGACY", ticker="LEGACY.OL"),), expected_revision="legacy", root=tmp_path)
-    assert saved.backup_path is not None
-    before_backup = saved.backup_path.read_bytes()
-    payload = json.loads(saved.path.read_text(encoding="utf-8"))
+    payload = {
+        "schema_version": 2,
+        "revision": "pending",
+        "allow_cross_tier_duplicates": False,
+        "records": [universe_store.asdict(_record("LEGACY", ticker="LEGACY.OL"))],
+    }
+    payload["revision"] = universe_store.universe_payload_revision(payload)
+    path.write_text(json.dumps(payload), encoding="utf-8")
     payload["records"][0]["enabled"] = False
-    saved.path.write_text(json.dumps(payload), encoding="utf-8")
+    path.write_text(json.dumps(payload), encoding="utf-8")
 
     snapshot = load_universe(tmp_path)
     assert any("revision checksum mismatch" in error for error in snapshot.integrity_errors)
     with pytest.raises(ConfigError, match="integrity failed"):
         load_config(tmp_path / "configs")
-    assert saved.backup_path.read_bytes() == before_backup
+    with pytest.raises(ValueError, match="must be migrated"):
+        save_universe(snapshot.records, expected_revision=str(payload["revision"]), root=tmp_path)
+    assert not (tmp_path / "backups" / "universe").exists()
 
 
 def test_universe_config_rejects_case_variant_ids_even_when_cross_tier_duplicates_allowed() -> None:
@@ -441,11 +442,10 @@ def test_legacy_policy_backfill_plan_is_deterministic_inspectable_and_non_mutati
     assert first.actions[0].action == "review_legacy"
     assert path.read_bytes() == before
 
-    saved = save_universe(snapshot.records, snapshot.revision, root=tmp_path)
-    after_legacy_edit = load_universe(tmp_path)
-    assert saved.revision == after_legacy_edit.revision
-    assert after_legacy_edit.schema_version == 2
-    assert after_legacy_edit.policy_evidence[0].state == "legacy_unmigrated"
+    with pytest.raises(ValueError, match="must be migrated"):
+        save_universe(snapshot.records, snapshot.revision, root=tmp_path)
+    assert path.read_bytes() == before
+    assert not (tmp_path / "backups" / "universe").exists()
 
 
 def test_policy_profile_round_trip_and_policy_version_change_marks_recompute(

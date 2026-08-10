@@ -327,6 +327,10 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
 
     def save_changes(_event: ft.ControlEvent) -> None:
         nonlocal expected_revision
+        if snapshot.integrity_errors:
+            status.value = "Save blocked: " + "; ".join(snapshot.integrity_errors)
+            page.update()
+            return
         report = validate_universe(records, allow_cross_tier_duplicates=bool(allow_duplicates.value))
         if not report.valid:
             status.value = "Save blocked: " + "; ".join(report.errors)

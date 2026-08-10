@@ -631,6 +631,8 @@ def save_universe(
                 raise ValueError("universe store root must be an object")
             current_revision = str(raw.get("revision") or "")
             current_schema_version = _schema_version(raw)
+            if current_schema_version < 3:
+                raise ValueError("legacy universe must be migrated before canonical save")
             if current_schema_version >= 3:
                 _, decoded_profiles, integrity_errors = _decode_v3_store(raw)
                 if integrity_errors:
@@ -697,6 +699,12 @@ def save_universe(
         if path.is_file():
             current_payload = json.loads(path.read_text(encoding="utf-8"))
             current = str(current_payload.get("revision") or "")
+            current_schema = _schema_version(current_payload)
+            if current_schema < 3:
+                raise ValueError("legacy universe must be migrated before canonical save")
+            _, _, current_integrity_errors = _decode_v3_store(current_payload)
+            if current_integrity_errors:
+                raise ValueError("Universe store integrity failed: " + "; ".join(current_integrity_errors))
         else:
             current = ""
         if current != expected_revision:

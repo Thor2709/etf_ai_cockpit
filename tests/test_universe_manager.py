@@ -6,6 +6,7 @@ import json
 
 import flet as ft
 import pandas as pd
+import pytest
 
 import etf_cockpit.app.pages.universe_manager as manager
 import etf_cockpit.app.pages.dashboard as dashboard
@@ -250,6 +251,7 @@ def test_universe_store_integrity_failure_is_visible_as_manual_review(
         ),
     )
 
+    monkeypatch.setattr(manager, "save_universe", lambda *_args, **_kwargs: pytest.fail("invalid snapshot reached save"))
     root = universe_manager_page(_Page(), _state())
     rendered = "\n".join(
         str(control.value)
@@ -259,6 +261,14 @@ def test_universe_store_integrity_failure_is_visible_as_manual_review(
 
     assert "Policy evidence requires manual_review" in rendered
     assert "store revision checksum mismatch" in rendered
+    save_button = next(control for control in _walk(root) if isinstance(control, ft.Button) and control.key == "universe.save")
+    save_button.on_click(None)
+    rendered = "\n".join(
+        str(control.value)
+        for control in _walk(root)
+        if isinstance(control, ft.Text) and control.value
+    )
+    assert "Save blocked: store revision checksum mismatch" in rendered
 
 
 def test_universe_identity_action_exposes_graph_conflict_review_and_authority(monkeypatch) -> None:
