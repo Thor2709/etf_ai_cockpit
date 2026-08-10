@@ -30,6 +30,18 @@ For a command-line smoke test without opening the UI:
 
 The workflow smoke harness accepts `source`, `native`, `portable-native`, `launcher`, `first-run` and `offline` modes. It requires a local HTTP-ready app for each mode and removes only processes it started. `offline` prevents the harness itself from making remote requests; it does not certify that every provider is unavailable without a separate provider fixture test.
 
+### ISSUE-0014 workflow contract
+
+Run the complete deterministic, local-only workflow contract from a clean checkout with:
+
+```text
+python scripts/issue0014_workflow.py
+```
+
+The runner executes separate source, packaged and browser suites with `ETF_COCKPIT_OFFLINE=1`, fixed hash ordering, UTC and a process-wide guard that denies non-loopback sockets. Runtime data and logs are created under each test's temporary project root. The source suite covers local-file import, an injected yfinance transport timeout, managed-data migration backup/checksums, a 250-instrument universe, local training, valid interrupted-write recovery, and the canonical refresh → algorithms → baseline forecast-or-explicit-unavailable → scoreboard → audit-export workflow. Paper open/accept/fill/mark/restart runs through `LocalApplicationApi` and explicitly rejects executable, missing and authority-tampered proposals; these paper, training, UI-inventory and governance boundaries assert `execution_allowed=false`.
+
+When the configured setuptools backend is installed, the packaged suite builds the repository's real sdist with the existing build configuration, verifies source/package parity, and runs the artifact's own offline HTTP smoke route from its extracted root. A clean environment without that backend reports an explicit skip while still asserting the exact isolated `python -m build` command; the mandatory H-tier Linux and Windows package jobs provide the authoritative build, parity and artifact-smoke evidence. Missing and non-runnable smoke artifacts fail closed. The browser suite renders registered routes including `/training-centre`, rejects route-error controls/events, and launches the real source smoke route on loopback without a browser automation dependency. Use `python scripts/issue0014_workflow.py --dry-run` to inspect the exact suite commands.
+
 The configured market-data backbone is Yahoo Finance through `yfinance`. The validated clean store under `data/clean` is refreshed from yfinance, then algorithms, backtests and TimesFM/Toto forecasts run from that same yfinance price panel. Sample data remains available only as a fallback/test generator.
 
 ## Main Workflows

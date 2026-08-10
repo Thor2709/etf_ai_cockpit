@@ -38,7 +38,20 @@ but risk review reproduced a complete first repetition masking a partial second
 repetition because lanes were unioned across samples. Run `31350158760` is
 cancelled and stale. The exact correction enforces the complete lane signature
 per affected repetition and adds that second-repetition omission regression;
-repeat both final reviews and fresh H-tier validation on one replacement head.
+both final reviewers approved exact head
+`1af5bc4f9361e0100994fcfc0d5116a0d10768e2`. H-tier run `31350660155`
+passed both packages, terminal validation, both repeated pilots and aggregation;
+PR #666 merged it as main `784d10fe5e1d4c2a602e5a5cf5485379d50da924`.
+PR #665 incorporates that exact main through commit
+`599f5a4e81e453916e4cdcf3320d1929aded3449` with product and lifecycle state
+unchanged. Run coupled checks, then freeze one replacement product head for
+both reviews and fresh H-tier validation. `execution_allowed=false` remains.
+Replacement head `aee786ec7d1bf127864d1a2b84346427844019e9` received whole-diff
+approval, while risk review reproduced an unpinned yfinance reference-data
+clock. Run `31354453616` is cancelled and stale. The one consolidated
+correction pins the same fixed date for metadata and holdings and proves the
+committed and audit-packet provenance dates; focused validation, both reviews
+and fresh H-tier validation are required on one replacement head.
 
 ## Current ISSUE-0010 product lane
 
@@ -477,8 +490,64 @@ append-only authority. Its live plan SHA is
 `8e3778a20cd1b1c64da5c69347238c017c932f56d1f16649bd7a2dd8847fe3aa` and
 aggregate authority is
 `60d2ce9cc6057817850dcb42ca1ed7e51c5ddbb96d9415280d557e134bcc7206`.
-Next is exact-head E-tier review/validation, merge, writer plus zero-action
-readback, then dependency-ready ISSUE-0014.
+Both exact-head reviews approved after fresh lifecycle run `31328999996`
+passed Linux, Windows and terminal validation and guard `31328999997` passed.
+PR #664 merged exact head `30be81ef0c73059331cbe9b2268e66f9f02314c6`
+as `c8a7da624c97f1a04191fd3ad1b7880bca83feec`. Writer `31330290295`
+returned `applied_and_verified`, one aggregate proposal and receipt, and
+`zero_action_readback=true`; generic live readback is zero-action at plan SHA
+`999f68c57c2ec349c21280aa94b751a6dac5130a9d03981d2d63a72bdf743f7c`.
+GitHub issue #16 now projects `integrated`; `execution_allowed=false` remains.
+
+ISSUE-0014 remains next and dependency-ready by canonical blocking
+dependencies. Both independent reviewers rejected exact head
+`a66c66ad6c2f941b6640d81320988b0b8af9e129`; this consolidated correction
+replaces simulated package/browser evidence with the real sdist artifact,
+registered routes and loopback HTTP startup, and adds canonical local
+refresh/algorithm/forecast/scoreboard/audit APIs, managed migration backup,
+valid interrupted-write recovery, runner-wide socket denial, provider-
+transport failure and application-API paper restart/rejection regressions.
+Hosted run `31330623071` is stale evidence because preflight failed before the
+Linux and Windows package jobs. Canonical issue status and authority remain
+unchanged pending corrected exact-head review and required H-tier validation.
+Whole-diff review approved first replacement head
+`396e366c4bfe2617d0b0353d14e89b9ffe18f2b7`; risk review rejected it for
+incomplete DNS/datagram denial, an unpinned workflow date and checksum-
+ambiguous proposal negatives. Its run `31332248276` is stale after changed-
+test preflight exceeded 240 seconds. One bounded correction covered all four
+findings. Both reviews approved exact head
+`f25e006a506d2c141b42544ad3dca64e7fe4c831`, but fresh run `31333048454`
+deterministically reproduced the Linux changed-test timeout. The final bounded
+correction removes only duplicate initial snapshot and route rendering; all 16
+journeys retain their assertions and pass locally in 140 seconds. Both reviews
+approved exact head `b3696a504f26dfedad3a5948030cfa8bfab19429`; run
+`31333531773` completed changed tests in 183 seconds and exposed the independent
+preflight absence of the configured setuptools backend. Keep real sdist
+execution when the backend exists, assert the exact isolated-build command
+everywhere, and leave authoritative package execution mandatory in the H-tier
+package job. Freeze one final replacement head for both reviews and fresh
+validation. Both reviews approved exact head
+`48682c5ea4510cec950a01b3316060563f66d70c`. H-tier run `31334147828`
+passed preflight, supply chain, both release packages and terminal validation,
+but its repeated report-only pilots demonstrated that the new all-routes
+browser probe exceeded its 120-second subprocess limit only in the four-worker
+safe lane; both serial repetitions passed. Classify that resource-heavy Flet
+probe into the existing serial/flet lane without changing product, workflow or
+validation authority, then freeze one final replacement head for both reviews
+and fresh validation. Both reviewers rejected replacement head
+`b353740b67b0528fb42d51de13bb2c5fb807b7a1` after jointly demonstrating that
+its purported all-routes probe still named only `/` and `/training-centre`
+while production registers every route in `PAGES`; run `31339056458` was
+cancelled and discarded as stale. The single consolidated correction derives
+and exercises the complete production route registry while retaining the
+existing serial/flet partition. Both reviewers approved exact head
+`3e80a31b7d31245076625dbec9292bb3c5e95754`. H-tier run `31339637212` passed
+preflight, supply chain, both authoritative release packages, terminal
+validation and the Linux parallel pilot, but its second Windows serial
+repetition crossed UTC midnight and exposed one unpinned host-date path in the
+test probe. The single bounded correction binds candidate analysis to the
+probe's existing fixed date and asserts that every download uses that date;
+production, authority and workflow code stay unchanged.
 
 ## ISSUE-0104 product chronology
 
