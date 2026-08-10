@@ -9,6 +9,37 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
+## Current ISSUE-0014 validation repair
+
+PR #665 remains frozen at independently approved exact head
+`5ef8429547a36b6e127a142bb4e81b2e07f35fc6`. H-tier run `31345050975`
+passed every authoritative package and platform pilot, but aggregation rejected
+the intentional Linux-pass/Windows-skip outcome of the POSIX memory-limit
+parser test because that exact contract was missing from its platform
+allowlist. Isolated branch `codex/pilot-platform-outcome-repair-20260810`
+starts at exact main `c8a7da624c97f1a04191fd3ad1b7880bca83feec` and adds only the
+exact outcome/lane rule and fail-closed regression. Review and full H-tier
+validation precede merge; PR #665 must then be rebased and revalidated once.
+Canonical lifecycle and `execution_allowed=false` remain unchanged.
+Both first-head verdicts were collected: risk review approved
+`9495b4eb5b26c2eec894fdbcc1d4b1b9b2070da6`, while whole-diff review
+rejected only its self-referential predicate test. Run `31349420262` was
+cancelled and is stale. The consolidated correction hard-codes the exact test
+and lanes, exercises complete aggregation, and proves rejection of an extra
+lane, reversed outcomes and an unrelated test. Focused validation passes;
+whole-diff re-review approved replacement head
+`218b412804d128dac1b0cc5b0831da46a3738103`, but risk review demonstrated
+that a partial subset of the required three-lane signature still passed. Run
+`31349890546` is cancelled and stale. The final correction requires equality
+with the complete observed lane set and adds one full-path regression per
+omitted lane; freeze one final head for both reviews and H-tier validation.
+Whole-diff review approved `4ce827bec114bf340be7b92b2a02829cfc30843f`,
+but risk review reproduced a complete first repetition masking a partial second
+repetition because lanes were unioned across samples. Run `31350158760` is
+cancelled and stale. The exact correction enforces the complete lane signature
+per affected repetition and adds that second-repetition omission regression;
+repeat both final reviews and fresh H-tier validation on one replacement head.
+
 ## Current ISSUE-0010 product lane
 
 ISSUE-0104 completion PR #656 merged independently approved exact head
