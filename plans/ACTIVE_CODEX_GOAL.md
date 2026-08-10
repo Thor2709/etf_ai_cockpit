@@ -54,6 +54,20 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   `implemented_initially -> integrated` transaction against the real merged
   product commit, then require ordered writer and generic zero-action readback.
   `execution_allowed=false` remains unchanged.
+- Both exact-head reviewers rejected frozen head
+  `f01a673a284c6c7aaf1d0f3699371bef4dfdde70`; hosted run `31391040254` is
+  cancelled and stale. Their consolidated findings were partial cross-root
+  writes, destructive/noncanonical bulk import, sparse-config replacement,
+  ignored storage/hardware choices, empty-machine UI failure, invalid-scope
+  self-corruption, descendant symlink escape and contradictory backup choices.
+  One bounded correction at `45e5e9aa4f350df3f464e3a536ccbcbe24556d8d`
+  makes bulk explicitly unavailable with zero price writes, groups all
+  onboarding-owned outputs with revision/path/volume preflight, propagates only
+  storage/universe and hardware selection, preserves active risk/cost config,
+  supports empty local startup and rejects unsupported backup claims before
+  writes. Focused onboarding, import/export, universe, jobs, resource-profile
+  and atomic-I/O tests plus Windows changed validation pass. Freeze one final
+  documented head for both reviews and fresh H-tier package validation.
 
 ## Superseded ISSUE-0016 product checkpoint
 

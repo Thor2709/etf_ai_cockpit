@@ -2971,3 +2971,15 @@ invalid authority lane remains unpublished. The clean product-only lane now
 freezes for H-tier review and validation; after merge, one automatic lifecycle
 transaction will bind the real merged product commit and require writer plus
 zero-action generic readback. `execution_allowed=false` remains unchanged.
+
+`REVIEW_CORRECTION` both exact-head reviewers rejected frozen head
+`f01a673a284c6c7aaf1d0f3699371bef4dfdde70`; run `31391040254` is cancelled
+and stale. One consolidated correction at
+`45e5e9aa4f350df3f464e3a536ccbcbe24556d8d` closes their complete finding set:
+bulk is explicit unavailable with zero price writes; onboarding-owned outputs
+publish as one revision-guarded local group after path/volume/symlink preflight;
+selected storage and hardware propagate without replacing active risk/cost
+configuration; empty-machine policy fallback and valid-scope persistence are
+covered; unsupported plaintext backup claims fail before writes. Focused and
+Windows changed validation pass. Freeze the documented replacement head, then
+repeat both reviews and fresh H-tier Linux/Windows/terminal validation.
