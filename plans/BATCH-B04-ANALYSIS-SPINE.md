@@ -3082,3 +3082,13 @@ schema-v2 revisions during canonical load and onboarding's in-guard CAS,
 preserving non-hash legacy compatibility. Canonical/active-config tamper
 rejection and backup preservation regressions pass. Freeze the documented head
 for final review and H-tier Linux/Windows/terminal gates.
+
+`LEGACY_LAUNDERING_CORRECTION` both reviews rejected exact head
+`82cebca3f749a11733de3d670ee1981a51715827` because schema-v2 tamper or revision
+downgrade could be republished and backed up through canonical save. Run
+`31418506968` is cancelled and stale. Commit
+`fb548c4467274a70a5c58277334c15db5aa07a8e` requires explicit migration before
+legacy active use/save, validates before backup and inside the held guard, and
+blocks manager saves from integrity-invalid snapshots. Laundering, downgrade,
+no-backup and UI-block regressions pass. Freeze the documented head for final
+review and H-tier Linux/Windows/terminal gates.

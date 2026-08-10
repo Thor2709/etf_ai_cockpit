@@ -167,6 +167,16 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   Tamper rejection through both canonical and active config loaders and backup
   preservation are covered. Freeze the documented head for final review and
   H-tier gates.
+- Both reviews rejected `82cebca3f749a11733de3d670ee1981a51715827`
+  because integrity-invalid or revision-downgraded schema-v2 state could still
+  be laundered through canonical save and backup. Run `31418506968` was
+  cancelled and is stale. Commit `fb548c4467274a70a5c58277334c15db5aa07a8e`
+  now requires explicit migration before schema-v2 active use/save, rejects
+  integrity-invalid state before backup and again under the held guard, and
+  blocks Universe Manager save when its snapshot reports integrity errors.
+  Laundering, revision downgrade, no-backup and UI-block regressions plus the
+  affected focused suite pass. Freeze the documented head for final review and
+  H-tier gates.
 
 ## Superseded ISSUE-0016 product checkpoint
 
