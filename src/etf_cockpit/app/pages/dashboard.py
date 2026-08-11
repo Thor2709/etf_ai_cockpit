@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -13,6 +14,16 @@ from etf_cockpit.app.components.simple_scores import score_colour, simple_score_
 from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.state import ActivityUnavailableError, AppState, activity_result_error
 from etf_cockpit.core.paths import FORECASTS_DIR
+from etf_cockpit.core.paths import ROOT
+from etf_cockpit.application.alerts import (
+    AlertReadback,
+    AlertRecord,
+    AlertRevisionConflict,
+    AlertStatus,
+    dismiss_local_alert,
+    read_local_alerts,
+    snooze_local_alert,
+)
 from etf_cockpit.application.ui_facade import (
     NEWS_CLEAN_PATH,
     SimpleInstrumentScore,
@@ -68,6 +79,7 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
         [
             _evidence_state_panel(state),
             cards,
+            _alerts_digest(page, state),
             _run_changes_digest(page, state),
             _news_digest(page, state),
             _action_bar(page, state),
@@ -159,6 +171,133 @@ def _news_digest(page: ft.Page, state: AppState) -> ft.Control:
             spacing=8,
         )
     )
+
+
+def _read_alerts(*, subject_id: str | None = None, include_inactive: bool = False) -> AlertReadback:
+    try:
+        return read_local_alerts(ROOT, subject_id=subject_id, include_inactive=include_inactive, limit=8)
+    except Exception:
+        return AlertReadback("unavailable")
+
+
+def _alert_colour(record: AlertRecord) -> str:
+    return {
+        "critical": theme.RED,
+        "warning": theme.AMBER,
+        "info": theme.CYAN,
+    }.get(record.alert.severity.value, theme.MUTED)
+
+
+def _alert_row(page: ft.Page | None, state: AppState, record: AlertRecord, *, actions: bool) -> ft.Control:
+    alert = record.alert
+    status = f"status={alert.status.value}"
+    text = ft.Text(
+        f"{alert.title} | {alert.message} | type={alert.alert_type.value} | severity={alert.severity.value} | confidence={alert.confidence.value} | subject={alert.subject_id} | {status} | execution_allowed=false",
+        color=theme.MUTED,
+        selectable=True,
+        size=11,
+        max_lines=4,
+        overflow=ft.TextOverflow.ELLIPSIS,
+    )
+    controls: list[ft.Control] = [evidence_chip(alert.severity.value, alert.alert_type.value, _alert_colour(record)), text]
+    if actions and alert.status is AlertStatus.ACTIVE:
+        controls.extend(
+            [
+                ft.TextButton(
+                    "Dismiss",
+                    key=f"alert.dismiss.{alert.alert_id}",
+                    on_click=lambda _event: _dismiss_alert(page, state, record),
+                ),
+                ft.TextButton(
+                    "Snooze 1 day",
+                    key=f"alert.snooze.{alert.alert_id}",
+                    on_click=lambda _event: _snooze_alert(page, state, record),
+                ),
+            ]
+        )
+    return ft.Column([ft.Row(controls, spacing=8, wrap=True)], spacing=4)
+
+
+def _alerts_digest(page: ft.Page, state: AppState) -> ft.Control:
+    readback = _read_alerts()
+    if readback.status != "available":
+        return state_panel(
+            "error",
+            "Alerts unavailable",
+            "Local alert storage could not be read; manual review is required.",
+            details="Alert state is unavailable; execution_allowed=false",
+        )
+    records = readback.records
+    body: ft.Control = (
+        ft.Column([_alert_row(page, state, record, actions=True) for record in records], spacing=6)
+        if records
+        else ft.Text("No active local alerts or review reminders.", color=theme.MUTED, selectable=True)
+    )
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Alerts & review reminders",
+                    "Local informational alerts with typed severity/confidence; defaults never block scores, models, portfolios or orders.",
+                ),
+                body,
+            ],
+            spacing=8,
+        )
+    )
+
+
+def _alert_history_panel(page: ft.Page, state: AppState) -> ft.Control:
+    readback = _read_alerts(include_inactive=True)
+    if readback.status != "available":
+        return state_panel(
+            "error",
+            "Alert history unavailable",
+            "Local alert history could not be read; manual review is required.",
+            details="Alert history is unavailable; execution_allowed=false",
+        )
+    records = readback.records
+    body: ft.Control = (
+        ft.Column([_alert_row(page, state, record, actions=False) for record in records], spacing=6)
+        if records
+        else ft.Text("No local alert history.", color=theme.MUTED, selectable=True)
+    )
+    return ft.Column(
+        [
+            ft.Text("Alert history", color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12),
+            body,
+        ],
+        spacing=6,
+    )
+
+
+def _dismiss_alert(page: ft.Page | None, state: AppState, record: AlertRecord) -> None:
+    try:
+        dismiss_local_alert(ROOT, record.alert_id, expected_revision=record.revision)
+        state.last_message = "Alert dismissed locally."
+    except Exception as exc:
+        state.last_message = (
+            "Alert changed elsewhere; refresh required."
+            if isinstance(exc, AlertRevisionConflict)
+            else "Alert dismissal unavailable; manual review required."
+        )
+    if page is not None:
+        _rebuild(page, state)
+
+
+def _snooze_alert(page: ft.Page | None, state: AppState, record: AlertRecord) -> None:
+    try:
+        until = datetime.now(timezone.utc) + timedelta(days=1)
+        snooze_local_alert(ROOT, record.alert_id, until, expected_revision=record.revision)
+        state.last_message = "Alert snoozed locally for one day."
+    except Exception as exc:
+        state.last_message = (
+            "Alert changed elsewhere; refresh required."
+            if isinstance(exc, AlertRevisionConflict)
+            else "Alert snooze unavailable; manual review required."
+        )
+    if page is not None:
+        _rebuild(page, state)
 
 
 def _summary_cards(
@@ -298,6 +437,7 @@ def _activity_panel(state: AppState, *, page: ft.Page | None = None) -> ft.Contr
                     spacing=8,
                 )
             )
+    rows.append(_alert_history_panel(page, state))
     return panel(
         ft.Column(
             [

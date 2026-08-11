@@ -7,9 +7,12 @@ import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
+from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel, build_etf_disclosure_panel, build_etf_structure_panel, build_etf_liquidity_panel, build_instrument_detail
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.alerts import AlertReadback, read_local_alerts
 from etf_cockpit.application.ui_facade import bitemporal_history_summary
+from etf_cockpit.core.paths import ROOT
 
 
 def render_etf_disclosure_panel(model: InstrumentDetailViewModel) -> ft.Control:
@@ -435,6 +438,48 @@ def render_event_calendar_panel(model: InstrumentDetailViewModel) -> ft.Control:
     return panel(ft.Column([section_header("Event calendar", "Upcoming earnings, dividends, splits and high-risk actions are shown with source and availability metadata; events are context-only."), body], spacing=8))
 
 
+def _instrument_alerts_panel(instrument_id: str) -> ft.Control:
+    try:
+        readback = read_local_alerts(ROOT, subject_id=instrument_id, include_inactive=True, limit=8)
+    except Exception:
+        readback = AlertReadback("unavailable")
+    if readback.status != "available":
+        return state_panel(
+            "error",
+            "Alerts unavailable",
+            "Local alert storage could not be read; manual review is required.",
+            details="Instrument alert state is unavailable; execution_allowed=false",
+        )
+    records = readback.records
+    if records:
+        body: ft.Control = ft.Column(
+            [
+                ft.Text(
+                    f"{record.alert.alert_type.value} | severity={record.alert.severity.value} | confidence={record.alert.confidence.value} | status={record.alert.status.value} | {record.alert.message} | execution_allowed=false",
+                    color=theme.AMBER if record.alert.severity.value != "info" else theme.MUTED,
+                    selectable=True,
+                    size=11,
+                )
+                for record in records
+            ],
+            spacing=4,
+        )
+    else:
+        body = ft.Text("No local alerts or review reminders for this instrument.", color=theme.MUTED, selectable=True)
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Alerts & review reminders",
+                    "Instrument-scoped local readback. Alerts are informational unless an explicit external policy says otherwise; no order is submitted.",
+                ),
+                body,
+            ],
+            spacing=8,
+        )
+    )
+
+
 def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
     route = str(getattr(page, "route", "") or "") if page is not None else ""
     selected = route.split("/", 2)[-1].split("?", 1)[0].split("#", 1)[0] if route.startswith("/instrument/") else state.selected_etf
@@ -623,6 +668,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
                 ),
                 ft.Row([export_control, export_status], wrap=True),
             ], spacing=8)),
+            _instrument_alerts_panel(selected),
             _render_feature_driver_panel(model.sections.get("feature_drivers")),
             _render_crowding_attribution_panel(model.sections),
             render_etf_disclosure_panel(model),
