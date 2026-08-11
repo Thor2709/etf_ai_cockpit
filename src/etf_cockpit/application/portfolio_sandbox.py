@@ -46,7 +46,7 @@ _RESULT_FIELDS = frozenset({
     "constraints", "marginal_effects", "why_not", "overlap", "warnings", "cost", "service_evidence",
     "proposal_boundary", "execution_allowed", "payload_checksum",
 })
-_SOURCE_FIELDS = frozenset({"account_id", "portfolio_id", "snapshot_id", "source_revision", "source_checksum", "as_of", "holdings_view", "holdings_sources", "execution_allowed"})
+_SOURCE_FIELDS = frozenset({"account_id", "portfolio_id", "snapshot_id", "source_revision", "source_checksum", "price_source_revision", "price_source_checksum", "as_of", "holdings_view", "holdings_sources", "execution_allowed"})
 _HANDOFF_FIELDS = frozenset({
     "schema_version", "boundary", "status", "proposal_policy_evaluated", "candidate_id", "account_id",
     "portfolio_id", "portfolio_revision", "source_snapshot_id", "source_snapshot", "changes", "rejected",
@@ -134,12 +134,19 @@ def analyse_portfolio_candidate(
         if instrument_id:
             current[instrument_id] = current.get(instrument_id, 0.0) + float(row.get("current_weight", 0.0))
     ids = sorted(set(current) | set(candidate.targets))
+    binding = portfolio_snapshot_binding(
+        snapshot,
+        account_id=account_id,
+        portfolio_id=portfolio_id,
+        snapshot_id=snapshot_id,
+        holdings_view=holdings_view,
+    )
     overlap = build_direct_overlap_view(
         snapshot,
         ids,
         current_weights=current,
         target_weights=candidate.targets,
-        known_at=_overlap_cutoff(snapshot),
+        known_at=_overlap_cutoff(binding.as_of),
     )
     analysis_candidate = replace(candidate, source_checksum=holdings_checksum(holdings))
     analysis = analyse_candidate(
@@ -156,13 +163,6 @@ def analyse_portfolio_candidate(
             source_stale=True,
             warnings=tuple(dict.fromkeys(("Saved source binding changed; all derived values were re-evaluated from the current snapshot.", *analysis.warnings))),
         )
-    binding = portfolio_snapshot_binding(
-        snapshot,
-        account_id=account_id,
-        portfolio_id=portfolio_id,
-        snapshot_id=snapshot_id,
-        holdings_view=holdings_view,
-    )
     services = _service_evidence(snapshot, analysis)
     services["capability_matrix"] = _capability_matrix_evidence(governed_holdings, target_capabilities)
     return replace(analysis, snapshot_binding=binding, service_evidence=services)
@@ -308,7 +308,13 @@ def portfolio_snapshot_binding(
         snapshot_id=selected_snapshot,
         source_revision=revision,
         source_checksum=checksum,
-        as_of=(holdings_dates[0] if len(holdings_dates) == 1 else f"multiple:{','.join(holdings_dates)}" if holdings_dates else _source_as_of(snapshot)),
+        price_source_revision=str(
+            getattr(snapshot, "price_revision", None)
+            or getattr(snapshot, "prices_revision", None)
+            or "unknown"
+        ),
+        price_source_checksum=_prices_checksum(getattr(snapshot, "prices", pd.DataFrame())),
+        as_of=(holdings_dates[0] if len(holdings_dates) == 1 else _source_as_of(snapshot)),
         holdings_view=str(holdings_view or "combined"),
         holdings_sources=holdings_sources,
     )
@@ -365,9 +371,10 @@ def portfolio_analysis_payload(
         raise ValueError("portfolio sandbox result requires a source snapshot binding")
     if isinstance(candidate_revision, bool) or not isinstance(candidate_revision, int) or candidate_revision < 0:
         raise ValueError("candidate revision must be a non-negative integer")
-    expected_candidate_checksum = str(candidate_payload_checksum or _candidate_payload(analysis.candidate)["payload_checksum"])
-    if len(expected_candidate_checksum) != 64:
-        raise ValueError("candidate payload checksum is invalid")
+    canonical_candidate_checksum = str(_candidate_payload(analysis.candidate)["payload_checksum"])
+    expected_candidate_checksum = str(candidate_payload_checksum or canonical_candidate_checksum)
+    if len(expected_candidate_checksum) != 64 or expected_candidate_checksum != canonical_candidate_checksum:
+        raise ValueError("candidate payload checksum does not match candidate")
     body: dict[str, object] = {
         "schema_version": "portfolio_sandbox_result.v1",
         "candidate_id": analysis.candidate.candidate_id,
@@ -525,12 +532,21 @@ def _candidate_from_record(snapshot: object, record: StoredRecord) -> PortfolioC
     target_pairs = [(str(item[0]), item[1]) for item in raw_targets]
     if len({item[0] for item in target_pairs}) != len(target_pairs):
         raise ValueError("saved portfolio candidate contains duplicate instruments")
-    validated = build_portfolio_candidate(
-        snapshot,
+    validation_holdings = pd.DataFrame(
+        [
+            {"instrument_id": instrument_id, "current_weight": 0.0, "market_value_eur": 0.0}
+            for instrument_id, _weight in target_pairs
+        ]
+    )
+    validated = create_candidate(
+        getattr(snapshot, "config"),
+        validation_holdings,
         name=str(payload.get("name", "")),
         analysis_notional_eur=payload.get("analysis_notional_eur"),
         target_weights=dict(target_pairs),
         cash_weight=payload.get("cash_weight"),
+        source_revision=str(payload.get("source_revision", "") or "unknown"),
+        source_as_of=str(payload["source_as_of"]).strip() if payload.get("source_as_of") else None,
     )
     if validated.candidate_id != record.entity_id or validated.candidate_id != str(payload.get("candidate_id", "")):
         raise ValueError("saved portfolio candidate identity does not match its name")
@@ -556,8 +572,7 @@ def _source_as_of(snapshot: object) -> str | None:
     return str(value) if value is not None else None
 
 
-def _overlap_cutoff(snapshot: object) -> datetime | None:
-    raw = _source_as_of(snapshot)
+def _overlap_cutoff(raw: str | None) -> datetime | None:
     if raw is None:
         return None
     parsed = pd.Timestamp(raw)
@@ -570,6 +585,20 @@ def _overlap_cutoff(snapshot: object) -> datetime | None:
     if len(raw) == 10 and raw[4:5] == "-" and raw[7:8] == "-":
         parsed = parsed + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
     return parsed.to_pydatetime()
+
+
+def _prices_checksum(prices: object) -> str:
+    if not isinstance(prices, pd.DataFrame):
+        return hashlib.sha256(b"unavailable").hexdigest()
+    stable = prices.reset_index(drop=True).sort_index(axis=1)
+    payload = stable.to_json(
+        orient="split",
+        date_format="iso",
+        date_unit="ns",
+        double_precision=15,
+        default_handler=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _holding_evidence_values(holdings: pd.DataFrame, field: str) -> tuple[str, ...]:

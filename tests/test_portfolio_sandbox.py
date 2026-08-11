@@ -96,6 +96,30 @@ def test_candidate_overlap_excludes_evidence_known_after_snapshot_as_of(monkeypa
     assert selected.known_at == "2026-07-02T00:00:00+00:00"
 
 
+def test_overlap_cutoff_matches_the_as_of_emitted_in_source_binding(monkeypatch) -> None:
+    snapshot = _snapshot()
+    snapshot.holdings["as_of_date"] = "2026-07-17"
+    evidence = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "security": "Eligible", "isin": "GB0002634946", "weight": 1.0, "as_of": "2026-07-16", "known_at": "2026-07-17T00:00:00Z", "source_id": "eligible", "authority": "issuer", "completeness": "full"},
+            {"instrument_id": "VWCE", "security": "Future", "isin": "GB0002634946", "weight": 1.0, "as_of": "2026-07-17", "known_at": "2026-07-18T12:00:00Z", "source_id": "future", "authority": "issuer", "completeness": "full"},
+        ]
+    )
+    original = sandbox_store.build_direct_overlap_view
+
+    def build_with_evidence(current_snapshot, instrument_ids, **kwargs):
+        return original(current_snapshot, instrument_ids, holdings=evidence, **kwargs)
+
+    monkeypatch.setattr(sandbox_store, "build_direct_overlap_view", build_with_evidence)
+
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+
+    assert analysis.snapshot_binding is not None
+    assert analysis.snapshot_binding.as_of == "2026-07-17"
+    selected = next(item for item in analysis.overlap.coverage if item.instrument_id == "VWCE")
+    assert selected.source_id == "eligible"
+
+
 @pytest.mark.parametrize(
     ("target", "cash", "expected"),
     [
@@ -683,6 +707,13 @@ def test_result_persistence_export_and_draft_handoff_are_isolated(tmp_path) -> N
     pd.testing.assert_frame_equal(snapshot.holdings, before)
 
 
+def test_result_payload_rejects_a_caller_supplied_unbound_candidate_checksum() -> None:
+    analysis = analyse_portfolio_candidate(_snapshot(), _candidate())
+
+    with pytest.raises(ValueError, match="checksum does not match candidate"):
+        portfolio_analysis_payload(analysis, candidate_payload_checksum="0" * 64)
+
+
 @pytest.mark.parametrize("mutation", ["execution", "identity", "candidate_revision", "candidate_checksum"])
 def test_tampered_recomputed_result_fails_closed(tmp_path, mutation) -> None:
     snapshot = _snapshot()
@@ -752,6 +783,41 @@ def test_as_of_only_change_marks_source_stale_and_suppresses_result(tmp_path) ->
     snapshot.data_report.as_of_date = "2026-07-19"
 
     loaded = load_portfolio_candidate(snapshot, "As-of binding", root=tmp_path)
+
+    assert loaded.source_stale is True
+    assert loaded.result_payload is None
+
+
+def test_adjusted_price_change_marks_result_stale_instead_of_failing_recomputation(tmp_path) -> None:
+    snapshot = _snapshot()
+    snapshot.price_revision = "prices-1"
+    snapshot.prices = pd.DataFrame(
+        [
+            {
+                "date": f"2026-07-{day:02d}",
+                "etf_id": instrument_id,
+                "adjusted_close": base + day * step,
+            }
+            for day in range(1, 11)
+            for instrument_id, base, step in (("VWCE", 100.0, 1.0), ("LYP6", 80.0, 0.4))
+        ]
+    )
+    save_portfolio_candidate(
+        snapshot,
+        name="Price-bound result",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.6, "LYP6": 0.3},
+        cash_weight=0.1,
+        expected_revision=0,
+        root=tmp_path,
+    )
+    snapshot.price_revision = "prices-2"
+    snapshot.prices.loc[
+        snapshot.prices["etf_id"].eq("VWCE") & snapshot.prices["date"].eq("2026-07-10"),
+        "adjusted_close",
+    ] = 130.0
+
+    loaded = load_portfolio_candidate(snapshot, "Price-bound result", root=tmp_path)
 
     assert loaded.source_stale is True
     assert loaded.result_payload is None
@@ -831,6 +897,34 @@ def test_classifier_change_changes_binding_and_suppresses_stale_result(tmp_path)
     snapshot.holdings.loc[0, ["asset_type", "security_type", "cfi_code", "crypto"]] = ["crypto", "crypto", "X", True]
     assert holdings_checksum(snapshot.holdings) != original_checksum
     loaded = load_portfolio_candidate(snapshot, "Classifier stale", root=tmp_path)
+    assert loaded.source_stale is True
+    assert loaded.result_payload is None
+
+
+def test_saved_mixed_asset_candidate_reloads_after_asset_leaves_current_holdings(tmp_path) -> None:
+    snapshot = _snapshot()
+    snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "asset_type": "etf", "security_type": "ordinary_etf", "cfi_code": "CEQ", "average_daily_value_usd": 1_000_000, "current_weight": 0.4, "market_value_eur": 40_000.0},
+            {"instrument_id": "AAPL", "asset_type": "stock", "security_type": "ordinary_share", "cfi_code": "E", "market_cap_usd": 1_000_000_000, "average_daily_value_usd": 1_000_000, "current_weight": 0.3, "market_value_eur": 30_000.0},
+        ]
+    )
+    save_portfolio_candidate(
+        snapshot,
+        name="Former mixed holding",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.4, "AAPL": 0.3},
+        cash_weight=0.3,
+        expected_revision=0,
+        root=tmp_path,
+    )
+    snapshot.holdings = snapshot.holdings.loc[
+        snapshot.holdings["instrument_id"].eq("VWCE")
+    ].reset_index(drop=True)
+
+    loaded = load_portfolio_candidate(snapshot, "Former mixed holding", root=tmp_path)
+
+    assert loaded.candidate.targets["AAPL"] == pytest.approx(0.3)
     assert loaded.source_stale is True
     assert loaded.result_payload is None
 

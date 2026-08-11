@@ -2035,3 +2035,14 @@ next action and whether the requested outcome is actually complete.
   zero-target exits, and overlap evidence receives the timezone-aware selected
   snapshot cutoff. Exact configured-`UCG` and future-known-evidence regressions
   pass; freeze one replacement head for both reviews and fresh H-tier evidence.
+- Head `55f3185500d36b18e9839727fcf380973d9b7dfd` and run
+  `31516901901` are invalidated after both reviewers demonstrated four bounded
+  source-integrity/readback defects: binding as-of could differ from overlap
+  cutoff, adjusted prices were omitted from result identity, a caller checksum
+  was not compared with canonical candidate content, and a formerly held
+  unconfigured target could not be reloaded as stale. One canonical as-of now
+  drives binding and overlap selection; price revision/checksum are bound;
+  candidate checksum equality is mandatory; and persisted intent validates
+  independently of current holdings before current-rule recomputation. All
+  four exact regressions pass. Freeze one replacement head and repeat the two
+  reviews plus fresh H-tier evidence without adjacent redesign.

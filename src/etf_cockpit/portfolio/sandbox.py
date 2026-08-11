@@ -91,6 +91,8 @@ class PortfolioSnapshotBinding:
     snapshot_id: str
     source_revision: str
     source_checksum: str
+    price_source_revision: str
+    price_source_checksum: str
     as_of: str | None
     holdings_view: str = "combined"
     holdings_sources: tuple[str, ...] = ()

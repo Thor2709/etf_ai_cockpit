@@ -9,11 +9,13 @@ call providers, storage or broker code directly.
 
 ## Snapshot and holdings contract
 
-`portfolio_snapshot_binding()` records account, portfolio, snapshot/as-of,
-universe revision, the checksum of the selected `direct`, `look_through` or
-`combined` rows, and the selected view. Invalid view names or malformed
-lineage fail closed. A missing account or snapshot identity uses an explicit
-deterministic local fallback; it is never inferred from a broker write.
+`portfolio_snapshot_binding()` records account, portfolio, one canonical
+snapshot/as-of, universe revision, the checksum of the selected `direct`,
+`look_through` or `combined` rows, the adjusted-price revision and checksum,
+and the selected view. The same canonical as-of is the cutoff for overlap
+evidence. Invalid view names or malformed lineage fail closed. A missing
+account or snapshot identity uses an explicit deterministic local fallback;
+it is never inferred from a broker write.
 Holding rows retain direct versus look-through lineage, asset type, market
 value, source id and capability state.
 
@@ -52,11 +54,15 @@ Candidate and result publication uses one local CAS transaction with
 independent expected revisions; a missing legacy result has expected revision
 zero. The result payload is `portfolio_sandbox_result.v1`, has an exact field
 set and checksum, cross-binds the exact candidate record revision and payload
-checksum, is bound to the selected source snapshot, and is also the
+checksum, is bound to the selected holdings and adjusted-price source
+snapshot, and is also the
 exact sandbox-specific JSON export contract. Derived values are always
 recomputed when a saved candidate is loaded against a changed snapshot; stale
-result evidence is not surfaced as current. Candidate and result records are
-read in one SQLite read snapshot, preventing a mixed-revision pair.
+result evidence is not surfaced as current. A saved mixed-asset intent remains
+readable when an unconfigured instrument later leaves current holdings; its
+derived result becomes stale and is recomputed under current capability rules.
+Candidate and result records are read in one SQLite read snapshot, preventing
+a mixed-revision pair.
 
 ## Proposal and execution boundary
 

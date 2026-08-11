@@ -3320,3 +3320,14 @@ every held or positive-target preview instrument and passes a timezone-aware
 snapshot cutoff into the existing overlap service. Exact configured-`UCG` and
 future-known overlap regressions pass. No execution, proposal, ledger or broker
 authority changes; `execution_allowed=false` remains unchanged.
+
+`SOURCE_IDENTITY_AND_RELOAD_CORRECTION` invalidates exact head
+`55f3185500d36b18e9839727fcf380973d9b7dfd` and run `31516901901`. Parallel
+review reproduced four bounded defects: overlap could read beyond its emitted
+binding as-of, adjusted-price changes were absent from result source identity,
+a supplied candidate checksum needed only valid length, and a saved mixed-asset
+target became unreadable after leaving current holdings. The correction uses
+one as-of for binding and overlap, binds price revision/checksum, requires exact
+candidate checksum equality and reconstructs persisted intent independently
+before current-snapshot recomputation. Exact regressions pass and
+`execution_allowed=false` remains unchanged.
