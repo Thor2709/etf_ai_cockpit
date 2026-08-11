@@ -849,6 +849,11 @@ def save_universe_manifest(manifest: UniverseManifest, *, root: Path | None = No
     payload = {"manifest_id": manifest.manifest_id, **_manifest_body(manifest)}
     _manifest_from_payload(payload)
     encoded = (json.dumps(payload, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+    def precondition() -> None:
+        _reject_escaped_manifest_path(root, path)
+        _reject_escaped_manifest_path(root, snapshot_path)
+
     atomic_write_group(
         (
             AtomicWriteRequest(_CheckedManifestDestination(root, path), encoded, _validate_manifest_file),  # type: ignore[arg-type]
@@ -857,7 +862,8 @@ def save_universe_manifest(manifest: UniverseManifest, *, root: Path | None = No
                 encoded,
                 _validate_manifest_file,
             ),
-        )
+        ),
+        precondition=precondition,
     )
     return ManifestSaveResult(path, snapshot_path, manifest.manifest_id)
 

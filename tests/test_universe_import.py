@@ -492,3 +492,52 @@ def test_manifest_group_rejects_linked_child_destinations_outside_selected_root(
     finally:
         if linked_as_junction:
             linked_path.rmdir()
+
+
+def test_manifest_group_revalidates_destination_identity_under_guard(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "selected-root"
+    configs = root / "configs"
+    configs.mkdir(parents=True)
+    original_configs = root / "configs-original"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_as_junction = False
+
+    def swap_then_check(_requests, *, precondition=None, **_kwargs):
+        nonlocal linked_as_junction
+        assert precondition is not None
+        configs.rename(original_configs)
+        try:
+            configs.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            if os.name != "nt":
+                pytest.skip("directory links are unavailable")
+            junction = subprocess.run(
+                ["cmd", "/c", "mklink", "/J", str(configs), str(outside)],
+                capture_output=True,
+                text=True,
+            )
+            if junction.returncode != 0:
+                pytest.skip("directory links are unavailable")
+            linked_as_junction = True
+        precondition()
+        return ()
+
+    report = dry_run_universe_import("canonical_id,ticker\nA,A\n", source_kind="paste")
+    manifest = build_universe_manifest(report)
+    monkeypatch.setattr(universe_import, "atomic_write_group", swap_then_check)
+    try:
+        with pytest.raises(ValueError, match="symlink"):
+            save_universe_manifest(manifest, root=root)
+        assert not (outside / "universe_manifest.json").exists()
+    finally:
+        if configs.exists() or configs.is_symlink():
+            if configs.is_symlink():
+                configs.unlink()
+            elif linked_as_junction:
+                configs.rmdir()
+        if original_configs.exists():
+            original_configs.rename(configs)
