@@ -165,28 +165,52 @@ def _alert_id(alert_type: AlertType, subject_id: str, dedupe_key: str) -> str:
 class _SnoozeInterval:
     snoozed_at: datetime
     snoozed_until: datetime
+    superseded_at: datetime | None = None
 
     def __post_init__(self) -> None:
         snoozed_at = _utc_datetime(self.snoozed_at, field="snoozed_at")
         snoozed_until = _utc_datetime(self.snoozed_until, field="snoozed_until")
+        superseded_at = _optional_datetime(self.superseded_at, field="superseded_at")
         object.__setattr__(self, "snoozed_at", snoozed_at)
         object.__setattr__(self, "snoozed_until", snoozed_until)
+        object.__setattr__(self, "superseded_at", superseded_at)
         if snoozed_at >= snoozed_until:
             raise ValueError("snoozed_at must be before snoozed_until")
+        if superseded_at is not None and not snoozed_at < superseded_at < snoozed_until:
+            raise ValueError("superseded_at must be inside the snooze interval")
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "_SnoozeInterval":
         if not isinstance(data, Mapping):
             raise TypeError("snooze history entries must be mappings")
-        fields = {"snoozed_at", "snoozed_until"}
-        if set(data) != fields:
-            raise ValueError("snooze history entries require exactly snoozed_at and snoozed_until")
-        return cls(snoozed_at=data["snoozed_at"], snoozed_until=data["snoozed_until"])
+        required = {"snoozed_at", "snoozed_until"}
+        if not required.issubset(data) or set(data) - {*required, "superseded_at"}:
+            raise ValueError("snooze history entries require snoozed_at and snoozed_until")
+        return cls(
+            snoozed_at=data["snoozed_at"],
+            snoozed_until=data["snoozed_until"],
+            superseded_at=data.get("superseded_at"),
+        )
 
-    def to_dict(self) -> dict[str, str]:
+    @property
+    def effective_until(self) -> datetime:
+        return self.snoozed_until if self.superseded_at is None else self.superseded_at
+
+    def as_of(self, cutoff: datetime) -> "_SnoozeInterval":
+        return replace(
+            self,
+            superseded_at=(
+                self.superseded_at
+                if self.superseded_at is not None and self.superseded_at <= cutoff
+                else None
+            ),
+        )
+
+    def to_dict(self) -> dict[str, str | None]:
         return {
             "snoozed_at": _canonical_datetime(self.snoozed_at),
             "snoozed_until": _canonical_datetime(self.snoozed_until),
+            "superseded_at": _canonical_datetime(self.superseded_at),
         }
 
 
@@ -442,7 +466,9 @@ def evaluate_alerts_as_of(alerts: Iterable[Alert], as_of: datetime | str) -> tup
         if alert.available_at > cutoff:
             continue
         visible_history = tuple(
-            interval for interval in alert.snooze_history if interval.snoozed_at <= cutoff
+            interval.as_of(cutoff)
+            for interval in alert.snooze_history
+            if interval.snoozed_at <= cutoff
         )
         visible_current = (
             _SnoozeInterval(alert.snoozed_at, alert.snoozed_until)
@@ -465,7 +491,7 @@ def evaluate_alerts_as_of(alerts: Iterable[Alert], as_of: datetime | str) -> tup
         elif alert.dismissed_at is not None and alert.dismissed_at <= cutoff:
             status = AlertStatus.DISMISSED
         elif any(
-            interval.snoozed_at <= cutoff < interval.snoozed_until
+            interval.snoozed_at <= cutoff < interval.effective_until
             for interval in visible_intervals
         ):
             status = AlertStatus.SNOOZED
@@ -477,7 +503,7 @@ def evaluate_alerts_as_of(alerts: Iterable[Alert], as_of: datetime | str) -> tup
             projected_current = next(
                 interval
                 for interval in reversed(visible_history)
-                if interval.snoozed_at <= cutoff < interval.snoozed_until
+                if interval.snoozed_at <= cutoff < interval.effective_until
             )
             projected_history = tuple(
                 interval for interval in visible_history if interval is not projected_current
@@ -623,11 +649,16 @@ class AlertStore:
             raise ValueError("snooze until must be before alert expiry")
         history = record.alert.snooze_history
         if record.alert.snoozed_at is not None and record.alert.snoozed_until is not None:
-            superseded_until = min(record.alert.snoozed_until, now)
-            if record.alert.snoozed_at < superseded_until:
+            if record.alert.snoozed_at < now:
                 history = (
                     *history,
-                    _SnoozeInterval(record.alert.snoozed_at, superseded_until),
+                    _SnoozeInterval(
+                        record.alert.snoozed_at,
+                        record.alert.snoozed_until,
+                        superseded_at=(
+                            now if now < record.alert.snoozed_until else None
+                        ),
+                    ),
                 )
         updated = replace(
             record.alert,

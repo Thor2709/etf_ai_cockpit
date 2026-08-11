@@ -510,6 +510,12 @@ def test_resnooze_replaces_live_interval_at_operation_cutoff(tmp_path) -> None:
             expected_revision=first.revision,
         )
 
-    assert replaced.alert.snooze_history[0].snoozed_until == NOW.replace(hour=14)
+    assert replaced.alert.snooze_history[0].snoozed_until == NOW.replace(hour=18)
+    assert replaced.alert.snooze_history[0].superseded_at == NOW.replace(hour=14)
+    before_replacement = evaluate_alerts_as_of(
+        (replaced.alert,), NOW.replace(hour=13, minute=30)
+    )[0]
+    assert before_replacement.status is AlertStatus.SNOOZED
+    assert before_replacement.snoozed_until == NOW.replace(hour=18)
     assert evaluate_alerts_as_of((replaced.alert,), NOW.replace(hour=15))[0].status is AlertStatus.SNOOZED
     assert evaluate_alerts_as_of((replaced.alert,), NOW.replace(hour=17))[0].status is AlertStatus.ACTIVE
