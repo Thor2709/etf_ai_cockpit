@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
+import json
 
 import pandas as pd
 import pytest
 
 from etf_cockpit.app.pages.instrument_detail import render_event_calendar_panel
+from etf_cockpit.app.router import PAGES
 from etf_cockpit.app.selectors.instrument_detail import build_instrument_detail
-from etf_cockpit.data.event_calendar import EVENT_TYPES, CalendarEvent, events_available_as_of, load_calendar_events, normalise_event_decision_time, persist_calendar_events, validate_event
+from etf_cockpit.data.event_calendar import EVENT_COLUMNS, EVENT_SCHEMA_VERSION, EVENT_TYPES, CalendarEvent, events_available_as_of, load_calendar_events, normalise_event_decision_time, persist_calendar_events, validate_event
 from etf_cockpit.services import build_snapshot
 
 
@@ -29,6 +32,32 @@ def _event(**changes: str) -> CalendarEvent:
     return CalendarEvent(**values)
 
 
+def _canonical_row(event: CalendarEvent, **changes: object) -> dict[str, object]:
+    payload = {
+        **event.__dict__,
+        "schema_version": EVENT_SCHEMA_VERSION,
+        "context_only": True,
+        "execution_allowed": False,
+        "executable_authority": False,
+    }
+    checksum = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    validation = validate_event(event)
+    row = {
+        **event.__dict__,
+        "schema_version": EVENT_SCHEMA_VERSION,
+        "validation_status": validation.status,
+        "validation_reason": validation.reason,
+        "backtest_eligible": validation.backtest_eligible,
+        "context_only": True,
+        "execution_allowed": False,
+        "executable_authority": False,
+        "raw_path": f"raw/event_calendar/{event.event_id}.json",
+        "event_checksum": checksum,
+    }
+    row.update(changes)
+    return {column: row.get(column, "") for column in EVENT_COLUMNS}
+
+
 def test_event_validation_requires_point_in_time_provenance_and_keeps_context_only() -> None:
     valid = validate_event(_event(), datetime(2026, 7, 2, tzinfo=timezone.utc))
     assert valid.status == "valid_context"
@@ -38,6 +67,7 @@ def test_event_validation_requires_point_in_time_provenance_and_keeps_context_on
 
     assert validate_event(_event(available_at="2026-07-01")).status == "ambiguous_availability"
     assert validate_event(_event(event_time="2026-07-30T08:00:00", precision="minute")).status == "ambiguous_event_time"
+    assert validate_event(_event(event_time="2026-07-30T08:00:00+00:00", precision="date")).status == "unexpected_event_time"
     assert validate_event(_event(), datetime(2026, 6, 30, tzinfo=timezone.utc)).status == "after_decision_time"
 
 
@@ -50,7 +80,7 @@ def test_event_validation_rejects_blank_or_invalid_timezone_metadata() -> None:
     assert validate_event(_event(timezone_name="")).status == "invalid_timezone"
     assert validate_event(_event(timezone_name="Not/IANA")).status == "invalid_timezone"
     assert validate_event(_event(timezone_name="America/New_York")).status == "valid_context"
-    invalid_row = pd.DataFrame([{**_event(timezone_name="Not/IANA").__dict__, "backtest_eligible": True, "event_checksum": "invalid"}])
+    invalid_row = pd.DataFrame([_canonical_row(_event(), timezone_name="Not/IANA")])
     assert events_available_as_of(invalid_row, datetime(2026, 7, 2, tzinfo=timezone.utc), "MSFT").empty
 
 
@@ -62,12 +92,28 @@ def test_event_decision_time_normalisation_rejects_ambiguous_datetimes() -> None
 
 def test_event_availability_applies_both_cutoffs_and_identity() -> None:
     frame = pd.DataFrame([
-        {**_event(event_id="a").__dict__, "backtest_eligible": True, "event_checksum": "a"},
-        {**_event(event_id="late-ingest", ingested_at="2026-07-03T09:01:00+00:00").__dict__, "backtest_eligible": True, "event_checksum": "b"},
-        {**_event(event_id="other", instrument_id="OTHER").__dict__, "backtest_eligible": True, "event_checksum": "c"},
+        _canonical_row(_event(event_id="a")),
+        _canonical_row(_event(event_id="late-ingest", ingested_at="2026-07-03T09:01:00+00:00")),
+        _canonical_row(_event(event_id="other", instrument_id="OTHER")),
     ])
     result = events_available_as_of(frame, datetime(2026, 7, 2, tzinfo=timezone.utc), "MSFT")
     assert list(result["event_id"]) == ["a"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (("event_checksum", "tampered"), ("validation_reason", "untrusted"), ("context_only", False), ("executable_authority", True)),
+)
+def test_event_availability_rejects_inconsistent_canonical_rows(field: str, value: object) -> None:
+    row = _canonical_row(_event())
+    row[field] = value
+    assert events_available_as_of(pd.DataFrame([row]), datetime(2026, 7, 2, tzinfo=timezone.utc), "MSFT").empty
+
+
+def test_event_availability_rejects_incomplete_canonical_schema() -> None:
+    row = _canonical_row(_event())
+    frame = pd.DataFrame([{key: value for key, value in row.items() if key != "source_authority"}])
+    assert events_available_as_of(frame, datetime(2026, 7, 2, tzinfo=timezone.utc), "MSFT").empty
 
 
 def test_event_persistence_is_idempotent_and_atomic(tmp_path) -> None:
@@ -84,11 +130,53 @@ def test_event_persistence_is_idempotent_and_atomic(tmp_path) -> None:
     assert len(load_calendar_events(tmp_path / "clean.parquet")) == 1
 
 
+def test_event_persistence_serializes_concurrent_append_transactions(tmp_path) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    raw_dir = tmp_path / "raw" / "event_calendar"
+    clean_path = tmp_path / "clean.parquet"
+    audit_path = tmp_path / "clean_audit.json"
+    start = Barrier(2)
+
+    def append(event: CalendarEvent):
+        start.wait()
+        return persist_calendar_events([event], raw_dir=raw_dir, clean_path=clean_path, audit_path=audit_path)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(append, (_event(event_id="concurrent-a"), _event(event_id="concurrent-b"))))
+
+    frame = load_calendar_events(clean_path)
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert set(frame["event_id"]) == {"concurrent-a", "concurrent-b"}
+    assert len(events_available_as_of(frame, datetime(2026, 7, 2, tzinfo=timezone.utc))) == 2
+    assert any(result.rows == 2 for result in results)
+    assert audit["rows"] == len(frame) == 2
+    assert audit["checksum"] == next(result.checksum for result in results if result.rows == 2)
+
+
+def test_event_persistence_does_not_launder_an_integrity_invalid_existing_ledger(tmp_path) -> None:
+    raw_dir = tmp_path / "raw" / "event_calendar"
+    clean_path = tmp_path / "clean.parquet"
+    persist_calendar_events([_event(event_id="original")], raw_dir=raw_dir, clean_path=clean_path)
+    tampered = pd.read_parquet(clean_path)
+    tampered.loc[0, "title"] = "Tampered without checksum update"
+    tampered.to_parquet(clean_path, index=False)
+
+    assert load_calendar_events(clean_path).empty
+    with pytest.raises(ValueError, match="malformed or inconsistent"):
+        persist_calendar_events([_event(event_id="new-event")], raw_dir=raw_dir, clean_path=clean_path)
+    raw_paths = list(raw_dir.glob("*.json"))
+    assert len(raw_paths) == 1
+    assert raw_paths[0].name.startswith("original-")
+    assert pd.read_parquet(clean_path).loc[0, "title"] == "Tampered without checksum update"
+
+
 def test_event_ui_surfaces_available_and_unavailable_states(monkeypatch) -> None:
     import etf_cockpit.app.selectors.instrument_detail as selector
 
     snapshot = build_snapshot()
-    events = pd.DataFrame([{**_event(instrument_id="VWCE").__dict__, "validation_status": "valid_context", "backtest_eligible": True, "context_only": True, "execution_allowed": False, "event_checksum": "x"}])
+    events = pd.DataFrame([_canonical_row(_event(instrument_id="VWCE"))])
     model = build_instrument_detail(snapshot, "VWCE", events=events)
     assert model.sections["events"]["status"] == "available"
     assert model.sections["events"]["events"][0]["execution_allowed"] is False
@@ -106,26 +194,20 @@ def test_instrument_detail_filters_events_at_snapshot_decision_time_and_exposes_
     cutoff = pd.Timestamp(snapshot.data_report.as_of_date).tz_localize("UTC")
     events = pd.DataFrame([
         {
-            **_event(
+            **_canonical_row(_event(
                 event_id="known-event",
                 instrument_id=instrument_id,
                 available_at=(cutoff - pd.Timedelta(days=2)).isoformat(),
                 ingested_at=(cutoff - pd.Timedelta(days=2) + pd.Timedelta(minutes=1)).isoformat(),
-            ).__dict__,
-            "validation_status": "valid_context",
-            "backtest_eligible": True,
-            "event_checksum": "known",
+            )),
         },
         {
-            **_event(
+            **_canonical_row(_event(
                 event_id="future-event",
                 instrument_id=instrument_id,
                 available_at=(cutoff + pd.Timedelta(days=1)).isoformat(),
                 ingested_at=(cutoff + pd.Timedelta(days=1, minutes=1)).isoformat(),
-            ).__dict__,
-            "validation_status": "valid_context",
-            "backtest_eligible": True,
-            "event_checksum": "future",
+            )),
         },
     ])
 
@@ -149,32 +231,25 @@ def test_news_context_event_presentation_filters_to_snapshot_and_shows_provenanc
     snapshot = build_snapshot()
     cutoff = pd.Timestamp(snapshot.data_report.as_of_date).tz_localize("UTC")
     events = pd.DataFrame([
-        {
-            "event_id": "known-event",
-            "instrument_id": snapshot.config.universe.enabled_ids[0],
-            "event_type": "dividend",
-            "event_date": "2026-07-01",
-            "available_at": (cutoff - pd.Timedelta(days=1)).isoformat(),
-            "ingested_at": (cutoff - pd.Timedelta(days=1, minutes=-1)).isoformat(),
-            "source_url": "https://example.invalid/dividend",
-            "timezone_name": "Europe/Oslo",
-            "validation_status": "valid_context",
-            "backtest_eligible": True,
-            "event_checksum": "known",
-        },
-        {
-            "event_id": "future-event",
-            "instrument_id": snapshot.config.universe.enabled_ids[0],
-            "event_type": "split",
-            "event_date": "2026-08-01",
-            "available_at": (cutoff + pd.Timedelta(days=1)).isoformat(),
-            "ingested_at": (cutoff + pd.Timedelta(days=1, minutes=1)).isoformat(),
-            "source_url": "https://example.invalid/split",
-            "timezone_name": "UTC",
-            "validation_status": "valid_context",
-            "backtest_eligible": True,
-            "event_checksum": "future",
-        },
+        _canonical_row(_event(
+            event_id="known-event",
+            instrument_id=snapshot.config.universe.enabled_ids[0],
+            event_type="dividend",
+            event_date="2026-07-01",
+            available_at=(cutoff - pd.Timedelta(days=1)).isoformat(),
+            ingested_at=(cutoff - pd.Timedelta(days=1, minutes=-1)).isoformat(),
+            source_url="https://example.invalid/dividend",
+            timezone_name="Europe/Oslo",
+        )),
+        _canonical_row(_event(
+            event_id="future-event",
+            instrument_id=snapshot.config.universe.enabled_ids[0],
+            event_type="split",
+            event_date="2026-08-01",
+            available_at=(cutoff + pd.Timedelta(days=1)).isoformat(),
+            ingested_at=(cutoff + pd.Timedelta(days=1, minutes=1)).isoformat(),
+            source_url="https://example.invalid/split",
+        )),
     ])
     monkeypatch.setattr(trust_evidence, "load_news_items", lambda _path: pd.DataFrame())
     monkeypatch.setattr(trust_evidence, "load_calendar_events", lambda _path: events)
@@ -229,3 +304,61 @@ def test_news_context_page_exposes_event_calendar_status(monkeypatch) -> None:
     text = "\n".join(values)
     assert "Event calendar status" in text
     assert "snapshot decision time is unavailable" in text
+
+
+def test_public_news_context_route_composes_event_calendar_panel(monkeypatch) -> None:
+    import etf_cockpit.app.pages.trust_evidence as trust_evidence
+
+    snapshot = build_snapshot()
+    monkeypatch.setattr(trust_evidence, "load_news_items", lambda _path: pd.DataFrame())
+    monkeypatch.setattr(trust_evidence, "load_calendar_events", lambda _path: pd.DataFrame([{"event_id": "malformed"}]))
+    state = type("State", (), {"snapshot": snapshot})()
+
+    rendered = PAGES["/news-context"][1](None, state)
+    values: list[str] = []
+
+    def collect(node: object) -> None:
+        value = getattr(node, "value", None)
+        if value:
+            values.append(str(value))
+        for child_name in ("controls", "content"):
+            children = getattr(node, child_name, None)
+            if isinstance(children, (list, tuple)):
+                for child in children:
+                    collect(child)
+            elif children is not None:
+                collect(children)
+
+    collect(rendered)
+    assert "Event calendar status" in "\n".join(values)
+
+
+def test_malformed_event_ledger_is_unavailable_in_both_ui_surfaces(monkeypatch) -> None:
+    import etf_cockpit.app.pages.trust_evidence as trust_evidence
+
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    malformed = pd.DataFrame([{"event_id": "missing-canonical-columns", "instrument_id": instrument_id}])
+    model = build_instrument_detail(snapshot, instrument_id, events=malformed)
+    assert model.sections["events"]["status"] == "unavailable"
+
+    monkeypatch.setattr(trust_evidence, "load_news_items", lambda _path: pd.DataFrame())
+    monkeypatch.setattr(trust_evidence, "load_calendar_events", lambda _path: malformed)
+    state = type("State", (), {"snapshot": snapshot})()
+    rendered = trust_evidence._news_context_extra(state)
+    values: list[str] = []
+
+    def collect(node: object) -> None:
+        value = getattr(node, "value", None)
+        if value:
+            values.append(str(value))
+        for child_name in ("controls", "content"):
+            children = getattr(node, child_name, None)
+            if isinstance(children, (list, tuple)):
+                for child in children:
+                    collect(child)
+            elif children is not None:
+                collect(children)
+
+    collect(rendered)
+    assert "event records are available at decision_time=" not in "\n".join(values)

@@ -3365,3 +3365,15 @@ cutoff. Missing cutoffs suppress event rows. The focused 73-test event/import,
 source-policy, quota non-destruction, UI and architecture set plus Ruff,
 compile, programme check and diff hygiene pass. Freeze one classified exact
 head for parallel review and required hosted validation.
+
+`CONSOLIDATED_EVENT_INTEGRITY_CORRECTION` invalidates exact head
+`527c9062c2c73d94898d98aa403e4803dddfb6b1` and run `31525671258` after
+both parallel verdicts were collected. The demonstrated defects were a lost
+concurrent append, malformed-ledger disclosure, populated event time under date
+precision and lost public-route coverage. The single closure serializes the
+append transaction, rejects incomplete, tampered or authority-inconsistent
+canonical rows on load and append, enforces precision and restores the public
+News/Context route test. Synchronized two-writer, malformed-ledger no-write,
+both UI and complete affected focused suites plus Ruff, compile, generator
+check and diff hygiene pass. Freeze one replacement exact head for both reviews
+and fresh H-tier gates; do not add retry or adjacent persistence architecture.

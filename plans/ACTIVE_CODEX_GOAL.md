@@ -2087,3 +2087,17 @@ next action and whether the requested outcome is actually complete.
   architecture, Ruff, compile, generator check and diff hygiene pass in the
   73-test focused set. Classify the complete diff, commit one stable head and
   launch both independent reviews plus required hosted evidence in parallel.
+- Frozen head `527c9062c2c73d94898d98aa403e4803dddfb6b1` and H-tier run
+  `31525671258` are invalidated after both reviewers completed. The consolidated
+  finding set was exact and bounded: concurrent appends could lose one
+  canonical row, incomplete ledgers could be stamped decision-time available,
+  date precision accepted a populated event time, and the public News/Context
+  route lost direct test coverage.
+- The single consolidated correction serializes the complete read/merge/publish
+  append under the existing persistent guard, independently verifies complete
+  canonical rows and checksums before load, disclosure or republication,
+  enforces date/time precision and restores public route coverage. Concurrent
+  append, malformed-ledger no-write and both UI regressions pass with the
+  complete affected focused suite, Ruff, compile, programme byte-clean check
+  and diff hygiene. Freeze one replacement head for both reviews and fresh
+  H-tier hosted validation; add no adjacent work.

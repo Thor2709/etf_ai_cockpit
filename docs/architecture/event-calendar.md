@@ -14,6 +14,13 @@ normalised to explicit UTC end-of-day; a datetime cutoff without an offset is
 ambiguous and fails closed. Conflicting observations from the same source are
 rejected rather than resolved by last-write-wins.
 
+The canonical append transaction holds one persistent store guard across the
+existing-ledger read, merge and atomic publication, so concurrent local writers
+cannot both succeed while dropping one event. Canonical readback independently
+requires the complete schema, provenance, validation result, non-executable
+authority flags and content checksum. An incomplete or inconsistent ledger is
+not displayed and cannot be republished by a later append.
+
 The calendar is visible on Instrument Detail and News & Context. It is
 filtered through the same availability/ingestion cutoff before either surface
 renders rows. Each rendered row states the decision time and

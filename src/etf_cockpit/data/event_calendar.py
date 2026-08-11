@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR
 
 
@@ -90,6 +91,8 @@ def validate_event(event: CalendarEvent, decision_time: datetime | None = None) 
     event_date = _parse_date(event.event_date)
     if event_date is None:
         return _invalid("invalid_event_date", "Event date must be an ISO calendar date.")
+    if precision == "date" and str(event.event_time).strip():
+        return _invalid("unexpected_event_time", "Date-precision events must not include an event time.")
     if precision != "date" and _parse_aware(event.event_time) is None:
         return _invalid("ambiguous_event_time", "Timed events require an explicit timezone.")
     available = _parse_aware(event.available_at)
@@ -128,37 +131,38 @@ def persist_calendar_events(
         raise ValueError("At least one calendar event is required.")
     raw_dir, clean_path = Path(raw_dir), Path(clean_path)
     audit_path = Path(audit_path or clean_path.with_name(clean_path.stem + "_audit.json"))
-    existing = _read_clean_strict(clean_path)
-    rows: list[dict[str, Any]] = []
-    raw_requests: list[AtomicWriteRequest] = []
-    raw_paths: list[Path] = []
-    validations: list[dict[str, Any]] = []
-    for event in items:
-        validation = validate_event(event, decision_time)
-        if not validation.backtest_eligible:
-            raise ValueError(f"Invalid event {event.event_id}: {validation.status}: {validation.reason}")
-        payload = _event_payload(event)
-        checksum = _checksum(payload)
-        raw_path = raw_dir / f"{_safe_id(event.event_id)}-{checksum[:16]}.json"
-        raw_paths.append(raw_path)
-        if not raw_path.exists():
-            raw_requests.append(AtomicWriteRequest(raw_path, (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8"), lambda path: json.loads(path.read_text(encoding="utf-8"))))
-        rows.append(_clean_row(event, validation, checksum, raw_path, raw_dir))
-        validations.append({"event_id": event.event_id, **asdict(validation)})
-    candidate = pd.DataFrame(rows, columns=EVENT_COLUMNS)
-    _reject_conflicting_duplicates(pd.concat([existing, candidate], ignore_index=True))
-    combined = pd.concat([existing, candidate], ignore_index=True).drop_duplicates(subset=["event_id", "event_checksum"], keep="last")
-    combined = sort_calendar_events(combined)
-    payload = {"schema_version": EVENT_SCHEMA_VERSION, "rows": len(combined), "checksum": _frame_checksum(combined), "validations": validations, "context_only": True, "execution_allowed": False}
-    csv_payload = _safe_csv(combined).encode("utf-8")
-    requests = [
-        AtomicWriteRequest(clean_path, parquet_payload(combined), validate_parquet_file),
-        AtomicWriteRequest(clean_path.with_suffix(".csv"), csv_payload, lambda path: pd.read_csv(path)),
-        AtomicWriteRequest(audit_path, (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8"), lambda path: json.loads(path.read_text(encoding="utf-8"))),
-        *raw_requests,
-    ]
-    atomic_write_group(tuple(requests))
-    return EventPersistenceResult(tuple(raw_paths), clean_path, audit_path, len(combined), _frame_checksum(combined), len(existing) == len(combined))
+    with persistent_file_guard(clean_path.with_name(clean_path.name + ".guard")):
+        existing = _read_clean_strict(clean_path)
+        rows: list[dict[str, Any]] = []
+        raw_requests: list[AtomicWriteRequest] = []
+        raw_paths: list[Path] = []
+        validations: list[dict[str, Any]] = []
+        for event in items:
+            validation = validate_event(event, decision_time)
+            if not validation.backtest_eligible:
+                raise ValueError(f"Invalid event {event.event_id}: {validation.status}: {validation.reason}")
+            payload = _event_payload(event)
+            checksum = _checksum(payload)
+            raw_path = raw_dir / f"{_safe_id(event.event_id)}-{checksum[:16]}.json"
+            raw_paths.append(raw_path)
+            if not raw_path.exists():
+                raw_requests.append(AtomicWriteRequest(raw_path, (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8"), lambda path: json.loads(path.read_text(encoding="utf-8"))))
+            rows.append(_clean_row(event, validation, checksum, raw_path, raw_dir))
+            validations.append({"event_id": event.event_id, **asdict(validation)})
+        candidate = pd.DataFrame(rows, columns=EVENT_COLUMNS)
+        _reject_conflicting_duplicates(pd.concat([existing, candidate], ignore_index=True))
+        combined = pd.concat([existing, candidate], ignore_index=True).drop_duplicates(subset=["event_id", "event_checksum"], keep="last")
+        combined = sort_calendar_events(combined)
+        payload = {"schema_version": EVENT_SCHEMA_VERSION, "rows": len(combined), "checksum": _frame_checksum(combined), "validations": validations, "context_only": True, "execution_allowed": False}
+        csv_payload = _safe_csv(combined).encode("utf-8")
+        requests = [
+            AtomicWriteRequest(clean_path, parquet_payload(combined), validate_parquet_file),
+            AtomicWriteRequest(clean_path.with_suffix(".csv"), csv_payload, lambda path: pd.read_csv(path)),
+            AtomicWriteRequest(audit_path, (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8"), lambda path: json.loads(path.read_text(encoding="utf-8"))),
+            *raw_requests,
+        ]
+        atomic_write_group(tuple(requests))
+        return EventPersistenceResult(tuple(raw_paths), clean_path, audit_path, len(combined), _frame_checksum(combined), len(existing) == len(combined))
 
 
 def load_calendar_events(path: Path = EVENT_CLEAN_PATH) -> pd.DataFrame:
@@ -181,18 +185,14 @@ def events_available_as_of(frame: pd.DataFrame, decision_time: datetime, instrum
     source = load_calendar_events() if frame is None else frame.copy()
     if source.empty:
         return source
+    if any(column not in source.columns for column in EVENT_COLUMNS):
+        return source.iloc[0:0].copy()
+    if not all(_canonical_row_is_disclosable(row) for _, row in source.iterrows()):
+        return source.iloc[0:0].copy()
     available = pd.to_datetime(source.get("available_at"), errors="coerce", utc=True)
     ingested = pd.to_datetime(source.get("ingested_at"), errors="coerce", utc=True)
     cutoff = pd.Timestamp(decision_time).tz_convert("UTC")
     mask = available.notna() & ingested.notna() & (available <= cutoff) & (ingested <= cutoff)
-    if "timezone_name" in source.columns:
-        mask &= source["timezone_name"].map(_valid_timezone_name)
-    else:
-        mask &= False
-    if "backtest_eligible" in source.columns:
-        mask &= source["backtest_eligible"].map(lambda value: value is True or str(value).strip().casefold() in {"1", "true", "yes"})
-    if "validation_status" in source.columns:
-        mask &= source["validation_status"].astype(str).str.casefold().eq("valid_context")
     if instrument_id is not None and "instrument_id" in source.columns:
         mask &= source["instrument_id"].astype(str).eq(str(instrument_id))
     return sort_calendar_events(source.loc[mask].copy())
@@ -269,10 +269,10 @@ def _read_clean(path: Path) -> pd.DataFrame:
         frame = pd.read_parquet(path)
     except Exception:
         return pd.DataFrame(columns=EVENT_COLUMNS)
-    for column, default in (("context_only", True), ("execution_allowed", False), ("executable_authority", False)):
-        if column not in frame.columns:
-            frame[column] = default
-    frame["context_only"], frame["execution_allowed"], frame["executable_authority"] = True, False, False
+    if any(column not in frame.columns for column in EVENT_COLUMNS):
+        return pd.DataFrame(columns=EVENT_COLUMNS)
+    if not all(_canonical_row_is_disclosable(row) for _, row in frame.iterrows()):
+        return pd.DataFrame(columns=EVENT_COLUMNS)
     return frame
 
 
@@ -283,10 +283,64 @@ def _read_clean_strict(path: Path) -> pd.DataFrame:
         frame = pd.read_parquet(path)
     except Exception as exc:
         raise ValueError(f"Canonical event ledger cannot be read: {path}") from exc
-    missing = [column for column in ("event_id", "instrument_id", "event_checksum", "available_at", "ingested_at") if column not in frame.columns]
+    missing = [column for column in EVENT_COLUMNS if column not in frame.columns]
     if missing:
         raise ValueError("Canonical event ledger has unsupported schema; missing: " + ", ".join(missing))
+    if not all(_canonical_row_is_disclosable(row) for _, row in frame.iterrows()):
+        raise ValueError("Canonical event ledger contains malformed or inconsistent rows.")
     return frame
+
+
+def _canonical_row_is_disclosable(row: pd.Series) -> bool:
+    """Independently verify persisted event content before point-in-time disclosure."""
+
+    values = {column: _canonical_text(row[column]) for column in EVENT_COLUMNS}
+    event = CalendarEvent(
+        event_id=values["event_id"],
+        instrument_id=values["instrument_id"],
+        event_type=values["event_type"],
+        event_date=values["event_date"],
+        event_time=values["event_time"],
+        available_at=values["available_at"],
+        ingested_at=values["ingested_at"],
+        source_id=values["source_id"],
+        source_authority=values["source_authority"],
+        source_url=values["source_url"],
+        timezone_name=values["timezone_name"],
+        precision=values["precision"],
+        title=values["title"],
+        description=values["description"],
+        risk_level=values["risk_level"],
+    )
+    validation = validate_event(event)
+    if not validation.backtest_eligible or values["schema_version"] != EVENT_SCHEMA_VERSION:
+        return False
+    if values["validation_status"] != validation.status or values["validation_reason"] != validation.reason:
+        return False
+    if not _canonical_bool(row["backtest_eligible"], True):
+        return False
+    if not _canonical_bool(row["context_only"], True):
+        return False
+    if not _canonical_bool(row["execution_allowed"], False):
+        return False
+    if not _canonical_bool(row["executable_authority"], False):
+        return False
+    if not values["raw_path"] or not values["event_checksum"]:
+        return False
+    return values["event_checksum"] == _checksum(_event_payload(event))
+
+
+def _canonical_text(value: object) -> str:
+    try:
+        if bool(pd.isna(value)):
+            return ""
+    except (TypeError, ValueError):
+        return ""
+    return str(value)
+
+
+def _canonical_bool(value: object, expected: bool) -> bool:
+    return isinstance(value, bool) and value is expected
 
 
 def _reject_conflicting_duplicates(frame: pd.DataFrame) -> None:
