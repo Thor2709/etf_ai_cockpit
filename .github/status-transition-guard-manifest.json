@@ -4,22 +4,22 @@
   "allowed_status_transitions": [
     {
       "from": "implemented_initially",
-      "issue_id": "ISSUE-0017",
+      "issue_id": "ISSUE-0018",
       "to": "integrated"
     }
   ],
-  "base_commit": "3845aaa10a1e0718bc62e4a6698658ce6cd0326a",
-  "branch": "codex/issue0017-lifecycle-final-20260811",
+  "base_commit": "94e6376e1a81cdd11bc6c64adc1ebd6499c26bac",
+  "branch": "codex/issue0018-lifecycle-20260811",
   "issue_ids": [
-    "ISSUE-0017"
+    "ISSUE-0018"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "99a7bc2d1e0f5eb2c98ec853a3db4169db175204fc780e0ee4767ca199ae14bd",
+    "base_registry_sha256": "b2d8c8fde5335f14df243a3415ec57a03c9f1348e5594b9354769f140b02d782",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "b2d8c8fde5335f14df243a3415ec57a03c9f1348e5594b9354769f140b02d782",
-    "reason": "Complete only ISSUE-0017 from implemented_initially to integrated using product PR #672 merge commit 3845aaa10a1e0718bc62e4a6698658ce6cd0326a, exact independent reviews and H-tier run 31450653397; preserve dependencies, acceptance criteria, external authority and execution_allowed=false.",
+    "proposed_registry_sha256": "6c9983a42d4e9138acbf164db27d52123c4dfefb276027590e9158d9924da346",
+    "reason": "Complete only ISSUE-0018 from implemented_initially to integrated using product PR #674 merge commit 94e6376e1a81cdd11bc6c64adc1ebd6499c26bac, exact independent reviews and H-tier run 31462859675; preserve dependencies, acceptance criteria, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
