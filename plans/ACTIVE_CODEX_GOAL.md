@@ -1878,3 +1878,16 @@ next action and whether the requested outcome is actually complete.
   product PR and merged product commit, followed by the existing writer and
   generic zero-action readback. Do not merge while required lifecycle evidence
   is known to be absent.
+- Initial PR #674 head `62d6103cd013dd325ad8bbdc794d6ea92f4f9baa`
+  was rejected by both exact-head reviews and hosted run `31455384153` after
+  concrete identity, resume, flag-normalisation, UI-contract, failed-write,
+  duplicate-field and XLSX-bound defects were reproduced. Its evidence is
+  stale and must not be reused.
+- Consolidated correction commit
+  `5e89f7b15a8c1264518c36443772b1c5f53d6373` fixes the complete review set,
+  adds focused regressions and classifies the exact persistent import module as
+  H-tier while retaining checkpoint chronology as E and ordinary product as O.
+  The affected focused suite passes (one expected capability skip), changed
+  preflight and UI inventory pass, and Ruff, compile, diff hygiene and generator
+  check pass. Freeze the next checkpoint commit for both parallel reviews and
+  fresh hosted H-tier Linux, Windows and terminal evidence.

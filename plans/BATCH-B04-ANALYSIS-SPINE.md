@@ -136,6 +136,19 @@ merged, bind the single ISSUE-0018 `implemented_initially -> integrated`
 transaction to that PR/commit and require writer success plus generic
 zero-action readback.
 
+`CONSOLIDATED_IMPORT_INTEGRITY_CORRECTION` both reviews rejected PR #674 head
+`62d6103cd013dd325ad8bbdc794d6ea92f4f9baa`; hosted run `31455384153` also
+failed the missing UI acceptance contracts and skipped package jobs. Commit
+`5e89f7b15a8c1264518c36443772b1c5f53d6373` corrects explicit ISIN authority,
+resume/report binding, normalized lifecycle flags, manifest-failure isolation,
+duplicate input fields, bounded XLSX parsing, identity-only staging behavior,
+completed-state cancellation, overlay bounds and excluded-row classification.
+It also adds the six UI contracts and the narrow exact persistent-module H-tier
+classifier rule. Focused tests pass with one expected capability skip;
+preflight, UI inventory, Ruff, compile, diff hygiene and generator checks pass.
+Freeze one replacement head and repeat both reviews plus fresh hosted H-tier
+Linux, Windows and terminal validation. `execution_allowed=false` is unchanged.
+
 ## ISSUE-0017 lifecycle completion — 2026-08-11
 
 Product PR #672 merged reviewed head `52cadf44abff48ff09cd23cf792acad64dbab94e`
