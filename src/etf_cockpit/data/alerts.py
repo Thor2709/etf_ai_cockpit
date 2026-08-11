@@ -526,17 +526,24 @@ class AlertStore:
         return self._record(stored)
 
     def get(self, alert_id: str) -> AlertRecord:
-        record = self._get_raw(alert_id)
         now = _utc_datetime(self._clock(), field="clock")
+        return self._current(alert_id, now)
+
+    def _current(self, alert_id: str, now: datetime) -> AlertRecord:
+        record = self._get_raw(alert_id)
         if record.alert.available_at > now:
             raise KeyError(f"alert is not yet available: {alert_id}")
         return self._refresh(record, now)
 
     def _refresh(self, record: AlertRecord, now: datetime) -> AlertRecord:
-        if record.alert.status in {AlertStatus.ACTIVE, AlertStatus.SNOOZED} and record.alert.expires_at is not None and record.alert.expires_at <= now:
-            return self._transition(record, replace(record.alert, status=AlertStatus.EXPIRED), expected_revision=record.revision)
-        if record.alert.status is AlertStatus.SNOOZED and record.alert.snoozed_until is not None and record.alert.snoozed_until <= now:
-            return self._transition(record, replace(record.alert, status=AlertStatus.ACTIVE), expected_revision=record.revision)
+        if record.alert.status in {AlertStatus.ACTIVE, AlertStatus.SNOOZED}:
+            evaluated = evaluate_alerts_as_of((record.alert,), now)[0]
+            if evaluated.status is not record.alert.status:
+                return self._transition(
+                    record,
+                    replace(record.alert, status=evaluated.status),
+                    expected_revision=record.revision,
+                )
         return record
 
     def list(
@@ -580,9 +587,9 @@ class AlertStore:
         return self._record(self._store.put(ALERT_ENTITY_TYPE, alert.alert_id, alert.to_dict(), expected_revision=expected_revision))
 
     def snooze(self, alert_id: str, until: datetime | str, *, expected_revision: int) -> AlertRecord:
-        record = self.get(alert_id)
         until_dt = _utc_datetime(until, field="until")
         now = _utc_datetime(self._clock(), field="clock")
+        record = self._current(alert_id, now)
         if until_dt <= now:
             raise ValueError("snooze until must be in the future")
         if record.alert.status not in {AlertStatus.ACTIVE, AlertStatus.SNOOZED}:
@@ -602,10 +609,10 @@ class AlertStore:
         return self._transition(record, updated, expected_revision=expected_revision)
 
     def dismiss(self, alert_id: str, *, expected_revision: int) -> AlertRecord:
-        record = self.get(alert_id)
+        dismissed_at = _utc_datetime(self._clock(), field="clock")
+        record = self._current(alert_id, dismissed_at)
         if record.alert.status in {AlertStatus.DISMISSED, AlertStatus.EXPIRED}:
             raise ValueError("only active alerts can be dismissed")
-        dismissed_at = _utc_datetime(self._clock(), field="clock")
         updated = replace(record.alert, status=AlertStatus.DISMISSED, dismissed_at=dismissed_at)
         return self._transition(record, updated, expected_revision=expected_revision)
 

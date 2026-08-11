@@ -430,3 +430,48 @@ def test_corrupted_timeline_payload_fails_closed_in_store_and_readback(tmp_path)
     readback = read_local_alerts(tmp_path, include_inactive=True)
     assert readback.status == "unavailable"
     assert readback.records == ()
+
+
+def test_current_read_reconciles_active_status_with_live_snooze_interval(tmp_path) -> None:
+    alert = _alert(AlertType.STALE_DATA, suffix="active-live-snooze")
+    with AlertStore(tmp_path) as store:
+        created = store.create(alert)
+    payload = alert.to_dict()
+    payload.update(
+        {
+            "status": "active",
+            "snoozed_at": "2026-08-01T13:00:00+00:00",
+            "snoozed_until": "2099-01-01T00:00:00+00:00",
+        }
+    )
+    with TransactionalStore(tmp_path) as store:
+        store.put(
+            ALERT_ENTITY_TYPE,
+            alert.alert_id,
+            payload,
+            expected_revision=created.revision,
+        )
+
+    with AlertStore(tmp_path) as store:
+        assert store.list() == ()
+        reconciled = store.list(include_inactive=True)[0]
+        assert reconciled.status is AlertStatus.SNOOZED
+    readback = read_local_alerts(tmp_path)
+    assert readback.status == "available"
+    assert readback.records == ()
+
+
+def test_dismiss_uses_one_cutoff_when_expiry_falls_between_clock_reads(tmp_path) -> None:
+    alert = _alert(
+        AlertType.REVIEW_DATE_ARRIVED,
+        suffix="dismiss-expiry-cutoff",
+        expires_at=NOW.replace(hour=13, minute=30),
+    )
+    clock_values = iter((NOW.replace(hour=13), NOW.replace(hour=14)))
+    with AlertStore(tmp_path, clock=lambda: next(clock_values)) as store:
+        created = store.create(alert)
+        dismissed = store.dismiss(alert.alert_id, expected_revision=created.revision)
+
+    assert dismissed.status is AlertStatus.DISMISSED
+    assert dismissed.alert.dismissed_at == NOW.replace(hour=13)
+    assert evaluate_alerts_as_of((dismissed.alert,), NOW.replace(hour=14))[0].status is AlertStatus.DISMISSED
