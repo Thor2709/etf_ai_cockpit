@@ -159,6 +159,14 @@ Ruff, compile, diff-hygiene and generator checks pass with one existing
 platform-capability skip. Freeze one final replacement head for both reviews
 and fresh H-tier Linux/Windows/terminal evidence; do not add adjacent hardening.
 
+`BOOLEAN_ALIAS_CONFLICT_CORRECTION` risk review rejected exact head
+`009610ecf3a5aff4bd9508e9dcaf225527f3e544` after reproducing contradictory
+valid boolean aliases; run `31459084752` is cancelled and stale. Commit
+`fcd44eb0eb103944bdff3bf8d8ae90c3b8dfb42b` rejects disagreement across all
+six alias pairs. All 45 import regressions plus Ruff, compile and diff hygiene
+pass. Freeze the documented replacement for both exact-head reviews and fresh
+H-tier Linux/Windows/terminal evidence. `execution_allowed=false` is unchanged.
+
 ## ISSUE-0017 lifecycle completion — 2026-08-11
 
 Product PR #672 merged reviewed head `52cadf44abff48ff09cd23cf792acad64dbab94e`

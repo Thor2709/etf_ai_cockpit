@@ -1902,3 +1902,9 @@ next action and whether the requested outcome is actually complete.
   suites pass with one existing platform-capability skip; Ruff, compile, diff
   hygiene and generator checks pass. Freeze one final checkpoint head for both
   reviews and fresh H-tier evidence; no further adjacent hardening is in scope.
+- Head `009610ecf3a5aff4bd9508e9dcaf225527f3e544` was rejected for one newly
+  reproduced safety case: contradictory valid boolean aliases selected the
+  first value. Run `31459084752` was cancelled and is stale. Commit
+  `fcd44eb0eb103944bdff3bf8d8ae90c3b8dfb42b` rejects conflicts across every
+  supported alias pair; all 45 import regressions, Ruff, compile and diff
+  hygiene pass. Repeat both exact-head reviews and fresh H-tier evidence.
