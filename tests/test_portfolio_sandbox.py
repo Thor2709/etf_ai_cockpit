@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import numpy as np
@@ -8,15 +9,20 @@ import pytest
 
 from etf_cockpit.application.portfolio_sandbox import (
     PORTFOLIO_SANDBOX_ENTITY,
+    PORTFOLIO_SANDBOX_RESULT_ENTITY,
     analyse_portfolio_candidate,
     build_portfolio_candidate,
+    draft_portfolio_proposal,
+    export_portfolio_analysis,
     load_portfolio_candidate,
+    portfolio_analysis_payload,
     save_portfolio_candidate,
 )
 from etf_cockpit.application import portfolio_sandbox as sandbox_store
 from etf_cockpit.core.config import load_config
 from etf_cockpit.data.local_storage import StorageRevisionConflict, TransactionalStore
 from etf_cockpit.portfolio.sandbox import holdings_checksum
+from etf_cockpit.portfolio.sandbox import select_holdings_view
 
 
 def _snapshot(*, revision: str = "universe-1", vwce_weight: float = 0.4):
@@ -152,10 +158,14 @@ def test_candidate_persistence_round_trip_revision_conflict_and_stale_re_evaluat
         root=tmp_path,
     )
     assert saved.revision == 1
+    assert saved.result_payload is not None
+    assert saved.result_payload["schema_version"] == "portfolio_sandbox_result.v1"
+    assert saved.result_payload["execution_allowed"] is False
     loaded = load_portfolio_candidate(snapshot, " core allocation ", root=tmp_path)
     assert loaded.candidate == saved.candidate
     assert loaded.source_stale is False
     assert loaded.candidate.execution_allowed is False
+    assert loaded.result_payload is not None
 
     updated = save_portfolio_candidate(
         snapshot,
@@ -184,6 +194,56 @@ def test_candidate_persistence_round_trip_revision_conflict_and_stale_re_evaluat
     analysis = analyse_portfolio_candidate(changed, stale.candidate)
     assert analysis.source_stale is True
     assert any("re-evaluated" in warning for warning in analysis.warnings)
+
+
+def test_legacy_candidate_only_record_upgrades_atomically_with_result(tmp_path) -> None:
+    snapshot = _snapshot()
+    candidate = _candidate(snapshot)
+    with TransactionalStore(tmp_path) as store:
+        store.put(PORTFOLIO_SANDBOX_ENTITY, candidate.candidate_id, sandbox_store._candidate_payload(candidate), expected_revision=0)
+    upgraded = save_portfolio_candidate(
+        snapshot,
+        name=candidate.name,
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.6, "LYP6": 0.3},
+        cash_weight=0.1,
+        expected_revision=1,
+        root=tmp_path,
+    )
+    assert upgraded.revision == 2
+    with TransactionalStore(tmp_path) as store:
+        assert store.get(PORTFOLIO_SANDBOX_RESULT_ENTITY, candidate.candidate_id).revision == 1
+
+
+def test_direct_and_look_through_views_select_rows_and_bind_selected_checksum() -> None:
+    snapshot = _snapshot()
+    snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "DIRECT", "asset_type": "stock", "current_weight": 0.4, "market_value_eur": 40_000.0, "holding_view": "direct"},
+            {"instrument_id": "INDIRECT", "asset_type": "etf", "current_weight": 0.2, "market_value_eur": 20_000.0, "holding_view": "look_through"},
+        ]
+    )
+    candidate = build_portfolio_candidate(
+        snapshot,
+        name="View selection",
+        analysis_notional_eur=100_000,
+        target_weights={"DIRECT": 0.4, "INDIRECT": 0.2},
+        cash_weight=0.4,
+    )
+    direct = analyse_portfolio_candidate(snapshot, candidate, holdings_view="direct")
+    look_through = analyse_portfolio_candidate(snapshot, candidate, holdings_view="look_through")
+    assert {row.instrument_id for row in direct.holdings} == {"DIRECT"}
+    assert {row.instrument_id for row in look_through.holdings} == {"INDIRECT"}
+    assert direct.current_value_eur != look_through.current_value_eur
+    assert direct.snapshot_binding.source_checksum == holdings_checksum(select_holdings_view(snapshot.holdings, "direct"))
+    assert look_through.snapshot_binding.source_checksum == holdings_checksum(select_holdings_view(snapshot.holdings, "look_through"))
+
+
+def test_malformed_holding_lineage_fails_closed() -> None:
+    snapshot = _snapshot()
+    snapshot.holdings.loc[0, "holding_view"] = "mystery"
+    with pytest.raises(ValueError, match="holding lineage is invalid"):
+        analyse_portfolio_candidate(snapshot, _candidate(snapshot))
 
 
 def test_candidate_name_and_missing_record_fail_closed(tmp_path) -> None:
@@ -265,3 +325,206 @@ def test_saved_candidate_persists_intent_not_derived_analysis(tmp_path) -> None:
     assert record is not None
     assert not ({"drift", "cost", "exposures", "allocations"} & set(record.payload))
     assert record.payload["execution_allowed"] is False
+
+
+def test_mixed_assets_keep_lineage_capability_and_explicit_why_not() -> None:
+    snapshot = _snapshot()
+    snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "asset_type": "etf", "security_type": "ordinary_etf", "cfi_code": "CEQ", "average_daily_value_usd": 1_000_000, "current_weight": 0.2, "market_value_eur": 20_000.0, "holding_view": "direct"},
+            {"instrument_id": "AAPL", "asset_type": "stock", "security_type": "ordinary_share", "cfi_code": "E", "market_cap_usd": 1_000_000_000, "average_daily_value_usd": 1_000_000, "current_weight": 0.2, "market_value_eur": 20_000.0, "holding_view": "direct"},
+            {"instrument_id": "BOND-1", "asset_type": "fixed_rate_bond", "security_type": "fixed_rate_bond", "cfi_code": "DBF", "current_weight": 0.2, "market_value_eur": 20_000.0, "holding_view": "direct"},
+            {"instrument_id": "ETF-HOLDING", "asset_type": "etf", "security_type": "ordinary_etf", "cfi_code": "CEQ", "average_daily_value_usd": 1_000_000, "current_weight": 0.1, "market_value_eur": 10_000.0, "holding_view": "look_through", "source_id": "holdings-2026-07-18"},
+            {"instrument_id": "COIN", "asset_type": "crypto", "security_type": "crypto", "cfi_code": "X", "crypto": True, "current_weight": 0.1, "market_value_eur": 10_000.0, "holding_view": "direct"},
+        ]
+    )
+    candidate = build_portfolio_candidate(
+        snapshot,
+        name="Mixed asset sandbox",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.2, "AAPL": 0.2, "BOND-1": 0.2, "ETF-HOLDING": 0.1, "COIN": 0.1},
+        cash_weight=0.2,
+    )
+
+    analysis = analyse_portfolio_candidate(snapshot, candidate)
+    holdings = {row.instrument_id: row for row in analysis.holdings}
+    assert holdings["ETF-HOLDING"].holding_view == "look_through"
+    assert holdings["AAPL"].capability_status == "supported"
+    assert holdings["BOND-1"].capability_status == "unavailable"
+    assert holdings["COIN"].capability_status == "unsupported"
+    assert dict(analysis.why_not)["COIN"] == "EXCLUDED_CRYPTO_PRODUCT"
+    assert any(item.status == "inapplicable" and item.name == "instrument:COIN" for item in analysis.constraints)
+    assert analysis.snapshot_binding is not None
+    assert analysis.snapshot_binding.execution_allowed is False
+    assert analysis.proposal_boundary == "ISSUE-0130:draft-only"
+
+
+def test_capability_resolution_rejects_contradictory_and_incomplete_classifiers() -> None:
+    snapshot = _snapshot()
+    snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "CONFLICT", "asset_type": "stock", "security_type": "ordinary_etf", "cfi_code": "CEQ", "current_weight": 0.2, "market_value_eur": 20_000.0},
+            {"instrument_id": "INCOMPLETE", "asset_type": "stock", "current_weight": 0.2, "market_value_eur": 20_000.0},
+        ]
+    )
+    candidate = build_portfolio_candidate(
+        snapshot,
+        name="Capability evidence",
+        analysis_notional_eur=100_000,
+        target_weights={"CONFLICT": 0.2, "INCOMPLETE": 0.2},
+        cash_weight=0.6,
+    )
+    rows = {row.instrument_id: row for row in analyse_portfolio_candidate(snapshot, candidate).holdings}
+    assert rows["CONFLICT"].capability_status == "unsupported"
+    assert rows["INCOMPLETE"].capability_status == "unavailable"
+
+
+def test_draft_handoff_excludes_unsupported_and_constraint_rows() -> None:
+    snapshot = _snapshot()
+    snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "asset_type": "etf", "security_type": "ordinary_etf", "cfi_code": "CEQ", "average_daily_value_usd": 1_000_000, "current_weight": 0.2, "market_value_eur": 20_000.0},
+            {"instrument_id": "COIN", "asset_type": "crypto", "security_type": "crypto", "cfi_code": "X", "crypto": True, "current_weight": 0.1, "market_value_eur": 10_000.0},
+        ]
+    )
+    candidate = build_portfolio_candidate(
+        snapshot,
+        name="Draft filtering",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.6, "COIN": 0.1},
+        cash_weight=0.3,
+    )
+    analysis = analyse_portfolio_candidate(snapshot, candidate)
+    handoff = draft_portfolio_proposal(snapshot, analysis)
+    changed_ids = {item["instrument_id"] for item in handoff["changes"]}
+    rejected = {item["instrument_id"]: item["reason"] for item in handoff["rejected"]}
+    assert "COIN" not in changed_ids
+    assert "VWCE" not in changed_ids
+    assert "COIN" in rejected
+    assert "VWCE" in rejected
+    assert handoff["proposal_policy_evaluated"] is False
+    assert handoff["execution_allowed"] is False
+    assert "evidence_checksum" in handoff
+
+
+def test_result_persistence_export_and_draft_handoff_are_isolated(tmp_path) -> None:
+    snapshot = _snapshot()
+    before = snapshot.holdings.copy(deep=True)
+    candidate = _candidate(snapshot)
+    analysis = analyse_portfolio_candidate(snapshot, candidate, account_id="acct-1", portfolio_id="portfolio-1", snapshot_id="snap-1")
+    payload = portfolio_analysis_payload(analysis)
+    assert payload["source_snapshot"]["snapshot_id"] == "snap-1"
+    assert payload["before_after"]
+    assert payload["execution_allowed"] is False
+
+    exported = export_portfolio_analysis(analysis, tmp_path / "sandbox.json")
+    exported_payload = json.loads(exported.read_text(encoding="utf-8"))
+    assert exported_payload["schema_version"] == "portfolio_sandbox_result.v1"
+    assert exported_payload["execution_allowed"] is False
+    handoff = draft_portfolio_proposal(snapshot, analysis)
+    assert handoff["boundary"] == "ISSUE-0130"
+    assert handoff["status"] == "pre_issue_0130_draft"
+    assert handoff["proposal_allowed"] is False
+    assert handoff["execution_allowed"] is False
+    pd.testing.assert_frame_equal(snapshot.holdings, before)
+
+
+@pytest.mark.parametrize("mutation", ["execution", "identity"])
+def test_tampered_recomputed_result_fails_closed(tmp_path, mutation) -> None:
+    snapshot = _snapshot()
+    saved = save_portfolio_candidate(
+        snapshot,
+        name="Tamper result",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.6, "LYP6": 0.3},
+        cash_weight=0.1,
+        expected_revision=0,
+        root=tmp_path,
+    )
+    with TransactionalStore(tmp_path) as store:
+        record = store.get(PORTFOLIO_SANDBOX_RESULT_ENTITY, saved.candidate.candidate_id)
+        payload = dict(record.payload)
+        if mutation == "execution":
+            payload["execution_allowed"] = True
+        else:
+            payload["candidate_id"] = "portfolio_tampered"
+        body = {key: value for key, value in payload.items() if key != "payload_checksum"}
+        payload["payload_checksum"] = sandbox_store._payload_checksum(body)
+        store.put(PORTFOLIO_SANDBOX_RESULT_ENTITY, saved.candidate.candidate_id, payload, expected_revision=1)
+    with pytest.raises(ValueError, match="no-execution|identity"):
+        load_portfolio_candidate(snapshot, "Tamper result", root=tmp_path)
+
+
+def test_tampered_recomputed_source_binding_is_not_surface_as_current(tmp_path) -> None:
+    snapshot = _snapshot()
+    saved = save_portfolio_candidate(
+        snapshot,
+        name="Tamper source",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.6, "LYP6": 0.3},
+        cash_weight=0.1,
+        expected_revision=0,
+        root=tmp_path,
+    )
+    with TransactionalStore(tmp_path) as store:
+        record = store.get(PORTFOLIO_SANDBOX_RESULT_ENTITY, saved.candidate.candidate_id)
+        payload = dict(record.payload)
+        source = dict(payload["source_snapshot"])
+        source["account_id"] = "tampered-account"
+        payload["source_snapshot"] = source
+        body = {key: value for key, value in payload.items() if key != "payload_checksum"}
+        payload["payload_checksum"] = sandbox_store._payload_checksum(body)
+        store.put(PORTFOLIO_SANDBOX_RESULT_ENTITY, saved.candidate.candidate_id, payload, expected_revision=1)
+    loaded = load_portfolio_candidate(snapshot, "Tamper source", root=tmp_path)
+    assert loaded.result_payload is None
+
+
+def test_failed_atomic_export_preserves_prior_file(tmp_path, monkeypatch) -> None:
+    analysis = analyse_portfolio_candidate(_snapshot(), _candidate())
+    destination = tmp_path / "sandbox.json"
+    destination.write_bytes(b"prior-export")
+
+    def fail(*_args, **_kwargs):
+        raise OSError("interrupted export")
+
+    monkeypatch.setattr(sandbox_store, "atomic_write_bytes", fail)
+    with pytest.raises(OSError, match="interrupted export"):
+        export_portfolio_analysis(analysis, destination)
+    assert destination.read_bytes() == b"prior-export"
+
+
+def test_what_if_targets_are_composed_through_existing_services(monkeypatch) -> None:
+    snapshot = _snapshot()
+    snapshot.prices = pd.DataFrame([{"date": "2026-07-01", "etf_id": "VWCE", "adjusted_close": 100.0}])
+    calls: dict[str, object] = {}
+
+    class Solution:
+        status = "success"
+        method = "minimum_variance"
+        feasible = True
+        weights = pd.Series({"VWCE": 0.6})
+        warnings = ()
+        model_version = "test-optimiser"
+
+    class Optimiser:
+        def solve(self, method, *, constraints, current_weights):
+            calls["optimiser"] = (method, dict(current_weights), constraints.cash_weight)
+            return Solution()
+
+    def fake_optimiser(prices):
+        calls["prices"] = prices
+        return Optimiser(), pd.DataFrame({"VWCE": [0.01]})
+
+    def fake_risk(prices, allocation, **kwargs):
+        calls["risk"] = allocation
+        return {"status": "partial", "model_version": "test-risk", "selected_estimator": "sample", "warnings": []}
+
+    monkeypatch.setattr(sandbox_store, "build_portfolio_optimiser", fake_optimiser)
+    monkeypatch.setattr(sandbox_store, "build_robust_risk_report", fake_risk)
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+
+    assert "prices" in calls and "optimiser" in calls and "risk" in calls
+    assert calls["optimiser"][0] == "minimum_variance"
+    assert calls["optimiser"][1]["VWCE"] == pytest.approx(0.6)
+    assert analysis.service_evidence["optimiser"]["model_version"] == "test-optimiser"
+    assert analysis.service_evidence["risk"]["model_version"] == "test-risk"

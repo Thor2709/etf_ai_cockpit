@@ -65,6 +65,18 @@ def test_transactional_put_rejects_non_finite_json(tmp_path):
             store.put("portfolio", "candidate-1", {"cash": float("nan")})
 
 
+def test_transactional_cas_preflights_all_revisions_before_publishing(tmp_path):
+    with TransactionalStore(tmp_path) as store:
+        store.put("sandbox", "first", {"value": 1})
+        with pytest.raises(StorageRevisionConflict, match="expected revision 99, current revision is 0"):
+            store.put_many_cas(
+                [("sandbox", "first", {"value": 2}), ("sandbox", "second", {"value": 2})],
+                expected_revisions={("sandbox", "first"): 1, ("sandbox", "second"): 99},
+            )
+        assert store.get("sandbox", "first").payload == {"value": 1}
+        assert store.get("sandbox", "second") is None
+
+
 def test_immutable_batch_is_atomic_and_idempotent(tmp_path):
     with TransactionalStore(tmp_path) as store:
         store.put("validation", "existing", {"value": 1})

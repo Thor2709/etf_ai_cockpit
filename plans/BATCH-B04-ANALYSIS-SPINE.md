@@ -1333,6 +1333,26 @@ passed both package platforms and terminal validation. Writer `30746368016`
 applied the two-hop aggregate, proved `zero_action_readback=true` and retained
 `execution_allowed=false`.
 
+`THROUGHPUT_CONTINUATION` reader repair PR #676 merged reviewed head
+`aad1635b2ae1f1a61e2b78cc8c8e376a2ba98408` as exact main
+`4e601b44a8f0373f37813da4391121aebee4a67a` after H-tier run
+`31498834325` passed. Sequence 23 remains unprojected with zero transport
+writes and no legal fresh-run retrigger; the explicitly prohibited recovery
+expansion is recorded separately and not reopened. Exact-main ISSUE-0019
+criterion audit found no product gap. Select dependency-ready ISSUE-0021 for
+the next bounded product lane, preserving local-only analysis, immutable live
+ledger state and `execution_allowed=false`.
+
+`ISSUE_0021_PRODUCT_READY_FOR_FREEZE` implements the final portfolio-sandbox
+delta on exact base `4e601b44a8f0373f37813da4391121aebee4a67a`:
+snapshot/view lineage, canonical mixed-asset capability outcomes, existing
+optimiser/risk/cost composition, structured constraints and why-not evidence,
+atomic candidate/result persistence, deterministic before/after export and a
+checksum-bound pre-ISSUE-0130 draft-only hand-off. No live ledger, proposal or
+execution write exists. The 96-test affected suite plus Ruff, compile,
+generated-state and diff checks pass; classification is H, so freeze one head
+for parallel exact-head review and full hosted Linux/Windows/terminal gates.
+
 Generic-readback repair PR #643 merged independently approved exact head
 `f8f28c94ae8f4a6f8f15dd8a5ad187cd35dafd2c` as
 `bbe8a789d05a7df688661eb8e2370bb26583dc8f` after H-tier run

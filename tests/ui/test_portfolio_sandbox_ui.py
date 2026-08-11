@@ -192,6 +192,25 @@ def test_portfolio_storage_failure_is_reported_without_crashing(monkeypatch) -> 
     _by_key(root, "portfolio.load").on_click(None)
     assert "Candidate not loaded: local store is read-only" in str(_by_key(root, "portfolio.status").value)
 
+
+def test_portfolio_sandbox_shows_snapshot_lineage_capability_and_draft_boundary() -> None:
+    state = _state()
+    state.snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "asset_type": "etf", "current_weight": 0.4, "market_value_eur": 40_000.0, "holding_view": "direct"},
+            {"instrument_id": "ETF-HOLDING", "asset_type": "etf", "current_weight": 0.1, "market_value_eur": 10_000.0, "holding_view": "look_through"},
+            {"instrument_id": "COIN", "asset_type": "crypto", "current_weight": 0.1, "market_value_eur": 10_000.0, "holding_view": "direct"},
+        ]
+    )
+    root = portfolio.portfolio_page(None, state)
+    keys = {str(control.key) for control in _walk(root) if getattr(control, "key", None)}
+    assert {"portfolio.account", "portfolio.portfolio", "portfolio.snapshot", "portfolio.holdings-view", "portfolio.export", "portfolio.draft-proposal"} <= keys
+    text = _text(root)
+    assert "Selected portfolio snapshot" in text
+    assert "Direct and look-through holdings" in text
+    assert "ISSUE-0130:draft-only" in text
+    assert "execution_allowed=false" in text
+
 def test_portfolio_rebalance_preview_exposes_alternatives_and_assumptions() -> None:
     root = portfolio.portfolio_page(None, _state())
     _set_candidate(root)

@@ -1948,6 +1948,34 @@ next action and whether the requested outcome is actually complete.
   explicit read-only HTTP 500/502/503/504 and transport failures, with a focused
   regression; caller proof, mutation semantics and `execution_allowed=false`
   remain unchanged.
+- Bounded reader repair PR #676 merged exact reviewed head
+  `aad1635b2ae1f1a61e2b78cc8c8e376a2ba98408` as exact main
+  `4e601b44a8f0373f37813da4391121aebee4a67a`; H-tier run
+  `31498834325` passed Linux, Windows and terminal validation. GitHub #22
+  remains `implemented_initially` because sequence 23 has no legal fresh-run
+  retrigger after the zero-write failure, and another retry/recovery authority
+  repair is outside the one-cycle limit. Record that control-plane follow-up
+  separately; do not bypass OIDC or append duplicate authority.
+- Exact-main audit found no remaining ISSUE-0019 product gap: every accepted
+  Instrument Detail panel, ETF/stock smoke, row navigation and unavailable
+  state is implemented and focused tests pass. With lifecycle projection work
+  frozen, ISSUE-0021 is the next canonical phase-01 dependency-ready product
+  issue. Clean lane `codex/issue0021-product-20260812` starts at exact main
+  `4e601b44a8f0373f37813da4391121aebee4a67a`; implement only its portfolio
+  sandbox delta while preserving ledger isolation and
+  `execution_allowed=false`.
+- ISSUE-0021's bounded product delta now composes the existing optimiser,
+  robust-risk, cost, overlap and canonical capability services around an exact
+  account/portfolio/as-of and direct/look-through snapshot binding. Candidate
+  intent and derived result evidence publish through one atomic independent-CAS
+  transaction; deterministic exports are atomic; rejected or inapplicable rows
+  cannot enter the checksum-bound pre-ISSUE-0130 draft hand-off. The affected
+  persistence, sandbox, UI, optimiser, cost, risk and execution-boundary suite
+  passes 96 tests; Ruff, compile, generated-state check and diff check pass.
+  Classifier result is H with fresh Linux, Windows and terminal evidence
+  required before merge. Freeze only after committing the complete checkpoint,
+  then run whole-diff and risk reviews against the same exact head in parallel
+  with hosted H-tier CI.
 - Whole-diff review approved head `d74e32e6e655ff639587c9fe18f0ba211c7624fa`
   and risk review verified the guard fix but reproduced one independent parser
   defect: ragged CSV rows could discard trailing fields. Run `31461743133` is

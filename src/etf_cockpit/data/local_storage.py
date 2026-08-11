@@ -522,6 +522,61 @@ class TransactionalStore:
                 stored.append(StoredRecord(entity_type, entity_id, payload, revision, created_at, now))
         return tuple(stored)
 
+    def put_many_cas(
+        self,
+        records: Sequence[tuple[str, str, Mapping[str, Any]]],
+        *,
+        expected_revisions: Mapping[tuple[str, str], int],
+    ) -> tuple[StoredRecord, ...]:
+        """Atomically publish a small batch with an expected revision per row."""
+
+        prepared = []
+        for entity_type, entity_id, payload in records:
+            entity_type, entity_id = _validate_identity(entity_type, entity_id)
+            if not isinstance(payload, Mapping):
+                raise TypeError("payload must be a mapping")
+            expected = expected_revisions.get((entity_type, entity_id))
+            if isinstance(expected, bool) or not isinstance(expected, int) or expected < 0:
+                raise ValueError(f"expected revision is missing or invalid for {entity_type}:{entity_id}")
+            encoded = json.dumps(dict(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+            prepared.append((entity_type, entity_id, dict(payload), encoded, expected))
+        if len({(item[0], item[1]) for item in prepared}) != len(prepared):
+            raise ValueError("CAS records must have unique identities")
+
+        now = _utc_now()
+        stored: list[StoredRecord] = []
+        with self.transaction() as connection:
+            current_rows = []
+            for entity_type, entity_id, payload, encoded, expected in prepared:
+                previous = connection.execute(
+                    "SELECT revision, created_at FROM transactional_records WHERE entity_type = ? AND entity_id = ?",
+                    (entity_type, entity_id),
+                ).fetchone()
+                current_revision = int(previous[0]) if previous else 0
+                if current_revision != expected:
+                    raise StorageRevisionConflict(
+                        f"expected revision {expected}, current revision is {current_revision}"
+                    )
+                current_rows.append((entity_type, entity_id, payload, encoded, expected, previous))
+            for entity_type, entity_id, payload, encoded, expected, previous in current_rows:
+                revision = expected + 1
+                created_at = str(previous[1]) if previous else now
+                connection.execute(
+                    """
+                    INSERT INTO transactional_records
+                        (entity_type, entity_id, payload_json, revision, created_at, updated_at, deleted_at)
+                    VALUES (?, ?, ?, ?, ?, ?, NULL)
+                    ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                        payload_json = excluded.payload_json,
+                        revision = excluded.revision,
+                        updated_at = excluded.updated_at,
+                        deleted_at = NULL
+                    """,
+                    (entity_type, entity_id, encoded, revision, created_at, now),
+                )
+                stored.append(StoredRecord(entity_type, entity_id, payload, revision, created_at, now))
+        return tuple(stored)
+
     def get(self, entity_type: str, entity_id: str, *, include_deleted: bool = False) -> StoredRecord | None:
         entity_type, entity_id = _validate_identity(entity_type, entity_id)
         query = "SELECT * FROM transactional_records WHERE entity_type = ? AND entity_id = ?"
