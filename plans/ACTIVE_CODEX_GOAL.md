@@ -1915,3 +1915,9 @@ next action and whether the requested outcome is actually complete.
   `33f31a3d3e9cd025da38c4fc94f5ea380ef51b7d` applies the existing guarded
   pattern and adds a deterministic redirect-race regression. All 46 import
   regressions plus Ruff, compile and diff hygiene pass. Freeze and revalidate.
+- Whole-diff review approved head `d74e32e6e655ff639587c9fe18f0ba211c7624fa`
+  and risk review verified the guard fix but reproduced one independent parser
+  defect: ragged CSV rows could discard trailing fields. Run `31461743133` is
+  cancelled and stale. Commit `7b899a71830e483f453cc254d5470fdac6a06755`
+  requires every non-empty CSV row to match header width; all 48 import
+  regressions plus Ruff, compile and diff hygiene pass. Freeze and revalidate.

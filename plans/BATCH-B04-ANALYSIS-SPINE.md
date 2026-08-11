@@ -176,6 +176,14 @@ existing pattern with a deterministic redirect-race regression. All 46 import
 regressions, Ruff, compile and diff hygiene pass. Freeze for both exact-head
 reviews and fresh H-tier evidence; `execution_allowed=false` is unchanged.
 
+`RAGGED_CSV_CORRECTION` whole-diff review approved head
+`d74e32e6e655ff639587c9fe18f0ba211c7624fa`; risk review verified the guard
+closure and reproduced one independent parser defect where ragged CSV rows
+discarded trailing fields. Run `31461743133` is cancelled and stale. Commit
+`7b899a71830e483f453cc254d5470fdac6a06755` requires exact header width for
+every non-empty row. All 48 import regressions, Ruff, compile and diff hygiene
+pass. Freeze for both exact-head reviews and fresh H-tier evidence.
+
 ## ISSUE-0017 lifecycle completion — 2026-08-11
 
 Product PR #672 merged reviewed head `52cadf44abff48ff09cd23cf792acad64dbab94e`
