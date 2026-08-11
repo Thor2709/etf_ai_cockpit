@@ -1,9 +1,37 @@
 from __future__ import annotations
 
-from etf_cockpit.data.universe_store import support_decision
-from etf_cockpit.app.pages.onboarding import OnboardingProfile, complete_onboarding, onboarding_page, validate_onboarding
+import json
+import os
+import shutil
+import subprocess
+import threading
+
+import pytest
+
+from etf_cockpit.data.universe_store import (
+    CURRENT_INVESTABILITY_POLICY_VERSION,
+    UniverseRecord,
+    UniverseRevisionConflict,
+    create_policy_profile,
+    load_universe,
+    save_universe,
+    support_decision,
+)
+from etf_cockpit.app.pages.onboarding import OnboardingProfile, OnboardingRevisionConflict, ProviderQuotaExceeded, TickerValidationResult, complete_onboarding, load_onboarding, onboarding_page, validate_onboarding
 import flet as ft
 import etf_cockpit.app.pages.onboarding as onboarding_module
+
+
+@pytest.fixture(autouse=True)
+def canonical_project_root(tmp_path, monkeypatch):
+    source_root = onboarding_module.ROOT
+    configs = tmp_path / "configs"
+    configs.mkdir(exist_ok=True)
+    for name in ("universe.yaml", "data_source_policy.yaml", "legal_terms_registry.yaml"):
+        source = source_root / "configs" / name
+        if source.is_file():
+            shutil.copyfile(source, configs / name)
+    monkeypatch.setattr(onboarding_module, "ROOT", tmp_path)
 
 
 def test_supported_and_rejected_asset_decisions_are_explicit() -> None:
@@ -22,30 +50,341 @@ def test_onboarding_rejects_empty_scope_and_preserves_unresolved_symbols() -> No
     assert valid.unresolved_symbols == ("UNKNOWN",)
 
 
+def test_onboarding_keeps_dot_and_underscore_tickers_as_distinct_records() -> None:
+    records = onboarding_module._onboarding_records(
+        OnboardingProfile("EUR", "Europe", ("stock",), "balanced", "medium", tickers=("A.B", "A_B")),
+        (),
+    )
+
+    assert len(records) == 2
+    assert {record.instrument_id for record in records} == {"A.B", "A_B"}
+    assert {record.ticker for record in records} == {"A.B", "A_B"}
+
+
+def test_legacy_positional_ticker_is_normalised_to_a_loadable_scope(tmp_path) -> None:
+    result = complete_onboarding(
+        OnboardingProfile("EUR", "Europe", ("WAT",), "balanced", "medium"),
+        tmp_path,
+    )
+
+    assert result.saved is True
+    assert load_onboarding(tmp_path).tickers == ("WAT",)
+    payload = json.loads((onboarding_module.ROOT / "configs" / "onboarding.json").read_text(encoding="utf-8"))
+    assert payload["profile"]["asset_scope"] == ["stock"]
+
+
+def test_onboarding_preserves_existing_cross_tier_duplicate_policy(tmp_path) -> None:
+    duplicate_records = (
+        UniverseRecord("DUP-PRIMARY", "Primary", "NO0000000001", "verified", "DUP", "stock", "primary"),
+        UniverseRecord("DUP-SECONDARY", "Secondary", "NO0000000002", "verified", "DUP", "stock", "secondary"),
+    )
+    save_universe(
+        duplicate_records,
+        expected_revision="",
+        root=tmp_path,
+        allow_cross_tier_duplicates=True,
+    )
+
+    complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+
+    assert load_universe(tmp_path).allow_cross_tier_duplicates is True
+
+
+def test_onboarding_preserves_cross_tier_duplicate_records(tmp_path) -> None:
+    primary = UniverseRecord("DUP-PRIMARY", "Primary", "NO0000000001", "verified", "DUP", "stock", "primary")
+    save_universe((primary,), expected_revision="", root=tmp_path, allow_cross_tier_duplicates=True)
+
+    complete_onboarding(
+        OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", tickers=("DUP",), bootstrap_mode="bulk"),
+        tmp_path,
+    )
+
+    records = load_universe(tmp_path).records
+    assert {(record.instrument_id, record.tier) for record in records} == {
+        ("DUP-PRIMARY", "primary"),
+        ("DUP", "secondary"),
+    }
+
+
+def test_merge_records_replaces_same_id_across_tiers_even_when_allowed() -> None:
+    primary = UniverseRecord("SAME-ID", "Primary", "NO0000000001", "verified", "PRIMARY", "stock", "primary")
+    secondary = UniverseRecord("SAME-ID", "Secondary", "NO0000000002", "verified", "SECONDARY", "stock", "secondary")
+
+    assert onboarding_module._merge_records(
+        (primary,), (secondary,), allow_cross_tier_duplicates=True
+    ) == (secondary,)
+
+
+def test_merge_records_replaces_case_variant_id_across_tiers_even_when_allowed() -> None:
+    primary = UniverseRecord("SAME-ID", "Primary", "NO0000000001", "verified", "PRIMARY", "stock", "primary")
+    secondary = UniverseRecord("same-id", "Secondary", "NO0000000002", "verified", "SECONDARY", "stock", "secondary")
+
+    assert onboarding_module._merge_records(
+        (primary,), (secondary,), allow_cross_tier_duplicates=True
+    ) == (secondary,)
+
+def test_merge_records_preserves_same_ticker_across_tiers_when_allowed() -> None:
+    primary = UniverseRecord("PRIMARY", "Primary", "NO0000000001", "verified", "SHARED", "stock", "primary")
+    secondary = UniverseRecord("SECONDARY", "Secondary", "NO0000000002", "verified", "SHARED", "stock", "secondary")
+
+    records = onboarding_module._merge_records((primary,), (secondary,), allow_cross_tier_duplicates=True)
+
+    assert records == (primary, secondary)
+
+
+def test_merge_records_replaces_same_tier_ticker_collision() -> None:
+    original = UniverseRecord("ORIGINAL", "Original", "NO0000000001", "verified", "SHARED", "stock", "secondary")
+    replacement = UniverseRecord("REPLACEMENT", "Replacement", "NO0000000002", "verified", "SHARED", "stock", "secondary")
+
+    records = onboarding_module._merge_records((original,), (replacement,))
+
+    assert records == (replacement,)
+
+
+def test_onboarding_same_tier_replacement_drops_orphaned_policy_profile(tmp_path) -> None:
+    original = UniverseRecord(
+        "ORIGINAL",
+        "Original",
+        "NO0000000001",
+        "verified",
+        "SHARED",
+        "stock",
+        "secondary",
+    )
+    profile = create_policy_profile(
+        instrument_id="ORIGINAL",
+        policy_id="safe-long-only",
+        policy_version=CURRENT_INVESTABILITY_POLICY_VERSION,
+        source_id="local-reviewed-policy",
+        as_of="2026-08-11T00:00:00Z",
+        authority="user_reviewed",
+    )
+    save_universe(
+        (original,),
+        expected_revision="",
+        root=tmp_path,
+        policy_profiles=(profile,),
+    )
+
+    result = complete_onboarding(
+        OnboardingProfile(
+            "EUR",
+            "Europe",
+            ("stock",),
+            "medium",
+            "3M",
+            tickers=("SHARED",),
+            bootstrap_mode="bulk",
+        ),
+        tmp_path,
+    )
+
+    snapshot = load_universe(tmp_path)
+    assert result.saved is True
+    assert {record.instrument_id for record in snapshot.records} == {"SHARED"}
+    assert snapshot.policy_profiles == ()
+
+
+def test_merge_records_replaces_same_tier_isin_collision() -> None:
+    original = UniverseRecord("ORIGINAL", "Original", "NO0000000001", "verified", "ORIGINAL", "stock", "secondary")
+    replacement = UniverseRecord("REPLACEMENT", "Replacement", "NO0000000001", "verified", "REPLACEMENT", "stock", "secondary")
+
+    records = onboarding_module._merge_records((original,), (replacement,))
+
+    assert records == (replacement,)
+
+
+def test_merge_records_uses_only_verified_shape_valid_isin_authority() -> None:
+    unverified_a = UniverseRecord("A", "A", "NO0000000001", "needs_verification", "A", "stock", "secondary")
+    unverified_b = UniverseRecord("B", "B", "NO0000000001", "needs_verification", "B", "stock", "secondary")
+
+    records = onboarding_module._merge_records((unverified_a,), (unverified_b,))
+
+    assert records == (unverified_a, unverified_b)
+
+
+def test_merge_records_rejects_malformed_verified_isin() -> None:
+    malformed = UniverseRecord("BAD", "Bad", "not-an-isin", "verified", "BAD", "stock", "secondary")
+
+    with pytest.raises(ValueError, match="malformed verified isin"):
+        onboarding_module._merge_records((malformed,))
+
+
+def test_onboarding_ambiguous_identity_replacement_fails_before_any_write(tmp_path) -> None:
+    save_universe(
+        (
+            UniverseRecord("X", "X", "NO0000000001", "verified", "A", "stock", "primary"),
+            UniverseRecord("Y", "Y", "NO0000000002", "verified", "X", "stock", "secondary"),
+        ),
+        expected_revision="",
+        root=tmp_path,
+    )
+    universe_path = tmp_path / "configs" / "universe_store.json"
+    before = universe_path.read_bytes()
+
+    with pytest.raises(ValueError, match="ambiguous onboarding identity replacement"):
+        complete_onboarding(
+            OnboardingProfile(
+                "EUR",
+                "Europe",
+                ("stock",),
+                "medium",
+                "3M",
+                tickers=("X",),
+                bootstrap_mode="bulk",
+            ),
+            tmp_path,
+        )
+
+    assert universe_path.read_bytes() == before
+    assert not (tmp_path / "configs" / "onboarding.json").exists()
+
+
+@pytest.mark.parametrize("identity", ("ticker", "isin"))
+def test_merge_records_replaces_disallowed_cross_tier_collision(identity: str) -> None:
+    values = {
+        "instrument_id": "SHARED-ID",
+        "ticker": "SHARED",
+        "isin": "NO0000000001",
+    }
+    original = UniverseRecord("ORIGINAL", "Original", "NO0000000002", "verified", "ORIGINAL", "stock", "primary")
+    replacement = UniverseRecord("REPLACEMENT", "Replacement", "NO0000000003", "verified", "REPLACEMENT", "stock", "secondary")
+    original = UniverseRecord(**{**original.__dict__, identity: values[identity]})
+    replacement = UniverseRecord(**{**replacement.__dict__, identity: values[identity]})
+
+    records = onboarding_module._merge_records((original,), (replacement,), allow_cross_tier_duplicates=False)
+
+    assert records == (replacement,)
+
+
+def test_onboarding_group_conflicts_with_canonical_save_after_precondition(tmp_path, monkeypatch) -> None:
+    initial = save_universe(
+        (UniverseRecord("INITIAL", "Initial", "NO0000000001", "verified", "INITIAL"),),
+        expected_revision="",
+        root=tmp_path,
+    )
+    canonical_started = threading.Event()
+    canonical_done = threading.Event()
+    canonical_errors: list[BaseException] = []
+    canonical_record = UniverseRecord("CANONICAL", "Canonical", "NO0000000002", "verified", "CANONICAL")
+
+    def canonical_update() -> None:
+        canonical_started.set()
+        try:
+            save_universe(
+                (UniverseRecord("INITIAL", "Initial", "NO0000000001", "verified", "INITIAL"), canonical_record),
+                expected_revision=initial.revision,
+                root=tmp_path,
+            )
+        except BaseException as error:
+            canonical_errors.append(error)
+        finally:
+            canonical_done.set()
+
+    original_assert = onboarding_module._assert_universe_revision
+    blocked_observed: list[bool] = []
+
+    def interleaving_assert(path, expected_revision) -> None:
+        original_assert(path, expected_revision)
+        worker = threading.Thread(target=canonical_update)
+        worker.start()
+        assert canonical_started.wait(timeout=1)
+        blocked_observed.append(not canonical_done.wait(timeout=0.25))
+
+    monkeypatch.setattr(onboarding_module, "_assert_universe_revision", interleaving_assert)
+    complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+
+    assert canonical_done.wait(timeout=5)
+    assert blocked_observed == [True]
+    assert len(canonical_errors) == 1
+    assert isinstance(canonical_errors[0], UniverseRevisionConflict)
+    assert "CANONICAL" not in {record.instrument_id for record in load_universe(tmp_path).records}
+
+
+def test_two_stale_onboarding_writers_have_one_success_and_one_conflict(tmp_path, monkeypatch) -> None:
+    complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+    original_stage = onboarding_module._stage_universe_payload
+    barrier = threading.Barrier(2)
+
+    def staged(*args, **kwargs):
+        barrier.wait(timeout=5)
+        return original_stage(*args, **kwargs)
+
+    monkeypatch.setattr(onboarding_module, "_stage_universe_payload", staged)
+    profiles = (
+        OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", tickers=("STALEA",), bootstrap_mode="bulk"),
+        OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", tickers=("STALEB",), bootstrap_mode="bulk"),
+    )
+    results: list[object] = []
+
+    def writer(profile: OnboardingProfile) -> None:
+        try:
+            results.append(complete_onboarding(profile, tmp_path))
+        except BaseException as exc:
+            results.append(exc)
+
+    workers = [threading.Thread(target=writer, args=(profile,)) for profile in profiles]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=10)
+
+    assert len(results) == 2
+    assert sum(isinstance(item, OnboardingRevisionConflict) for item in results) == 1
+    assert sum(getattr(item, "saved", False) is True for item in results) == 1
+
+
+def test_onboarding_checksum_is_required_for_reload(tmp_path) -> None:
+    complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+    path = onboarding_module.ROOT / "configs" / "onboarding.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["profile"]["region"] = "tampered"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="checksum"):
+        load_onboarding(tmp_path)
+
+
+def test_invalid_asset_scope_writes_nothing(tmp_path) -> None:
+    with pytest.raises(ValueError, match="asset_scope"):
+        complete_onboarding(
+            OnboardingProfile("EUR", "Europe", ("not a scope!",), "balanced", "medium"),
+            tmp_path,
+        )
+
+    assert not list(tmp_path.rglob("onboarding*.json"))
+    assert not (tmp_path / "configs" / "universe_store.json").exists()
+
+
 def test_offline_onboarding_persists_profile_and_disables_unresolved_tickers(tmp_path) -> None:
     profile = OnboardingProfile(
         "EUR", "Europe", ("both",), "balanced", "medium", tickers=("VWCE.DE", "UNKNOWN"),
     )
     result = complete_onboarding(profile, tmp_path, online=False)
     assert result.saved is True
-    assert result.unresolved_symbols == ("UNKNOWN", "VWCE.DE")
-    assert result.records[0].enabled is False
-    assert result.records[1].enabled is False
+    assert result.unresolved_symbols == ("UNKNOWN",)
+    by_ticker = {record.ticker: record for record in result.records}
+    assert by_ticker["UNKNOWN"].enabled is False
+    assert by_ticker["VWCE.DE"].enabled is True
+    assert by_ticker["MSFT"].enabled is True
     assert (tmp_path / "configs" / "onboarding.json").exists()
+    assert load_onboarding(tmp_path).optional_provider_status == ()
+    assert json.loads((onboarding_module.ROOT / "configs" / "onboarding.json").read_text(encoding="utf-8"))["unresolved_symbols"] == ["UNKNOWN"]
 
 
 def test_offline_onboarding_keeps_configured_local_ticker_enabled(tmp_path) -> None:
     configs = tmp_path / "configs"
-    configs.mkdir()
+    configs.mkdir(exist_ok=True)
     (configs / "universe.yaml").write_text(
-        "etfs:\n  - id: VWCE\n    name: Vanguard\n    ticker: VWCE.DE\n    role: core\n",
+        "etfs:\n  - id: VWCE\n    name: Vanguard\n    ticker: VWCE.DE\n    role: core\n  - id: MSFT\n    name: Microsoft\n    ticker: MSFT\n    role: secondary\n",
         encoding="utf-8",
     )
     profile = OnboardingProfile("EUR", "Europe", ("etf",), "balanced", "medium", tickers=("VWCE.DE", "MISSING"))
     result = complete_onboarding(profile, tmp_path, online=False)
     assert result.unresolved_symbols == ("MISSING",)
-    assert result.records[0].enabled is True
-    assert result.records[1].enabled is False
+    by_ticker = {record.ticker: record for record in result.records}
+    assert by_ticker["VWCE.DE"].enabled is True
+    assert by_ticker["MISSING"].enabled is False
 
 
 def test_onboarding_ui_exposes_opt_in_online_validator_seam() -> None:
@@ -75,6 +414,56 @@ def test_online_toggle_is_disabled_without_validator() -> None:
     assert "unavailable" in str(toggle.label).lower()
 
 
+def test_onboarding_page_constructs_from_empty_cwd_with_bundled_policy(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    control = onboarding_page(None, None)
+    assert isinstance(control, ft.Column)
+    assert "Data source policy unavailable" not in str(control)
+
+
+def test_onboarding_save_uses_canonical_root_from_unrelated_cwd(tmp_path, monkeypatch) -> None:
+    unrelated = tmp_path.parent / f"{tmp_path.name}-unrelated"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
+
+    result = complete_onboarding(
+        OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"),
+        unrelated,
+    )
+
+    assert result.storage_root == onboarding_module.ROOT.resolve().as_posix()
+    assert (onboarding_module.ROOT / "configs" / "onboarding.json").is_file()
+    assert not (unrelated / "configs" / "onboarding.json").exists()
+
+
+def test_persisted_hardware_profile_is_used_by_onboarding_readiness(tmp_path, monkeypatch) -> None:
+    complete_onboarding(
+        OnboardingProfile(
+            "EUR", "Europe", ("stock",), "medium", "3M",
+            storage_location="project_local", hardware_profile="recommended",
+        ),
+        tmp_path,
+    )
+    observed: dict[str, object] = {}
+
+    def report(_root, *, requested_profile="auto"):
+        observed["requested_profile"] = requested_profile
+        return {
+            "selected_profile": {"profile_id": requested_profile, "job_memory_limit_mb": 1, "job_disk_limit_mb": 1, "job_cpu_limit": 1},
+            "selected_status": "supported",
+            "snapshot": {"cpu_cores": 1, "memory_available_mb": 1, "memory_total_mb": 1, "disk_free_mb": 1},
+            "profiles": [],
+            "benchmarks": {"status": "unavailable", "timing_record_count": 0},
+            "generated_cache": {"status": "unavailable"},
+            "limitations": [],
+        }
+
+    monkeypatch.setattr(onboarding_module, "resource_profile_report", report)
+    monkeypatch.chdir(tmp_path)
+    onboarding_page(None, None)
+    assert observed["requested_profile"] == "recommended"
+
+
 def test_onboarding_save_reloads_active_state(monkeypatch) -> None:
     class _Page:
         def __init__(self) -> None:
@@ -86,9 +475,13 @@ def test_onboarding_save_reloads_active_state(monkeypatch) -> None:
     class _State:
         def __init__(self) -> None:
             self.applied: tuple[object, str] | None = None
+            self.refreshed_profile: str | None = None
 
         def apply_universe_config(self, config, revision: str) -> None:
             self.applied = (config, revision)
+
+        def refresh_runtime_profile(self, profile: str) -> None:
+            self.refreshed_profile = profile
 
     refreshed_config = object()
     monkeypatch.setattr(onboarding_module, "load_config", lambda: refreshed_config)
@@ -119,3 +512,387 @@ def test_onboarding_save_reloads_active_state(monkeypatch) -> None:
     )
     save.on_click(None)
     assert state.applied == (refreshed_config, "onboarding-revision")
+    assert state.refreshed_profile == "auto"
+
+
+def test_complete_offline_setup_persists_all_choices_and_disabled_execution(tmp_path) -> None:
+    profile = OnboardingProfile(
+        "EUR",
+        "Europe",
+        ("stock", "etf"),
+        "medium",
+        "3M",
+        storage_location="project_local",
+        hardware_profile="recommended",
+        mandatory_providers=("manual_local",),
+        optional_providers=("yfinance",),
+        bootstrap_mode="bulk",
+        encryption_preference="user_managed",
+        backup_preference="local",
+    )
+
+    result = complete_onboarding(profile, tmp_path, online=False)
+    selected_root = tmp_path
+    payload = json.loads((selected_root / "configs" / "onboarding.json").read_text(encoding="utf-8"))
+
+    assert result.saved is True
+    assert result.storage_root == selected_root.as_posix()
+    assert result.optional_provider_status == (("yfinance", "not_configured"),)
+    assert load_onboarding(tmp_path).storage_location == "project_local"
+    assert load_onboarding(selected_root).storage_location == "project_local"
+    assert payload["schema_version"] == "onboarding.v2"
+    assert payload["setup"]["storage_location"] == "project_local"
+    assert payload["setup"]["resolved_storage_root"] == tmp_path.as_posix()
+    assert payload["setup"]["hardware_profile"] == "recommended"
+    assert payload["setup"]["providers"] == {
+        "mandatory": ["manual_local"],
+        "optional": ["yfinance"],
+        "optional_status": {"yfinance": "not_configured"},
+    }
+    assert payload["setup"]["bootstrap"]["mode"] == "bulk"
+    assert payload["setup"]["bootstrap"]["status"] == "unavailable"
+    assert "Select a local" in payload["setup"]["bootstrap"]["message"]
+    assert payload["setup"]["bootstrap"]["execution_allowed"] is False
+    assert payload["setup"]["privacy"]["backup_preference"] == "local"
+    assert payload["setup"]["privacy"]["backup_status"] == {
+        "enabled": False,
+        "status": "unavailable",
+        "reason": "durable onboarding backups are not enabled; create one explicitly after setup",
+    }
+    assert payload["setup"]["execution"] == {
+        "broker_write_enabled": False,
+        "execution_allowed": False,
+        "paper_enabled": False,
+        "staged_execution_enabled": False,
+    }
+    assert payload["execution_allowed"] is False
+
+
+def test_valid_bulk_bootstrap_is_explicitly_unavailable_without_price_writes(tmp_path) -> None:
+    source = tmp_path / "official-prices.csv"
+    source.write_text(
+        "date,instrument_id,adjusted_close\n2026-08-07,VWCE,100.25\n2026-08-08,VWCE,101.00\n",
+        encoding="utf-8",
+    )
+    profile = OnboardingProfile(
+        "EUR",
+        "Europe",
+        ("etf",),
+        "medium",
+        "3M",
+        storage_location="project_local",
+        bootstrap_mode="bulk",
+        bulk_source_path="official-prices.csv",
+    )
+
+    result = complete_onboarding(profile, tmp_path)
+    selected_root = tmp_path
+    payload = json.loads((selected_root / "configs" / "onboarding.json").read_text(encoding="utf-8"))
+
+    assert result.bootstrap is not None
+    assert result.bootstrap.status == "unavailable"
+    assert result.bootstrap.rows == 0
+    assert result.bootstrap.market_data_status == "unavailable"
+    assert not (selected_root / "data" / "clean" / "prices.parquet").exists()
+    assert "zero price files" in result.bootstrap.message
+    assert payload["setup"]["bootstrap"]["source_path"] == source.as_posix()
+    assert payload["setup"]["bootstrap"]["execution_allowed"] is False
+    assert payload["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("location", ("selected", "../escape", "https://example.test/data", r"\\server\share"))
+def test_storage_location_rejects_traversal_uri_and_unc(tmp_path, location: str) -> None:
+    with pytest.raises(ValueError, match="storage_location"):
+        complete_onboarding(
+            OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", storage_location=location),
+            tmp_path,
+        )
+    assert not (tmp_path / "configs" / "onboarding.json").exists()
+
+
+def test_group_publish_failure_leaves_all_onboarding_outputs_absent(tmp_path, monkeypatch) -> None:
+    def fail_group(*_args, **_kwargs):
+        raise OSError("injected grouped publish failure")
+
+    monkeypatch.setattr(onboarding_module, "atomic_write_group", fail_group)
+    with pytest.raises(OSError, match="injected grouped publish failure"):
+        complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+
+    assert not list(tmp_path.rglob("onboarding*.json"))
+    assert not (tmp_path / "configs" / "universe_store.json").exists()
+
+
+def test_group_publish_revalidates_destination_identity_after_guard_precondition(tmp_path, monkeypatch) -> None:
+    if os.name != "nt":
+        pytest.skip("directory junction test requires Windows cmd")
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    original = onboarding_module.atomic_write_group
+
+    def swap_before_writer_resolution(requests, **kwargs):
+        configs = onboarding_module.ROOT / "configs"
+        original_configs = tmp_path / "configs-original"
+        configs.rename(original_configs)
+        try:
+            junction = subprocess.run(
+                ["cmd", "/c", "mklink", "/J", str(configs), str(outside)],
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            original_configs.rename(configs)
+            pytest.skip("directory junction capability is unavailable")
+        if junction.returncode != 0:
+            original_configs.rename(configs)
+            pytest.skip("directory junctions are unavailable on this platform")
+        try:
+            return original(requests, **kwargs)
+        finally:
+            configs.rmdir()
+            original_configs.rename(configs)
+
+    monkeypatch.setattr(onboarding_module, "atomic_write_group", swap_before_writer_resolution)
+    with pytest.raises(ValueError, match="symlink"):
+        complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+
+    assert not (outside / "onboarding.json").exists()
+    assert not (outside / "universe_store.json").exists()
+    assert list(outside.iterdir()) == []
+
+
+@pytest.mark.parametrize("preference", ("disabled", "encrypted"))
+def test_unsupported_backup_preference_fails_before_any_write(tmp_path, preference: str) -> None:
+    with pytest.raises(ValueError, match="no onboarding writes"):
+        complete_onboarding(
+            OnboardingProfile(
+                "EUR", "Europe", ("stock",), "medium", "3M", backup_preference=preference
+            ),
+            tmp_path,
+        )
+    assert not list(tmp_path.rglob("onboarding*.json"))
+    assert not (tmp_path / "configs" / "universe_store.json").exists()
+
+
+def test_descendant_symlink_fails_before_onboarding_writes(tmp_path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    clean = tmp_path / "data" / "clean"
+    clean.parent.mkdir(parents=True)
+    try:
+        clean.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable on this platform")
+
+    with pytest.raises(ValueError, match="symlink"):
+        complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+    assert not list(tmp_path.rglob("onboarding*.json"))
+    assert not (tmp_path / "configs" / "universe_store.json").exists()
+
+
+def test_onboarding_load_fails_closed_for_partial_or_enabled_execution_settings(tmp_path) -> None:
+    complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+    path = onboarding_module.ROOT / "configs" / "onboarding.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    payload["setup"].pop("privacy")
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="incomplete"):
+        load_onboarding(tmp_path)
+
+    path.unlink()
+    complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["setup"]["execution"]["execution_allowed"] = True
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="safety defaults"):
+        load_onboarding(tmp_path)
+
+
+@pytest.mark.parametrize("preference", ("disabled", "encrypted", "unsupported"))
+def test_onboarding_load_rejects_unsupported_persisted_backup_preference(tmp_path, preference: str) -> None:
+    complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+    path = onboarding_module.ROOT / "configs" / "onboarding.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["profile"]["backup_preference"] = preference
+    payload["setup"]["privacy"]["backup_preference"] = preference
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="backup_preference"):
+        load_onboarding(tmp_path)
+
+
+def test_optional_quota_failure_is_visible_non_blocking_and_does_not_corrupt_prior_state(tmp_path) -> None:
+    baseline = OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M")
+    complete_onboarding(baseline, tmp_path)
+    path = onboarding_module.ROOT / "configs" / "onboarding.json"
+    before = path.read_bytes()
+
+    quota_profile = OnboardingProfile(
+        "EUR", "Europe", ("stock",), "medium", "3M", optional_providers=("yfinance",)
+    )
+    result = complete_onboarding(quota_profile, tmp_path, provider_status={"yfinance": "quota_exceeded"})
+    assert result.saved is True
+    assert result.optional_provider_status == (("yfinance", "quota_exceeded"),)
+    assert load_onboarding(tmp_path).optional_provider_status == (("yfinance", "quota_exceeded"),)
+
+    after_quota = path.read_bytes()
+    with pytest.raises(ValueError, match="unsupported optional provider status"):
+        complete_onboarding(quota_profile, tmp_path, provider_status={"yfinance": "corrupt"})
+    assert path.read_bytes() == after_quota
+    assert before != after_quota
+
+
+def test_online_quota_exception_is_non_blocking_visible_and_not_retried(tmp_path) -> None:
+    calls: list[str] = []
+
+    def quota_validator(ticker: str) -> bool:
+        calls.append(ticker)
+        raise ProviderQuotaExceeded("yfinance")
+
+    profile = OnboardingProfile(
+        "EUR",
+        "Europe",
+        ("stock",),
+        "medium",
+        "3M",
+        tickers=("ONE", "TWO"),
+        optional_providers=("yfinance",),
+        bootstrap_mode="bulk",
+    )
+    result = complete_onboarding(profile, tmp_path, online=True, validator=quota_validator)
+    payload = json.loads((onboarding_module.ROOT / "configs" / "onboarding.json").read_text(encoding="utf-8"))
+
+    assert calls == ["ONE"]
+    assert result.saved is True
+    assert result.optional_provider_status == (("yfinance", "quota_exceeded"),)
+    assert result.bootstrap is not None and result.bootstrap.status == "unavailable"
+    assert load_onboarding(tmp_path).optional_provider_status == (("yfinance", "quota_exceeded"),)
+    assert payload["setup"]["providers"]["optional_status"] == {"yfinance": "quota_exceeded"}
+    assert payload["execution_allowed"] is False
+
+
+def test_ui_typed_quota_result_is_visible_and_saves_offline_setup(tmp_path, monkeypatch) -> None:
+    class _Page:
+        def __init__(self) -> None:
+            self.updates = 0
+
+        def update(self) -> None:
+            self.updates += 1
+
+    calls: list[str] = []
+
+    def quota_validator(ticker: str) -> TickerValidationResult:
+        calls.append(ticker)
+        return TickerValidationResult("quota_unavailable", "yfinance")
+
+    def walk(item):
+        if not isinstance(item, ft.Control):
+            return
+        yield item
+        for attr in ("controls", "actions"):
+            for child in getattr(item, attr, ()) or ():
+                yield from walk(child)
+        content = getattr(item, "content", None)
+        if content is not None:
+            yield from walk(content)
+
+    page = _Page()
+    control = onboarding_page(page, None, validator=quota_validator)
+    controls = tuple(walk(control))
+    toggle = next(item for item in controls if isinstance(item, ft.Checkbox) and item.key == "onboarding.online-validation")
+    ticker_field = next(item for item in controls if isinstance(item, ft.TextField) and item.label == "Initial tickers (comma separated)")
+    save = next(item for item in controls if isinstance(item, ft.Button) and item.key == "onboarding.save")
+    status = next(item for item in controls if isinstance(item, ft.Text) and item.key == "onboarding.status")
+    toggle.value = True
+    ticker_field.value = "ONE, TWO"
+    monkeypatch.chdir(tmp_path)
+
+    save.on_click(None)
+
+    payload = json.loads((onboarding_module.ROOT / "configs" / "onboarding.json").read_text(encoding="utf-8"))
+    assert calls == ["ONE"]
+    assert page.updates == 1
+    assert "quota_exceeded" in str(status.value)
+    assert "mandatory setup was not blocked" in str(status.value)
+    assert payload["setup"]["providers"]["optional_status"] == {"yfinance": "quota_exceeded"}
+    assert payload["execution_allowed"] is False
+
+
+def test_onboarding_round_trip_is_deterministic_and_rejects_unsafe_execution_choices(tmp_path) -> None:
+    profile = OnboardingProfile(
+        "EUR", "Europe", ("stock",), "medium", "3M",
+        storage_location="project_local",
+        encryption_preference="enabled",
+        backup_preference="enabled",
+    )
+    result = complete_onboarding(profile, tmp_path)
+    selected_root = tmp_path
+    path = selected_root / "configs" / "onboarding.json"
+    first = path.read_bytes()
+    loaded = load_onboarding(tmp_path)
+    second = complete_onboarding(loaded, tmp_path)
+    assert path.read_bytes() == first
+    assert loaded.storage_location == "project_local"
+    assert loaded.encryption_preference == "user_managed"
+    assert loaded.backup_preference == "local"
+    assert loaded.execution_allowed is False
+    assert loaded.staged_execution_enabled is False
+    assert (selected_root / "configs" / "universe_store.json").is_file()
+    assert result.bootstrap is not None
+    assert result.bootstrap.status == "ready"
+    assert second.bootstrap is not None
+    assert second.bootstrap.rows == 0
+    assert result.bootstrap.market_data_status == "unavailable"
+    assert {record.instrument_id for record in load_universe(selected_root).records} >= {"VWCE", "MSFT"}
+    assert not (selected_root / "data" / "clean" / "prices.parquet").exists()
+    with pytest.raises(ValueError, match="execution_allowed"):
+        complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", execution_allowed=True), tmp_path)
+    with pytest.raises(ValueError, match="staged execution"):
+        complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", staged_execution_enabled=True), tmp_path)
+
+
+def test_load_onboarding_rejects_boolean_bootstrap_rows(tmp_path) -> None:
+    complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
+    path = onboarding_module.ROOT / "configs" / "onboarding.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["setup"]["bootstrap"]["rows"] = True
+    payload["revision"] = onboarding_module._onboarding_payload_revision(payload)
+    payload["checksum"] = payload["revision"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="bootstrap evidence"):
+        load_onboarding(tmp_path)
+
+
+def test_load_onboarding_requires_exact_recomputed_unresolved_symbols(tmp_path) -> None:
+    profile = OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", tickers=("UNKNOWN",))
+    complete_onboarding(profile, tmp_path)
+    path = onboarding_module.ROOT / "configs" / "onboarding.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["unresolved_symbols"] = []
+    payload["revision"] = onboarding_module._onboarding_payload_revision(payload)
+    payload["checksum"] = payload["revision"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unresolved symbols"):
+        load_onboarding(tmp_path)
+
+
+def test_disabled_local_evidence_stays_unresolved_and_disabled_after_reload(tmp_path) -> None:
+    (tmp_path / "configs" / "universe.yaml").write_text(
+        "etfs:\n  - id: BADLOCAL\n    name: Bad local\n    ticker: BADLOCAL\n    enabled: false\n",
+        encoding="utf-8",
+    )
+    profile = OnboardingProfile(
+        "EUR", "Europe", ("stock",), "medium", "3M", tickers=("BADLOCAL",), bootstrap_mode="bulk"
+    )
+
+    first = complete_onboarding(profile, tmp_path)
+    assert first.unresolved_symbols == ("BADLOCAL",)
+    assert next(item for item in load_universe(tmp_path).records if item.ticker == "BADLOCAL").enabled is False
+
+    loaded = load_onboarding(tmp_path)
+    second = complete_onboarding(loaded, tmp_path)
+    record = next(item for item in second.records if item.ticker == "BADLOCAL")
+    assert second.unresolved_symbols == ("BADLOCAL",)
+    assert record.enabled is False

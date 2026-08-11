@@ -8,6 +8,7 @@ import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.pages.onboarding import overlay_universe_config
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import ROOT
@@ -146,7 +147,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         selectable=True,
     )
     allow_duplicates = ft.Checkbox(
-        label="Allow cross-tier duplicate IDs/tickers/ISINs (explicit override)",
+        label="Allow cross-tier duplicate tickers and verified ISINs (instrument IDs stay globally unique)",
         value=snapshot.allow_cross_tier_duplicates,
         key="universe.allow-cross-tier-duplicates",
     )
@@ -166,6 +167,9 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
 
     def _apply_saved_config(revision: str) -> None:
         refreshed_config = load_config()
+        active_config = getattr(getattr(state, "snapshot", None), "config", None)
+        if active_config is not None:
+            refreshed_config = overlay_universe_config(active_config, refreshed_config)
         apply_method = getattr(state, "apply_universe_config", None)
         if callable(apply_method):
             apply_method(refreshed_config, revision)
@@ -323,6 +327,10 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
 
     def save_changes(_event: ft.ControlEvent) -> None:
         nonlocal expected_revision
+        if snapshot.integrity_errors:
+            status.value = "Save blocked: " + "; ".join(snapshot.integrity_errors)
+            page.update()
+            return
         report = validate_universe(records, allow_cross_tier_duplicates=bool(allow_duplicates.value))
         if not report.valid:
             status.value = "Save blocked: " + "; ".join(report.errors)
@@ -402,7 +410,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         page.update()
 
     def classification_dialog(record: UniverseRecord) -> None:
-        evidence = load_classification_projection(record.instrument_id, storage_root=ROOT)
+        evidence = load_classification_projection(record.instrument_id)
         current = evidence.get("classification", {})
         current_context = current if isinstance(current, dict) else {}
         controls = {

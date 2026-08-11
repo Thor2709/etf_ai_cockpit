@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 import threading
 
 import flet as ft
@@ -9,6 +8,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
+from etf_cockpit.core.paths import ROOT
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.application.ui_facade import (
     ApiStatus,
@@ -35,9 +35,17 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
     api = state.application_api
     body = ft.Column(spacing=10, expand=True, scroll=ft.ScrollMode.AUTO)
     message = ft.Text("Durable jobs are local, resumable and audit-linked.", color=theme.MUTED, selectable=True)
-    resource_policy = ResourcePolicy(Path.cwd())
+    storage_root = ROOT
+    requested_profile = "auto"
+    try:
+        from etf_cockpit.app.pages.onboarding import load_onboarding
+
+        requested_profile = load_onboarding(ROOT).hardware_profile
+    except ValueError:
+        pass
+    resource_policy = ResourcePolicy(storage_root, requested_profile=requested_profile)
     resource_report = resource_profile_report(
-        Path.cwd(),
+        storage_root,
         requested_profile=resource_policy.requested_profile,
         snapshot=resource_policy.snapshot,
     )
@@ -58,7 +66,7 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
         try:
             with state.share_activity(action_id):
                 result = generated_cache_cleanup(
-                    Path.cwd(),
+                    storage_root,
                     maximum_bytes=int(selected_profile["job_disk_limit_mb"]) * 1024 * 1024,
                     apply=True,
                     publish_guard=lambda: state.activity_publication(action_id),

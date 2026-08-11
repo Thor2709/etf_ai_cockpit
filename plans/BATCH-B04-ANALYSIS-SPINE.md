@@ -2938,3 +2938,197 @@ reserves cancelled ownership until callback exit to reject late publication.
 The test-only correction asserts reservation, explicit owner release and the
 durable cancellation event. Runtime behavior and authority remain unchanged;
 fresh exact-head reviews and H-tier Linux/Windows/terminal gates are required.
+
+## ISSUE-0017 product checkpoint — 2026-08-10
+
+`MERGED` ISSUE-0016 PR #671 at exact reviewed head
+`89fb083f9c0244e376b39d85ccea5d96379377b1` as exact main
+`9d3550589f8aacbe6686a1e07711007e50bef9cf`; Linux, Windows and terminal
+validation passed. Writer run `31387114454` applied and verified only
+ISSUE-0016 `implemented_initially -> integrated` with zero-action readback,
+generic convergence `31387113274` passed, and a fresh exact-main readback is
+also zero-action with authority reconciliation accepted. GitHub issue #20
+projects the canonical integrated state without unrelated writes.
+
+`IN_PROGRESS` ISSUE-0017 is the next canonical implementation-order record.
+It is dependency-ready and activation-ready with no blocking dependencies.
+Clean lane `codex/issue0017-product-20260810` starts with an empty diff at exact
+main `9d3550589f8aacbe6686a1e07711007e50bef9cf`. Inspect and prove the existing
+first-run onboarding implementation against its storage, hardware, provider,
+offline bootstrap, encryption/backup and staged-execution acceptance contract;
+make only a reproduced bounded correction. Product and lifecycle preparation
+must preserve all authority boundaries and `execution_allowed=false`.
+
+`CORRECTED` initial product commit
+`cb2149963d497f2235edc5cb1d35cc9af2fe82ee` was rejected after independent
+criterion review reproduced unused selected storage, metadata-only bootstrap
+and absent quota-to-UI propagation. One consolidated correction produced exact
+product commit `f6fd24678be4c13730d2c821f9d3ed2d9bc9edce`; independent re-review approved
+all criteria and the focused onboarding, import/export and atomic-I/O suites.
+Same-PR lifecycle preparation then failed closed because the existing guard
+requires the reviewed product commit to be an ancestor of the PR base. The
+invalid authority lane remains unpublished. The clean product-only lane now
+freezes for H-tier review and validation; after merge, one automatic lifecycle
+transaction will bind the real merged product commit and require writer plus
+zero-action generic readback. `execution_allowed=false` remains unchanged.
+
+`REVIEW_CORRECTION` both exact-head reviewers rejected frozen head
+`f01a673a284c6c7aaf1d0f3699371bef4dfdde70`; run `31391040254` is cancelled
+and stale. One consolidated correction at
+`45e5e9aa4f350df3f464e3a536ccbcbe24556d8d` closes their complete finding set:
+bulk is explicit unavailable with zero price writes; onboarding-owned outputs
+publish as one revision-guarded local group after path/volume/symlink preflight;
+selected storage and hardware propagate without replacing active risk/cost
+configuration; empty-machine policy fallback and valid-scope persistence are
+covered; unsupported plaintext backup claims fail before writes. Focused and
+Windows changed validation pass. Freeze the documented replacement head, then
+repeat both reviews and fresh H-tier Linux/Windows/terminal validation.
+
+`FINAL_BOUNDED_CORRECTION` re-review rejected
+`d6abc257d27a657e3286915551265da5b08ac008` for a reproduced junction swap and
+for selected root/profile not governing restart and the durable scheduler; run
+`31394272704` is cancelled and stale. Commit
+`437c935ae9416c6723dd04880ccc45a21c3fd5f1` narrows storage truthfully to the
+existing canonical project-local runtime root, rejects custom roots before any
+write, removes CWD authority, applies persisted hardware limits to the actual
+scheduler and revalidates destination identity inside grouped publication.
+The focused 148-test surface has 147 passes and one platform-capability skip;
+static checks pass. Freeze one final documented head and repeat both exact-head
+reviews plus fresh H-tier Linux/Windows/terminal validation.
+
+`CONSOLIDATED_PERSISTENCE_CORRECTION` exact head
+`9e5d097565739ef9e4d2259e4f2f9877766c4b4c` was rejected only after both
+parallel reviewers completed. They reproduced duplicate-policy loss and a
+post-precondition canonical universe save being overwritten; stale hosted run
+`31397877895` separately exposed the new junction regression invoking Windows
+`cmd` on Linux. Commit `279e61541bdd8b87c72cec5b51e06839842543e0`
+preserves the existing policy, shares the grouped guard and in-guard CAS across
+canonical and onboarding universe writers, adds both deterministic regressions,
+and capability-skips the Windows-only test. Focused affected tests, Ruff,
+compile and diff hygiene pass. Freeze one documented replacement head for both
+exact-head reviews and fresh Linux/Windows/terminal validation.
+
+`FINAL_PRODUCT_CORRECTION` risk review approved exact head
+`4842e62dec7349cc793f9e3a5ddafc2926a198e7`, but whole-diff review reproduced
+cross-tier record collapse despite the preserved policy and acceptance of an
+unsupported persisted encrypted-backup claim. Run `31401913671` is cancelled
+and stale. Commit `9ae2fceab6a39643c33acc2f25bb88e9ea23495c` preserves
+records under the existing canonical duplicate semantics and makes unsupported
+persisted backup metadata fail closed. Both regressions and the affected
+focused/static checks pass. Freeze the documented replacement for final
+parallel exact-head review and fresh H-tier Linux/Windows/terminal gates.
+
+`CANONICAL_IDENTITY_CORRECTION` risk review approved exact head
+`8c125409f1b388e696620205035fa2a553d696cf`, while whole-diff review reproduced
+an onboarding merge mismatch for same-ID cross-tier records and verified ISIN
+collisions. Run `31403933793` is cancelled and stale. Commit
+`9304f1386047da4f6773e1901dbd44e5ba1c10b1` applies the existing canonical
+instrument-ID, ticker and verified-ISIN same-tier/cross-tier semantics, with
+focused regressions for each identity. Onboarding, universe and presentation
+boundary checks plus Ruff, compile and diff hygiene pass. Freeze one documented
+replacement head for final exact-head review and H-tier gates.
+
+`IDENTITY_ROUND_TRIP_CORRECTION` both reviewers rejected exact head
+`3059a24623a60a4a0ab0e98964e1602aeff79403` after reproducing canonical
+validation/decoder disagreement, incomplete per-tier identity tracking and an
+ambiguous onboarding replacement that collapsed two records. Run
+`31405719378` is cancelled and stale. Commit
+`2023d1c7faebf18742a744e92d8f2c4aa89639a8` tracks complete tier sets for
+ID/ticker/verified ISIN, preserves legal schema-v3 cross-tier round trips,
+rejects repeated same-tier identities and makes ambiguous onboarding matches
+fail before writes. Complete focused identity, persistence, application and
+presentation-boundary checks pass. Freeze the documented head for final review
+and H-tier Linux/Windows/terminal gates.
+
+`CONSOLIDATED_INTEGRITY_CORRECTION` final review rejected exact head
+`8abbce95706a5b18b71514615d2395a9aa00c46f` for five reproduced gaps: active
+config bypassed canonical universe integrity, onboarding settings lacked CAS,
+backup durability was overstated, malformed ISIN authority was accepted, and
+disabled unresolved tickers were re-enabled on resave. Run `31407286024` is
+cancelled and stale. Commit `b959929168417b3642e42d6edf0464a2b83cbb8c`
+uses the canonical decoder at the application boundary, checksum-binds the
+onboarding CAS, records backup unavailable/not enabled, validates verified
+ISIN shape/status and preserves unresolved disabled state. The complete focused
+integrity/concurrency/application/architecture surface passes. Freeze the
+documented head for final review and H-tier Linux/Windows/terminal gates.
+
+`GLOBAL_ROW_IDENTITY_CORRECTION` parallel review rejected exact head
+`b702dc288257226b875ea4326464b0038da13c47` because active config rejected
+supported schema-v2 snapshots and duplicate cross-tier instrument IDs were
+incompatible with global application/UI/CRUD row identity. Run `31410039718`
+is cancelled and stale. Commit `a7347395ffb006e3bf8721555e07d89388e7a038`
+restores canonical schema-v2 loading, enforces global case-insensitive IDs,
+retains cross-tier ticker/verified-ISIN override and makes onboarding replace
+same-ID rows deterministically. The complete focused persistence, application,
+UI and architecture surface passes. Freeze the documented head for final review
+and H-tier Linux/Windows/terminal gates.
+
+`COMPATIBILITY_TRUTH_CORRECTION` parallel review rejected exact head
+`a5efafe7eb1fc80f582500e1aee3bf3cdd3b035d` for dotted/underscore ticker ID
+aliasing, non-boolean legacy policy, boolean row evidence, stale unresolved
+metadata, overstated sample counts and an inaccurate override label. Run
+`31413658110` is cancelled and stale. Commit
+`14d50990583d583f9cbd88fd3977eebb7622aa23` preserves exact ticker IDs, strictly
+validates evidence and legacy policy, recomputes unresolved equality, reports
+only new sample rows and states the override boundary accurately. Complete
+focused product, persistence, UI and architecture checks pass. Freeze the
+documented head for final review and H-tier Linux/Windows/terminal gates.
+
+`SCHEMA_V2_INTEGRITY_CORRECTION` whole-diff review approved product behavior at
+`fdc74518806b33b987138cefa04fc344e11d637e`, while risk review reproduced one
+application-written schema-v2 checksum gap. Run `31416908410` is cancelled and
+stale. Commit `f244709db135847508732cfd6398508928d8a3b3` verifies hash-shaped
+schema-v2 revisions during canonical load and onboarding's in-guard CAS,
+preserving non-hash legacy compatibility. Canonical/active-config tamper
+rejection and backup preservation regressions pass. Freeze the documented head
+for final review and H-tier Linux/Windows/terminal gates.
+
+`LEGACY_LAUNDERING_CORRECTION` both reviews rejected exact head
+`82cebca3f749a11733de3d670ee1981a51715827` because schema-v2 tamper or revision
+downgrade could be republished and backed up through canonical save. Run
+`31418506968` is cancelled and stale. Commit
+`fb548c4467274a70a5c58277334c15db5aa07a8e` requires explicit migration before
+legacy active use/save, validates before backup and inside the held guard, and
+blocks manager saves from integrity-invalid snapshots. Laundering, downgrade,
+no-backup and UI-block regressions pass. Freeze the documented head for final
+review and H-tier Linux/Windows/terminal gates.
+
+`GUARDED_V2_MIGRATION_CORRECTION` both final reviewers rejected exact head
+`1245881daf1a60a5a229789329bf5d31d11db6e4` for two reproduced persistence
+gaps despite passing H-tier run `31420199673`: the explicit migration path
+could not publish any schema-v2 store, and rejected guarded races could leave
+backup artifacts. Commit `916ee1aa3a8228f1bab46ae4546c3b523d23c12c`
+provides one explicit checksum/CAS-guarded v2-to-v3 migration, requires
+acknowledgement for unverifiable non-hash legacy data, preserves records and
+duplicate policy, verifies successful backups and leaves no backup artifacts
+after stale or tampered rejection. The complete universe, onboarding and
+manager surface passes with one expected capability skip; Ruff, compile, diff
+hygiene and generated-state checks pass. Freeze one replacement exact head for
+parallel whole-diff/risk review and fresh H-tier Linux/Windows/terminal gates.
+`execution_allowed=false` remains unchanged.
+
+`OWNED_DESTINATION_AND_BACKUP_CORRECTION` re-review rejected exact head
+`5289d1206b0a88e990a9bc57538b4d9706c0435d` for a junction swap before
+atomic destination resolution and stale cleanup deleting a following writer's
+verified backup. Run `31449729020` is cancelled and stale. Commit
+`3a6ffe1bcf2e48fa055b6e7db8323e451e2b60b4` revalidates destination identity
+before atomic resolution and under the held guard, deletes only the rejecting
+writer's owned backup checkpoint and makes backup creation exception-safe.
+Both exact regressions and the complete affected persistence/application suite
+pass. Freeze one replacement exact head for parallel final review and fresh
+H-tier Linux/Windows/terminal evidence. `execution_allowed=false` remains
+unchanged.
+
+`FINAL_GUARDED_STORE_CORRECTION` parallel review rejected exact head
+`5aa6c9bcb4af6f33e5347938d6731f76a6d9233f` for four reproduced cases:
+caller-bypassable legacy migration, post-commit backup ambiguity, symlinked
+canonical-store escape and orphaned policy profiles after legal same-tier
+onboarding replacement. Run `31448286398` is cancelled and stale. Commit
+`c2397dc20500b534ba17ccdb4a048831721ddabd` binds migration authority to the
+exact source digest and acknowledgement decision, completes verification and
+backup retention under the held group guard, rejects symlinked canonical
+destinations and filters profiles to retained records. All four regressions and
+the complete universe/onboarding/manager suite pass with two capability skips;
+Ruff, compile and diff hygiene pass. Freeze one final documented head for both
+exact-head reviews and fresh H-tier Linux/Windows/terminal evidence.
+`execution_allowed=false` remains unchanged.

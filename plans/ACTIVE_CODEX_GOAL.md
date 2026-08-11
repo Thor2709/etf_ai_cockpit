@@ -13,48 +13,211 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
-## Current ISSUE-0016 product checkpoint
+## Current ISSUE-0017 product checkpoint
 
-- ISSUE-0015 product PR #669 merged exact independently approved head
-  `406408c8c70f3938000499fbecf672d3faf48e76` as
-  `70cf36d6be6033c1ffa6ab9cfa71204fe68ca8c8`. Lifecycle PR #670 merged exact
-  reviewed head `dd9e4ba44511abfcdfc4a4049e1a0303022c2f60` as exact main
-  `6fe3b410395d14593f9a9b67fd5180e68e862e9a`; Linux, Windows and terminal
-  validation passed in run `31380194815`.
-- Ordered writer run `31382654403` applied and verified only ISSUE-0015
+- ISSUE-0016 PR #671 merged exact reviewed head
+  `89fb083f9c0244e376b39d85ccea5d96379377b1` as exact main
+  `9d3550589f8aacbe6686a1e07711007e50bef9cf`. Linux, Windows and terminal
+  validation passed in run `31384086112`; the status guard passed in run
+  `31384086094`.
+- Ordered writer run `31387114454` applied and verified only ISSUE-0016
   `implemented_initially -> integrated` with
-  `zero_action_readback=true`. Generic convergence run `31382654316` passed,
-  and a fresh generic exact-main readback reports zero create, update, close,
-  reopen or blocked actions with authority reconciliation accepted.
-  `execution_allowed=false` remains unchanged.
-- ISSUE-0016, "Full product navigation redesign", is the next canonical
-  implementation-order issue. It is P1, dependency-ready, activation-ready,
-  has no blocking or activation dependencies, and requires the task-oriented
-  frontend-v2 navigation across Home, Discover, Instrument, Portfolio, Models,
-  Backtest/Paper, Data Health, Audit and Settings with search and command
-  palette.
+  `zero_action_readback=true`. Generic convergence run `31387113274` passed.
+  A fresh generic exact-main readback accepts authority sequence 21, projects
+  ISSUE-0016 `integrated`, and reports zero create, update, close, reopen or
+  blocked actions. `execution_allowed=false` remains unchanged.
+- ISSUE-0017, "First-run onboarding and setup wizard", is the next canonical
+  implementation-order issue. It is P1, dependency-ready and activation-ready
+  with no blocking or activation dependencies. Its bounded acceptance scope is
+  storage location, hardware profile, mandatory versus optional providers,
+  offline sample/bulk bootstrap, encryption/backup preferences and explicit
+  staged-execution defaults.
 - Clean product worktree
-  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0016_product`,
-  branch `codex/issue0016-product-20260810`, starts at exact base/head
-  `6fe3b410395d14593f9a9b67fd5180e68e862e9a` with an initially empty diff.
-  Inspection against current exact main found the existing PR #371 product
-  implementation complete with no reproducible gap. The focused palette,
-  frontend-shell, startup, accessibility and governance suite plus Ruff passes;
-  independent criterion review maps every required workspace, search and
-  command-palette behavior to runtime evidence. No speculative product rewrite
-  is warranted.
-- The bounded transaction records only ISSUE-0016
-  `implemented_initially -> integrated`, its acceptance evidence and mechanical
-  projections. Fresh live plan
-  `3a45c6c3892f1a74d52fcad082ec65beeacf95d5cff73b50b5ead7a72023fdaf`
-  contains exactly one update; candidate authority is
-  `b34e62fd600f7baa7ed389a61af6803ac4cf0ad788721df508b011d1fb4ee433`
-  and append-only sequence-21 authority is
-  `d8f48eb20e9b83a1e992ba8803199b65b39561c22221aaa73b2bd5a309c6207c`.
-  Generator/check mode, registry validation, status guard and diff hygiene pass;
-  `execution_allowed=false`. Freeze the complete head, run both exact-head
-  reviews and hosted validation in parallel, then require ordered writer and
-  generic zero-action readback.
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0017_product_final`,
+  branch `codex/issue0017-product-final-20260810`, starts at exact base/head
+  `9d3550589f8aacbe6686a1e07711007e50bef9cf` with an empty diff. Inspect the
+  existing verified implementation and focused tests first, implement only a
+  reproduced acceptance gap, then prepare the complete legal lifecycle
+  transaction before freezing one review head. Preserve local-first behavior,
+  all existing safety and authority boundaries, and `execution_allowed=false`.
+- Initial product commit `cb2149963d497f2235edc5cb1d35cc9af2fe82ee`
+  was rejected after independent criterion review reproduced unused selected
+  storage, metadata-only bootstrap and absent quota-to-UI propagation. One
+  consolidated correction produced exact product commit
+  `f6fd24678be4c13730d2c821f9d3ed2d9bc9edce`; independent re-review approved
+  all criteria and the focused onboarding, import/export and atomic-I/O suites.
+- Same-PR lifecycle preparation failed closed because the existing guard
+  requires `verified_commit` to be an ancestor of the reviewed PR base. The
+  invalid candidate/authority lane is preserved locally and will not be
+  published. Freeze this product-only head for H-tier review and validation;
+  after merge, prepare the single automatic ISSUE-0017
+  `implemented_initially -> integrated` transaction against the real merged
+  product commit, then require ordered writer and generic zero-action readback.
+  `execution_allowed=false` remains unchanged.
+- Final parallel review of exact head
+  `1245881daf1a60a5a229789329bf5d31d11db6e4` reproduced two bounded
+  persistence defects even though H-tier run `31420199673` passed: the
+  explicit schema-v2 migration called the canonical save path that rejected
+  every legacy source, and a rejected in-guard race could leave durable backup
+  artifacts. Consolidated commit
+  `916ee1aa3a8228f1bab46ae4546c3b523d23c12c` adds the single explicit,
+  checksum/CAS-guarded v2-to-v3 migration, requires acknowledgement only for
+  unverifiable non-hash legacy data, verifies successful backups and removes
+  backup artifacts when stale or tampered guarded writes reject. The complete
+  universe/onboarding/manager surface passes with one expected platform skip;
+  Ruff, compile, diff hygiene and programme byte-clean checks pass. Freeze one
+  documented replacement head for both independent reviews and fresh H-tier
+  Linux/Windows/terminal evidence. Product scope, external authority and
+  `execution_allowed=false` remain unchanged.
+- Parallel review then rejected documented head
+  `5aa6c9bcb4af6f33e5347938d6731f76a6d9233f` for four exact cases: a
+  caller-reachable migration escape, post-commit backup ambiguity, a symlinked
+  canonical-store escape and orphaned policy profiles after legal same-tier
+  onboarding replacement. Run `31448286398` was cancelled and is stale.
+  Consolidated commit `c2397dc20500b534ba17ccdb4a048831721ddabd`
+  removes the public legacy switch and enforces digest-bound acknowledgement
+  in the guarded migration writer, verifies commit/backup disposition while
+  the group guard is held, rejects symlinked canonical destinations and keeps
+  only policy profiles whose records survive replacement. All four focused
+  regressions and the complete universe/onboarding/manager suite pass with two
+  capability-specific skips; Ruff, compile and diff hygiene pass. Freeze one
+  final documented head for both independent reviews and fresh H-tier gates.
+- Re-review rejected documented head
+  `5289d1206b0a88e990a9bc57538b4d9706c0435d` after reproducing a junction
+  swap before atomic destination resolution and a stale writer deleting a
+  following writer's verified backup. Run `31449729020` is cancelled and
+  stale. Commit `3a6ffe1bcf2e48fa055b6e7db8323e451e2b60b4` binds the
+  canonical destination check before resolution and repeats it under the held
+  group guard, removes unowned backup-directory cleanup and makes the shared
+  backup helper remove only its own failed checkpoint. Both exact races, the
+  prior closure regressions and the complete universe/onboarding/manager/atomic
+  surface pass with two capability-specific skips. Freeze one replacement head
+  for parallel final review and fresh H-tier Linux/Windows/terminal gates.
+- Both exact-head reviewers rejected frozen head
+  `f01a673a284c6c7aaf1d0f3699371bef4dfdde70`; hosted run `31391040254` is
+  cancelled and stale. Their consolidated findings were partial cross-root
+  writes, destructive/noncanonical bulk import, sparse-config replacement,
+  ignored storage/hardware choices, empty-machine UI failure, invalid-scope
+  self-corruption, descendant symlink escape and contradictory backup choices.
+  One bounded correction at `45e5e9aa4f350df3f464e3a536ccbcbe24556d8d`
+  makes bulk explicitly unavailable with zero price writes, groups all
+  onboarding-owned outputs with revision/path/volume preflight, propagates only
+  storage/universe and hardware selection, preserves active risk/cost config,
+  supports empty local startup and rejects unsupported backup claims before
+  writes. Focused onboarding, import/export, universe, jobs, resource-profile
+  and atomic-I/O tests plus Windows changed validation pass. Freeze one final
+  documented head for both reviews and fresh H-tier package validation.
+- Re-review rejected `d6abc257d27a657e3286915551265da5b08ac008` only
+  for runtime-root/scheduler propagation and a reproduced junction swap; run
+  `31394272704` is cancelled and stale. The final bounded correction
+  `437c935ae9416c6723dd04880ccc45a21c3fd5f1` keeps the existing canonical
+  project-local runtime root explicit, rejects unsupported custom roots before
+  writes, removes incidental-CWD authority, applies the persisted hardware
+  profile to the real durable scheduler at restart and same-session setup, and
+  revalidates destination identity under the grouped-write precondition. The
+  148-test focused surface has 147 passes and one platform-capability skip;
+  Ruff, compile and diff hygiene pass. Freeze the fully documented replacement
+  head for final parallel reviews and fresh H-tier validation.
+- Final parallel review rejected `9e5d097565739ef9e4d2259e4f2f9877766c4b4c`
+  after reproducing two persistence defects: onboarding reset an existing
+  cross-tier-duplicate policy and a canonical universe save could be lost when
+  it committed after onboarding's first revision check. Hosted run
+  `31397877895` is stale and failed preflight because its Windows junction test
+  invoked `cmd` on Linux. Consolidated correction
+  `279e61541bdd8b87c72cec5b51e06839842543e0` preserves the policy, places the
+  canonical saver under the same grouped guard with an in-guard CAS, adds the
+  deterministic interleaving regression, and capability-skips the Windows-only
+  junction test. The affected onboarding/universe/application surface, Ruff,
+  compile and diff hygiene pass. Freeze one replacement head and repeat both
+  exact-head reviews plus fresh Linux, Windows and terminal validation.
+- Risk review approved replacement head
+  `4842e62dec7349cc793f9e3a5ddafc2926a198e7`, while whole-diff review
+  reproduced two remaining bounded defects: permitted cross-tier duplicate
+  records were collapsed even though their policy flag survived, and persisted
+  unsupported encrypted-backup metadata was accepted. Run `31401913671` was
+  cancelled and is stale. Commit `9ae2fceab6a39643c33acc2f25bb88e9ea23495c`
+  now preserves records according to the canonical same-tier/cross-tier policy
+  and makes unsupported persisted backup preferences fail closed. Both
+  regressions plus the affected focused suite, Ruff, compile and diff hygiene
+  pass. Freeze this documented head for final exact-head reviews and fresh
+  H-tier Linux/Windows/terminal validation; no further scope expansion is
+  authorised absent a newly demonstrated defect.
+- Risk review again approved `8c125409f1b388e696620205035fa2a553d696cf`,
+  while whole-diff review reproduced the remaining identity gap: onboarding's
+  local merge did not fully apply canonical instrument-ID, ticker and verified
+  ISIN semantics. Run `31403933793` was cancelled and is stale. Commit
+  `9304f1386047da4f6773e1901dbd44e5ba1c10b1` now preserves legal cross-tier
+  identity duplicates and replaces later same-tier or disallowed collisions
+  across all three canonical identities. The focused onboarding, universe and
+  presentation-boundary guards plus Ruff, compile and diff hygiene pass. Freeze
+  this documented head for final exact-head review and H-tier gates.
+- Both final reviewers rejected `3059a24623a60a4a0ab0e98964e1602aeff79403`
+  after reproducing one canonical identity-integrity defect: validation allowed
+  legal cross-tier identities that schema-v3 reload dropped, tier tracking could
+  miss a third same-tier reuse, and onboarding could collapse two distinct
+  records when an incoming row matched them through different identities. Run
+  `31405719378` was cancelled and is stale. Bounded H-tier commit
+  `2023d1c7faebf18742a744e92d8f2c4aa89639a8` tracks all tiers per canonical
+  ID/ticker/verified-ISIN, round-trips legal cross-tier records, rejects repeated
+  same-tier identity, and fails onboarding before writes on ambiguous matches.
+  ID/ticker/ISIN round-trip, triplet and no-write regressions plus the affected
+  onboarding, universe, application and presentation-boundary suite pass.
+  Freeze the documented head for final review and H-tier gates.
+- Final review rejected `8abbce95706a5b18b71514615d2395a9aa00c46f`
+  with five demonstrated persistence/integrity gaps: application config bypassed
+  canonical universe integrity, onboarding lacked its own stale-writer CAS,
+  backup state overstated durability, malformed ISIN authority was accepted,
+  and unresolved disabled tickers could be re-enabled on resave. Run
+  `31407286024` was cancelled and is stale. Consolidated H-tier commit
+  `b959929168417b3642e42d6edf0464a2b83cbb8c` routes active config through the
+  canonical decoder, adds checksum-bound onboarding CAS, records backup as
+  unavailable/not enabled, validates verified ISIN shape/status, and preserves
+  unresolved disabled ticker state. Deterministic integrity, concurrency,
+  backup-state, ISIN and resave regressions plus the affected application,
+  scheduler and architecture suite pass. Freeze the documented head for final
+  review and complete H-tier gates.
+- Parallel review rejected `b702dc288257226b875ea4326464b0038da13c47`
+  because active config unnecessarily rejected valid schema-v2 snapshots and
+  cross-tier duplicate instrument IDs conflicted with the application's global
+  row-key/CRUD contract. Run `31410039718` was cancelled and is stale. Smallest
+  safe commit `a7347395ffb006e3bf8721555e07d89388e7a038` restores canonical schema-v2
+  active loading, makes instrument IDs globally case-insensitively unique, and
+  retains cross-tier override only for ticker and verified ISIN. Onboarding
+  deterministically replaces a same-ID row rather than creating duplicate row
+  authority. Focused universe/onboarding/application/UI/architecture checks
+  pass. Freeze the documented head for final review and H-tier gates.
+- Parallel review rejected `a5efafe7eb1fc80f582500e1aee3bf3cdd3b035d`
+  for six bounded compatibility/truth gaps: dotted/underscore ticker ID aliasing,
+  non-boolean legacy override flags, boolean bootstrap row counts, stale
+  unresolved-symbol metadata, overstated sample row counts and a misleading
+  duplicate-policy label. Run `31413658110` was cancelled and is stale. Commit
+  `14d50990583d583f9cbd88fd3977eebb7622aa23` preserves exact ticker IDs,
+  validates legacy policy and onboarding evidence types/content, reports only
+  newly selected sample rows and states the constrained override accurately.
+  Focused onboarding/universe/application/UI/architecture checks pass. Freeze
+  the documented head for final review and H-tier gates.
+- Whole-diff review approved product behavior at
+  `fdc74518806b33b987138cefa04fc344e11d637e`, while risk review reproduced one
+  final integrity gap: application-written schema-v2 stores carried SHA-256
+  revisions that legacy loading did not verify. Run `31416908410` was cancelled
+  and is stale. Commit `f244709db135847508732cfd6398508928d8a3b3`
+  verifies hash-shaped schema-v2 revisions on load and under onboarding's held
+  group precondition while preserving genuinely legacy non-hash compatibility.
+  Tamper rejection through both canonical and active config loaders and backup
+  preservation are covered. Freeze the documented head for final review and
+  H-tier gates.
+- Both reviews rejected `82cebca3f749a11733de3d670ee1981a51715827`
+  because integrity-invalid or revision-downgraded schema-v2 state could still
+  be laundered through canonical save and backup. Run `31418506968` was
+  cancelled and is stale. Commit `fb548c4467274a70a5c58277334c15db5aa07a8e`
+  now requires explicit migration before schema-v2 active use/save, rejects
+  integrity-invalid state before backup and again under the held guard, and
+  blocks Universe Manager save when its snapshot reports integrity errors.
+  Laundering, revision downgrade, no-backup and UI-block regressions plus the
+  affected focused suite pass. Freeze the documented head for final review and
+  H-tier gates.
+
+## Superseded ISSUE-0016 product checkpoint
 
 ## Superseded ISSUE-0015 product checkpoint
 

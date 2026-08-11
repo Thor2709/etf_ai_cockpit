@@ -19,6 +19,7 @@ from etf_cockpit.core.errors import ErrorStore, classify_exception
 from etf_cockpit.core.timing import timed_step
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowController, WorkflowStatus, WorkflowStep, WorkflowTransitionError, publication_scope
 from etf_cockpit.application.api import LocalApplicationApi
+from etf_cockpit.core.job_scheduler import DurableJobScheduler
 from etf_cockpit.data.trust_artifacts import IDENTITY_PATH, refresh_static_trust_artifacts, write_trust_artifacts_for_scores
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
 from etf_cockpit.data.esef_provider import EsefProviderUnavailable, FilingsXbrlOrgProvider
@@ -350,7 +351,26 @@ class AppState:
     application_api: LocalApplicationApi = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self.application_api = LocalApplicationApi(lambda: self.snapshot)
+        self.refresh_runtime_profile()
+
+    def refresh_runtime_profile(self, resource_profile: str | None = None) -> str:
+        """Rebuild the local runtime boundary from persisted onboarding hardware."""
+
+        selected = str(resource_profile or "").strip().casefold()
+        if not selected:
+            try:
+                from etf_cockpit.app.pages.onboarding import load_onboarding
+
+                selected = load_onboarding(ROOT).hardware_profile
+            except (OSError, ValueError, TypeError):
+                selected = "auto"
+        scheduler = DurableJobScheduler(ROOT, resource_profile=selected)
+        self.application_api = LocalApplicationApi(
+            lambda: self.snapshot,
+            root=ROOT,
+            scheduler=scheduler,
+        )
+        return scheduler.resource_policy.requested_profile
 
     def set_evidence_mode(self, mode: str) -> str:
         """Set the visible evidence density without changing authority."""
