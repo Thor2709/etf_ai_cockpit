@@ -193,9 +193,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 holdings_view=str(holdings_view.value or "combined"),
             )
             inapplicable = sorted(
-                instrument_id
-                for instrument_id, weight in targets.items()
-                if float(weight) > 0 and instrument_id not in universe
+                (_holding_ids(selected_holdings) | set(targets)) - set(universe)
             )
             if inapplicable:
                 rebalance_host.controls = [

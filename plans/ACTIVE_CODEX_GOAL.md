@@ -2013,6 +2013,13 @@ next action and whether the requested outcome is actually complete.
   assets receive an explicit source-bound inapplicable preview without silent
   removal. Exact provenance/load and AAPL UI regressions plus focused checks
   pass. Freeze the next head for final review and fresh H gates.
+- Head `bc08cf83f974befb00ca99692ef26bd9afc9c867` and run
+  `31513745409` are invalidated by one final mixed-asset branch reproduction:
+  a held AAPL position with a zero target bypassed the positive-target guard
+  and reached the ETF-only rebalance service as a false sell. The guard now
+  blocks every selected or targeted non-configured position regardless of
+  target weight; the exact zero-exit regression passes. Freeze the replacement
+  head for final approval and fresh H-tier evidence.
 - Whole-diff review approved head `d74e32e6e655ff639587c9fe18f0ba211c7624fa`
   and risk review verified the guard fix but reproduced one independent parser
   defect: ragged CSV rows could discard trailing fields. Run `31461743133` is

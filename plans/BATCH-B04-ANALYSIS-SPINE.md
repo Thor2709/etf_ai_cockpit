@@ -1390,6 +1390,13 @@ receive an explicit source-bound inapplicable result from the ETF-only discrete
 rebalance preview. Exact regressions and focused checks pass; freeze for final
 review and fresh H-tier evidence.
 
+`ISSUE_0021_ZERO_TARGET_PREVIEW_CORRECTION` invalidates head
+`bc08cf83f974befb00ca99692ef26bd9afc9c867` and run `31513745409`. A held
+mixed asset with a zero target could bypass the positive-target guard and reach
+the ETF-only preview as a false sell. Every selected or targeted mixed asset is
+now explicitly inapplicable regardless of target weight, with the exact AAPL
+zero-exit regression passing. Freeze for final approval and H-tier evidence.
+
 Generic-readback repair PR #643 merged independently approved exact head
 `f8f28c94ae8f4a6f8f15dd8a5ad187cd35dafd2c` as
 `bbe8a789d05a7df688661eb8e2370bb26583dc8f` after H-tier run
