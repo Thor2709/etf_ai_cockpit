@@ -2134,3 +2134,34 @@ next action and whether the requested outcome is actually complete.
   set plus the atomic writer's named durable guard once a ledger exists. Exact
   no-write regressions cover both cases; no adjacent event-store change is in
   scope. Freeze one replacement head for both reviews and fresh H-tier gates.
+
+## ISSUE-0024 merge and ISSUE-0033 product checkpoint — 2026-08-12
+
+- ISSUE-0024 PR #678 merged exact independently approved head
+  `89634f179eb947d4f0af8685cf4ef025685dd618` as exact main
+  `4f7082d06d1695158d8998563dc083e86fe5e364`. H-tier run `31533062736`
+  passed classifier, preflight, supply chain, Linux, Windows and terminal
+  validation. Event rows remain context-only and `execution_allowed=false`.
+- Exact-main audits found no remaining ISSUE-0026 or ISSUE-0027 product delta.
+  ISSUE-0026's prior product merge `5b7a0150b3b01f3ec6685c7c14e62ae3dac1b050`
+  is an ancestor and 37 focused macro warehouse/scenario/dashboard tests pass.
+  ISSUE-0027's product commit `0903a48c5b77924a86abf5ffc4b254917e82d797`
+  is an ancestor and 11 Forecast Lab/model-zoo/UI tests pass. Do not repeat
+  either completed implementation while lifecycle sequence 23 remains frozen.
+- ISSUE-0033, "Alerts and review reminders", is the next canonical phase-01
+  dependency-ready issue. It is P2 and `planned`, with no blocking or
+  activation dependencies. Clean lane `codex/issue0033-product-20260812`
+  starts at exact main `4f7082d06d1695158d8998563dc083e86fe5e364`
+  with an empty diff. Implement only local typed alerts, lifecycle controls,
+  explicit blocking policy and the accepted Dashboard, Activity Log and
+  Instrument Detail surfaces; add no external notification or execution path.
+- The bounded ISSUE-0033 delta now provides strict typed generation for all
+  eight accepted triggers, deterministic deduplication, CAS-backed local
+  persistence, reconstructible snooze/dismiss/expiry state, explicit
+  portfolio/order/model incident domains and active-only blocking under a
+  caller-supplied policy. Dashboard digest and Activity Log expose local
+  dismiss/snooze controls; Instrument Detail remains scoped read-only; corrupt
+  storage is visibly unavailable. The 51-test focused alert/UI/persistence/
+  architecture set, changed-app offline smoke, Ruff, compile, programme
+  freshness and diff hygiene pass. Classify and freeze one complete head for
+  parallel review and required hosted validation; `execution_allowed=false`.

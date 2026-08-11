@@ -3409,3 +3409,28 @@ and the atomic writer's named durable guard. Nested fresh evidence and extra
 non-JSON existing evidence fail before any clean, audit or raw write. Add no
 retry, recovery or adjacent persistence redesign; freeze one replacement head
 for both reviews and fresh H-tier validation.
+
+## ISSUE-0024 completion and ISSUE-0033 lane — 2026-08-12
+
+ISSUE-0024 PR #678 merged reviewed head
+`89634f179eb947d4f0af8685cf4ef025685dd618` as exact main
+`4f7082d06d1695158d8998563dc083e86fe5e364` after H-tier run `31533062736`
+passed Linux, Windows and terminal validation. Exact-main evidence confirms
+ISSUE-0026 and ISSUE-0027 product implementations already remain present and
+focused green; do not repeat them. ISSUE-0033 is the next dependency-ready
+phase-01 issue. Its clean product lane starts at the exact main above and is
+bounded to local typed alerts/reminders, lifecycle persistence, explicit block
+policy and accepted UI readback. External notifications, order mutation and
+execution authority remain prohibited; `execution_allowed=false` is unchanged.
+
+The bounded ISSUE-0033 implementation now turns strict typed observations into
+the eight accepted local alert classes with explicit thresholds and evidence,
+CAS-backed dedupe/lifecycle persistence, point-in-time snooze/dismiss/expiry
+evaluation and explicit portfolio/order/model incident rules. Only active
+alerts matching a supplied policy can block; the default remains
+informational. Dashboard, Activity Log and Instrument Detail expose safe local
+readback, with Dashboard dismiss/one-day-snooze actions and explicit corrupt
+store unavailability. Focused alert, UI, storage and architecture tests plus
+changed-app smoke and static/programme checks pass. Freeze one classified head
+for both independent reviews and hosted evidence; no external notification or
+execution path is added.
