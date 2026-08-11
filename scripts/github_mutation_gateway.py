@@ -2807,13 +2807,36 @@ def _run_gh(args: list[str], *, input_text: str | None = None) -> str:
     return completed.stdout
 
 
+_TRANSIENT_READ_HTTP_STATUS = re.compile(
+    r"\bHTTP(?:/\d+(?:\.\d+)?)?\s+(?:500|502|503|504)\b",
+    re.IGNORECASE,
+)
+_TRANSIENT_READ_TRANSPORT_MARKERS = (
+    "connection reset",
+    "operation timed out",
+    "operation/timed out",
+    "context deadline exceeded",
+    "temporary failure in name resolution",
+    "temporary dns failure",
+    "tls handshake timeout",
+)
+
+
+def _is_transient_read_error(exc: BaseException) -> bool:
+    if not isinstance(exc, subprocess.CalledProcessError):
+        return False
+    stderr = f"{exc.stderr or ''}".lower()
+    return _TRANSIENT_READ_HTTP_STATUS.search(stderr) is not None or any(
+        marker in stderr for marker in _TRANSIENT_READ_TRANSPORT_MARKERS
+    )
+
+
 def _read_gh(args: list[str], *, attempts: int = 3) -> str:
     for attempt in range(attempts):
         try:
             return _run_gh(args)
         except subprocess.CalledProcessError as exc:
-            text = f"{exc.stdout or ''}\n{exc.stderr or ''}"
-            if attempt + 1 == attempts or "503" not in text:
+            if attempt + 1 == attempts or not _is_transient_read_error(exc):
                 raise
             time.sleep(2**attempt)
     raise RuntimeError("unreachable")

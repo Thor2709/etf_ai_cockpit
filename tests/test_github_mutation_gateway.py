@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -1386,3 +1387,128 @@ def test_deleted_baseline_or_whole_created_issue_blocks() -> None:
     )
     blocked = gateway.reconcile_authority_ledger([bootstrap, create], [issue()])
     assert blocked["error"] == "missing_or_duplicate_create_authority_projection"
+
+
+def test_read_gh_retries_transient_http_502_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    sleeps: list[int] = []
+
+    def run(_args: list[str]) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise subprocess.CalledProcessError(
+                1, ["gh", "api"], stderr="HTTP 502 Bad Gateway"
+            )
+        return "ok"
+
+    monkeypatch.setattr(gateway, "_run_gh", run)
+    monkeypatch.setattr(gateway.time, "sleep", sleeps.append)
+
+    assert gateway._read_gh(["api", "endpoint"]) == "ok"
+    assert calls == 2
+    assert sleeps == [1]
+
+
+@pytest.mark.parametrize("status", ["500", "503", "504"])
+def test_read_gh_retries_other_transient_http_statuses(
+    monkeypatch: pytest.MonkeyPatch, status: str
+) -> None:
+    calls = 0
+    sleeps: list[int] = []
+
+    def run(_args: list[str]) -> str:
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise subprocess.CalledProcessError(
+                1, ["gh", "api"], stderr=f"HTTP {status}"
+            )
+        return "ok"
+
+    monkeypatch.setattr(gateway, "_run_gh", run)
+    monkeypatch.setattr(gateway.time, "sleep", sleeps.append)
+
+    assert gateway._read_gh(["api", "endpoint"]) == "ok"
+    assert calls == 3
+    assert sleeps == [1, 2]
+
+
+def test_read_gh_retries_transient_transport_marker_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    sleeps: list[int] = []
+
+    def run(_args: list[str]) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise subprocess.CalledProcessError(
+                1, ["gh", "api"], stderr="curl: (56) connection reset by peer"
+            )
+        return "ok"
+
+    monkeypatch.setattr(gateway, "_run_gh", run)
+    monkeypatch.setattr(gateway.time, "sleep", sleeps.append)
+
+    assert gateway._read_gh(["api", "endpoint"]) == "ok"
+    assert calls == 2
+    assert sleeps == [1]
+
+
+def test_read_gh_exhausts_transient_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    sleeps: list[int] = []
+    failure = subprocess.CalledProcessError(
+        1, ["gh", "api"], stderr="HTTP/2 503 Service Unavailable"
+    )
+
+    def run(_args: list[str]) -> str:
+        nonlocal calls
+        calls += 1
+        raise failure
+
+    monkeypatch.setattr(gateway, "_run_gh", run)
+    monkeypatch.setattr(gateway.time, "sleep", sleeps.append)
+
+    with pytest.raises(subprocess.CalledProcessError) as captured:
+        gateway._read_gh(["api", "endpoint"])
+    assert captured.value is failure
+    assert calls == 3
+    assert sleeps == [1, 2]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        subprocess.CalledProcessError(1, ["gh", "api"], stderr="HTTP 401"),
+        subprocess.CalledProcessError(1, ["gh", "api"], stderr="HTTP 404"),
+        subprocess.CalledProcessError(1, ["gh", "api"], stderr="request id 502"),
+        subprocess.CalledProcessError(1, ["gh", "api"], stderr="malformed response"),
+        subprocess.CalledProcessError(1, ["gh", "api"], stderr="policy rejected"),
+    ],
+)
+def test_read_gh_fails_immediately_for_non_transient_errors(
+    monkeypatch: pytest.MonkeyPatch, failure: subprocess.CalledProcessError
+) -> None:
+    calls = 0
+    sleeps: list[int] = []
+
+    def run(_args: list[str]) -> str:
+        nonlocal calls
+        calls += 1
+        raise failure
+
+    monkeypatch.setattr(gateway, "_run_gh", run)
+    monkeypatch.setattr(gateway.time, "sleep", sleeps.append)
+
+    with pytest.raises(subprocess.CalledProcessError) as captured:
+        gateway._read_gh(["api", "endpoint"])
+    assert captured.value is failure
+    assert calls == 1
+    assert sleeps == []

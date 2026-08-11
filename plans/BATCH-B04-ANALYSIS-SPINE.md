@@ -3234,3 +3234,13 @@ authority sequence 23 binds that plan to the exact product merge. After merge,
 require writer `applied_and_verified`, generic zero-action readback and
 unchanged `execution_allowed=false`, then select the next canonical
 dependency-ready issue.
+
+`WRITER_READ_REPAIR` lifecycle PR #675 merged reviewed head
+`d1333017f86d1b1dc6c5bbe79dbc975257baaaf6` as
+`f4f6707d19e4de0d26144971f6c254750e44aaa2` after status guard
+`31493345117` and H-tier run `31493345148` passed. Writer run `31497001531`
+failed closed with zero transport writes: its first authenticated Actions-run
+read succeeded, while the required fresh reread hit a transient CLI/API
+failure. The one bounded H-tier repair adds only explicit transient handling to
+the read path and exact regressions; it does not retry writes, cache caller
+proof, broaden authority or change `execution_allowed=false`.

@@ -1937,6 +1937,17 @@ next action and whether the requested outcome is actually complete.
 - Freeze one lifecycle head after focused guards. Require independent exact-head
   review, merge, ordered writer `applied_and_verified`, and generic zero-action
   readback before selecting the next dependency-ready product issue.
+- Lifecycle PR #675 merged independently approved head
+  `d1333017f86d1b1dc6c5bbe79dbc975257baaaf6` as exact main
+  `f4f6707d19e4de0d26144971f6c254750e44aaa2`; status guard
+  `31493345117` and release run `31493345148` passed all required Linux,
+  Windows and terminal checks. Writer run `31497001531` then failed closed
+  before any transport write when its required fresh Actions-run read
+  transiently failed after the identical initial read had succeeded. Attempt 2
+  correctly remained ineligible. The sole bounded H-tier repair retries only
+  explicit read-only HTTP 500/502/503/504 and transport failures, with a focused
+  regression; caller proof, mutation semantics and `execution_allowed=false`
+  remain unchanged.
 - Whole-diff review approved head `d74e32e6e655ff639587c9fe18f0ba211c7624fa`
   and risk review verified the guard fix but reproduced one independent parser
   defect: ragged CSV rows could discard trailing fields. Run `31461743133` is
