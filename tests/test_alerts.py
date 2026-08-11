@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from etf_cockpit.data.alerts import (
+    ALERT_ENTITY_TYPE,
     AlertBlockPolicy,
     AlertConfidence,
     AlertRevisionConflict,
@@ -21,7 +22,9 @@ from etf_cockpit.data.alerts import (
 from etf_cockpit.application.alerts import (
     AlertTriggerObservation,
     generate_local_alert,
+    read_local_alerts,
 )
+from etf_cockpit.data.local_storage import TransactionalStore
 
 
 NOW = datetime(2026, 8, 1, 12, tzinfo=timezone.utc)
@@ -282,3 +285,148 @@ def test_block_policy_never_blocks_non_active_statuses() -> None:
     assert not snoozed.is_blocked(policy)
     assert not dismissed.is_blocked(policy)
     assert not expired.is_blocked(policy)
+
+
+def test_repeated_snooze_intervals_are_preserved_for_point_in_time_replay(tmp_path) -> None:
+    alert = _alert(AlertType.STALE_DATA, suffix="repeated-snooze")
+    clock = [NOW.replace(hour=13)]
+    with AlertStore(tmp_path, clock=lambda: clock[0]) as store:
+        created = store.create(alert)
+        store.snooze(
+            alert.alert_id,
+            NOW.replace(hour=14),
+            expected_revision=created.revision,
+        )
+        clock[0] = NOW.replace(hour=15)
+        reactivated = store.get(alert.alert_id)
+        assert reactivated.status is AlertStatus.ACTIVE
+        clock[0] = NOW.replace(hour=16)
+        second = store.snooze(
+            alert.alert_id,
+            NOW.replace(hour=18),
+            expected_revision=reactivated.revision,
+        )
+
+        assert second.revision == 4
+        assert len(second.alert.snooze_history) == 1
+        assert evaluate_alerts_as_of([second.alert], NOW.replace(hour=13, minute=30))[0].status is AlertStatus.SNOOZED
+        assert evaluate_alerts_as_of([second.alert], NOW.replace(hour=15))[0].status is AlertStatus.ACTIVE
+        assert evaluate_alerts_as_of([second.alert], NOW.replace(hour=17))[0].status is AlertStatus.SNOOZED
+        assert evaluate_alerts_as_of([second.alert], NOW.replace(hour=19))[0].status is AlertStatus.ACTIVE
+
+    with AlertStore(tmp_path, clock=lambda: NOW.replace(hour=17)) as reopened:
+        replayed = reopened.get(alert.alert_id)
+        assert len(replayed.alert.snooze_history) == 1
+        assert evaluate_alerts_as_of([replayed.alert], NOW.replace(hour=13, minute=30))[0].status is AlertStatus.SNOOZED
+
+
+def test_current_list_and_readback_exclude_future_available_alerts(tmp_path) -> None:
+    clock = [NOW.replace(hour=13)]
+    future = _alert(
+        AlertType.RANK_CHANGE,
+        suffix="future-current",
+        available_at=NOW.replace(hour=14),
+    )
+    with AlertStore(tmp_path, clock=lambda: clock[0]) as store:
+        store.create(future)
+        with pytest.raises(KeyError, match="not yet available"):
+            store.get(future.alert_id)
+        assert store.list() == ()
+        assert store.list(include_inactive=True) == ()
+        clock[0] = NOW.replace(hour=15)
+        assert store.list()[0].alert_id == future.alert_id
+
+    readback_root = tmp_path / "readback"
+    future_readback = _alert(
+        AlertType.RANK_CHANGE,
+        suffix="future-readback",
+        occurred_at="2099-01-01T00:00:00+00:00",
+        available_at="2099-01-01T01:00:00+00:00",
+    )
+    with AlertStore(readback_root) as store:
+        store.create(future_readback)
+    readback = read_local_alerts(readback_root)
+    assert readback.status == "available"
+    assert readback.records == ()
+
+
+def test_expiry_precedes_ended_snooze_in_one_read(tmp_path) -> None:
+    clock = [NOW.replace(hour=13)]
+    alert = _alert(
+        AlertType.REVIEW_DATE_ARRIVED,
+        suffix="expiry-before-reactivation",
+        expires_at=NOW.replace(hour=14),
+    )
+    with AlertStore(tmp_path, clock=lambda: clock[0]) as store:
+        created = store.create(alert)
+        snoozed = store.snooze(
+            alert.alert_id,
+            NOW.replace(hour=13, minute=30),
+            expected_revision=created.revision,
+        )
+        clock[0] = NOW.replace(hour=15)
+        expired = store.get(alert.alert_id)
+        assert expired.status is AlertStatus.EXPIRED
+        assert expired.revision == snoozed.revision + 1
+        assert store.get(alert.alert_id).revision == expired.revision
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {
+            "status": "snoozed",
+            "snoozed_at": "2026-08-01T13:00:00+00:00",
+            "snoozed_until": "2026-08-01T13:00:00+00:00",
+        },
+        {
+            "status": "snoozed",
+            "snoozed_at": "2026-08-01T11:00:00+00:00",
+            "snoozed_until": "2026-08-01T13:00:00+00:00",
+        },
+        {
+            "status": "dismissed",
+            "dismissed_at": "2026-08-01T11:00:00+00:00",
+        },
+        {
+            "snooze_history": [
+                {
+                    "snoozed_at": "2026-08-01T13:00:00+00:00",
+                    "snoozed_until": "2026-08-01T13:00:00+00:00",
+                }
+            ]
+        },
+    ],
+)
+def test_malformed_lifecycle_timeline_is_rejected(changes) -> None:
+    alert = _alert(AlertType.STALE_DATA, suffix="malformed-timeline")
+    payload = alert.to_dict()
+    with pytest.raises(ValueError):
+        alert.from_dict({**payload, **changes})
+
+
+def test_corrupted_timeline_payload_fails_closed_in_store_and_readback(tmp_path) -> None:
+    alert = _alert(AlertType.STALE_DATA, suffix="corrupted-timeline")
+    with AlertStore(tmp_path) as store:
+        created = store.create(alert)
+    payload = alert.to_dict()
+    payload["snooze_history"] = [
+        {
+            "snoozed_at": "2026-08-01T13:00:00+00:00",
+            "snoozed_until": "2026-08-01T13:00:00+00:00",
+        }
+    ]
+    with TransactionalStore(tmp_path) as store:
+        store.put(
+            ALERT_ENTITY_TYPE,
+            alert.alert_id,
+            payload,
+            expected_revision=created.revision,
+        )
+
+    with AlertStore(tmp_path) as store:
+        with pytest.raises(ValueError, match="snoozed_at must be before snoozed_until"):
+            store.list(include_inactive=True)
+    readback = read_local_alerts(tmp_path, include_inactive=True)
+    assert readback.status == "unavailable"
+    assert readback.records == ()

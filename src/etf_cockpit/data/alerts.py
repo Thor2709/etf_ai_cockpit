@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from enum import Enum
 import hashlib
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Callable
 
@@ -97,6 +97,7 @@ _ALERT_FIELDS = frozenset(
         "status",
         "snoozed_at",
         "snoozed_until",
+        "snooze_history",
         "dismissed_at",
         "incident_domain",
         "evidence",
@@ -161,6 +162,35 @@ def _alert_id(alert_type: AlertType, subject_id: str, dedupe_key: str) -> str:
 
 
 @dataclass(frozen=True)
+class _SnoozeInterval:
+    snoozed_at: datetime
+    snoozed_until: datetime
+
+    def __post_init__(self) -> None:
+        snoozed_at = _utc_datetime(self.snoozed_at, field="snoozed_at")
+        snoozed_until = _utc_datetime(self.snoozed_until, field="snoozed_until")
+        object.__setattr__(self, "snoozed_at", snoozed_at)
+        object.__setattr__(self, "snoozed_until", snoozed_until)
+        if snoozed_at >= snoozed_until:
+            raise ValueError("snoozed_at must be before snoozed_until")
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "_SnoozeInterval":
+        if not isinstance(data, Mapping):
+            raise TypeError("snooze history entries must be mappings")
+        fields = {"snoozed_at", "snoozed_until"}
+        if set(data) != fields:
+            raise ValueError("snooze history entries require exactly snoozed_at and snoozed_until")
+        return cls(snoozed_at=data["snoozed_at"], snoozed_until=data["snoozed_until"])
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "snoozed_at": _canonical_datetime(self.snoozed_at),
+            "snoozed_until": _canonical_datetime(self.snoozed_until),
+        }
+
+
+@dataclass(frozen=True)
 class Alert:
     alert_id: str
     dedupe_key: str
@@ -176,6 +206,7 @@ class Alert:
     status: AlertStatus = AlertStatus.ACTIVE
     snoozed_at: datetime | None = None
     snoozed_until: datetime | None = None
+    snooze_history: tuple[_SnoozeInterval, ...] = ()
     dismissed_at: datetime | None = None
     incident_domain: IncidentDomain = IncidentDomain.GENERAL
     evidence: Mapping[str, Any] = field(default_factory=dict)
@@ -203,12 +234,19 @@ class Alert:
         expires_at = _optional_datetime(self.expires_at, field="expires_at")
         snoozed_at = _optional_datetime(self.snoozed_at, field="snoozed_at")
         snoozed_until = _optional_datetime(self.snoozed_until, field="snoozed_until")
+        if not isinstance(self.snooze_history, Sequence) or isinstance(self.snooze_history, (str, bytes)):
+            raise TypeError("snooze_history must be a sequence")
+        snooze_history = tuple(
+            item if isinstance(item, _SnoozeInterval) else _SnoozeInterval.from_dict(item)
+            for item in self.snooze_history
+        )
         dismissed_at = _optional_datetime(self.dismissed_at, field="dismissed_at")
         object.__setattr__(self, "occurred_at", occurred_at)
         object.__setattr__(self, "available_at", available_at)
         object.__setattr__(self, "expires_at", expires_at)
         object.__setattr__(self, "snoozed_at", snoozed_at)
         object.__setattr__(self, "snoozed_until", snoozed_until)
+        object.__setattr__(self, "snooze_history", snooze_history)
         object.__setattr__(self, "dismissed_at", dismissed_at)
         if occurred_at > available_at:
             raise ValueError("available_at cannot precede occurred_at")
@@ -228,12 +266,21 @@ class Alert:
             raise ValueError(f"{alert_type.value} is not valid for incident domain {domain.value}")
         if (snoozed_at is None) != (snoozed_until is None):
             raise ValueError("snoozed_at and snoozed_until must be provided together")
+        if snoozed_at is not None and snoozed_until is not None:
+            if snoozed_at >= snoozed_until:
+                raise ValueError("snoozed_at must be before snoozed_until")
+            if snoozed_at < available_at:
+                raise ValueError("snoozed_at cannot precede available_at")
+        if any(interval.snoozed_at < available_at for interval in snooze_history):
+            raise ValueError("snooze history cannot precede available_at")
         if status is AlertStatus.SNOOZED and (snoozed_at is None or snoozed_until is None):
             raise ValueError("snoozed alerts require snoozed_at and snoozed_until")
         if status is AlertStatus.DISMISSED and dismissed_at is None:
             raise ValueError("dismissed alerts require dismissed_at")
         if status is not AlertStatus.DISMISSED and dismissed_at is not None:
             raise ValueError("dismissed_at is only valid for dismissed alerts")
+        if dismissed_at is not None and dismissed_at < available_at:
+            raise ValueError("dismissed_at cannot precede available_at")
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "Alert":
@@ -260,6 +307,7 @@ class Alert:
             status=data["status"],
             snoozed_at=data["snoozed_at"],
             snoozed_until=data["snoozed_until"],
+            snooze_history=data["snooze_history"],
             dismissed_at=data["dismissed_at"],
             incident_domain=data["incident_domain"],
             evidence=data["evidence"],
@@ -282,6 +330,7 @@ class Alert:
             "status": self.status.value,
             "snoozed_at": _canonical_datetime(self.snoozed_at),
             "snoozed_until": _canonical_datetime(self.snoozed_until),
+            "snooze_history": [interval.to_dict() for interval in self.snooze_history],
             "dismissed_at": _canonical_datetime(self.dismissed_at),
             "incident_domain": self.incident_domain.value,
             "evidence": dict(self.evidence),
@@ -401,10 +450,16 @@ def evaluate_alerts_as_of(alerts: Iterable[Alert], as_of: datetime | str) -> tup
             status = AlertStatus.EXPIRED
         elif alert.dismissed_at is not None and alert.dismissed_at <= cutoff:
             status = AlertStatus.DISMISSED
-        elif (
-            alert.snoozed_at is not None
-            and alert.snoozed_until is not None
-            and alert.snoozed_at <= cutoff < alert.snoozed_until
+        elif any(
+            interval.snoozed_at <= cutoff < interval.snoozed_until
+            for interval in (
+                *alert.snooze_history,
+                *(
+                    (_SnoozeInterval(alert.snoozed_at, alert.snoozed_until),)
+                    if alert.snoozed_at is not None and alert.snoozed_until is not None
+                    else ()
+                ),
+            )
         ):
             status = AlertStatus.SNOOZED
         else:
@@ -473,10 +528,15 @@ class AlertStore:
     def get(self, alert_id: str) -> AlertRecord:
         record = self._get_raw(alert_id)
         now = _utc_datetime(self._clock(), field="clock")
-        if record.alert.status is AlertStatus.SNOOZED and record.alert.snoozed_until is not None and record.alert.snoozed_until <= now:
-            return self._transition(record, replace(record.alert, status=AlertStatus.ACTIVE), expected_revision=record.revision)
+        if record.alert.available_at > now:
+            raise KeyError(f"alert is not yet available: {alert_id}")
+        return self._refresh(record, now)
+
+    def _refresh(self, record: AlertRecord, now: datetime) -> AlertRecord:
         if record.alert.status in {AlertStatus.ACTIVE, AlertStatus.SNOOZED} and record.alert.expires_at is not None and record.alert.expires_at <= now:
             return self._transition(record, replace(record.alert, status=AlertStatus.EXPIRED), expected_revision=record.revision)
+        if record.alert.status is AlertStatus.SNOOZED and record.alert.snoozed_until is not None and record.alert.snoozed_until <= now:
+            return self._transition(record, replace(record.alert, status=AlertStatus.ACTIVE), expected_revision=record.revision)
         return record
 
     def list(
@@ -498,10 +558,12 @@ class AlertStore:
             by_id = {item.alert_id: item for item in records}
             records = [replace(by_id[item.alert_id], alert=item) for item in evaluated]
         else:
+            now = _utc_datetime(self._clock(), field="clock")
+            records = [item for item in records if item.alert.available_at <= now]
             refreshed: list[AlertRecord] = []
             for item in records:
                 try:
-                    refreshed.append(self.get(item.alert_id))
+                    refreshed.append(self._refresh(item, now))
                 except StorageRevisionConflict:
                     refreshed.append(self._get_raw(item.alert_id))
             records = refreshed
@@ -527,7 +589,16 @@ class AlertStore:
             raise ValueError("only active alerts can be snoozed")
         if record.alert.expires_at is not None and until_dt >= record.alert.expires_at:
             raise ValueError("snooze until must be before alert expiry")
-        updated = replace(record.alert, status=AlertStatus.SNOOZED, snoozed_at=now, snoozed_until=until_dt)
+        history = record.alert.snooze_history
+        if record.alert.snoozed_at is not None and record.alert.snoozed_until is not None:
+            history = (*history, _SnoozeInterval(record.alert.snoozed_at, record.alert.snoozed_until))
+        updated = replace(
+            record.alert,
+            status=AlertStatus.SNOOZED,
+            snoozed_at=now,
+            snoozed_until=until_dt,
+            snooze_history=history,
+        )
         return self._transition(record, updated, expected_revision=expected_revision)
 
     def dismiss(self, alert_id: str, *, expected_revision: int) -> AlertRecord:
