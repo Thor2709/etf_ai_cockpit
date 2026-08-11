@@ -3331,3 +3331,12 @@ one as-of for binding and overlap, binds price revision/checksum, requires exact
 candidate checksum equality and reconstructs persisted intent independently
 before current-snapshot recomputation. Exact regressions pass and
 `execution_allowed=false` remains unchanged.
+
+`CANONICAL_ASOF_AND_SELECTOR_IDENTITY_CORRECTION` invalidates exact head
+`f96ba9d3ddaa3f21d1d360e1204352c2b673bcc7` and run `31518687496`. Whole-diff
+review reproduced candidate/result as-of divergence; risk review reproduced
+snapshot relabelling through UI selectors. Candidate, result and overlap now
+share one report decision as-of, persisted as-of identities are cross-checked,
+and requested account/portfolio/snapshot values must exactly match the supplied
+immutable snapshot. Distinct A/B binding and fail-closed UI/application
+regressions pass; `execution_allowed=false` remains unchanged.

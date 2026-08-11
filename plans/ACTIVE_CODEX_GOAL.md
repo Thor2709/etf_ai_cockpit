@@ -2046,3 +2046,13 @@ next action and whether the requested outcome is actually complete.
   independently of current holdings before current-rule recomputation. All
   four exact regressions pass. Freeze one replacement head and repeat the two
   reviews plus fresh H-tier evidence without adjacent redesign.
+- Head `f96ba9d3ddaa3f21d1d360e1204352c2b673bcc7` and run
+  `31518687496` are invalidated by two final exact identity findings: candidate
+  as-of still used the report date while result/overlap could use holdings
+  vintage, and selector labels could be attached to one fixed snapshot without
+  resolving matching data. Candidate, result and overlap now share the report
+  decision as-of; persisted candidate/result as-of is cross-checked; binding
+  derives account/portfolio/snapshot identity from the supplied immutable
+  snapshot and rejects mismatched selections. Report-only staleness, distinct
+  A/B source checksums and UI relabelling regressions pass. Freeze one exact
+  replacement head for the repeated reviews and fresh H-tier gates.

@@ -89,6 +89,7 @@ def build_portfolio_candidate(
     holdings_view: str = "combined",
 ) -> PortfolioCandidate:
     holdings = select_holdings_view(getattr(snapshot, "holdings"), holdings_view)
+    binding = portfolio_snapshot_binding(snapshot, holdings_view=holdings_view)
     return create_candidate(
         getattr(snapshot, "config"),
         holdings,
@@ -97,7 +98,7 @@ def build_portfolio_candidate(
         target_weights=dict(target_weights),
         cash_weight=cash_weight,
         source_revision=str(getattr(snapshot, "universe_revision", "") or "unknown"),
-        source_as_of=_source_as_of(snapshot),
+        source_as_of=binding.as_of,
     )
 
 
@@ -111,6 +112,13 @@ def analyse_portfolio_candidate(
     holdings_view: str = "combined",
 ) -> PortfolioAnalysis:
     holdings = select_holdings_view(getattr(snapshot, "holdings"), holdings_view)
+    binding = portfolio_snapshot_binding(
+        snapshot,
+        account_id=account_id,
+        portfolio_id=portfolio_id,
+        snapshot_id=snapshot_id,
+        holdings_view=holdings_view,
+    )
     policy = load_strategy_scope().policy
     governed_holdings = _governed_holdings(snapshot, holdings, policy=policy)
     holding_ids = {
@@ -126,7 +134,7 @@ def analyse_portfolio_candidate(
     source_stale = (
         candidate.source_revision != str(getattr(snapshot, "universe_revision", "") or "unknown")
         or candidate.source_checksum != selected_checksum
-        or candidate.source_as_of != _source_as_of(snapshot)
+        or candidate.source_as_of != binding.as_of
     )
     current: dict[str, float] = {}
     for _, row in holdings.iterrows():
@@ -134,13 +142,6 @@ def analyse_portfolio_candidate(
         if instrument_id:
             current[instrument_id] = current.get(instrument_id, 0.0) + float(row.get("current_weight", 0.0))
     ids = sorted(set(current) | set(candidate.targets))
-    binding = portfolio_snapshot_binding(
-        snapshot,
-        account_id=account_id,
-        portfolio_id=portfolio_id,
-        snapshot_id=snapshot_id,
-        holdings_view=holdings_view,
-    )
     overlap = build_direct_overlap_view(
         snapshot,
         ids,
@@ -291,10 +292,9 @@ def portfolio_snapshot_binding(
     holdings = select_holdings_view(getattr(snapshot, "holdings"), holdings_view)
     revision = str(getattr(snapshot, "universe_revision", "") or "unknown")
     checksum = holdings_checksum(holdings)
-    selected_account = str(account_id or getattr(snapshot, "account_id", "default") or "default")
-    selected_portfolio = str(portfolio_id or getattr(snapshot, "portfolio_id", "default") or "default")
-    selected_snapshot = str(snapshot_id or getattr(snapshot, "snapshot_id", "") or f"{selected_portfolio}:{revision}:{checksum[:12]}")
-    holdings_dates = _holding_evidence_values(holdings, "as_of_date")
+    selected_account = _bound_snapshot_identity(snapshot, "account_id", account_id, "default")
+    selected_portfolio = _bound_snapshot_identity(snapshot, "portfolio_id", portfolio_id, "default")
+    selected_snapshot = _bound_snapshot_identity(snapshot, "snapshot_id", snapshot_id, "current")
     holdings_sources = tuple(
         sorted(
             set(_holding_evidence_values(holdings, "source"))
@@ -314,7 +314,7 @@ def portfolio_snapshot_binding(
             or "unknown"
         ),
         price_source_checksum=_prices_checksum(getattr(snapshot, "prices", pd.DataFrame())),
-        as_of=(holdings_dates[0] if len(holdings_dates) == 1 else _source_as_of(snapshot)),
+        as_of=_source_as_of(snapshot),
         holdings_view=str(holdings_view or "combined"),
         holdings_sources=holdings_sources,
     )
@@ -570,6 +570,22 @@ def _source_as_of(snapshot: object) -> str | None:
     report = getattr(snapshot, "data_report", None)
     value = getattr(report, "as_of_date", None)
     return str(value) if value is not None else None
+
+
+def _bound_snapshot_identity(
+    snapshot: object,
+    field: str,
+    requested: str | None,
+    fallback: str,
+) -> str:
+    raw = getattr(snapshot, field, None)
+    if isinstance(raw, (list, tuple, set, dict)):
+        raise ValueError(f"supplied snapshot {field} must be one immutable identity")
+    actual = str(raw or fallback).strip()
+    selected = str(requested or actual).strip()
+    if not actual or selected != actual:
+        raise ValueError(f"selected {field} does not match supplied snapshot")
+    return actual
 
 
 def _overlap_cutoff(raw: str | None) -> datetime | None:
@@ -926,6 +942,8 @@ def _validate_loaded_result(
     if not isinstance(source, dict) or set(source) != _SOURCE_FIELDS or source.get("execution_allowed") is not False:
         raise ValueError("saved portfolio sandbox result source binding is malformed")
     current_source = None if analysis.snapshot_binding is None else _jsonable(asdict(analysis.snapshot_binding))
+    if source.get("as_of") != candidate.source_as_of:
+        return None
     if source != current_source:
         return None
     _assert_no_execution(payload)

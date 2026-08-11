@@ -102,7 +102,7 @@ def test_overlap_cutoff_matches_the_as_of_emitted_in_source_binding(monkeypatch)
     evidence = pd.DataFrame(
         [
             {"instrument_id": "VWCE", "security": "Eligible", "isin": "GB0002634946", "weight": 1.0, "as_of": "2026-07-16", "known_at": "2026-07-17T00:00:00Z", "source_id": "eligible", "authority": "issuer", "completeness": "full"},
-            {"instrument_id": "VWCE", "security": "Future", "isin": "GB0002634946", "weight": 1.0, "as_of": "2026-07-17", "known_at": "2026-07-18T12:00:00Z", "source_id": "future", "authority": "issuer", "completeness": "full"},
+            {"instrument_id": "VWCE", "security": "Future", "isin": "GB0002634946", "weight": 1.0, "as_of": "2026-07-18", "known_at": "2026-07-19T12:00:00Z", "source_id": "future", "authority": "issuer", "completeness": "full"},
         ]
     )
     original = sandbox_store.build_direct_overlap_view
@@ -115,7 +115,7 @@ def test_overlap_cutoff_matches_the_as_of_emitted_in_source_binding(monkeypatch)
     analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
 
     assert analysis.snapshot_binding is not None
-    assert analysis.snapshot_binding.as_of == "2026-07-17"
+    assert analysis.snapshot_binding.as_of == "2026-07-18"
     selected = next(item for item in analysis.overlap.coverage if item.instrument_id == "VWCE")
     assert selected.source_id == "eligible"
 
@@ -446,6 +446,7 @@ def test_duplicate_holding_permutation_keeps_result_payload_byte_stable() -> Non
     payloads = []
     for ordered in (rows, list(reversed(rows))):
         snapshot = _snapshot()
+        snapshot.snapshot_id = "stable"
         snapshot.holdings = pd.DataFrame(ordered)
         candidate = build_portfolio_candidate(
             snapshot,
@@ -687,6 +688,9 @@ def test_complete_handoff_checksum_rejects_mutated_changes() -> None:
 
 def test_result_persistence_export_and_draft_handoff_are_isolated(tmp_path) -> None:
     snapshot = _snapshot()
+    snapshot.account_id = "acct-1"
+    snapshot.portfolio_id = "portfolio-1"
+    snapshot.snapshot_id = "snap-1"
     before = snapshot.holdings.copy(deep=True)
     candidate = _candidate(snapshot)
     analysis = analyse_portfolio_candidate(snapshot, candidate, account_id="acct-1", portfolio_id="portfolio-1", snapshot_id="snap-1")
@@ -836,7 +840,7 @@ def test_holdings_vintage_and_provider_change_invalidate_result(tmp_path) -> Non
         expected_revision=0,
         root=tmp_path,
     )
-    assert saved.result_payload["source_snapshot"]["as_of"] == "2026-07-17"
+    assert saved.result_payload["source_snapshot"]["as_of"] == "2026-07-18"
     assert saved.result_payload["source_snapshot"]["holdings_sources"] == ["broker-A"]
 
     snapshot.holdings["as_of_date"] = "2026-07-18"
@@ -927,6 +931,32 @@ def test_saved_mixed_asset_candidate_reloads_after_asset_leaves_current_holdings
     assert loaded.candidate.targets["AAPL"] == pytest.approx(0.3)
     assert loaded.source_stale is True
     assert loaded.result_payload is None
+
+
+def test_snapshot_binding_rejects_identity_relabelling_and_distinguishes_snapshots() -> None:
+    first = _snapshot()
+    first.account_id = "account-A"
+    first.portfolio_id = "portfolio-A"
+    first.snapshot_id = "snapshot-A"
+    second = _snapshot(vwce_weight=0.5)
+    second.account_id = "account-B"
+    second.portfolio_id = "portfolio-B"
+    second.snapshot_id = "snapshot-B"
+    second.prices = pd.DataFrame(
+        [{"date": "2026-07-18", "etf_id": "VWCE", "adjusted_close": 101.0}]
+    )
+
+    first_binding = sandbox_store.portfolio_snapshot_binding(first)
+    second_binding = sandbox_store.portfolio_snapshot_binding(second)
+
+    assert first_binding.account_id == "account-A"
+    assert second_binding.account_id == "account-B"
+    assert first_binding.source_checksum != second_binding.source_checksum
+    assert first_binding.price_source_checksum != second_binding.price_source_checksum
+    with pytest.raises(ValueError, match="selected account_id does not match"):
+        sandbox_store.portfolio_snapshot_binding(first, account_id="account-B")
+    with pytest.raises(ValueError, match="selected snapshot_id does not match"):
+        sandbox_store.portfolio_snapshot_binding(first, snapshot_id="snapshot-B")
 
 
 def test_failed_atomic_export_preserves_prior_file(tmp_path, monkeypatch) -> None:

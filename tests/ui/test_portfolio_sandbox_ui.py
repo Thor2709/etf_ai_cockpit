@@ -97,6 +97,20 @@ def test_portfolio_sandbox_validation_and_analysis_are_readable() -> None:
     assert "No holdings evidence is available" in overlap_text
 
 
+def test_snapshot_selector_cannot_relabel_the_supplied_snapshot() -> None:
+    state = _state()
+    state.snapshot.account_id = "account-A"
+    state.snapshot.account_ids = ("account-A", "account-B")
+    root = portfolio.portfolio_page(None, state)
+
+    account = _by_key(root, "portfolio.account")
+    assert [option.key for option in account.options] == ["account-A"]
+    account.value = "account-B"
+    _by_key(root, "portfolio.analyse").on_click(None)
+
+    assert "does not match supplied snapshot" in str(_by_key(root, "portfolio.status").value)
+
+
 def test_portfolio_sandbox_save_load_and_stale_states(monkeypatch, tmp_path) -> None:
     state = _state()
 

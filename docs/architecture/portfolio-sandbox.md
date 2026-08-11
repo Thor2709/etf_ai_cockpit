@@ -16,6 +16,10 @@ and the selected view. The same canonical as-of is the cutoff for overlap
 evidence. Invalid view names or malformed lineage fail closed. A missing
 account or snapshot identity uses an explicit deterministic local fallback;
 it is never inferred from a broker write.
+Identity selectors cannot relabel the supplied snapshot: a requested account,
+portfolio or snapshot must exactly match its immutable identity or analysis
+fails closed. Supporting multiple identities requires supplying the matching
+resolved snapshot rather than a list of labels on one data object.
 Holding rows retain direct versus look-through lineage, asset type, market
 value, source id and capability state.
 

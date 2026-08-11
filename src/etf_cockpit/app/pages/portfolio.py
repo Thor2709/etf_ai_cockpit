@@ -778,13 +778,7 @@ def _safe_update(page: ft.Page | None) -> None:
 
 
 def _snapshot_values(snapshot: object, field: str, fallback: str) -> tuple[str, ...]:
-    raw = getattr(snapshot, f"{field}s", None)
-    if raw is None:
-        raw = getattr(snapshot, field, None)
-    if isinstance(raw, (list, tuple, set)):
-        values = tuple(str(value) for value in raw if str(value).strip())
-        if values:
-            return values
+    raw = getattr(snapshot, field, None)
     return (str(raw or fallback),)
 
 
