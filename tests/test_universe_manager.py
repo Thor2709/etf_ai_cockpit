@@ -162,6 +162,82 @@ def test_real_crud_controls_stage_changes_and_save_captured_revision(monkeypatch
     assert "universe.identity.B" in buttons
 
 
+def test_import_wizard_dry_run_and_stage_are_local_only(monkeypatch) -> None:
+    record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary")
+    monkeypatch.setattr(manager, "load_universe", lambda *_args: UniverseStoreSnapshot((record,), "revision", Path("store.json")))
+    manifests = []
+    monkeypatch.setattr(manager, "save_universe_manifest", manifests.append)
+    page = _Page()
+    state = _state()
+    state.workflow_calls = 0
+    state.provider_calls = 0
+    state.broker_calls = 0
+    root = universe_manager_page(page, state)
+
+    import_button = next(control for control in _walk(root) if isinstance(control, ft.Button) and control.key == "universe.import")
+    import_button.on_click(None)
+    dialog = page.overlay[-1]
+    fields = {str(control.label): control for control in _walk(dialog) if isinstance(control, ft.TextField) and control.label}
+    fields["CSV, TSV, JSON rows, or local path"].value = "ticker,name\nB,Beta\n"
+    fields["Reviewed correction overlays (JSON by source row)"].value = '{"1":{"canonical_id":"B"}}'
+    fields["Chunk size"].value = "1"
+    next(control for control in _walk(dialog) if isinstance(control, ft.Button) and control.key == "universe.import-dry-run").on_click(None)
+
+    rendered = "\n".join(str(control.value) for control in _walk(dialog) if isinstance(control, ft.Text) and control.value)
+    assert "Dry-run: 1 source rows, 1 resolved" in rendered
+    assert "execution_allowed=False" in rendered
+    assert manifests == []
+    next(control for control in _walk(dialog) if isinstance(control, ft.Button) and control.key == "universe.import-resume").on_click(None)
+    next(control for control in _walk(dialog) if isinstance(control, ft.Button) and control.key == "universe.import-stage").on_click(None)
+
+    assert len(manifests) == 1
+    assert manifests[0].source_rows == ({"ticker": "B", "name": "Beta"},)
+    assert manifests[0].correction_overlays == {1: {"canonical_id": "B"}}
+    assert manifests[0].mapping_confidence == {1: "canonical_id"}
+    assert state.workflow_calls == 0
+    assert state.provider_calls == 0
+    assert state.broker_calls == 0
+
+
+def test_import_wizard_pauses_resumes_and_cancel_never_stages_partial_rows(monkeypatch) -> None:
+    record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary")
+    monkeypatch.setattr(manager, "load_universe", lambda *_args: UniverseStoreSnapshot((record,), "revision", Path("store.json")))
+    manifests = []
+    monkeypatch.setattr(manager, "save_universe_manifest", manifests.append)
+    page = _Page()
+    state = _state()
+    state.workflow_calls = 0
+    state.provider_calls = 0
+    state.broker_calls = 0
+    root = universe_manager_page(page, state)
+    next(control for control in _walk(root) if isinstance(control, ft.Button) and control.key == "universe.import").on_click(None)
+    dialog = page.overlay[-1]
+    fields = {str(control.label): control for control in _walk(dialog) if isinstance(control, ft.TextField) and control.label}
+    fields["CSV, TSV, JSON rows, or local path"].value = (
+        "canonical_id,name,ticker\n"
+        + "".join(f"B{index},Beta {index},B{index}\n" for index in range(5))
+    )
+    fields["Chunk size"].value = "2"
+    buttons = {str(control.key): control for control in _walk(dialog) if isinstance(control, ft.Button) and control.key}
+    buttons["universe.import-dry-run"].on_click(None)
+    buttons["universe.import-resume"].on_click(None)
+    progress = next(control for control in _walk(dialog) if isinstance(control, ft.Text) and control.key == "universe.import-progress")
+    assert progress.value == "Progress: 2/5 (paused)"
+    buttons["universe.import-resume"].on_click(None)
+    assert progress.value == "Progress: 4/5 (paused)"
+    buttons["universe.import-cancel"].on_click(None)
+    assert progress.value == "Progress: 4/5 (cancelled)"
+    buttons["universe.import-resume"].on_click(None)
+    buttons["universe.import-stage"].on_click(None)
+
+    rendered = "\n".join(str(control.value) for control in _walk(dialog) if isinstance(control, ft.Text) and control.value)
+    assert "Complete all import chunks before staging" in rendered
+    assert manifests == []
+    assert state.workflow_calls == 0
+    assert state.provider_calls == 0
+    assert state.broker_calls == 0
+
+
 def test_override_checkbox_rehydrates_from_store_snapshot(monkeypatch) -> None:
     record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary", "", True, "daily", "EUR", "NO", "", "", "")
     monkeypatch.setattr(

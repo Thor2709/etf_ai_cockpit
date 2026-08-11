@@ -25,6 +25,11 @@ from etf_cockpit.application.ui_facade import (
     save_universe,
     save_classification_overrides,
     validate_universe,
+    build_universe_manifest,
+    create_import_resume_state,
+    dry_run_universe_import,
+    resume_universe_import,
+    save_universe_manifest,
 )
 
 
@@ -359,6 +364,180 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
             status.value = f"Save blocked: {exc}"
         page.update()
 
+    def import_dialog(_event: ft.ControlEvent | None = None) -> None:
+        session: dict[str, object] = {}
+        source_type = ft.Dropdown(
+            key="universe.import-source-type",
+            label="Input",
+            value="paste",
+            options=[
+                ft.DropdownOption(key="paste", text="Paste CSV/TSV"),
+                ft.DropdownOption(key="csv", text="Local CSV path"),
+                ft.DropdownOption(key="xlsx", text="Local XLSX path"),
+                ft.DropdownOption(key="provider", text="Supplied provider rows"),
+            ],
+            width=240,
+        )
+        source = _field("CSV, TSV, JSON rows, or local path", multiline=True)
+        provider = _field("Provider name (only labels supplied rows)")
+        corrections = _field("Reviewed correction overlays (JSON by source row)", multiline=True)
+        horizons = _field("Requested horizons (days, e.g. daily=252)")
+        quotas = _field("Per-asset quotas (e.g. etf=25)")
+        chunk_size = _field("Chunk size", "100")
+        result_text = ft.Text("Dry-run has not been performed.", selectable=True, color=theme.MUTED)
+        progress_text = ft.Text("Progress: 0/0 (not started)", key="universe.import-progress", selectable=True, color=theme.MUTED)
+
+        def _options(value: str) -> dict[str, int]:
+            output: dict[str, int] = {}
+            for item in value.split(","):
+                if not item.strip():
+                    continue
+                key, separator, raw = item.partition("=")
+                if not separator:
+                    raise ValueError("Use name=value pairs separated by commas.")
+                output[key.strip()] = int(raw.strip())
+            return output
+
+        def _overlays(value: str) -> dict[int, dict[str, object]]:
+            if not value.strip():
+                return {}
+            decoded = json.loads(value)
+            if not isinstance(decoded, dict):
+                raise ValueError("Correction overlays must be a JSON object keyed by source row.")
+            output: dict[int, dict[str, object]] = {}
+            for raw_row, overlay in decoded.items():
+                if not str(raw_row).isdigit() or not isinstance(overlay, dict):
+                    raise ValueError("Each correction overlay must be an object keyed by a positive source row.")
+                row_number = int(raw_row)
+                if row_number < 1:
+                    raise ValueError("Correction overlay rows must be positive.")
+                output[row_number] = overlay
+            return output
+
+        def _show_progress(state_value) -> None:
+            progress_text.value = f"Progress: {state_value.next_row}/{state_value.total_rows} ({state_value.status})"
+            progress_text.color = theme.GREEN if state_value.complete else theme.AMBER
+
+        def dry_run(_dry_event: ft.ControlEvent | None = None) -> None:
+            try:
+                kind = str(source_type.value or "paste")
+                report = dry_run_universe_import(
+                    source.value or "",
+                    source_kind=kind,
+                    provider_name=provider.value or "",
+                    correction_overlays=_overlays(corrections.value or ""),
+                )
+                manifest = build_universe_manifest(
+                    report,
+                    requested_horizons=_options(horizons.value or ""),
+                    per_asset_quotas=_options(quotas.value or ""),
+                )
+                state_value = create_import_resume_state(report, chunk_size=int(chunk_size.value or ""))
+                session.clear()
+                session.update(report=report, manifest=manifest, state=state_value, processed=())
+                result_text.value = (
+                    f"Dry-run: {len(report.source_rows)} source rows, {len(report.records)} resolved, "
+                    f"{len(report.unresolved_rows)} unresolved, {len(report.issues)} findings; "
+                    f"manifest {manifest.manifest_id[:12]}. execution_allowed=False"
+                )
+                result_text.color = theme.AMBER if report.errors else theme.GREEN
+                _show_progress(state_value)
+            except Exception as exc:
+                session.clear()
+                result_text.value = f"Import rejected: {exc}"
+                result_text.color = theme.AMBER
+                progress_text.value = "Progress: 0/0 (rejected)"
+                progress_text.color = theme.AMBER
+            page.update()
+
+        def resume_import(_resume_event: ft.ControlEvent | None = None) -> None:
+            try:
+                report = session.get("report")
+                state_value = session.get("state")
+                if report is None or state_value is None:
+                    raise ValueError("Run dry-run validation before resuming.")
+                chunk, state_value = resume_universe_import(report, state_value)
+                processed = tuple(session.get("processed", ())) + chunk
+                session.update(state=state_value, processed=processed)
+                _show_progress(state_value)
+                result_text.value = f"Validated {len(processed)} resolved rows in deterministic chunks; nothing has been staged."
+                result_text.color = theme.GREEN if state_value.complete else theme.AMBER
+            except Exception as exc:
+                result_text.value = f"Resume blocked: {exc}"
+                result_text.color = theme.AMBER
+            page.update()
+
+        def cancel_import(_cancel_event: ft.ControlEvent | None = None) -> None:
+            try:
+                report = session.get("report")
+                state_value = session.get("state")
+                if report is None or state_value is None:
+                    raise ValueError("Run dry-run validation before cancelling.")
+                _chunk, state_value = resume_universe_import(report, state_value, cancel=True)
+                session["state"] = state_value
+                _show_progress(state_value)
+                result_text.value = "Import cancelled; no rows were staged and resume is disabled until a new dry-run."
+                result_text.color = theme.AMBER
+            except Exception as exc:
+                result_text.value = f"Cancel blocked: {exc}"
+                result_text.color = theme.AMBER
+            page.update()
+
+        def stage_import(_stage_event: ft.ControlEvent | None = None) -> None:
+            try:
+                report = session.get("report")
+                manifest = session.get("manifest")
+                state_value = session.get("state")
+                processed = tuple(session.get("processed", ()))
+                if report is None or manifest is None or state_value is None:
+                    raise ValueError("Run dry-run validation before staging.")
+                if not state_value.complete or len(processed) != state_value.total_rows:
+                    raise ValueError("Complete all import chunks before staging.")
+                blocking = tuple(
+                    issue for issue in report.errors if issue.code != "unresolved_identity"
+                )
+                if blocking:
+                    raise ValueError("Import has invalid rows; review findings before staging.")
+                if not report.records:
+                    raise ValueError("Import has no resolved rows to stage.")
+                nonlocal records
+                staged = tuple(records)
+                for item in processed:
+                    if not any(existing.instrument_id.casefold() == item.instrument_id.casefold() for existing in staged):
+                        staged = add_record(
+                            staged,
+                            item,
+                            allow_cross_tier_duplicates=bool(allow_duplicates.value),
+                        )
+                records = list(staged)
+                save_universe_manifest(manifest)
+                _stage(f"Staged {len(processed)} imported rows and saved manifest {manifest.manifest_id[:12]}.", staged)
+                dialog.open = False
+            except Exception as exc:
+                result_text.value = f"Stage blocked: {exc}"
+                result_text.color = theme.AMBER
+                page.update()
+
+        def close_import(_close_event: ft.ControlEvent | None = None) -> None:
+            dialog.open = False
+            page.update()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Import watchlist / universe"),
+            content=ft.Column([source_type, source, provider, corrections, horizons, quotas, chunk_size, result_text, progress_text], tight=True, scroll=ft.ScrollMode.AUTO),
+            actions=[
+                ft.TextButton("Close", key="universe.import-close", on_click=close_import),
+                ft.Button("Dry-run validate", key="universe.import-dry-run", on_click=dry_run),
+                ft.Button("Resume next chunk", key="universe.import-resume", on_click=resume_import),
+                ft.Button("Cancel import", key="universe.import-cancel", on_click=cancel_import),
+                ft.Button("Stage import", key="universe.import-stage", on_click=stage_import),
+            ],
+        )
+        page.overlay.append(dialog)
+        dialog.open = True
+        page.update()
+
     def identity_dialog(record: UniverseRecord) -> None:
         evidence = load_identity_projection(record.instrument_id)
         resolution = str(evidence.get("identity_resolution_state", "unavailable"))
@@ -584,11 +763,12 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
     query.on_change = rebuild_table
     tier_filter.on_select = rebuild_table
     add_button = ft.Button("Add record", key="universe.add", icon=ft.Icons.ADD, on_click=add_dialog)
+    import_button = ft.Button("Import", key="universe.import", icon=ft.Icons.UPLOAD_FILE, on_click=import_dialog)
     rebuild_table()
 
     return ft.Column(
         [
-            panel(ft.Column([section_header("Universe and watchlists", "Manage validated local candidates across the Primary, Secondary and Sparebanken tiers."), ft.Row([query, add_button, ft.Button("Save validated changes", key="universe.save", icon=ft.Icons.SAVE, on_click=save_changes)], wrap=True), allow_duplicates, status, ft.Text("Edits persist only after validation. Saving never starts yfinance, scoring, forecasts or broker execution.", color=theme.MUTED)], spacing=8)),
+            panel(ft.Column([section_header("Universe and watchlists", "Manage validated local candidates across the Primary, Secondary and Sparebanken tiers."), ft.Row([query, add_button, import_button, ft.Button("Save validated changes", key="universe.save", icon=ft.Icons.SAVE, on_click=save_changes)], wrap=True), allow_duplicates, status, ft.Text("Imports are local dry-runs; saving never starts providers, analysis, scoring, forecasts or broker execution.", color=theme.MUTED)], spacing=8)),
             panel(ft.Column([tier_filter, table_host], spacing=12)),
         ],
         expand=True,
