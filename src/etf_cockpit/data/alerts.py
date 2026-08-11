@@ -441,6 +441,20 @@ def evaluate_alerts_as_of(alerts: Iterable[Alert], as_of: datetime | str) -> tup
             raise TypeError("historical evaluation accepts Alert values only")
         if alert.available_at > cutoff:
             continue
+        visible_history = tuple(
+            interval for interval in alert.snooze_history if interval.snoozed_at <= cutoff
+        )
+        visible_current = (
+            _SnoozeInterval(alert.snoozed_at, alert.snoozed_until)
+            if alert.snoozed_at is not None
+            and alert.snoozed_until is not None
+            and alert.snoozed_at <= cutoff
+            else None
+        )
+        visible_intervals = (
+            *visible_history,
+            *((visible_current,) if visible_current is not None else ()),
+        )
         status = alert.status
         if (
             alert.expires_at is not None
@@ -452,22 +466,33 @@ def evaluate_alerts_as_of(alerts: Iterable[Alert], as_of: datetime | str) -> tup
             status = AlertStatus.DISMISSED
         elif any(
             interval.snoozed_at <= cutoff < interval.snoozed_until
-            for interval in (
-                *alert.snooze_history,
-                *(
-                    (_SnoozeInterval(alert.snoozed_at, alert.snoozed_until),)
-                    if alert.snoozed_at is not None and alert.snoozed_until is not None
-                    else ()
-                ),
-            )
+            for interval in visible_intervals
         ):
             status = AlertStatus.SNOOZED
         else:
             status = AlertStatus.ACTIVE
+        projected_history = visible_history
+        projected_current = visible_current
+        if status is AlertStatus.SNOOZED and projected_current is None:
+            projected_current = next(
+                interval
+                for interval in reversed(visible_history)
+                if interval.snoozed_at <= cutoff < interval.snoozed_until
+            )
+            projected_history = tuple(
+                interval for interval in visible_history if interval is not projected_current
+            )
         result.append(
             replace(
                 alert,
                 status=status,
+                snoozed_at=(
+                    None if projected_current is None else projected_current.snoozed_at
+                ),
+                snoozed_until=(
+                    None if projected_current is None else projected_current.snoozed_until
+                ),
+                snooze_history=projected_history,
                 dismissed_at=None if status is not AlertStatus.DISMISSED else alert.dismissed_at,
             )
         )
@@ -598,7 +623,12 @@ class AlertStore:
             raise ValueError("snooze until must be before alert expiry")
         history = record.alert.snooze_history
         if record.alert.snoozed_at is not None and record.alert.snoozed_until is not None:
-            history = (*history, _SnoozeInterval(record.alert.snoozed_at, record.alert.snoozed_until))
+            superseded_until = min(record.alert.snoozed_until, now)
+            if record.alert.snoozed_at < superseded_until:
+                history = (
+                    *history,
+                    _SnoozeInterval(record.alert.snoozed_at, superseded_until),
+                )
         updated = replace(
             record.alert,
             status=AlertStatus.SNOOZED,

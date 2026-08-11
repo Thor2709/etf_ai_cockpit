@@ -475,3 +475,41 @@ def test_dismiss_uses_one_cutoff_when_expiry_falls_between_clock_reads(tmp_path)
     assert dismissed.status is AlertStatus.DISMISSED
     assert dismissed.alert.dismissed_at == NOW.replace(hour=13)
     assert evaluate_alerts_as_of((dismissed.alert,), NOW.replace(hour=14))[0].status is AlertStatus.DISMISSED
+
+
+def test_historical_projection_hides_future_snooze_metadata() -> None:
+    alert = replace(
+        _alert(AlertType.STALE_DATA, suffix="future-snooze-metadata"),
+        status=AlertStatus.SNOOZED,
+        snoozed_at=NOW.replace(hour=13),
+        snoozed_until=NOW.replace(hour=18),
+    )
+
+    projected = evaluate_alerts_as_of((alert,), NOW.replace(hour=12))[0]
+
+    assert projected.status is AlertStatus.ACTIVE
+    assert projected.snoozed_at is None
+    assert projected.snoozed_until is None
+    assert projected.snooze_history == ()
+
+
+def test_resnooze_replaces_live_interval_at_operation_cutoff(tmp_path) -> None:
+    clock = [NOW.replace(hour=13)]
+    alert = _alert(AlertType.STALE_DATA, suffix="replace-live-snooze")
+    with AlertStore(tmp_path, clock=lambda: clock[0]) as store:
+        created = store.create(alert)
+        first = store.snooze(
+            alert.alert_id,
+            NOW.replace(hour=18),
+            expected_revision=created.revision,
+        )
+        clock[0] = NOW.replace(hour=14)
+        replaced = store.snooze(
+            alert.alert_id,
+            NOW.replace(hour=16),
+            expected_revision=first.revision,
+        )
+
+    assert replaced.alert.snooze_history[0].snoozed_until == NOW.replace(hour=14)
+    assert evaluate_alerts_as_of((replaced.alert,), NOW.replace(hour=15))[0].status is AlertStatus.SNOOZED
+    assert evaluate_alerts_as_of((replaced.alert,), NOW.replace(hour=17))[0].status is AlertStatus.ACTIVE
