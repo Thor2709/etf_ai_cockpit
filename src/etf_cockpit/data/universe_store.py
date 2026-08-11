@@ -4,6 +4,7 @@ import csv
 import hashlib
 import json
 import re
+import shutil
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,7 +12,13 @@ from typing import Iterable, Mapping
 
 import yaml
 
-from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, backup_paths
+from etf_cockpit.core.atomic_io import (
+    AtomicWriteRequest,
+    atomic_write_group,
+    backup_paths,
+    sha256_file,
+    verify_backup_manifest,
+)
 from etf_cockpit.core.paths import ROOT
 
 
@@ -560,6 +567,84 @@ def _decode_v3_store(
     return tuple(records), tuple(profiles), tuple(errors)
 
 
+def _decode_v2_store(
+    payload: Mapping[str, object],
+) -> tuple[
+    tuple[UniverseRecord, ...],
+    tuple[InvestabilityPolicyProfile, ...],
+    bool,
+    tuple[str, ...],
+    bool,
+]:
+    """Decode the only legacy snapshot that the explicit migration accepts.
+
+    A hexadecimal SHA-256 revision is verifiable only when it matches the
+    complete v2 payload.  Other revisions remain readable for import, but
+    cannot be migrated without an explicit acknowledgement.
+    """
+
+    errors: list[str] = []
+    if payload.get("schema_version") != 2:
+        errors.append(f"unsupported universe store schema: {payload.get('schema_version')}")
+    revision = payload.get("revision")
+    hash_revision = isinstance(revision, str) and bool(re.fullmatch(r"[0-9a-f]{64}", revision))
+    integrity_verified = hash_revision and revision == _payload_revision(payload)
+    if hash_revision and not integrity_verified:
+        errors.append("store revision checksum mismatch")
+
+    allow_duplicates = payload.get("allow_cross_tier_duplicates", False)
+    if not isinstance(allow_duplicates, bool):
+        errors.append("allow_cross_tier_duplicates must be a boolean")
+        allow_duplicates = False
+
+    raw_records = payload.get("records", ())
+    records: list[UniverseRecord] = []
+    if not isinstance(raw_records, list):
+        errors.append("legacy universe records must be a list")
+        raw_records = []
+    for index, raw in enumerate(raw_records):
+        if not isinstance(raw, Mapping):
+            errors.append(f"legacy record {index} must be an object")
+            continue
+        try:
+            records.append(_normalise_record(UniverseRecord(**raw)))
+        except (TypeError, ValueError) as exc:
+            errors.append(f"legacy record {index} is malformed: {exc}")
+    report = validate_universe(records, allow_cross_tier_duplicates=allow_duplicates)
+    errors.extend(f"invalid legacy universe record: {error}" for error in report.errors)
+
+    profiles: list[InvestabilityPolicyProfile] = []
+    invalid_profiles: dict[str, str] = {}
+    raw_profiles = payload.get("policy_profiles", [])
+    if not isinstance(raw_profiles, list):
+        errors.append("policy_profiles must be a list")
+        raw_profiles = []
+    for index, raw in enumerate(raw_profiles):
+        if not isinstance(raw, Mapping):
+            invalid_profiles[f"<profile-{index}>"] = "policy profile is not an object"
+            continue
+        instrument_id = _text(raw.get("instrument_id"), f"<profile-{index}>")
+        try:
+            profiles.append(_policy_profile_from_mapping(raw))
+        except (TypeError, ValueError) as exc:
+            invalid_profiles[instrument_id] = str(exc)
+    record_ids = {record.instrument_id for record in records}
+    for instrument_id, error in invalid_profiles.items():
+        errors.append(f"invalid policy profile {instrument_id}: {error}")
+    profile_ids: set[str] = set()
+    for profile in profiles:
+        if profile.instrument_id not in record_ids:
+            errors.append(
+                f"policy profile references unknown instrument_id: {profile.instrument_id}"
+            )
+        if profile.instrument_id in profile_ids:
+            errors.append(f"duplicate policy profile: {profile.instrument_id}")
+        profile_ids.add(profile.instrument_id)
+    if errors:
+        profiles = []
+    return tuple(records), tuple(profiles), allow_duplicates, tuple(errors), integrity_verified
+
+
 def _schema_version(payload: Mapping[str, object]) -> int:
     if "schema_version" not in payload:
         return 0
@@ -614,6 +699,8 @@ def save_universe(
     root: Path | None = None,
     allow_cross_tier_duplicates: bool = False,
     policy_profiles: Iterable[InvestabilityPolicyProfile] | None = None,
+    _allow_legacy_source: bool = False,
+    _expected_source_digest: str | None = None,
 ) -> UniverseSaveResult:
     root = (root or ROOT).resolve()
     items = tuple(_normalise_record(record) for record in records)
@@ -624,15 +711,28 @@ def save_universe(
     current_revision = ""
     current_schema_version = 0
     retained_profiles: tuple[InvestabilityPolicyProfile, ...] = ()
+    source_digest: str | None = None
     if path.exists():
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
+            source_bytes = path.read_bytes()
+            source_digest = hashlib.sha256(source_bytes).hexdigest()
+            if _expected_source_digest is not None and source_digest != _expected_source_digest:
+                raise UniverseRevisionConflict("Universe source changed before guarded save")
+            raw = json.loads(source_bytes.decode("utf-8"))
             if not isinstance(raw, Mapping):
                 raise ValueError("universe store root must be an object")
             current_revision = str(raw.get("revision") or "")
             current_schema_version = _schema_version(raw)
-            if current_schema_version < 3:
+            if current_schema_version < 3 and not _allow_legacy_source:
                 raise ValueError("legacy universe must be migrated before canonical save")
+            if current_schema_version == 2 and _allow_legacy_source:
+                _, decoded_profiles, _, legacy_errors, _ = _decode_v2_store(raw)
+                if legacy_errors:
+                    raise ValueError("Universe store integrity failed: " + "; ".join(legacy_errors))
+                if policy_profiles is None:
+                    retained_profiles = decoded_profiles
+            elif current_schema_version < 3:
+                raise ValueError("unsupported legacy universe schema")
             if current_schema_version >= 3:
                 _, decoded_profiles, integrity_errors = _decode_v3_store(raw)
                 if integrity_errors:
@@ -642,7 +742,7 @@ def save_universe(
                     )
                 if policy_profiles is None:
                     retained_profiles = decoded_profiles
-            elif policy_profiles is None:
+            elif policy_profiles is None and current_schema_version != 2:
                 retained_profiles = tuple(
                     _policy_profile_from_mapping(item)
                     for item in raw.get("policy_profiles", ())
@@ -655,9 +755,13 @@ def save_universe(
     if current_revision != expected_revision:
         raise UniverseRevisionConflict(f"Expected revision {expected_revision or '<empty>'}, found {current_revision or '<empty>'}")
     backup_path: Path | None = None
-    if path.is_file():
-        backup = backup_paths((path,), root / "backups" / "universe")
-        backup_path = backup.manifest_path
+    backup_manifest = None
+    backup_root = root / "backups" / "universe"
+    existing_backup_dirs: set[Path] = set()
+    if backup_root.is_dir():
+        existing_backup_dirs = {
+            child.resolve() for child in backup_root.iterdir() if child.is_dir()
+        }
     selected_profiles = (
         tuple(policy_profiles) if policy_profiles is not None else retained_profiles
     )
@@ -693,33 +797,94 @@ def save_universe(
     encoded = (json.dumps(payload, indent=2, default=str) + "\n").encode("utf-8")
 
     def validate(path: Path) -> None:
-        json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, Mapping):
+            raise ValueError("universe store root must be an object")
+        _, _, integrity_errors = _decode_v3_store(payload)
+        if integrity_errors:
+            raise ValueError("schema v3 validation failed: " + "; ".join(integrity_errors))
 
     def precondition() -> None:
+        nonlocal source_digest
         if path.is_file():
-            current_payload = json.loads(path.read_text(encoding="utf-8"))
+            current_bytes = path.read_bytes()
+            current_digest = hashlib.sha256(current_bytes).hexdigest()
+            if _expected_source_digest is not None and current_digest != _expected_source_digest:
+                raise UniverseRevisionConflict("Universe source changed during guarded revalidation")
+            source_digest = current_digest
+            current_payload = json.loads(current_bytes.decode("utf-8"))
             current = str(current_payload.get("revision") or "")
             current_schema = _schema_version(current_payload)
-            if current_schema < 3:
+            if current_schema < 3 and not _allow_legacy_source:
                 raise ValueError("legacy universe must be migrated before canonical save")
-            _, _, current_integrity_errors = _decode_v3_store(current_payload)
-            if current_integrity_errors:
-                raise ValueError("Universe store integrity failed: " + "; ".join(current_integrity_errors))
+            if current_schema == 2 and _allow_legacy_source:
+                _, _, _, legacy_errors, _ = _decode_v2_store(current_payload)
+                if legacy_errors:
+                    raise ValueError("Universe store integrity failed: " + "; ".join(legacy_errors))
+            elif current_schema < 3:
+                raise ValueError("unsupported legacy universe schema")
+            elif current_schema >= 3:
+                _, _, current_integrity_errors = _decode_v3_store(current_payload)
+                if current_integrity_errors:
+                    raise ValueError("Universe store integrity failed: " + "; ".join(current_integrity_errors))
         else:
             current = ""
+            source_digest = None
         if current != expected_revision:
             raise UniverseRevisionConflict(
                 f"Expected revision {expected_revision or '<empty>'}, found {current or '<empty>'}"
             )
 
-    atomic_write_group(
-        (AtomicWriteRequest(path, encoded, validate),),
-        precondition=precondition,
-    )
-    persisted = json.loads(path.read_text(encoding="utf-8"))
-    if persisted.get("revision") != revision:
-        raise IOError("Universe revision verification failed after atomic write")
-    return UniverseSaveResult(path, revision, len(items), backup_path)
+    def lifecycle_hook(state: str, _journal_path: Path) -> None:
+        nonlocal backup_manifest, backup_path
+        if state != "preparing" or source_digest is None:
+            return
+        if not path.is_file() or sha256_file(path) != source_digest:
+            raise UniverseRevisionConflict("Universe source changed during guarded save")
+        try:
+            backup_manifest = backup_paths((path,), backup_root)
+        except BaseException:
+            if backup_root.is_dir():
+                for child in backup_root.iterdir():
+                    if child.is_dir() and child.resolve() not in existing_backup_dirs:
+                        shutil.rmtree(child, ignore_errors=True)
+                try:
+                    backup_root.rmdir()
+                except OSError:
+                    pass
+            raise
+        backup_path = backup_manifest.manifest_path
+        if not verify_backup_manifest(backup_manifest) or sha256_file(path) != source_digest:
+            raise UniverseRevisionConflict("Universe source changed during guarded backup")
+
+    try:
+        atomic_write_group(
+            (AtomicWriteRequest(path, encoded, validate),),
+            lifecycle_hook=lifecycle_hook,
+            precondition=precondition,
+        )
+        persisted = json.loads(path.read_text(encoding="utf-8"))
+        if persisted.get("revision") != revision:
+            raise IOError("Universe revision verification failed after atomic write")
+        if backup_manifest is not None and not verify_backup_manifest(backup_manifest):
+            raise IOError("Universe backup manifest verification failed after atomic write")
+        return UniverseSaveResult(path, revision, len(items), backup_path)
+    except BaseException:
+        if backup_manifest is not None:
+            shutil.rmtree(backup_manifest.backup_root, ignore_errors=True)
+            try:
+                backup_manifest.backup_root.parent.rmdir()
+            except OSError:
+                pass
+        elif backup_root.is_dir():
+            for child in backup_root.iterdir():
+                if child.is_dir() and child.resolve() not in existing_backup_dirs:
+                    shutil.rmtree(child, ignore_errors=True)
+            try:
+                backup_root.rmdir()
+            except OSError:
+                pass
+        raise
 
 
 def load_universe(root: Path | None = None) -> UniverseStoreSnapshot:
@@ -1014,10 +1179,49 @@ def migrate_legacy_universe(
     primary_yaml: Path | None = None,
     candidate_csv: Path | None = None,
     expected_revision: str | None = None,
+    acknowledge_unverifiable_legacy: bool = False,
 ) -> tuple[LegacyImportResult, UniverseSaveResult]:
-    """Import legacy YAML/CSV inputs and publish one revisioned local store."""
+    """Explicitly migrate a v2 store or import legacy YAML/CSV inputs.
+
+    A matching SHA-256 v2 revision is sufficient integrity evidence.  A v2
+    payload with no verifiable hash remains importable, but publication
+    requires an explicit operator acknowledgement.
+    """
 
     root = (root or ROOT).resolve()
+    store_path = _store_path(root)
+    if store_path.is_file():
+        try:
+            source_bytes = store_path.read_bytes()
+            source_digest = hashlib.sha256(source_bytes).hexdigest()
+            payload = json.loads(source_bytes.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Universe store is corrupt: {exc}") from exc
+        if not isinstance(payload, Mapping):
+            raise ValueError("Universe store root must be an object")
+        schema_version = _schema_version(payload)
+        if schema_version != 2:
+            raise ValueError("explicit legacy migration requires schema v2")
+        records, profiles, allow_duplicates, errors, integrity_verified = _decode_v2_store(payload)
+        if errors:
+            raise ValueError("Universe store integrity failed: " + "; ".join(errors))
+        if not integrity_verified and not acknowledge_unverifiable_legacy:
+            raise ValueError(
+                "unverifiable schema-v2 universe requires explicit legacy acknowledgement"
+            )
+        imported = LegacyImportResult(records, source_paths=(store_path,))
+        revision = _text(payload.get("revision")) if expected_revision is None else expected_revision
+        saved = save_universe(
+            records,
+            expected_revision=revision,
+            root=root,
+            allow_cross_tier_duplicates=allow_duplicates,
+            policy_profiles=profiles,
+            _allow_legacy_source=True,
+            _expected_source_digest=source_digest,
+        )
+        return imported, saved
+
     primary = primary_yaml or (root / "configs" / "universe.yaml")
     candidates = candidate_csv
     if candidates is None:

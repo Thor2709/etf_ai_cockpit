@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,7 @@ from etf_cockpit.data.universe_store import (
     validate_universe,
 )
 from etf_cockpit.core.config import ETFConfig, UniverseConfig, _load_universe_config, load_config
+from etf_cockpit.core.atomic_io import BackupEntry, BackupManifest, verify_backup_manifest
 from etf_cockpit.core.exceptions import ConfigError
 from etf_cockpit.app.pages.universe_manager import filter_records
 
@@ -34,6 +36,46 @@ from etf_cockpit.app.pages.universe_manager import filter_records
 def _record(instrument_id: str, *, isin: str = "NO0000000001", ticker: str | None = None, tier: str = "primary") -> UniverseRecord:
     status = "needs_verification" if isin.casefold() in {"needs_verification", "unknown"} else "verified"
     return UniverseRecord(instrument_id, instrument_id, isin, status, ticker or instrument_id, "stock", tier, "stocks/equity certificates", True, "daily", "NOK", "NO", "", "", "")
+
+
+def _write_v2_store(
+    root: Path,
+    records: list[UniverseRecord],
+    *,
+    allow_cross_tier_duplicates: bool = False,
+    revision: str | None = None,
+) -> Path:
+    path = root / "configs" / "universe_store.json"
+    path.parent.mkdir(parents=True)
+    payload: dict[str, object] = {
+        "schema_version": 2,
+        "revision": revision or "legacy-revision",
+        "allow_cross_tier_duplicates": allow_cross_tier_duplicates,
+        "records": [universe_store.asdict(record) for record in records],
+    }
+    if revision == "hash":
+        payload["revision"] = universe_store.universe_payload_revision(payload)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def _backup_manifest(path: Path) -> BackupManifest:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    entries = tuple(
+        BackupEntry(
+            Path(item["source_path"]),
+            Path(item["backup_path"]),
+            item["sha256"],
+            item["bytes_copied"],
+        )
+        for item in payload["entries"]
+    )
+    return BackupManifest(
+        datetime.fromisoformat(payload["created_at"]),
+        path.parent,
+        entries,
+        path,
+    )
 
 
 def test_duplicate_identity_and_unknown_isin_are_explicit(tmp_path: Path) -> None:
@@ -138,6 +180,7 @@ def test_save_uses_revision_conflict_protection(tmp_path: Path) -> None:
     assert first.revision
     with pytest.raises(UniverseRevisionConflict):
         save_universe(records, expected_revision="wrong", root=tmp_path)
+    assert not (tmp_path / "backups" / "universe").exists()
     second = save_universe(records + [_record("B", isin="NO0000000002", ticker="B")], expected_revision=first.revision, root=tmp_path)
     assert second.revision != first.revision
     assert (tmp_path / "configs" / "universe_store.json").exists()
@@ -381,6 +424,8 @@ def test_save_creates_backup_and_compatibility_exports(tmp_path: Path) -> None:
     first = save_universe(records, expected_revision="", root=tmp_path)
     second = save_universe(records + [_record("B", isin="NO0000000002", ticker="B")], expected_revision=first.revision, root=tmp_path)
     assert second.backup_path is not None and second.backup_path.exists()
+    assert second.backup_path is not None
+    assert verify_backup_manifest(_backup_manifest(second.backup_path)) is True
     loaded = load_universe(tmp_path)
     assert len(loaded.records) == 2
     outputs = export_compatibility(loaded.records, tmp_path / "exports")
@@ -412,6 +457,92 @@ def test_legacy_migration_publishes_versioned_store(tmp_path: Path) -> None:
     imported, saved = migrate_legacy_universe(tmp_path)
     assert imported.records and saved.path.name == "universe_store.json"
     assert load_universe(tmp_path).revision == saved.revision
+
+
+def test_hash_v2_migration_preserves_records_duplicate_policy_and_verified_backup(tmp_path: Path) -> None:
+    records = [
+        _record("A", ticker="SHARED", tier="primary"),
+        _record("B", isin="NO0000000002", ticker="SHARED", tier="secondary"),
+    ]
+    _write_v2_store(tmp_path, records, allow_cross_tier_duplicates=True, revision="hash")
+
+    imported, saved = migrate_legacy_universe(tmp_path)
+
+    payload = json.loads(saved.path.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == 3
+    assert payload["allow_cross_tier_duplicates"] is True
+    assert tuple(item.instrument_id for item in imported.records) == ("A", "B")
+    assert load_universe(tmp_path).allow_cross_tier_duplicates is True
+    assert saved.backup_path is not None
+    backup_dirs = [path for path in (tmp_path / "backups" / "universe").iterdir() if path.is_dir()]
+    assert len(backup_dirs) == 1
+    assert verify_backup_manifest(_backup_manifest(saved.backup_path)) is True
+
+
+def test_non_hash_v2_migration_requires_explicit_acknowledgement(tmp_path: Path) -> None:
+    path = _write_v2_store(tmp_path, [_record("A")])
+    before = path.read_bytes()
+
+    with pytest.raises(ValueError, match="explicit legacy acknowledgement"):
+        migrate_legacy_universe(tmp_path)
+    assert path.read_bytes() == before
+    assert not (tmp_path / "backups" / "universe").exists()
+
+    migrate_legacy_universe(tmp_path, acknowledge_unverifiable_legacy=True)
+    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == 3
+
+
+def test_tampered_hash_v2_migration_rejects_without_backup(tmp_path: Path) -> None:
+    path = _write_v2_store(tmp_path, [_record("A")], revision="hash")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["records"][0]["name"] = "tampered"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        migrate_legacy_universe(tmp_path)
+    assert not (tmp_path / "backups" / "universe").exists()
+
+
+def test_revision_race_after_initial_read_rejects_without_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = save_universe((_record("A"),), expected_revision="", root=tmp_path)
+    path = first.path
+    real_atomic_write_group = universe_store.atomic_write_group
+
+    def race_before_precondition(requests, **kwargs):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["records"][0]["name"] = "changed concurrently"
+        payload["revision"] = universe_store._payload_revision(payload)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return real_atomic_write_group(requests, **kwargs)
+
+    monkeypatch.setattr(universe_store, "atomic_write_group", race_before_precondition)
+    with pytest.raises(UniverseRevisionConflict):
+        save_universe(
+            (_record("B", isin="NO0000000002", ticker="B"),),
+            first.revision,
+            root=tmp_path,
+        )
+    assert not (tmp_path / "backups" / "universe").exists()
+
+
+def test_tamper_during_guarded_backup_rejects_without_backup_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = save_universe((_record("A"),), expected_revision="", root=tmp_path)
+    path = first.path
+    real_backup_paths = universe_store.backup_paths
+
+    def tampering_backup_paths(paths, backup_root):
+        manifest = real_backup_paths(paths, backup_root)
+        path.write_bytes(b"tampered during guarded backup")
+        return manifest
+
+    monkeypatch.setattr(universe_store, "backup_paths", tampering_backup_paths)
+    with pytest.raises(UniverseRevisionConflict, match="guarded backup"):
+        save_universe((_record("B", isin="NO0000000002", ticker="B"),), first.revision, root=tmp_path)
+    assert not (tmp_path / "backups" / "universe").exists()
 
 
 def test_legacy_policy_backfill_plan_is_deterministic_inspectable_and_non_mutating(
