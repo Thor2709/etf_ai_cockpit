@@ -82,6 +82,17 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   regressions and the complete universe/onboarding/manager suite pass with two
   capability-specific skips; Ruff, compile and diff hygiene pass. Freeze one
   final documented head for both independent reviews and fresh H-tier gates.
+- Re-review rejected documented head
+  `5289d1206b0a88e990a9bc57538b4d9706c0435d` after reproducing a junction
+  swap before atomic destination resolution and a stale writer deleting a
+  following writer's verified backup. Run `31449729020` is cancelled and
+  stale. Commit `3a6ffe1bcf2e48fa055b6e7db8323e451e2b60b4` binds the
+  canonical destination check before resolution and repeats it under the held
+  group guard, removes unowned backup-directory cleanup and makes the shared
+  backup helper remove only its own failed checkpoint. Both exact races, the
+  prior closure regressions and the complete universe/onboarding/manager/atomic
+  surface pass with two capability-specific skips. Freeze one replacement head
+  for parallel final review and fresh H-tier Linux/Windows/terminal gates.
 - Both exact-head reviewers rejected frozen head
   `f01a673a284c6c7aaf1d0f3699371bef4dfdde70`; hosted run `31391040254` is
   cancelled and stale. Their consolidated findings were partial cross-root

@@ -3107,6 +3107,18 @@ hygiene and generated-state checks pass. Freeze one replacement exact head for
 parallel whole-diff/risk review and fresh H-tier Linux/Windows/terminal gates.
 `execution_allowed=false` remains unchanged.
 
+`OWNED_DESTINATION_AND_BACKUP_CORRECTION` re-review rejected exact head
+`5289d1206b0a88e990a9bc57538b4d9706c0435d` for a junction swap before
+atomic destination resolution and stale cleanup deleting a following writer's
+verified backup. Run `31449729020` is cancelled and stale. Commit
+`3a6ffe1bcf2e48fa055b6e7db8323e451e2b60b4` revalidates destination identity
+before atomic resolution and under the held guard, deletes only the rejecting
+writer's owned backup checkpoint and makes backup creation exception-safe.
+Both exact regressions and the complete affected persistence/application suite
+pass. Freeze one replacement exact head for parallel final review and fresh
+H-tier Linux/Windows/terminal evidence. `execution_allowed=false` remains
+unchanged.
+
 `FINAL_GUARDED_STORE_CORRECTION` parallel review rejected exact head
 `5aa6c9bcb4af6f33e5347938d6731f76a6d9233f` for four reproduced cases:
 caller-bypassable legacy migration, post-commit backup ambiguity, symlinked
