@@ -110,6 +110,32 @@ status candidate and append-only sequence-20 authority. Run exact E-tier guards
 and review before merge, then require writer and generic zero-action readback;
 `execution_allowed=false` remains unchanged.
 
+## ISSUE-0018 product lane — 2026-08-11
+
+`VERIFIED` ISSUE-0017 lifecycle PR #673 merged reviewed head
+`7e664542fdeea154cbca2c999334a3be565fb515` as
+`9c3ac836587d3e2b494bca20e27b559978eb8c9b`. H-tier run `31453379949`,
+status guard `31453379906`, writer `31455074038` and generic convergence
+`31455074057` passed; the writer applied only GitHub issue #21 and both hosted
+and independent exact-main readbacks returned zero actions.
+
+`IN_PROGRESS` ISSUE-0018 is dependency-ready. Product lane
+`codex/issue0018-product-20260811` starts from exact main
+`9c3ac836587d3e2b494bca20e27b559978eb8c9b`; implementation checkpoint
+`b80967bb956b083f7033aba4ae1c9ac6de3d228e` adds only local import parsing,
+identity/classification evidence, immutable-source correction overlays,
+versioned manifests, exclusions/horizons/quotas, cancel-safe chunk resume, the
+Universe Manager wizard and focused tests. It performs no hidden provider,
+analysis, workflow or broker action and keeps `execution_allowed=false`.
+
+The focused import/store/manager/architecture suite, Ruff, compile and diff
+hygiene pass. Freeze the fully documented head for parallel whole-diff and risk
+review plus fresh H-tier Linux/Windows/terminal validation. Prepare every legal
+lifecycle artifact before product merge; after the reviewed product commit is
+merged, bind the single ISSUE-0018 `implemented_initially -> integrated`
+transaction to that PR/commit and require writer success plus generic
+zero-action readback.
+
 ## ISSUE-0017 lifecycle completion — 2026-08-11
 
 Product PR #672 merged reviewed head `52cadf44abff48ff09cd23cf792acad64dbab94e`

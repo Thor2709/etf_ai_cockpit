@@ -1849,3 +1849,32 @@ next action and whether the requested outcome is actually complete.
   readback after the exact lifecycle head merges.
 - ISSUE-0018 is the next canonical dependency-ready product issue. Begin its
   disjoint product lane only after ISSUE-0017's writer/readback converges.
+
+## ISSUE-0018 product checkpoint — 2026-08-11
+
+- ISSUE-0017 lifecycle PR #673 merged exact reviewed head
+  `7e664542fdeea154cbca2c999334a3be565fb515` as exact main
+  `9c3ac836587d3e2b494bca20e27b559978eb8c9b`. Exact-head H-tier run
+  `31453379949` and status guard run `31453379906` passed. Writer run
+  `31455074038` applied and verified the single ISSUE-0017 projection; generic
+  convergence run `31455074057` and an independent exact-main live readback
+  both returned zero actions. `execution_allowed=false` remains unchanged.
+- ISSUE-0018, "Watchlist and universe manager", is dependency-ready and is the
+  active product issue. Clean lane `codex/issue0018-product-20260811` is based
+  on exact main `9c3ac836587d3e2b494bca20e27b559978eb8c9b`; implementation checkpoint
+  `b80967bb956b083f7033aba4ae1c9ac6de3d228e` is one product commit ahead.
+- Bounded product scope is local CSV/XLSX/paste/supplied-provider import,
+  deterministic identity resolution and row classification, immutable source
+  plus correction overlays, reproducible versioned manifests, exclusions,
+  horizons and quotas, and cancel-safe chunk resume. It adds no provider,
+  workflow, scoring or broker calls and does not enter ISSUE-0126 point-in-time
+  universes or ranking work.
+- Focused universe import/store/manager/architecture tests pass with the
+  expected capability skip; Ruff, compile and diff hygiene pass. Complete the
+  checkpoint chronology before freezing, then run both exact-head independent
+  reviews and fresh H-tier Linux, Windows and terminal evidence in parallel.
+- The legal post-merge lifecycle remains one ISSUE-0018
+  `implemented_initially -> integrated` transaction bound to the reviewed
+  product PR and merged product commit, followed by the existing writer and
+  generic zero-action readback. Do not merge while required lifecycle evidence
+  is known to be absent.
