@@ -3377,3 +3377,18 @@ News/Context route test. Synchronized two-writer, malformed-ledger no-write,
 both UI and complete affected focused suites plus Ruff, compile, generator
 check and diff hygiene pass. Freeze one replacement exact head for both reviews
 and fresh H-tier gates; do not add retry or adjacent persistence architecture.
+
+`EVENT_TRIAD_AND_CONFLICT_CORRECTION` invalidates replacement head
+`87422b3d99222a5b6e30b1c9153b22accad9660d` and run `31527781649` after
+both repeated reviews completed. The sole bounded follow-up binds clean rows
+to exact contained raw JSON and audit row/frame checksums, requires lexical
+`YYYY-MM-DD`, and rejects conflicting valid observations on load/disclosure.
+Add exact no-write and both-surface regressions only; do not broaden the event
+store, add recovery, or reopen infrastructure work.
+
+The bounded follow-up closes the exact set: clean rows bind to canonical raw
+paths/payloads and audit row/frame identity; orphan, missing, extra, escaped or
+tampered evidence fails before writes; dates are lexical; duplicate/conflicting
+observations fail load and both UI surfaces. The complete affected suites and
+static/generator checks pass. Freeze this final replacement for both reviews
+and fresh H-tier validation without adjacent generalisation.

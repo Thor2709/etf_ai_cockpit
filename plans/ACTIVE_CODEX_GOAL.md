@@ -2101,3 +2101,19 @@ next action and whether the requested outcome is actually complete.
   complete affected focused suite, Ruff, compile, programme byte-clean check
   and diff hygiene. Freeze one replacement head for both reviews and fresh
   H-tier hosted validation; add no adjacent work.
+- Replacement head `87422b3d99222a5b6e30b1c9153b22accad9660d` and run
+  `31527781649` are invalidated after both repeated verdicts were collected.
+  Three newly demonstrated integrity gaps remain: clean rows are not bound to
+  their contained raw JSON and audit summary, `event_date` accepts a datetime
+  suffix, and individually valid conflicting observations can still be loaded
+  and disclosed. Use the one bounded follow-up to close exactly this clean/raw/
+  audit, lexical-date and conflict set with no retry, adjacent hardening or
+  shared persistence redesign.
+- The bounded follow-up now validates the complete clean/raw/audit bundle,
+  exact contained raw names and payloads, audit row/frame identity, lexical
+  dates, duplicate rows and conflicting observations before load, disclosure
+  or append. Orphan/missing/extra/tampered evidence remains untouched and
+  fails closed. The complete affected event/import/source-policy/quota/UI/
+  architecture suite, Ruff, compile, generator byte-clean check and diff
+  hygiene pass. Freeze this final replacement head for both reviews and fresh
+  H-tier gates; no further event-store generalisation is in scope.

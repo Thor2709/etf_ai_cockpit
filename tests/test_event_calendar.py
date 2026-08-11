@@ -51,7 +51,7 @@ def _canonical_row(event: CalendarEvent, **changes: object) -> dict[str, object]
         "context_only": True,
         "execution_allowed": False,
         "executable_authority": False,
-        "raw_path": f"raw/event_calendar/{event.event_id}.json",
+        "raw_path": f"raw/event_calendar/{event.event_id}-{checksum[:16]}.json",
         "event_checksum": checksum,
     }
     row.update(changes)
@@ -69,6 +69,11 @@ def test_event_validation_requires_point_in_time_provenance_and_keeps_context_on
     assert validate_event(_event(event_time="2026-07-30T08:00:00", precision="minute")).status == "ambiguous_event_time"
     assert validate_event(_event(event_time="2026-07-30T08:00:00+00:00", precision="date")).status == "unexpected_event_time"
     assert validate_event(_event(), datetime(2026, 6, 30, tzinfo=timezone.utc)).status == "after_decision_time"
+
+
+@pytest.mark.parametrize("event_date", ["2026-07-30T00:00:00+00:00", "2026-7-30", "2026-07-30Z", "2026-02-30"])
+def test_event_validation_requires_exact_lexical_calendar_dates(event_date: str) -> None:
+    assert validate_event(_event(event_date=event_date)).status == "invalid_event_date"
 
 
 @pytest.mark.parametrize("event_type", sorted(EVENT_TYPES))
@@ -170,6 +175,122 @@ def test_event_persistence_does_not_launder_an_integrity_invalid_existing_ledger
     assert len(raw_paths) == 1
     assert raw_paths[0].name.startswith("original-")
     assert pd.read_parquet(clean_path).loc[0, "title"] == "Tampered without checksum update"
+
+
+@pytest.mark.parametrize("tamper", ["escaped_raw_path", "wrong_raw_name", "corrupt_raw", "missing_raw", "missing_audit", "bad_audit_rows", "bad_audit_checksum", "bad_audit_flags"])
+def test_event_persistence_binds_the_triad_and_appends_with_no_write_on_tamper(tmp_path, tamper: str) -> None:
+    raw_dir = tmp_path / "raw" / "event_calendar"
+    clean_path = tmp_path / "clean.parquet"
+    audit_path = tmp_path / "clean_audit.json"
+    persist_calendar_events([_event()], raw_dir=raw_dir, clean_path=clean_path, audit_path=audit_path)
+
+    if tamper in {"escaped_raw_path", "wrong_raw_name"}:
+        frame = pd.read_parquet(clean_path)
+        frame.loc[0, "raw_path"] = "../outside.json" if tamper == "escaped_raw_path" else "raw/event_calendar/wrong-name.json"
+        frame.to_parquet(clean_path, index=False)
+    elif tamper == "corrupt_raw":
+        next(raw_dir.glob("*.json")).write_text("{}\n", encoding="utf-8")
+    elif tamper == "missing_raw":
+        next(raw_dir.glob("*.json")).unlink()
+    elif tamper == "missing_audit":
+        audit_path.unlink()
+    else:
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        if tamper == "bad_audit_rows":
+            audit["rows"] = 99
+        elif tamper == "bad_audit_checksum":
+            audit["checksum"] = "tampered"
+        else:
+            audit["context_only"] = False
+        audit_path.write_text(json.dumps(audit, sort_keys=True) + "\n", encoding="utf-8")
+
+    clean_before = clean_path.read_bytes()
+    audit_before = audit_path.read_bytes() if audit_path.exists() else None
+    raw_before = {path.name: path.read_bytes() for path in raw_dir.glob("*")}
+    assert load_calendar_events(clean_path, raw_dir=raw_dir, audit_path=audit_path).empty
+    with pytest.raises(ValueError, match="Canonical event"):
+        persist_calendar_events([_event(event_id="new-event")], raw_dir=raw_dir, clean_path=clean_path, audit_path=audit_path)
+    assert clean_path.read_bytes() == clean_before
+    assert (audit_path.read_bytes() if audit_path.exists() else None) == audit_before
+    assert {path.name: path.read_bytes() for path in raw_dir.glob("*")} == raw_before
+
+
+def test_event_persistence_rejects_orphan_raw_without_clean_ledger(tmp_path) -> None:
+    raw_dir = tmp_path / "raw" / "event_calendar"
+    raw_dir.mkdir(parents=True)
+    orphan = raw_dir / "orphan.json"
+    orphan.write_text("{}\n", encoding="utf-8")
+    clean_path = tmp_path / "clean.parquet"
+
+    with pytest.raises(ValueError, match="incomplete without the clean ledger"):
+        persist_calendar_events([_event(event_id="new-event")], raw_dir=raw_dir, clean_path=clean_path)
+    assert not clean_path.exists()
+    assert orphan.read_text(encoding="utf-8") == "{}\n"
+
+
+def test_event_load_rejects_exact_duplicate_canonical_rows(tmp_path) -> None:
+    raw_dir = tmp_path / "raw" / "event_calendar"
+    clean_path = tmp_path / "clean.parquet"
+    audit_path = tmp_path / "clean_audit.json"
+    persist_calendar_events([_event()], raw_dir=raw_dir, clean_path=clean_path, audit_path=audit_path)
+    frame = pd.read_parquet(clean_path)
+    duplicated = pd.concat([frame, frame], ignore_index=True)
+    duplicated.to_parquet(clean_path, index=False)
+    stable = duplicated.sort_index(axis=1).astype(str).sort_values(list(duplicated.columns), kind="stable")
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    audit.update({"rows": 2, "checksum": hashlib.sha256(stable.to_csv(index=False).encode("utf-8")).hexdigest()})
+    audit_path.write_text(json.dumps(audit, sort_keys=True) + "\n", encoding="utf-8")
+
+    assert load_calendar_events(clean_path, raw_dir=raw_dir, audit_path=audit_path).empty
+
+
+def test_conflicting_valid_observations_fail_load_disclosure_and_both_ui_surfaces(monkeypatch, tmp_path) -> None:
+    raw_dir = tmp_path / "raw" / "event_calendar"
+    clean_path = tmp_path / "clean.parquet"
+    audit_path = tmp_path / "clean_audit.json"
+    persist_calendar_events([_event()], raw_dir=raw_dir, clean_path=clean_path, audit_path=audit_path)
+    conflict = _event(title="Changed")
+    payload = {**conflict.__dict__, "schema_version": EVENT_SCHEMA_VERSION, "context_only": True, "execution_allowed": False, "executable_authority": False}
+    checksum = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    (raw_dir / f"{conflict.event_id}-{checksum[:16]}.json").write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    frame = pd.concat([pd.read_parquet(clean_path), pd.DataFrame([_canonical_row(conflict)])], ignore_index=True)
+    frame.to_parquet(clean_path, index=False)
+    stable = frame.sort_index(axis=1).astype(str)
+    stable = stable.sort_values(list(stable.columns), kind="stable")
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    audit.update({"rows": len(frame), "checksum": hashlib.sha256(stable.to_csv(index=False).encode("utf-8")).hexdigest()})
+    audit_path.write_text(json.dumps(audit, sort_keys=True) + "\n", encoding="utf-8")
+
+    assert load_calendar_events(clean_path, raw_dir=raw_dir, audit_path=audit_path).empty
+    assert events_available_as_of(frame, datetime(2026, 7, 2, tzinfo=timezone.utc)).empty
+
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    ui_frame = pd.DataFrame([_canonical_row(_event(event_id="ui-a", instrument_id=instrument_id)), _canonical_row(_event(event_id="ui-a", instrument_id=instrument_id, title="Changed"))])
+    model = build_instrument_detail(snapshot, instrument_id, events=ui_frame)
+    assert model.sections["events"]["status"] == "unavailable"
+
+    import etf_cockpit.app.pages.trust_evidence as trust_evidence
+    monkeypatch.setattr(trust_evidence, "load_news_items", lambda _path: pd.DataFrame())
+    monkeypatch.setattr(trust_evidence, "load_calendar_events", lambda _path: ui_frame)
+    state = type("State", (), {"snapshot": snapshot})()
+    rendered = trust_evidence._news_context_extra(state)
+    values: list[str] = []
+
+    def collect(node: object) -> None:
+        value = getattr(node, "value", None)
+        if value:
+            values.append(str(value))
+        for child_name in ("controls", "content"):
+            children = getattr(node, child_name, None)
+            if isinstance(children, (list, tuple)):
+                for child in children:
+                    collect(child)
+            elif children is not None:
+                collect(children)
+
+    collect(rendered)
+    assert "event records are available at decision_time=" not in "\n".join(values)
 
 
 def test_event_ui_surfaces_available_and_unavailable_states(monkeypatch) -> None:

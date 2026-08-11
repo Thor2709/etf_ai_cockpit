@@ -20,6 +20,11 @@ cannot both succeed while dropping one event. Canonical readback independently
 requires the complete schema, provenance, validation result, non-executable
 authority flags and content checksum. An incomplete or inconsistent ledger is
 not displayed and cannot be republished by a later append.
+Each clean row is also bound to its exact contained raw JSON path and payload,
+and the audit row count and frame checksum must match. Missing, extra, escaped,
+symlinked or altered raw evidence, an inconsistent audit, duplicate rows or
+conflicting observations invalidate the whole bundle. Event dates are lexical
+`YYYY-MM-DD`; datetime suffixes are never discarded during validation.
 
 The calendar is visible on Instrument Detail and News & Context. It is
 filtered through the same availability/ingestion cutoff before either surface

@@ -12,6 +12,7 @@ from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
+import re
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -132,7 +133,7 @@ def persist_calendar_events(
     raw_dir, clean_path = Path(raw_dir), Path(clean_path)
     audit_path = Path(audit_path or clean_path.with_name(clean_path.stem + "_audit.json"))
     with persistent_file_guard(clean_path.with_name(clean_path.name + ".guard")):
-        existing = _read_clean_strict(clean_path)
+        existing = _read_clean_strict(clean_path, raw_dir=raw_dir, audit_path=audit_path)
         rows: list[dict[str, Any]] = []
         raw_requests: list[AtomicWriteRequest] = []
         raw_paths: list[Path] = []
@@ -145,8 +146,10 @@ def persist_calendar_events(
             checksum = _checksum(payload)
             raw_path = raw_dir / f"{_safe_id(event.event_id)}-{checksum[:16]}.json"
             raw_paths.append(raw_path)
-            if not raw_path.exists():
-                raw_requests.append(AtomicWriteRequest(raw_path, (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8"), lambda path: json.loads(path.read_text(encoding="utf-8"))))
+            if raw_path.exists():
+                _validate_raw_file(raw_path, event, raw_dir, checksum)
+            else:
+                raw_requests.append(AtomicWriteRequest(raw_path, (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8"), lambda path, event=event, raw_dir=raw_dir, checksum=checksum: _validate_raw_file(path, event, raw_dir, checksum)))
             rows.append(_clean_row(event, validation, checksum, raw_path, raw_dir))
             validations.append({"event_id": event.event_id, **asdict(validation)})
         candidate = pd.DataFrame(rows, columns=EVENT_COLUMNS)
@@ -165,8 +168,8 @@ def persist_calendar_events(
         return EventPersistenceResult(tuple(raw_paths), clean_path, audit_path, len(combined), _frame_checksum(combined), len(existing) == len(combined))
 
 
-def load_calendar_events(path: Path = EVENT_CLEAN_PATH) -> pd.DataFrame:
-    return sort_calendar_events(_read_clean(Path(path)))
+def load_calendar_events(path: Path = EVENT_CLEAN_PATH, *, raw_dir: Path | None = None, audit_path: Path | None = None) -> pd.DataFrame:
+    return sort_calendar_events(_read_clean(Path(path), raw_dir=raw_dir, audit_path=audit_path))
 
 
 def sort_calendar_events(frame: pd.DataFrame) -> pd.DataFrame:
@@ -187,7 +190,11 @@ def events_available_as_of(frame: pd.DataFrame, decision_time: datetime, instrum
         return source
     if any(column not in source.columns for column in EVENT_COLUMNS):
         return source.iloc[0:0].copy()
-    if not all(_canonical_row_is_disclosable(row) for _, row in source.iterrows()):
+    try:
+        if not all(_canonical_row_is_disclosable(row) for _, row in source.iterrows()):
+            return source.iloc[0:0].copy()
+        _reject_conflicting_duplicates(source)
+    except (KeyError, ValueError):
         return source.iloc[0:0].copy()
     available = pd.to_datetime(source.get("available_at"), errors="coerce", utc=True)
     ingested = pd.to_datetime(source.get("ingested_at"), errors="coerce", utc=True)
@@ -243,11 +250,13 @@ def _valid_timezone_name(value: object) -> bool:
 
 
 def _parse_date(value: object) -> str | None:
-    try:
-        parsed = datetime.fromisoformat(str(value)).date()
-    except (TypeError, ValueError):
+    if not isinstance(value, str) or re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) is None:
         return None
-    return parsed.isoformat()
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        return None
+    return value
 
 
 def _event_payload(event: CalendarEvent) -> dict[str, Any]:
@@ -258,11 +267,19 @@ def _event_payload(event: CalendarEvent) -> dict[str, Any]:
 
 def _clean_row(event: CalendarEvent, validation: EventValidation, checksum: str, raw_path: Path, raw_dir: Path) -> dict[str, Any]:
     row = _event_payload(event)
-    row.update({"validation_status": validation.status, "validation_reason": validation.reason, "backtest_eligible": validation.backtest_eligible, "context_only": True, "execution_allowed": False, "executable_authority": False, "raw_path": raw_path.relative_to(raw_dir.parent.parent).as_posix() if raw_dir.parent.parent.exists() else raw_path.name, "event_checksum": checksum})
+    row.update({"validation_status": validation.status, "validation_reason": validation.reason, "backtest_eligible": validation.backtest_eligible, "context_only": True, "execution_allowed": False, "executable_authority": False, "raw_path": _raw_reference(raw_path, raw_dir), "event_checksum": checksum})
     return {column: row.get(column, "") for column in EVENT_COLUMNS}
 
 
-def _read_clean(path: Path) -> pd.DataFrame:
+def _raw_reference(raw_path: Path, raw_dir: Path) -> str:
+    root = raw_dir.parent.parent
+    try:
+        return raw_path.relative_to(root).as_posix()
+    except ValueError:
+        return raw_path.name
+
+
+def _read_clean(path: Path, *, raw_dir: Path | None = None, audit_path: Path | None = None) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame(columns=EVENT_COLUMNS)
     try:
@@ -271,13 +288,19 @@ def _read_clean(path: Path) -> pd.DataFrame:
         return pd.DataFrame(columns=EVENT_COLUMNS)
     if any(column not in frame.columns for column in EVENT_COLUMNS):
         return pd.DataFrame(columns=EVENT_COLUMNS)
-    if not all(_canonical_row_is_disclosable(row) for _, row in frame.iterrows()):
+    try:
+        _validate_canonical_frame(frame)
+        _validate_persisted_bundle(frame, path, raw_dir=raw_dir, audit_path=audit_path)
+    except (KeyError, ValueError):
         return pd.DataFrame(columns=EVENT_COLUMNS)
     return frame
 
 
-def _read_clean_strict(path: Path) -> pd.DataFrame:
+def _read_clean_strict(path: Path, *, raw_dir: Path | None = None, audit_path: Path | None = None) -> pd.DataFrame:
+    raw_dir, audit_path = _bundle_paths(path, raw_dir=raw_dir, audit_path=audit_path)
     if not path.exists():
+        if audit_path.exists() or (raw_dir.is_dir() and any(raw_dir.glob("*.json"))):
+            raise ValueError("Canonical event bundle is incomplete without the clean ledger.")
         return pd.DataFrame(columns=EVENT_COLUMNS)
     try:
         frame = pd.read_parquet(path)
@@ -286,9 +309,93 @@ def _read_clean_strict(path: Path) -> pd.DataFrame:
     missing = [column for column in EVENT_COLUMNS if column not in frame.columns]
     if missing:
         raise ValueError("Canonical event ledger has unsupported schema; missing: " + ", ".join(missing))
+    _validate_canonical_frame(frame)
+    _validate_persisted_bundle(frame, path, raw_dir=raw_dir, audit_path=audit_path)
+    return frame
+
+
+def _validate_canonical_frame(frame: pd.DataFrame) -> None:
     if not all(_canonical_row_is_disclosable(row) for _, row in frame.iterrows()):
         raise ValueError("Canonical event ledger contains malformed or inconsistent rows.")
-    return frame
+    if bool(frame.duplicated(subset=["event_id", "event_checksum"], keep=False).any()):
+        raise ValueError("Canonical event ledger contains duplicate observations.")
+    _reject_conflicting_duplicates(frame)
+
+
+def _bundle_paths(path: Path, *, raw_dir: Path | None, audit_path: Path | None) -> tuple[Path, Path]:
+    clean_path = Path(path)
+    return Path(raw_dir) if raw_dir is not None else _infer_raw_dir(clean_path), Path(audit_path or clean_path.with_name(clean_path.stem + "_audit.json"))
+
+
+def _infer_raw_dir(clean_path: Path) -> Path:
+    root = clean_path.parent.parent if clean_path.parent.name == "clean" else clean_path.parent
+    return root / "raw" / "event_calendar"
+
+
+def _validate_persisted_bundle(frame: pd.DataFrame, clean_path: Path, *, raw_dir: Path | None, audit_path: Path | None) -> None:
+    raw_dir, audit_path = _bundle_paths(clean_path, raw_dir=raw_dir, audit_path=audit_path)
+    if raw_dir.is_symlink() or not raw_dir.is_dir():
+        raise ValueError("Canonical event bundle raw directory is missing or invalid.")
+    expected_paths: set[Path] = set()
+    for _, row in frame.iterrows():
+        event = _event_from_row(row)
+        checksum = _checksum(_event_payload(event))
+        expected_path = raw_dir / f"{_safe_id(event.event_id)}-{checksum[:16]}.json"
+        expected_paths.add(expected_path.resolve())
+        _validate_raw_file(expected_path, event, raw_dir, checksum, row=row)
+    actual_paths = tuple(raw_dir.glob("*.json"))
+    if any(path.is_symlink() or not path.is_file() for path in actual_paths):
+        raise ValueError("Canonical event raw directory contains an invalid record.")
+    if {path.resolve() for path in actual_paths} != expected_paths:
+        raise ValueError("Canonical event raw directory does not match the clean ledger.")
+    _validate_audit(audit_path, frame)
+
+
+def _validate_raw_file(path: Path, event: CalendarEvent, raw_dir: Path, checksum: str, *, row: pd.Series | None = None) -> None:
+    expected_name = f"{_safe_id(event.event_id)}-{checksum[:16]}.json"
+    expected_path = raw_dir / expected_name
+    if row is not None and _canonical_text(row["raw_path"]) != _raw_reference(expected_path, raw_dir):
+        raise ValueError("Canonical event ledger contains an escaped or unexpected raw path.")
+    if (path != expected_path and path.parent != raw_dir) or raw_dir.is_symlink() or not path.is_file() or path.is_symlink():
+        raise ValueError("Canonical event raw record is missing or is not a regular file.")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise ValueError("Canonical event raw record is unreadable.") from exc
+    if payload != _event_payload(event):
+        raise ValueError("Canonical event raw record does not match its clean observation.")
+
+
+def _validate_audit(path: Path, frame: pd.DataFrame) -> None:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("Canonical event audit record is missing or invalid.")
+    try:
+        audit = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise ValueError("Canonical event audit record is unreadable.") from exc
+    required = {"schema_version", "rows", "checksum", "validations", "context_only", "execution_allowed"}
+    if not isinstance(audit, dict) or set(audit) != required:
+        raise ValueError("Canonical event audit record has unsupported schema.")
+    if (
+        audit["schema_version"] != EVENT_SCHEMA_VERSION
+        or type(audit["rows"]) is not int
+        or audit["rows"] != len(frame)
+        or audit["checksum"] != _frame_checksum(frame)
+        or not isinstance(audit["validations"], list)
+        or audit["context_only"] is not True
+        or audit["execution_allowed"] is not False
+    ):
+        raise ValueError("Canonical event audit record is inconsistent with the clean ledger.")
+
+
+def _event_from_row(row: pd.Series) -> CalendarEvent:
+    values = {column: _canonical_text(row[column]) for column in EVENT_COLUMNS}
+    return CalendarEvent(
+        event_id=values["event_id"], instrument_id=values["instrument_id"], event_type=values["event_type"], event_date=values["event_date"],
+        event_time=values["event_time"], available_at=values["available_at"], ingested_at=values["ingested_at"], source_id=values["source_id"],
+        source_authority=values["source_authority"], source_url=values["source_url"], timezone_name=values["timezone_name"], precision=values["precision"],
+        title=values["title"], description=values["description"], risk_level=values["risk_level"],
+    )
 
 
 def _canonical_row_is_disclosable(row: pd.Series) -> bool:
