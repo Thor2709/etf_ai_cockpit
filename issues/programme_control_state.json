@@ -592,17 +592,45 @@
       "verified_date": "2026-08-10"
     },
     "ISSUE-0017": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #672 merged exact independently approved head 52cadf44abff48ff09cd23cf792acad64dbab94e as 3845aaa10a1e0718bc62e4a6698658ce6cd0326a",
+            "Release run 31450653397 passed fresh preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Acceptance evidence covers canonical local-first onboarding storage and hardware propagation, provider degradation, offline bootstrap, guarded schema-v2 migration, universe identity and integrity, owned backup and destination races, and execution_allowed=false"
+          ],
+          "review_reference": "PR #672 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-11",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-08-frontend-api",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "PR #672 exact-head whole-diff and risk reviews plus H-tier validation",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #672 merged exact independently approved head 52cadf44abff48ff09cd23cf792acad64dbab94e as 3845aaa10a1e0718bc62e4a6698658ce6cd0326a",
+            "Release run 31450653397 passed fresh preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Acceptance evidence covers canonical local-first onboarding storage and hardware propagation, provider degradation, offline bootstrap, guarded schema-v2 migration, universe identity and integrity, owned backup and destination races, and execution_allowed=false"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #672 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-11",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "to": "integrated",
+          "verified_commit": "3845aaa10a1e0718bc62e4a6698658ce6cd0326a"
+        }
+      ],
+      "verified_commit": "3845aaa10a1e0718bc62e4a6698658ce6cd0326a",
+      "verified_date": "2026-08-11"
     },
     "ISSUE-0018": {
       "acceptance_evidence": [],

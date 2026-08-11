@@ -1829,3 +1829,23 @@ A newly evidenced independent cause may receive one bounded repair.
 A safe handoff reports goal, worktree, branch, base/head/upstream, dirty files,
 issue and status, completed work, tests, protected boundaries, blocker, exact
 next action and whether the requested outcome is actually complete.
+
+## ISSUE-0017 lifecycle checkpoint — 2026-08-11
+
+- Product PR #672 merged exact independently approved head
+  `52cadf44abff48ff09cd23cf792acad64dbab94e` as exact main
+  `3845aaa10a1e0718bc62e4a6698658ce6cd0326a`. Run `31450653397` passed
+  preflight, supply chain, authoritative Linux and Windows package gates and
+  terminal validation; `execution_allowed=false` remains unchanged.
+- Clean lifecycle lane `codex/issue0017-lifecycle-final-20260811` starts from
+  that exact main commit. Its only canonical mutation is ISSUE-0017
+  `implemented_initially -> integrated`; no dependency edge changes are
+  authorised.
+- Exact live plan `48d98a6e297123958fa4f8c1f87e5837023664bb477f5e560bad44eaf56dd4ce`
+  targets only GitHub issue #21's programme status. Candidate authority
+  `ab10ce027d85b169f549d300335123adae63e637053bb0431a809e2634ea1d48`
+  and append-only authority sequence 22 are bound to the same snapshot, plan
+  and product commit. Require ordered writer success and generic zero-action
+  readback after the exact lifecycle head merges.
+- ISSUE-0018 is the next canonical dependency-ready product issue. Begin its
+  disjoint product lane only after ISSUE-0017's writer/readback converges.

@@ -110,6 +110,19 @@ status candidate and append-only sequence-20 authority. Run exact E-tier guards
 and review before merge, then require writer and generic zero-action readback;
 `execution_allowed=false` remains unchanged.
 
+## ISSUE-0017 lifecycle completion — 2026-08-11
+
+Product PR #672 merged reviewed head `52cadf44abff48ff09cd23cf792acad64dbab94e`
+as `3845aaa10a1e0718bc62e4a6698658ce6cd0326a` after H-tier run
+`31450653397` passed the authoritative Linux, Windows and terminal gates and
+both exact-head reviews approved. The dedicated lifecycle transaction permits
+only ISSUE-0017 `implemented_initially -> integrated`. Live plan
+`48d98a6e297123958fa4f8c1f87e5837023664bb477f5e560bad44eaf56dd4ce`
+contains one programme-status update for GitHub #21 and no other action;
+authority sequence 22 binds that plan to the exact product merge. After merge,
+require ordered writer `applied_and_verified`, zero-action readback, generic
+convergence and unchanged `execution_allowed=false`, then start ISSUE-0018.
+
 ## Superseded ISSUE-0014 validation repair
 
 PR #665 remains frozen at independently approved exact head
