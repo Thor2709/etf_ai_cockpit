@@ -254,6 +254,47 @@ def test_event_persistence_rejects_nested_raw_evidence_without_writes(tmp_path) 
     assert (nested / "extra.json").read_text(encoding="utf-8") == "{}\n"
 
 
+def test_event_persistence_rejects_extra_non_json_raw_evidence_without_writes(tmp_path) -> None:
+    raw_dir = tmp_path / "raw" / "event_calendar"
+    clean_path = tmp_path / "clean.parquet"
+    audit_path = tmp_path / "clean_audit.json"
+    persist_calendar_events([_event()], raw_dir=raw_dir, clean_path=clean_path, audit_path=audit_path)
+    extra = raw_dir / "unrelated.txt"
+    extra.write_text("unrelated\n", encoding="utf-8")
+    clean_before = clean_path.read_bytes()
+    audit_before = audit_path.read_bytes()
+    raw_before = {path.name: path.read_bytes() for path in raw_dir.iterdir()}
+
+    assert load_calendar_events(clean_path, raw_dir=raw_dir, audit_path=audit_path).empty
+    with pytest.raises(ValueError, match="does not match the clean ledger"):
+        persist_calendar_events([_event(event_id="new-event")], raw_dir=raw_dir, clean_path=clean_path, audit_path=audit_path)
+    assert clean_path.read_bytes() == clean_before
+    assert audit_path.read_bytes() == audit_before
+    assert {path.name: path.read_bytes() for path in raw_dir.iterdir()} == raw_before
+
+
+@pytest.mark.parametrize("entry_kind", ["nested", "non_json"])
+def test_event_persistence_rejects_any_raw_evidence_without_clean_ledger(tmp_path, entry_kind: str) -> None:
+    raw_dir = tmp_path / "raw" / "event_calendar"
+    raw_dir.mkdir(parents=True)
+    if entry_kind == "nested":
+        unexpected = raw_dir / "unexpected"
+        unexpected.mkdir()
+        (unexpected / "extra.json").write_text("{}\n", encoding="utf-8")
+    else:
+        unexpected = raw_dir / "unrelated.txt"
+        unexpected.write_text("unrelated\n", encoding="utf-8")
+    clean_path = tmp_path / "clean.parquet"
+    audit_path = tmp_path / "clean_audit.json"
+
+    with pytest.raises(ValueError, match="incomplete without the clean ledger"):
+        persist_calendar_events([_event(event_id="new-event")], raw_dir=raw_dir, clean_path=clean_path, audit_path=audit_path)
+    assert not clean_path.exists()
+    assert not audit_path.exists()
+    assert not any(path.name.startswith("new-event-") for path in raw_dir.iterdir())
+    assert unexpected.exists()
+
+
 def test_event_persistence_rejects_orphan_raw_without_clean_ledger(tmp_path) -> None:
     raw_dir = tmp_path / "raw" / "event_calendar"
     raw_dir.mkdir(parents=True)

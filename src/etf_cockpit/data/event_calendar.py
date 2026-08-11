@@ -297,7 +297,10 @@ def _read_clean(path: Path, *, raw_dir: Path | None = None, audit_path: Path | N
 def _read_clean_strict(path: Path, *, raw_dir: Path | None = None, audit_path: Path | None = None) -> pd.DataFrame:
     raw_dir, audit_path = _bundle_paths(path, raw_dir=raw_dir, audit_path=audit_path)
     if not path.exists():
-        if audit_path.exists() or (raw_dir.is_dir() and any(raw_dir.glob("*.json"))):
+        raw_evidence_exists = raw_dir.is_symlink() or (
+            raw_dir.exists() and (not raw_dir.is_dir() or any(raw_dir.iterdir()))
+        )
+        if audit_path.exists() or raw_evidence_exists:
             raise ValueError("Canonical event bundle is incomplete without the clean ledger.")
         return pd.DataFrame(columns=EVENT_COLUMNS)
     try:
@@ -344,9 +347,9 @@ def _validate_persisted_bundle(frame: pd.DataFrame, clean_path: Path, *, raw_dir
     raw_entries = tuple(raw_dir.iterdir())
     if any(path.is_dir() or path.is_symlink() for path in raw_entries):
         raise ValueError("Canonical event raw directory contains nested or linked evidence.")
-    actual_paths = tuple(path for path in raw_entries if path.suffix.casefold() == ".json")
-    if any(path.is_symlink() or not path.is_file() for path in actual_paths):
+    if any(path.is_symlink() or not path.is_file() for path in raw_entries):
         raise ValueError("Canonical event raw directory contains an invalid record.")
+    actual_paths = tuple(path for path in raw_entries if path.name != ".atomic-write-group.guard")
     if {path.resolve() for path in actual_paths} != expected_paths:
         raise ValueError("Canonical event raw directory does not match the clean ledger.")
     _validate_audit(audit_path, frame)

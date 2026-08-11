@@ -3399,3 +3399,13 @@ binding and nested raw JSON enumeration. Derive the complete audit validation
 list from canonical rows and reject nested/linked raw entries, with exact
 no-write regressions. This is the terminal bounded closure; do not add another
 event-store hardening cycle.
+
+`RAW_INVENTORY_PREFLIGHT_CORRECTION` invalidates
+`243949f8dc03f4f8328fa6bbf427d55e6004c58b` and run `31531221048` after the
+complete parallel verdict set reproduced the same bounded inventory gap in
+fresh and existing bundles. A missing clean ledger now rejects every existing
+raw entry; a complete bundle accepts only its exact canonical raw JSON files
+and the atomic writer's named durable guard. Nested fresh evidence and extra
+non-JSON existing evidence fail before any clean, audit or raw write. Add no
+retry, recovery or adjacent persistence redesign; freeze one replacement head
+for both reviews and fresh H-tier validation.

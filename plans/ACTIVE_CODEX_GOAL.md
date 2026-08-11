@@ -2125,3 +2125,12 @@ next action and whether the requested outcome is actually complete.
   entries before load or append. Add only the two no-write regressions, rerun
   the affected suite once and freeze the replacement head; no further
   hardening cycle is permitted.
+- Head `243949f8dc03f4f8328fa6bbf427d55e6004c58b` and run `31531221048`
+  are invalidated after both reviewers reproduced one remaining raw-inventory
+  boundary in two states: a fresh store accepted nested evidence before its
+  first clean ledger, and an existing bundle ignored an extra non-JSON file.
+  The consolidated correction treats every pre-existing raw entry as evidence
+  when no clean ledger exists and permits only the exact canonical raw JSON
+  set plus the atomic writer's named durable guard once a ledger exists. Exact
+  no-write regressions cover both cases; no adjacent event-store change is in
+  scope. Freeze one replacement head for both reviews and fresh H-tier gates.
