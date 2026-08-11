@@ -13,6 +13,7 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 
@@ -78,6 +79,8 @@ def validate_event(event: CalendarEvent, decision_time: datetime | None = None) 
 
     if not str(event.event_id).strip() or not str(event.instrument_id).strip():
         return _invalid("missing_identity", "Event and instrument identifiers are required.")
+    if not _valid_timezone_name(event.timezone_name):
+        return _invalid("invalid_timezone", "Event timezone_name must be a non-blank IANA timezone or UTC.")
     event_type = str(event.event_type).strip().casefold()
     if event_type not in EVENT_TYPES:
         return _invalid("unknown_event_type", "Event type is outside the supported context calendar.")
@@ -182,6 +185,10 @@ def events_available_as_of(frame: pd.DataFrame, decision_time: datetime, instrum
     ingested = pd.to_datetime(source.get("ingested_at"), errors="coerce", utc=True)
     cutoff = pd.Timestamp(decision_time).tz_convert("UTC")
     mask = available.notna() & ingested.notna() & (available <= cutoff) & (ingested <= cutoff)
+    if "timezone_name" in source.columns:
+        mask &= source["timezone_name"].map(_valid_timezone_name)
+    else:
+        mask &= False
     if "backtest_eligible" in source.columns:
         mask &= source["backtest_eligible"].map(lambda value: value is True or str(value).strip().casefold() in {"1", "true", "yes"})
     if "validation_status" in source.columns:
@@ -189,6 +196,25 @@ def events_available_as_of(frame: pd.DataFrame, decision_time: datetime, instrum
     if instrument_id is not None and "instrument_id" in source.columns:
         mask &= source["instrument_id"].astype(str).eq(str(instrument_id))
     return sort_calendar_events(source.loc[mask].copy())
+
+
+def normalise_event_decision_time(value: object) -> pd.Timestamp | None:
+    """Normalise an explicit cutoff without inventing a timezone for datetimes."""
+
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if len(text) == 10:
+        text += "T23:59:59+00:00"
+    try:
+        parsed = pd.to_datetime(text, errors="coerce")
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not isinstance(parsed, pd.Timestamp) or pd.isna(parsed) or parsed.tzinfo is None:
+        return None
+    return parsed.tz_convert("UTC")
 
 
 def _invalid(status: str, reason: str) -> EventValidation:
@@ -203,6 +229,17 @@ def _parse_aware(value: object) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo is not None and parsed.utcoffset() is not None else None
+
+
+def _valid_timezone_name(value: object) -> bool:
+    timezone_name = str(value or "").strip()
+    if not timezone_name:
+        return False
+    try:
+        ZoneInfo(timezone_name)
+    except (ValueError, ZoneInfoNotFoundError):
+        return False
+    return True
 
 
 def _parse_date(value: object) -> str | None:
@@ -282,4 +319,4 @@ def _safe_id(value: object) -> str:
     return "".join(char if char.isalnum() or char in "-_" else "_" for char in str(value)) or "unknown"
 
 
-__all__ = ["CalendarEvent", "EventPersistenceResult", "EventValidation", "EVENT_CLEAN_PATH", "EVENT_RAW_DIR", "EVENT_SCHEMA_VERSION", "EVENT_TYPES", "events_available_as_of", "load_calendar_events", "persist_calendar_events", "sort_calendar_events", "validate_event"]
+__all__ = ["CalendarEvent", "EventPersistenceResult", "EventValidation", "EVENT_CLEAN_PATH", "EVENT_RAW_DIR", "EVENT_SCHEMA_VERSION", "EVENT_TYPES", "events_available_as_of", "load_calendar_events", "normalise_event_decision_time", "persist_calendar_events", "sort_calendar_events", "validate_event"]

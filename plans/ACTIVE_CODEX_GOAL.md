@@ -2056,3 +2056,34 @@ next action and whether the requested outcome is actually complete.
   snapshot and rejects mismatched selections. Report-only staleness, distinct
   A/B source checksums and UI relabelling regressions pass. Freeze one exact
   replacement head for the repeated reviews and fresh H-tier gates.
+
+## ISSUE-0021 completion and ISSUE-0024 product checkpoint — 2026-08-12
+
+- ISSUE-0021 product PR #677 merged exact independently reviewed head
+  `42b8dce8ab34441c78c4e4e82ac7d1d9cf894ad1` as exact main
+  `6784b054d13b36c0ca4cd6434ab1bec85cc8131f`. H-tier run `31520049790`
+  passed classifier, preflight, supply chain, Linux, Windows and terminal
+  validation. The merged portfolio sandbox remains context-only and
+  `execution_allowed=false`. ISSUE-0018's unprojected sequence-23 follow-up
+  remains frozen under the completed bounded repair-cycle limit.
+- ISSUE-0024, "Earnings, dividends and event calendar", is the next canonical
+  phase-01 implementation-order issue. It is P1/P2, `implemented_initially`,
+  dependency-ready and activation-ready with no blocking dependencies. Clean
+  lane `codex/issue0024-product-20260812` starts at exact main
+  `6784b054d13b36c0ca4cd6434ab1bec85cc8131f` with an empty diff.
+- Exact-main audit confirms the canonical local-first event ledger, complete
+  required event vocabulary, atomic raw/clean/audit persistence, point-in-time
+  cutoff helper, Instrument Detail and News/Context surfaces already exist.
+  The bounded product gap is to validate declared event timezone metadata,
+  make decision-time availability explicit in normal UI readback, and prove
+  every required event type plus visible non-destructive quota/unavailable
+  handling. Do not add a provider, network authority, scoring authority or
+  execution path; preserve `execution_allowed=false`.
+- The bounded delta now validates IANA timezone names, uses one canonical
+  fail-closed decision-time normaliser, filters both UI surfaces through the
+  existing availability/ingestion cutoff and suppresses raw event rows when a
+  cutoff is absent. All required event types, event import/persistence,
+  source-policy quota behavior, onboarding quota non-destruction, UI,
+  architecture, Ruff, compile, generator check and diff hygiene pass in the
+  73-test focused set. Classify the complete diff, commit one stable head and
+  launch both independent reviews plus required hosted evidence in parallel.

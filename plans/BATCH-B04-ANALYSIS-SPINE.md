@@ -3340,3 +3340,28 @@ share one report decision as-of, persisted as-of identities are cross-checked,
 and requested account/portfolio/snapshot values must exactly match the supplied
 immutable snapshot. Distinct A/B binding and fail-closed UI/application
 regressions pass; `execution_allowed=false` remains unchanged.
+
+## ISSUE-0024 product lane — 2026-08-12
+
+ISSUE-0021 PR #677 merged reviewed head
+`42b8dce8ab34441c78c4e4e82ac7d1d9cf894ad1` as exact main
+`6784b054d13b36c0ca4cd6434ab1bec85cc8131f`; H-tier run `31520049790`
+passed Linux, Windows and terminal validation. ISSUE-0024 is now the earliest
+canonical dependency-ready phase-01 product issue. Clean branch
+`codex/issue0024-product-20260812` starts from that exact main.
+
+The exact-main audit found the event schema, required event vocabulary,
+local-first atomic persistence, availability cutoff and both required UI
+surfaces already present. Implement only the reproduced boundary gaps:
+validate timezone metadata, expose explicit decision-time availability in
+normal event readback and add focused all-type plus quota/unavailable evidence.
+No provider/network, score, proposal, broker or execution authority is added;
+`execution_allowed=false` remains unchanged.
+
+The completed bounded delta validates IANA timezone metadata, rejects ambiguous
+datetime cutoffs, applies the existing availability/ingestion filter to both UI
+surfaces and exposes exact decision-time provenance only for rows known at that
+cutoff. Missing cutoffs suppress event rows. The focused 73-test event/import,
+source-policy, quota non-destruction, UI and architecture set plus Ruff,
+compile, programme check and diff hygiene pass. Freeze one classified exact
+head for parallel review and required hosted validation.
