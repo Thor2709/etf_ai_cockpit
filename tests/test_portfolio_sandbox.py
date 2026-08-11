@@ -75,6 +75,27 @@ def test_candidate_analysis_is_deterministic_and_non_executable() -> None:
     assert any("canonical direct holdings evidence is missing" in warning for warning in first.warnings)
 
 
+def test_candidate_overlap_excludes_evidence_known_after_snapshot_as_of(monkeypatch) -> None:
+    evidence = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "security": "Old", "isin": "GB0002634946", "weight": 1.0, "as_of": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "source_id": "eligible", "authority": "issuer", "completeness": "full"},
+            {"instrument_id": "VWCE", "security": "Future", "isin": "GB0002634946", "weight": 1.0, "as_of": "2026-07-17", "known_at": "2026-07-20T00:00:00Z", "source_id": "future", "authority": "issuer", "completeness": "full"},
+        ]
+    )
+    original = sandbox_store.build_direct_overlap_view
+
+    def build_with_evidence(snapshot, instrument_ids, **kwargs):
+        return original(snapshot, instrument_ids, holdings=evidence, **kwargs)
+
+    monkeypatch.setattr(sandbox_store, "build_direct_overlap_view", build_with_evidence)
+
+    analysis = analyse_portfolio_candidate(_snapshot(), _candidate())
+
+    selected = next(item for item in analysis.overlap.coverage if item.instrument_id == "VWCE")
+    assert selected.source_id == "eligible"
+    assert selected.known_at == "2026-07-02T00:00:00+00:00"
+
+
 @pytest.mark.parametrize(
     ("target", "cash", "expected"),
     [

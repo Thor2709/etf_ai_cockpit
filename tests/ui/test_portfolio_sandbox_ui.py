@@ -323,3 +323,29 @@ def test_rebalance_preview_blocks_zero_target_exit_for_held_mixed_asset() -> Non
     assert "Inapplicable mixed-asset targets: AAPL" in result_text
     assert "EUR -21,000.00" not in result_text
     assert "execution_allowed=false" in result_text
+
+
+def test_rebalance_preview_blocks_zero_target_exit_for_configured_stock() -> None:
+    state = _state()
+    state.snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "holding_view": "direct"},
+            {"instrument_id": "UCG", "current_weight": 0.3, "market_value_eur": 30_000.0, "holding_view": "direct"},
+        ]
+    )
+    root = portfolio.portfolio_page(None, state)
+    for control in _walk(root):
+        if str(getattr(control, "key", "")).startswith("portfolio.target-weight."):
+            control.value = "0"
+    _by_key(root, "portfolio.target-weight.VWCE").value = "70"
+    _by_key(root, "portfolio.target-weight.UCG").value = "0"
+    _by_key(root, "portfolio.cash-weight").value = "30"
+
+    _by_key(root, "portfolio.rebalance-preview").on_click(None)
+
+    assert "inapplicable for mixed-asset targets" in str(_by_key(root, "portfolio.status").value)
+    result_text = _text(_by_key(root, "portfolio.rebalance-results"))
+    assert "Inapplicable mixed-asset targets: UCG" in result_text
+    assert "EUR -21,000.00" not in result_text
+    assert "EUR -30,000.00" not in result_text
+    assert "execution_allowed=false" in result_text

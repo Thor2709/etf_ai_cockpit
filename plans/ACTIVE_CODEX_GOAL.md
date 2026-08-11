@@ -2026,3 +2026,12 @@ next action and whether the requested outcome is actually complete.
   cancelled and stale. Commit `7b899a71830e483f453cc254d5470fdac6a06755`
   requires every non-empty CSV row to match header width; all 48 import
   regressions plus Ruff, compile and diff hygiene pass. Freeze and revalidate.
+- Head `db62cdccfd5a7327d7a4923f1ade6f40b778c6d0` and run
+  `31514947591` are invalidated after the complete parallel review set found
+  two deterministic ISSUE-0021 blockers: configured stocks could still enter
+  the ETF-only rebalance preview, and overlap selection omitted the sandbox
+  as-of cutoff. The canonical capability decision now determines preview
+  applicability for every held or positive-target instrument, including held
+  zero-target exits, and overlap evidence receives the timezone-aware selected
+  snapshot cutoff. Exact configured-`UCG` and future-known-evidence regressions
+  pass; freeze one replacement head for both reviews and fresh H-tier evidence.

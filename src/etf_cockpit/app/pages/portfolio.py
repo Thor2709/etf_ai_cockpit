@@ -24,6 +24,7 @@ from etf_cockpit.application.ui_facade import (
     draft_portfolio_candidate,
     load_portfolio_candidate,
     portfolio_snapshot_binding,
+    rebalance_inapplicable_instruments,
     save_portfolio_candidate,
     select_holdings_view,
 )
@@ -192,8 +193,15 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 snapshot_id=str(snapshot.value or "current"),
                 holdings_view=str(holdings_view.value or "combined"),
             )
-            inapplicable = sorted(
-                (_holding_ids(selected_holdings) | set(targets)) - set(universe)
+            inapplicable = rebalance_inapplicable_instruments(
+                state.snapshot,
+                selected_holdings,
+                _holding_ids(selected_holdings)
+                | {
+                    instrument_id
+                    for instrument_id, target_weight in targets.items()
+                    if float(target_weight) > 0
+                },
             )
             if inapplicable:
                 rebalance_host.controls = [

@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
+from datetime import datetime
 from typing import Mapping
 
 import pandas as pd
@@ -138,6 +139,7 @@ def analyse_portfolio_candidate(
         ids,
         current_weights=current,
         target_weights=candidate.targets,
+        known_at=_overlap_cutoff(snapshot),
     )
     analysis_candidate = replace(candidate, source_checksum=holdings_checksum(holdings))
     analysis = analyse_candidate(
@@ -310,6 +312,44 @@ def portfolio_snapshot_binding(
         holdings_view=str(holdings_view or "combined"),
         holdings_sources=holdings_sources,
     )
+
+
+def rebalance_inapplicable_instruments(
+    snapshot: object,
+    holdings: pd.DataFrame,
+    instrument_ids: set[str],
+) -> tuple[str, ...]:
+    """Return instruments that the existing ETF-only preview cannot accept."""
+
+    if not isinstance(holdings, pd.DataFrame):
+        return tuple(sorted(instrument_ids))
+    policy = load_strategy_scope().policy
+    universe = getattr(snapshot, "config").universe.by_id()
+    parent_column = next(
+        (name for name in ("instrument_id", "etf_id") if name in holdings.columns),
+        None,
+    )
+    inapplicable: list[str] = []
+    for instrument_id in sorted(instrument_ids):
+        configured = universe.get(instrument_id)
+        rows = (
+            holdings.loc[holdings[parent_column].astype(str).str.strip().eq(instrument_id)]
+            if parent_column is not None
+            else pd.DataFrame()
+        )
+        evidence = [row.to_dict() for _, row in rows.iterrows()] or [
+            {"instrument_id": instrument_id}
+        ]
+        decisions = [
+            _resolve_capability_decision(values, configured, policy)[0]
+            for values in evidence
+        ]
+        if any(
+            decision is None or str(getattr(decision, "asset_family", "unknown")) != "etf"
+            for decision in decisions
+        ):
+            inapplicable.append(instrument_id)
+    return tuple(inapplicable)
 
 
 def portfolio_analysis_payload(
@@ -516,6 +556,22 @@ def _source_as_of(snapshot: object) -> str | None:
     return str(value) if value is not None else None
 
 
+def _overlap_cutoff(snapshot: object) -> datetime | None:
+    raw = _source_as_of(snapshot)
+    if raw is None:
+        return None
+    parsed = pd.Timestamp(raw)
+    if pd.isna(parsed):
+        raise ValueError("portfolio snapshot as-of is invalid")
+    if parsed.tzinfo is None:
+        parsed = parsed.tz_localize("UTC")
+    else:
+        parsed = parsed.tz_convert("UTC")
+    if len(raw) == 10 and raw[4:5] == "-" and raw[7:8] == "-":
+        parsed = parsed + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+    return parsed.to_pydatetime()
+
+
 def _holding_evidence_values(holdings: pd.DataFrame, field: str) -> tuple[str, ...]:
     if field not in holdings.columns:
         return ()
@@ -638,6 +694,19 @@ def _resolve_capability(
     configured: object | None,
     policy: object,
 ) -> tuple[str, str, str]:
+    decision, asset_type = _resolve_capability_decision(values, configured, policy)
+    return (
+        _capability_status(decision),
+        str(getattr(decision, "reason_code", "CLASSIFICATION_EVIDENCE_INCOMPLETE")),
+        asset_type,
+    )
+
+
+def _resolve_capability_decision(
+    values: Mapping[str, object],
+    configured: object | None,
+    policy: object,
+) -> tuple[object | None, str]:
     descriptor_values = _descriptor_values(values, configured, policy)
     asset_type = str(
         (descriptor_values or {}).get("asset_type")
@@ -656,11 +725,7 @@ def _resolve_capability(
             )
         except (TypeError, ValueError):
             decision = None
-    return (
-        _capability_status(decision),
-        str(getattr(decision, "reason_code", "CLASSIFICATION_EVIDENCE_INCOMPLETE")),
-        asset_type,
-    )
+    return decision, asset_type
 
 
 def _descriptor_values(values: Mapping[str, object], configured: object | None, policy: object) -> dict[str, object] | None:
@@ -871,6 +936,7 @@ __all__ = [
     "export_portfolio_analysis",
     "portfolio_analysis_payload",
     "portfolio_snapshot_binding",
+    "rebalance_inapplicable_instruments",
     "load_portfolio_candidate",
     "save_portfolio_candidate",
     "validate_portfolio_draft_handoff",

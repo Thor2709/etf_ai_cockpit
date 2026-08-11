@@ -3308,3 +3308,15 @@ read succeeded, while the required fresh reread hit a transient CLI/API
 failure. The one bounded H-tier repair adds only explicit transient handling to
 the read path and exact regressions; it does not retry writes, cache caller
 proof, broaden authority or change `execution_allowed=false`.
+
+## ISSUE-0021 final applicability and point-in-time correction — 2026-08-12
+
+Exact head `db62cdccfd5a7327d7a4923f1ade6f40b778c6d0` and hosted run
+`31514947591` are invalidated. Both reviewers reproduced the configured-stock
+zero-exit path into the ETF-only rebalance preview; risk review additionally
+reproduced future-known overlap evidence selected after the sandbox as-of. One
+consolidated correction uses the existing canonical capability decision for
+every held or positive-target preview instrument and passes a timezone-aware
+snapshot cutoff into the existing overlap service. Exact configured-`UCG` and
+future-known overlap regressions pass. No execution, proposal, ledger or broker
+authority changes; `execution_allowed=false` remains unchanged.
