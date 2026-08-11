@@ -297,8 +297,18 @@ class Alert:
                 raise ValueError("snoozed_at cannot precede available_at")
         if any(interval.snoozed_at < available_at for interval in snooze_history):
             raise ValueError("snooze history cannot precede available_at")
+        timeline = list(snooze_history)
+        if snoozed_at is not None and snoozed_until is not None:
+            timeline.append(_SnoozeInterval(snoozed_at, snoozed_until))
+        if any(
+            previous.effective_until > following.snoozed_at
+            for previous, following in zip(timeline, timeline[1:])
+        ):
+            raise ValueError("snooze intervals must be ordered and non-overlapping")
         if status is AlertStatus.SNOOZED and (snoozed_at is None or snoozed_until is None):
             raise ValueError("snoozed alerts require snoozed_at and snoozed_until")
+        if status is AlertStatus.EXPIRED and expires_at is None:
+            raise ValueError("expired alerts require expires_at")
         if status is AlertStatus.DISMISSED and dismissed_at is None:
             raise ValueError("dismissed alerts require dismissed_at")
         if status is not AlertStatus.DISMISSED and dismissed_at is not None:
@@ -587,6 +597,16 @@ class AlertStore:
         return self._refresh(record, now)
 
     def _refresh(self, record: AlertRecord, now: datetime) -> AlertRecord:
+        if (
+            record.alert.status is AlertStatus.DISMISSED
+            and record.alert.dismissed_at is not None
+            and record.alert.dismissed_at > now
+        ):
+            raise ValueError("dismissed_at cannot be in the future")
+        if record.alert.status is AlertStatus.EXPIRED and (
+            record.alert.expires_at is None or record.alert.expires_at > now
+        ):
+            raise ValueError("expired status cannot precede expires_at")
         if record.alert.status in {AlertStatus.ACTIVE, AlertStatus.SNOOZED}:
             evaluated = evaluate_alerts_as_of((record.alert,), now)[0]
             if evaluated.status is not record.alert.status:

@@ -281,7 +281,11 @@ def test_block_policy_never_blocks_non_active_statuses() -> None:
     assert alert.is_blocked(policy)
     snoozed = replace(alert, status=AlertStatus.SNOOZED, snoozed_at=NOW, snoozed_until=NOW.replace(hour=13))
     dismissed = replace(alert, status=AlertStatus.DISMISSED, dismissed_at=NOW)
-    expired = replace(alert, status=AlertStatus.EXPIRED)
+    expired = replace(
+        alert,
+        status=AlertStatus.EXPIRED,
+        expires_at=NOW.replace(hour=13),
+    )
     assert not snoozed.is_blocked(policy)
     assert not dismissed.is_blocked(policy)
     assert not expired.is_blocked(policy)
@@ -519,3 +523,50 @@ def test_resnooze_replaces_live_interval_at_operation_cutoff(tmp_path) -> None:
     assert before_replacement.snoozed_until == NOW.replace(hour=18)
     assert evaluate_alerts_as_of((replaced.alert,), NOW.replace(hour=15))[0].status is AlertStatus.SNOOZED
     assert evaluate_alerts_as_of((replaced.alert,), NOW.replace(hour=17))[0].status is AlertStatus.ACTIVE
+
+
+def test_overlapping_snooze_history_is_rejected() -> None:
+    alert = _alert(AlertType.STALE_DATA, suffix="overlapping-history")
+    payload = alert.to_dict()
+    payload["snooze_history"] = [
+        {
+            "snoozed_at": "2026-08-01T13:00:00+00:00",
+            "snoozed_until": "2026-08-01T18:00:00+00:00",
+            "superseded_at": None,
+        },
+        {
+            "snoozed_at": "2026-08-01T14:00:00+00:00",
+            "snoozed_until": "2026-08-01T16:00:00+00:00",
+            "superseded_at": None,
+        },
+    ]
+
+    with pytest.raises(ValueError, match="ordered and non-overlapping"):
+        alert.from_dict(payload)
+
+
+def test_future_dismissal_fails_closed_in_current_readback(tmp_path) -> None:
+    alert = _alert(AlertType.STALE_DATA, suffix="future-dismissal")
+    with AlertStore(tmp_path) as store:
+        created = store.create(alert)
+    payload = alert.to_dict()
+    payload.update(
+        {
+            "status": "dismissed",
+            "dismissed_at": "2099-01-01T00:00:00+00:00",
+        }
+    )
+    with TransactionalStore(tmp_path) as store:
+        store.put(
+            ALERT_ENTITY_TYPE,
+            alert.alert_id,
+            payload,
+            expected_revision=created.revision,
+        )
+
+    with AlertStore(tmp_path, clock=lambda: NOW) as store:
+        with pytest.raises(ValueError, match="dismissed_at cannot be in the future"):
+            store.list(include_inactive=True)
+    readback = read_local_alerts(tmp_path, include_inactive=True)
+    assert readback.status == "unavailable"
+    assert readback.records == ()
