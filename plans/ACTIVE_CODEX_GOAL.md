@@ -54,6 +54,21 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   `implemented_initially -> integrated` transaction against the real merged
   product commit, then require ordered writer and generic zero-action readback.
   `execution_allowed=false` remains unchanged.
+- Final parallel review of exact head
+  `1245881daf1a60a5a229789329bf5d31d11db6e4` reproduced two bounded
+  persistence defects even though H-tier run `31420199673` passed: the
+  explicit schema-v2 migration called the canonical save path that rejected
+  every legacy source, and a rejected in-guard race could leave durable backup
+  artifacts. Consolidated commit
+  `916ee1aa3a8228f1bab46ae4546c3b523d23c12c` adds the single explicit,
+  checksum/CAS-guarded v2-to-v3 migration, requires acknowledgement only for
+  unverifiable non-hash legacy data, verifies successful backups and removes
+  backup artifacts when stale or tampered guarded writes reject. The complete
+  universe/onboarding/manager surface passes with one expected platform skip;
+  Ruff, compile, diff hygiene and programme byte-clean checks pass. Freeze one
+  documented replacement head for both independent reviews and fresh H-tier
+  Linux/Windows/terminal evidence. Product scope, external authority and
+  `execution_allowed=false` remain unchanged.
 - Both exact-head reviewers rejected frozen head
   `f01a673a284c6c7aaf1d0f3699371bef4dfdde70`; hosted run `31391040254` is
   cancelled and stale. Their consolidated findings were partial cross-root

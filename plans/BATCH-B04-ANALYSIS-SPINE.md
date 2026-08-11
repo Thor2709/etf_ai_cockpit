@@ -3092,3 +3092,17 @@ legacy active use/save, validates before backup and inside the held guard, and
 blocks manager saves from integrity-invalid snapshots. Laundering, downgrade,
 no-backup and UI-block regressions pass. Freeze the documented head for final
 review and H-tier Linux/Windows/terminal gates.
+
+`GUARDED_V2_MIGRATION_CORRECTION` both final reviewers rejected exact head
+`1245881daf1a60a5a229789329bf5d31d11db6e4` for two reproduced persistence
+gaps despite passing H-tier run `31420199673`: the explicit migration path
+could not publish any schema-v2 store, and rejected guarded races could leave
+backup artifacts. Commit `916ee1aa3a8228f1bab46ae4546c3b523d23c12c`
+provides one explicit checksum/CAS-guarded v2-to-v3 migration, requires
+acknowledgement for unverifiable non-hash legacy data, preserves records and
+duplicate policy, verifies successful backups and leaves no backup artifacts
+after stale or tampered rejection. The complete universe, onboarding and
+manager surface passes with one expected capability skip; Ruff, compile, diff
+hygiene and generated-state checks pass. Freeze one replacement exact head for
+parallel whole-diff/risk review and fresh H-tier Linux/Windows/terminal gates.
+`execution_allowed=false` remains unchanged.
