@@ -9,8 +9,10 @@ import threading
 import pytest
 
 from etf_cockpit.data.universe_store import (
+    CURRENT_INVESTABILITY_POLICY_VERSION,
     UniverseRecord,
     UniverseRevisionConflict,
+    create_policy_profile,
     load_universe,
     save_universe,
     support_decision,
@@ -137,6 +139,50 @@ def test_merge_records_replaces_same_tier_ticker_collision() -> None:
     records = onboarding_module._merge_records((original,), (replacement,))
 
     assert records == (replacement,)
+
+
+def test_onboarding_same_tier_replacement_drops_orphaned_policy_profile(tmp_path) -> None:
+    original = UniverseRecord(
+        "ORIGINAL",
+        "Original",
+        "NO0000000001",
+        "verified",
+        "SHARED",
+        "stock",
+        "secondary",
+    )
+    profile = create_policy_profile(
+        instrument_id="ORIGINAL",
+        policy_id="safe-long-only",
+        policy_version=CURRENT_INVESTABILITY_POLICY_VERSION,
+        source_id="local-reviewed-policy",
+        as_of="2026-08-11T00:00:00Z",
+        authority="user_reviewed",
+    )
+    save_universe(
+        (original,),
+        expected_revision="",
+        root=tmp_path,
+        policy_profiles=(profile,),
+    )
+
+    result = complete_onboarding(
+        OnboardingProfile(
+            "EUR",
+            "Europe",
+            ("stock",),
+            "medium",
+            "3M",
+            tickers=("SHARED",),
+            bootstrap_mode="bulk",
+        ),
+        tmp_path,
+    )
+
+    snapshot = load_universe(tmp_path)
+    assert result.saved is True
+    assert {record.instrument_id for record in snapshot.records} == {"SHARED"}
+    assert snapshot.policy_profiles == ()
 
 
 def test_merge_records_replaces_same_tier_isin_collision() -> None:

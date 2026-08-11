@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import json
+import hashlib
 from datetime import datetime
 from pathlib import Path
 
@@ -271,6 +272,35 @@ def test_application_written_schema_v2_checksum_rejects_unchanged_revision_tampe
     assert not (tmp_path / "backups" / "universe").exists()
 
 
+def test_direct_save_has_no_schema_v2_migration_bypass(tmp_path: Path) -> None:
+    path = _write_v2_store(tmp_path, [_record("LEGACY")])
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    before = path.read_bytes()
+
+    with pytest.raises(TypeError, match="_allow_legacy_source"):
+        save_universe(
+            (_record("LEGACY"),),
+            expected_revision=str(payload["revision"]),
+            root=tmp_path,
+            **{"_allow_legacy_source": True},
+        )
+    with pytest.raises(ValueError, match="must be migrated"):
+        save_universe(
+            (_record("LEGACY"),),
+            expected_revision=str(payload["revision"]),
+            root=tmp_path,
+        )
+    with pytest.raises(ValueError, match="explicit legacy acknowledgement"):
+        universe_store._save_universe(
+            (_record("LEGACY"),),
+            expected_revision=str(payload["revision"]),
+            root=tmp_path,
+            _expected_source_digest=hashlib.sha256(before).hexdigest(),
+        )
+    assert path.read_bytes() == before
+    assert not (tmp_path / "backups" / "universe").exists()
+
+
 def test_universe_config_rejects_case_variant_ids_even_when_cross_tier_duplicates_allowed() -> None:
     with pytest.raises(ValueError, match="globally unique"):
         UniverseConfig(
@@ -479,6 +509,42 @@ def test_hash_v2_migration_preserves_records_duplicate_policy_and_verified_backu
     assert verify_backup_manifest(_backup_manifest(saved.backup_path)) is True
 
 
+def test_migration_commit_remains_successful_when_following_writer_advances_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _write_v2_store(tmp_path, [_record("A")], revision="hash")
+    original_v2 = path.read_bytes()
+    real_atomic_write_group = universe_store.atomic_write_group
+    following_save = None
+    following_started = False
+
+    def write_following_revision(requests, **kwargs):
+        nonlocal following_save, following_started
+        result = real_atomic_write_group(requests, **kwargs)
+        if not following_started:
+            following_started = True
+            snapshot = load_universe(tmp_path)
+            following_save = save_universe(
+                snapshot.records + (_record("B", isin="NO0000000002", ticker="B"),),
+                snapshot.revision,
+                root=tmp_path,
+                allow_cross_tier_duplicates=snapshot.allow_cross_tier_duplicates,
+                policy_profiles=snapshot.policy_profiles,
+            )
+        return result
+
+    monkeypatch.setattr(universe_store, "atomic_write_group", write_following_revision)
+    _imported, migrated = migrate_legacy_universe(tmp_path)
+
+    assert following_save is not None
+    assert migrated.revision != following_save.revision
+    assert load_universe(tmp_path).revision == following_save.revision
+    assert migrated.backup_path is not None
+    manifest = _backup_manifest(migrated.backup_path)
+    assert verify_backup_manifest(manifest) is True
+    assert manifest.entries[0].backup_path.read_bytes() == original_v2
+
+
 def test_non_hash_v2_migration_requires_explicit_acknowledgement(tmp_path: Path) -> None:
     path = _write_v2_store(tmp_path, [_record("A")])
     before = path.read_bytes()
@@ -542,6 +608,33 @@ def test_tamper_during_guarded_backup_rejects_without_backup_artifacts(
     monkeypatch.setattr(universe_store, "backup_paths", tampering_backup_paths)
     with pytest.raises(UniverseRevisionConflict, match="guarded backup"):
         save_universe((_record("B", isin="NO0000000002", ticker="B"),), first.revision, root=tmp_path)
+    assert not (tmp_path / "backups" / "universe").exists()
+
+
+def test_symlinked_canonical_store_rejects_save_and_migration(tmp_path: Path) -> None:
+    configs = tmp_path / "configs"
+    configs.mkdir(parents=True)
+    outside = tmp_path / "outside-universe.json"
+    payload: dict[str, object] = {
+        "schema_version": 2,
+        "revision": "pending",
+        "allow_cross_tier_duplicates": False,
+        "records": [universe_store.asdict(_record("LEGACY"))],
+    }
+    payload["revision"] = universe_store.universe_payload_revision(payload)
+    outside.write_text(json.dumps(payload), encoding="utf-8")
+    path = configs / "universe_store.json"
+    try:
+        path.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("file symlink capability is unavailable")
+    before = outside.read_bytes()
+
+    with pytest.raises(ValueError, match="symlink"):
+        save_universe((_record("A"),), expected_revision="", root=tmp_path)
+    with pytest.raises(ValueError, match="symlink"):
+        migrate_legacy_universe(tmp_path)
+    assert outside.read_bytes() == before
     assert not (tmp_path / "backups" / "universe").exists()
 
 

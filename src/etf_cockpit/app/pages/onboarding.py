@@ -20,7 +20,7 @@ from etf_cockpit.application.settings import ANALYSIS_DEPTHS, HORIZONS, OUTPUT_C
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.application.ui_facade import UniverseRecord, import_legacy_universe, is_valid_isin, legal_terms_report, load_universe, resource_profile_report, save_universe, source_policy_rows, universe_payload_revision, validate_import, validate_universe
+from etf_cockpit.application.ui_facade import InvestabilityPolicyProfile, UniverseRecord, import_legacy_universe, is_valid_isin, legal_terms_report, load_universe, resource_profile_report, save_universe, source_policy_rows, universe_payload_revision, validate_import, validate_universe
 
 
 @dataclass(frozen=True)
@@ -775,6 +775,7 @@ def _stage_universe_payload(
     *,
     expected_revision: str,
     allow_cross_tier_duplicates: bool,
+    policy_profiles: tuple[InvestabilityPolicyProfile, ...],
     storage_root: Path,
 ) -> tuple[bytes, str]:
     """Build a canonical universe candidate without mutating the selected root."""
@@ -791,6 +792,7 @@ def _stage_universe_payload(
             expected_revision=expected_revision,
             root=stage_root,
             allow_cross_tier_duplicates=allow_cross_tier_duplicates,
+            policy_profiles=policy_profiles,
         )
         return stage_store.read_bytes(), saved.revision
 
@@ -935,10 +937,16 @@ def complete_onboarding(
     )
     universe_payload: bytes | None = None
     if candidate_records is not None:
+        retained_ids = {record.instrument_id for record in candidate_records}
         universe_payload, revision = _stage_universe_payload(
             candidate_records,
             expected_revision=current.revision,
             allow_cross_tier_duplicates=current.allow_cross_tier_duplicates,
+            policy_profiles=tuple(
+                policy
+                for policy in current.policy_profiles
+                if policy.instrument_id in retained_ids
+            ),
             storage_root=storage_root,
         )
     else:
