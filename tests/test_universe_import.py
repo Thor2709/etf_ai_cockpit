@@ -257,6 +257,18 @@ def test_duplicate_headers_and_provider_json_keys_are_rejected() -> None:
         dry_run_universe_import('[{"ticker":"A","ticker":"B"}]', source_kind="provider")
 
 
+@pytest.mark.parametrize(
+    "source",
+    (
+        "canonical_id,ticker,active\nA,A,,false\n",
+        "canonical_id,ticker,active\nA,A\n",
+    ),
+)
+def test_csv_rows_must_match_header_width(source: str) -> None:
+    with pytest.raises(ValueError, match="does not match header width"):
+        dry_run_universe_import(source, source_kind="csv")
+
+
 def test_xlsx_member_size_and_sheet_dimension_limits_are_checked() -> None:
     oversized = BytesIO()
     with ZipFile(oversized, "w", ZIP_DEFLATED) as archive:

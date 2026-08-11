@@ -265,11 +265,14 @@ def _rows_from_csv_text(text: str) -> tuple[Mapping[str, str], ...]:
     headers = _validate_unique_headers(rows[0], "CSV")
     if len(rows) == 1:
         return ()
-    return tuple(
-        {headers[index]: cells[index].strip() if index < len(cells) else "" for index in range(len(headers))}
-        for cells in rows[1:]
-        if any(_text(cell) for cell in cells)
-    )
+    decoded: list[Mapping[str, str]] = []
+    for row_number, cells in enumerate(rows[1:], start=2):
+        if not any(_text(cell) for cell in cells):
+            continue
+        if len(cells) != len(headers):
+            raise ValueError(f"CSV row {row_number} does not match header width")
+        decoded.append({headers[index]: cells[index].strip() for index in range(len(headers))})
+    return tuple(decoded)
 
 
 def _xlsx_cell_value(cell: ElementTree.Element, shared: list[str]) -> str:
