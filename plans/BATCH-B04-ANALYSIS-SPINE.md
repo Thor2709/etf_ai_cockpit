@@ -3392,3 +3392,10 @@ tampered evidence fails before writes; dates are lexical; duplicate/conflicting
 observations fail load and both UI surfaces. The complete affected suites and
 static/generator checks pass. Freeze this final replacement for both reviews
 and fresh H-tier validation without adjacent generalisation.
+
+`FINAL_EVENT_BUNDLE_CLOSURE` invalidates `cba1b3e8090445a119bbc9e9213a919f9c093f0d`
+and run `31529996742`. Both final verdicts identified only audit-entry content
+binding and nested raw JSON enumeration. Derive the complete audit validation
+list from canonical rows and reject nested/linked raw entries, with exact
+no-write regressions. This is the terminal bounded closure; do not add another
+event-store hardening cycle.

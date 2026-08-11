@@ -215,6 +215,45 @@ def test_event_persistence_binds_the_triad_and_appends_with_no_write_on_tamper(t
     assert {path.name: path.read_bytes() for path in raw_dir.glob("*")} == raw_before
 
 
+def test_event_persistence_rejects_tampered_audit_validation_without_writes(tmp_path) -> None:
+    raw_dir = tmp_path / "raw" / "event_calendar"
+    clean_path = tmp_path / "clean.parquet"
+    audit_path = tmp_path / "clean_audit.json"
+    persist_calendar_events([_event()], raw_dir=raw_dir, clean_path=clean_path, audit_path=audit_path)
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    audit["validations"][0]["execution_allowed"] = True
+    audit_path.write_text(json.dumps(audit, sort_keys=True) + "\n", encoding="utf-8")
+    clean_before = clean_path.read_bytes()
+    audit_before = audit_path.read_bytes()
+    raw_before = {path.name: path.read_bytes() for path in raw_dir.iterdir()}
+
+    assert load_calendar_events(clean_path, raw_dir=raw_dir, audit_path=audit_path).empty
+    with pytest.raises(ValueError, match="audit record is inconsistent"):
+        persist_calendar_events([_event(event_id="new-event")], raw_dir=raw_dir, clean_path=clean_path, audit_path=audit_path)
+    assert clean_path.read_bytes() == clean_before
+    assert audit_path.read_bytes() == audit_before
+    assert {path.name: path.read_bytes() for path in raw_dir.iterdir()} == raw_before
+
+
+def test_event_persistence_rejects_nested_raw_evidence_without_writes(tmp_path) -> None:
+    raw_dir = tmp_path / "raw" / "event_calendar"
+    clean_path = tmp_path / "clean.parquet"
+    audit_path = tmp_path / "clean_audit.json"
+    persist_calendar_events([_event()], raw_dir=raw_dir, clean_path=clean_path, audit_path=audit_path)
+    nested = raw_dir / "unexpected"
+    nested.mkdir()
+    (nested / "extra.json").write_text("{}\n", encoding="utf-8")
+    clean_before = clean_path.read_bytes()
+    audit_before = audit_path.read_bytes()
+
+    assert load_calendar_events(clean_path, raw_dir=raw_dir, audit_path=audit_path).empty
+    with pytest.raises(ValueError, match="nested or linked evidence"):
+        persist_calendar_events([_event(event_id="new-event")], raw_dir=raw_dir, clean_path=clean_path, audit_path=audit_path)
+    assert clean_path.read_bytes() == clean_before
+    assert audit_path.read_bytes() == audit_before
+    assert (nested / "extra.json").read_text(encoding="utf-8") == "{}\n"
+
+
 def test_event_persistence_rejects_orphan_raw_without_clean_ledger(tmp_path) -> None:
     raw_dir = tmp_path / "raw" / "event_calendar"
     raw_dir.mkdir(parents=True)

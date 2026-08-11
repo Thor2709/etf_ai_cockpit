@@ -137,7 +137,6 @@ def persist_calendar_events(
         rows: list[dict[str, Any]] = []
         raw_requests: list[AtomicWriteRequest] = []
         raw_paths: list[Path] = []
-        validations: list[dict[str, Any]] = []
         for event in items:
             validation = validate_event(event, decision_time)
             if not validation.backtest_eligible:
@@ -151,12 +150,11 @@ def persist_calendar_events(
             else:
                 raw_requests.append(AtomicWriteRequest(raw_path, (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8"), lambda path, event=event, raw_dir=raw_dir, checksum=checksum: _validate_raw_file(path, event, raw_dir, checksum)))
             rows.append(_clean_row(event, validation, checksum, raw_path, raw_dir))
-            validations.append({"event_id": event.event_id, **asdict(validation)})
         candidate = pd.DataFrame(rows, columns=EVENT_COLUMNS)
         _reject_conflicting_duplicates(pd.concat([existing, candidate], ignore_index=True))
         combined = pd.concat([existing, candidate], ignore_index=True).drop_duplicates(subset=["event_id", "event_checksum"], keep="last")
         combined = sort_calendar_events(combined)
-        payload = {"schema_version": EVENT_SCHEMA_VERSION, "rows": len(combined), "checksum": _frame_checksum(combined), "validations": validations, "context_only": True, "execution_allowed": False}
+        payload = {"schema_version": EVENT_SCHEMA_VERSION, "rows": len(combined), "checksum": _frame_checksum(combined), "validations": _audit_validations(combined), "context_only": True, "execution_allowed": False}
         csv_payload = _safe_csv(combined).encode("utf-8")
         requests = [
             AtomicWriteRequest(clean_path, parquet_payload(combined), validate_parquet_file),
@@ -343,7 +341,10 @@ def _validate_persisted_bundle(frame: pd.DataFrame, clean_path: Path, *, raw_dir
         expected_path = raw_dir / f"{_safe_id(event.event_id)}-{checksum[:16]}.json"
         expected_paths.add(expected_path.resolve())
         _validate_raw_file(expected_path, event, raw_dir, checksum, row=row)
-    actual_paths = tuple(raw_dir.glob("*.json"))
+    raw_entries = tuple(raw_dir.iterdir())
+    if any(path.is_dir() or path.is_symlink() for path in raw_entries):
+        raise ValueError("Canonical event raw directory contains nested or linked evidence.")
+    actual_paths = tuple(path for path in raw_entries if path.suffix.casefold() == ".json")
     if any(path.is_symlink() or not path.is_file() for path in actual_paths):
         raise ValueError("Canonical event raw directory contains an invalid record.")
     if {path.resolve() for path in actual_paths} != expected_paths:
@@ -381,11 +382,30 @@ def _validate_audit(path: Path, frame: pd.DataFrame) -> None:
         or type(audit["rows"]) is not int
         or audit["rows"] != len(frame)
         or audit["checksum"] != _frame_checksum(frame)
-        or not isinstance(audit["validations"], list)
+        or audit["validations"] != _audit_validations(frame)
         or audit["context_only"] is not True
         or audit["execution_allowed"] is not False
     ):
         raise ValueError("Canonical event audit record is inconsistent with the clean ledger.")
+
+
+def _audit_validations(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for _, row in frame.iterrows():
+        event = _event_from_row(row)
+        validation = validate_event(event)
+        rows.append(
+            {
+                "event_id": event.event_id,
+                "status": validation.status,
+                "reason": validation.reason,
+                "backtest_eligible": validation.backtest_eligible,
+                "context_only": validation.context_only,
+                "execution_allowed": validation.execution_allowed,
+                "warnings": list(validation.warnings),
+            }
+        )
+    return rows
 
 
 def _event_from_row(row: pd.Series) -> CalendarEvent:

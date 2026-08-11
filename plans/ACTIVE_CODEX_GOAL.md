@@ -2117,3 +2117,11 @@ next action and whether the requested outcome is actually complete.
   architecture suite, Ruff, compile, generator byte-clean check and diff
   hygiene pass. Freeze this final replacement head for both reviews and fresh
   H-tier gates; no further event-store generalisation is in scope.
+- Head `cba1b3e8090445a119bbc9e9213a919f9c093f0d` and run `31529996742`
+  are invalidated after both final reviews found two omissions inside the same
+  triad contract: audit validation entries were not content-bound and nested
+  raw JSON was outside the flat inventory. The final minimal closure derives
+  exact audit entries from every canonical row and rejects nested or linked raw
+  entries before load or append. Add only the two no-write regressions, rerun
+  the affected suite once and freeze the replacement head; no further
+  hardening cycle is permitted.
