@@ -1908,3 +1908,10 @@ next action and whether the requested outcome is actually complete.
   `fcd44eb0eb103944bdff3bf8d8ae90c3b8dfb42b` rejects conflicts across every
   supported alias pair; all 45 import regressions, Ruff, compile and diff
   hygiene pass. Repeat both exact-head reviews and fresh H-tier evidence.
+- Risk review approved head `61ea71394e6b2cc3725d6ee1aba210d394a24dbf`,
+  while whole-diff review found manifest destination identity was not repeated
+  by the existing atomic precondition under the held group guard. Run
+  `31460776868` is cancelled and stale. Commit
+  `33f31a3d3e9cd025da38c4fc94f5ea380ef51b7d` applies the existing guarded
+  pattern and adds a deterministic redirect-race regression. All 46 import
+  regressions plus Ruff, compile and diff hygiene pass. Freeze and revalidate.

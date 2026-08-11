@@ -167,6 +167,15 @@ six alias pairs. All 45 import regressions plus Ruff, compile and diff hygiene
 pass. Freeze the documented replacement for both exact-head reviews and fresh
 H-tier Linux/Windows/terminal evidence. `execution_allowed=false` is unchanged.
 
+`MANIFEST_DESTINATION_GUARD_CORRECTION` risk review approved head
+`61ea71394e6b2cc3725d6ee1aba210d394a24dbf`, but whole-diff review found the
+manifest destination identity check was not repeated through the existing
+atomic precondition under held group guards. Run `31460776868` is cancelled and
+stale. Commit `33f31a3d3e9cd025da38c4fc94f5ea380ef51b7d` applies that
+existing pattern with a deterministic redirect-race regression. All 46 import
+regressions, Ruff, compile and diff hygiene pass. Freeze for both exact-head
+reviews and fresh H-tier evidence; `execution_allowed=false` is unchanged.
+
 ## ISSUE-0017 lifecycle completion — 2026-08-11
 
 Product PR #672 merged reviewed head `52cadf44abff48ff09cd23cf792acad64dbab94e`
