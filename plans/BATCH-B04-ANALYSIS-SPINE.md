@@ -1333,6 +1333,70 @@ passed both package platforms and terminal validation. Writer `30746368016`
 applied the two-hop aggregate, proved `zero_action_readback=true` and retained
 `execution_allowed=false`.
 
+`THROUGHPUT_CONTINUATION` reader repair PR #676 merged reviewed head
+`aad1635b2ae1f1a61e2b78cc8c8e376a2ba98408` as exact main
+`4e601b44a8f0373f37813da4391121aebee4a67a` after H-tier run
+`31498834325` passed. Sequence 23 remains unprojected with zero transport
+writes and no legal fresh-run retrigger; the explicitly prohibited recovery
+expansion is recorded separately and not reopened. Exact-main ISSUE-0019
+criterion audit found no product gap. Select dependency-ready ISSUE-0021 for
+the next bounded product lane, preserving local-only analysis, immutable live
+ledger state and `execution_allowed=false`.
+
+`ISSUE_0021_PRODUCT_READY_FOR_FREEZE` implements the final portfolio-sandbox
+delta on exact base `4e601b44a8f0373f37813da4391121aebee4a67a`:
+snapshot/view lineage, canonical mixed-asset capability outcomes, existing
+optimiser/risk/cost composition, structured constraints and why-not evidence,
+atomic candidate/result persistence, deterministic before/after export and a
+checksum-bound pre-ISSUE-0130 draft-only hand-off. No live ledger, proposal or
+execution write exists. The 96-test affected suite plus Ruff, compile,
+generated-state and diff checks pass; classification is H, so freeze one head
+for parallel exact-head review and full hosted Linux/Windows/terminal gates.
+
+`ISSUE_0021_REVIEW_CORRECTION` invalidates head
+`62cb487212b5cee98a05464887c5c799d761af9d` and run `31506000586`. The two
+parallel reviews found seven deterministic snapshot, capability, persistence,
+constraint, hand-off-integrity and mixed-asset UI defects; hosted preflight
+found the missing export/draft acceptance contracts. One consolidated bounded
+correction now has line-level classifier/source binding, deterministic
+fail-closed duplicate aggregation, target-only canonical resolution, atomic
+cross-bound reads, complete hand-off checksums, aggregate constraint rejection,
+mixed-asset controls and both UI contracts. The complete 185-test affected
+suite and offline smoke pass with all local static/generated checks. Freeze one
+replacement head for the repeated parallel reviews and fresh H-tier gates.
+
+`ISSUE_0021_POINT_IN_TIME_CORRECTION` invalidates replacement head
+`a531e63e219fa469e395516889096b35a846a0f3` and run `31509217777`. Both
+repeated reviewers demonstrated that an as-of/source-identity-only change was
+not reported stale and that recomputed-checksum derived payload tampering was
+not compared with canonical analysis. The final bounded correction includes
+as-of and selected source identity in stale reporting and requires exact
+canonical result equality before surfacing stored evidence. Focused sandbox/UI,
+Ruff, compile and diff checks pass; repeat final exact-head review and H gates.
+
+`ISSUE_0021_DATA_SHAPE_CORRECTION` invalidates head
+`5a81d4866388fa18ff81e9cbbf4799eaff80fb31` and run `31510633704`. Final
+review reproduced sparse lineage NaN drift inversion, incomplete duplicate
+capability ordering and an unfiltered/unbound rebalance preview. The bounded
+fix uses strict optional boolean lineage, total deterministic capability order
+and selected-view/source-bound preview evidence, with exact focused regressions
+passing. Freeze and repeat final exact-head review plus fresh H-tier gates.
+
+`ISSUE_0021_PROVENANCE_PREVIEW_CORRECTION` invalidates head
+`0b57ede3c30214fa6261a84f11fbd9b032ef930e` and run `31512179961`.
+Production holdings vintage/provider changes are now line-bound and cited in
+the selected snapshot, suppressing stale results, while mixed-asset targets
+receive an explicit source-bound inapplicable result from the ETF-only discrete
+rebalance preview. Exact regressions and focused checks pass; freeze for final
+review and fresh H-tier evidence.
+
+`ISSUE_0021_ZERO_TARGET_PREVIEW_CORRECTION` invalidates head
+`bc08cf83f974befb00ca99692ef26bd9afc9c867` and run `31513745409`. A held
+mixed asset with a zero target could bypass the positive-target guard and reach
+the ETF-only preview as a false sell. Every selected or targeted mixed asset is
+now explicitly inapplicable regardless of target weight, with the exact AAPL
+zero-exit regression passing. Freeze for final approval and H-tier evidence.
+
 Generic-readback repair PR #643 merged independently approved exact head
 `f8f28c94ae8f4a6f8f15dd8a5ad187cd35dafd2c` as
 `bbe8a789d05a7df688661eb8e2370bb26583dc8f` after H-tier run
@@ -3244,3 +3308,35 @@ read succeeded, while the required fresh reread hit a transient CLI/API
 failure. The one bounded H-tier repair adds only explicit transient handling to
 the read path and exact regressions; it does not retry writes, cache caller
 proof, broaden authority or change `execution_allowed=false`.
+
+## ISSUE-0021 final applicability and point-in-time correction — 2026-08-12
+
+Exact head `db62cdccfd5a7327d7a4923f1ade6f40b778c6d0` and hosted run
+`31514947591` are invalidated. Both reviewers reproduced the configured-stock
+zero-exit path into the ETF-only rebalance preview; risk review additionally
+reproduced future-known overlap evidence selected after the sandbox as-of. One
+consolidated correction uses the existing canonical capability decision for
+every held or positive-target preview instrument and passes a timezone-aware
+snapshot cutoff into the existing overlap service. Exact configured-`UCG` and
+future-known overlap regressions pass. No execution, proposal, ledger or broker
+authority changes; `execution_allowed=false` remains unchanged.
+
+`SOURCE_IDENTITY_AND_RELOAD_CORRECTION` invalidates exact head
+`55f3185500d36b18e9839727fcf380973d9b7dfd` and run `31516901901`. Parallel
+review reproduced four bounded defects: overlap could read beyond its emitted
+binding as-of, adjusted-price changes were absent from result source identity,
+a supplied candidate checksum needed only valid length, and a saved mixed-asset
+target became unreadable after leaving current holdings. The correction uses
+one as-of for binding and overlap, binds price revision/checksum, requires exact
+candidate checksum equality and reconstructs persisted intent independently
+before current-snapshot recomputation. Exact regressions pass and
+`execution_allowed=false` remains unchanged.
+
+`CANONICAL_ASOF_AND_SELECTOR_IDENTITY_CORRECTION` invalidates exact head
+`f96ba9d3ddaa3f21d1d360e1204352c2b673bcc7` and run `31518687496`. Whole-diff
+review reproduced candidate/result as-of divergence; risk review reproduced
+snapshot relabelling through UI selectors. Candidate, result and overlap now
+share one report decision as-of, persisted as-of identities are cross-checked,
+and requested account/portfolio/snapshot values must exactly match the supplied
+immutable snapshot. Distinct A/B binding and fail-closed UI/application
+regressions pass; `execution_allowed=false` remains unchanged.

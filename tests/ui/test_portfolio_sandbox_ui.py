@@ -97,6 +97,20 @@ def test_portfolio_sandbox_validation_and_analysis_are_readable() -> None:
     assert "No holdings evidence is available" in overlap_text
 
 
+def test_snapshot_selector_cannot_relabel_the_supplied_snapshot() -> None:
+    state = _state()
+    state.snapshot.account_id = "account-A"
+    state.snapshot.account_ids = ("account-A", "account-B")
+    root = portfolio.portfolio_page(None, state)
+
+    account = _by_key(root, "portfolio.account")
+    assert [option.key for option in account.options] == ["account-A"]
+    account.value = "account-B"
+    _by_key(root, "portfolio.analyse").on_click(None)
+
+    assert "does not match supplied snapshot" in str(_by_key(root, "portfolio.status").value)
+
+
 def test_portfolio_sandbox_save_load_and_stale_states(monkeypatch, tmp_path) -> None:
     state = _state()
 
@@ -183,6 +197,30 @@ def test_portfolio_reset_uses_current_weights() -> None:
     assert _by_key(root, "portfolio.cash-weight").value == "40.0000"
 
 
+def test_portfolio_controls_and_reset_cover_selected_mixed_assets() -> None:
+    state = _state()
+    state.snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000, "holding_view": "direct"},
+            {"instrument_id": "LYP6", "current_weight": 0.2, "market_value_eur": 20_000, "holding_view": "direct"},
+            {"instrument_id": "AAPL", "asset_type": "stock", "current_weight": 0.15, "market_value_eur": 15_000, "holding_view": "direct"},
+            {"instrument_id": "BOND-1", "asset_type": "fixed_rate_bond", "current_weight": 0.1, "market_value_eur": 10_000, "holding_view": "direct"},
+            {"instrument_id": "ETF-LOOK", "asset_type": "etf", "current_weight": 0.05, "market_value_eur": 5_000, "holding_view": "look_through"},
+        ]
+    )
+    root = portfolio.portfolio_page(None, state)
+    assert "current stock" in str(_by_key(root, "portfolio.target-weight.AAPL").label)
+    assert "current fixed_rate_bond" in str(_by_key(root, "portfolio.target-weight.BOND-1").label)
+    assert _by_key(root, "portfolio.target-weight.ETF-LOOK") is not None
+
+    _by_key(root, "portfolio.holdings-view").value = "direct"
+    _by_key(root, "portfolio.reset-current").on_click(None)
+    assert _by_key(root, "portfolio.target-weight.AAPL").value == "15.0000"
+    assert _by_key(root, "portfolio.target-weight.BOND-1").value == "10.0000"
+    assert _by_key(root, "portfolio.target-weight.ETF-LOOK").value == "0.0000"
+    assert _by_key(root, "portfolio.cash-weight").value == "15.0000"
+
+
 def test_portfolio_storage_failure_is_reported_without_crashing(monkeypatch) -> None:
     def unavailable(*_args, **_kwargs):
         raise portfolio_sandbox.PortfolioSandboxPersistenceError("local store is read-only")
@@ -191,6 +229,25 @@ def test_portfolio_storage_failure_is_reported_without_crashing(monkeypatch) -> 
     root = portfolio.portfolio_page(None, _state())
     _by_key(root, "portfolio.load").on_click(None)
     assert "Candidate not loaded: local store is read-only" in str(_by_key(root, "portfolio.status").value)
+
+
+def test_portfolio_sandbox_shows_snapshot_lineage_capability_and_draft_boundary() -> None:
+    state = _state()
+    state.snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "asset_type": "etf", "current_weight": 0.4, "market_value_eur": 40_000.0, "holding_view": "direct"},
+            {"instrument_id": "ETF-HOLDING", "asset_type": "etf", "current_weight": 0.1, "market_value_eur": 10_000.0, "holding_view": "look_through"},
+            {"instrument_id": "COIN", "asset_type": "crypto", "current_weight": 0.1, "market_value_eur": 10_000.0, "holding_view": "direct"},
+        ]
+    )
+    root = portfolio.portfolio_page(None, state)
+    keys = {str(control.key) for control in _walk(root) if getattr(control, "key", None)}
+    assert {"portfolio.account", "portfolio.portfolio", "portfolio.snapshot", "portfolio.holdings-view", "portfolio.export", "portfolio.draft-proposal"} <= keys
+    text = _text(root)
+    assert "Selected portfolio snapshot" in text
+    assert "Direct and look-through holdings" in text
+    assert "ISSUE-0130:draft-only" in text
+    assert "execution_allowed=false" in text
 
 def test_portfolio_rebalance_preview_exposes_alternatives_and_assumptions() -> None:
     root = portfolio.portfolio_page(None, _state())
@@ -202,4 +259,107 @@ def test_portfolio_rebalance_preview_exposes_alternatives_and_assumptions() -> N
     assert "Full" in result_text and "No Trade" in result_text
     assert "lot_policy=integer_lots" in result_text
     assert "tax_jurisdiction=not_provided" in result_text
+    assert "execution_allowed=false" in result_text
+
+
+def test_rebalance_preview_uses_selected_view_and_cites_snapshot() -> None:
+    state = _state()
+    state.snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "holding_view": "direct"},
+            {"instrument_id": "LYP6", "current_weight": 0.2, "market_value_eur": 20_000.0, "holding_view": "look_through"},
+        ]
+    )
+    root = portfolio.portfolio_page(None, state)
+    _by_key(root, "portfolio.holdings-view").value = "direct"
+    for control in _walk(root):
+        if str(getattr(control, "key", "")).startswith("portfolio.target-weight."):
+            control.value = "0"
+    _by_key(root, "portfolio.target-weight.VWCE").value = "15"
+    _by_key(root, "portfolio.cash-weight").value = "85"
+
+    _by_key(root, "portfolio.rebalance-preview").on_click(None)
+
+    result_text = _text(_by_key(root, "portfolio.rebalance-results"))
+    assert "VWCE" in result_text
+    assert "LYP6" not in result_text
+    assert "account=default" in result_text
+    assert "portfolio=default" in result_text
+    assert "snapshot=current" in result_text
+    assert "as_of=2026-07-18" in result_text
+    assert "view=direct" in result_text
+
+
+def test_rebalance_preview_reports_mixed_asset_inapplicable_without_dropping_it() -> None:
+    state = _state()
+    state.snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "holding_view": "direct"},
+            {"instrument_id": "AAPL", "asset_type": "stock", "current_weight": 0.3, "market_value_eur": 30_000.0, "holding_view": "direct"},
+        ]
+    )
+    root = portfolio.portfolio_page(None, state)
+    for control in _walk(root):
+        if str(getattr(control, "key", "")).startswith("portfolio.target-weight."):
+            control.value = "0"
+    _by_key(root, "portfolio.target-weight.VWCE").value = "40"
+    _by_key(root, "portfolio.target-weight.AAPL").value = "30"
+    _by_key(root, "portfolio.cash-weight").value = "30"
+
+    _by_key(root, "portfolio.rebalance-preview").on_click(None)
+
+    assert "inapplicable for mixed-asset targets" in str(_by_key(root, "portfolio.status").value)
+    result_text = _text(_by_key(root, "portfolio.rebalance-results"))
+    assert "Inapplicable mixed-asset targets: AAPL" in result_text
+    assert "execution_allowed=false" in result_text
+
+
+def test_rebalance_preview_blocks_zero_target_exit_for_held_mixed_asset() -> None:
+    state = _state()
+    state.snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "holding_view": "direct"},
+            {"instrument_id": "AAPL", "asset_type": "stock", "current_weight": 0.3, "market_value_eur": 30_000.0, "holding_view": "direct"},
+        ]
+    )
+    root = portfolio.portfolio_page(None, state)
+    for control in _walk(root):
+        if str(getattr(control, "key", "")).startswith("portfolio.target-weight."):
+            control.value = "0"
+    _by_key(root, "portfolio.target-weight.VWCE").value = "70"
+    _by_key(root, "portfolio.target-weight.AAPL").value = "0"
+    _by_key(root, "portfolio.cash-weight").value = "30"
+
+    _by_key(root, "portfolio.rebalance-preview").on_click(None)
+
+    assert "inapplicable for mixed-asset targets" in str(_by_key(root, "portfolio.status").value)
+    result_text = _text(_by_key(root, "portfolio.rebalance-results"))
+    assert "Inapplicable mixed-asset targets: AAPL" in result_text
+    assert "EUR -21,000.00" not in result_text
+    assert "execution_allowed=false" in result_text
+
+
+def test_rebalance_preview_blocks_zero_target_exit_for_configured_stock() -> None:
+    state = _state()
+    state.snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "holding_view": "direct"},
+            {"instrument_id": "UCG", "current_weight": 0.3, "market_value_eur": 30_000.0, "holding_view": "direct"},
+        ]
+    )
+    root = portfolio.portfolio_page(None, state)
+    for control in _walk(root):
+        if str(getattr(control, "key", "")).startswith("portfolio.target-weight."):
+            control.value = "0"
+    _by_key(root, "portfolio.target-weight.VWCE").value = "70"
+    _by_key(root, "portfolio.target-weight.UCG").value = "0"
+    _by_key(root, "portfolio.cash-weight").value = "30"
+
+    _by_key(root, "portfolio.rebalance-preview").on_click(None)
+
+    assert "inapplicable for mixed-asset targets" in str(_by_key(root, "portfolio.status").value)
+    result_text = _text(_by_key(root, "portfolio.rebalance-results"))
+    assert "Inapplicable mixed-asset targets: UCG" in result_text
+    assert "EUR -21,000.00" not in result_text
+    assert "EUR -30,000.00" not in result_text
     assert "execution_allowed=false" in result_text

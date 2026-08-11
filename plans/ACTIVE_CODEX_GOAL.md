@@ -1948,9 +1948,111 @@ next action and whether the requested outcome is actually complete.
   explicit read-only HTTP 500/502/503/504 and transport failures, with a focused
   regression; caller proof, mutation semantics and `execution_allowed=false`
   remain unchanged.
+- Bounded reader repair PR #676 merged exact reviewed head
+  `aad1635b2ae1f1a61e2b78cc8c8e376a2ba98408` as exact main
+  `4e601b44a8f0373f37813da4391121aebee4a67a`; H-tier run
+  `31498834325` passed Linux, Windows and terminal validation. GitHub #22
+  remains `implemented_initially` because sequence 23 has no legal fresh-run
+  retrigger after the zero-write failure, and another retry/recovery authority
+  repair is outside the one-cycle limit. Record that control-plane follow-up
+  separately; do not bypass OIDC or append duplicate authority.
+- Exact-main audit found no remaining ISSUE-0019 product gap: every accepted
+  Instrument Detail panel, ETF/stock smoke, row navigation and unavailable
+  state is implemented and focused tests pass. With lifecycle projection work
+  frozen, ISSUE-0021 is the next canonical phase-01 dependency-ready product
+  issue. Clean lane `codex/issue0021-product-20260812` starts at exact main
+  `4e601b44a8f0373f37813da4391121aebee4a67a`; implement only its portfolio
+  sandbox delta while preserving ledger isolation and
+  `execution_allowed=false`.
+- ISSUE-0021's bounded product delta now composes the existing optimiser,
+  robust-risk, cost, overlap and canonical capability services around an exact
+  account/portfolio/as-of and direct/look-through snapshot binding. Candidate
+  intent and derived result evidence publish through one atomic independent-CAS
+  transaction; deterministic exports are atomic; rejected or inapplicable rows
+  cannot enter the checksum-bound pre-ISSUE-0130 draft hand-off. The affected
+  persistence, sandbox, UI, optimiser, cost, risk and execution-boundary suite
+  passes 96 tests; Ruff, compile, generated-state check and diff check pass.
+  Classifier result is H with fresh Linux, Windows and terminal evidence
+  required before merge. Freeze only after committing the complete checkpoint,
+  then run whole-diff and risk reviews against the same exact head in parallel
+  with hosted H-tier CI.
+- Frozen head `62cb487212b5cee98a05464887c5c799d761af9d` and hosted run
+  `31506000586` are invalidated. Parallel whole-diff and risk reviews
+  demonstrated seven bounded product/persistence defects: duplicate-row
+  capability order dependence, incomplete line/classifier checksum binding,
+  aggregate-constraint draft leakage, torn candidate/result reads, incomplete
+  hand-off integrity, unresolved target-only capability and missing mixed-asset
+  UI controls. Hosted preflight additionally proved the two new actions lacked
+  acceptance contracts. One consolidated correction closes all eight and adds
+  exact regressions; the complete 185-test affected suite, offline smoke, Ruff,
+  compile, generated-state and diff checks pass. Commit one replacement head
+  and repeat both independent reviews plus fresh H-tier hosted evidence.
+- Replacement head `a531e63e219fa469e395516889096b35a846a0f3`
+  and run `31509217777` are also invalidated after both repeated reviewers
+  reproduced two newly exposed readback defects: as-of/source-identity changes
+  suppressed old results without setting `source_stale`, and self-consistent
+  tampered derived content was not compared with canonical recomputation. The
+  bounded correction now marks every selected binding change stale and requires
+  exact canonical result equality before readback; both reproductions and the
+  complete sandbox/UI suite pass. Freeze one final replacement head and repeat
+  the exact-head reviews and fresh H-tier gates without reopening adjacent work.
+- Head `5a81d4866388fa18ff81e9cbbf4799eaff80fb31` and run
+  `31510633704` are invalidated after final reviewers reproduced three bounded
+  data-shape/UI consistency defects: sparse `is_look_through` NaN inverted a
+  direct drift, duplicate capability evidence lacked a total order, and the
+  rebalance preview ignored the selected holdings view/source identity. Strict
+  optional-boolean lineage, complete capability ordering and a source-bound
+  filtered preview now close the exact reproductions; focused sandbox/UI and
+  static checks pass. Freeze the next head for the final repeated reviews and
+  fresh H-tier evidence only.
+- Head `0b57ede3c30214fa6261a84f11fbd9b032ef930e` and run
+  `31512179961` are invalidated after final review found that production
+  holdings `as_of_date`/`source` were not bound and that the legacy ETF-only
+  rebalance service threw on a supported mixed-asset target. Row-level holdings
+  vintage/provider now participate in checksum and cited binding, and mixed
+  assets receive an explicit source-bound inapplicable preview without silent
+  removal. Exact provenance/load and AAPL UI regressions plus focused checks
+  pass. Freeze the next head for final review and fresh H gates.
+- Head `bc08cf83f974befb00ca99692ef26bd9afc9c867` and run
+  `31513745409` are invalidated by one final mixed-asset branch reproduction:
+  a held AAPL position with a zero target bypassed the positive-target guard
+  and reached the ETF-only rebalance service as a false sell. The guard now
+  blocks every selected or targeted non-configured position regardless of
+  target weight; the exact zero-exit regression passes. Freeze the replacement
+  head for final approval and fresh H-tier evidence.
 - Whole-diff review approved head `d74e32e6e655ff639587c9fe18f0ba211c7624fa`
   and risk review verified the guard fix but reproduced one independent parser
   defect: ragged CSV rows could discard trailing fields. Run `31461743133` is
   cancelled and stale. Commit `7b899a71830e483f453cc254d5470fdac6a06755`
   requires every non-empty CSV row to match header width; all 48 import
   regressions plus Ruff, compile and diff hygiene pass. Freeze and revalidate.
+- Head `db62cdccfd5a7327d7a4923f1ade6f40b778c6d0` and run
+  `31514947591` are invalidated after the complete parallel review set found
+  two deterministic ISSUE-0021 blockers: configured stocks could still enter
+  the ETF-only rebalance preview, and overlap selection omitted the sandbox
+  as-of cutoff. The canonical capability decision now determines preview
+  applicability for every held or positive-target instrument, including held
+  zero-target exits, and overlap evidence receives the timezone-aware selected
+  snapshot cutoff. Exact configured-`UCG` and future-known-evidence regressions
+  pass; freeze one replacement head for both reviews and fresh H-tier evidence.
+- Head `55f3185500d36b18e9839727fcf380973d9b7dfd` and run
+  `31516901901` are invalidated after both reviewers demonstrated four bounded
+  source-integrity/readback defects: binding as-of could differ from overlap
+  cutoff, adjusted prices were omitted from result identity, a caller checksum
+  was not compared with canonical candidate content, and a formerly held
+  unconfigured target could not be reloaded as stale. One canonical as-of now
+  drives binding and overlap selection; price revision/checksum are bound;
+  candidate checksum equality is mandatory; and persisted intent validates
+  independently of current holdings before current-rule recomputation. All
+  four exact regressions pass. Freeze one replacement head and repeat the two
+  reviews plus fresh H-tier evidence without adjacent redesign.
+- Head `f96ba9d3ddaa3f21d1d360e1204352c2b673bcc7` and run
+  `31518687496` are invalidated by two final exact identity findings: candidate
+  as-of still used the report date while result/overlap could use holdings
+  vintage, and selector labels could be attached to one fixed snapshot without
+  resolving matching data. Candidate, result and overlap now share the report
+  decision as-of; persisted candidate/result as-of is cross-checked; binding
+  derives account/portfolio/snapshot identity from the supplied immutable
+  snapshot and rejects mismatched selections. Report-only staleness, distinct
+  A/B source checksums and UI relabelling regressions pass. Freeze one exact
+  replacement head for the repeated reviews and fresh H-tier gates.
