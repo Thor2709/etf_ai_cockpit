@@ -570,3 +570,34 @@ def test_future_dismissal_fails_closed_in_current_readback(tmp_path) -> None:
     readback = read_local_alerts(tmp_path, include_inactive=True)
     assert readback.status == "unavailable"
     assert readback.records == ()
+
+
+def test_dismissal_at_or_after_expiry_fails_closed(tmp_path) -> None:
+    alert = _alert(
+        AlertType.REVIEW_DATE_ARRIVED,
+        suffix="dismissed-after-expiry",
+        expires_at=NOW.replace(hour=14),
+    )
+    with AlertStore(tmp_path) as store:
+        created = store.create(alert)
+    payload = alert.to_dict()
+    payload.update(
+        {
+            "status": "dismissed",
+            "dismissed_at": NOW.replace(hour=15).isoformat(),
+        }
+    )
+    with TransactionalStore(tmp_path) as store:
+        store.put(
+            ALERT_ENTITY_TYPE,
+            alert.alert_id,
+            payload,
+            expected_revision=created.revision,
+        )
+
+    with AlertStore(tmp_path) as store:
+        with pytest.raises(ValueError, match="dismissed_at must precede expires_at"):
+            store.list(include_inactive=True)
+    readback = read_local_alerts(tmp_path, include_inactive=True)
+    assert readback.status == "unavailable"
+    assert readback.records == ()

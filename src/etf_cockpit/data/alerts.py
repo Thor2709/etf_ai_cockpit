@@ -315,6 +315,8 @@ class Alert:
             raise ValueError("dismissed_at is only valid for dismissed alerts")
         if dismissed_at is not None and dismissed_at < available_at:
             raise ValueError("dismissed_at cannot precede available_at")
+        if dismissed_at is not None and expires_at is not None and dismissed_at >= expires_at:
+            raise ValueError("dismissed_at must precede expires_at")
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "Alert":
