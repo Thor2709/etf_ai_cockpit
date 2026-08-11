@@ -3106,3 +3106,17 @@ manager surface passes with one expected capability skip; Ruff, compile, diff
 hygiene and generated-state checks pass. Freeze one replacement exact head for
 parallel whole-diff/risk review and fresh H-tier Linux/Windows/terminal gates.
 `execution_allowed=false` remains unchanged.
+
+`FINAL_GUARDED_STORE_CORRECTION` parallel review rejected exact head
+`5aa6c9bcb4af6f33e5347938d6731f76a6d9233f` for four reproduced cases:
+caller-bypassable legacy migration, post-commit backup ambiguity, symlinked
+canonical-store escape and orphaned policy profiles after legal same-tier
+onboarding replacement. Run `31448286398` is cancelled and stale. Commit
+`c2397dc20500b534ba17ccdb4a048831721ddabd` binds migration authority to the
+exact source digest and acknowledgement decision, completes verification and
+backup retention under the held group guard, rejects symlinked canonical
+destinations and filters profiles to retained records. All four regressions and
+the complete universe/onboarding/manager suite pass with two capability skips;
+Ruff, compile and diff hygiene pass. Freeze one final documented head for both
+exact-head reviews and fresh H-tier Linux/Windows/terminal evidence.
+`execution_allowed=false` remains unchanged.

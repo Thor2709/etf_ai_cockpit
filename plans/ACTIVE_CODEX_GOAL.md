@@ -69,6 +69,19 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   documented replacement head for both independent reviews and fresh H-tier
   Linux/Windows/terminal evidence. Product scope, external authority and
   `execution_allowed=false` remain unchanged.
+- Parallel review then rejected documented head
+  `5aa6c9bcb4af6f33e5347938d6731f76a6d9233f` for four exact cases: a
+  caller-reachable migration escape, post-commit backup ambiguity, a symlinked
+  canonical-store escape and orphaned policy profiles after legal same-tier
+  onboarding replacement. Run `31448286398` was cancelled and is stale.
+  Consolidated commit `c2397dc20500b534ba17ccdb4a048831721ddabd`
+  removes the public legacy switch and enforces digest-bound acknowledgement
+  in the guarded migration writer, verifies commit/backup disposition while
+  the group guard is held, rejects symlinked canonical destinations and keeps
+  only policy profiles whose records survive replacement. All four focused
+  regressions and the complete universe/onboarding/manager suite pass with two
+  capability-specific skips; Ruff, compile and diff hygiene pass. Freeze one
+  final documented head for both independent reviews and fresh H-tier gates.
 - Both exact-head reviewers rejected frozen head
   `f01a673a284c6c7aaf1d0f3699371bef4dfdde70`; hosted run `31391040254` is
   cancelled and stale. Their consolidated findings were partial cross-root
