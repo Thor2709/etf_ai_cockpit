@@ -199,6 +199,28 @@ def test_import_wizard_dry_run_and_stage_are_local_only(monkeypatch) -> None:
     assert state.broker_calls == 0
 
 
+def test_import_stage_does_not_mutate_live_records_when_manifest_save_fails(monkeypatch) -> None:
+    record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary")
+    monkeypatch.setattr(manager, "load_universe", lambda *_args: UniverseStoreSnapshot((record,), "revision", Path("store.json")))
+    monkeypatch.setattr(manager, "save_universe_manifest", lambda _manifest: (_ for _ in ()).throw(ValueError("manifest save failed")))
+    page = _Page()
+    root = universe_manager_page(page, _state())
+    next(control for control in _walk(root) if isinstance(control, ft.Button) and control.key == "universe.import").on_click(None)
+    dialog = page.overlay[-1]
+    fields = {str(control.label): control for control in _walk(dialog) if isinstance(control, ft.TextField) and control.label}
+    fields["CSV, TSV, JSON rows, or local path"].value = "canonical_id,name,ticker\nB,Beta,B\n"
+    fields["Chunk size"].value = "1"
+    buttons = {str(control.key): control for control in _walk(dialog) if isinstance(control, ft.Button) and control.key}
+    buttons["universe.import-dry-run"].on_click(None)
+    buttons["universe.import-resume"].on_click(None)
+    buttons["universe.import-stage"].on_click(None)
+
+    assert not any(control.key == "universe.edit.B" for control in _walk(root) if isinstance(control, ft.Button))
+    assert "manifest save failed" in "\n".join(
+        str(control.value) for control in _walk(dialog) if isinstance(control, ft.Text) and control.value
+    )
+
+
 def test_import_wizard_pauses_resumes_and_cancel_never_stages_partial_rows(monkeypatch) -> None:
     record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary")
     monkeypatch.setattr(manager, "load_universe", lambda *_args: UniverseStoreSnapshot((record,), "revision", Path("store.json")))

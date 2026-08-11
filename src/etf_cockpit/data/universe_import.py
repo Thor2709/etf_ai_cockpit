@@ -25,7 +25,7 @@ from etf_cockpit.data.universe_store import UniverseRecord, is_valid_isin, suppo
 
 IMPORT_SCHEMA_VERSION = 1
 MANIFEST_SCHEMA_VERSION = 1
-RESUME_SCHEMA_VERSION = 1
+RESUME_SCHEMA_VERSION = 2
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _JOB_ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _SOURCE_KINDS = frozenset({"csv", "xlsx", "paste", "provider"})
@@ -49,6 +49,10 @@ _ROW_CLASSIFICATIONS = frozenset(
     {"resolved", "duplicate", "secondary_line", "unsupported", "inactive", "delisted", "unresolved"}
 )
 _RESUME_STATUSES = frozenset({"pending", "paused", "cancelled", "complete"})
+_XLSX_MAX_MEMBER_BYTES = 16 * 1024 * 1024
+_XLSX_MAX_ROWS = 100_000
+_XLSX_MAX_COLUMNS = 512
+_XLSX_MAX_CELLS = 1_000_000
 
 
 @dataclass(frozen=True)
@@ -133,6 +137,7 @@ class ImportResumeState:
     status: str = "pending"
     schema_version: int = RESUME_SCHEMA_VERSION
     execution_allowed: bool = False
+    report_digest: str = ""
 
     @property
     def complete(self) -> bool:
@@ -154,6 +159,26 @@ def _field(row: Mapping[str, object], *names: str) -> str:
         if value is not None and _text(value):
             return _text(value)
     return ""
+
+
+def _validate_unique_headers(headers: Iterable[object], source_label: str) -> list[str]:
+    values = [_text(value) or f"column_{index + 1}" for index, value in enumerate(headers)]
+    seen: set[str] = set()
+    for value in values:
+        normalized = _header(value)
+        if normalized in seen:
+            raise ValueError(f"duplicate {source_label} header: {value}")
+        seen.add(normalized)
+    return values
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate provider JSON key: {key}")
+        result[key] = value
+    return result
 
 
 def _as_bool(value: object) -> bool | None:
@@ -188,7 +213,7 @@ def _rows_from_csv_text(text: str) -> tuple[Mapping[str, str], ...]:
     rows = list(reader)
     if not rows:
         return ()
-    headers = [cell.strip() or f"column_{index + 1}" for index, cell in enumerate(rows[0])]
+    headers = _validate_unique_headers(rows[0], "CSV")
     if len(rows) == 1:
         return ()
     return tuple(
@@ -214,15 +239,66 @@ def _xlsx_cell_value(cell: ElementTree.Element, shared: list[str]) -> str:
     return raw
 
 
+def _xlsx_column_number(reference: str) -> int:
+    letters = re.match(r"([A-Z]+)", reference.upper())
+    if not letters:
+        return 0
+    column = 0
+    for char in letters.group(1):
+        column = column * 26 + ord(char) - 64
+    return column
+
+
+def _read_xlsx_member(archive: ZipFile, name: str) -> bytes:
+    info = archive.getinfo(name)
+    if info.file_size < 0 or info.file_size > _XLSX_MAX_MEMBER_BYTES:
+        raise ValueError(f"XLSX ZIP member is too large: {name}")
+    return archive.read(info)
+
+
+def _validate_xlsx_sheet_limits(root: ElementTree.Element) -> None:
+    dimension = root.find("{*}dimension")
+    if dimension is not None:
+        reference = dimension.attrib.get("ref", "")
+        match = re.fullmatch(r"([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?", reference.upper())
+        if match:
+            end_column = _xlsx_column_number(match.group(3) or match.group(1))
+            end_row = int(match.group(4) or match.group(2))
+            if end_row > _XLSX_MAX_ROWS or end_column > _XLSX_MAX_COLUMNS:
+                raise ValueError("XLSX sheet exceeds row or column limits")
+    row_elements = root.findall(".//{*}row")
+    if len(row_elements) > _XLSX_MAX_ROWS:
+        raise ValueError("XLSX sheet exceeds row limit")
+    cell_count = 0
+    for index, row in enumerate(row_elements, start=1):
+        row_number = int(row.attrib.get("r", index))
+        if row_number < 1 or row_number > _XLSX_MAX_ROWS:
+            raise ValueError("XLSX row is outside the supported range")
+        cells = row.findall("{*}c")
+        if len(cells) > _XLSX_MAX_COLUMNS:
+            raise ValueError("XLSX row exceeds column limit")
+        cell_count += len(cells)
+        if cell_count > _XLSX_MAX_CELLS:
+            raise ValueError("XLSX sheet exceeds cell limit")
+        if any(_xlsx_column_number(cell.attrib.get("r", "")) > _XLSX_MAX_COLUMNS for cell in cells):
+            raise ValueError("XLSX cell is outside the supported column range")
+
+
 def _rows_from_xlsx_bytes(payload: bytes) -> tuple[Mapping[str, str], ...]:
     with ZipFile(io.BytesIO(payload)) as archive:
+        for info in archive.infolist():
+            if info.file_size < 0 or info.file_size > _XLSX_MAX_MEMBER_BYTES:
+                raise ValueError(f"XLSX ZIP member is too large: {info.filename}")
         shared: list[str] = []
         if "xl/sharedStrings.xml" in archive.namelist():
-            root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
-            for item in root.findall("{*}si"):
+            root = ElementTree.fromstring(_read_xlsx_member(archive, "xl/sharedStrings.xml"))
+            items = root.findall("{*}si")
+            if len(items) > _XLSX_MAX_CELLS:
+                raise ValueError("XLSX shared-string table exceeds cell limit")
+            for item in items:
                 shared.append("".join(text.text or "" for text in item.findall(".//{*}t")))
-        workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
-        relation_root = ElementTree.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+        workbook = ElementTree.fromstring(_read_xlsx_member(archive, "xl/workbook.xml"))
+        relation_root = ElementTree.fromstring(_read_xlsx_member(archive, "xl/_rels/workbook.xml.rels"))
         relations = {
             item.attrib.get("Id"): item.attrib.get("Target", "")
             for item in relation_root
@@ -233,26 +309,27 @@ def _rows_from_xlsx_bytes(payload: bytes) -> tuple[Mapping[str, str], ...]:
         relation_id = sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id", "")
         target = relations.get(relation_id, "worksheets/sheet1.xml")
         sheet_path = target if target.startswith("xl/") else f"xl/{target.lstrip('/')}"
-        root = ElementTree.fromstring(archive.read(sheet_path))
+        root = ElementTree.fromstring(_read_xlsx_member(archive, sheet_path))
+        _validate_xlsx_sheet_limits(root)
         matrix: dict[int, dict[int, str]] = {}
         for row in root.findall(".//{*}row"):
             row_number = int(row.attrib.get("r", len(matrix) + 1))
             cells: dict[int, str] = {}
             for cell in row.findall("{*}c"):
                 reference = cell.attrib.get("r", "A1")
-                letters = re.match(r"([A-Z]+)", reference.upper())
-                if not letters:
+                column = _xlsx_column_number(reference)
+                if not column:
                     continue
-                column = 0
-                for char in letters.group(1):
-                    column = column * 26 + ord(char) - 64
                 cells[column] = _xlsx_cell_value(cell, shared)
             matrix[row_number] = cells
         if not matrix:
             return ()
         width = max((max(row, default=0) for row in matrix.values()), default=0)
         header_row = matrix[min(matrix)]
-        headers = [header_row.get(index, "") or f"column_{index}" for index in range(1, width + 1)]
+        headers = _validate_unique_headers(
+            [header_row.get(index, "") or f"column_{index}" for index in range(1, width + 1)],
+            "XLSX",
+        )
         return tuple(
             {headers[index - 1]: row.get(index, "") for index in range(1, width + 1)}
             for number, row in sorted(matrix.items())
@@ -297,7 +374,7 @@ def _coerce_rows(source: object, source_kind: str | None) -> tuple[tuple[Mapping
     text = _text(source)
     encoded = text.encode("utf-8")
     if source_kind == "provider" and text.lstrip().startswith("["):
-        decoded = json.loads(text)
+        decoded = json.loads(text, object_pairs_hook=_reject_duplicate_json_keys)
         if not isinstance(decoded, list) or not all(isinstance(item, Mapping) for item in decoded):
             raise ValueError("provider JSON input must be a list of row objects")
         rows = tuple({str(key): _text(value) for key, value in item.items()} for item in decoded)
@@ -332,7 +409,7 @@ def _identity_from_row(
     provider = _field(row, "provider", "provider_id") or provider_name
     if canonical_id:
         return canonical_id, "canonical_id", ticker, isin, provider_symbol
-    if isin and is_valid_isin(isin) and isin_status not in {"unknown", "unresolved", "needs_verification"}:
+    if isin and is_valid_isin(isin) and isin_status == "verified":
         return isin, "verified_isin", ticker, isin, provider_symbol
     if ticker and mic:
         return f"{ticker}@{mic}", "ticker_mic", ticker, isin, provider_symbol
@@ -354,6 +431,41 @@ def _identity_from_row(
     return "", "missing_identity", ticker, isin, provider_symbol
 
 
+def _identity_mapping_hint(row: Mapping[str, str]) -> str:
+    """Describe explicit evidence without resolving identity for excluded rows."""
+
+    if _field(row, "canonical_id", "instrument_id", "canonical_instrument_id", "id"):
+        return "canonical_id"
+    isin = _field(row, "isin", "verified_isin").upper()
+    if isin and is_valid_isin(isin) and _field(row, "isin_status", "isin_verification_status").casefold() == "verified":
+        return "verified_isin"
+    if _field(row, "ticker", "exchange_ticker", "local_ticker") and _field(
+        row, "mic", "mic_code", "market_identifier_code"
+    ):
+        return "ticker_mic"
+    if _field(row, "provider_symbol", "symbol", "provider_ticker"):
+        return "provider_symbol"
+    if _field(row, "ticker", "exchange_ticker", "local_ticker"):
+        return "ticker_unresolved"
+    return "missing_identity"
+
+
+def _report_digest(report: UniverseImportReport) -> str:
+    payload = {
+        "source_kind": report.source_kind,
+        "source_name": report.source_name,
+        "source_checksum": report.source_checksum,
+        "source_rows": [dict(row) for row in report.source_rows],
+        "correction_overlays": {
+            str(key): dict(value) for key, value in sorted(report.correction_overlays.items())
+        },
+        "mapping_confidence": {str(key): value for key, value in sorted(report.mapping_confidence.items())},
+        "records": [asdict(record) for record in report.records],
+        "issues": [asdict(issue) for issue in report.issues],
+    }
+    return sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
 def dry_run_universe_import(
     source: object,
     *,
@@ -365,10 +477,16 @@ def dry_run_universe_import(
     """Parse and validate a local source without any external side effect."""
 
     rows, kind, source_name, checksum = _coerce_rows(source, source_kind)
-    overlays: dict[int, Mapping[str, str]] = {
-        int(key): {str(name): _text(value) for name, value in overlay.items()}
-        for key, overlay in (correction_overlays or {}).items()
-    }
+    overlays: dict[int, Mapping[str, str]] = {}
+    for key, overlay in (correction_overlays or {}).items():
+        if not isinstance(key, int | str) or not str(key).isdigit():
+            raise ValueError("correction overlay rows must be positive integers")
+        row_number = int(key)
+        if row_number < 1 or row_number > len(rows):
+            raise ValueError("correction overlay row is outside the source rows")
+        if not isinstance(overlay, Mapping):
+            raise ValueError("correction overlay must be an object")
+        overlays[row_number] = {str(name): _text(value) for name, value in overlay.items()}
     issues: list[ImportIssue] = []
     records: list[UniverseRecord] = []
     confidence: dict[int, str] = {}
@@ -382,44 +500,58 @@ def dry_run_universe_import(
     for row_number, original in enumerate(rows, start=1):
         row = dict(original)
         row.update(overlays.get(row_number, {}))
-        instrument_id, mapping, ticker, isin, provider_symbol = _identity_from_row(
-            row, provider_name=provider_name, identity_index=identity_index
-        )
-        confidence[row_number] = mapping
-        if not instrument_id:
-            unresolved_rows.append(row_number)
-            issues.append(ImportIssue(row_number, "unresolved_identity", "Identity evidence is insufficient or ticker-alone is ambiguous."))
-            continue
         status = _field(row, "status", "lifecycle_status", "state").casefold()
-        active = _as_bool(row.get("active"))
-        is_delisted = _as_bool(row.get("delisted")) is True or status == "delisted"
+        active = _as_bool(_field(row, "active", "is_active"))
+        is_delisted = _as_bool(_field(row, "delisted", "is_delisted")) is True or status == "delisted"
         is_inactive = active is False or status in {"inactive", "closed", "terminated", "delisted"}
         if is_delisted:
+            confidence[row_number] = _identity_mapping_hint(row)
             delisted_rows.append(row_number)
             issues.append(ImportIssue(row_number, "delisted", "Delisted row is excluded from the active universe.", "warning"))
             continue
         if is_inactive:
+            confidence[row_number] = _identity_mapping_hint(row)
             inactive_rows.append(row_number)
             issues.append(ImportIssue(row_number, "inactive", "Inactive row is excluded from the active universe.", "warning"))
             continue
+        instrument_id, mapping, ticker, isin, provider_symbol = _identity_from_row(
+            row, provider_name=provider_name, identity_index=identity_index
+        )
+        confidence[row_number] = mapping
+        if not instrument_id or (
+            mapping in {"canonical_id", "verified_isin"} and not (ticker or provider_symbol)
+        ):
+            unresolved_rows.append(row_number)
+            issues.append(
+                ImportIssue(
+                    row_number,
+                    "unresolved_identity",
+                    "Identity evidence is insufficient, ticker-alone is ambiguous, or the required ticker is missing.",
+                )
+            )
+            continue
         asset_type = _field(row, "asset_type", "instrument_type", "asset_class") or "stock"
         data_policy = _field(row, "data_policy", "frequency", "cadence") or "daily"
-        leveraged = _as_bool(row.get("leveraged")) is True
-        inverse = _as_bool(row.get("inverse")) is True
+        leveraged = _as_bool(_field(row, "leveraged", "is_leveraged")) is True
+        inverse = _as_bool(_field(row, "inverse", "is_inverse")) is True
         decision = support_decision(asset_type, data_policy, leveraged, inverse)
         if not decision.supported:
             unsupported_rows.append(row_number)
             issues.append(ImportIssue(row_number, "unsupported", decision.reason, "warning"))
             continue
-        line_type = _field(row, "line_type", "listing_type", "share_class_type", "share_class", "secondary_line").casefold()
+        line_type = _field(row, "line_type", "listing_type", "share_class_type", "share_class").casefold()
+        secondary_line = _as_bool(_field(row, "secondary_line", "is_secondary_line"))
         if (
             line_type in {"secondary", "secondary_line", "non_primary", "false"}
-            or _as_bool(row.get("secondary_line")) is True
-            or _as_bool(row.get("is_primary")) is False
+            and line_type != "false"
+            or secondary_line is True
+            or _as_bool(_field(row, "is_primary", "primary")) is False
         ):
             secondary_rows.append(row_number)
             issues.append(ImportIssue(row_number, "secondary_line", "Secondary listing/share-class line retained for review.", "warning"))
-        status_value = "verified" if isin and is_valid_isin(isin) else "needs_verification"
+        status_value = "verified" if isin and is_valid_isin(isin) and _field(
+            row, "isin_status", "isin_verification_status"
+        ).casefold() == "verified" else "needs_verification"
         record = UniverseRecord(
             instrument_id=instrument_id,
             name=_field(row, "name", "security_name", "fund_name") or instrument_id,
@@ -429,7 +561,7 @@ def dry_run_universe_import(
             asset_type=asset_type,
             tier=_field(row, "tier", "analysis_tier") or "secondary",
             group=_field(row, "group", "watchlist", "universe_group"),
-            enabled=True,
+            enabled=_as_bool(_field(row, "enabled")) is not False,
             data_policy=data_policy,
             currency=_field(row, "currency") or "EUR",
             region=_field(row, "region", "country"),
@@ -790,8 +922,15 @@ def load_universe_manifest(root: Path | None = None) -> UniverseManifest:
 def create_import_resume_state(report: UniverseImportReport, *, job_id: str | None = None, chunk_size: int = 100) -> ImportResumeState:
     if type(chunk_size) is not int or chunk_size <= 0:
         raise ValueError("chunk_size must be positive")
-    identifier = job_id or sha256(f"{report.source_checksum}:{len(report.records)}".encode("utf-8")).hexdigest()
-    state = ImportResumeState(identifier, report.source_checksum, len(report.records), chunk_size=chunk_size)
+    digest = _report_digest(report)
+    identifier = job_id or sha256(f"{report.source_checksum}:{digest}".encode("utf-8")).hexdigest()
+    state = ImportResumeState(
+        identifier,
+        report.source_checksum,
+        len(report.records),
+        chunk_size=chunk_size,
+        report_digest=digest,
+    )
     _validate_resume_state(state)
     return state
 
@@ -804,9 +943,17 @@ def resume_universe_import(
     cancel: bool = False,
 ) -> tuple[tuple[UniverseRecord, ...], ImportResumeState]:
     _validate_resume_state(state)
-    if state.source_checksum != report.source_checksum or state.total_rows != len(report.records):
+    if (
+        state.source_checksum != report.source_checksum
+        or state.total_rows != len(report.records)
+        or state.report_digest != _report_digest(report)
+    ):
         raise ValueError("resume state does not match the import source")
     if cancel:
+        if state.status == "complete":
+            raise ValueError("completed import cannot be cancelled")
+        if state.status == "cancelled":
+            raise ValueError("cancelled import must be restarted with a new dry-run")
         return (), replace(state, status="cancelled")
     if state.status == "cancelled":
         raise ValueError("cancelled import must be restarted with a new dry-run")
@@ -839,6 +986,8 @@ def _validate_resume_state(state: ImportResumeState) -> None:
         raise ValueError("invalid import resume job_id")
     if not isinstance(state.source_checksum, str) or not _SHA256.fullmatch(state.source_checksum):
         raise ValueError("invalid import resume source checksum")
+    if not isinstance(state.report_digest, str) or not _SHA256.fullmatch(state.report_digest):
+        raise ValueError("invalid import resume report digest")
     if (
         type(state.total_rows) is not int
         or type(state.next_row) is not int
@@ -872,6 +1021,7 @@ def load_import_resume_state(path: Path) -> ImportResumeState:
         "status",
         "schema_version",
         "execution_allowed",
+        "report_digest",
     }
     if set(payload) != required:
         raise ValueError("import resume fields are malformed")
@@ -886,6 +1036,7 @@ def load_import_resume_state(path: Path) -> ImportResumeState:
         status=payload["status"],  # type: ignore[arg-type]
         schema_version=payload["schema_version"],  # type: ignore[arg-type]
         execution_allowed=payload["execution_allowed"],  # type: ignore[arg-type]
+        report_digest=payload["report_digest"],  # type: ignore[arg-type]
     )
     _validate_resume_state(state)
     return state

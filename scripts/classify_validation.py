@@ -43,6 +43,7 @@ CHECKPOINT_CHRONOLOGY_PATHS = {
 HIGH_RISK_EXACT_PATHS = {
     "src/etf_cockpit/data/market_adjustments.py",
     "src/etf_cockpit/audit/thesis_diary.py",
+    "src/etf_cockpit/data/universe_import.py",
 }
 ORDINARY_PREFIXES = ("src/", "tests/", "configs/ui_acceptance.yaml")
 HIGH_RISK_PARTS = {

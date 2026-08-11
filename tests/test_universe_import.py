@@ -47,16 +47,16 @@ def _xlsx(rows: list[list[str]]) -> bytes:
 
 def test_local_import_maps_explicit_identities_and_reports_exclusions() -> None:
     source = (
-        "canonical_id,name,ticker,mic,isin,provider_symbol,asset_type,status\n"
-        "CANON,Caf\u00e9,CAN,,, ,stock,active\n"
-        ",ISIN ETF,,,IE00B4L5Y983, ,etf,active\n"
-        ",MIC ETF,MIC,XOSL,,,etf,active\n"
-        ",Provider ETF,,,,PROVIDER-X,etf,active\n"
-        ",Ticker only,ONLY,,,,stock,active\n"
-        ",Duplicate,,,,PROVIDER-X,etf,active\n"
-        "DEL,Delisted,DEL,,, ,stock,delisted\n"
-        "OFF,Inactive,OFF,,, ,stock,inactive\n"
-        "BAD,Unsupported,BAD,,, ,crypto,active\n"
+        "canonical_id,name,ticker,mic,isin,provider_symbol,asset_type,status,isin_status\n"
+        "CANON,Caf\u00e9,CAN,,, ,stock,active,\n"
+        ",ISIN ETF,ISIN,,IE00B4L5Y983, ,etf,active,verified\n"
+        ",MIC ETF,MIC,XOSL,,,etf,active,\n"
+        ",Provider ETF,,,,PROVIDER-X,etf,active,\n"
+        ",Ticker only,ONLY,,,,stock,active,\n"
+        ",Duplicate,,,,PROVIDER-X,etf,active,\n"
+        "DEL,Delisted,DEL,,, ,stock,delisted,\n"
+        "OFF,Inactive,OFF,,, ,stock,inactive,\n"
+        "BAD,Unsupported,BAD,,, ,crypto,active,\n"
     ).encode("cp1252")
 
     report = dry_run_universe_import(source, source_kind="csv", provider_name="fixture")
@@ -98,8 +98,8 @@ def test_provider_universe_accepts_only_supplied_rows_and_reports_secondary_line
 def test_duplicate_verified_isin_across_share_class_rows_is_quarantined() -> None:
     report = dry_run_universe_import(
         [
-            {"canonical_id": "ONE", "isin": "IE00B4L5Y983", "ticker": "ONE"},
-            {"canonical_id": "TWO", "isin": "IE00B4L5Y983", "ticker": "TWO", "share_class": "secondary"},
+            {"canonical_id": "ONE", "isin": "IE00B4L5Y983", "isin_status": "verified", "ticker": "ONE"},
+            {"canonical_id": "TWO", "isin": "IE00B4L5Y983", "isin_status": "verified", "ticker": "TWO", "share_class": "secondary"},
         ],
         source_kind="provider",
     )
@@ -212,3 +212,85 @@ def test_resume_readback_rejects_malformed_types_status_and_safety(tmp_path: Pat
         path.write_text(json.dumps(changed), encoding="utf-8")
         with pytest.raises(ValueError, match=message):
             load_import_resume_state(path)
+
+
+def test_import_requires_explicit_verified_isin_and_keeps_identity_unresolved() -> None:
+    report = dry_run_universe_import(
+        [
+            {"canonical_id": "CANONICAL_ONLY", "name": "Canonical", "isin": "IE00B4L5Y983"},
+            {"isin": "IE00B4L5Y983", "isin_status": "verified", "name": "ISIN only"},
+        ],
+        source_kind="provider",
+    )
+
+    assert report.unresolved_rows == (1, 2)
+    assert report.records == ()
+    assert report.mapping_confidence == {1: "canonical_id", 2: "verified_isin"}
+
+
+def test_boolean_headers_and_polarity_are_normalized_before_support_checks() -> None:
+    report = dry_run_universe_import(
+        [
+            {"canonical_id": "INACTIVE", "ticker": "INA", "Active": "false"},
+            {"canonical_id": "DELISTED", "ticker": "DEL", "Delisted": "true"},
+            {"canonical_id": "PRIMARY", "ticker": "PRI", "secondary_line": "false"},
+            {"canonical_id": "LEVERAGED", "ticker": "LEV", "Leveraged": "true", "Inverse": "false"},
+            {"canonical_id": "CRYPTO", "ticker": "CRY", "Asset Class": "crypto"},
+        ],
+        source_kind="provider",
+    )
+
+    assert report.inactive_rows == (1,)
+    assert report.delisted_rows == (2,)
+    assert report.secondary_line_rows == ()
+    assert report.unsupported_rows == (5,)
+    assert report.records[0].instrument_id == "PRIMARY"
+    assert report.records[1].leveraged is True
+
+
+def test_duplicate_headers_and_provider_json_keys_are_rejected() -> None:
+    with pytest.raises(ValueError, match="duplicate CSV header"):
+        dry_run_universe_import("ticker,TICKER\nA,A\n", source_kind="csv")
+    with pytest.raises(ValueError, match="duplicate provider JSON key"):
+        dry_run_universe_import('[{"ticker":"A","ticker":"B"}]', source_kind="provider")
+
+
+def test_xlsx_member_size_and_sheet_dimension_limits_are_checked() -> None:
+    oversized = BytesIO()
+    with ZipFile(oversized, "w", ZIP_DEFLATED) as archive:
+        archive.writestr("xl/workbook.xml", "x" * (universe_import._XLSX_MAX_MEMBER_BYTES + 1))
+    with pytest.raises(ValueError, match="ZIP member"):
+        dry_run_universe_import(oversized.getvalue(), source_kind="xlsx")
+
+    limited = _xlsx([["canonical_id", "ticker"], ["A", "A"]])
+    rebuilt = BytesIO()
+    with ZipFile(BytesIO(limited), "r") as source_zip, ZipFile(rebuilt, "w", ZIP_DEFLATED) as target_zip:
+        for info in source_zip.infolist():
+            value = source_zip.read(info.filename)
+            if info.filename == "xl/worksheets/sheet1.xml":
+                value = value.replace(b"<sheetData>", b'<dimension ref="A1:A100001"/><sheetData>')
+            target_zip.writestr(info.filename, value)
+    with pytest.raises(ValueError, match="row or column limits"):
+        dry_run_universe_import(rebuilt.getvalue(), source_kind="xlsx")
+
+
+def test_resume_binds_digest_to_overlays_records_and_rejects_completed_cancel() -> None:
+    report = dry_run_universe_import(
+        "ticker,name\nA,Alpha\n", source_kind="paste", correction_overlays={1: {"canonical_id": "A"}}
+    )
+    state = create_import_resume_state(report, chunk_size=1)
+    changed = dry_run_universe_import(
+        "ticker,name\nA,Alpha\n", source_kind="paste", correction_overlays={1: {"canonical_id": "B"}}
+    )
+    with pytest.raises(ValueError, match="does not match"):
+        resume_universe_import(changed, state)
+    _, complete = resume_universe_import(report, state)
+    with pytest.raises(ValueError, match="cannot be cancelled"):
+        resume_universe_import(report, complete, cancel=True)
+
+
+def test_out_of_range_correction_overlays_are_rejected() -> None:
+    with pytest.raises(ValueError, match="outside the source rows"):
+        dry_run_universe_import(
+            "canonical_id,ticker\nA,A\n", source_kind="paste", correction_overlays={2: {"name": "wrong row"}}
+        )

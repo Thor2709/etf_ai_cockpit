@@ -62,6 +62,14 @@ def test_classifier_fails_unknown_and_protected_tooling_upward() -> None:
     assert build_report(["src/etf_cockpit/data/etf_economics.py"])["tier"] == "O"
 
 
+def test_universe_import_is_an_exact_high_risk_persistent_path() -> None:
+    report = build_report(["src/etf_cockpit/data/universe_import.py"])
+
+    assert report["tier"] == "H"
+    assert report["paths"][0]["reason"] == "protected-or-high-risk-surface"
+    assert report["package_gate_required"] is True
+
+
 def test_ordinary_cadence_requires_central_gate_after_two_issues() -> None:
     missing = build_report(["src/etf_cockpit/app/page.py"])
     first = build_report(["src/etf_cockpit/app/page.py"], ordinary_issues_since_full_gate=1)

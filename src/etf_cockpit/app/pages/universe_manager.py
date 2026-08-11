@@ -509,7 +509,6 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
                             item,
                             allow_cross_tier_duplicates=bool(allow_duplicates.value),
                         )
-                records = list(staged)
                 save_universe_manifest(manifest)
                 _stage(f"Staged {len(processed)} imported rows and saved manifest {manifest.manifest_id[:12]}.", staged)
                 dialog.open = False
