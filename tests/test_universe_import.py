@@ -324,6 +324,25 @@ def test_malformed_nonempty_boolean_aliases_are_rejected(alias: str) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("first", "second"),
+    (
+        ("active", "is_active"),
+        ("delisted", "is_delisted"),
+        ("leveraged", "is_leveraged"),
+        ("inverse", "is_inverse"),
+        ("secondary_line", "is_secondary_line"),
+        ("is_primary", "primary"),
+    ),
+)
+def test_conflicting_valid_boolean_aliases_are_rejected(first: str, second: str) -> None:
+    with pytest.raises(ValueError, match="conflicting boolean aliases"):
+        dry_run_universe_import(
+            [{"canonical_id": "A", "ticker": "A", first: "true", second: "false"}],
+            source_kind="provider",
+        )
+
+
 def test_supplied_mapping_rejects_normalized_identity_key_collisions() -> None:
     with pytest.raises(ValueError, match="normalized key collision"):
         dry_run_universe_import(

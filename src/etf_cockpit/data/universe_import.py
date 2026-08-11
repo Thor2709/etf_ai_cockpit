@@ -238,6 +238,8 @@ def _strict_boolean_field(row: Mapping[str, object], *names: str) -> bool | None
             raise ValueError(f"{name} must be a recognized boolean value")
         if selected is None:
             selected = parsed
+        elif selected is not parsed:
+            raise ValueError(f"conflicting boolean aliases for {names[0]}")
     return selected
 
 
