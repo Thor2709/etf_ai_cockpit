@@ -307,6 +307,35 @@ def _reject_symlink_store_path(root: Path, path: Path) -> None:
         raise ValueError("universe store destination contains a symlink or escaped path")
 
 
+class _CheckedUniverseDestination:
+    """Revalidate canonical path identity before atomic destination resolution."""
+
+    def __init__(self, root: Path, path: Path) -> None:
+        self._root = root
+        self._path = path
+
+    def _check(self) -> None:
+        _reject_symlink_store_path(self._root, self._path)
+
+    def __fspath__(self) -> str:
+        self._check()
+        return os.fspath(self._path)
+
+    @property
+    def parent(self) -> Path:
+        self._check()
+        return self._path.parent
+
+    @property
+    def name(self) -> str:
+        self._check()
+        return self._path.name
+
+    def resolve(self, *args: object, **kwargs: object) -> Path:
+        self._check()
+        return self._path.resolve(*args, **kwargs)
+
+
 def _payload_revision(payload: Mapping[str, object]) -> str:
     canonical = dict(payload)
     canonical["revision"] = "pending"
@@ -803,11 +832,6 @@ def _save_universe(
     backup_manifest = None
     committed_verified = False
     backup_root = root / "backups" / "universe"
-    existing_backup_dirs: set[Path] = set()
-    if backup_root.is_dir():
-        existing_backup_dirs = {
-            child.resolve() for child in backup_root.iterdir() if child.is_dir()
-        }
     selected_profiles = (
         tuple(policy_profiles) if policy_profiles is not None else retained_profiles
     )
@@ -852,6 +876,7 @@ def _save_universe(
 
     def precondition() -> None:
         nonlocal source_digest
+        _reject_symlink_store_path(root, path)
         if path.is_file():
             current_bytes = path.read_bytes()
             current_digest = hashlib.sha256(current_bytes).hexdigest()
@@ -903,25 +928,14 @@ def _save_universe(
             return
         if not path.is_file() or sha256_file(path) != source_digest:
             raise UniverseRevisionConflict("Universe source changed during guarded save")
-        try:
-            backup_manifest = backup_paths((path,), backup_root)
-        except BaseException:
-            if backup_root.is_dir():
-                for child in backup_root.iterdir():
-                    if child.is_dir() and child.resolve() not in existing_backup_dirs:
-                        shutil.rmtree(child, ignore_errors=True)
-                try:
-                    backup_root.rmdir()
-                except OSError:
-                    pass
-            raise
+        backup_manifest = backup_paths((path,), backup_root)
         backup_path = backup_manifest.manifest_path
         if not verify_backup_manifest(backup_manifest) or sha256_file(path) != source_digest:
             raise UniverseRevisionConflict("Universe source changed during guarded backup")
 
     try:
         atomic_write_group(
-            (AtomicWriteRequest(path, encoded, validate),),
+            (AtomicWriteRequest(_CheckedUniverseDestination(root, path), encoded, validate),),  # type: ignore[arg-type]
             lifecycle_hook=lifecycle_hook,
             precondition=precondition,
         )
@@ -933,14 +947,6 @@ def _save_universe(
             shutil.rmtree(backup_manifest.backup_root, ignore_errors=True)
             try:
                 backup_manifest.backup_root.parent.rmdir()
-            except OSError:
-                pass
-        elif backup_manifest is None and not committed_verified and backup_root.is_dir():
-            for child in backup_root.iterdir():
-                if child.is_dir() and child.resolve() not in existing_backup_dirs:
-                    shutil.rmtree(child, ignore_errors=True)
-            try:
-                backup_root.rmdir()
             except OSError:
                 pass
         raise

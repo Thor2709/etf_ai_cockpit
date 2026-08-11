@@ -3,6 +3,8 @@ from __future__ import annotations
 import shutil
 import json
 import hashlib
+import os
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -593,6 +595,49 @@ def test_revision_race_after_initial_read_rejects_without_backup(
     assert not (tmp_path / "backups" / "universe").exists()
 
 
+def test_stale_writer_does_not_delete_following_writer_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = save_universe((_record("A"),), expected_revision="", root=tmp_path)
+    real_atomic_write_group = universe_store.atomic_write_group
+    following_started = False
+    following_save = None
+
+    def publish_following_before_stale_precondition(requests, **kwargs):
+        nonlocal following_save, following_started
+        if not following_started:
+            following_started = True
+            following_save = save_universe(
+                (
+                    _record("A"),
+                    _record("B", isin="NO0000000002", ticker="B"),
+                ),
+                first.revision,
+                root=tmp_path,
+            )
+        return real_atomic_write_group(requests, **kwargs)
+
+    monkeypatch.setattr(
+        universe_store,
+        "atomic_write_group",
+        publish_following_before_stale_precondition,
+    )
+    with pytest.raises(UniverseRevisionConflict):
+        save_universe(
+            (
+                _record("A"),
+                _record("C", isin="NO0000000003", ticker="C"),
+            ),
+            first.revision,
+            root=tmp_path,
+        )
+
+    assert following_save is not None
+    assert following_save.backup_path is not None
+    assert verify_backup_manifest(_backup_manifest(following_save.backup_path)) is True
+    assert load_universe(tmp_path).revision == following_save.revision
+
+
 def test_tamper_during_guarded_backup_rejects_without_backup_artifacts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -635,6 +680,66 @@ def test_symlinked_canonical_store_rejects_save_and_migration(tmp_path: Path) ->
     with pytest.raises(ValueError, match="symlink"):
         migrate_legacy_universe(tmp_path)
     assert outside.read_bytes() == before
+    assert not (tmp_path / "backups" / "universe").exists()
+
+
+@pytest.mark.parametrize("operation", ("save", "migration"))
+def test_junction_swap_before_atomic_resolution_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    if os.name != "nt":
+        pytest.skip("directory junction test requires Windows cmd")
+    if operation == "save":
+        initial = save_universe((_record("A"),), expected_revision="", root=tmp_path)
+        expected_revision = initial.revision
+    else:
+        _write_v2_store(tmp_path, [_record("A")], revision="hash")
+        expected_revision = ""
+    configs = tmp_path / "configs"
+    canonical_path = configs / "universe_store.json"
+    canonical_before = canonical_path.read_bytes()
+    outside = tmp_path.parent / f"{tmp_path.name}-{operation}-outside"
+    outside.mkdir()
+    outside_path = outside / "universe_store.json"
+    outside_path.write_bytes(b"outside sentinel")
+    outside_before = outside_path.read_bytes()
+    real_atomic_write_group = universe_store.atomic_write_group
+
+    def swap_before_writer_resolution(requests, **kwargs):
+        original_configs = tmp_path / "configs-original"
+        configs.rename(original_configs)
+        junction = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(configs), str(outside)],
+            capture_output=True,
+            text=True,
+        )
+        if junction.returncode != 0:
+            original_configs.rename(configs)
+            pytest.skip("directory junction capability is unavailable")
+        try:
+            return real_atomic_write_group(requests, **kwargs)
+        finally:
+            configs.rmdir()
+            original_configs.rename(configs)
+
+    monkeypatch.setattr(universe_store, "atomic_write_group", swap_before_writer_resolution)
+    with pytest.raises(ValueError, match="symlink"):
+        if operation == "save":
+            save_universe(
+                (
+                    _record("A"),
+                    _record("B", isin="NO0000000002", ticker="B"),
+                ),
+                expected_revision,
+                root=tmp_path,
+            )
+        else:
+            migrate_legacy_universe(tmp_path)
+
+    assert canonical_path.read_bytes() == canonical_before
+    assert outside_path.read_bytes() == outside_before
     assert not (tmp_path / "backups" / "universe").exists()
 
 

@@ -227,6 +227,28 @@ def test_backup_manifest_matches_checksums(tmp_path):
     assert verify_backup_manifest(manifest) is False
 
 
+def test_backup_failure_removes_only_its_owned_checkpoint(tmp_path, monkeypatch):
+    source = tmp_path / "source.json"
+    source.write_text('{"value": 1}', encoding="utf-8")
+    backup_root = tmp_path / "backups"
+    existing_checkpoint = backup_root / "existing-checkpoint"
+    existing_checkpoint.mkdir(parents=True)
+    existing_evidence = existing_checkpoint / "manifest.json"
+    existing_evidence.write_text("existing", encoding="utf-8")
+    real_copy = atomic_io.shutil.copy2
+
+    def fail_after_copy(source_path, destination_path):
+        real_copy(source_path, destination_path)
+        raise OSError("injected backup copy failure")
+
+    monkeypatch.setattr(atomic_io.shutil, "copy2", fail_after_copy)
+    with pytest.raises(OSError, match="injected backup copy failure"):
+        backup_paths((source,), backup_root)
+
+    assert existing_evidence.read_text(encoding="utf-8") == "existing"
+    assert list(backup_root.iterdir()) == [existing_checkpoint]
+
+
 def test_failed_second_price_store_write_restores_both_previous_stores(tmp_path, monkeypatch):
     compatibility = tmp_path / "validated" / "prices.parquet"
     clean = tmp_path / "clean" / "prices.parquet"

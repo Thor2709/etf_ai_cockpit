@@ -2308,41 +2308,49 @@ def backup_paths(paths: Iterable[Path], backup_root: Path) -> BackupManifest:
     created_at = datetime.now(timezone.utc)
     checkpoint_root = backup_root / created_at.strftime("%Y%m%dT%H%M%S.%fZ")
     checkpoint_root.mkdir(parents=True, exist_ok=False)
-    entries: list[BackupEntry] = []
-    for source in paths:
-        if not source.is_file():
-            continue
-        key = hashlib.sha256(str(source.resolve()).encode("utf-8")).hexdigest()[:12]
-        destination = checkpoint_root / f"{key}_{source.name}"
-        shutil.copy2(source, destination)
-        source_sha = sha256_file(source)
-        if sha256_file(destination) != source_sha:
-            raise OSError(f"backup checksum mismatch for {source}")
-        entries.append(
-            BackupEntry(
-                source_path=source.resolve(),
-                backup_path=destination.resolve(),
-                sha256=source_sha,
-                bytes_copied=destination.stat().st_size,
+    try:
+        entries: list[BackupEntry] = []
+        for source in paths:
+            if not source.is_file():
+                continue
+            key = hashlib.sha256(str(source.resolve()).encode("utf-8")).hexdigest()[:12]
+            destination = checkpoint_root / f"{key}_{source.name}"
+            shutil.copy2(source, destination)
+            source_sha = sha256_file(source)
+            if sha256_file(destination) != source_sha:
+                raise OSError(f"backup checksum mismatch for {source}")
+            entries.append(
+                BackupEntry(
+                    source_path=source.resolve(),
+                    backup_path=destination.resolve(),
+                    sha256=source_sha,
+                    bytes_copied=destination.stat().st_size,
+                )
             )
+        manifest_path = checkpoint_root / "manifest.json"
+        atomic_write_json(
+            manifest_path,
+            {
+                "schema_version": 1,
+                "created_at": created_at.isoformat(),
+                "entries": [
+                    {
+                        **asdict(entry),
+                        "source_path": str(entry.source_path),
+                        "backup_path": str(entry.backup_path),
+                    }
+                    for entry in entries
+                ],
+            },
         )
-    manifest_path = checkpoint_root / "manifest.json"
-    atomic_write_json(
-        manifest_path,
-        {
-            "schema_version": 1,
-            "created_at": created_at.isoformat(),
-            "entries": [
-                {
-                    **asdict(entry),
-                    "source_path": str(entry.source_path),
-                    "backup_path": str(entry.backup_path),
-                }
-                for entry in entries
-            ],
-        },
-    )
-    return BackupManifest(created_at, checkpoint_root, tuple(entries), manifest_path)
+        return BackupManifest(created_at, checkpoint_root, tuple(entries), manifest_path)
+    except BaseException:
+        shutil.rmtree(checkpoint_root, ignore_errors=True)
+        try:
+            backup_root.rmdir()
+        except OSError:
+            pass
+        raise
 
 
 def verify_backup_manifest(manifest: BackupManifest) -> bool:
