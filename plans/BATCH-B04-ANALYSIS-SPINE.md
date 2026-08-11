@@ -1353,6 +1353,18 @@ execution write exists. The 96-test affected suite plus Ruff, compile,
 generated-state and diff checks pass; classification is H, so freeze one head
 for parallel exact-head review and full hosted Linux/Windows/terminal gates.
 
+`ISSUE_0021_REVIEW_CORRECTION` invalidates head
+`62cb487212b5cee98a05464887c5c799d761af9d` and run `31506000586`. The two
+parallel reviews found seven deterministic snapshot, capability, persistence,
+constraint, hand-off-integrity and mixed-asset UI defects; hosted preflight
+found the missing export/draft acceptance contracts. One consolidated bounded
+correction now has line-level classifier/source binding, deterministic
+fail-closed duplicate aggregation, target-only canonical resolution, atomic
+cross-bound reads, complete hand-off checksums, aggregate constraint rejection,
+mixed-asset controls and both UI contracts. The complete 185-test affected
+suite and offline smoke pass with all local static/generated checks. Freeze one
+replacement head for the repeated parallel reviews and fresh H-tier gates.
+
 Generic-readback repair PR #643 merged independently approved exact head
 `f8f28c94ae8f4a6f8f15dd8a5ad187cd35dafd2c` as
 `bbe8a789d05a7df688661eb8e2370bb26583dc8f` after H-tier run

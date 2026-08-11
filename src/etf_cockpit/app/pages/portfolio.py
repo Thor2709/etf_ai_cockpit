@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import flet as ft
 
 from etf_cockpit.app import theme
@@ -22,6 +24,7 @@ from etf_cockpit.application.ui_facade import (
     draft_portfolio_candidate,
     load_portfolio_candidate,
     save_portfolio_candidate,
+    select_holdings_view,
 )
 from etf_cockpit.application.portfolio_sandbox import (
     draft_portfolio_proposal,
@@ -41,6 +44,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
         for item in state.snapshot.config.universe.etfs
         if bool(item.enabled)
     }
+    control_ids = sorted(set(universe) | _holding_ids(state.snapshot.holdings))
     name = ft.TextField(
         key="portfolio.workspace-name",
         label="Candidate name",
@@ -58,12 +62,12 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
     target_inputs = {
         instrument_id: ft.TextField(
             key=f"portfolio.target-weight.{instrument_id}",
-            label=f"{instrument_id} target (%)",
+            label=_target_label(instrument_id, universe.get(instrument_id), state.snapshot.holdings),
             value=f"{initial.targets.get(instrument_id, 0.0) * 100:.4f}",
             width=190,
             dense=True,
         )
-        for instrument_id in sorted(universe)
+        for instrument_id in control_ids
     }
     cash = ft.TextField(
         key="portfolio.cash-weight",
@@ -126,8 +130,13 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
 
     def values() -> tuple[str, str, dict[str, object], object]:
         targets: dict[str, object] = {}
+        selected_ids = _holding_ids(
+            select_holdings_view(state.snapshot.holdings, str(holdings_view.value or "combined"))
+        )
+        actionable_ids = set(universe) | selected_ids
         for instrument_id, control in target_inputs.items():
-            targets[instrument_id] = _percentage(control.value)
+            if instrument_id in actionable_ids:
+                targets[instrument_id] = _percentage(control.value)
         return str(name.value or ""), str(notional.value or ""), targets, _percentage(cash.value)
 
     def refresh(candidate: PortfolioCandidate, *, message: str, colour: str = theme.GREEN) -> None:
@@ -311,11 +320,19 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
             _safe_update(page)
 
     def reset_current(_event: ft.ControlEvent | None) -> None:
-        current = {instrument_id: 0.0 for instrument_id in target_inputs}
-        for _, row in state.snapshot.holdings.iterrows():
+        current_lines = {instrument_id: [] for instrument_id in target_inputs}
+        selected_holdings = select_holdings_view(
+            state.snapshot.holdings,
+            str(holdings_view.value or "combined"),
+        )
+        for _, row in selected_holdings.iterrows():
             instrument_id = str(row.get("etf_id", row.get("instrument_id", "")))
-            if instrument_id in current:
-                current[instrument_id] += float(row.get("current_weight", 0.0))
+            if instrument_id in current_lines:
+                current_lines[instrument_id].append(float(row.get("current_weight", 0.0)))
+        current = {
+            instrument_id: math.fsum(sorted(weights))
+            for instrument_id, weights in current_lines.items()
+        }
         for instrument_id, control in target_inputs.items():
             control.value = f"{current[instrument_id] * 100:.4f}"
         cash.value = f"{max(0.0, 1.0 - sum(current.values())) * 100:.4f}"
@@ -651,6 +668,29 @@ def _percentage(value: object) -> float:
         return float(str(value or "").strip()) / 100.0
     except ValueError as exc:
         raise ValueError("weights must be finite percentages") from exc
+
+
+def _holding_ids(holdings: object) -> set[str]:
+    if not hasattr(holdings, "iterrows"):
+        return set()
+    return {
+        instrument_id
+        for _, row in holdings.iterrows()  # type: ignore[union-attr]
+        if (instrument_id := str(row.get("etf_id", row.get("instrument_id", ""))).strip())
+    }
+
+
+def _target_label(instrument_id: str, configured: object | None, holdings: object) -> str:
+    if configured is not None:
+        return f"{instrument_id} target (%)"
+    asset_types = sorted(
+        {
+            str(row.get("asset_type", row.get("instrument_type", row.get("asset_class", "unknown"))) or "unknown")
+            for _, row in holdings.iterrows()  # type: ignore[union-attr]
+            if str(row.get("etf_id", row.get("instrument_id", ""))).strip() == instrument_id
+        }
+    )
+    return f"{instrument_id} target (%) [current {'/'.join(asset_types) or 'unknown'}]"
 
 
 def _apply_candidate(candidate: object, name: ft.TextField, notional: ft.TextField, targets: dict[str, ft.TextField], cash: ft.TextField) -> None:

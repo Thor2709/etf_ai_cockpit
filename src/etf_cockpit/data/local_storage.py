@@ -415,6 +415,19 @@ class TransactionalStore:
         else:
             self.connection.commit()
 
+    @contextmanager
+    def read_transaction(self) -> Iterator[sqlite3.Connection]:
+        """Pin multiple reads to one SQLite snapshot without blocking WAL writers."""
+
+        try:
+            self.connection.execute("BEGIN")
+            yield self.connection
+        except Exception:
+            self.connection.rollback()
+            raise
+        else:
+            self.connection.commit()
+
     def put(
         self,
         entity_type: str,

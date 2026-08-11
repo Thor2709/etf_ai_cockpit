@@ -41,11 +41,16 @@ from etf_cockpit.governance.product_scope import load_strategy_scope
 PORTFOLIO_SANDBOX_ENTITY = "portfolio_sandbox"
 PORTFOLIO_SANDBOX_RESULT_ENTITY = "portfolio_sandbox_result"
 _RESULT_FIELDS = frozenset({
-    "schema_version", "candidate_id", "source_snapshot", "before_after", "allocations", "holdings",
+    "schema_version", "candidate_id", "candidate_revision", "candidate_payload_checksum", "source_snapshot", "before_after", "allocations", "holdings",
     "constraints", "marginal_effects", "why_not", "overlap", "warnings", "cost", "service_evidence",
     "proposal_boundary", "execution_allowed", "payload_checksum",
 })
 _SOURCE_FIELDS = frozenset({"account_id", "portfolio_id", "snapshot_id", "source_revision", "source_checksum", "as_of", "holdings_view", "execution_allowed"})
+_HANDOFF_FIELDS = frozenset({
+    "schema_version", "boundary", "status", "proposal_policy_evaluated", "candidate_id", "account_id",
+    "portfolio_id", "portfolio_revision", "source_snapshot_id", "source_snapshot", "changes", "rejected",
+    "why_not", "evidence", "proposal_allowed", "execution_allowed", "evidence_checksum",
+})
 
 
 class PortfolioSandboxPersistenceError(RuntimeError):
@@ -105,7 +110,17 @@ def analyse_portfolio_candidate(
     holdings_view: str = "combined",
 ) -> PortfolioAnalysis:
     holdings = select_holdings_view(getattr(snapshot, "holdings"), holdings_view)
-    governed_holdings = _governed_holdings(snapshot, holdings)
+    policy = load_strategy_scope().policy
+    governed_holdings = _governed_holdings(snapshot, holdings, policy=policy)
+    holding_ids = {
+        str(row.get("etf_id", row.get("instrument_id", ""))).strip()
+        for _, row in holdings.iterrows()
+    }
+    target_capabilities = _governed_target_capabilities(
+        snapshot,
+        sorted(set(candidate.targets) - holding_ids),
+        policy=policy,
+    )
     selected_checksum = holdings_checksum(holdings)
     source_stale = (
         candidate.source_revision != str(getattr(snapshot, "universe_revision", "") or "unknown")
@@ -130,6 +145,7 @@ def analyse_portfolio_candidate(
         analysis_candidate,
         current_revision=str(getattr(snapshot, "universe_revision", "") or "unknown"),
         overlap=overlap,
+        target_capabilities=target_capabilities,
     )
     if source_stale:
         analysis = replace(
@@ -145,7 +161,7 @@ def analyse_portfolio_candidate(
         holdings_view=holdings_view,
     )
     services = _service_evidence(snapshot, analysis)
-    services["capability_matrix"] = _capability_matrix_evidence(governed_holdings)
+    services["capability_matrix"] = _capability_matrix_evidence(governed_holdings, target_capabilities)
     return replace(analysis, snapshot_binding=binding, service_evidence=services)
 
 
@@ -180,7 +196,12 @@ def save_portfolio_candidate(
         snapshot_id=snapshot_id,
         holdings_view=holdings_view,
     )
-    result_payload = portfolio_analysis_payload(analysis)
+    candidate_payload_checksum = str(payload["payload_checksum"])
+    result_payload = portfolio_analysis_payload(
+        analysis,
+        candidate_revision=expected_revision + 1,
+        candidate_payload_checksum=candidate_payload_checksum,
+    )
     try:
         with TransactionalStore(root) as store:
             existing_result = store.get(PORTFOLIO_SANDBOX_RESULT_ENTITY, candidate.candidate_id)
@@ -216,7 +237,9 @@ def load_portfolio_candidate(
     identity = candidate_id(name)
     try:
         with TransactionalStore(root) as store:
-            record = store.get(PORTFOLIO_SANDBOX_ENTITY, identity)
+            with store.read_transaction():
+                record = store.get(PORTFOLIO_SANDBOX_ENTITY, identity)
+                result = store.get(PORTFOLIO_SANDBOX_RESULT_ENTITY, identity)
     except (OSError, sqlite3.Error, StorageSchemaError) as exc:
         raise PortfolioSandboxPersistenceError(f"local portfolio storage is unavailable: {exc}") from exc
     if record is None:
@@ -230,14 +253,12 @@ def load_portfolio_candidate(
         snapshot_id=snapshot_id,
         holdings_view=holdings_view,
     )
-    result_payload = None
-    try:
-        with TransactionalStore(root) as store:
-            result = store.get(PORTFOLIO_SANDBOX_RESULT_ENTITY, identity)
-            result_payload = None if result is None else dict(result.payload)
-    except (OSError, sqlite3.Error, StorageSchemaError) as exc:
-        raise PortfolioSandboxPersistenceError(f"local portfolio result storage is unavailable: {exc}") from exc
-    result_payload = _validate_loaded_result(result_payload, candidate, analysis)
+    result_payload = _validate_loaded_result(
+        None if result is None else dict(result.payload),
+        candidate,
+        analysis,
+        candidate_record=record,
+    )
     return SavedPortfolioCandidate(candidate, record.revision, record.updated_at, analysis.source_stale, result_payload)
 
 
@@ -268,15 +289,27 @@ def portfolio_snapshot_binding(
     )
 
 
-def portfolio_analysis_payload(analysis: PortfolioAnalysis) -> dict[str, object]:
+def portfolio_analysis_payload(
+    analysis: PortfolioAnalysis,
+    *,
+    candidate_revision: int = 0,
+    candidate_payload_checksum: str | None = None,
+) -> dict[str, object]:
     """Build the sandbox-specific deterministic result/export contract."""
 
     binding = analysis.snapshot_binding
     if binding is None:
         raise ValueError("portfolio sandbox result requires a source snapshot binding")
+    if isinstance(candidate_revision, bool) or not isinstance(candidate_revision, int) or candidate_revision < 0:
+        raise ValueError("candidate revision must be a non-negative integer")
+    expected_candidate_checksum = str(candidate_payload_checksum or _candidate_payload(analysis.candidate)["payload_checksum"])
+    if len(expected_candidate_checksum) != 64:
+        raise ValueError("candidate payload checksum is invalid")
     body: dict[str, object] = {
         "schema_version": "portfolio_sandbox_result.v1",
         "candidate_id": analysis.candidate.candidate_id,
+        "candidate_revision": candidate_revision,
+        "candidate_payload_checksum": expected_candidate_checksum,
         "source_snapshot": None if binding is None else asdict(binding),
         "before_after": [
             {"instrument_id": instrument_id, "before_weight": before, "after_weight": after}
@@ -319,11 +352,7 @@ def draft_portfolio_proposal(snapshot: object, analysis: PortfolioAnalysis) -> d
     binding = analysis.snapshot_binding or portfolio_snapshot_binding(snapshot)
     bound_analysis = analysis if analysis.snapshot_binding is not None else replace(analysis, snapshot_binding=binding)
     result = portfolio_analysis_payload(bound_analysis)
-    violated = {
-        item.name.removeprefix("instrument:")
-        for item in analysis.constraints
-        if item.status != "pass" and item.name.startswith("instrument:")
-    }
+    violated_constraints = tuple(sorted(item.name for item in analysis.constraints if item.status == "violated"))
     changes = []
     rejected = []
     for row in analysis.allocations:
@@ -331,18 +360,19 @@ def draft_portfolio_proposal(snapshot: object, analysis: PortfolioAnalysis) -> d
             rejected.append({"instrument_id": row.instrument_id, "reason": row.why_not or "no_trade"})
         elif row.capability_status != "supported":
             rejected.append({"instrument_id": row.instrument_id, "reason": row.capability_reason})
-        elif row.instrument_id in violated:
-            rejected.append({"instrument_id": row.instrument_id, "reason": "constraint_violation"})
+        elif violated_constraints:
+            rejected.append({"instrument_id": row.instrument_id, "reason": f"portfolio_constraint_violation:{','.join(violated_constraints)}"})
         else:
             changes.append({"instrument_id": row.instrument_id, "weight_delta": row.drift})
-    material = {
+    evidence = {
         "candidate_id": analysis.candidate.candidate_id,
+        "candidate_payload_checksum": _candidate_payload(analysis.candidate)["payload_checksum"],
         "candidate_source_checksum": analysis.candidate.source_checksum,
         "result_checksum": result["payload_checksum"],
         "source_snapshot": asdict(binding),
         "service_evidence": _jsonable(analysis.service_evidence),
     }
-    return {
+    body = {
         "schema_version": "portfolio_sandbox_draft_handoff.v1",
         "boundary": "ISSUE-0130",
         "status": "pre_issue_0130_draft",
@@ -356,11 +386,33 @@ def draft_portfolio_proposal(snapshot: object, analysis: PortfolioAnalysis) -> d
         "changes": changes,
         "rejected": rejected,
         "why_not": [{"instrument_id": key, "reason": value} for key, value in analysis.why_not],
-        "evidence_checksum": _payload_checksum(material),
-        "evidence": material,
+        "evidence": evidence,
         "proposal_allowed": False,
         "execution_allowed": False,
     }
+    return {**body, "evidence_checksum": _payload_checksum(body)}
+
+
+def validate_portfolio_draft_handoff(payload: Mapping[str, object]) -> dict[str, object]:
+    """Validate the complete immutable pre-ISSUE-0130 envelope."""
+
+    body_with_checksum = dict(payload)
+    if set(body_with_checksum) != _HANDOFF_FIELDS:
+        raise ValueError("portfolio draft handoff has an invalid field set")
+    checksum = str(body_with_checksum.pop("evidence_checksum", ""))
+    if not checksum or checksum != _payload_checksum(body_with_checksum):
+        raise ValueError("portfolio draft handoff checksum does not match")
+    if (
+        body_with_checksum.get("schema_version") != "portfolio_sandbox_draft_handoff.v1"
+        or body_with_checksum.get("boundary") != "ISSUE-0130"
+        or body_with_checksum.get("status") != "pre_issue_0130_draft"
+        or body_with_checksum.get("proposal_policy_evaluated") is not False
+        or body_with_checksum.get("proposal_allowed") is not False
+        or body_with_checksum.get("execution_allowed") is not False
+    ):
+        raise ValueError("portfolio draft handoff violates its non-executable boundary")
+    _assert_no_execution(body_with_checksum)
+    return dict(payload)
 
 
 def _candidate_payload(candidate: PortfolioCandidate) -> dict[str, object]:
@@ -501,13 +553,12 @@ def _service_evidence(snapshot: object, analysis: PortfolioAnalysis) -> dict[str
     return evidence
 
 
-def _governed_holdings(snapshot: object, frame: pd.DataFrame) -> pd.DataFrame:
+def _governed_holdings(snapshot: object, frame: pd.DataFrame, *, policy: object | None = None) -> pd.DataFrame:
     """Annotate rows from the canonical resolver; never trust row assertions."""
 
     if not isinstance(frame, pd.DataFrame):
         raise ValueError("holdings evidence is unavailable")
-    loaded = load_strategy_scope()
-    if loaded.policy is None:
+    if policy is None:
         result = frame.copy(deep=True)
         result["capability_status"] = "unavailable"
         result["capability_reason"] = "capability_matrix_unavailable"
@@ -520,23 +571,62 @@ def _governed_holdings(snapshot: object, frame: pd.DataFrame) -> pd.DataFrame:
         values = raw.to_dict()
         instrument_id = str(values.get("etf_id", values.get("instrument_id", ""))).strip()
         configured = universe.get(instrument_id)
-        descriptor_values = _descriptor_values(values, configured, loaded.policy)
-        decision = None
-        if descriptor_values is not None:
-            try:
-                decision = resolve_instrument_capability(
-                    loaded.policy,
-                    InstrumentDescriptor(**descriptor_values),
-                    stage="portfolio",
-                    horizon="1M",
-                )
-            except (TypeError, ValueError):
-                decision = None
-        statuses.append(_capability_status(decision))
-        reasons.append(str(getattr(decision, "reason_code", "CLASSIFICATION_EVIDENCE_INCOMPLETE")))
+        status, reason, _asset_type = _resolve_capability(values, configured, policy)
+        statuses.append(status)
+        reasons.append(reason)
     result["capability_status"] = statuses
     result["capability_reason"] = reasons
     return result
+
+
+def _governed_target_capabilities(
+    snapshot: object,
+    instrument_ids: list[str],
+    *,
+    policy: object | None,
+) -> dict[str, tuple[str, str, str]]:
+    """Resolve configured target-only instruments through the same canonical policy."""
+
+    universe = getattr(snapshot, "config").universe.by_id()
+    resolved: dict[str, tuple[str, str, str]] = {}
+    for instrument_id in instrument_ids:
+        configured = universe.get(instrument_id)
+        if policy is None:
+            asset_type = str(getattr(configured, "instrument_type", "") or "unknown")
+            resolved[instrument_id] = ("unavailable", "capability_matrix_unavailable", asset_type)
+            continue
+        resolved[instrument_id] = _resolve_capability({"instrument_id": instrument_id}, configured, policy)
+    return resolved
+
+
+def _resolve_capability(
+    values: Mapping[str, object],
+    configured: object | None,
+    policy: object,
+) -> tuple[str, str, str]:
+    descriptor_values = _descriptor_values(values, configured, policy)
+    asset_type = str(
+        (descriptor_values or {}).get("asset_type")
+        or getattr(configured, "instrument_type", "")
+        or values.get("asset_type")
+        or "unknown"
+    ).strip()
+    decision = None
+    if descriptor_values is not None:
+        try:
+            decision = resolve_instrument_capability(
+                policy,
+                InstrumentDescriptor(**descriptor_values),
+                stage="portfolio",
+                horizon="1M",
+            )
+        except (TypeError, ValueError):
+            decision = None
+    return (
+        _capability_status(decision),
+        str(getattr(decision, "reason_code", "CLASSIFICATION_EVIDENCE_INCOMPLETE")),
+        asset_type,
+    )
 
 
 def _descriptor_values(values: Mapping[str, object], configured: object | None, policy: object) -> dict[str, object] | None:
@@ -555,19 +645,43 @@ def _descriptor_values(values: Mapping[str, object], configured: object | None, 
         cfi_code = str(rule.match_cfi_prefixes[0])
     else:
         return None
+    rule = next(
+        (
+            item
+            for item in policy.instrument_rules
+            if str(asset_type).casefold() in {str(value).casefold() for value in item.match_asset_types}
+        ),
+        None,
+    )
+    raw_market_cap = values.get("market_cap_usd", getattr(configured, "market_cap_usd", None))
+    raw_average_daily_value = values.get(
+        "average_daily_value_usd",
+        getattr(configured, "average_daily_value_usd", None),
+    )
+    market_cap = _optional_float(raw_market_cap)
+    average_daily_value = _optional_float(raw_average_daily_value)
+    if (_text_value(raw_market_cap) and market_cap is None) or (
+        _text_value(raw_average_daily_value) and average_daily_value is None
+    ):
+        return None
+    if configured is not None and rule is not None:
+        if market_cap is None and "minimum_market_cap" in rule.prerequisites.liquidity:
+            market_cap = float(policy.exclusion_policy.minimum_market_cap_usd)
+        if average_daily_value is None and "minimum_average_daily_value" in rule.prerequisites.liquidity:
+            average_daily_value = float(policy.exclusion_policy.minimum_average_daily_value_usd)
     return {
         "asset_type": asset_type,
         "security_type": security_type,
         "cfi_code": cfi_code,
-        "exchange": _text_value(values.get("exchange")),
-        "leveraged": _bool_flag(values.get("leveraged")),
-        "inverse": _bool_flag(values.get("inverse")),
+        "exchange": _text_value(values.get("exchange")) or _text_value(getattr(configured, "exchange", None)),
+        "leveraged": _bool_flag(values.get("leveraged", getattr(configured, "leveraged", False))),
+        "inverse": _bool_flag(values.get("inverse", getattr(configured, "inverse", False))),
         "derivative": _bool_flag(values.get("derivative")),
         "crypto": _bool_flag(values.get("crypto")),
         "otc": _bool_flag(values.get("otc")),
         "complex_structured": _bool_flag(values.get("complex_structured")),
-        "market_cap_usd": _optional_float(values.get("market_cap_usd")),
-        "average_daily_value_usd": _optional_float(values.get("average_daily_value_usd")),
+        "market_cap_usd": market_cap,
+        "average_daily_value_usd": average_daily_value,
         "dealing_frequency": _text_value(values.get("dealing_frequency")) or "unknown",
     }
 
@@ -613,7 +727,10 @@ def _bool_flag(value: object) -> bool:
     return bool(value)
 
 
-def _capability_matrix_evidence(frame: pd.DataFrame) -> list[dict[str, object]]:
+def _capability_matrix_evidence(
+    frame: pd.DataFrame,
+    target_capabilities: Mapping[str, tuple[str, str, str]],
+) -> list[dict[str, object]]:
     """Expose the governed resolver projection used by the result."""
 
     if not isinstance(frame, pd.DataFrame):
@@ -625,7 +742,11 @@ def _capability_matrix_evidence(frame: pd.DataFrame) -> list[dict[str, object]]:
         if not instrument_id:
             continue
         rows.append({"instrument_id": instrument_id, "state": values.get("capability_status", "unavailable"), "reason_code": values.get("capability_reason", "CLASSIFICATION_EVIDENCE_INCOMPLETE"), "execution_allowed": False})
-    return rows
+    current_ids = {str(row["instrument_id"]) for row in rows}
+    for instrument_id, (status, reason, _asset_type) in sorted(target_capabilities.items()):
+        if instrument_id not in current_ids:
+            rows.append({"instrument_id": instrument_id, "state": status, "reason_code": reason, "execution_allowed": False})
+    return sorted(rows, key=lambda row: str(row["instrument_id"]))
 
 
 def _jsonable(value: object) -> object:
@@ -642,6 +763,8 @@ def _validate_loaded_result(
     payload: dict[str, object] | None,
     candidate: PortfolioCandidate,
     analysis: PortfolioAnalysis,
+    *,
+    candidate_record: StoredRecord,
 ) -> dict[str, object] | None:
     """Validate a result record and suppress evidence from another snapshot."""
 
@@ -657,6 +780,10 @@ def _validate_loaded_result(
         raise ValueError("saved portfolio sandbox result schema is unsupported")
     if payload.get("candidate_id") != candidate.candidate_id:
         raise ValueError("saved portfolio sandbox result identity does not match candidate")
+    if payload.get("candidate_revision") != candidate_record.revision:
+        raise ValueError("saved portfolio sandbox result candidate revision does not match")
+    if payload.get("candidate_payload_checksum") != candidate_record.payload.get("payload_checksum"):
+        raise ValueError("saved portfolio sandbox result candidate checksum does not match")
     if payload.get("execution_allowed") is not False:
         raise ValueError("saved portfolio sandbox result violates the no-execution contract")
     source = payload.get("source_snapshot")
@@ -697,4 +824,5 @@ __all__ = [
     "portfolio_snapshot_binding",
     "load_portfolio_candidate",
     "save_portfolio_candidate",
+    "validate_portfolio_draft_handoff",
 ]

@@ -1976,6 +1976,17 @@ next action and whether the requested outcome is actually complete.
   required before merge. Freeze only after committing the complete checkpoint,
   then run whole-diff and risk reviews against the same exact head in parallel
   with hosted H-tier CI.
+- Frozen head `62cb487212b5cee98a05464887c5c799d761af9d` and hosted run
+  `31506000586` are invalidated. Parallel whole-diff and risk reviews
+  demonstrated seven bounded product/persistence defects: duplicate-row
+  capability order dependence, incomplete line/classifier checksum binding,
+  aggregate-constraint draft leakage, torn candidate/result reads, incomplete
+  hand-off integrity, unresolved target-only capability and missing mixed-asset
+  UI controls. Hosted preflight additionally proved the two new actions lacked
+  acceptance contracts. One consolidated correction closes all eight and adds
+  exact regressions; the complete 185-test affected suite, offline smoke, Ruff,
+  compile, generated-state and diff checks pass. Commit one replacement head
+  and repeat both independent reviews plus fresh H-tier hosted evidence.
 - Whole-diff review approved head `d74e32e6e655ff639587c9fe18f0ba211c7624fa`
   and risk review verified the guard fix but reproduced one independent parser
   defect: ragged CSV rows could discard trailing fields. Run `31461743133` is

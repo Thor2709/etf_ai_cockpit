@@ -183,6 +183,30 @@ def test_portfolio_reset_uses_current_weights() -> None:
     assert _by_key(root, "portfolio.cash-weight").value == "40.0000"
 
 
+def test_portfolio_controls_and_reset_cover_selected_mixed_assets() -> None:
+    state = _state()
+    state.snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000, "holding_view": "direct"},
+            {"instrument_id": "LYP6", "current_weight": 0.2, "market_value_eur": 20_000, "holding_view": "direct"},
+            {"instrument_id": "AAPL", "asset_type": "stock", "current_weight": 0.15, "market_value_eur": 15_000, "holding_view": "direct"},
+            {"instrument_id": "BOND-1", "asset_type": "fixed_rate_bond", "current_weight": 0.1, "market_value_eur": 10_000, "holding_view": "direct"},
+            {"instrument_id": "ETF-LOOK", "asset_type": "etf", "current_weight": 0.05, "market_value_eur": 5_000, "holding_view": "look_through"},
+        ]
+    )
+    root = portfolio.portfolio_page(None, state)
+    assert "current stock" in str(_by_key(root, "portfolio.target-weight.AAPL").label)
+    assert "current fixed_rate_bond" in str(_by_key(root, "portfolio.target-weight.BOND-1").label)
+    assert _by_key(root, "portfolio.target-weight.ETF-LOOK") is not None
+
+    _by_key(root, "portfolio.holdings-view").value = "direct"
+    _by_key(root, "portfolio.reset-current").on_click(None)
+    assert _by_key(root, "portfolio.target-weight.AAPL").value == "15.0000"
+    assert _by_key(root, "portfolio.target-weight.BOND-1").value == "10.0000"
+    assert _by_key(root, "portfolio.target-weight.ETF-LOOK").value == "0.0000"
+    assert _by_key(root, "portfolio.cash-weight").value == "15.0000"
+
+
 def test_portfolio_storage_failure_is_reported_without_crashing(monkeypatch) -> None:
     def unavailable(*_args, **_kwargs):
         raise portfolio_sandbox.PortfolioSandboxPersistenceError("local store is read-only")

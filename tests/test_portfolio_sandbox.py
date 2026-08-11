@@ -17,6 +17,7 @@ from etf_cockpit.application.portfolio_sandbox import (
     load_portfolio_candidate,
     portfolio_analysis_payload,
     save_portfolio_candidate,
+    validate_portfolio_draft_handoff,
 )
 from etf_cockpit.application import portfolio_sandbox as sandbox_store
 from etf_cockpit.core.config import load_config
@@ -105,7 +106,45 @@ def test_holdings_binding_is_independent_of_row_order() -> None:
             {"etf_id": "LYP6", "current_weight": 0.2, "market_value_eur": 20_000.0},
         ]
     )
-    assert holdings_checksum(holdings) == holdings_checksum(split)
+    assert holdings_checksum(holdings) != holdings_checksum(split)
+
+
+def test_holdings_binding_preserves_line_associations_and_classifier_inputs() -> None:
+    first = pd.DataFrame(
+        [
+            {"instrument_id": "DUP", "current_weight": 0.1, "market_value_eur": 10_000, "holding_view": "direct", "source_id": "one", "asset_type": "stock", "security_type": "ordinary_share", "cfi_code": "E", "crypto": False},
+            {"instrument_id": "DUP", "current_weight": 0.2, "market_value_eur": 20_000, "holding_view": "look_through", "source_id": "two", "asset_type": "crypto", "security_type": "crypto", "cfi_code": "X", "crypto": True},
+        ]
+    )
+    swapped = first.copy(deep=True)
+    swapped.loc[:, ["current_weight", "market_value_eur"]] = swapped.loc[::-1, ["current_weight", "market_value_eur"]].to_numpy()
+    classifier_changed = first.copy(deep=True)
+    classifier_changed.loc[1, "crypto"] = False
+
+    assert holdings_checksum(first) != holdings_checksum(swapped)
+    assert holdings_checksum(first) != holdings_checksum(classifier_changed)
+
+
+def test_duplicate_capability_aggregation_is_permutation_stable_and_fail_closed() -> None:
+    rows = [
+        {"instrument_id": "DUP", "asset_type": "stock", "security_type": "ordinary_share", "cfi_code": "E", "market_cap_usd": 1_000_000_000, "average_daily_value_usd": 1_000_000, "current_weight": 0.1, "market_value_eur": 10_000},
+        {"instrument_id": "DUP", "asset_type": "crypto", "security_type": "crypto", "cfi_code": "X", "crypto": True, "current_weight": 0.2, "market_value_eur": 20_000},
+    ]
+    outcomes = []
+    for ordered in (rows, list(reversed(rows))):
+        snapshot = _snapshot()
+        snapshot.holdings = pd.DataFrame(ordered)
+        candidate = build_portfolio_candidate(
+            snapshot,
+            name="Duplicate classifier",
+            analysis_notional_eur=100_000,
+            target_weights={"DUP": 0.4},
+            cash_weight=0.6,
+        )
+        allocation = analyse_portfolio_candidate(snapshot, candidate).allocations[0]
+        outcomes.append((allocation.current_weight, allocation.capability_status, allocation.capability_reason, allocation.marginal_effect))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][1:] == ("unsupported", "EXCLUDED_CRYPTO_PRODUCT", "inapplicable")
 
 
 def test_exposure_totals_and_concentration_warnings_reconcile() -> None:
@@ -160,6 +199,8 @@ def test_candidate_persistence_round_trip_revision_conflict_and_stale_re_evaluat
     assert saved.revision == 1
     assert saved.result_payload is not None
     assert saved.result_payload["schema_version"] == "portfolio_sandbox_result.v1"
+    assert saved.result_payload["candidate_revision"] == 1
+    assert saved.result_payload["candidate_payload_checksum"] == sandbox_store._candidate_payload(saved.candidate)["payload_checksum"]
     assert saved.result_payload["execution_allowed"] is False
     loaded = load_portfolio_candidate(snapshot, " core allocation ", root=tmp_path)
     assert loaded.candidate == saved.candidate
@@ -212,7 +253,46 @@ def test_legacy_candidate_only_record_upgrades_atomically_with_result(tmp_path) 
     )
     assert upgraded.revision == 2
     with TransactionalStore(tmp_path) as store:
-        assert store.get(PORTFOLIO_SANDBOX_RESULT_ENTITY, candidate.candidate_id).revision == 1
+        result = store.get(PORTFOLIO_SANDBOX_RESULT_ENTITY, candidate.candidate_id)
+        assert result.revision == 1
+        assert result.payload["candidate_revision"] == 2
+
+
+def test_candidate_and_result_load_from_one_snapshot_during_interleaved_save(tmp_path, monkeypatch) -> None:
+    snapshot = _snapshot()
+    save_portfolio_candidate(
+        snapshot,
+        name="Interleaved pair",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.6, "LYP6": 0.3},
+        cash_weight=0.1,
+        expected_revision=0,
+        root=tmp_path,
+    )
+    original_get = TransactionalStore.get
+    interleaved = False
+
+    def get_with_interleave(store, entity_type, entity_id, **kwargs):
+        nonlocal interleaved
+        record = original_get(store, entity_type, entity_id, **kwargs)
+        if entity_type == PORTFOLIO_SANDBOX_ENTITY and not interleaved:
+            interleaved = True
+            save_portfolio_candidate(
+                snapshot,
+                name="Interleaved pair",
+                analysis_notional_eur=100_000,
+                target_weights={"VWCE": 0.5, "LYP6": 0.4},
+                cash_weight=0.1,
+                expected_revision=1,
+                root=tmp_path,
+            )
+        return record
+
+    monkeypatch.setattr(TransactionalStore, "get", get_with_interleave)
+    loaded = load_portfolio_candidate(snapshot, "Interleaved pair", root=tmp_path)
+    assert loaded.revision == 1
+    assert loaded.candidate.targets == {"LYP6": 0.3, "VWCE": 0.6}
+    assert loaded.result_payload["candidate_revision"] == 1
 
 
 def test_direct_and_look_through_views_select_rows_and_bind_selected_checksum() -> None:
@@ -379,6 +459,42 @@ def test_capability_resolution_rejects_contradictory_and_incomplete_classifiers(
     assert rows["INCOMPLETE"].capability_status == "unavailable"
 
 
+def test_empty_holdings_configured_target_uses_canonical_capability() -> None:
+    snapshot = _snapshot()
+    snapshot.holdings = pd.DataFrame(columns=["instrument_id", "current_weight", "market_value_eur"])
+    candidate = build_portfolio_candidate(
+        snapshot,
+        name="Target only",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.5},
+        cash_weight=0.5,
+    )
+    allocation = analyse_portfolio_candidate(snapshot, candidate).allocations[0]
+    assert allocation.instrument_id == "VWCE"
+    assert allocation.capability_status == "supported"
+    assert allocation.capability_reason != "canonical_capability_resolution_required"
+
+
+def test_target_only_configured_instrument_with_malformed_resolver_input_is_unavailable() -> None:
+    snapshot = _snapshot()
+    configured = snapshot.config.universe.by_id()["VWCE"].model_copy(
+        update={"average_daily_value_usd": "malformed"}
+    )
+    universe = snapshot.config.universe.model_copy(update={"etfs": [configured]})
+    snapshot.config = snapshot.config.model_copy(update={"universe": universe})
+    snapshot.holdings = pd.DataFrame(columns=["instrument_id", "current_weight", "market_value_eur"])
+    candidate = build_portfolio_candidate(
+        snapshot,
+        name="Malformed target only",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.5},
+        cash_weight=0.5,
+    )
+    allocation = analyse_portfolio_candidate(snapshot, candidate).allocations[0]
+    assert allocation.capability_status == "unavailable"
+    assert allocation.capability_reason == "CLASSIFICATION_EVIDENCE_INCOMPLETE"
+
+
 def test_draft_handoff_excludes_unsupported_and_constraint_rows() -> None:
     snapshot = _snapshot()
     snapshot.holdings = pd.DataFrame(
@@ -407,6 +523,34 @@ def test_draft_handoff_excludes_unsupported_and_constraint_rows() -> None:
     assert "evidence_checksum" in handoff
 
 
+def test_aggregate_constraint_violation_rejects_every_change() -> None:
+    snapshot = _snapshot(vwce_weight=0.1)
+    snapshot.holdings.loc[snapshot.holdings["etf_id"] == "LYP6", "current_weight"] = 0.1
+    candidate = build_portfolio_candidate(
+        snapshot,
+        name="Aggregate constraint",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.3, "LYP6": 0.3},
+        cash_weight=0.4,
+    )
+    analysis = analyse_portfolio_candidate(snapshot, candidate)
+    assert any(item.name.startswith("sector:") and item.status == "violated" for item in analysis.constraints)
+    handoff = draft_portfolio_proposal(snapshot, analysis)
+    assert handoff["changes"] == []
+    assert {item["instrument_id"] for item in handoff["rejected"]} == {"VWCE", "LYP6"}
+    assert all("portfolio_constraint_violation" in item["reason"] for item in handoff["rejected"])
+
+
+def test_complete_handoff_checksum_rejects_mutated_changes() -> None:
+    snapshot = _snapshot()
+    handoff = draft_portfolio_proposal(snapshot, analyse_portfolio_candidate(snapshot, _candidate(snapshot)))
+    assert validate_portfolio_draft_handoff(handoff) == handoff
+    tampered = dict(handoff)
+    tampered["changes"] = [{"instrument_id": "COIN", "weight_delta": 1.0}]
+    with pytest.raises(ValueError, match="checksum"):
+        validate_portfolio_draft_handoff(tampered)
+
+
 def test_result_persistence_export_and_draft_handoff_are_isolated(tmp_path) -> None:
     snapshot = _snapshot()
     before = snapshot.holdings.copy(deep=True)
@@ -429,7 +573,7 @@ def test_result_persistence_export_and_draft_handoff_are_isolated(tmp_path) -> N
     pd.testing.assert_frame_equal(snapshot.holdings, before)
 
 
-@pytest.mark.parametrize("mutation", ["execution", "identity"])
+@pytest.mark.parametrize("mutation", ["execution", "identity", "candidate_revision", "candidate_checksum"])
 def test_tampered_recomputed_result_fails_closed(tmp_path, mutation) -> None:
     snapshot = _snapshot()
     saved = save_portfolio_candidate(
@@ -446,12 +590,16 @@ def test_tampered_recomputed_result_fails_closed(tmp_path, mutation) -> None:
         payload = dict(record.payload)
         if mutation == "execution":
             payload["execution_allowed"] = True
-        else:
+        elif mutation == "identity":
             payload["candidate_id"] = "portfolio_tampered"
+        elif mutation == "candidate_revision":
+            payload["candidate_revision"] = 99
+        else:
+            payload["candidate_payload_checksum"] = "f" * 64
         body = {key: value for key, value in payload.items() if key != "payload_checksum"}
         payload["payload_checksum"] = sandbox_store._payload_checksum(body)
         store.put(PORTFOLIO_SANDBOX_RESULT_ENTITY, saved.candidate.candidate_id, payload, expected_revision=1)
-    with pytest.raises(ValueError, match="no-execution|identity"):
+    with pytest.raises(ValueError, match="no-execution|identity|revision|checksum"):
         load_portfolio_candidate(snapshot, "Tamper result", root=tmp_path)
 
 
@@ -476,6 +624,30 @@ def test_tampered_recomputed_source_binding_is_not_surface_as_current(tmp_path) 
         payload["payload_checksum"] = sandbox_store._payload_checksum(body)
         store.put(PORTFOLIO_SANDBOX_RESULT_ENTITY, saved.candidate.candidate_id, payload, expected_revision=1)
     loaded = load_portfolio_candidate(snapshot, "Tamper source", root=tmp_path)
+    assert loaded.result_payload is None
+
+
+def test_classifier_change_changes_binding_and_suppresses_stale_result(tmp_path) -> None:
+    snapshot = _snapshot()
+    snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "AAPL", "asset_type": "stock", "security_type": "ordinary_share", "cfi_code": "E", "market_cap_usd": 1_000_000_000, "average_daily_value_usd": 1_000_000, "current_weight": 0.5, "market_value_eur": 50_000},
+        ]
+    )
+    original_checksum = holdings_checksum(snapshot.holdings)
+    save_portfolio_candidate(
+        snapshot,
+        name="Classifier stale",
+        analysis_notional_eur=100_000,
+        target_weights={"AAPL": 0.5},
+        cash_weight=0.5,
+        expected_revision=0,
+        root=tmp_path,
+    )
+    snapshot.holdings.loc[0, ["asset_type", "security_type", "cfi_code", "crypto"]] = ["crypto", "crypto", "X", True]
+    assert holdings_checksum(snapshot.holdings) != original_checksum
+    loaded = load_portfolio_candidate(snapshot, "Classifier stale", root=tmp_path)
+    assert loaded.source_stale is True
     assert loaded.result_payload is None
 
 

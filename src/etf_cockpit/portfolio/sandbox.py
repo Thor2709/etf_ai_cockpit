@@ -137,34 +137,45 @@ def candidate_id(name: str) -> str:
 
 
 def holdings_checksum(holdings: pd.DataFrame) -> str:
-    """Bind analysis to the exact current-weight/value snapshot."""
+    """Bind every selected source line to the inputs that can affect analysis."""
 
-    grouped: dict[str, tuple[list[float], list[float], set[tuple[str, str, str]]]] = {}
-    if not holdings.empty:
-        for _, row in holdings.iterrows():
-            instrument_id = str(row.get("etf_id", row.get("instrument_id", ""))).strip()
-            if not instrument_id:
-                raise ValueError("holdings contain a blank instrument identifier")
-            classify_holding_view(row)
-            weights, values, metadata = grouped.setdefault(instrument_id, ([], [], set()))
-            weights.append(_finite_number(row.get("current_weight", 0.0), "current_weight"))
-            values.append(_finite_number(row.get("market_value_eur", 0.0), "market_value_eur"))
-            metadata.add(
-                (
-                    str(row.get("asset_type", row.get("instrument_type", row.get("asset_class", ""))) or ""),
-                    str(row.get("holding_view", row.get("view", row.get("lineage", "direct"))) or "direct"),
-                    str(row.get("source_id", row.get("holdings_source", "")) or ""),
-                )
-            )
-    rows = [
-        {
-            "instrument_id": instrument_id,
-            "current_weight": math.fsum(sorted(weights)),
-            "market_value_eur": math.fsum(sorted(values)),
-            "metadata": sorted(metadata),
-        }
-        for instrument_id, (weights, values, metadata) in sorted(grouped.items())
-    ]
+    rows: list[dict[str, object]] = []
+    for _, raw in holdings.iterrows():
+        values = raw.to_dict()
+        instrument_id = str(values.get("etf_id", values.get("instrument_id", ""))).strip()
+        if not instrument_id:
+            raise ValueError("holdings contain a blank instrument identifier")
+        rows.append(
+            {
+                "instrument_id": instrument_id,
+                "name": _checksum_value(values.get("name")),
+                "current_weight": _finite_number(values.get("current_weight", 0.0), "current_weight"),
+                "market_value_eur": _finite_number(values.get("market_value_eur", 0.0), "market_value_eur"),
+                "holding_view": classify_holding_view(values),
+                "holding_view_raw": _checksum_value(values.get("holding_view")),
+                "view_raw": _checksum_value(values.get("view")),
+                "lineage_raw": _checksum_value(values.get("lineage")),
+                "is_look_through": _checksum_value(values.get("is_look_through")),
+                "source_id": _checksum_value(values.get("source_id")),
+                "holdings_source": _checksum_value(values.get("holdings_source")),
+                "asset_type": _checksum_value(values.get("asset_type")),
+                "instrument_type": _checksum_value(values.get("instrument_type")),
+                "asset_class": _checksum_value(values.get("asset_class")),
+                "security_type": _checksum_value(values.get("security_type")),
+                "cfi_code": _checksum_value(values.get("cfi_code")),
+                "exchange": _checksum_value(values.get("exchange")),
+                "leveraged": _checksum_value(values.get("leveraged")),
+                "inverse": _checksum_value(values.get("inverse")),
+                "derivative": _checksum_value(values.get("derivative")),
+                "crypto": _checksum_value(values.get("crypto")),
+                "otc": _checksum_value(values.get("otc")),
+                "complex_structured": _checksum_value(values.get("complex_structured")),
+                "market_cap_usd": _checksum_value(values.get("market_cap_usd")),
+                "average_daily_value_usd": _checksum_value(values.get("average_daily_value_usd")),
+                "dealing_frequency": _checksum_value(values.get("dealing_frequency")),
+            }
+        )
+    rows.sort(key=lambda row: json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
     encoded = json.dumps(rows, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -267,6 +278,7 @@ def analyse_candidate(
     *,
     current_revision: str,
     overlap: DirectOverlapReport | None = None,
+    target_capabilities: Mapping[str, tuple[str, str, str]] | None = None,
 ) -> PortfolioAnalysis:
     current_checksum = holdings_checksum(holdings)
     source_stale = (
@@ -274,18 +286,24 @@ def analyse_candidate(
         or candidate.source_checksum != current_checksum
     )
     universe = config.universe.by_id()
-    current: dict[str, tuple[float, float]] = {}
+    current_lines: dict[str, tuple[list[float], list[float]]] = {}
     holding_rows = _holding_rows(config, holdings)
     for _, item in holdings.iterrows():
         instrument_id = str(item.get("etf_id", item.get("instrument_id", ""))).strip()
         weight = _finite_number(item.get("current_weight", 0.0), "current_weight")
         value = _finite_number(item.get("market_value_eur", 0.0), "market_value_eur")
-        previous_weight, previous_value = current.get(instrument_id, (0.0, 0.0))
-        current[instrument_id] = (previous_weight + weight, previous_value + value)
+        weights, values = current_lines.setdefault(instrument_id, ([], []))
+        weights.append(weight)
+        values.append(value)
+    current = {
+        instrument_id: (math.fsum(sorted(weights)), math.fsum(sorted(values)))
+        for instrument_id, (weights, values) in current_lines.items()
+    }
 
     rows: list[PortfolioAllocationRow] = []
     targets = candidate.targets
-    holding_by_id = {row.instrument_id: row for row in holding_rows}
+    holding_by_id = _aggregate_holding_rows(holding_rows)
+    target_capabilities = target_capabilities or {}
     for instrument_id in sorted(set(current) | set(targets)):
         current_weight, market_value = current.get(instrument_id, (0.0, 0.0))
         target_weight = targets.get(instrument_id, 0.0)
@@ -301,12 +319,15 @@ def analyse_candidate(
             status = "above_soft_band"
         instrument = universe.get(instrument_id)
         holding = holding_by_id.get(instrument_id)
-        asset_type = holding.asset_type if holding else _asset_type({}, instrument)
-        capability_status, capability_reason = (
-            (holding.capability_status, holding.capability_reason)
-            if holding is not None
-            else asset_capability(asset_type)
-        )
+        target_capability = target_capabilities.get(instrument_id)
+        if holding is not None:
+            asset_type = holding.asset_type
+            capability_status, capability_reason = holding.capability_status, holding.capability_reason
+        elif target_capability is not None:
+            capability_status, capability_reason, asset_type = target_capability
+        else:
+            asset_type = _asset_type({}, instrument)
+            capability_status, capability_reason = asset_capability(asset_type)
         if capability_status != "supported":
             marginal_effect = "inapplicable"
             why_not = capability_reason
@@ -463,7 +484,46 @@ def _holding_rows(config: AppConfig, holdings: pd.DataFrame) -> tuple[PortfolioH
                 source_id=str(values.get("source_id", values.get("holdings_source", "")) or ""),
             )
         )
-    return tuple(rows)
+    return tuple(
+        sorted(
+            rows,
+            key=lambda row: (
+                row.instrument_id,
+                row.holding_view,
+                row.source_id,
+                row.asset_type,
+                row.capability_status,
+                row.capability_reason,
+                row.current_weight,
+                row.market_value_eur,
+                row.name,
+            ),
+        )
+    )
+
+
+def _aggregate_holding_rows(rows: tuple[PortfolioHoldingRow, ...]) -> dict[str, PortfolioHoldingRow]:
+    """Select one deterministic fail-closed capability outcome per instrument."""
+
+    precedence = {"unsupported": 0, "unavailable": 1, "partial": 2, "supported": 3}
+    grouped: dict[str, list[PortfolioHoldingRow]] = {}
+    for row in rows:
+        grouped.setdefault(row.instrument_id, []).append(row)
+    return {
+        instrument_id: min(
+            items,
+            key=lambda row: (
+                precedence.get(row.capability_status, 1),
+                row.capability_status,
+                row.capability_reason,
+                row.asset_type,
+                row.holding_view,
+                row.source_id,
+                row.name,
+            ),
+        )
+        for instrument_id, items in grouped.items()
+    }
 
 
 def _constraint_results(config: AppConfig, rows: list[PortfolioAllocationRow]) -> tuple[PortfolioConstraintResult, ...]:
@@ -513,6 +573,26 @@ def _finite_number(value: object, label: str) -> float:
     if not math.isfinite(number):
         raise ValueError(f"{label} must be a finite number")
     return number
+
+
+def _checksum_value(value: object) -> object:
+    """Return a deterministic JSON scalar for source evidence fields."""
+
+    if value is None:
+        return None
+    try:
+        missing = pd.isna(value)
+        if isinstance(missing, bool) and missing:
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return None
+        return value
+    return str(value)
 
 
 __all__ = [
