@@ -1849,3 +1849,75 @@ next action and whether the requested outcome is actually complete.
   readback after the exact lifecycle head merges.
 - ISSUE-0018 is the next canonical dependency-ready product issue. Begin its
   disjoint product lane only after ISSUE-0017's writer/readback converges.
+
+## ISSUE-0018 product checkpoint — 2026-08-11
+
+- ISSUE-0017 lifecycle PR #673 merged exact reviewed head
+  `7e664542fdeea154cbca2c999334a3be565fb515` as exact main
+  `9c3ac836587d3e2b494bca20e27b559978eb8c9b`. Exact-head H-tier run
+  `31453379949` and status guard run `31453379906` passed. Writer run
+  `31455074038` applied and verified the single ISSUE-0017 projection; generic
+  convergence run `31455074057` and an independent exact-main live readback
+  both returned zero actions. `execution_allowed=false` remains unchanged.
+- ISSUE-0018, "Watchlist and universe manager", is dependency-ready and is the
+  active product issue. Clean lane `codex/issue0018-product-20260811` is based
+  on exact main `9c3ac836587d3e2b494bca20e27b559978eb8c9b`; implementation checkpoint
+  `b80967bb956b083f7033aba4ae1c9ac6de3d228e` is one product commit ahead.
+- Bounded product scope is local CSV/XLSX/paste/supplied-provider import,
+  deterministic identity resolution and row classification, immutable source
+  plus correction overlays, reproducible versioned manifests, exclusions,
+  horizons and quotas, and cancel-safe chunk resume. It adds no provider,
+  workflow, scoring or broker calls and does not enter ISSUE-0126 point-in-time
+  universes or ranking work.
+- Focused universe import/store/manager/architecture tests pass with the
+  expected capability skip; Ruff, compile and diff hygiene pass. Complete the
+  checkpoint chronology before freezing, then run both exact-head independent
+  reviews and fresh H-tier Linux, Windows and terminal evidence in parallel.
+- The legal post-merge lifecycle remains one ISSUE-0018
+  `implemented_initially -> integrated` transaction bound to the reviewed
+  product PR and merged product commit, followed by the existing writer and
+  generic zero-action readback. Do not merge while required lifecycle evidence
+  is known to be absent.
+- Initial PR #674 head `62d6103cd013dd325ad8bbdc794d6ea92f4f9baa`
+  was rejected by both exact-head reviews and hosted run `31455384153` after
+  concrete identity, resume, flag-normalisation, UI-contract, failed-write,
+  duplicate-field and XLSX-bound defects were reproduced. Its evidence is
+  stale and must not be reused.
+- Consolidated correction commit
+  `5e89f7b15a8c1264518c36443772b1c5f53d6373` fixes the complete review set,
+  adds focused regressions and classifies the exact persistent import module as
+  H-tier while retaining checkpoint chronology as E and ordinary product as O.
+  The affected focused suite passes (one expected capability skip), changed
+  preflight and UI inventory pass, and Ruff, compile, diff hygiene and generator
+  check pass. Freeze the next checkpoint commit for both parallel reviews and
+  fresh hosted H-tier Linux, Windows and terminal evidence.
+- Replacement head `e766016eccf6415323a06ff5cd3b364146a6b614` was rejected
+  after both reviewers reproduced newly demonstrated fail-closed gaps in
+  malformed booleans, normalized/persisted JSON collisions, provider JSON
+  transports, aggregate XLSX limits and redirected manifest destinations.
+  Hosted run `31457631651` is cancelled and stale.
+- Final bounded correction commit
+  `5bbd8204d04005ff4855f9f07674d0bcb05f4d8a` closes that complete finding set
+  in the import module with focused adversarial regressions. Import and store
+  suites pass with one existing platform-capability skip; Ruff, compile, diff
+  hygiene and generator checks pass. Freeze one final checkpoint head for both
+  reviews and fresh H-tier evidence; no further adjacent hardening is in scope.
+- Head `009610ecf3a5aff4bd9508e9dcaf225527f3e544` was rejected for one newly
+  reproduced safety case: contradictory valid boolean aliases selected the
+  first value. Run `31459084752` was cancelled and is stale. Commit
+  `fcd44eb0eb103944bdff3bf8d8ae90c3b8dfb42b` rejects conflicts across every
+  supported alias pair; all 45 import regressions, Ruff, compile and diff
+  hygiene pass. Repeat both exact-head reviews and fresh H-tier evidence.
+- Risk review approved head `61ea71394e6b2cc3725d6ee1aba210d394a24dbf`,
+  while whole-diff review found manifest destination identity was not repeated
+  by the existing atomic precondition under the held group guard. Run
+  `31460776868` is cancelled and stale. Commit
+  `33f31a3d3e9cd025da38c4fc94f5ea380ef51b7d` applies the existing guarded
+  pattern and adds a deterministic redirect-race regression. All 46 import
+  regressions plus Ruff, compile and diff hygiene pass. Freeze and revalidate.
+- Whole-diff review approved head `d74e32e6e655ff639587c9fe18f0ba211c7624fa`
+  and risk review verified the guard fix but reproduced one independent parser
+  defect: ragged CSV rows could discard trailing fields. Run `31461743133` is
+  cancelled and stale. Commit `7b899a71830e483f453cc254d5470fdac6a06755`
+  requires every non-empty CSV row to match header width; all 48 import
+  regressions plus Ruff, compile and diff hygiene pass. Freeze and revalidate.

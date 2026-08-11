@@ -118,6 +118,7 @@ from etf_cockpit.data.statement_normalisation import *  # noqa: F401,F403
 from etf_cockpit.data.trust_artifacts import *  # noqa: F401,F403
 from etf_cockpit.data.trust_artifacts import IDENTITY_PATH
 from etf_cockpit.data.universe_store import *  # noqa: F401,F403
+from etf_cockpit.data.universe_import import *  # noqa: F401,F403
 from etf_cockpit.application.api import *  # noqa: F401,F403
 from etf_cockpit.application.contracts import *  # noqa: F401,F403
 from etf_cockpit.application.screening import *  # noqa: F401,F403
