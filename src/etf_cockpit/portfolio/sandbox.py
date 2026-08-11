@@ -191,8 +191,6 @@ def classify_holding_view(row: object) -> str:
     """Validate and normalise one holding's direct/look-through lineage."""
 
     values = row if isinstance(row, Mapping) else {}
-    if bool(values.get("is_look_through")):
-        return "look_through"
     raw = values.get("holding_view", values.get("view", values.get("lineage", "direct")))
     if raw is None or (not isinstance(raw, (list, tuple, dict)) and bool(pd.isna(raw))):
         raw = "direct"
@@ -201,6 +199,16 @@ def classify_holding_view(row: object) -> str:
         value = "look_through"
     if value not in {"direct", "look_through"}:
         raise ValueError(f"holding lineage is invalid: {raw}")
+    flag = _optional_lineage_flag(values.get("is_look_through"))
+    if flag is not None:
+        flagged = "look_through" if flag else "direct"
+        explicit_lineage = any(
+            key in values and values.get(key) is not None and not _is_missing(values.get(key))
+            for key in ("holding_view", "view", "lineage")
+        )
+        if explicit_lineage and value != flagged:
+            raise ValueError("holding lineage contradicts is_look_through")
+        value = flagged
     return value
 
 
@@ -593,6 +601,22 @@ def _checksum_value(value: object) -> object:
             return None
         return value
     return str(value)
+
+
+def _is_missing(value: object) -> bool:
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+    return bool(missing) if pd.api.types.is_bool(missing) else False
+
+
+def _optional_lineage_flag(value: object) -> bool | None:
+    if value is None or _is_missing(value):
+        return None
+    if not isinstance(value, bool):
+        raise ValueError("is_look_through must be a boolean when provided")
+    return value
 
 
 __all__ = [

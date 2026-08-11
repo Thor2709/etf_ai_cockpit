@@ -326,6 +326,95 @@ def test_malformed_holding_lineage_fails_closed() -> None:
         analyse_portfolio_candidate(snapshot, _candidate(snapshot))
 
 
+def test_sparse_look_through_flag_preserves_direct_drift_direction() -> None:
+    snapshot = _snapshot()
+    snapshot.holdings = pd.DataFrame(
+        [
+            {
+                "instrument_id": "VWCE",
+                "asset_type": "etf",
+                "security_type": "ordinary_etf",
+                "cfi_code": "CEQ",
+                "average_daily_value_usd": 1_000_000,
+                "current_weight": 0.4,
+                "market_value_eur": 40_000.0,
+                "holding_view": "direct",
+            },
+            {
+                "instrument_id": "LYP6",
+                "asset_type": "etf",
+                "security_type": "ordinary_etf",
+                "cfi_code": "CEQ",
+                "average_daily_value_usd": 1_000_000,
+                "current_weight": 0.2,
+                "market_value_eur": 20_000.0,
+                "holding_view": "look_through",
+                "is_look_through": True,
+            },
+        ]
+    )
+    candidate = build_portfolio_candidate(
+        snapshot,
+        name="Sparse lineage",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.15},
+        cash_weight=0.85,
+        holdings_view="direct",
+    )
+
+    analysis = analyse_portfolio_candidate(snapshot, candidate, holdings_view="direct")
+    allocation = next(row for row in analysis.allocations if row.instrument_id == "VWCE")
+    handoff = draft_portfolio_proposal(snapshot, analysis)
+
+    assert analysis.current_value_eur == 40_000.0
+    assert allocation.current_weight == pytest.approx(0.4)
+    assert allocation.drift == pytest.approx(-0.25)
+    assert handoff["changes"] == [{"instrument_id": "VWCE", "weight_delta": -0.25}]
+
+
+def test_duplicate_holding_permutation_keeps_result_payload_byte_stable() -> None:
+    rows = [
+        {
+            "instrument_id": "VWCE",
+            "asset_type": "etf",
+            "security_type": "ordinary_etf",
+            "cfi_code": "CEQ",
+            "average_daily_value_usd": 1_000_000,
+            "current_weight": 0.2,
+            "market_value_eur": 20_000.0,
+            "holding_view": "direct",
+            "source_id": "A",
+        },
+        {
+            "instrument_id": "VWCE",
+            "asset_type": "crypto",
+            "security_type": "crypto",
+            "cfi_code": "X",
+            "crypto": True,
+            "current_weight": 0.1,
+            "market_value_eur": 10_000.0,
+            "holding_view": "direct",
+            "source_id": "B",
+        },
+    ]
+
+    payloads = []
+    for ordered in (rows, list(reversed(rows))):
+        snapshot = _snapshot()
+        snapshot.holdings = pd.DataFrame(ordered)
+        candidate = build_portfolio_candidate(
+            snapshot,
+            name="Permutation stable",
+            analysis_notional_eur=100_000,
+            target_weights={"VWCE": 0.3},
+            cash_weight=0.7,
+        )
+        analysis = analyse_portfolio_candidate(snapshot, candidate, snapshot_id="stable")
+        payloads.append(portfolio_analysis_payload(analysis))
+
+    assert payloads[0] == payloads[1]
+
+
 def test_candidate_name_and_missing_record_fail_closed(tmp_path) -> None:
     with pytest.raises(ValueError, match="1 to 80"):
         build_portfolio_candidate(

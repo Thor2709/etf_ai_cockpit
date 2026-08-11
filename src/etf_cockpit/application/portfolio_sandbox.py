@@ -760,7 +760,15 @@ def _capability_matrix_evidence(
     for instrument_id, (status, reason, _asset_type) in sorted(target_capabilities.items()):
         if instrument_id not in current_ids:
             rows.append({"instrument_id": instrument_id, "state": status, "reason_code": reason, "execution_allowed": False})
-    return sorted(rows, key=lambda row: str(row["instrument_id"]))
+    return sorted(
+        rows,
+        key=lambda row: (
+            str(row["instrument_id"]),
+            str(row["state"]),
+            str(row["reason_code"]),
+            str(row["execution_allowed"]),
+        ),
+    )
 
 
 def _jsonable(value: object) -> object:

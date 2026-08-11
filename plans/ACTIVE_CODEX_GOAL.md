@@ -1996,6 +1996,15 @@ next action and whether the requested outcome is actually complete.
   exact canonical result equality before readback; both reproductions and the
   complete sandbox/UI suite pass. Freeze one final replacement head and repeat
   the exact-head reviews and fresh H-tier gates without reopening adjacent work.
+- Head `5a81d4866388fa18ff81e9cbbf4799eaff80fb31` and run
+  `31510633704` are invalidated after final reviewers reproduced three bounded
+  data-shape/UI consistency defects: sparse `is_look_through` NaN inverted a
+  direct drift, duplicate capability evidence lacked a total order, and the
+  rebalance preview ignored the selected holdings view/source identity. Strict
+  optional-boolean lineage, complete capability ordering and a source-bound
+  filtered preview now close the exact reproductions; focused sandbox/UI and
+  static checks pass. Freeze the next head for the final repeated reviews and
+  fresh H-tier evidence only.
 - Whole-diff review approved head `d74e32e6e655ff639587c9fe18f0ba211c7624fa`
   and risk review verified the guard fix but reproduced one independent parser
   defect: ragged CSV rows could discard trailing fields. Run `31461743133` is

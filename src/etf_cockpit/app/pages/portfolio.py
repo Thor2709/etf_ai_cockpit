@@ -23,6 +23,7 @@ from etf_cockpit.application.ui_facade import (
     candidate_id,
     draft_portfolio_candidate,
     load_portfolio_candidate,
+    portfolio_snapshot_binding,
     save_portfolio_candidate,
     select_holdings_view,
 )
@@ -180,9 +181,20 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
     def rebalance_preview(_event: ft.ControlEvent | None) -> None:
         try:
             _, candidate_notional, targets, candidate_cash = values()
+            selected_holdings = select_holdings_view(
+                state.snapshot.holdings,
+                str(holdings_view.value or "combined"),
+            )
+            binding = portfolio_snapshot_binding(
+                state.snapshot,
+                account_id=str(account.value or "default"),
+                portfolio_id=str(portfolio.value or "default"),
+                snapshot_id=str(snapshot.value or "current"),
+                holdings_view=str(holdings_view.value or "combined"),
+            )
             report = build_rebalance_report(
                 state.snapshot.config,
-                state.snapshot.holdings,
+                selected_holdings,
                 targets,
                 target_cash_weight=candidate_cash,
                 portfolio_value_eur=candidate_notional,
@@ -193,7 +205,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                     allow_fractional_lots=False,
                 ),
             )
-            rebalance_host.controls = [_rebalance_view(report)]
+            rebalance_host.controls = [_rebalance_view(report, source_binding=binding)]
             status.value = "Rebalance preview validated from the current local snapshot; no order or broker action was created."
             status.color = theme.GREEN if report.feasible else theme.AMBER
             state.last_message = status.value
@@ -573,7 +585,7 @@ def _constraint_evidence_view(analysis: PortfolioAnalysis) -> ft.Control:
     )
 
 
-def _rebalance_view(report: RebalanceReport) -> ft.Control:
+def _rebalance_view(report: RebalanceReport, *, source_binding: object | None = None) -> ft.Control:
     alternatives = ft.DataTable(
         columns=[ft.DataColumn(ft.Text("Alternative")), ft.DataColumn(ft.Text("Changes")), ft.DataColumn(ft.Text("Drift proxy")), ft.DataColumn(ft.Text("Cost")), ft.DataColumn(ft.Text("Cash"))],
         rows=[
@@ -610,6 +622,19 @@ def _rebalance_view(report: RebalanceReport) -> ft.Control:
         ft.Column(
             [
                 section_header("Rebalance workspace", "Compare cost-, cash-, lot- and restriction-aware alternatives. This is advisory evidence only."),
+                ft.Text(
+                    "source="
+                    + (
+                        f"account={getattr(source_binding, 'account_id')} | portfolio={getattr(source_binding, 'portfolio_id')} | "
+                        f"snapshot={getattr(source_binding, 'snapshot_id')} | as_of={getattr(source_binding, 'as_of') or 'unavailable'} | "
+                        f"view={getattr(source_binding, 'holdings_view')} | checksum={getattr(source_binding, 'source_checksum')[:12]}"
+                        if source_binding is not None
+                        else "unavailable"
+                    ),
+                    color=theme.MUTED,
+                    size=11,
+                    selectable=True,
+                ),
                 ft.Row(
                     [
                         evidence_chip("Feasibility", "available" if report.feasible else "manual review", theme.GREEN if report.feasible else theme.AMBER),

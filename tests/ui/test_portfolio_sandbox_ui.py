@@ -246,3 +246,31 @@ def test_portfolio_rebalance_preview_exposes_alternatives_and_assumptions() -> N
     assert "lot_policy=integer_lots" in result_text
     assert "tax_jurisdiction=not_provided" in result_text
     assert "execution_allowed=false" in result_text
+
+
+def test_rebalance_preview_uses_selected_view_and_cites_snapshot() -> None:
+    state = _state()
+    state.snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "holding_view": "direct"},
+            {"instrument_id": "LYP6", "current_weight": 0.2, "market_value_eur": 20_000.0, "holding_view": "look_through"},
+        ]
+    )
+    root = portfolio.portfolio_page(None, state)
+    _by_key(root, "portfolio.holdings-view").value = "direct"
+    for control in _walk(root):
+        if str(getattr(control, "key", "")).startswith("portfolio.target-weight."):
+            control.value = "0"
+    _by_key(root, "portfolio.target-weight.VWCE").value = "15"
+    _by_key(root, "portfolio.cash-weight").value = "85"
+
+    _by_key(root, "portfolio.rebalance-preview").on_click(None)
+
+    result_text = _text(_by_key(root, "portfolio.rebalance-results"))
+    assert "VWCE" in result_text
+    assert "LYP6" not in result_text
+    assert "account=default" in result_text
+    assert "portfolio=default" in result_text
+    assert "snapshot=current" in result_text
+    assert "as_of=2026-07-18" in result_text
+    assert "view=direct" in result_text

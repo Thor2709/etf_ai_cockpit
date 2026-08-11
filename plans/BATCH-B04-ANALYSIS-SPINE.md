@@ -1374,6 +1374,14 @@ as-of and selected source identity in stale reporting and requires exact
 canonical result equality before surfacing stored evidence. Focused sandbox/UI,
 Ruff, compile and diff checks pass; repeat final exact-head review and H gates.
 
+`ISSUE_0021_DATA_SHAPE_CORRECTION` invalidates head
+`5a81d4866388fa18ff81e9cbbf4799eaff80fb31` and run `31510633704`. Final
+review reproduced sparse lineage NaN drift inversion, incomplete duplicate
+capability ordering and an unfiltered/unbound rebalance preview. The bounded
+fix uses strict optional boolean lineage, total deterministic capability order
+and selected-view/source-bound preview evidence, with exact focused regressions
+passing. Freeze and repeat final exact-head review plus fresh H-tier gates.
+
 Generic-readback repair PR #643 merged independently approved exact head
 `f8f28c94ae8f4a6f8f15dd8a5ad187cd35dafd2c` as
 `bbe8a789d05a7df688661eb8e2370bb26583dc8f` after H-tier run
