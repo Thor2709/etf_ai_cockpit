@@ -3340,3 +3340,72 @@ share one report decision as-of, persisted as-of identities are cross-checked,
 and requested account/portfolio/snapshot values must exactly match the supplied
 immutable snapshot. Distinct A/B binding and fail-closed UI/application
 regressions pass; `execution_allowed=false` remains unchanged.
+
+## ISSUE-0024 product lane — 2026-08-12
+
+ISSUE-0021 PR #677 merged reviewed head
+`42b8dce8ab34441c78c4e4e82ac7d1d9cf894ad1` as exact main
+`6784b054d13b36c0ca4cd6434ab1bec85cc8131f`; H-tier run `31520049790`
+passed Linux, Windows and terminal validation. ISSUE-0024 is now the earliest
+canonical dependency-ready phase-01 product issue. Clean branch
+`codex/issue0024-product-20260812` starts from that exact main.
+
+The exact-main audit found the event schema, required event vocabulary,
+local-first atomic persistence, availability cutoff and both required UI
+surfaces already present. Implement only the reproduced boundary gaps:
+validate timezone metadata, expose explicit decision-time availability in
+normal event readback and add focused all-type plus quota/unavailable evidence.
+No provider/network, score, proposal, broker or execution authority is added;
+`execution_allowed=false` remains unchanged.
+
+The completed bounded delta validates IANA timezone metadata, rejects ambiguous
+datetime cutoffs, applies the existing availability/ingestion filter to both UI
+surfaces and exposes exact decision-time provenance only for rows known at that
+cutoff. Missing cutoffs suppress event rows. The focused 73-test event/import,
+source-policy, quota non-destruction, UI and architecture set plus Ruff,
+compile, programme check and diff hygiene pass. Freeze one classified exact
+head for parallel review and required hosted validation.
+
+`CONSOLIDATED_EVENT_INTEGRITY_CORRECTION` invalidates exact head
+`527c9062c2c73d94898d98aa403e4803dddfb6b1` and run `31525671258` after
+both parallel verdicts were collected. The demonstrated defects were a lost
+concurrent append, malformed-ledger disclosure, populated event time under date
+precision and lost public-route coverage. The single closure serializes the
+append transaction, rejects incomplete, tampered or authority-inconsistent
+canonical rows on load and append, enforces precision and restores the public
+News/Context route test. Synchronized two-writer, malformed-ledger no-write,
+both UI and complete affected focused suites plus Ruff, compile, generator
+check and diff hygiene pass. Freeze one replacement exact head for both reviews
+and fresh H-tier gates; do not add retry or adjacent persistence architecture.
+
+`EVENT_TRIAD_AND_CONFLICT_CORRECTION` invalidates replacement head
+`87422b3d99222a5b6e30b1c9153b22accad9660d` and run `31527781649` after
+both repeated reviews completed. The sole bounded follow-up binds clean rows
+to exact contained raw JSON and audit row/frame checksums, requires lexical
+`YYYY-MM-DD`, and rejects conflicting valid observations on load/disclosure.
+Add exact no-write and both-surface regressions only; do not broaden the event
+store, add recovery, or reopen infrastructure work.
+
+The bounded follow-up closes the exact set: clean rows bind to canonical raw
+paths/payloads and audit row/frame identity; orphan, missing, extra, escaped or
+tampered evidence fails before writes; dates are lexical; duplicate/conflicting
+observations fail load and both UI surfaces. The complete affected suites and
+static/generator checks pass. Freeze this final replacement for both reviews
+and fresh H-tier validation without adjacent generalisation.
+
+`FINAL_EVENT_BUNDLE_CLOSURE` invalidates `cba1b3e8090445a119bbc9e9213a919f9c093f0d`
+and run `31529996742`. Both final verdicts identified only audit-entry content
+binding and nested raw JSON enumeration. Derive the complete audit validation
+list from canonical rows and reject nested/linked raw entries, with exact
+no-write regressions. This is the terminal bounded closure; do not add another
+event-store hardening cycle.
+
+`RAW_INVENTORY_PREFLIGHT_CORRECTION` invalidates
+`243949f8dc03f4f8328fa6bbf427d55e6004c58b` and run `31531221048` after the
+complete parallel verdict set reproduced the same bounded inventory gap in
+fresh and existing bundles. A missing clean ledger now rejects every existing
+raw entry; a complete bundle accepts only its exact canonical raw JSON files
+and the atomic writer's named durable guard. Nested fresh evidence and extra
+non-JSON existing evidence fail before any clean, audit or raw write. Add no
+retry, recovery or adjacent persistence redesign; freeze one replacement head
+for both reviews and fresh H-tier validation.

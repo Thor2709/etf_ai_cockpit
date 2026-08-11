@@ -27,6 +27,8 @@ from etf_cockpit.application.ui_facade import (
     load_fundamental_evidence,
     load_news_items,
     load_calendar_events,
+    events_available_as_of,
+    normalise_event_decision_time,
     load_classification_projection,
     load_identity_projection,
     load_fixed_income_terms_projection,
@@ -44,7 +46,6 @@ from etf_cockpit.application.ui_facade import (
     read_priips_kid_records,
     score_history_frame,
     sort_news_items,
-    sort_calendar_events,
 )
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.core.paths import ETF_QUOTES_PATH
@@ -526,29 +527,57 @@ def _news_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[s
     return {"status": "available", "message": "News is context-only and cannot change deterministic scores.", "items": items, "context_only": True, "executable_authority": False, "execution_allowed": False}
 
 
-def _event_calendar_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
+def _event_calendar_panel(
+    instrument_id: str,
+    frame: pd.DataFrame | None = None,
+    *,
+    decision_time: object = None,
+) -> dict[str, Any]:
     """Return upcoming event evidence without allowing it into score paths."""
+
+    cutoff = normalise_event_decision_time(decision_time)
+    decision_label = cutoff.isoformat() if cutoff is not None else "unavailable"
+    panel_metadata = {
+        "decision_time": decision_label,
+        "decision_time_available": cutoff is not None,
+        "available_at_decision_time": cutoff is not None,
+        "context_only": True,
+        "executable_authority": False,
+        "execution_allowed": False,
+    }
+
+    def unavailable(message: str) -> dict[str, Any]:
+        return _unavailable(message) | {"events": [], **panel_metadata}
+
+    if cutoff is None:
+        return unavailable("Event calendar unavailable; snapshot decision time is unavailable, so event availability is not asserted.")
 
     try:
         source = frame if isinstance(frame, pd.DataFrame) else load_calendar_events(EVENT_CLEAN_PATH)
     except Exception:
-        return _unavailable("Event calendar unavailable; the optional local store is missing or corrupt.") | {"events": [], "context_only": True, "executable_authority": False}
+        return unavailable("Event calendar unavailable; the optional local store is missing or corrupt.")
     if source.empty or "instrument_id" not in source.columns:
-        return _unavailable("Event calendar unavailable; no local earnings, dividend or action records are registered.") | {"events": [], "context_only": True, "executable_authority": False}
+        return unavailable("Event calendar unavailable; no local earnings, dividend or action records are registered.")
     try:
-        scoped = sort_calendar_events(_instrument_rows(source, instrument_id))
+        scoped = events_available_as_of(source, cutoff, instrument_id)
     except Exception:
-        return _unavailable("Event calendar unavailable; the local store is malformed.") | {"events": [], "context_only": True, "executable_authority": False}
+        return unavailable("Event calendar unavailable; the local store is malformed.")
     if scoped.empty:
-        return _unavailable("Event calendar unavailable for this instrument.") | {"events": [], "context_only": True, "executable_authority": False}
+        return unavailable("Event calendar unavailable; no records were available for this instrument at the snapshot decision time.")
     events = []
     for row in scoped.to_dict("records")[:30]:
         item = dict(row)
-        item.update({"context_only": True, "execution_allowed": False, "executable_authority": False})
+        item.update(
+            {
+                "available_at_decision_time": True,
+                "decision_time": decision_label,
+                "context_only": True,
+                "execution_allowed": False,
+                "executable_authority": False,
+            }
+        )
         events.append(item)
-    return {"status": "available", "message": "Events are context-only risk evidence and cannot change deterministic scores or actions.", "events": events, "context_only": True, "executable_authority": False, "execution_allowed": False}
-
-
+    return {"status": "available", "message": "Events are context-only risk evidence and cannot change deterministic scores or actions.", "events": events, **panel_metadata}
 def _news_item_record(row: Mapping[str, Any]) -> dict[str, Any]:
     """Normalise every row to the provenance fields rendered by Instrument Detail."""
 
@@ -1670,7 +1699,7 @@ def build_instrument_detail(
             "etf_holdings": disclosure.get("exposure", _unavailable("ETF holdings/exposure unavailable.")),
             "etf_overlap": direct_overlap_payload(overlap),
             "news": _news_panel(instrument_id, news),
-            "events": _event_calendar_panel(instrument_id, events),
+            "events": _event_calendar_panel(instrument_id, events, decision_time=projection_time or decision_time),
             "forecasts": _forecast_panel(snapshot, instrument_id),
             "backtests": _backtest_panel(snapshot, instrument_id, scoreboard),
             "paper_trades": _paper_trade_panel(instrument_id, paper_trades),

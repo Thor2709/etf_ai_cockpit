@@ -2056,3 +2056,81 @@ next action and whether the requested outcome is actually complete.
   snapshot and rejects mismatched selections. Report-only staleness, distinct
   A/B source checksums and UI relabelling regressions pass. Freeze one exact
   replacement head for the repeated reviews and fresh H-tier gates.
+
+## ISSUE-0021 completion and ISSUE-0024 product checkpoint — 2026-08-12
+
+- ISSUE-0021 product PR #677 merged exact independently reviewed head
+  `42b8dce8ab34441c78c4e4e82ac7d1d9cf894ad1` as exact main
+  `6784b054d13b36c0ca4cd6434ab1bec85cc8131f`. H-tier run `31520049790`
+  passed classifier, preflight, supply chain, Linux, Windows and terminal
+  validation. The merged portfolio sandbox remains context-only and
+  `execution_allowed=false`. ISSUE-0018's unprojected sequence-23 follow-up
+  remains frozen under the completed bounded repair-cycle limit.
+- ISSUE-0024, "Earnings, dividends and event calendar", is the next canonical
+  phase-01 implementation-order issue. It is P1/P2, `implemented_initially`,
+  dependency-ready and activation-ready with no blocking dependencies. Clean
+  lane `codex/issue0024-product-20260812` starts at exact main
+  `6784b054d13b36c0ca4cd6434ab1bec85cc8131f` with an empty diff.
+- Exact-main audit confirms the canonical local-first event ledger, complete
+  required event vocabulary, atomic raw/clean/audit persistence, point-in-time
+  cutoff helper, Instrument Detail and News/Context surfaces already exist.
+  The bounded product gap is to validate declared event timezone metadata,
+  make decision-time availability explicit in normal UI readback, and prove
+  every required event type plus visible non-destructive quota/unavailable
+  handling. Do not add a provider, network authority, scoring authority or
+  execution path; preserve `execution_allowed=false`.
+- The bounded delta now validates IANA timezone names, uses one canonical
+  fail-closed decision-time normaliser, filters both UI surfaces through the
+  existing availability/ingestion cutoff and suppresses raw event rows when a
+  cutoff is absent. All required event types, event import/persistence,
+  source-policy quota behavior, onboarding quota non-destruction, UI,
+  architecture, Ruff, compile, generator check and diff hygiene pass in the
+  73-test focused set. Classify the complete diff, commit one stable head and
+  launch both independent reviews plus required hosted evidence in parallel.
+- Frozen head `527c9062c2c73d94898d98aa403e4803dddfb6b1` and H-tier run
+  `31525671258` are invalidated after both reviewers completed. The consolidated
+  finding set was exact and bounded: concurrent appends could lose one
+  canonical row, incomplete ledgers could be stamped decision-time available,
+  date precision accepted a populated event time, and the public News/Context
+  route lost direct test coverage.
+- The single consolidated correction serializes the complete read/merge/publish
+  append under the existing persistent guard, independently verifies complete
+  canonical rows and checksums before load, disclosure or republication,
+  enforces date/time precision and restores public route coverage. Concurrent
+  append, malformed-ledger no-write and both UI regressions pass with the
+  complete affected focused suite, Ruff, compile, programme byte-clean check
+  and diff hygiene. Freeze one replacement head for both reviews and fresh
+  H-tier hosted validation; add no adjacent work.
+- Replacement head `87422b3d99222a5b6e30b1c9153b22accad9660d` and run
+  `31527781649` are invalidated after both repeated verdicts were collected.
+  Three newly demonstrated integrity gaps remain: clean rows are not bound to
+  their contained raw JSON and audit summary, `event_date` accepts a datetime
+  suffix, and individually valid conflicting observations can still be loaded
+  and disclosed. Use the one bounded follow-up to close exactly this clean/raw/
+  audit, lexical-date and conflict set with no retry, adjacent hardening or
+  shared persistence redesign.
+- The bounded follow-up now validates the complete clean/raw/audit bundle,
+  exact contained raw names and payloads, audit row/frame identity, lexical
+  dates, duplicate rows and conflicting observations before load, disclosure
+  or append. Orphan/missing/extra/tampered evidence remains untouched and
+  fails closed. The complete affected event/import/source-policy/quota/UI/
+  architecture suite, Ruff, compile, generator byte-clean check and diff
+  hygiene pass. Freeze this final replacement head for both reviews and fresh
+  H-tier gates; no further event-store generalisation is in scope.
+- Head `cba1b3e8090445a119bbc9e9213a919f9c093f0d` and run `31529996742`
+  are invalidated after both final reviews found two omissions inside the same
+  triad contract: audit validation entries were not content-bound and nested
+  raw JSON was outside the flat inventory. The final minimal closure derives
+  exact audit entries from every canonical row and rejects nested or linked raw
+  entries before load or append. Add only the two no-write regressions, rerun
+  the affected suite once and freeze the replacement head; no further
+  hardening cycle is permitted.
+- Head `243949f8dc03f4f8328fa6bbf427d55e6004c58b` and run `31531221048`
+  are invalidated after both reviewers reproduced one remaining raw-inventory
+  boundary in two states: a fresh store accepted nested evidence before its
+  first clean ledger, and an existing bundle ignored an extra non-JSON file.
+  The consolidated correction treats every pre-existing raw entry as evidence
+  when no clean ledger exists and permits only the exact canonical raw JSON
+  set plus the atomic writer's named durable guard once a ledger exists. Exact
+  no-write regressions cover both cases; no adjacent event-store change is in
+  scope. Freeze one replacement head for both reviews and fresh H-tier gates.

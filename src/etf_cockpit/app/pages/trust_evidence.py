@@ -53,6 +53,8 @@ from etf_cockpit.application.ui_facade import (
     legal_terms_rows,
     load_news_items,
     load_calendar_events,
+    events_available_as_of,
+    normalise_event_decision_time,
     persist_index_methodology_with_document,
     persist_priips_kid_with_document,
     read_document_registry,
@@ -379,7 +381,6 @@ def news_context_page(_page: ft.Page, state: AppState) -> ft.Control:
         "Free/manual news and context evidence. News is non-executable and cannot directly change scores or actions.",
         [
             ("News/context inventory", NEWS_CONTEXT_PATH, ["instrument_id", "source_url", "published_at", "ingested_at", "provider_name", "credibility", "instrument_mapping_method", "available_at_decision_time", "timestamp_status", "context_only", "executable_authority", "raw_path"]),
-            ("Event calendar", EVENT_CLEAN_PATH, ["instrument_id", "event_type", "event_date", "event_time", "available_at", "ingested_at", "source_id", "source_authority", "precision", "risk_level", "context_only", "execution_allowed"]),
             ("Point-in-time validation", NEWS_TIMESTAMP_VALIDATION_PATH, ["news_id", "timestamp_status", "backtest_eligible", "reason", "available_at_decision_time", "instrument_mapping_method"]),
             ("Optional free provider status", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "message"]),
             ("Fundamental source limitations", FUNDAMENTAL_CLEAN_PATH, ["instrument_id", "source", "source_authority", "limitations", "score_eligible", "executable_authority"]),
@@ -405,7 +406,41 @@ def _news_context_extra(state: AppState) -> ft.Control:
         events = load_calendar_events(EVENT_CLEAN_PATH)
     except Exception:
         events = pd.DataFrame()
-    event_text = "Event calendar unavailable; no canonical local event records are registered." if events.empty else f"{len(events)} event records are available. Events remain context-only, execution_allowed=false, and do not change scores or actions."
+    decision_time = normalise_event_decision_time(
+        getattr(getattr(state.snapshot, "data_report", None), "as_of_date", None)
+    )
+    decision_label = decision_time.isoformat() if decision_time is not None else "unavailable"
+    if decision_time is None:
+        events = pd.DataFrame()
+    elif not events.empty:
+        try:
+            events = events_available_as_of(events, decision_time)
+        except Exception:
+            events = pd.DataFrame()
+    if events.empty:
+        event_text = "Event calendar unavailable; no event records are available at the snapshot decision time." if decision_time is not None else "Event calendar unavailable; snapshot decision time is unavailable, so event availability is not asserted."
+        event_rows: list[ft.Control] = []
+    else:
+        event_text = f"{len(events)} event records are available at decision_time={decision_label}. Events remain context-only, execution_allowed=false, and do not change scores or actions."
+        event_rows = [
+            ft.Text(
+                " | ".join(
+                    (
+                        f"{row.get('event_type', 'event')}={row.get('event_date', 'unavailable')}",
+                        f"source_url={row.get('source_url', 'unavailable')}",
+                        f"timezone_name={row.get('timezone_name', 'unavailable')}",
+                        f"available_at_decision_time={decision_time is not None}",
+                        f"decision_time={decision_label}",
+                        "context_only=true",
+                        "execution_allowed=false",
+                    )
+                ),
+                color=theme.MUTED,
+                selectable=True,
+                size=11,
+            )
+            for _, row in events.head(30).iterrows()
+        ]
 
     return panel(
         ft.Column(
@@ -414,12 +449,11 @@ def _news_context_extra(state: AppState) -> ft.Control:
                 body,
                 section_header("Event calendar status", "Earnings, dividend, split and high-risk action records retain source and availability metadata."),
                 ft.Text(event_text, color=theme.MUTED, selectable=True),
+                *event_rows,
             ],
             spacing=8,
         )
     )
-
-
 def _status_page(title: str, subtitle: str, tables: list[tuple[str, Path, list[str]]], *, extra: ft.Control | None = None) -> ft.Control:
     controls: list[ft.Control] = [
         panel(
