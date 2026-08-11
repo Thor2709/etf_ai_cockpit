@@ -3219,3 +3219,18 @@ the complete universe/onboarding/manager suite pass with two capability skips;
 Ruff, compile and diff hygiene pass. Freeze one final documented head for both
 exact-head reviews and fresh H-tier Linux/Windows/terminal evidence.
 `execution_allowed=false` remains unchanged.
+
+## ISSUE-0018 lifecycle completion — 2026-08-11
+
+Product PR #674 merged reviewed head `5b2bd54347fc8b2b683bc44b9a415702a7a778b2`
+as `94e6376e1a81cdd11bc6c64adc1ebd6499c26bac` after exact-head H-tier run
+`31462859675` passed classifier, preflight, supply chain, Linux, Windows and
+terminal validation and both independent reviews approved. The dedicated
+lifecycle transaction permits only ISSUE-0018
+`implemented_initially -> integrated`. Live plan
+`ed62f5135396abb107b07b808aafe77733a2b3856e45cbb11ddb179458c9b0d7`
+contains one programme-status update for GitHub #22 and no other action;
+authority sequence 23 binds that plan to the exact product merge. After merge,
+require writer `applied_and_verified`, generic zero-action readback and
+unchanged `execution_allowed=false`, then select the next canonical
+dependency-ready issue.

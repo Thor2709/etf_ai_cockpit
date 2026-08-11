@@ -1915,6 +1915,28 @@ next action and whether the requested outcome is actually complete.
   `33f31a3d3e9cd025da38c4fc94f5ea380ef51b7d` applies the existing guarded
   pattern and adds a deterministic redirect-race regression. All 46 import
   regressions plus Ruff, compile and diff hygiene pass. Freeze and revalidate.
+
+## ISSUE-0018 lifecycle checkpoint — 2026-08-11
+
+- Product PR #674 merged exact independently approved head
+  `5b2bd54347fc8b2b683bc44b9a415702a7a778b2` as exact main
+  `94e6376e1a81cdd11bc6c64adc1ebd6499c26bac`. Run `31462859675`
+  passed classifier, preflight, supply chain, authoritative Linux and Windows
+  package gates and terminal validation; `execution_allowed=false` remains
+  unchanged.
+- Clean lifecycle lane `codex/issue0018-lifecycle-20260811` starts from that
+  exact main. Its only canonical mutation is ISSUE-0018
+  `implemented_initially -> integrated`; no dependency-edge change is
+  authorised. Mechanical generation is byte-clean.
+- Exact live plan `ed62f5135396abb107b07b808aafe77733a2b3856e45cbb11ddb179458c9b0d7`
+  contains one update for GitHub issue #22 and no other action. Candidate
+  authority ref `21796ad5c30c5f53cd5487b5bbc1876321122b392579c08357cdd7e2af461cf0`
+  and append-only authority sequence 23/id
+  `db7622b54f8afd1ccdf24a6b356f3691aecb2e46b68c90136e8389aa2b9c08d8`
+  bind the same snapshot, plan and product merge.
+- Freeze one lifecycle head after focused guards. Require independent exact-head
+  review, merge, ordered writer `applied_and_verified`, and generic zero-action
+  readback before selecting the next dependency-ready product issue.
 - Whole-diff review approved head `d74e32e6e655ff639587c9fe18f0ba211c7624fa`
   and risk review verified the guard fix but reproduced one independent parser
   defect: ragged CSV rows could discard trailing fields. Run `31461743133` is

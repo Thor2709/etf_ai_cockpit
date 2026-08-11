@@ -633,17 +633,45 @@
       "verified_date": "2026-08-11"
     },
     "ISSUE-0018": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #674 merged exact independently approved head 5b2bd54347fc8b2b683bc44b9a415702a7a778b2 as 94e6376e1a81cdd11bc6c64adc1ebd6499c26bac",
+            "Release run 31462859675 passed fresh classifier, preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Acceptance evidence covers local CSV, XLSX, paste and supplied-provider universe imports, deterministic identity and exclusion evidence, immutable source correction overlays, versioned manifests, cancel-safe resume, guarded persistence and execution_allowed=false"
+          ],
+          "review_reference": "PR #674 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-11",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-01-governance-scope",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "PR #674 exact-head whole-diff and risk reviews plus H-tier validation",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #674 merged exact independently approved head 5b2bd54347fc8b2b683bc44b9a415702a7a778b2 as 94e6376e1a81cdd11bc6c64adc1ebd6499c26bac",
+            "Release run 31462859675 passed fresh classifier, preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Acceptance evidence covers local CSV, XLSX, paste and supplied-provider universe imports, deterministic identity and exclusion evidence, immutable source correction overlays, versioned manifests, cancel-safe resume, guarded persistence and execution_allowed=false"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #674 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-11",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "to": "integrated",
+          "verified_commit": "94e6376e1a81cdd11bc6c64adc1ebd6499c26bac"
+        }
+      ],
+      "verified_commit": "94e6376e1a81cdd11bc6c64adc1ebd6499c26bac",
+      "verified_date": "2026-08-11"
     },
     "ISSUE-0019": {
       "acceptance_evidence": [],
