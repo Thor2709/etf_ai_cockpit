@@ -93,6 +93,7 @@ class PortfolioSnapshotBinding:
     source_checksum: str
     as_of: str | None
     holdings_view: str = "combined"
+    holdings_sources: tuple[str, ...] = ()
     execution_allowed: Literal[False] = False
 
 
@@ -158,6 +159,8 @@ def holdings_checksum(holdings: pd.DataFrame) -> str:
                 "is_look_through": _checksum_value(values.get("is_look_through")),
                 "source_id": _checksum_value(values.get("source_id")),
                 "holdings_source": _checksum_value(values.get("holdings_source")),
+                "source": _checksum_value(values.get("source")),
+                "as_of_date": _checksum_value(values.get("as_of_date")),
                 "asset_type": _checksum_value(values.get("asset_type")),
                 "instrument_type": _checksum_value(values.get("instrument_type")),
                 "asset_class": _checksum_value(values.get("asset_class")),
@@ -489,7 +492,12 @@ def _holding_rows(config: AppConfig, holdings: pd.DataFrame) -> tuple[PortfolioH
                 market_value_eur=round(_finite_number(values.get("market_value_eur", 0.0), "market_value_eur"), 8),
                 capability_status=status,
                 capability_reason=reason,
-                source_id=str(values.get("source_id", values.get("holdings_source", "")) or ""),
+                source_id=str(
+                    values.get("source_id")
+                    or values.get("holdings_source")
+                    or values.get("source")
+                    or ""
+                ),
             )
         )
     return tuple(

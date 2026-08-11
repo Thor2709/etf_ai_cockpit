@@ -736,6 +736,30 @@ def test_as_of_only_change_marks_source_stale_and_suppresses_result(tmp_path) ->
     assert loaded.result_payload is None
 
 
+def test_holdings_vintage_and_provider_change_invalidate_result(tmp_path) -> None:
+    snapshot = _snapshot()
+    snapshot.holdings["as_of_date"] = "2026-07-17"
+    snapshot.holdings["source"] = "broker-A"
+    saved = save_portfolio_candidate(
+        snapshot,
+        name="Holdings provenance",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.6, "LYP6": 0.3},
+        cash_weight=0.1,
+        expected_revision=0,
+        root=tmp_path,
+    )
+    assert saved.result_payload["source_snapshot"]["as_of"] == "2026-07-17"
+    assert saved.result_payload["source_snapshot"]["holdings_sources"] == ["broker-A"]
+
+    snapshot.holdings["as_of_date"] = "2026-07-18"
+    snapshot.holdings["source"] = "broker-B"
+    loaded = load_portfolio_candidate(snapshot, "Holdings provenance", root=tmp_path)
+
+    assert loaded.source_stale is True
+    assert loaded.result_payload is None
+
+
 def test_recomputed_checksum_cannot_authorise_noncanonical_result_content(tmp_path) -> None:
     snapshot = _snapshot()
     saved = save_portfolio_candidate(

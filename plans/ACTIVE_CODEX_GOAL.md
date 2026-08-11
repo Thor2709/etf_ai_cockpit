@@ -2005,6 +2005,14 @@ next action and whether the requested outcome is actually complete.
   filtered preview now close the exact reproductions; focused sandbox/UI and
   static checks pass. Freeze the next head for the final repeated reviews and
   fresh H-tier evidence only.
+- Head `0b57ede3c30214fa6261a84f11fbd9b032ef930e` and run
+  `31512179961` are invalidated after final review found that production
+  holdings `as_of_date`/`source` were not bound and that the legacy ETF-only
+  rebalance service threw on a supported mixed-asset target. Row-level holdings
+  vintage/provider now participate in checksum and cited binding, and mixed
+  assets receive an explicit source-bound inapplicable preview without silent
+  removal. Exact provenance/load and AAPL UI regressions plus focused checks
+  pass. Freeze the next head for final review and fresh H gates.
 - Whole-diff review approved head `d74e32e6e655ff639587c9fe18f0ba211c7624fa`
   and risk review verified the guard fix but reproduced one independent parser
   defect: ragged CSV rows could discard trailing fields. Run `31461743133` is

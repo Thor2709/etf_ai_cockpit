@@ -45,7 +45,7 @@ _RESULT_FIELDS = frozenset({
     "constraints", "marginal_effects", "why_not", "overlap", "warnings", "cost", "service_evidence",
     "proposal_boundary", "execution_allowed", "payload_checksum",
 })
-_SOURCE_FIELDS = frozenset({"account_id", "portfolio_id", "snapshot_id", "source_revision", "source_checksum", "as_of", "holdings_view", "execution_allowed"})
+_SOURCE_FIELDS = frozenset({"account_id", "portfolio_id", "snapshot_id", "source_revision", "source_checksum", "as_of", "holdings_view", "holdings_sources", "execution_allowed"})
 _HANDOFF_FIELDS = frozenset({
     "schema_version", "boundary", "status", "proposal_policy_evaluated", "candidate_id", "account_id",
     "portfolio_id", "portfolio_revision", "source_snapshot_id", "source_snapshot", "changes", "rejected",
@@ -292,14 +292,23 @@ def portfolio_snapshot_binding(
     selected_account = str(account_id or getattr(snapshot, "account_id", "default") or "default")
     selected_portfolio = str(portfolio_id or getattr(snapshot, "portfolio_id", "default") or "default")
     selected_snapshot = str(snapshot_id or getattr(snapshot, "snapshot_id", "") or f"{selected_portfolio}:{revision}:{checksum[:12]}")
+    holdings_dates = _holding_evidence_values(holdings, "as_of_date")
+    holdings_sources = tuple(
+        sorted(
+            set(_holding_evidence_values(holdings, "source"))
+            | set(_holding_evidence_values(holdings, "holdings_source"))
+            | set(_holding_evidence_values(holdings, "source_id"))
+        )
+    )
     return PortfolioSnapshotBinding(
         account_id=selected_account,
         portfolio_id=selected_portfolio,
         snapshot_id=selected_snapshot,
         source_revision=revision,
         source_checksum=checksum,
-        as_of=_source_as_of(snapshot),
+        as_of=(holdings_dates[0] if len(holdings_dates) == 1 else f"multiple:{','.join(holdings_dates)}" if holdings_dates else _source_as_of(snapshot)),
         holdings_view=str(holdings_view or "combined"),
+        holdings_sources=holdings_sources,
     )
 
 
@@ -324,7 +333,7 @@ def portfolio_analysis_payload(
         "candidate_id": analysis.candidate.candidate_id,
         "candidate_revision": candidate_revision,
         "candidate_payload_checksum": expected_candidate_checksum,
-        "source_snapshot": None if binding is None else asdict(binding),
+        "source_snapshot": None if binding is None else _jsonable(asdict(binding)),
         "before_after": [
             {"instrument_id": instrument_id, "before_weight": before, "after_weight": after}
             for instrument_id, before, after in analysis.before_after
@@ -383,7 +392,7 @@ def draft_portfolio_proposal(snapshot: object, analysis: PortfolioAnalysis) -> d
         "candidate_payload_checksum": _candidate_payload(analysis.candidate)["payload_checksum"],
         "candidate_source_checksum": analysis.candidate.source_checksum,
         "result_checksum": result["payload_checksum"],
-        "source_snapshot": asdict(binding),
+        "source_snapshot": _jsonable(asdict(binding)),
         "service_evidence": _jsonable(analysis.service_evidence),
     }
     body = {
@@ -396,7 +405,7 @@ def draft_portfolio_proposal(snapshot: object, analysis: PortfolioAnalysis) -> d
         "portfolio_id": binding.portfolio_id,
         "portfolio_revision": binding.source_revision,
         "source_snapshot_id": binding.snapshot_id,
-        "source_snapshot": asdict(binding),
+        "source_snapshot": _jsonable(asdict(binding)),
         "changes": changes,
         "rejected": rejected,
         "why_not": [{"instrument_id": key, "reason": value} for key, value in analysis.why_not],
@@ -505,6 +514,17 @@ def _source_as_of(snapshot: object) -> str | None:
     report = getattr(snapshot, "data_report", None)
     value = getattr(report, "as_of_date", None)
     return str(value) if value is not None else None
+
+
+def _holding_evidence_values(holdings: pd.DataFrame, field: str) -> tuple[str, ...]:
+    if field not in holdings.columns:
+        return ()
+    values = {
+        text
+        for value in holdings[field].tolist()
+        if (text := _text_value(value))
+    }
+    return tuple(sorted(values))
 
 
 def _default_notional(snapshot: object) -> float:
@@ -811,7 +831,7 @@ def _validate_loaded_result(
     source = payload.get("source_snapshot")
     if not isinstance(source, dict) or set(source) != _SOURCE_FIELDS or source.get("execution_allowed") is not False:
         raise ValueError("saved portfolio sandbox result source binding is malformed")
-    current_source = None if analysis.snapshot_binding is None else asdict(analysis.snapshot_binding)
+    current_source = None if analysis.snapshot_binding is None else _jsonable(asdict(analysis.snapshot_binding))
     if source != current_source:
         return None
     _assert_no_execution(payload)

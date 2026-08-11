@@ -1382,6 +1382,14 @@ fix uses strict optional boolean lineage, total deterministic capability order
 and selected-view/source-bound preview evidence, with exact focused regressions
 passing. Freeze and repeat final exact-head review plus fresh H-tier gates.
 
+`ISSUE_0021_PROVENANCE_PREVIEW_CORRECTION` invalidates head
+`0b57ede3c30214fa6261a84f11fbd9b032ef930e` and run `31512179961`.
+Production holdings vintage/provider changes are now line-bound and cited in
+the selected snapshot, suppressing stale results, while mixed-asset targets
+receive an explicit source-bound inapplicable result from the ETF-only discrete
+rebalance preview. Exact regressions and focused checks pass; freeze for final
+review and fresh H-tier evidence.
+
 Generic-readback repair PR #643 merged independently approved exact head
 `f8f28c94ae8f4a6f8f15dd8a5ad187cd35dafd2c` as
 `bbe8a789d05a7df688661eb8e2370bb26583dc8f` after H-tier run

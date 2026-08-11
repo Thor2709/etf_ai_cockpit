@@ -192,6 +192,41 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 snapshot_id=str(snapshot.value or "current"),
                 holdings_view=str(holdings_view.value or "combined"),
             )
+            inapplicable = sorted(
+                instrument_id
+                for instrument_id, weight in targets.items()
+                if float(weight) > 0 and instrument_id not in universe
+            )
+            if inapplicable:
+                rebalance_host.controls = [
+                    panel(
+                        ft.Column(
+                            [
+                                section_header(
+                                    "Rebalance workspace",
+                                    "The existing discrete rebalance service is ETF-only; mixed-asset targets remain explicit and are not silently discarded.",
+                                ),
+                                ft.Text(
+                                    "Inapplicable mixed-asset targets: " + ", ".join(inapplicable),
+                                    color=theme.AMBER,
+                                    selectable=True,
+                                ),
+                                ft.Text(
+                                    f"source=account={binding.account_id} | portfolio={binding.portfolio_id} | snapshot={binding.snapshot_id} | "
+                                    f"as_of={binding.as_of or 'unavailable'} | view={binding.holdings_view} | checksum={binding.source_checksum[:12]} | execution_allowed=false",
+                                    color=theme.MUTED,
+                                    size=11,
+                                    selectable=True,
+                                ),
+                            ]
+                        )
+                    )
+                ]
+                status.value = "Rebalance preview is inapplicable for mixed-asset targets; no target was dropped and no order was created."
+                status.color = theme.AMBER
+                state.last_message = status.value
+                _safe_update(page)
+                return
             report = build_rebalance_report(
                 state.snapshot.config,
                 selected_holdings,

@@ -274,3 +274,27 @@ def test_rebalance_preview_uses_selected_view_and_cites_snapshot() -> None:
     assert "snapshot=current" in result_text
     assert "as_of=2026-07-18" in result_text
     assert "view=direct" in result_text
+
+
+def test_rebalance_preview_reports_mixed_asset_inapplicable_without_dropping_it() -> None:
+    state = _state()
+    state.snapshot.holdings = pd.DataFrame(
+        [
+            {"instrument_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "holding_view": "direct"},
+            {"instrument_id": "AAPL", "asset_type": "stock", "current_weight": 0.3, "market_value_eur": 30_000.0, "holding_view": "direct"},
+        ]
+    )
+    root = portfolio.portfolio_page(None, state)
+    for control in _walk(root):
+        if str(getattr(control, "key", "")).startswith("portfolio.target-weight."):
+            control.value = "0"
+    _by_key(root, "portfolio.target-weight.VWCE").value = "40"
+    _by_key(root, "portfolio.target-weight.AAPL").value = "30"
+    _by_key(root, "portfolio.cash-weight").value = "30"
+
+    _by_key(root, "portfolio.rebalance-preview").on_click(None)
+
+    assert "inapplicable for mixed-asset targets" in str(_by_key(root, "portfolio.status").value)
+    result_text = _text(_by_key(root, "portfolio.rebalance-results"))
+    assert "Inapplicable mixed-asset targets: AAPL" in result_text
+    assert "execution_allowed=false" in result_text
