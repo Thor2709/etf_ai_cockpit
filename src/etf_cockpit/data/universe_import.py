@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass, replace
 from hashlib import sha256
 import io
 import json
+import os
 from pathlib import Path
 import re
 from typing import Iterable, Mapping
@@ -49,6 +50,9 @@ _ROW_CLASSIFICATIONS = frozenset(
     {"resolved", "duplicate", "secondary_line", "unsupported", "inactive", "delisted", "unresolved"}
 )
 _RESUME_STATUSES = frozenset({"pending", "paused", "cancelled", "complete"})
+_XLSX_MAX_INPUT_BYTES = 32 * 1024 * 1024
+_XLSX_MAX_ZIP_ENTRIES = 2_048
+_XLSX_MAX_TOTAL_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
 _XLSX_MAX_MEMBER_BYTES = 16 * 1024 * 1024
 _XLSX_MAX_ROWS = 100_000
 _XLSX_MAX_COLUMNS = 512
@@ -161,6 +165,43 @@ def _field(row: Mapping[str, object], *names: str) -> str:
     return ""
 
 
+def _strict_mapping(
+    items: Iterable[tuple[object, object]],
+    *,
+    source_label: str,
+    stringify_values: bool,
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    normalized: dict[str, str] = {}
+    for raw_key, raw_value in items:
+        key = str(raw_key)
+        semantic_key = _header(key)
+        if semantic_key in normalized:
+            raise ValueError(
+                f"{source_label} contains normalized key collision: "
+                f"{normalized[semantic_key]} / {key}"
+            )
+        normalized[semantic_key] = key
+        result[key] = _text(raw_value) if stringify_values else raw_value
+    return result
+
+
+def _decode_json(text: str, *, source_label: str) -> object:
+    def reject_collisions(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        raw_keys: set[str] = set()
+        for key, _value in pairs:
+            if key in raw_keys:
+                raise ValueError(f"duplicate {source_label} JSON key: {key}")
+            raw_keys.add(key)
+        return _strict_mapping(
+            pairs,
+            source_label=f"{source_label} JSON object",
+            stringify_values=False,
+        )
+
+    return json.loads(text, object_pairs_hook=reject_collisions)
+
+
 def _validate_unique_headers(headers: Iterable[object], source_label: str) -> list[str]:
     values = [_text(value) or f"column_{index + 1}" for index, value in enumerate(headers)]
     seen: set[str] = set()
@@ -170,15 +211,6 @@ def _validate_unique_headers(headers: Iterable[object], source_label: str) -> li
             raise ValueError(f"duplicate {source_label} header: {value}")
         seen.add(normalized)
     return values
-
-
-def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    result: dict[str, object] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate provider JSON key: {key}")
-        result[key] = value
-    return result
 
 
 def _as_bool(value: object) -> bool | None:
@@ -192,6 +224,21 @@ def _as_bool(value: object) -> bool | None:
     if text in {"0", "false", "no", "n", "off", "inactive", "disabled"}:
         return False
     return None
+
+
+def _strict_boolean_field(row: Mapping[str, object], *names: str) -> bool | None:
+    values = {_header(key): value for key, value in row.items()}
+    selected: bool | None = None
+    for name in names:
+        value = values.get(_header(name))
+        if value is None or not _text(value):
+            continue
+        parsed = _as_bool(value)
+        if parsed is None:
+            raise ValueError(f"{name} must be a recognized boolean value")
+        if selected is None:
+            selected = parsed
+    return selected
 
 
 def _decode_bytes(payload: bytes) -> tuple[str, str]:
@@ -285,8 +332,16 @@ def _validate_xlsx_sheet_limits(root: ElementTree.Element) -> None:
 
 
 def _rows_from_xlsx_bytes(payload: bytes) -> tuple[Mapping[str, str], ...]:
+    if len(payload) > _XLSX_MAX_INPUT_BYTES:
+        raise ValueError("XLSX input exceeds byte limit")
     with ZipFile(io.BytesIO(payload)) as archive:
-        for info in archive.infolist():
+        entries = archive.infolist()
+        if len(entries) > _XLSX_MAX_ZIP_ENTRIES:
+            raise ValueError("XLSX ZIP exceeds entry-count limit")
+        total_uncompressed = sum(info.file_size for info in entries)
+        if total_uncompressed < 0 or total_uncompressed > _XLSX_MAX_TOTAL_UNCOMPRESSED_BYTES:
+            raise ValueError("XLSX ZIP exceeds cumulative uncompressed byte limit")
+        for info in entries:
             if info.file_size < 0 or info.file_size > _XLSX_MAX_MEMBER_BYTES:
                 raise ValueError(f"XLSX ZIP member is too large: {info.filename}")
         shared: list[str] = []
@@ -337,6 +392,20 @@ def _rows_from_xlsx_bytes(payload: bytes) -> tuple[Mapping[str, str], ...]:
         )
 
 
+def _provider_rows(text: str) -> tuple[Mapping[str, str], ...]:
+    decoded = _decode_json(text, source_label="provider")
+    if not isinstance(decoded, list) or not all(isinstance(item, Mapping) for item in decoded):
+        raise ValueError("provider JSON input must be a list of row objects")
+    return tuple(
+        _strict_mapping(
+            item.items(),
+            source_label="supplied provider mapping",
+            stringify_values=True,
+        )
+        for item in decoded
+    )
+
+
 def _coerce_rows(source: object, source_kind: str | None) -> tuple[tuple[Mapping[str, str], ...], str, str, str]:
     to_dict = getattr(source, "to_dict", None)
     if callable(to_dict):
@@ -344,7 +413,14 @@ def _coerce_rows(source: object, source_kind: str | None) -> tuple[tuple[Mapping
     if isinstance(source, Mapping):
         source = [source]
     if isinstance(source, (list, tuple)) and all(isinstance(item, Mapping) for item in source):
-        rows = tuple({str(key): _text(value) for key, value in item.items()} for item in source)
+        rows = tuple(
+            _strict_mapping(
+                item.items(),
+                source_label="supplied mapping",
+                stringify_values=True,
+            )
+            for item in source
+        )
         encoded = json.dumps(rows, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
         return rows, source_kind or "provider", "supplied-provider-rows", sha256(encoded).hexdigest()
     is_path = isinstance(source, Path)
@@ -355,8 +431,15 @@ def _coerce_rows(source: object, source_kind: str | None) -> tuple[tuple[Mapping
             is_path = False
     if is_path:
         path = Path(source)
+        is_xlsx = path.suffix.casefold() in {".xlsx", ".xlsm"} or source_kind == "xlsx"
+        if is_xlsx and path.stat().st_size > _XLSX_MAX_INPUT_BYTES:
+            raise ValueError("XLSX input exceeds byte limit")
         payload = path.read_bytes()
-        if path.suffix.casefold() in {".xlsx", ".xlsm"}:
+        if source_kind == "provider":
+            text, _encoding = _decode_bytes(payload)
+            rows = _provider_rows(text)
+            kind = "provider"
+        elif is_xlsx:
             rows = _rows_from_xlsx_bytes(payload)
             kind = source_kind or "xlsx"
         else:
@@ -365,6 +448,10 @@ def _coerce_rows(source: object, source_kind: str | None) -> tuple[tuple[Mapping
             kind = source_kind or "csv"
         return rows, kind, path.name, sha256(payload).hexdigest()
     if isinstance(source, bytes):
+        if source_kind == "provider":
+            text, _encoding = _decode_bytes(source)
+            rows = _provider_rows(text)
+            return rows, "provider", "supplied-provider-rows", sha256(source).hexdigest()
         if source.startswith(b"PK") or source_kind == "xlsx":
             rows = _rows_from_xlsx_bytes(source)
             return rows, source_kind or "xlsx", "supplied-xlsx", sha256(source).hexdigest()
@@ -373,11 +460,8 @@ def _coerce_rows(source: object, source_kind: str | None) -> tuple[tuple[Mapping
         return rows, source_kind or "paste", "pasted-source", sha256(source).hexdigest()
     text = _text(source)
     encoded = text.encode("utf-8")
-    if source_kind == "provider" and text.lstrip().startswith("["):
-        decoded = json.loads(text, object_pairs_hook=_reject_duplicate_json_keys)
-        if not isinstance(decoded, list) or not all(isinstance(item, Mapping) for item in decoded):
-            raise ValueError("provider JSON input must be a list of row objects")
-        rows = tuple({str(key): _text(value) for key, value in item.items()} for item in decoded)
+    if source_kind == "provider":
+        rows = _provider_rows(text)
         return rows, "provider", "supplied-provider-rows", sha256(encoded).hexdigest()
     rows = _rows_from_csv_text(text)
     return rows, source_kind or "paste", "pasted-source", sha256(encoded).hexdigest()
@@ -486,7 +570,11 @@ def dry_run_universe_import(
             raise ValueError("correction overlay row is outside the source rows")
         if not isinstance(overlay, Mapping):
             raise ValueError("correction overlay must be an object")
-        overlays[row_number] = {str(name): _text(value) for name, value in overlay.items()}
+        overlays[row_number] = _strict_mapping(
+            overlay.items(),
+            source_label="correction overlay",
+            stringify_values=True,
+        )
     issues: list[ImportIssue] = []
     records: list[UniverseRecord] = []
     confidence: dict[int, str] = {}
@@ -500,9 +588,20 @@ def dry_run_universe_import(
     for row_number, original in enumerate(rows, start=1):
         row = dict(original)
         row.update(overlays.get(row_number, {}))
+        row = _strict_mapping(
+            row.items(),
+            source_label=f"source row {row_number}",
+            stringify_values=True,
+        )
+        active = _strict_boolean_field(row, "active", "is_active")
+        delisted = _strict_boolean_field(row, "delisted", "is_delisted")
+        leveraged = _strict_boolean_field(row, "leveraged", "is_leveraged")
+        inverse = _strict_boolean_field(row, "inverse", "is_inverse")
+        enabled = _strict_boolean_field(row, "enabled")
+        secondary_line = _strict_boolean_field(row, "secondary_line", "is_secondary_line")
+        is_primary = _strict_boolean_field(row, "is_primary", "primary")
         status = _field(row, "status", "lifecycle_status", "state").casefold()
-        active = _as_bool(_field(row, "active", "is_active"))
-        is_delisted = _as_bool(_field(row, "delisted", "is_delisted")) is True or status == "delisted"
+        is_delisted = delisted is True or status == "delisted"
         is_inactive = active is False or status in {"inactive", "closed", "terminated", "delisted"}
         if is_delisted:
             confidence[row_number] = _identity_mapping_hint(row)
@@ -532,20 +631,17 @@ def dry_run_universe_import(
             continue
         asset_type = _field(row, "asset_type", "instrument_type", "asset_class") or "stock"
         data_policy = _field(row, "data_policy", "frequency", "cadence") or "daily"
-        leveraged = _as_bool(_field(row, "leveraged", "is_leveraged")) is True
-        inverse = _as_bool(_field(row, "inverse", "is_inverse")) is True
-        decision = support_decision(asset_type, data_policy, leveraged, inverse)
+        decision = support_decision(asset_type, data_policy, leveraged is True, inverse is True)
         if not decision.supported:
             unsupported_rows.append(row_number)
             issues.append(ImportIssue(row_number, "unsupported", decision.reason, "warning"))
             continue
         line_type = _field(row, "line_type", "listing_type", "share_class_type", "share_class").casefold()
-        secondary_line = _as_bool(_field(row, "secondary_line", "is_secondary_line"))
         if (
             line_type in {"secondary", "secondary_line", "non_primary", "false"}
             and line_type != "false"
             or secondary_line is True
-            or _as_bool(_field(row, "is_primary", "primary")) is False
+            or is_primary is False
         ):
             secondary_rows.append(row_number)
             issues.append(ImportIssue(row_number, "secondary_line", "Secondary listing/share-class line retained for review.", "warning"))
@@ -561,15 +657,15 @@ def dry_run_universe_import(
             asset_type=asset_type,
             tier=_field(row, "tier", "analysis_tier") or "secondary",
             group=_field(row, "group", "watchlist", "universe_group"),
-            enabled=_as_bool(_field(row, "enabled")) is not False,
+            enabled=enabled is not False,
             data_policy=data_policy,
             currency=_field(row, "currency") or "EUR",
             region=_field(row, "region", "country"),
             sector=_field(row, "sector"),
             theme=_field(row, "theme"),
             notes=_field(row, "notes", "description"),
-            leveraged=leveraged,
-            inverse=inverse,
+            leveraged=leveraged is True,
+            inverse=inverse is True,
         )
         keys = _identity_keys(record, provider_name or _field(row, "provider", "provider_id"), provider_symbol)
         duplicate_key = next((key for key in keys if key in seen), None)
@@ -694,17 +790,71 @@ def build_universe_manifest(
     return replace(provisional, manifest_id=manifest_id)
 
 
+def _reject_escaped_manifest_path(root: Path, path: Path) -> None:
+    """Reject canonical manifest destinations whose path identity escapes root."""
+
+    absolute_root = Path(os.path.abspath(str(root)))
+    absolute_path = Path(os.path.abspath(str(path)))
+    try:
+        relative = absolute_path.relative_to(absolute_root)
+    except ValueError as exc:
+        raise ValueError("universe manifest destination escapes the selected root") from exc
+    current = absolute_root
+    for part in relative.parts:
+        current /= part
+        if current.is_symlink():
+            raise ValueError(f"universe manifest destination contains a symlink: {current}")
+    resolved = absolute_path.resolve(strict=False)
+    if os.path.normcase(str(resolved)) != os.path.normcase(str(absolute_path)):
+        raise ValueError("universe manifest destination contains a symlink or escaped path")
+
+
+class _CheckedManifestDestination:
+    """Revalidate manifest path identity during atomic destination resolution."""
+
+    def __init__(self, root: Path, path: Path) -> None:
+        self._root = root
+        self._path = path
+
+    def _check(self) -> None:
+        _reject_escaped_manifest_path(self._root, self._path)
+
+    def __fspath__(self) -> str:
+        self._check()
+        return os.fspath(self._path)
+
+    @property
+    def parent(self) -> Path:
+        self._check()
+        return self._path.parent
+
+    @property
+    def name(self) -> str:
+        self._check()
+        return self._path.name
+
+    def resolve(self, *args: object, **kwargs: object) -> Path:
+        self._check()
+        return self._path.resolve(*args, **kwargs)
+
+
 def save_universe_manifest(manifest: UniverseManifest, *, root: Path | None = None) -> ManifestSaveResult:
     root = (root or ROOT).resolve()
     path = root / "configs" / "universe_manifest.json"
     snapshot_path = root / "data" / "snapshots" / "universe_manifests" / f"{manifest.manifest_id}.json"
+    _reject_escaped_manifest_path(root, path)
+    _reject_escaped_manifest_path(root, snapshot_path)
     payload = {"manifest_id": manifest.manifest_id, **_manifest_body(manifest)}
     _manifest_from_payload(payload)
     encoded = (json.dumps(payload, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     atomic_write_group(
         (
-            AtomicWriteRequest(path, encoded, _validate_manifest_file),
-            AtomicWriteRequest(snapshot_path, encoded, _validate_manifest_file),
+            AtomicWriteRequest(_CheckedManifestDestination(root, path), encoded, _validate_manifest_file),  # type: ignore[arg-type]
+            AtomicWriteRequest(  # type: ignore[arg-type]
+                _CheckedManifestDestination(root, snapshot_path),
+                encoded,
+                _validate_manifest_file,
+            ),
         )
     )
     return ManifestSaveResult(path, snapshot_path, manifest.manifest_id)
@@ -905,7 +1055,7 @@ def _manifest_from_payload(payload: Mapping[str, object]) -> UniverseManifest:
 
 
 def _validate_manifest_file(path: Path) -> None:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = _decode_json(path.read_text(encoding="utf-8"), source_label="manifest")
     if not isinstance(payload, Mapping):
         raise ValueError("universe manifest root must be an object")
     _manifest_from_payload(payload)
@@ -913,7 +1063,7 @@ def _validate_manifest_file(path: Path) -> None:
 
 def load_universe_manifest(root: Path | None = None) -> UniverseManifest:
     path = (root or ROOT).resolve() / "configs" / "universe_manifest.json"
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = _decode_json(path.read_text(encoding="utf-8"), source_label="manifest")
     if not isinstance(payload, Mapping):
         raise ValueError("universe manifest root must be an object")
     return _manifest_from_payload(payload)
@@ -1009,7 +1159,7 @@ def _validate_resume_state(state: ImportResumeState) -> None:
 
 
 def load_import_resume_state(path: Path) -> ImportResumeState:
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    payload = _decode_json(Path(path).read_text(encoding="utf-8"), source_label="resume")
     if not isinstance(payload, Mapping):
         raise ValueError("import resume root must be an object")
     required = {
