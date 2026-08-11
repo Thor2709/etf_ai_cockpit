@@ -625,6 +625,56 @@ def test_tampered_recomputed_source_binding_is_not_surface_as_current(tmp_path) 
         store.put(PORTFOLIO_SANDBOX_RESULT_ENTITY, saved.candidate.candidate_id, payload, expected_revision=1)
     loaded = load_portfolio_candidate(snapshot, "Tamper source", root=tmp_path)
     assert loaded.result_payload is None
+    assert loaded.source_stale is True
+
+
+def test_as_of_only_change_marks_source_stale_and_suppresses_result(tmp_path) -> None:
+    snapshot = _snapshot()
+    save_portfolio_candidate(
+        snapshot,
+        name="As-of binding",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.6, "LYP6": 0.3},
+        cash_weight=0.1,
+        expected_revision=0,
+        root=tmp_path,
+    )
+    snapshot.data_report.as_of_date = "2026-07-19"
+
+    loaded = load_portfolio_candidate(snapshot, "As-of binding", root=tmp_path)
+
+    assert loaded.source_stale is True
+    assert loaded.result_payload is None
+
+
+def test_recomputed_checksum_cannot_authorise_noncanonical_result_content(tmp_path) -> None:
+    snapshot = _snapshot()
+    saved = save_portfolio_candidate(
+        snapshot,
+        name="Canonical result",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.6, "LYP6": 0.3},
+        cash_weight=0.1,
+        expected_revision=0,
+        root=tmp_path,
+    )
+    with TransactionalStore(tmp_path) as store:
+        record = store.get(PORTFOLIO_SANDBOX_RESULT_ENTITY, saved.candidate.candidate_id)
+        payload = dict(record.payload)
+        allocations = [dict(item) for item in payload["allocations"]]
+        allocations[0]["target_weight"] = 0.123
+        payload["allocations"] = allocations
+        body = {key: value for key, value in payload.items() if key != "payload_checksum"}
+        payload["payload_checksum"] = sandbox_store._payload_checksum(body)
+        store.put(
+            PORTFOLIO_SANDBOX_RESULT_ENTITY,
+            saved.candidate.candidate_id,
+            payload,
+            expected_revision=record.revision,
+        )
+
+    with pytest.raises(ValueError, match="canonical recomputation"):
+        load_portfolio_candidate(snapshot, "Canonical result", root=tmp_path)
 
 
 def test_classifier_change_changes_binding_and_suppresses_stale_result(tmp_path) -> None:

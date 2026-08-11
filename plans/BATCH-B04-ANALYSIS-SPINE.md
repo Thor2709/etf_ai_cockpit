@@ -1365,6 +1365,15 @@ mixed-asset controls and both UI contracts. The complete 185-test affected
 suite and offline smoke pass with all local static/generated checks. Freeze one
 replacement head for the repeated parallel reviews and fresh H-tier gates.
 
+`ISSUE_0021_POINT_IN_TIME_CORRECTION` invalidates replacement head
+`a531e63e219fa469e395516889096b35a846a0f3` and run `31509217777`. Both
+repeated reviewers demonstrated that an as-of/source-identity-only change was
+not reported stale and that recomputed-checksum derived payload tampering was
+not compared with canonical analysis. The final bounded correction includes
+as-of and selected source identity in stale reporting and requires exact
+canonical result equality before surfacing stored evidence. Focused sandbox/UI,
+Ruff, compile and diff checks pass; repeat final exact-head review and H gates.
+
 Generic-readback repair PR #643 merged independently approved exact head
 `f8f28c94ae8f4a6f8f15dd8a5ad187cd35dafd2c` as
 `bbe8a789d05a7df688661eb8e2370bb26583dc8f` after H-tier run

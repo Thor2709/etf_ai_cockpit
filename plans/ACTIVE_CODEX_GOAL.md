@@ -1987,6 +1987,15 @@ next action and whether the requested outcome is actually complete.
   exact regressions; the complete 185-test affected suite, offline smoke, Ruff,
   compile, generated-state and diff checks pass. Commit one replacement head
   and repeat both independent reviews plus fresh H-tier hosted evidence.
+- Replacement head `a531e63e219fa469e395516889096b35a846a0f3`
+  and run `31509217777` are also invalidated after both repeated reviewers
+  reproduced two newly exposed readback defects: as-of/source-identity changes
+  suppressed old results without setting `source_stale`, and self-consistent
+  tampered derived content was not compared with canonical recomputation. The
+  bounded correction now marks every selected binding change stale and requires
+  exact canonical result equality before readback; both reproductions and the
+  complete sandbox/UI suite pass. Freeze one final replacement head and repeat
+  the exact-head reviews and fresh H-tier gates without reopening adjacent work.
 - Whole-diff review approved head `d74e32e6e655ff639587c9fe18f0ba211c7624fa`
   and risk review verified the guard fix but reproduced one independent parser
   defect: ragged CSV rows could discard trailing fields. Run `31461743133` is

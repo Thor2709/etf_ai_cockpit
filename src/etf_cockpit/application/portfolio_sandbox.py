@@ -125,6 +125,7 @@ def analyse_portfolio_candidate(
     source_stale = (
         candidate.source_revision != str(getattr(snapshot, "universe_revision", "") or "unknown")
         or candidate.source_checksum != selected_checksum
+        or candidate.source_as_of != _source_as_of(snapshot)
     )
     current: dict[str, float] = {}
     for _, row in holdings.iterrows():
@@ -259,6 +260,19 @@ def load_portfolio_candidate(
         analysis,
         candidate_record=record,
     )
+    if result is not None and result_payload is None and not analysis.source_stale:
+        analysis = replace(
+            analysis,
+            source_stale=True,
+            warnings=tuple(
+                dict.fromkeys(
+                    (
+                        "Saved source binding changed; all derived values were re-evaluated from the current snapshot.",
+                        *analysis.warnings,
+                    )
+                )
+            ),
+        )
     return SavedPortfolioCandidate(candidate, record.revision, record.updated_at, analysis.source_stale, result_payload)
 
 
@@ -793,6 +807,13 @@ def _validate_loaded_result(
     if source != current_source:
         return None
     _assert_no_execution(payload)
+    canonical = portfolio_analysis_payload(
+        analysis,
+        candidate_revision=candidate_record.revision,
+        candidate_payload_checksum=str(candidate_record.payload.get("payload_checksum", "")),
+    )
+    if payload != canonical:
+        raise ValueError("saved portfolio sandbox result does not match canonical recomputation")
     return dict(payload)
 
 
