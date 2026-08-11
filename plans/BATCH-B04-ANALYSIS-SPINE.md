@@ -149,6 +149,16 @@ preflight, UI inventory, Ruff, compile, diff hygiene and generator checks pass.
 Freeze one replacement head and repeat both reviews plus fresh hosted H-tier
 Linux, Windows and terminal validation. `execution_allowed=false` is unchanged.
 
+`FINAL_IMPORT_FAIL_CLOSED_CORRECTION` both reviewers rejected replacement head
+`e766016eccf6415323a06ff5cd3b364146a6b614` for newly reproduced malformed
+boolean, normalized/persisted JSON collision, provider-transport, aggregate
+XLSX-envelope and redirected manifest-path gaps. Run `31457631651` is cancelled
+and stale. Commit `5bbd8204d04005ff4855f9f07674d0bcb05f4d8a` closes the
+complete set in the import module and adds exact regressions. Import/store,
+Ruff, compile, diff-hygiene and generator checks pass with one existing
+platform-capability skip. Freeze one final replacement head for both reviews
+and fresh H-tier Linux/Windows/terminal evidence; do not add adjacent hardening.
+
 ## ISSUE-0017 lifecycle completion — 2026-08-11
 
 Product PR #672 merged reviewed head `52cadf44abff48ff09cd23cf792acad64dbab94e`

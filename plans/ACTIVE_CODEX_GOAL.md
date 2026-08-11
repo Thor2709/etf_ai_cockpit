@@ -1891,3 +1891,14 @@ next action and whether the requested outcome is actually complete.
   preflight and UI inventory pass, and Ruff, compile, diff hygiene and generator
   check pass. Freeze the next checkpoint commit for both parallel reviews and
   fresh hosted H-tier Linux, Windows and terminal evidence.
+- Replacement head `e766016eccf6415323a06ff5cd3b364146a6b614` was rejected
+  after both reviewers reproduced newly demonstrated fail-closed gaps in
+  malformed booleans, normalized/persisted JSON collisions, provider JSON
+  transports, aggregate XLSX limits and redirected manifest destinations.
+  Hosted run `31457631651` is cancelled and stale.
+- Final bounded correction commit
+  `5bbd8204d04005ff4855f9f07674d0bcb05f4d8a` closes that complete finding set
+  in the import module with focused adversarial regressions. Import and store
+  suites pass with one existing platform-capability skip; Ruff, compile, diff
+  hygiene and generator checks pass. Freeze one final checkpoint head for both
+  reviews and fresh H-tier evidence; no further adjacent hardening is in scope.
