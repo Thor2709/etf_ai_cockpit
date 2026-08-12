@@ -2399,3 +2399,15 @@ next action and whether the requested outcome is actually complete.
   cash/macro/bitemporal suite, Ruff, compile, programme freshness and diff
   hygiene pass. Freeze one replacement H-tier head for paired final review and
   fresh hosted validation.
+- Paired review rejected `4bfd2203b8c4f9891600608b0fde7411100a0f72`
+  with six reproduced evidence-boundary defects: subsecond timestamp loss,
+  duplicate or regressing curve revisions, coercive authority booleans,
+  ambiguous financial dates, a builder/readback cutoff mismatch, and direct
+  curves lacking official lineage suppressing valid fallback. Exact-head run
+  `31598259140` is cancelled and invalid. Consolidated product commit
+  `16aa063435d95cea57f5d71204336bc8c5dc3000` preserves subsecond chronology,
+  validates persisted revision history, strictly types policy/authority data,
+  requires canonical dates and cutoffs, and fails closed on unofficial curve
+  lineage. Exact adversarial regressions and the complete affected focused
+  suites, Ruff, compile, programme freshness and diff hygiene pass. Freeze one
+  replacement H-tier head for paired final review and fresh hosted validation.
