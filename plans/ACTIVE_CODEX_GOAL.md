@@ -2388,3 +2388,14 @@ next action and whether the requested outcome is actually complete.
   cash/macro/bitemporal suites, Ruff, compile, programme freshness and diff
   hygiene pass. Freeze one replacement H-tier head for paired review and fresh
   hosted validation.
+- Paired review rejected `b311951978c8a29d704b03bb084c277c9365a4fa`
+  after reproducing malformed persisted curve rows escaping readback and a
+  missing reinvestment convention being treated as supported. Exact-head run
+  `31596482736` is cancelled and invalid. Consolidated product commit
+  `0f873715766c48815ceea8f471eb01d39c512183` moves persisted-row decoding
+  inside the fail-closed curve boundary and requires the supported
+  `reinvested_income` convention at snapshot and readback boundaries. Exact
+  corrupt-ledger and missing-reinvestment regressions plus the complete
+  cash/macro/bitemporal suite, Ruff, compile, programme freshness and diff
+  hygiene pass. Freeze one replacement H-tier head for paired final review and
+  fresh hosted validation.

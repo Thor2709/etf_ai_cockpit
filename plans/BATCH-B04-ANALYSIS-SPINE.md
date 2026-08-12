@@ -3643,3 +3643,14 @@ independent, strictly validates finite bounds, and preserves
 regressions and the complete cash/macro/bitemporal surface plus static and
 programme checks pass. Freeze one replacement H-tier head for paired final
 review and fresh Linux, Windows and terminal validation.
+
+Paired review rejected `b311951978c8a29d704b03bb084c277c9365a4fa`
+because malformed persisted curve rows could escape readback and a missing
+reinvestment convention remained available. Exact-head run `31596482736` is
+cancelled and invalid. Consolidated product commit
+`0f873715766c48815ceea8f471eb01d39c512183` places persisted-row decoding
+inside the fail-closed curve boundary and requires `reinvested_income` at
+snapshot and readback boundaries. Exact corrupt-ledger and
+missing-reinvestment regressions plus complete cash/macro/bitemporal, static
+and programme checks pass. Freeze one replacement H-tier head for paired final
+review and fresh Linux, Windows and terminal validation.
