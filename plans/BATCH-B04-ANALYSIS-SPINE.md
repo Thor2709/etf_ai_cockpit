@@ -3630,6 +3630,16 @@ regressions and the affected focused, static and programme checks pass. Freeze
 one replacement H-tier head for paired final review and fresh Linux, Windows
 and terminal validation.
 
+Paired review rejected `1ed00119a5978ae656380064bdfbf0a96f61da2f`
+because offset-bearing adjusted-price timestamps were reduced to local dates
+before UTC availability and direct-score `pd.NA` instrument currency could
+raise. Exact-head run `31622330986` is cancelled and invalid. Product commit
+`45ea6cf56d343ab5e7d6cbe8c3944a7aeceee1e5` enforces date-only/UTC-midnight
+price endpoints and strictly types direct-score currency. Exact regressions
+and affected focused, static and programme checks pass. Freeze one replacement
+H-tier head for paired final review and fresh Linux, Windows and terminal
+validation.
+
 Paired review rejected `7245e76ac27606f9542fd71dd354d178fcdcd5b1`
 for partial snapshot visibility, inferred availability accepted as exact and
 persisted cash accepted without currency. Run `31593071919` is cancelled and

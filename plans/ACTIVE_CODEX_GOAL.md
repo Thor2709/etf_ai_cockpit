@@ -2444,6 +2444,14 @@ next action and whether the requested outcome is actually complete.
   strictly normalizes those two scalar boundaries to unavailable; exact
   regressions and the affected suites pass with static and diff checks. Freeze
   one replacement H-tier head for paired final review and hosted validation.
+- Paired review rejected `1ed00119a5978ae656380064bdfbf0a96f61da2f`
+  because offset-bearing adjusted-price timestamps were reduced to local dates
+  before UTC availability and direct-score `pd.NA` instrument currency could
+  raise. Exact-head run `31622330986` is cancelled and invalid. Product commit
+  `45ea6cf56d343ab5e7d6cbe8c3944a7aeceee1e5` enforces date-only/UTC-midnight
+  price endpoints and strictly types direct-score currency. Exact regressions
+  and affected suites pass with static and diff checks. Freeze one replacement
+  H-tier head for paired final review and hosted validation.
 - Paired review rejected `fd112929181768b6d065b45da97f9e5929bc0357`
   because generic curve ingestion bypassed serialized admission, future
   malformed rows poisoned earlier decision-time reads, the JSON manifest could
