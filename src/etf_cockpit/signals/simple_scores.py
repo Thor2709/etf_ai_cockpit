@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import date
 import hashlib
@@ -271,6 +272,37 @@ class SimpleInstrumentScore:
     alpha_proxy: float | None = None
     alpha_t_stat: float | None = None
     benchmark_attribution_label: str = "Benchmark attribution pending"
+    cash_instrument_return: float | None = None
+    cash_return: float | None = None
+    excess_over_cash: float | None = None
+    cash_currency: str | None = None
+    cash_start_date: str | None = None
+    cash_end_date: str | None = None
+    cash_horizon_years: float | None = None
+    cash_rate: float | None = None
+    cash_vintage: str | None = None
+    cash_comparison_status: str = "unavailable"
+    cash_comparison_reason: str | None = "Cash comparison unavailable; no caller-provided mapping result."
+    cash_source_id: str | None = None
+    cash_source_checksum: str | None = None
+    cash_source_terms: str | None = None
+    cash_methodology: str | None = None
+    cash_mapping_methodology: str | None = None
+    cash_day_count: str | None = None
+    cash_compounding: str | None = None
+    cash_reinvestment: str | None = None
+    cash_effective_at: str | None = None
+    cash_available_at: str | None = None
+    cash_curve_id: str | None = None
+    cash_curve_version: str | None = None
+    cash_curve_type: str | None = None
+    cash_fallback: bool | None = None
+    cash_fallback_from: str | None = None
+    cash_interpolation: str | None = None
+    cash_freshness: str | None = None
+    cash_decision_time: str | None = None
+    cash_knowledge_cutoff: str | None = None
+    inflation_context: object = None
     sector_theme_warning: str = "Sector/theme exposure not evaluated"
     backtest_validity: str = "not_evaluated"
     model_contamination_risk: str = "not_evaluated"
@@ -561,6 +593,7 @@ def build_simple_instrument_scores(
     prices: pd.DataFrame,
     *,
     universe_revision: str | None = None,
+    cash_comparison_lookup: Mapping[str, Mapping[str, object]] | None = None,
 ) -> list[SimpleInstrumentScore]:
     if universe_revision is None:
         universe_revision = load_universe().revision
@@ -594,6 +627,7 @@ def build_simple_instrument_scores(
         regime=regime,
         portfolio_fit=portfolio_fit,
         benchmark_attribution=benchmark_attribution,
+        cash_comparison_lookup=cash_comparison_lookup,
         crowding=crowding,
         backtest_trust=backtest_trust,
     )
@@ -888,6 +922,37 @@ def simple_scoreboard_frame(
             "alpha_proxy": score.alpha_proxy,
             "alpha_t_stat": score.alpha_t_stat,
             "benchmark_attribution_label": score.benchmark_attribution_label,
+            "cash_instrument_return": score.cash_instrument_return,
+            "cash_return": score.cash_return,
+            "excess_over_cash": score.excess_over_cash,
+            "cash_currency": score.cash_currency,
+            "cash_start_date": score.cash_start_date,
+            "cash_end_date": score.cash_end_date,
+            "cash_horizon_years": score.cash_horizon_years,
+            "cash_rate": score.cash_rate,
+            "cash_vintage": score.cash_vintage,
+            "cash_comparison_status": score.cash_comparison_status,
+            "cash_comparison_reason": score.cash_comparison_reason,
+            "cash_source_id": score.cash_source_id,
+            "cash_source_checksum": score.cash_source_checksum,
+            "cash_source_terms": score.cash_source_terms,
+            "cash_methodology": score.cash_methodology,
+            "cash_mapping_methodology": score.cash_mapping_methodology,
+            "cash_day_count": score.cash_day_count,
+            "cash_compounding": score.cash_compounding,
+            "cash_reinvestment": score.cash_reinvestment,
+            "cash_effective_at": score.cash_effective_at,
+            "cash_available_at": score.cash_available_at,
+            "cash_curve_id": score.cash_curve_id,
+            "cash_curve_version": score.cash_curve_version,
+            "cash_curve_type": score.cash_curve_type,
+            "cash_fallback": score.cash_fallback,
+            "cash_fallback_from": score.cash_fallback_from,
+            "cash_interpolation": score.cash_interpolation,
+            "cash_freshness": score.cash_freshness,
+            "cash_decision_time": score.cash_decision_time,
+            "cash_knowledge_cutoff": score.cash_knowledge_cutoff,
+            "inflation_context": score.inflation_context,
             "sector_theme_warning": score.sector_theme_warning,
             "backtest_validity": score.backtest_validity,
             "model_contamination_risk": score.model_contamination_risk,
@@ -1011,6 +1076,7 @@ def build_universe_simple_scores(
     regime: dict[str, object] | None = None,
     portfolio_fit: dict[str, dict[str, object]] | None = None,
     benchmark_attribution: dict[str, dict[str, object]] | None = None,
+    cash_comparison_lookup: Mapping[str, Mapping[str, object]] | None = None,
     backtest_trust: dict[str, dict[str, object]] | None = None,
     crowding: ClusterReport | None = None,
 ) -> list[SimpleInstrumentScore]:
@@ -1027,6 +1093,7 @@ def build_universe_simple_scores(
     regime = regime or {}
     portfolio_fit = portfolio_fit or {}
     benchmark_attribution = benchmark_attribution or {}
+    cash_comparison_lookup = cash_comparison_lookup or {}
     backtest_trust = backtest_trust or {}
     crowding_lookup = {row.instrument_id: row for row in (crowding.rows if crowding else ())}
     output: list[SimpleInstrumentScore] = []
@@ -1092,6 +1159,7 @@ def build_universe_simple_scores(
         calibration_info = _calibration_info(calibration_by_id, signal.etf_id)
         fit_info = _portfolio_fit_info(portfolio_fit, signal.etf_id)
         attribution_info = _benchmark_attribution_info(benchmark_attribution, signal.etf_id)
+        cash_info = _cash_comparison_info(cash_comparison_lookup, signal.etf_id)
         crowding_info = _crowding_info(crowding_lookup, signal.etf_id)
         trust_info = _backtest_trust_info(backtest_trust, signal.etf_id, candidate=False)
         maturity = _evidence_maturity(
@@ -1166,6 +1234,7 @@ def build_universe_simple_scores(
                 alpha_proxy=_safe_float(attribution_info.get("alpha_proxy")),
                 alpha_t_stat=_safe_float(attribution_info.get("alpha_t_stat")),
                 benchmark_attribution_label=str(attribution_info["label"]),
+                **cash_info,
                 crowding_cluster_id=crowding_info["cluster_id"],
                 crowding_cluster_label=crowding_info["cluster_label"],
                 crowding_warning=crowding_info["crowding_warning"],
@@ -2300,6 +2369,99 @@ def _benchmark_attribution_info(lookup: dict[str, dict[str, object]], instrument
             "source_dataset": "adjusted_price_returns",
         }
     return info
+
+
+def _cash_comparison_info(
+    lookup: Mapping[str, Mapping[str, object]], instrument_id: str
+) -> dict[str, object]:
+    value = lookup.get(str(instrument_id))
+    if not isinstance(value, Mapping):
+        value = {}
+    status = str(value.get("status", "unavailable"))
+    reason = (
+        value.get("reason")
+        if value
+        else "Cash comparison unavailable; no caller-provided mapping result."
+    )
+    required_available_fields = (
+        "instrument_return",
+        "cash_return",
+        "excess_over_cash",
+        "currency",
+        "start_date",
+        "end_date",
+        "horizon_years",
+        "rate",
+        "vintage",
+        "source_id",
+        "source_checksum",
+        "source_terms",
+        "methodology",
+        "day_count",
+        "compounding",
+        "reinvestment",
+        "effective_at",
+        "available_at",
+        "curve_type",
+        "freshness",
+        "decision_time",
+        "knowledge_cutoff",
+    )
+    checksum = str(value.get("source_checksum", ""))
+    available_is_complete = (
+        status == "available"
+        and value.get("execution_allowed") is False
+        and all(value.get(field) not in (None, "") for field in required_available_fields)
+        and all(
+            _safe_float(value.get(field)) is not None
+            for field in (
+                "instrument_return",
+                "cash_return",
+                "excess_over_cash",
+                "horizon_years",
+                "rate",
+            )
+        )
+        and len(checksum) == 64
+        and all(character in "0123456789abcdefABCDEF" for character in checksum)
+    )
+    if status == "available" and not available_is_complete:
+        value = {}
+        status = "unavailable"
+        reason = "Cash comparison unavailable; caller-provided result is incomplete or invalid."
+    return {
+        "cash_instrument_return": value.get("instrument_return"),
+        "cash_return": value.get("cash_return"),
+        "excess_over_cash": value.get("excess_over_cash"),
+        "cash_currency": value.get("currency"),
+        "cash_start_date": value.get("start_date"),
+        "cash_end_date": value.get("end_date"),
+        "cash_horizon_years": value.get("horizon_years"),
+        "cash_rate": value.get("rate"),
+        "cash_vintage": value.get("vintage"),
+        "cash_comparison_status": status,
+        "cash_comparison_reason": reason,
+        "cash_source_id": value.get("source_id"),
+        "cash_source_checksum": value.get("source_checksum"),
+        "cash_source_terms": value.get("source_terms"),
+        "cash_methodology": value.get("methodology"),
+        "cash_mapping_methodology": value.get("mapping_methodology"),
+        "cash_day_count": value.get("day_count"),
+        "cash_compounding": value.get("compounding"),
+        "cash_reinvestment": value.get("reinvestment"),
+        "cash_effective_at": value.get("effective_at"),
+        "cash_available_at": value.get("available_at"),
+        "cash_curve_id": value.get("curve_id"),
+        "cash_curve_version": value.get("curve_version"),
+        "cash_curve_type": value.get("curve_type"),
+        "cash_fallback": value.get("fallback"),
+        "cash_fallback_from": value.get("fallback_from"),
+        "cash_interpolation": value.get("interpolation"),
+        "cash_freshness": value.get("freshness"),
+        "cash_decision_time": value.get("decision_time"),
+        "cash_knowledge_cutoff": value.get("knowledge_cutoff"),
+        "inflation_context": value.get("inflation_context"),
+    }
 
 
 def _crowding_info(lookup: dict[str, object], instrument_id: str) -> dict[str, object]:

@@ -3498,3 +3498,32 @@ freshness and diff hygiene pass. Freeze one replacement O-tier exact head for
 both independent reviews and fresh cadence-required hosted package validation;
 preserve
 `execution_allowed=false` and `executable_authority=false`.
+
+## ISSUE-0058 completion and ISSUE-0051 lane — 2026-08-12
+
+ISSUE-0058 PR #681 merged reviewed head
+`c37e7452c1ef7abf2568854094d636bc21362935` as exact main
+`5d584e860ade7a7b0ecbbaaaa5efb3161c47c2b9`; run `31555021894` passed
+Linux, Windows and terminal validation. The next dependency-valid product issue
+is ISSUE-0051. ISSUE-0046 remains downstream of the unresolved ISSUE-0108 and
+ISSUE-0112 financial contracts and must not invent their semantics.
+
+The clean `codex/issue0051-product-20260812` lane starts from that exact main.
+Build only the official-evidence, point-in-time cash comparison contract:
+currency, exact horizon, vintage, total-return convention, reinvestment,
+freshness, inflation context and explicit unavailable states. Preserve local
+and user-owned import operation, existing score/action behavior and
+`execution_allowed=false`; do not implement benchmark hierarchy or expand
+provider, broker or execution authority. Treat the change as H-tier.
+
+The bounded result now converts only complete, then-known official spot-curve
+evidence into exact-period cash total return under declared compounding,
+day-count, reinvestment and freshness semantics. Currency, horizon and the UTC
+period-start knowledge cutoff are exact; later vintages and malformed,
+partial, stale, conflicted or unsupported evidence remain unavailable.
+Inflation is context only. A validated caller result traverses score,
+scoreboard, attribution projection and both comparison/detail readbacks, while
+missing or malformed input cannot change score, action, gate or authority.
+The focused seven-suite regression passes 183 tests and the final ISSUE-0051
+suite passes 24, plus static, compile, programme-freshness and diff checks.
+Freeze one H-tier exact head for paired review and full hosted evidence.

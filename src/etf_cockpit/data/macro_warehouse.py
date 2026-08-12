@@ -77,6 +77,11 @@ class MacroObservation(BaseModel):
     tenor_years: float | None = None
     interpolation: str | None = None
     extrapolation_allowed: bool = False
+    compounding: str | None = None
+    day_count: str | None = None
+    reinvestment: str | None = None
+    freshness: str | None = None
+    freshness_status: str | None = None
     benchmark_id: str | None = None
     benchmark_version: str | None = None
     benchmark_category: str | None = None
@@ -115,6 +120,11 @@ class MacroObservation(BaseModel):
             "tenor_years": self.tenor_years,
             "interpolation": self.interpolation,
             "extrapolation_allowed": self.extrapolation_allowed,
+            "compounding": self.compounding,
+            "day_count": self.day_count,
+            "reinvestment": self.reinvestment,
+            "freshness": self.freshness,
+            "freshness_status": self.freshness_status,
             "benchmark_id": self.benchmark_id,
             "benchmark_version": self.benchmark_version,
             "benchmark_category": self.benchmark_category,
@@ -224,6 +234,11 @@ class CurveSnapshot(BaseModel):
     methodology: str
     interpolation: str = "linear"
     extrapolation_allowed: bool = False
+    compounding: str | None = None
+    day_count: str | None = None
+    reinvestment: str | None = None
+    freshness: str | None = None
+    freshness_status: str | None = None
     points: tuple[CurvePoint, ...]
     revision: int = Field(default=1, ge=1)
     execution_allowed: Literal[False] = False
@@ -274,8 +289,20 @@ def _validate_curve(snapshot: CurveSnapshot) -> CurveSnapshot:
         raise MacroWarehouseError("curve tenor points must be non-empty and unique")
     if any(not math.isfinite(item.rate) for item in points):
         raise MacroWarehouseError("curve rates must be finite")
-    if len(snapshot.source_checksum) != 64:
+    if len(snapshot.source_checksum) != 64 or any(
+        character not in "0123456789abcdefABCDEF"
+        for character in snapshot.source_checksum
+    ):
         raise MacroWarehouseError("curve source_checksum must be a SHA-256 value")
+    if snapshot.compounding is not None and snapshot.compounding not in {"annual", "continuous", "simple"}:
+        raise MacroWarehouseError(f"unsupported curve compounding: {snapshot.compounding}")
+    if snapshot.day_count is not None and snapshot.day_count not in {"ACT/360", "ACT/365F", "ACT/ACT-ISDA"}:
+        raise MacroWarehouseError(f"unsupported curve day count: {snapshot.day_count}")
+    if snapshot.reinvestment is not None and not snapshot.reinvestment.strip():
+        raise MacroWarehouseError("curve reinvestment declaration cannot be empty")
+    freshness = snapshot.freshness_status or snapshot.freshness
+    if freshness is not None and freshness not in {"fresh", "stale", "conflicted", "malformed", "unavailable"}:
+        raise MacroWarehouseError(f"unsupported curve freshness: {freshness}")
     return snapshot.model_copy(
         update={
             "currency": snapshot.currency.upper(),
@@ -620,6 +647,11 @@ class MacroWarehouse:
                 tenor_years=point.tenor_years,
                 interpolation=curve.interpolation,
                 extrapolation_allowed=False,
+                compounding=curve.compounding,
+                day_count=curve.day_count,
+                reinvestment=curve.reinvestment,
+                freshness=curve.freshness,
+                freshness_status=curve.freshness_status,
             )
             for point in curve.points
         ]
@@ -684,6 +716,11 @@ class MacroWarehouse:
                 row.currency,
                 row.interpolation,
                 row.extrapolation_allowed,
+                row.compounding,
+                row.day_count,
+                row.reinvestment,
+                row.freshness,
+                row.freshness_status,
                 row.source_id,
                 row.methodology,
                 row.available_at,
@@ -728,9 +765,18 @@ class MacroWarehouse:
             "rate": rate,
             "unit": "decimal",
             "source_id": rows[0].source_id,
+            "source_checksum": rows[0].source_checksum,
+            "source_terms": rows[0].source_terms,
             "methodology": rows[0].methodology,
-            "vintage": rows[0].available_at,
+            "effective_at": _timestamp(rows[0].observed_at, "effective_at"),
+            "available_at": _timestamp(rows[0].available_at, "available_at"),
+            "vintage": _timestamp(rows[0].available_at, "available_at"),
             "interpolation": rows[0].interpolation,
+            "compounding": rows[0].compounding,
+            "day_count": rows[0].day_count,
+            "reinvestment": rows[0].reinvestment,
+            "freshness": rows[0].freshness_status or rows[0].freshness,
+            "freshness_status": rows[0].freshness_status or rows[0].freshness,
             "fallback": False,
             "execution_allowed": False,
         }
@@ -775,6 +821,8 @@ class MacroWarehouse:
                 decision_time=decision_time,
             )
             if selected["status"] == "available":
+                if str(selected.get("currency", "")).upper() != currency.upper():
+                    continue
                 return {
                     **selected,
                     "mapping_methodology": mapping.methodology,
@@ -789,6 +837,70 @@ class MacroWarehouse:
             "fallback_curve_ids": list(mapping.fallback_curve_ids),
             "execution_allowed": False,
         }
+
+    def cash_comparison(
+        self,
+        *,
+        root: Path,
+        mappings: Iterable[RiskFreeProxyMapping],
+        currency: str,
+        start_date: str,
+        end_date: str,
+        decision_time: str,
+        adjusted_prices: object,
+        inflation_context: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
+        """Build a descriptive cash comparison from then-known spot evidence."""
+
+        from etf_cockpit.features.cash_comparison import (
+            build_cash_comparison,
+            period_start_knowledge_cutoff,
+        )
+
+        try:
+            from etf_cockpit.features.cash_comparison import year_fraction
+
+            mapping_rows = tuple(mappings)
+            knowledge_cutoff = period_start_knowledge_cutoff(start_date)
+            last_result: dict[str, object] | None = None
+            for day_count in ("ACT/365F", "ACT/360", "ACT/ACT-ISDA"):
+                selected = self.risk_free_rate(
+                    root=root,
+                    mappings=mapping_rows,
+                    currency=currency,
+                    horizon_years=year_fraction(start_date, end_date, day_count),
+                    decision_time=knowledge_cutoff,
+                )
+                if selected.get("status") != "available":
+                    last_result = dict(selected)
+                    continue
+                result = build_cash_comparison(
+                    adjusted_prices=adjusted_prices,
+                    start_date=start_date,
+                    end_date=end_date,
+                    instrument_currency=currency,
+                    cash_evidence=selected,
+                    decision_time=decision_time,
+                    knowledge_cutoff=knowledge_cutoff,
+                    inflation_context=inflation_context,
+                ).as_dict()
+                return result
+            return last_result or {
+                "status": "unavailable",
+                "reason": "no currency+horizon cash proxy mapping is declared",
+                "execution_allowed": False,
+            }
+        except (ArithmeticError, TypeError, ValueError, OSError) as exc:
+            return {
+                "status": "unavailable",
+                "reason": f"cash comparison evidence is malformed: {type(exc).__name__}",
+                "currency": str(currency).upper(),
+                "start_date": str(start_date),
+                "end_date": str(end_date),
+                "execution_allowed": False,
+            }
+
+    cash_total_return = cash_comparison
 
     def issuer_credit_curve(
         self, *, issuer_id: str, decision_time: str

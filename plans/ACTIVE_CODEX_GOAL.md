@@ -2231,3 +2231,40 @@ next action and whether the requested outcome is actually complete.
   replacement O-tier candidate for parallel whole-diff/risk review and fresh
   cadence-required hosted package validation;
   `execution_allowed=false` and `executable_authority=false` remain unchanged.
+
+## ISSUE-0058 merge and ISSUE-0051 product checkpoint — 2026-08-12
+
+- ISSUE-0058 PR #681 merged exact independently approved head
+  `c37e7452c1ef7abf2568854094d636bc21362935` as exact main
+  `5d584e860ade7a7b0ecbbaaaa5efb3161c47c2b9`. Cadence-required run
+  `31555021894` passed classifier, preflight, supply chain, Linux, Windows and
+  terminal validation. Manual-note credibility remains context-only and
+  `execution_allowed=false` is unchanged.
+- ISSUE-0046 is mechanically ready but cannot be implemented without the
+  distribution and benchmark/cash contracts owned by unresolved ISSUE-0108
+  and ISSUE-0112. ISSUE-0051, "Currency-specific risk-free and cash
+  comparisons", is the next dependency-ready issue and supplies the cash
+  comparison prerequisite for ISSUE-0112 without inventing benchmark policy.
+- Clean lane `codex/issue0051-product-20260812` starts from exact main
+  `5d584e860ade7a7b0ecbbaaaa5efb3161c47c2b9` with an empty diff. Implement
+  only point-in-time, currency-, horizon- and vintage-matched cash comparison
+  from official local/imported curve evidence with declared compounding, day
+  count, reinvestment and freshness semantics. Missing or incompatible
+  evidence remains explicitly unavailable; add no provider, benchmark,
+  scoring, broker or execution authority. Expected validation tier is H.
+- The bounded implementation adds a pure exact-period cash-return calculator
+  for annual, continuous and simple compounding with ACT/360, ACT/365F and
+  ACT/ACT-ISDA conventions. Eligible evidence must be an official spot curve
+  with complete source lineage, declared reinvestment/freshness, exact
+  currency and horizon, and a vintage available by the UTC period-start
+  knowledge cutoff. Later revisions, stale/conflicted/malformed evidence,
+  unsupported curves and partial lineage fail explicitly unavailable;
+  inflation remains context only.
+- Caller-supplied validated comparisons now round-trip descriptively through
+  `SimpleInstrumentScore`, the canonical scoreboard, benchmark-attribution
+  projection, Comparison and Instrument Detail. Missing or malformed injected
+  results remain unavailable and cannot alter scores, actions, gates or
+  authority. The focused seven-suite regression passes 183 tests; the final
+  ISSUE-0051 suite passes 24 tests, with Ruff, compile, programme freshness and
+  diff hygiene clean. Freeze one H-tier head for paired whole-diff/risk review
+  and fresh Linux, Windows and terminal validation.
