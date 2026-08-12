@@ -2288,3 +2288,10 @@ next action and whether the requested outcome is actually complete.
   passes 45 tests and directly affected warehouse, attribution, score and trust
   suites pass; static, compile, programme-freshness and diff checks are clean.
   Freeze one replacement H-tier head and disregard cancelled run `31563287001`.
+- Final paired review found one direct-ingest timezone bypass plus whitespace
+  lineage and non-integral revision coercion. The narrowly scoped follow-up
+  now requires explicit timezone-aware timestamps for every curve-bearing
+  warehouse row, nonblank lineage at construction/readback and positive
+  integral non-boolean revisions. The combined ISSUE-0051 and macro-warehouse
+  run passes 67 tests; Ruff, compile, programme freshness and diff hygiene pass.
+  Cancelled run `31564924105` is invalid; publish only the new exact head.

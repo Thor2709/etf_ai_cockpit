@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 import math
+from numbers import Integral
 from collections.abc import Mapping
 
 import pandas as pd
@@ -18,6 +19,16 @@ import pandas as pd
 _DAY_COUNTS = {"ACT/360", "ACT/365F", "ACT/ACT-ISDA"}
 _COMPOUNDING = {"annual", "continuous", "simple"}
 _FRESHNESS = {"fresh"}
+
+
+def _positive_revision(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, Integral) or value < 1:
+        raise ValueError("cash curve revision is invalid")
+    return int(value)
+
+
+def _has_nonblank_text(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
 
 
 def _as_date(value: object, field_name: str) -> date:
@@ -270,6 +281,31 @@ def build_cash_comparison(
         )
         if any(cash_evidence.get(name) in (None, "") for name in required):
             return _unavailable("cash convention, reinvestment, freshness or lineage is unavailable", currency=currency)
+        required_lineage_text = (
+            "compounding",
+            "day_count",
+            "reinvestment",
+            "vintage",
+            "effective_at",
+            "available_at",
+            "source_id",
+            "source_authority",
+            "source_checksum",
+            "source_terms",
+            "methodology",
+            "mapping_methodology",
+            "curve_id",
+            "curve_version",
+            "interpolation",
+        )
+        if any(
+            not _has_nonblank_text(cash_evidence.get(name))
+            for name in required_lineage_text
+        ):
+            return _unavailable(
+                "cash convention, reinvestment, freshness or lineage is unavailable",
+                currency=currency,
+            )
         if day_count not in _DAY_COUNTS:
             return _unavailable("cash day-count convention is unsupported", currency=currency)
         horizon = year_fraction(start, end, str(day_count))
@@ -303,9 +339,7 @@ def build_cash_comparison(
             return _unavailable("cash curve fallback identity is unavailable", currency=currency)
         if cash_evidence.get("fallback") and not cash_evidence.get("fallback_from"):
             return _unavailable("cash curve fallback reason is unavailable", currency=currency)
-        curve_revision = int(cash_evidence.get("curve_revision"))
-        if curve_revision < 1:
-            return _unavailable("cash curve revision is invalid", currency=currency)
+        curve_revision = _positive_revision(cash_evidence.get("curve_revision"))
         checksum = str(cash_evidence["source_checksum"])
         if len(checksum) != 64 or any(character not in "0123456789abcdefABCDEF" for character in checksum):
             return _unavailable("cash evidence checksum is malformed", currency=currency)
@@ -403,7 +437,7 @@ def validate_cash_comparison_result(
             "decision_time",
             "knowledge_cutoff",
         )
-        if any(raw.get(name) in (None, "") for name in required_text):
+        if any(not _has_nonblank_text(raw.get(name)) for name in required_text):
             raise ValueError("cash comparison lineage or convention is incomplete")
         currency = str(raw["currency"]).strip().upper()
         if len(currency) != 3 or not currency.isalpha():
@@ -468,9 +502,7 @@ def validate_cash_comparison_result(
             raise ValueError("cash curve fallback identity is unavailable")
         if raw.get("fallback") and raw.get("fallback_from") in (None, ""):
             raise ValueError("cash curve fallback reason is unavailable")
-        revision = int(raw.get("curve_revision"))
-        if revision < 1:
-            raise ValueError("cash curve revision is invalid")
+        revision = _positive_revision(raw.get("curve_revision"))
         checksum = str(raw["source_checksum"])
         if len(checksum) != 64 or any(character not in "0123456789abcdefABCDEF" for character in checksum):
             raise ValueError("cash evidence checksum is malformed")

@@ -101,6 +101,32 @@ def test_missing_country_and_currency_are_explicitly_unavailable(tmp_path) -> No
     assert report["missing_country_or_currency_count"] == 1
 
 
+def test_direct_curve_observation_rejects_ambiguous_timestamps(tmp_path) -> None:
+    row = _row(
+        dataset_id="curve:aud-direct",
+        series_id="curve:aud-direct:1",
+        curve_id="aud-direct",
+        curve_version="v1",
+        curve_type="spot",
+        tenor_years=1.0,
+        value=0.02,
+        unit="decimal",
+        compounding="annual",
+        day_count="ACT/365F",
+        reinvestment="reinvested_income",
+        interpolation="none",
+        freshness="fresh",
+        freshness_status="fresh",
+        published_at="2024-01-01",
+        available_at="2024-01-01",
+        observed_at="2024-01-01",
+        ingested_at="2024-01-01",
+    )
+
+    with pytest.raises(MacroWarehouseError, match="timezone-aware"):
+        MacroWarehouse().ingest([row], root=tmp_path)
+
+
 def _curve(
     *,
     curve_id: str = "aud-official-spot",

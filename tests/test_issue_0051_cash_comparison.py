@@ -230,6 +230,83 @@ def test_cash_builder_and_serialized_validator_reject_inverted_bitemporal_eviden
     assert validate_cash_comparison_result(forged, expected_currency="AUD").status == "unavailable"
 
 
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    (
+        ("source_id", " "),
+        ("mapping_methodology", "  "),
+        ("curve_version", "\t"),
+        ("reinvestment", " "),
+    ),
+)
+def test_cash_builder_and_validator_reject_blank_lineage(
+    field_name: str,
+    value: object,
+) -> None:
+    prices = pd.Series(
+        [100.0, 110.0],
+        index=pd.to_datetime(["2025-01-01", "2025-01-02"]),
+    )
+    built = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(**{field_name: value}),
+        decision_time="2025-01-03T00:00:00+00:00",
+    )
+    assert built.status == "unavailable"
+
+    valid = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(),
+        decision_time="2025-01-03T00:00:00+00:00",
+    ).as_dict()
+    forged = {**valid, field_name: value}
+    assert (
+        validate_cash_comparison_result(forged, expected_currency="AUD").status
+        == "unavailable"
+    )
+
+
+@pytest.mark.parametrize("revision", (True, 1.5, "1"))
+def test_cash_builder_and_validator_reject_non_integral_revision(
+    revision: object,
+) -> None:
+    prices = pd.Series(
+        [100.0, 110.0],
+        index=pd.to_datetime(["2025-01-01", "2025-01-02"]),
+    )
+    built = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(curve_revision=revision),
+        decision_time="2025-01-03T00:00:00+00:00",
+    )
+    assert built.status == "unavailable"
+
+    valid = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(),
+        decision_time="2025-01-03T00:00:00+00:00",
+    ).as_dict()
+    assert (
+        validate_cash_comparison_result(
+            {**valid, "curve_revision": revision},
+            expected_currency="AUD",
+        ).status
+        == "unavailable"
+    )
+
+
 def test_cash_comparison_does_not_turn_missing_inflation_into_real_return() -> None:
     prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
     result = build_cash_comparison(

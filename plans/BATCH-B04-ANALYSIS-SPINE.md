@@ -3548,3 +3548,12 @@ cash, bitemporal ordering and mandatory currency. The ISSUE-0051 suite passes
 pass; Ruff, compile, programme freshness and diff hygiene are clean. Cancelled
 run `31563287001` is invalid; freeze one replacement H-tier head for paired
 review and fresh Linux, Windows and terminal validation.
+
+Final paired review then reproduced one direct-ingest timezone bypass and two
+strict-decoding gaps: blank lineage and fractional/boolean revision identities.
+The bounded follow-up requires explicit timezone-aware timestamps on every
+curve-bearing warehouse row, nonblank construction/readback lineage and
+positive integral non-boolean revisions. The combined ISSUE-0051 and
+macro-warehouse run passes 67 tests; Ruff, compile, programme freshness and
+diff hygiene pass. Cancelled run `31564924105` is invalid; publish only the
+new exact H-tier head.

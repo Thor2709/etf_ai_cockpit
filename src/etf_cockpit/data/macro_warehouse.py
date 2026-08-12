@@ -217,19 +217,32 @@ def _validate(observation: MacroObservation) -> MacroObservation:
         raise MacroWarehouseError("macro dataset_id and series_id are required")
     if len(observation.source_checksum) != 64 or any(char not in "0123456789abcdefABCDEF" for char in observation.source_checksum):
         raise MacroWarehouseError("macro source_checksum must be a SHA-256 value")
+    curve_evidence = any(
+        value is not None
+        for value in (
+            observation.curve_id,
+            observation.curve_type,
+            observation.tenor_years,
+        )
+    )
+    timestamp_normalizer = _explicit_timestamp if curve_evidence else _timestamp
     normalized = {
-        field_name: _timestamp(getattr(observation, field_name), field_name)
+        field_name: timestamp_normalizer(getattr(observation, field_name), field_name)
         for field_name in ("published_at", "available_at", "observed_at", "ingested_at")
     }
     if normalized["observed_at"] > normalized["available_at"]:
         raise MacroWarehouseError("macro effective/observed_at cannot be after available_at")
     if observation.revised_at is not None:
-        _timestamp(observation.revised_at, "revised_at")
+        timestamp_normalizer(observation.revised_at, "revised_at")
     return observation.model_copy(
         update={
             "period_start": _period_start(observation.period_start),
             **normalized,
-            "revised_at": _timestamp(observation.revised_at, "revised_at") if observation.revised_at else None,
+            "revised_at": (
+                timestamp_normalizer(observation.revised_at, "revised_at")
+                if observation.revised_at
+                else None
+            ),
             "source_checksum": observation.source_checksum.lower(),
         }
     )
