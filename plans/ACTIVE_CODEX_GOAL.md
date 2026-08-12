@@ -2305,3 +2305,14 @@ next action and whether the requested outcome is actually complete.
   suites, Ruff, compile, programme freshness and diff hygiene pass. Although
   run `31565656403` passed, its rejected head makes that evidence invalid;
   publish one replacement H-tier head for fresh paired review and full gates.
+- Paired review of `a6833a337b1e31572b6cb082bbf01bd07555a95d`
+  then reproduced three remaining boundary bypasses: ledger/readback revision
+  coercion, adjusted-price division underflow to an impossible -100% return,
+  and whitespace-only fallback lineage. The consolidated correction now
+  validates revisions before bitemporal append and at both bitemporal/macro
+  readback, rejects underflowed adjusted returns during construction, and
+  requires conditional fallback lineage to be nonblank. All 156 directly
+  affected bitemporal, macro, cash, attribution, score and Instrument Detail
+  tests pass; Ruff, compile, programme freshness and diff hygiene pass. Run
+  `31581729559` is invalid/cancelled; freeze one new H-tier head for fresh
+  paired review and full hosted evidence.

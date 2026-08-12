@@ -162,7 +162,10 @@ def exact_adjusted_total_return(
     last = float(selected.loc[end])
     if not math.isfinite(first) or not math.isfinite(last) or first <= 0 or last <= 0:
         raise ValueError("adjusted prices must be finite and positive")
-    return last / first - 1.0
+    result = last / first - 1.0
+    if not math.isfinite(result) or result <= -1.0:
+        raise ValueError("instrument total return must be finite and greater than -1")
+    return result
 
 
 @dataclass(frozen=True)
@@ -341,7 +344,9 @@ def build_cash_comparison(
             return _unavailable("cash curve interpolation policy is unsupported", currency=currency)
         if not isinstance(cash_evidence.get("fallback"), bool):
             return _unavailable("cash curve fallback identity is unavailable", currency=currency)
-        if cash_evidence.get("fallback") and not cash_evidence.get("fallback_from"):
+        if cash_evidence.get("fallback") and not _has_nonblank_text(
+            cash_evidence.get("fallback_from")
+        ):
             return _unavailable("cash curve fallback reason is unavailable", currency=currency)
         curve_revision = _positive_revision(cash_evidence.get("curve_revision"))
         checksum = str(cash_evidence["source_checksum"])
@@ -506,7 +511,7 @@ def validate_cash_comparison_result(
             raise ValueError("cash curve extrapolation is unsupported")
         if not isinstance(raw.get("fallback"), bool):
             raise ValueError("cash curve fallback identity is unavailable")
-        if raw.get("fallback") and raw.get("fallback_from") in (None, ""):
+        if raw.get("fallback") and not _has_nonblank_text(raw.get("fallback_from")):
             raise ValueError("cash curve fallback reason is unavailable")
         revision = _positive_revision(raw.get("curve_revision"))
         checksum = str(raw["source_checksum"])

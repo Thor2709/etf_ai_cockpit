@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+from numbers import Integral
 from pathlib import Path
 import re
 from typing import Any
@@ -26,6 +27,12 @@ class BitemporalError(ValueError):
 
 class AmbiguousAvailabilityError(BitemporalError):
     """Raised when the application cannot prove when an observation was available."""
+
+
+def _positive_revision(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, Integral) or value < 1:
+        raise BitemporalError("revision must be a positive integer")
+    return int(value)
 
 
 @dataclass(frozen=True)
@@ -113,8 +120,7 @@ class BitemporalStore:
             raise AmbiguousAvailabilityError("available_at is required for point-in-time authority")
         if not _CHECKSUM.fullmatch(str(source_checksum)):
             raise BitemporalError("source_checksum must be a 64-character SHA-256 value")
-        if revision < 1:
-            raise BitemporalError("revision must be positive")
+        revision = _positive_revision(revision)
         if timezone_confidence not in _CONFIDENCE:
             raise BitemporalError(f"unsupported timezone_confidence: {timezone_confidence}")
         if availability_confidence not in {"exact", "inferred"}:
@@ -150,7 +156,7 @@ class BitemporalStore:
                         "SELECT revision, available_at FROM bitemporal_observations WHERE dataset_id = ? AND stable_id = ? ORDER BY revision DESC, available_at DESC LIMIT 1",
                         (dataset_id, stable_id),
                     ).fetchone()
-                    maximum = int(row[0]) if row is not None else 0
+                    maximum = _positive_revision(row[0]) if row is not None else 0
                     if revision <= maximum:
                         raise BitemporalError(f"revision must advance beyond {maximum} for {stable_id}")
                     if row is not None and str(canonical["available_at"]) < str(row[1]):
@@ -386,7 +392,7 @@ def _observation(row: Any) -> BitemporalObservation:
         str(row["observed_at"]),
         str(row["ingested_at"]),
         str(row["revised_at"]) if row["revised_at"] else None,
-        int(row["revision"]),
+        _positive_revision(row["revision"]),
         str(row["source_id"]),
         str(row["source_checksum"]),
         str(row["timezone_confidence"]),

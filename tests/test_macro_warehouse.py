@@ -139,6 +139,34 @@ def test_curve_models_reject_coerced_revision_identities(revision: object) -> No
         )
 
 
+@pytest.mark.parametrize("revision", (True, 1.0, 1.5, "1"))
+def test_macro_revision_is_strict_before_append_and_at_ledger_readback(
+    tmp_path,
+    revision: object,
+) -> None:
+    forged = _row().model_copy(update={"revision": revision})
+    with pytest.raises(MacroWarehouseError, match="positive integer"):
+        MacroWarehouse().ingest([forged], root=tmp_path)
+
+    row = _row()
+    ledger = {
+        "value": row.ledger_value(),
+        "source_id": row.source_id,
+        "source_checksum": row.source_checksum,
+        "published_at": row.published_at,
+        "available_at": row.available_at,
+        "observed_at": row.observed_at,
+        "ingested_at": row.ingested_at,
+        "revised_at": row.revised_at,
+        "revision": row.revision,
+        "timezone_confidence": row.timezone_confidence,
+        "availability_confidence": row.availability_confidence,
+    }
+    ledger["revision"] = revision
+    with pytest.raises((MacroWarehouseError, ValueError)):
+        MacroObservation.from_ledger(ledger)
+
+
 def _curve(
     *,
     curve_id: str = "aud-official-spot",

@@ -14,6 +14,7 @@ import hashlib
 import io
 import json
 import math
+from numbers import Integral
 from pathlib import Path
 from typing import Iterable, Literal, Mapping
 
@@ -149,7 +150,7 @@ class MacroObservation(BaseModel):
             observed_at=str(record["observed_at"]),
             ingested_at=str(record["ingested_at"]),
             revised_at=record.get("revised_at"),
-            revision=int(record["revision"]),
+            revision=record["revision"],
             timezone_confidence=str(record["timezone_confidence"]),
             availability_confidence=str(record["availability_confidence"]),
         )
@@ -208,6 +209,12 @@ def _source_checksum(value: str | bytes) -> str:
     return hashlib.sha256(value if isinstance(value, bytes) else value.encode("utf-8")).hexdigest()
 
 
+def _positive_revision(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, Integral) or value < 1:
+        raise MacroWarehouseError("macro revision must be a positive integer")
+    return int(value)
+
+
 def _validate(observation: MacroObservation) -> MacroObservation:
     if observation.dataset_kind not in _ALLOWED_KINDS:
         raise MacroWarehouseError(f"unsupported macro dataset_kind: {observation.dataset_kind}")
@@ -217,6 +224,7 @@ def _validate(observation: MacroObservation) -> MacroObservation:
         raise MacroWarehouseError("macro dataset_id and series_id are required")
     if len(observation.source_checksum) != 64 or any(char not in "0123456789abcdefABCDEF" for char in observation.source_checksum):
         raise MacroWarehouseError("macro source_checksum must be a SHA-256 value")
+    revision = _positive_revision(observation.revision)
     curve_evidence = any(
         value is not None
         for value in (
@@ -244,6 +252,7 @@ def _validate(observation: MacroObservation) -> MacroObservation:
                 else None
             ),
             "source_checksum": observation.source_checksum.lower(),
+            "revision": revision,
         }
     )
 
@@ -364,6 +373,7 @@ def _validate_curve(snapshot: CurveSnapshot) -> CurveSnapshot:
         raise MacroWarehouseError("curve extrapolation policy is unsupported")
     if snapshot.execution_allowed:
         raise MacroWarehouseError("curve snapshots cannot grant execution authority")
+    revision = _positive_revision(snapshot.revision)
     if snapshot.source_authority not in _OFFICIAL_CURVE_AUTHORITIES:
         raise MacroWarehouseError("cash curve provenance must explicitly identify an official source")
     points = tuple(sorted(snapshot.points, key=lambda item: item.tenor_years))
@@ -396,6 +406,7 @@ def _validate_curve(snapshot: CurveSnapshot) -> CurveSnapshot:
             "available_at": available_at,
             "ingested_at": _explicit_timestamp(snapshot.ingested_at, "ingested_at"),
             "points": points,
+            "revision": revision,
         }
     )
 

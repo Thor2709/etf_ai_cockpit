@@ -3568,3 +3568,15 @@ macro-warehouse suites, Ruff, compile, programme freshness and diff hygiene
 pass. Run `31565656403` passed but is invalid because its exact head was
 review-rejected; publish one replacement H-tier head for fresh paired review
 and Linux, Windows and terminal gates.
+
+Paired review of `a6833a337b1e31572b6cb082bbf01bd07555a95d`
+then reproduced three remaining boundary bypasses: ledger/readback revision
+coercion, adjusted-price division underflow to an impossible -100% return and
+whitespace-only fallback lineage. The consolidated correction validates
+revision identity before bitemporal append and at bitemporal/macro readback,
+rejects underflowed adjusted returns during construction and requires nonblank
+conditional fallback lineage. All 156 affected bitemporal, macro, cash,
+attribution, score and Instrument Detail tests pass; Ruff, compile, programme
+freshness and diff hygiene pass. Run `31581729559` is invalid/cancelled;
+freeze one replacement H-tier head for fresh paired review and Linux, Windows
+and terminal gates.

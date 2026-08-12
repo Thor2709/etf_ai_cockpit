@@ -332,6 +332,56 @@ def test_continuous_cash_return_rejects_underflow_to_total_loss() -> None:
         )
 
 
+def test_adjusted_return_construction_rejects_underflow_to_total_loss() -> None:
+    prices = pd.Series(
+        [1e308, 5e-324],
+        index=pd.to_datetime(["2025-01-01", "2025-01-02"]),
+    )
+    with pytest.raises(ValueError, match="greater than -1"):
+        exact_adjusted_total_return(prices, "2025-01-01", "2025-01-02")
+
+    result = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(),
+        decision_time="2025-01-03T00:00:00+00:00",
+    )
+    assert result.status == "unavailable"
+    assert result.instrument_return is None
+
+
+def test_fallback_lineage_must_be_nonblank_at_construction_and_readback() -> None:
+    prices = pd.Series(
+        [100.0, 101.0],
+        index=pd.to_datetime(["2025-01-01", "2025-01-02"]),
+    )
+    built = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(fallback=True, fallback_from="   "),
+        decision_time="2025-01-03T00:00:00+00:00",
+    )
+    assert built.status == "unavailable"
+
+    valid = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(),
+        decision_time="2025-01-03T00:00:00+00:00",
+    ).as_dict()
+    forged = {**valid, "fallback": True, "fallback_from": "   "}
+    assert (
+        validate_cash_comparison_result(forged, expected_currency="AUD").status
+        == "unavailable"
+    )
+
+
 def test_cash_comparison_does_not_turn_missing_inflation_into_real_return() -> None:
     prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
     result = build_cash_comparison(
