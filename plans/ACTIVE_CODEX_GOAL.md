@@ -2365,3 +2365,15 @@ next action and whether the requested outcome is actually complete.
   mapping and direct round-trip regressions plus complete cash/macro/bitemporal
   suites, Ruff, compile, programme freshness and diff hygiene pass. Freeze one
   replacement H-tier exact head for paired review and fresh hosted gates.
+- Paired review rejected `7245e76ac27606f9542fd71dd354d178fcdcd5b1`
+  after reproducing partial multi-point curve visibility, inferred availability
+  accepted as exact, and persisted cash accepted without instrument currency.
+  Run `31593071919` is cancelled and invalid. Consolidated product commit
+  `e6a2b209a05a0ed4d51370a72e6a58f03a56f6ad` binds every curve row to the
+  declared snapshot point count, rejects incomplete snapshots and non-exact
+  availability/timezone confidence, and clears persisted cash fields when
+  currency is absent. Exact partial-write, inferred-confidence and persisted
+  currency regressions plus complete cash/macro/bitemporal and coupled
+  attribution/score/detail suites, compile, programme freshness and diff
+  hygiene pass. Freeze one replacement H-tier head for paired review and fresh
+  Linux, Windows and terminal evidence.

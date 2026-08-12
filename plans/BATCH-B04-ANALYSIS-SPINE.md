@@ -3549,6 +3549,16 @@ pass; Ruff, compile, programme freshness and diff hygiene are clean. Cancelled
 run `31563287001` is invalid; freeze one replacement H-tier head for paired
 review and fresh Linux, Windows and terminal validation.
 
+Paired review rejected `7245e76ac27606f9542fd71dd354d178fcdcd5b1`
+for partial snapshot visibility, inferred availability accepted as exact and
+persisted cash accepted without currency. Run `31593071919` is cancelled and
+invalid. Consolidated product commit
+`e6a2b209a05a0ed4d51370a72e6a58f03a56f6ad` requires complete declared
+point count, exact availability/timezone confidence and currency-bound
+persisted readback. Exact regressions and the complete affected financial,
+persistence and UI suites plus static/programme checks pass. Freeze one
+replacement H-tier head for paired review and fresh hosted validation.
+
 Final paired review then reproduced one direct-ingest timezone bypass and two
 strict-decoding gaps: blank lineage and fractional/boolean revision identities.
 The bounded follow-up requires explicit timezone-aware timestamps on every
