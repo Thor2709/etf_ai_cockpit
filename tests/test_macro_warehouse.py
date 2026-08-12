@@ -220,6 +220,196 @@ def test_macro_revision_is_strict_before_append_and_at_ledger_readback(
         MacroObservation.from_ledger(ledger)
 
 
+def test_macro_timestamps_preserve_subsecond_point_in_time_ordering(tmp_path) -> None:
+    row = _row(
+        published_at="2024-02-01T00:00:00.800Z",
+        available_at="2024-02-01T00:00:00.900Z",
+        ingested_at="2024-02-01T00:00:01.100Z",
+    )
+    warehouse = MacroWarehouse()
+    warehouse.ingest([row], root=tmp_path)
+    stored = warehouse.observations(root=tmp_path)[0]
+    assert stored.published_at.endswith("00.800000+00:00")
+    assert stored.available_at.endswith("00.900000+00:00")
+
+    with pytest.raises(MacroWarehouseError, match="published_at"):
+        warehouse.ingest(
+            [
+                row.model_copy(
+                    update={
+                        "published_at": "2024-02-01T00:00:00.901Z",
+                        "available_at": "2024-02-01T00:00:00.900Z",
+                    }
+                )
+            ],
+            root=tmp_path / "publication-after-availability",
+        )
+
+
+def test_curve_readback_rejects_subsecond_decision_look_ahead(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    warehouse.ingest_curve(
+        _curve(
+            published_at="2025-01-01T00:00:00.900Z",
+            available_at="2025-01-01T00:00:00.900Z",
+        ),
+        root=tmp_path,
+    )
+
+    selected = warehouse.curve_rate(
+        root=tmp_path,
+        curve_id="aud-official-spot",
+        tenor_years=1.0,
+        decision_time="2025-01-01T00:00:00.500Z",
+    )
+    assert selected["status"] == "unavailable"
+    assert "then-known" in str(selected["reason"])
+
+
+@pytest.mark.parametrize("field_name", ("extrapolation_allowed", "execution_allowed"))
+@pytest.mark.parametrize("value", (0, "false"))
+def test_curve_authority_booleans_are_not_coerced(field_name: str, value: object) -> None:
+    with pytest.raises(ValueError):
+        CurveSnapshot.model_validate({**_curve().model_dump(), field_name: value})
+
+    if field_name == "execution_allowed":
+        with pytest.raises(ValueError):
+            RiskFreeProxyMapping.model_validate(
+                {
+                    "currency": "AUD",
+                    "minimum_horizon_years": 0.0,
+                    "maximum_horizon_years": 1.0,
+                    "curve_id": "aud-cash",
+                    "methodology": "official mapping",
+                    "execution_allowed": value,
+                }
+            )
+    else:
+        with pytest.raises(ValueError):
+            MacroObservation.model_validate(
+                {**_row().model_dump(), "extrapolation_allowed": value}
+            )
+        row = _row()
+        ledger = {
+            "value": row.ledger_value(),
+            "source_id": row.source_id,
+            "source_checksum": row.source_checksum,
+            "published_at": row.published_at,
+            "available_at": row.available_at,
+            "observed_at": row.observed_at,
+            "ingested_at": row.ingested_at,
+            "revised_at": row.revised_at,
+            "revision": row.revision,
+            "timezone_confidence": row.timezone_confidence,
+            "availability_confidence": row.availability_confidence,
+        }
+        ledger["value"]["extrapolation_allowed"] = value
+        with pytest.raises(ValueError):
+            MacroObservation.from_ledger(ledger)
+
+
+def test_curve_ingestion_rejects_duplicate_and_regressing_revision_identities(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    warehouse.ingest_curve(_curve(revision=2), root=tmp_path)
+
+    with pytest.raises(MacroWarehouseError, match="revision"):
+        warehouse.ingest_curve(_curve(revision=1), root=tmp_path)
+    with pytest.raises(MacroWarehouseError, match="revision"):
+        warehouse.ingest_curve(_curve(revision=2), root=tmp_path)
+
+
+def test_curve_readback_fails_closed_for_persisted_regressing_history(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    first = _direct_curve_row(
+        dataset_id="curve:readback-curve",
+        series_id="readback-curve:1Y",
+        curve_id="readback-curve",
+        methodology="official method",
+        available_at="2024-01-02T00:00:00+00:00",
+        revision=2,
+    )
+    later_regression = first.model_copy(
+        update={
+            "available_at": "2024-01-03T00:00:00+00:00",
+            "revision": 1,
+        }
+    )
+    _store_direct_curve_row(tmp_path, first)
+    _store_direct_curve_row(tmp_path, later_regression)
+
+    selected = warehouse.curve_rate(
+        root=tmp_path,
+        curve_id="readback-curve",
+        tenor_years=1.0,
+        decision_time="2025-01-01T00:00:00+00:00",
+    )
+    assert selected["status"] == "unavailable"
+    assert "revision" in str(selected["reason"])
+
+
+def test_curve_readback_fails_closed_for_persisted_duplicate_revision_identity(tmp_path) -> None:
+    first = _direct_curve_row(
+        dataset_id="curve:duplicate-curve",
+        series_id="duplicate-curve:1Y",
+        curve_id="duplicate-curve",
+        methodology="official method",
+    )
+    duplicate_identity = first.model_copy(
+        update={"series_id": "duplicate-curve:other-1Y", "value": 0.02}
+    )
+    _store_direct_curve_row(tmp_path, first)
+    _store_direct_curve_row(tmp_path, duplicate_identity)
+
+    selected = MacroWarehouse().curve_rate(
+        root=tmp_path,
+        curve_id="duplicate-curve",
+        tenor_years=1.0,
+        decision_time="2025-01-01T00:00:00+00:00",
+    )
+    assert selected["status"] == "unavailable"
+    assert "duplicated" in str(selected["reason"])
+
+
+def test_malformed_primary_curve_falls_back_only_to_official_lineage(tmp_path) -> None:
+    primary = _direct_curve_row(
+        dataset_id="curve:primary-curve",
+        series_id="primary-curve:1Y",
+        curve_id="primary-curve",
+        methodology="official method",
+        source_authority=None,
+    )
+    fallback = _direct_curve_row(
+        dataset_id="curve:fallback-curve",
+        series_id="fallback-curve:1Y",
+        curve_id="fallback-curve",
+        methodology="official fallback method",
+        source_authority="official_public_file",
+    )
+    _store_direct_curve_row(tmp_path, primary)
+    _store_direct_curve_row(tmp_path, fallback)
+
+    selected = MacroWarehouse().risk_free_rate(
+        root=tmp_path,
+        mappings=(
+            RiskFreeProxyMapping(
+                currency="AUD",
+                minimum_horizon_years=1.0,
+                maximum_horizon_years=1.0,
+                curve_id="primary-curve",
+                fallback_curve_ids=("fallback-curve",),
+                methodology="official mapping",
+            ),
+        ),
+        currency="AUD",
+        horizon_years=1.0,
+        decision_time="2025-01-01T00:00:00+00:00",
+    )
+    assert selected["status"] == "available"
+    assert selected["curve_id"] == "fallback-curve"
+    assert selected["fallback"] is True
+    assert selected["execution_allowed"] is False
+
+
 def _curve(
     *,
     curve_id: str = "aud-official-spot",

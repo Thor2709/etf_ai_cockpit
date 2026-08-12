@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+from datetime import datetime
 
 import pandas as pd
 import pytest
@@ -164,6 +165,42 @@ def test_date_only_adjusted_endpoint_is_available_next_utc_day(
     )
     assert result.status == expected_status
     assert adjusted_endpoint_available_at("2025-01-02") == "2025-01-03T00:00:00+00:00"
+
+
+@pytest.mark.parametrize(
+    "value",
+    (datetime(2025, 1, 1), "1/01-02-2025", "2025-01-01T00:00:00+00:00"),
+)
+def test_cash_period_dates_reject_datetime_and_noncanonical_strings(value: object) -> None:
+    with pytest.raises(ValueError, match="strict YYYY-MM-DD"):
+        year_fraction(value, "2025-01-02")
+
+
+def test_cash_builder_rejects_cutoff_before_period_start_and_validates_immediately() -> None:
+    prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
+    before_start = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(),
+        decision_time="2025-01-03T00:00:00+00:00",
+        knowledge_cutoff="2024-12-31T23:59:59.999999+00:00",
+    )
+    assert before_start.status == "unavailable"
+    assert "knowledge cutoff" in str(before_start.reason)
+
+    built = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(),
+        decision_time="2025-01-03T00:00:00+00:00",
+    )
+    assert built.status == "available"
+    assert validate_cash_comparison_result(built.as_dict(), expected_currency="AUD").status == "available"
+    assert built.execution_allowed is False
 
 
 @pytest.mark.parametrize(

@@ -8,7 +8,7 @@ changes scores, rankings, gates, forecasts or execution authority.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import math
 from numbers import Integral, Real
 from collections.abc import Mapping
@@ -33,10 +33,16 @@ def _has_nonblank_text(value: object) -> bool:
 
 
 def _as_date(value: object, field_name: str) -> date:
-    parsed = pd.to_datetime(value, errors="coerce", utc=True, format="mixed")
-    if not isinstance(parsed, pd.Timestamp) or pd.isna(parsed):
-        raise ValueError(f"{field_name} must be an ISO date")
-    return parsed.date()
+    if isinstance(value, datetime):
+        raise ValueError(f"{field_name} must be a date or strict YYYY-MM-DD string")
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str) or len(value) != 10 or value[4] != "-" or value[7] != "-":
+        raise ValueError(f"{field_name} must be a date or strict YYYY-MM-DD string")
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be a date or strict YYYY-MM-DD string") from exc
 
 
 def period_start_knowledge_cutoff(start_date: object) -> str:
@@ -233,9 +239,9 @@ def build_cash_comparison(
         knowledge_cutoff if knowledge_cutoff is not None else start_cutoff,
         "knowledge_cutoff",
     )
-    if cutoff > start_cutoff:
+    if cutoff != start_cutoff:
         return _unavailable(
-            "cash knowledge cutoff cannot be after the comparison period start",
+            "cash knowledge cutoff must equal the comparison period start",
             start_date=start.isoformat(),
             end_date=end.isoformat(),
             knowledge_cutoff=cutoff.isoformat(),
@@ -374,7 +380,7 @@ def build_cash_comparison(
         )
     except (ArithmeticError, TypeError, ValueError, OverflowError) as exc:
         return _unavailable(f"cash comparison unavailable: {str(exc)}", currency=currency, start_date=start.isoformat(), end_date=end.isoformat())
-    return CashComparisonResult(
+    result = CashComparisonResult(
         status="available",
         instrument_return=instrument_return,
         cash_return=cash_return,
@@ -411,6 +417,7 @@ def build_cash_comparison(
         knowledge_cutoff=cutoff.isoformat(),
         inflation_context=dict(inflation_context) if inflation_context is not None else None,
     )
+    return validate_cash_comparison_result(result, expected_currency=currency)
 
 
 def _unavailable(reason: str, **fields: object) -> CashComparisonResult:

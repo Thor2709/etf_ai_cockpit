@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Iterable, Literal, Mapping
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from etf_cockpit.core.atomic_io import atomic_write_json
 from etf_cockpit.core.paths import CONFIG_DIR
@@ -82,7 +82,7 @@ class MacroObservation(BaseModel):
     tenor_years: float | None = Field(default=None, gt=0, strict=True, allow_inf_nan=False)
     curve_point_count: int | None = Field(default=None, ge=1, strict=True)
     interpolation: str | None = None
-    extrapolation_allowed: bool = False
+    extrapolation_allowed: StrictBool = False
     compounding: str | None = None
     day_count: str | None = None
     reinvestment: str | None = None
@@ -183,7 +183,14 @@ def _timestamp(value: str | date | datetime, field_name: str) -> str:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).strftime(_TIMESTAMP_FORMAT)
+    return _format_timestamp(parsed)
+
+
+def _format_timestamp(value: datetime) -> str:
+    normalized = value.astimezone(timezone.utc)
+    if normalized.microsecond:
+        return normalized.isoformat(timespec="microseconds")
+    return normalized.strftime(_TIMESTAMP_FORMAT)
 
 
 def _explicit_timestamp(value: str | date | datetime, field_name: str) -> str:
@@ -203,7 +210,11 @@ def _explicit_timestamp(value: str | date | datetime, field_name: str) -> str:
             ) from exc
     if parsed.tzinfo is None:
         raise MacroWarehouseError(f"{field_name} must be an explicit timezone-aware timestamp")
-    return parsed.astimezone(timezone.utc).strftime(_TIMESTAMP_FORMAT)
+    return _format_timestamp(parsed)
+
+
+def _timestamp_value(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def _period_start(value: object) -> str:
@@ -255,9 +266,9 @@ def _validate(observation: MacroObservation) -> MacroObservation:
         field_name: timestamp_normalizer(getattr(observation, field_name), field_name)
         for field_name in ("published_at", "available_at", "observed_at", "ingested_at")
     }
-    if normalized["observed_at"] > normalized["available_at"]:
+    if _timestamp_value(normalized["observed_at"]) > _timestamp_value(normalized["available_at"]):
         raise MacroWarehouseError("macro effective/observed_at cannot be after available_at")
-    if normalized["published_at"] > normalized["available_at"]:
+    if _timestamp_value(normalized["published_at"]) > _timestamp_value(normalized["available_at"]):
         raise MacroWarehouseError("macro published_at cannot be after available_at")
     if observation.revised_at is not None:
         timestamp_normalizer(observation.revised_at, "revised_at")
@@ -302,7 +313,7 @@ class CurveSnapshot(BaseModel):
     source_terms: str
     methodology: str
     interpolation: str = "linear"
-    extrapolation_allowed: bool = False
+    extrapolation_allowed: StrictBool = False
     compounding: str | None = None
     day_count: str | None = None
     reinvestment: str | None = None
@@ -310,7 +321,13 @@ class CurveSnapshot(BaseModel):
     freshness_status: str | None = None
     points: tuple[CurvePoint, ...]
     revision: int = Field(default=1, ge=1, strict=True)
-    execution_allowed: Literal[False] = False
+    execution_allowed: StrictBool = False
+
+    @model_validator(mode="after")
+    def _execution_must_remain_disabled(self) -> CurveSnapshot:
+        if self.execution_allowed is not False:
+            raise ValueError("curve snapshots cannot grant execution authority")
+        return self
 
 
 class BenchmarkMetadata(BaseModel):
@@ -341,7 +358,13 @@ class RiskFreeProxyMapping(BaseModel):
     curve_id: str
     fallback_curve_ids: tuple[str, ...] = ()
     methodology: str
-    execution_allowed: Literal[False] = False
+    execution_allowed: StrictBool = False
+
+    @model_validator(mode="after")
+    def _execution_must_remain_disabled(self) -> RiskFreeProxyMapping:
+        if self.execution_allowed is not False:
+            raise ValueError("risk-free mappings cannot grant execution authority")
+        return self
 
 
 def load_risk_free_proxy_mappings(
@@ -391,7 +414,7 @@ def _validate_curve(snapshot: CurveSnapshot) -> CurveSnapshot:
         raise MacroWarehouseError(f"unsupported interpolation policy: {snapshot.interpolation}")
     if snapshot.extrapolation_allowed:
         raise MacroWarehouseError("curve extrapolation policy is unsupported")
-    if snapshot.execution_allowed:
+    if snapshot.execution_allowed is not False:
         raise MacroWarehouseError("curve snapshots cannot grant execution authority")
     revision = _positive_revision(snapshot.revision)
     if snapshot.source_authority not in _OFFICIAL_CURVE_AUTHORITIES:
@@ -416,13 +439,17 @@ def _validate_curve(snapshot: CurveSnapshot) -> CurveSnapshot:
         if freshness is not None and freshness not in {"fresh", "stale", "conflicted", "malformed", "unavailable"}:
             raise MacroWarehouseError(f"unsupported curve freshness: {freshness}")
     effective_at = _explicit_timestamp(snapshot.effective_at, "effective_at")
+    published_at = _explicit_timestamp(snapshot.published_at, "published_at")
     available_at = _explicit_timestamp(snapshot.available_at, "available_at")
-    if effective_at > available_at:
+    if _timestamp_value(effective_at) > _timestamp_value(available_at):
         raise MacroWarehouseError("curve effective_at cannot be after available_at")
+    if _timestamp_value(published_at) > _timestamp_value(available_at):
+        raise MacroWarehouseError("curve published_at cannot be after available_at")
     return snapshot.model_copy(
         update={
             "currency": snapshot.currency.upper(),
             "effective_at": effective_at,
+            "published_at": published_at,
             "available_at": available_at,
             "ingested_at": _explicit_timestamp(snapshot.ingested_at, "ingested_at"),
             "points": points,
@@ -671,6 +698,62 @@ def transform_observations(
     return transformed
 
 
+def _curve_history_issue(rows: Iterable[MacroObservation], curve_id: str) -> str | None:
+    """Return an integrity error for a persisted curve revision history."""
+
+    snapshots: dict[tuple[datetime, int], dict[str, object]] = {}
+    for row in rows:
+        if row.dataset_id != f"curve:{curve_id}" or row.curve_id != curve_id:
+            return "curve dataset identity does not match curve_id"
+        effective_at = _timestamp_value(_explicit_timestamp(row.observed_at, "observed_at"))
+        available_at = _timestamp_value(_explicit_timestamp(row.available_at, "available_at"))
+        key = (effective_at, row.revision)
+        point_key = row.tenor_years
+        signature = (
+            row.curve_version,
+            row.curve_type,
+            row.curve_point_count,
+            row.currency,
+            row.source_id,
+            row.source_authority,
+            row.source_checksum,
+            row.source_terms,
+            row.methodology,
+            row.published_at,
+            row.interpolation,
+            row.extrapolation_allowed,
+            row.compounding,
+            row.day_count,
+            row.reinvestment,
+            row.freshness,
+            row.freshness_status,
+        )
+        snapshot = snapshots.setdefault(
+            key,
+            {"available_at": available_at, "signature": signature, "tenors": set()},
+        )
+        if snapshot["available_at"] != available_at or snapshot["signature"] != signature:
+            return "curve revision identity is conflicted"
+        tenors = snapshot["tenors"]
+        assert isinstance(tenors, set)
+        if point_key in tenors:
+            return "curve revision identity is duplicated; curve tenor points are duplicated"
+        tenors.add(point_key)
+
+    by_effective: dict[datetime, list[tuple[int, datetime]]] = {}
+    for (effective_at, revision), snapshot in snapshots.items():
+        available_at = snapshot["available_at"]
+        assert isinstance(available_at, datetime)
+        by_effective.setdefault(effective_at, []).append((revision, available_at))
+    for revisions in by_effective.values():
+        previous_revision = 0
+        for revision, _available_at in sorted(revisions, key=lambda item: (item[1], item[0])):
+            if revision <= previous_revision:
+                return "curve revision history regresses"
+            previous_revision = revision
+    return None
+
+
 class MacroWarehouse:
     """Adapter exposing macro observations and explicit unavailable summaries."""
 
@@ -747,6 +830,22 @@ class MacroWarehouse:
 
     def ingest_curve(self, snapshot: CurveSnapshot, *, root: Path) -> dict[str, object]:
         curve = _validate_curve(snapshot)
+        try:
+            existing = self.observations(
+                root=root, dataset_id=f"curve:{curve.curve_id}"
+            )
+        except (BitemporalError, TypeError, ValueError) as exc:
+            raise MacroWarehouseError(f"persisted curve history is malformed: {exc}") from exc
+        history_issue = _curve_history_issue(existing, curve.curve_id)
+        if history_issue is not None:
+            raise MacroWarehouseError(history_issue)
+        effective_at = _timestamp_value(curve.effective_at)
+        if any(
+            _timestamp_value(_explicit_timestamp(row.observed_at, "observed_at")) == effective_at
+            and row.revision >= curve.revision
+            for row in existing
+        ):
+            raise MacroWarehouseError("curve revision must advance without duplicate identity")
         observations = [
             MacroObservation(
                 dataset_id=f"curve:{curve.curve_id}",
@@ -822,6 +921,17 @@ class MacroWarehouse:
         decision_time: str,
     ) -> dict[str, object]:
         try:
+            history = self.observations(
+                root=root, dataset_id=f"curve:{curve_id}"
+            )
+            history_issue = _curve_history_issue(history, curve_id)
+            if history_issue is not None:
+                return {
+                    "status": "unavailable",
+                    "reason": history_issue,
+                    "curve_id": curve_id,
+                    "execution_allowed": False,
+                }
             frame = self.as_of(
                 root=root,
                 dataset_id=f"curve:{curve_id}",
@@ -875,8 +985,8 @@ class MacroWarehouse:
                 "execution_allowed": False,
             }
         if any(
-            _explicit_timestamp(row.published_at, "published_at")
-            > _explicit_timestamp(row.available_at, "available_at")
+            _timestamp_value(_explicit_timestamp(row.published_at, "published_at"))
+            > _timestamp_value(_explicit_timestamp(row.available_at, "available_at"))
             for row in rows
         ):
             return {
@@ -885,8 +995,16 @@ class MacroWarehouse:
                 "curve_id": curve_id,
                 "execution_allowed": False,
             }
-        latest_effective_at = max(row.observed_at for row in rows)
-        rows = [row for row in rows if row.observed_at == latest_effective_at]
+        latest_effective_at = max(
+            _timestamp_value(_explicit_timestamp(row.observed_at, "observed_at"))
+            for row in rows
+        )
+        rows = [
+            row
+            for row in rows
+            if _timestamp_value(_explicit_timestamp(row.observed_at, "observed_at"))
+            == latest_effective_at
+        ]
         metadata_signatures = {
             (
                 row.revision,
@@ -952,6 +1070,24 @@ class MacroWarehouse:
             return {
                 "status": "unavailable",
                 "reason": "curve snapshot freshness is conflicted",
+                "curve_id": curve_id,
+                "execution_allowed": False,
+            }
+        if any(
+            not row.source_id.strip()
+            or row.source_authority not in _OFFICIAL_CURVE_AUTHORITIES
+            or not row.source_terms.strip()
+            or not row.methodology.strip()
+            or not row.curve_version
+            or not row.curve_type
+            or not row.interpolation
+            or len(row.source_checksum) != 64
+            or any(character not in "0123456789abcdefABCDEF" for character in row.source_checksum)
+            for row in rows
+        ):
+            return {
+                "status": "unavailable",
+                "reason": "curve snapshot official lineage is incomplete",
                 "curve_id": curve_id,
                 "execution_allowed": False,
             }
