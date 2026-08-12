@@ -285,10 +285,13 @@ def build_cash_comparison(
         or cash_evidence.get("status") != "available"
     ):
         return _unavailable(str(cash_evidence.get("reason", "cash evidence is unavailable")) if isinstance(cash_evidence, Mapping) else "cash evidence is unavailable", currency=currency, start_date=start.isoformat(), end_date=end.isoformat())
-    evidence_currency = str(cash_evidence.get("currency") or "").upper()
     day_count = cash_evidence.get("day_count")
     horizon = None
     try:
+        raw_evidence_currency = cash_evidence.get("currency")
+        if not isinstance(raw_evidence_currency, str):
+            raise ValueError("cash evidence currency is malformed")
+        evidence_currency = raw_evidence_currency.strip().upper()
         if cash_evidence.get("execution_allowed") is not False:
             return _unavailable("cash evidence cannot grant execution authority", currency=currency)
         if evidence_currency != currency:

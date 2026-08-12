@@ -927,6 +927,23 @@ def test_cash_validator_and_simple_consumer_fail_closed_on_pd_na_status() -> Non
     assert score.cash_dataset_kind is None
 
 
+def test_cash_builder_fails_closed_on_pd_na_evidence_currency() -> None:
+    result = build_cash_comparison(
+        adjusted_prices=pd.Series(
+            [100.0, 101.0],
+            index=pd.to_datetime(["2025-01-01", "2026-01-01"]),
+        ),
+        start_date="2025-01-01",
+        end_date="2026-01-01",
+        instrument_currency="EUR",
+        cash_evidence=_evidence(currency=pd.NA),
+        decision_time="2026-01-02T00:00:00+00:00",
+    )
+    assert result.status == "unavailable"
+    assert "currency" in str(result.reason)
+    assert result.execution_allowed is False
+
+
 def test_injected_cash_comparison_propagates_without_changing_score_authority(
     tmp_path, monkeypatch
 ) -> None:
