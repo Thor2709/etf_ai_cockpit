@@ -2597,3 +2597,17 @@ next action and whether the requested outcome is actually complete.
   projections mechanically, prepare the checksum-bound status authority, and
   require E-tier guards plus ordered writer and zero-action readback before the
   separate atomic two-hop completion transaction.
+
+- ISSUE-0051 initial lifecycle PR #684 merged exact reviewed head
+  `342316801ffdb4efc62cdccd160067f2047ef62b` as
+  `c546f1dd4b2c01356c7164fafa18bab065efa2d1`. Tier-O run `31651266717`,
+  standalone status guard and both independent reviews passed. Ordered writer
+  run `31651750441` applied only `planned -> in_progress`, reconciled all
+  authority projections and returned `zero_action_readback=true` with
+  `execution_allowed=false`.
+- Clean branch `codex/issue0051-completion-20260813` starts from exact main
+  `c546f1dd4b2c01356c7164fafa18bab065efa2d1`. Append exactly the ordered
+  ISSUE-0051 hops `in_progress -> implemented_initially -> integrated`, bind
+  both to product PR #682 and the same review/evidence tuple, use one aggregate
+  proposal and receipt, and require full generic reconciliation plus zero-action
+  readback. Do not change product code or dependency edges.

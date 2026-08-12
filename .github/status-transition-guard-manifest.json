@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "planned",
+      "from": "in_progress",
       "issue_id": "ISSUE-0051",
-      "to": "in_progress"
+      "to": "integrated"
     }
   ],
-  "base_commit": "84f0353573f8ff7d49af1934d3149271009fc22c",
-  "branch": "codex/issue0051-lifecycle-start-20260813",
+  "base_commit": "c546f1dd4b2c01356c7164fafa18bab065efa2d1",
+  "branch": "codex/issue0051-completion-20260813",
   "issue_ids": [
     "ISSUE-0051"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "6c9983a42d4e9138acbf164db27d52123c4dfefb276027590e9158d9924da346",
+    "base_registry_sha256": "1cef3c6e26592de6e6fbee52cc53c26f41767ab5b442e286e6ba139dba9bdce4",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "1cef3c6e26592de6e6fbee52cc53c26f41767ab5b442e286e6ba139dba9bdce4",
-    "reason": "Advance only ISSUE-0051 from planned to in_progress using merged product PR #682, exact independent reviews and H-tier run 31638791406; preserve dependencies, acceptance criteria, product code, external authority and execution_allowed=false.",
+    "proposed_registry_sha256": "55203db55afb306d29efe41f14a8db81265d037343ec824a13db7e12605c4b5d",
+    "reason": "Replay only ISSUE-0051 from in_progress through implemented_initially to integrated against merged and independently reviewed product PR #682; preserve dependencies, product code, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
