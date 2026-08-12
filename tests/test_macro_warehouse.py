@@ -127,6 +127,18 @@ def test_direct_curve_observation_rejects_ambiguous_timestamps(tmp_path) -> None
         MacroWarehouse().ingest([row], root=tmp_path)
 
 
+@pytest.mark.parametrize("revision", (True, 1.0, "1"))
+def test_curve_models_reject_coerced_revision_identities(revision: object) -> None:
+    with pytest.raises(ValueError):
+        MacroObservation.model_validate(
+            {**_row().model_dump(), "revision": revision}
+        )
+    with pytest.raises(ValueError):
+        CurveSnapshot.model_validate(
+            {**_curve().model_dump(), "revision": revision}
+        )
+
+
 def _curve(
     *,
     curve_id: str = "aud-official-spot",

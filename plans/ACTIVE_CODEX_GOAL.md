@@ -2295,3 +2295,13 @@ next action and whether the requested outcome is actually complete.
   integral non-boolean revisions. The combined ISSUE-0051 and macro-warehouse
   run passes 67 tests; Ruff, compile, programme freshness and diff hygiene pass.
   Cancelled run `31564924105` is invalid; publish only the new exact head.
+- Paired review of `bb98f3151d05501272754b0f26f681f282621233`
+  then reproduced coercive revision decoding at both curve model boundaries and
+  impossible total returns at serialized/continuous-compounding boundaries.
+  The bounded correction makes `MacroObservation.revision` and
+  `CurveSnapshot.revision` strict positive integers, rejects boolean/float/
+  string identities, and requires every instrument/cash total return to remain
+  finite and greater than -100%. The combined ISSUE-0051 and macro-warehouse
+  suites, Ruff, compile, programme freshness and diff hygiene pass. Although
+  run `31565656403` passed, its rejected head makes that evidence invalid;
+  publish one replacement H-tier head for fresh paired review and full gates.

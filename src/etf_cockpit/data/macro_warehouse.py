@@ -70,7 +70,7 @@ class MacroObservation(BaseModel):
     observed_at: str
     ingested_at: str
     revised_at: str | None = None
-    revision: int = Field(default=1, ge=1)
+    revision: int = Field(default=1, ge=1, strict=True)
     timezone_confidence: str = "exact"
     availability_confidence: str = "exact"
     transformation_version: str = "identity.v1"
@@ -280,7 +280,7 @@ class CurveSnapshot(BaseModel):
     freshness: str | None = None
     freshness_status: str | None = None
     points: tuple[CurvePoint, ...]
-    revision: int = Field(default=1, ge=1)
+    revision: int = Field(default=1, ge=1, strict=True)
     execution_allowed: Literal[False] = False
 
 

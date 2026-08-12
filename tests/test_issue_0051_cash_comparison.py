@@ -307,6 +307,31 @@ def test_cash_builder_and_validator_reject_non_integral_revision(
     )
 
 
+@pytest.mark.parametrize("instrument_return", (-1.0, -1.5))
+def test_serialized_cash_comparison_rejects_impossible_instrument_return(
+    instrument_return: float,
+) -> None:
+    valid = _available_eur_result()
+    forged = {
+        **valid,
+        "instrument_return": instrument_return,
+        "excess_over_cash": instrument_return - float(valid["cash_return"]),
+    }
+    result = validate_cash_comparison_result(forged, expected_currency="EUR")
+    assert result.status == "unavailable"
+    assert result.instrument_return is None
+    assert result.cash_return is None
+
+
+def test_continuous_cash_return_rejects_underflow_to_total_loss() -> None:
+    with pytest.raises(ValueError, match="greater than -1"):
+        total_return_from_rate(
+            -1_000_000.0,
+            1.0,
+            compounding="continuous",
+        )
+
+
 def test_cash_comparison_does_not_turn_missing_inflation_into_real_return() -> None:
     prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
     result = build_cash_comparison(

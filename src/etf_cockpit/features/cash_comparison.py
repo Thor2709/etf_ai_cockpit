@@ -110,12 +110,16 @@ def total_return_from_rate(
     if compounding == "annual":
         if rate <= -1.0:
             raise ValueError("annual compounding requires annual_rate > -1")
-        return float((1.0 + rate) ** horizon - 1.0)
-    if compounding == "continuous":
-        return float(math.exp(rate * horizon) - 1.0)
-    if 1.0 + rate * horizon <= 0.0:
-        raise ValueError("simple compounding requires 1 + annual_rate * horizon > 0")
-    return float(rate * horizon)
+        result = float((1.0 + rate) ** horizon - 1.0)
+    elif compounding == "continuous":
+        result = float(math.exp(rate * horizon) - 1.0)
+    else:
+        if 1.0 + rate * horizon <= 0.0:
+            raise ValueError("simple compounding requires 1 + annual_rate * horizon > 0")
+        result = float(rate * horizon)
+    if not math.isfinite(result) or result <= -1.0:
+        raise ValueError("cash total return must be finite and greater than -1")
+    return result
 
 
 def exact_adjusted_total_return(
@@ -455,6 +459,8 @@ def validate_cash_comparison_result(
         if not math.isclose(observed_horizon, horizon, rel_tol=0.0, abs_tol=1e-12):
             raise ValueError("cash comparison horizon is inconsistent")
         instrument_return = _finite_float(raw.get("instrument_return"), "instrument_return")
+        if instrument_return <= -1.0:
+            raise ValueError("instrument total return must be greater than -1")
         rate = _finite_float(raw.get("rate"), "rate")
         observed_cash_return = _finite_float(raw.get("cash_return"), "cash_return")
         observed_excess = _finite_float(raw.get("excess_over_cash"), "excess_over_cash")

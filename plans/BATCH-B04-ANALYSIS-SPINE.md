@@ -3557,3 +3557,14 @@ positive integral non-boolean revisions. The combined ISSUE-0051 and
 macro-warehouse run passes 67 tests; Ruff, compile, programme freshness and
 diff hygiene pass. Cancelled run `31564924105` is invalid; publish only the
 new exact H-tier head.
+
+Paired review of `bb98f3151d05501272754b0f26f681f282621233` next
+reproduced coercive revision decoding at both curve model boundaries and
+impossible total returns at serialized and continuous-compounding boundaries.
+The bounded correction requires strict positive integer revisions with no
+boolean/float/string coercion and requires every instrument/cash total return
+to remain finite and greater than -100%. The combined ISSUE-0051 and
+macro-warehouse suites, Ruff, compile, programme freshness and diff hygiene
+pass. Run `31565656403` passed but is invalid because its exact head was
+review-rejected; publish one replacement H-tier head for fresh paired review
+and Linux, Windows and terminal gates.
