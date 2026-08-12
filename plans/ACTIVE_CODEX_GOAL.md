@@ -2328,3 +2328,16 @@ next action and whether the requested outcome is actually complete.
   suites, Ruff, compile, programme freshness and diff hygiene pass. Freeze one
   fully documented H-tier replacement head for both final reviews and fresh
   Linux, Windows and terminal evidence; no adjacent architecture is added.
+- Both reviews rejected `3e9049d329d7ed455b43885f345928ecaa5d22c4`
+  after reproducing coercive boolean/string financial values; risk review also
+  reproduced a direct curve row whose declared identity disagreed with its
+  storage dataset. Run `31587875943` is invalid and failed preflight because
+  the four-file affected suite exceeded its 240-second budget. Consolidated
+  product commit `f0cded147c0eeaec0cc48ab4b724e6bb4b16c9a6` rejects
+  non-numeric cash rates, horizons, returns and excess fields before conversion,
+  binds direct curve rows to `curve:<curve_id>` on ingest and readback, and
+  keeps the Instrument Detail fallback regression in the focused ISSUE-0051
+  suite so the unchanged slow UI file is no longer selected. All exact
+  regressions, complete cash and macro suites, bitemporal coverage, Ruff,
+  compile, programme freshness and diff hygiene pass. Freeze one documented
+  replacement H-tier head for paired review and fresh hosted evidence.

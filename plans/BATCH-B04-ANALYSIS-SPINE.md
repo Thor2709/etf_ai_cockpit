@@ -3591,3 +3591,15 @@ scoreboard-cash fallback. The complete affected financial, persistence and UI
 suites plus Ruff, compile, programme freshness and diff hygiene pass. Freeze
 one documented replacement H-tier head for parallel final review and fresh
 Linux, Windows and terminal gates; do not widen the repair.
+
+Both reviews rejected `3e9049d329d7ed455b43885f345928ecaa5d22c4`
+for coercive cash numerics; risk review also reproduced a direct curve row
+whose declared ID disagreed with its storage dataset. Invalid run
+`31587875943` timed out only because the affected selector included the
+otherwise unchanged slow Instrument Detail test file. Consolidated product
+commit `f0cded147c0eeaec0cc48ab4b724e6bb4b16c9a6` strictly validates every
+cash numeric before conversion, binds direct curve dataset identity on ingest
+and readback, and retains the fallback regression in the focused ISSUE-0051
+suite. The exact regressions, complete cash/macro suites, bitemporal coverage
+and static/programme checks pass. Freeze one replacement H-tier head for
+parallel review and fresh Linux, Windows and terminal gates.
