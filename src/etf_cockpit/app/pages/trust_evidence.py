@@ -17,7 +17,6 @@ from etf_cockpit.app.state import ActivityUnavailableError, AppState
 from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.paths import RAW_DIR, STATEMENT_FACTS_PATH
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
-from etf_cockpit.data.manual_notes import MANUAL_NEWS_CLEAN_PATH, load_manual_news
 from etf_cockpit.application.ui_facade import (
     BENCHMARK_ATTRIBUTION_PATH,
     CORRELATION_CLUSTERS_PATH,
@@ -34,6 +33,7 @@ from etf_cockpit.application.ui_facade import (
     IDENTITY_PATH,
     INDEX_METHODOLOGY_RECORDS_PATH,
     MANUAL_FILING_QUEUE_PATH,
+    MANUAL_NEWS_CLEAN_PATH,
     NEWS_CONTEXT_PATH,
     NEWS_TIMESTAMP_VALIDATION_PATH,
     OAM_DISCOVERY_PATH,
@@ -52,6 +52,7 @@ from etf_cockpit.application.ui_facade import (
     import_etf_document,
     import_etf_holdings_with_document,
     legal_terms_rows,
+    load_manual_news,
     load_news_items,
     load_calendar_events,
     events_available_as_of,

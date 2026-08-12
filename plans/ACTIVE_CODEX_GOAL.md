@@ -2221,8 +2221,13 @@ next action and whether the requested outcome is actually complete.
   per-code states, rejects internally inconsistent structured evidence, and
   leaves legacy rows explicitly unknown/unavailable. News & Context, Data &
   Models, Audit Notes/export and Instrument Detail show the same local evidence;
-  corrupt stores fail visibly closed. Eleven focused regressions and the full
-  198-test affected audit/instrument/news batch pass, plus Ruff, compile,
-  programme freshness and diff hygiene. Freeze one complete O-tier candidate
-  for parallel whole-diff/risk review and hosted validation;
+  corrupt stores fail visibly closed. The consolidated review correction keeps
+  source metadata out of claim semantics, handles explicit "no missing" lists,
+  verifies persisted states against canonical reclassification and routes all
+  presentation reads through the application facade. Fourteen focused tests
+  and architecture checks pass; the 204-test affected run had one unrelated
+  cache-lifecycle timing failure that passed its single allowed exact retry.
+  Ruff, compile, programme freshness and diff hygiene pass. Freeze one
+  replacement O-tier candidate for parallel whole-diff/risk review and fresh
+  cadence-required hosted package validation;
   `execution_allowed=false` and `executable_authority=false` remain unchanged.

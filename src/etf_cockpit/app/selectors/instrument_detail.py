@@ -15,6 +15,7 @@ from etf_cockpit.application.ui_facade import (
     FUNDAMENTAL_CLEAN_PATH,
     FUND_HOLDINGS_PATH,
     ETF_METADATA_CLEAN_PATH,
+    MANUAL_NEWS_CLEAN_PATH,
     NEWS_CLEAN_PATH,
     assess_fundamental_row,
     build_market_clock_diagnostics,
@@ -37,6 +38,7 @@ from etf_cockpit.application.ui_facade import (
     load_fixed_income_analytics_projection,
     load_etf_structure_projection,
     load_local_structural_evidence,
+    load_manual_news,
     load_simple_scoreboard,
     load_statement_evidence,
     load_paper_trade_rows,
@@ -65,7 +67,6 @@ from etf_cockpit.audit.thesis_diary import (
     disclosure_safe_review,
 )
 from etf_cockpit.core.paths import DATA_DIR
-from etf_cockpit.data.manual_notes import MANUAL_NEWS_CLEAN_PATH, load_manual_news
 
 
 @dataclass(frozen=True)

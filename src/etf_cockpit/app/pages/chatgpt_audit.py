@@ -9,7 +9,13 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.ui_facade import build_version_registry, compatibility_summary, extract_and_validate_audit_archive
+from etf_cockpit.application.ui_facade import (
+    build_version_registry,
+    compatibility_summary,
+    extract_and_validate_audit_archive,
+    load_manual_news,
+    manual_news_markdown,
+)
 from etf_cockpit.audit.thesis_diary import (
     ThesisDiaryIntegrityError,
     ThesisDiaryStore,
@@ -26,7 +32,6 @@ from etf_cockpit.audit.local_llm import (
 )
 from etf_cockpit.services import ChatGPTBridge
 from etf_cockpit.governance.product_scope import load_authority_matrix
-from etf_cockpit.data.manual_notes import load_manual_news, manual_news_markdown
 
 
 def _manual_note_credibility_text() -> str:

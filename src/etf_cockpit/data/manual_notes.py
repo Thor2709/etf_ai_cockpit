@@ -428,6 +428,9 @@ def _contains_absence(text: str, pattern: str) -> bool:
     absence = r"\b(?:no|without|missing|unavailable|absent|omitted|not\s+(?:provided|shown|disclosed|reported))\b"
     for match in re.finditer(pattern, text, flags=re.IGNORECASE):
         sentence = re.split(r"[.!?]", text[max(0, match.start() - 140) : match.start()])[-1]
+        negated_missing = re.search(r"\b(?:no|not|without)\s+missing\b", sentence, flags=re.IGNORECASE)
+        if negated_missing and not re.search(r"\bbut\b", sentence[negated_missing.end() :], flags=re.IGNORECASE):
+            continue
         absence_match = list(re.finditer(absence, sentence, flags=re.IGNORECASE))
         if absence_match and not re.search(r"\bbut\b", sentence[absence_match[-1].end() :], flags=re.IGNORECASE):
             return True
@@ -440,15 +443,27 @@ def _contains_absence(text: str, pattern: str) -> bool:
     )
 
 
+def _contains_claim_or_not_missing(text: str, pattern: str) -> bool:
+    return _contains_claim(text, pattern) or bool(
+        re.search(
+            rf"\b(?:no|not|without)\s+missing\b[^.!?]{{0,140}}{pattern}",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
 def _credibility_evidence(row: pd.Series) -> dict[str, str]:
-    text = " ".join(str(row.get(field) or "") for field in ("source", "source_url", "title", "note")).casefold()
+    # Provenance labels and URL path tokens cannot satisfy or omit supporting
+    # claim evidence. Only the user-visible title and note are classified.
+    text = " ".join(str(row.get(field) or "") for field in ("title", "note")).casefold()
     performance_screenshot = _contains_claim(text, r"\bscreenshot\b") and _contains_claim(text, r"(?:\breturns?\b|\bprofit(?:s|able)?\b|\bwin\s*rate\b|\bsharpe\b|\bperformance\b)")
     performance_claim = performance_screenshot or _contains_claim(text, r"(?:\breturns?\b|\bprofit(?:s|able)?\b|\bwin\s*rate\b|\bsharpe\b|\bannuali[sz]ed\b)")
-    methodology_present = _contains_claim(text, r"(?:\bmethodolog(?:y|ies)\b|\bmethod\b|\brules?\b|\bbacktest(?:ed|ing)?\b|\breproduc(?:ible|e|ed)\b|\breplicat(?:e|ed|able)\b|\bsource\s+code\b|\bgithub\b|\bentry\s+and\s+exit\b)")
-    benchmark_present = _contains_claim(text, r"(?:\bbenchmark\b|\bcompar(?:e|ed|ison)\b|\bvs\.?\b|\brelative\s+to\b|\boutperform(?:ed|s)?\b)")
-    drawdown_present = _contains_claim(text, r"\bdrawdown\b")
-    cost_present = _contains_claim(text, r"(?:\bcosts?\b|\bslippage\b|\bspread\b|\bexpense\s+ratio\b|\bcommission\b|\bfriction\b|\bfees?\b)")
-    sample_present = _contains_claim(text, r"(?:\bsample\s+size\b|\bobservations?\b|\btrades?\b|\btransactions?\b|\bn\s*[=:]\s*\d+)" )
+    methodology_present = _contains_claim_or_not_missing(text, r"(?:\bmethodolog(?:y|ies)\b|\bmethod\b|\brules?\b|\bbacktest(?:ed|ing)?\b|\breproduc(?:ible|e|ed)\b|\breplicat(?:e|ed|able)\b|\bsource\s+code\b|\bgithub\b|\bentry\s+and\s+exit\b)")
+    benchmark_present = _contains_claim_or_not_missing(text, r"(?:\bbenchmark\b|\bcompar(?:e|ed|ison)\b|\bvs\.?\b|\brelative\s+to\b|\boutperform(?:ed|s)?\b)")
+    drawdown_present = _contains_claim_or_not_missing(text, r"\bdrawdown\b")
+    cost_present = _contains_claim_or_not_missing(text, r"(?:\bcosts?\b|\bslippage\b|\bspread\b|\bexpense\s+ratio\b|\bcommission\b|\bfriction\b|\bfees?\b)")
+    sample_present = _contains_claim_or_not_missing(text, r"(?:\bsample\s+size\b|\bobservations?\b|\btrades?\b|\btransactions?\b|\bn\s*[=:]\s*\d+)" )
     too_good = _contains_claim(text, r"(?:too\s+good\s+to\s+be\s+true|\b\+?\d{3,}(?:\.\d+)?\s*%|\b\d+(?:\.\d+)?\s*x\b|\b(?:double|tripled?)\b|\bguaranteed\b.{0,24}\b(?:returns?|profits?)\b)")
     missing_benchmark = _contains_absence(text, r"\bbenchmark\b") or (performance_claim and not benchmark_present)
     missing_drawdown = _contains_absence(text, r"\bdrawdown\b") or (performance_claim and not drawdown_present)
@@ -491,7 +506,7 @@ def _structured_credibility_valid(row: pd.Series) -> bool:
         evidence = json.loads(str(row.get("credibility_evidence") or ""))
     except (TypeError, ValueError, json.JSONDecodeError):
         return False
-    return evidence == states
+    return evidence == states and states == classify_manual_note_credibility(row)
 
 
 def _store_raw_manual_import(result: ProviderResult, frame: pd.DataFrame, raw_dir: Path, timestamp: str, checksum: str) -> Path:

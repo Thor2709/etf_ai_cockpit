@@ -87,6 +87,42 @@ def test_issue_0058_classifier_distinguishes_present_evidence_and_negation() -> 
     assert mixed["credibility_flag_performance_screenshot_without_methodology"] == "not_detected"
 
 
+def test_issue_0058_source_metadata_cannot_satisfy_claim_evidence() -> None:
+    note = "Performance screenshot shows +500% return."
+    control = _classified_frame(note).iloc[0]
+    result = validate_manual_news(
+        pd.DataFrame(
+            [{
+                "as_of_date": "2026-08-01",
+                "title": "Claim",
+                "note": note,
+                "source_url": "https://example.invalid/methodology/benchmark/drawdown/costs/sample-size",
+            }]
+        )
+    )
+    assert result.ok
+    enriched = result.frame.iloc[0]
+
+    assert enriched["credibility_flags"] == control["credibility_flags"]
+    assert enriched["credibility_evidence"] == control["credibility_evidence"]
+
+
+def test_issue_0058_no_missing_wording_does_not_invert_into_missing_flags() -> None:
+    row = _classified_frame(
+        "Performance screenshot shows a 20% return. The review found no missing benchmark, "
+        "drawdown, costs, sample size, or methodology."
+    ).iloc[0]
+
+    for code in (
+        "missing_benchmark",
+        "missing_drawdown",
+        "missing_cost_slippage",
+        "missing_sample_size",
+        "missing_reproducible_method",
+    ):
+        assert row[f"credibility_flag_{code}"] == "not_detected"
+
+
 def test_issue_0058_legacy_frame_loads_with_explicit_unknown_structured_truth(tmp_path) -> None:
     path = tmp_path / "legacy_manual_news.parquet"
     pd.DataFrame(
@@ -109,6 +145,24 @@ def test_issue_0058_malformed_structured_frame_fails_closed(tmp_path) -> None:
     loaded = load_manual_news(path)
 
     assert loaded.iloc[0]["credibility_schema_version"] == "unknown"
+    assert loaded.iloc[0]["credibility_flag_status"] == "unavailable"
+    assert loaded.iloc[0]["credibility_flags"] == "unknown"
+
+
+def test_issue_0058_coherently_tampered_structured_frame_fails_closed(tmp_path) -> None:
+    path = tmp_path / "tampered_manual_news.parquet"
+    frame = _classified_frame("Performance screenshot shows +500% return; closed-source black box.")
+    frame.loc[0, "credibility_flags"] = "none"
+    frame.loc[0, "credibility_reason_codes"] = "none"
+    frame.loc[0, "credibility_evidence"] = "{" + ",".join(
+        f'"{code}":"not_detected"' for code in CREDIBILITY_FLAG_CODES
+    ) + "}"
+    for column in CREDIBILITY_FLAG_COLUMNS:
+        frame.loc[0, column] = "not_detected"
+    frame.to_parquet(path, index=False)
+
+    loaded = load_manual_news(path)
+
     assert loaded.iloc[0]["credibility_flag_status"] == "unavailable"
     assert loaded.iloc[0]["credibility_flags"] == "unknown"
 

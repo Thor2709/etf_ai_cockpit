@@ -3488,8 +3488,13 @@ The bounded implementation persists nine deterministic reason codes and
 per-code states, validates their internal consistency and leaves legacy rows
 explicitly unknown/unavailable. News & Context, Data & Models, Audit
 Notes/export and Instrument Detail consume the same local evidence; corrupt
-stores fail visibly closed. Eleven focused regressions and the complete
-198-test affected audit/instrument/news batch pass, plus Ruff, compile,
-programme freshness and diff hygiene. Freeze one O-tier exact head for both
-independent reviews and hosted validation; preserve
+stores fail visibly closed. The consolidated review correction excludes source
+metadata from claim semantics, handles explicit "no missing" evidence lists,
+checks persisted states against canonical reclassification and restores the
+presentation/application boundary. Fourteen focused tests and architecture
+checks pass; the 204-test affected run had one unrelated cache-lifecycle timing
+failure that passed its single allowed exact retry. Ruff, compile, programme
+freshness and diff hygiene pass. Freeze one replacement O-tier exact head for
+both independent reviews and fresh cadence-required hosted package validation;
+preserve
 `execution_allowed=false` and `executable_authority=false`.
