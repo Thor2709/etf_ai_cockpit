@@ -2437,6 +2437,13 @@ next action and whether the requested outcome is actually complete.
   rollback regressions plus the complete affected focused surface, Ruff,
   compile, byte-clean generation and diff hygiene pass. Freeze one replacement
   H-tier head for paired final review and fresh hosted validation.
+- Paired review rejected `4547bb9effb5cc281153453fcd51c660cb244df3`
+  because `pd.NA` direct-score status and instrument currency could escape as
+  ambiguous-boolean exceptions. Exact-head run `31620960088` is cancelled and
+  invalid. Product commit `2933fc2df7c52d06df579b835fa6b54cfdc9ccbb`
+  strictly normalizes those two scalar boundaries to unavailable; exact
+  regressions and the affected suites pass with static and diff checks. Freeze
+  one replacement H-tier head for paired final review and hosted validation.
 - Paired review rejected `fd112929181768b6d065b45da97f9e5929bc0357`
   because generic curve ingestion bypassed serialized admission, future
   malformed rows poisoned earlier decision-time reads, the JSON manifest could

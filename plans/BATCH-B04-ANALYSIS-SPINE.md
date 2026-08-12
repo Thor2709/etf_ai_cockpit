@@ -3621,6 +3621,15 @@ ISSUE-0051 suite pass with static and diff checks. Freeze one replacement
 H-tier head for paired final review and fresh Linux, Windows and terminal
 validation.
 
+Paired review rejected `4547bb9effb5cc281153453fcd51c660cb244df3`
+because `pd.NA` direct-score status and instrument currency could escape as
+ambiguous-boolean exceptions. Exact-head run `31620960088` is cancelled and
+invalid. Product commit `2933fc2df7c52d06df579b835fa6b54cfdc9ccbb`
+strictly normalizes those two scalar boundaries to unavailable; exact
+regressions and the affected focused, static and programme checks pass. Freeze
+one replacement H-tier head for paired final review and fresh Linux, Windows
+and terminal validation.
+
 Paired review rejected `7245e76ac27606f9542fd71dd354d178fcdcd5b1`
 for partial snapshot visibility, inferred availability accepted as exact and
 persisted cash accepted without currency. Run `31593071919` is cancelled and
