@@ -285,6 +285,7 @@ class SimpleInstrumentScore:
     cash_instrument_return: float | None = None
     cash_return: float | None = None
     excess_over_cash: float | None = None
+    cash_instrument_id: str | None = None
     cash_currency: str | None = None
     cash_unit: str | None = None
     cash_dataset_kind: str | None = None
@@ -474,6 +475,7 @@ class SimpleInstrumentScore:
         validated_cash = validate_cash_comparison_result(
             cash_payload,
             expected_currency=expected_currency if raw_status == "available" else None,
+            expected_instrument_id=self.display_id if raw_status == "available" else None,
         )
         if validated_cash.status != "available":
             for field_name in cash_fields:
@@ -996,6 +998,7 @@ def simple_scoreboard_frame(
             "cash_instrument_return": score.cash_instrument_return,
             "cash_return": score.cash_return,
             "excess_over_cash": score.excess_over_cash,
+            "cash_instrument_id": score.cash_instrument_id,
             "cash_currency": score.cash_currency,
             "cash_unit": score.cash_unit,
             "cash_dataset_kind": score.cash_dataset_kind,
@@ -2478,12 +2481,14 @@ def _cash_comparison_info(
     validated = validate_cash_comparison_result(
         lookup.get(str(instrument_id)),
         expected_currency=expected_currency,
+        expected_instrument_id=instrument_id,
     )
     value = validated.as_dict()
     return {
         "cash_instrument_return": value.get("instrument_return"),
         "cash_return": value.get("cash_return"),
         "excess_over_cash": value.get("excess_over_cash"),
+        "cash_instrument_id": value.get("instrument_id"),
         "cash_currency": value.get("currency"),
         "cash_unit": value.get("unit"),
         "cash_dataset_kind": value.get("dataset_kind"),
@@ -2585,6 +2590,7 @@ def _build_local_cash_comparison_lookup(
         output[instrument_id] = warehouse.cash_comparison(
             root=CASH_MACRO_ROOT,
             mappings=mappings,
+            instrument_id=instrument_id,
             currency=identity.currency,
             start_date=start_date,
             end_date=end_date,

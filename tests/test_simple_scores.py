@@ -546,6 +546,7 @@ def test_unavailable_score_clears_injected_cash_revision(tmp_path) -> None:
 
 def test_direct_score_clears_contradictory_cash_identity_before_scoreboard(tmp_path) -> None:
     cash = build_cash_comparison(
+        instrument_id="ABC",
         adjusted_prices=pd.Series(
             [100.0, 105.79],
             index=pd.to_datetime(["2025-01-01", "2026-01-01"]),

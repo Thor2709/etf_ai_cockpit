@@ -127,6 +127,17 @@ def test_exact_adjusted_return_requires_both_period_endpoints() -> None:
         exact_adjusted_total_return(prices, "2025-01-01", "2025-01-02")
 
 
+@pytest.mark.parametrize("start_date,end_date", (("2025-01-01", "2025-01-01"), ("2025-01-03", "2025-01-01")))
+def test_exact_adjusted_return_rejects_non_positive_period(
+    start_date: str, end_date: str
+) -> None:
+    prices = pd.Series(
+        [100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-03"])
+    )
+    with pytest.raises(ValueError, match="end_date must be after start_date"):
+        exact_adjusted_total_return(prices, start_date, end_date)
+
+
 @pytest.mark.parametrize(
     "prices",
     (
@@ -158,6 +169,7 @@ def test_exact_adjusted_return_rejects_malformed_raw_evidence(prices: pd.DataFra
 def test_cash_builder_rejects_non_risk_free_curve_evidence() -> None:
     prices = pd.Series([100.0, 101.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
     result = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -183,6 +195,7 @@ def test_cash_builder_rejects_contradictory_unit_kind_or_authority(
 ) -> None:
     prices = pd.Series([100.0, 101.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
     result = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -197,6 +210,7 @@ def test_cash_builder_rejects_contradictory_unit_kind_or_authority(
 def test_cash_comparison_is_currency_horizon_vintage_and_inflation_context_matched() -> None:
     prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
     result = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -209,6 +223,7 @@ def test_cash_comparison_is_currency_horizon_vintage_and_inflation_context_match
     assert result.instrument_return == pytest.approx(0.10)
     assert result.cash_return == pytest.approx((1.05 ** (1.0 / 365.0)) - 1.0)
     assert result.excess_over_cash == pytest.approx(0.10 - result.cash_return)
+    assert result.instrument_id == "TEST-EUR"
     assert result.inflation_context == {"status": "available", "rate": 0.03}
     assert result.execution_allowed is False
 
@@ -226,6 +241,7 @@ def test_date_only_adjusted_endpoint_is_available_next_utc_day(
 ) -> None:
     prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
     result = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -249,6 +265,7 @@ def test_cash_period_dates_reject_datetime_and_noncanonical_strings(value: objec
 def test_cash_builder_rejects_cutoff_before_period_start_and_validates_immediately() -> None:
     prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
     before_start = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -261,6 +278,7 @@ def test_cash_builder_rejects_cutoff_before_period_start_and_validates_immediate
     assert "knowledge cutoff" in str(before_start.reason)
 
     built = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -269,7 +287,9 @@ def test_cash_builder_rejects_cutoff_before_period_start_and_validates_immediate
         decision_time="2025-01-03T00:00:00+00:00",
     )
     assert built.status == "available"
-    assert validate_cash_comparison_result(built.as_dict(), expected_currency="AUD").status == "available"
+    assert validate_cash_comparison_result(
+        built.as_dict(), expected_currency="AUD", expected_instrument_id="TEST-EUR"
+    ).status == "available"
     assert built.execution_allowed is False
 
 
@@ -294,6 +314,7 @@ def test_cash_builder_rejects_cutoff_before_period_start_and_validates_immediate
 def test_cash_comparison_fail_closed_for_mismatch_or_unavailable_evidence(updates: dict[str, object], reason: str) -> None:
     prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
     result = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -311,6 +332,7 @@ def test_cash_comparison_fail_closed_for_mismatch_or_unavailable_evidence(update
 def test_cash_comparison_requires_positive_official_provenance(authority: str | None) -> None:
     prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
     result = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -325,6 +347,7 @@ def test_cash_comparison_requires_positive_official_provenance(authority: str | 
 def test_cash_builder_and_serialized_validator_reject_inverted_bitemporal_evidence() -> None:
     prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
     built = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -339,6 +362,7 @@ def test_cash_builder_and_serialized_validator_reject_inverted_bitemporal_eviden
     assert "effective_at" in str(built.reason)
 
     valid = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -356,6 +380,7 @@ def test_cash_builder_and_serialized_validator_reject_future_publication() -> No
         index=pd.to_datetime(["2025-01-01", "2025-01-02"]),
     )
     built = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -367,6 +392,7 @@ def test_cash_builder_and_serialized_validator_reject_future_publication() -> No
     assert "published_at" in str(built.reason)
 
     valid = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -399,6 +425,7 @@ def test_cash_builder_and_validator_reject_blank_lineage(
         index=pd.to_datetime(["2025-01-01", "2025-01-02"]),
     )
     built = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -409,6 +436,7 @@ def test_cash_builder_and_validator_reject_blank_lineage(
     assert built.status == "unavailable"
 
     valid = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -428,6 +456,7 @@ def test_cash_builder_and_validator_reject_unsupported_reinvestment() -> None:
         [100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"])
     )
     built = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -439,7 +468,9 @@ def test_cash_builder_and_validator_reject_unsupported_reinvestment() -> None:
     assert "reinvestment" in str(built.reason)
 
     forged = {**_available_eur_result(), "reinvestment": "unsupported"}
-    validated = validate_cash_comparison_result(forged, expected_currency="EUR")
+    validated = validate_cash_comparison_result(
+        forged, expected_currency="EUR", expected_instrument_id="TEST-EUR"
+    )
     assert validated.status == "unavailable"
     assert "reinvestment" in str(validated.reason)
 
@@ -453,6 +484,7 @@ def test_cash_builder_and_validator_reject_non_integral_revision(
         index=pd.to_datetime(["2025-01-01", "2025-01-02"]),
     )
     built = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -463,6 +495,7 @@ def test_cash_builder_and_validator_reject_non_integral_revision(
     assert built.status == "unavailable"
 
     valid = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -513,6 +546,7 @@ def test_adjusted_return_construction_rejects_underflow_to_total_loss() -> None:
         exact_adjusted_total_return(prices, "2025-01-01", "2025-01-02")
 
     result = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -530,6 +564,7 @@ def test_fallback_lineage_must_be_nonblank_at_construction_and_readback() -> Non
         index=pd.to_datetime(["2025-01-01", "2025-01-02"]),
     )
     built = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -540,6 +575,7 @@ def test_fallback_lineage_must_be_nonblank_at_construction_and_readback() -> Non
     assert built.status == "unavailable"
 
     valid = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -559,6 +595,7 @@ def test_fallback_lineage_must_be_nonblank_at_construction_and_readback() -> Non
     )
     for updates in contradictory_cases:
         built_contradiction = build_cash_comparison(
+            instrument_id="TEST-EUR",
             adjusted_prices=prices,
             start_date="2025-01-01",
             end_date="2025-01-02",
@@ -579,6 +616,7 @@ def test_fallback_lineage_must_be_nonblank_at_construction_and_readback() -> Non
 def test_cash_comparison_does_not_turn_missing_inflation_into_real_return() -> None:
     prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
     result = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -631,6 +669,7 @@ def test_warehouse_cash_comparison_selects_only_vintage_known_by_period_start(tm
     historical = warehouse.cash_comparison(
         root=tmp_path,
         mappings=(mapping,),
+        instrument_id="TEST-EUR",
         currency="AUD",
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -651,6 +690,7 @@ def test_warehouse_cash_comparison_selects_only_vintage_known_by_period_start(tm
         start_date="2025-01-01",
         end_date="2025-01-02",
         decision_time="2025-01-15T00:00:00+00:00",
+        instrument_id="TEST-EUR",
         adjusted_prices=prices,
     )
     assert unsupported["status"] == "unavailable"
@@ -680,6 +720,7 @@ def test_warehouse_queries_exact_tenor_under_selected_curve_day_count(tmp_path, 
         start_date=start,
         end_date=end,
         decision_time="2025-01-03T00:00:00+00:00",
+        instrument_id="TEST-EUR",
         adjusted_prices=pd.Series([100.0, 110.0], index=pd.to_datetime([start, end])),
     )
     assert result["status"] == "available"
@@ -735,6 +776,7 @@ def test_curve_interpolation_never_mixes_partial_revisions(tmp_path) -> None:
 def test_benchmark_attribution_and_projection_fields_keep_cash_descriptive() -> None:
     index = pd.date_range("2025-01-01", periods=3, freq="D")
     cash = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=pd.Series(
             [100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"])
         ),
@@ -749,11 +791,13 @@ def test_benchmark_attribution_and_projection_fields_keep_cash_descriptive() -> 
         pd.Series([0.005, 0.01, 0.0], index=index),
         cash_comparison=cash.as_dict(),
         instrument_currency="AUD",
+        instrument_id="TEST-EUR",
     )
     assert result.cash_return == pytest.approx(cash.cash_return)
     assert result.excess_over_cash == pytest.approx(cash.excess_over_cash)
     assert result.cash_unit == "decimal"
     assert result.cash_dataset_kind == "risk_free"
+    assert result.cash_instrument_id == "TEST-EUR"
     assert result.execution_allowed is False
 
 
@@ -764,6 +808,7 @@ def test_benchmark_attribution_rejects_cash_for_another_instrument_currency() ->
         pd.Series([0.005, 0.01, 0.0], index=index),
         cash_comparison=_available_eur_result(),
         instrument_currency="USD",
+        instrument_id="TEST-EUR",
     )
 
     assert result.cash_comparison_status == "unavailable"
@@ -780,6 +825,7 @@ def test_valid_cash_survives_insufficient_broad_attribution() -> None:
         pd.Series([0.005], index=index),
         cash_comparison=cash,
         instrument_currency="EUR",
+        instrument_id="TEST-EUR",
     )
     assert result.status == "unavailable"
     assert result.cash_comparison_status == "available"
@@ -794,7 +840,9 @@ def test_persistence_requires_matching_instrument_currency_for_cash(
     tmp_path, monkeypatch, instrument_currency: str | None
 ) -> None:
     valid = _available_eur_result()
-    projection = cash_comparison_to_projection(valid, expected_currency="EUR")
+    projection = cash_comparison_to_projection(
+        valid, expected_currency="EUR", expected_instrument_id="TEST-EUR"
+    )
     frame = pd.DataFrame(
         [{"instrument_id": "EUR-TEST", "instrument_currency": instrument_currency, **projection}]
     )
@@ -822,8 +870,9 @@ def _control_text(control: object) -> str:
     return "\n".join(item for item in values if item)
 
 
-def _available_eur_result() -> dict[str, object]:
+def _available_eur_result(instrument_id: str = "TEST-EUR") -> dict[str, object]:
     result = build_cash_comparison(
+        instrument_id=instrument_id,
         adjusted_prices=pd.Series(
             [100.0, 105.79], index=pd.to_datetime(["2025-01-01", "2026-01-01"])
         ),
@@ -854,6 +903,7 @@ def test_cash_builder_rejects_coercive_curve_values(
     evidence = _evidence(currency="EUR", tenor_years=1.0)
     evidence[field_name] = value
     result = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=pd.Series(
             [100.0, 105.79], index=pd.to_datetime(["2025-01-01", "2026-01-01"])
         ),
@@ -884,9 +934,12 @@ def test_serialized_cash_comparison_rejects_coercive_financial_values(
 
 def test_instrument_detail_fallback_preserves_valid_scoreboard_cash() -> None:
     scoreboard = {
+        "instrument_id": "TEST-EUR",
         "instrument_currency": "EUR",
         **cash_comparison_to_projection(
-            _available_eur_result(), expected_currency="EUR"
+            _available_eur_result(),
+            expected_currency="EUR",
+            expected_instrument_id="TEST-EUR",
         ),
     }
     panel = instrument_detail_selector._attribution_panel(
@@ -911,18 +964,35 @@ def test_instrument_detail_fallback_preserves_valid_scoreboard_cash() -> None:
 
 def test_cash_projection_round_trip_preserves_non_execution_authority() -> None:
     projection = cash_comparison_to_projection(
-        _available_eur_result(), expected_currency="EUR"
+        _available_eur_result(),
+        expected_currency="EUR",
+        expected_instrument_id="TEST-EUR",
     )
     assert projection["execution_allowed"] is False
     assert projection["cash_unit"] == "decimal"
     assert projection["cash_dataset_kind"] == "risk_free"
+    assert projection["cash_instrument_id"] == "TEST-EUR"
     round_trip = validate_cash_comparison_result(
-        cash_comparison_from_projection(projection), expected_currency="EUR"
+        cash_comparison_from_projection(projection),
+        expected_currency="EUR",
+        expected_instrument_id="TEST-EUR",
     )
     assert round_trip.status == "available"
     assert round_trip.unit == "decimal"
     assert round_trip.dataset_kind == "risk_free"
     assert round_trip.execution_allowed is False
+
+
+def test_cash_validator_rejects_same_currency_cross_instrument_swap() -> None:
+    forged = _available_eur_result(instrument_id="EUR-A")
+    rejected = validate_cash_comparison_result(
+        forged,
+        expected_currency="EUR",
+        expected_instrument_id="EUR-B",
+    )
+    assert rejected.status == "unavailable"
+    assert rejected.instrument_return is None
+    assert rejected.execution_allowed is False
 
 
 def test_cash_validator_and_simple_consumer_fail_closed_on_pd_na_status() -> None:
@@ -951,6 +1021,7 @@ def test_cash_validator_and_simple_consumer_fail_closed_on_pd_na_status() -> Non
 
 def test_cash_builder_fails_closed_on_pd_na_evidence_currency() -> None:
     result = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=pd.Series(
             [100.0, 101.0],
             index=pd.to_datetime(["2025-01-01", "2026-01-01"]),
@@ -968,6 +1039,7 @@ def test_cash_builder_fails_closed_on_pd_na_evidence_currency() -> None:
 
 def test_cash_builder_fails_closed_on_pd_na_instrument_currency() -> None:
     result = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=pd.Series(
             [100.0, 101.0],
             index=pd.to_datetime(["2025-01-01", "2026-01-01"]),
@@ -985,6 +1057,7 @@ def test_cash_builder_fails_closed_on_pd_na_instrument_currency() -> None:
 
 def test_cash_builder_rejects_offset_price_endpoint_before_utc_availability() -> None:
     result = build_cash_comparison(
+        instrument_id="TEST-EUR",
         adjusted_prices=pd.Series(
             [100.0, 110.0],
             index=["2025-01-01", "2025-01-02T23:30:00-12:00"],
@@ -1011,7 +1084,7 @@ def test_injected_cash_comparison_propagates_without_changing_score_authority(
             snapshot.config, snapshot.signals, snapshot.forecasts, snapshot.prices
         )
     }[instrument_id]
-    injected = _available_eur_result()
+    injected = _available_eur_result(instrument_id=instrument_id)
     available = {
         score.display_id: score
         for score in build_simple_instrument_scores(

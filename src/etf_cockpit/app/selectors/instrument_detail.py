@@ -1317,11 +1317,13 @@ def _risk_panel(features: object, friction: Mapping[str, Any], crowding: Mapping
 
 def _attribution_panel(derived: Mapping[str, Any], scoreboard: Mapping[str, Any]) -> dict[str, Any]:
     value = dict(derived.get("attribution", {}))
+    expected_instrument_id = _safe_text(scoreboard.get("instrument_id"))
     expected_currency = _safe_text(scoreboard.get("instrument_currency"))
     scoreboard_cash = (
         cash_comparison_to_projection(
             cash_comparison_from_projection(scoreboard),
             expected_currency=expected_currency,
+            expected_instrument_id=expected_instrument_id,
         )
         if expected_currency is not None
         else cash_comparison_to_projection(None)
@@ -1825,6 +1827,7 @@ def _derived_evidence_panel(
                     cash_comparison_to_projection(
                         cash_comparison_from_projection(persisted),
                         expected_currency=expected_currency,
+                        expected_instrument_id=instrument_id,
                     )
                     if _safe_text(expected_currency) is not None
                     else cash_comparison_to_projection(None)

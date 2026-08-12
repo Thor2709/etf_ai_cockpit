@@ -414,6 +414,7 @@ BENCHMARK_ATTRIBUTION_COLUMNS = [
     "cash_instrument_return",
     "cash_return",
     "excess_over_cash",
+    "cash_instrument_id",
     "cash_currency",
     "cash_unit",
     "cash_dataset_kind",
@@ -1157,6 +1158,7 @@ def write_benchmark_attribution(scoreboard: pd.DataFrame) -> Path:
         cash = validate_cash_comparison_result(
             raw_cash,
             expected_currency=expected_currency,
+            expected_instrument_id=row.get("instrument_id"),
         ).as_dict()
         rows.append(
             {
@@ -1196,6 +1198,7 @@ def write_benchmark_attribution(scoreboard: pd.DataFrame) -> Path:
                 "cash_instrument_return": cash.get("instrument_return"),
                 "cash_return": cash.get("cash_return"),
                 "excess_over_cash": cash.get("excess_over_cash"),
+                "cash_instrument_id": cash.get("instrument_id"),
                 "cash_currency": cash.get("currency"),
                 "cash_unit": cash.get("unit"),
                 "cash_dataset_kind": cash.get("dataset_kind"),

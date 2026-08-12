@@ -208,6 +208,8 @@ def exact_adjusted_total_return(
 
     start = _as_date(start_date, "start_date")
     end = _as_date(end_date, "end_date")
+    if end <= start:
+        raise ValueError("end_date must be after start_date")
     frame = validated_adjusted_price_frame(adjusted_prices)
     selected = frame.set_index("date")["value"]
     if start not in selected.index or end not in selected.index:
@@ -223,6 +225,7 @@ def exact_adjusted_total_return(
 @dataclass(frozen=True)
 class CashComparisonResult:
     status: str
+    instrument_id: str | None = None
     instrument_return: float | None = None
     cash_return: float | None = None
     excess_over_cash: float | None = None
@@ -268,6 +271,7 @@ class CashComparisonResult:
 
 def build_cash_comparison(
     *,
+    instrument_id: str,
     adjusted_prices: pd.Series | pd.DataFrame,
     start_date: object,
     end_date: object,
@@ -281,6 +285,9 @@ def build_cash_comparison(
 
     start = _as_date(start_date, "start_date")
     end = _as_date(end_date, "end_date")
+    identity = instrument_id.strip() if isinstance(instrument_id, str) else ""
+    if not identity:
+        return _unavailable("instrument identity is unavailable")
     start_cutoff = _utc_timestamp(period_start_knowledge_cutoff(start), "start_date")
     cutoff = _utc_timestamp(
         knowledge_cutoff if knowledge_cutoff is not None else start_cutoff,
@@ -455,6 +462,7 @@ def build_cash_comparison(
         return _unavailable(f"cash comparison unavailable: {str(exc)}", currency=currency, start_date=start.isoformat(), end_date=end.isoformat())
     result = CashComparisonResult(
         status="available",
+        instrument_id=identity,
         instrument_return=instrument_return,
         cash_return=cash_return,
         excess_over_cash=instrument_return - cash_return,
@@ -492,7 +500,11 @@ def build_cash_comparison(
         knowledge_cutoff=cutoff.isoformat(),
         inflation_context=dict(inflation_context) if inflation_context is not None else None,
     )
-    return validate_cash_comparison_result(result, expected_currency=currency)
+    return validate_cash_comparison_result(
+        result,
+        expected_currency=currency,
+        expected_instrument_id=identity,
+    )
 
 
 def _unavailable(reason: str, **fields: object) -> CashComparisonResult:
@@ -503,6 +515,7 @@ def validate_cash_comparison_result(
     value: Mapping[str, object] | CashComparisonResult | None,
     *,
     expected_currency: str | None = None,
+    expected_instrument_id: str | None = None,
 ) -> CashComparisonResult:
     """Validate and sanitize serialized descriptive cash evidence for generic consumers."""
 
@@ -527,6 +540,7 @@ def validate_cash_comparison_result(
         if raw.get("unit") != "decimal":
             raise ValueError("cash comparison requires decimal rate evidence")
         required_text = (
+            "instrument_id",
             "currency",
             "start_date",
             "end_date",
@@ -554,6 +568,11 @@ def validate_cash_comparison_result(
         )
         if any(not _has_nonblank_text(raw.get(name)) for name in required_text):
             raise ValueError("cash comparison lineage or convention is incomplete")
+        instrument_id = str(raw["instrument_id"]).strip()
+        if expected_instrument_id is None or not _has_nonblank_text(expected_instrument_id):
+            raise ValueError("cash comparison requires expected instrument identity")
+        if instrument_id != str(expected_instrument_id).strip():
+            raise ValueError("cash instrument identity does not match expected instrument")
         currency = str(raw["currency"]).strip().upper()
         if len(currency) != 3 or not currency.isalpha():
             raise ValueError("cash comparison currency is invalid")
@@ -639,6 +658,7 @@ def validate_cash_comparison_result(
         return _unavailable(f"Cash comparison unavailable; {exc}.")
     return CashComparisonResult(
         status="available",
+        instrument_id=instrument_id,
         instrument_return=instrument_return,
         cash_return=cash_return,
         excess_over_cash=excess,
@@ -694,6 +714,7 @@ def cash_comparison_from_projection(value: Mapping[str, object]) -> dict[str, ob
     keys = {
         "status": "cash_comparison_status",
         "reason": "cash_comparison_reason",
+        "instrument_id": "cash_instrument_id",
         "instrument_return": "cash_instrument_return",
         "cash_return": "cash_return",
         "excess_over_cash": "excess_over_cash",
@@ -739,15 +760,19 @@ def cash_comparison_to_projection(
     value: Mapping[str, object] | CashComparisonResult | None,
     *,
     expected_currency: str | None = None,
+    expected_instrument_id: str | None = None,
 ) -> dict[str, object]:
     """Return only validated cash fields under canonical projection names."""
 
     cash = validate_cash_comparison_result(
-        value, expected_currency=expected_currency
+        value,
+        expected_currency=expected_currency,
+        expected_instrument_id=expected_instrument_id,
     ).as_dict()
     projected = {
         "cash_comparison_status": cash["status"],
         "cash_comparison_reason": cash.get("reason"),
+        "cash_instrument_id": cash.get("instrument_id"),
         "cash_instrument_return": cash.get("instrument_return"),
         "cash_return": cash.get("cash_return"),
         "excess_over_cash": cash.get("excess_over_cash"),

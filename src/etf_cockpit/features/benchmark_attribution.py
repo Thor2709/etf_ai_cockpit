@@ -40,6 +40,7 @@ class AttributionResult:
     cash_instrument_return: float | None = None
     cash_return: float | None = None
     excess_over_cash: float | None = None
+    cash_instrument_id: str | None = None
     cash_currency: str | None = None
     cash_unit: str | None = None
     cash_dataset_kind: str | None = None
@@ -97,6 +98,7 @@ def build_benchmark_attribution(
     cash_comparison: Mapping[str, object] | None = None,
     *,
     instrument_currency: str | None = None,
+    instrument_id: str | None = None,
 ) -> AttributionResult:
     """Return descriptive broad and sector-relative attribution evidence.
 
@@ -113,7 +115,11 @@ def build_benchmark_attribution(
         axis=1,
         join="inner",
     ).dropna()
-    cash = _cash_fields(cash_comparison, expected_currency=instrument_currency)
+    cash = _cash_fields(
+        cash_comparison,
+        expected_currency=instrument_currency,
+        expected_instrument_id=instrument_id,
+    )
     if len(broad_frame) < 2:
         return _unavailable(
             "Fewer than two clean overlapping instrument/broad return observations are available.",
@@ -271,17 +277,23 @@ def _cash_fields(
     value: Mapping[str, object] | None,
     *,
     expected_currency: str | None = None,
+    expected_instrument_id: str | None = None,
 ) -> dict[str, object]:
     if value is not None and expected_currency is None:
         value = {
             "status": "unavailable",
             "reason": "instrument currency is unavailable for cash comparison",
         }
-    value = validate_cash_comparison_result(value, expected_currency=expected_currency).as_dict()
+    value = validate_cash_comparison_result(
+        value,
+        expected_currency=expected_currency,
+        expected_instrument_id=expected_instrument_id,
+    ).as_dict()
     return {
         "cash_instrument_return": _optional_float(value.get("instrument_return")),
         "cash_return": _optional_float(value.get("cash_return")),
         "excess_over_cash": _optional_float(value.get("excess_over_cash")),
+        "cash_instrument_id": value.get("instrument_id"),
         "cash_currency": value.get("currency"),
         "cash_unit": value.get("unit"),
         "cash_dataset_kind": value.get("dataset_kind"),

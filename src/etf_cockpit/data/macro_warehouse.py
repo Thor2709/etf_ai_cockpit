@@ -1360,6 +1360,7 @@ class MacroWarehouse:
         *,
         root: Path,
         mappings: Iterable[RiskFreeProxyMapping],
+        instrument_id: str,
         currency: str,
         start_date: str,
         end_date: str,
@@ -1403,6 +1404,7 @@ class MacroWarehouse:
                         }
                     continue
                 result = build_cash_comparison(
+                    instrument_id=instrument_id,
                     adjusted_prices=adjusted_prices,
                     start_date=start_date,
                     end_date=end_date,
@@ -1415,9 +1417,13 @@ class MacroWarehouse:
                 if result.get("status") == "available":
                     return result
                 last_result = result
-            return last_result or {
+            if last_result is not None:
+                last_result.setdefault("instrument_id", instrument_id)
+                return last_result
+            return {
                 "status": "unavailable",
                 "reason": "no currency+horizon cash proxy mapping is declared",
+                "instrument_id": instrument_id,
                 "execution_allowed": False,
             }
         except (
@@ -1431,6 +1437,7 @@ class MacroWarehouse:
             return {
                 "status": "unavailable",
                 "reason": f"cash comparison evidence is malformed: {type(exc).__name__}",
+                "instrument_id": instrument_id,
                 "currency": str(currency).upper(),
                 "start_date": str(start_date),
                 "end_date": str(end_date),
