@@ -410,7 +410,7 @@ def _validate_curve(snapshot: CurveSnapshot) -> CurveSnapshot:
         raise MacroWarehouseError(f"unsupported curve compounding: {snapshot.compounding}")
     if snapshot.day_count is not None and snapshot.day_count not in {"ACT/360", "ACT/365F", "ACT/ACT-ISDA"}:
         raise MacroWarehouseError(f"unsupported curve day count: {snapshot.day_count}")
-    if snapshot.reinvestment is not None and snapshot.reinvestment != "reinvested_income":
+    if snapshot.reinvestment != "reinvested_income":
         raise MacroWarehouseError("curve reinvestment convention is unsupported")
     for freshness in (snapshot.freshness, snapshot.freshness_status):
         if freshness is not None and freshness not in {"fresh", "stale", "conflicted", "malformed", "unavailable"}:
@@ -821,11 +821,19 @@ class MacroWarehouse:
         tenor_years: float,
         decision_time: str,
     ) -> dict[str, object]:
-        frame = self.as_of(
-            root=root,
-            dataset_id=f"curve:{curve_id}",
-            decision_time=decision_time,
-        )
+        try:
+            frame = self.as_of(
+                root=root,
+                dataset_id=f"curve:{curve_id}",
+                decision_time=decision_time,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return {
+                "status": "unavailable",
+                "reason": f"curve snapshot row is malformed: {exc}",
+                "curve_id": curve_id,
+                "execution_allowed": False,
+            }
         if frame.empty:
             return {
                 "status": "unavailable",
@@ -928,7 +936,7 @@ class MacroWarehouse:
                 "curve_id": curve_id,
                 "execution_allowed": False,
             }
-        if rows[0].reinvestment not in {None, "reinvested_income"}:
+        if rows[0].reinvestment != "reinvested_income":
             return {
                 "status": "unavailable",
                 "reason": "curve reinvestment convention is unsupported",

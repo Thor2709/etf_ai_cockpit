@@ -245,6 +245,7 @@ def _curve(
         source_terms="official_publication_terms_reviewed",
         methodology="Official decimal zero-rate curve",
         interpolation="linear",
+        reinvestment="reinvested_income",
         points=(
             CurvePoint(tenor_years=1.0, rate=rates[0]),
             CurvePoint(tenor_years=3.0, rate=rates[1]),
@@ -305,6 +306,25 @@ def _store_direct_curve_row(tmp_path, row: MacroObservation) -> None:
             observed_at=row.observed_at,
             ingested_at=row.ingested_at,
             run_id="malformed-direct-row",
+        )
+
+
+def _store_direct_curve_ledger(tmp_path, row: MacroObservation, ledger: dict[str, object]) -> None:
+    with BitemporalStore(tmp_path) as store:
+        store.record_observation(
+            dataset_id=row.dataset_id,
+            entity_id=row.series_id,
+            stable_id=row.stable_id,
+            value=ledger,
+            source_id=row.source_id,
+            source_checksum=row.source_checksum,
+            revision=row.revision,
+            valid_from="2024-01-01T00:00:00+00:00",
+            published_at=row.published_at,
+            available_at=row.available_at,
+            observed_at=row.observed_at,
+            ingested_at=row.ingested_at,
+            run_id="malformed-direct-ledger",
         )
 
 
@@ -419,15 +439,36 @@ def test_malformed_direct_curve_tenors_are_unavailable(tmp_path, tenors) -> None
     assert selected["execution_allowed"] is False
 
 
-def test_unsupported_reinvestment_is_unavailable_at_snapshot_and_readback(tmp_path) -> None:
+def test_malformed_curve_ledger_decoding_is_unavailable(tmp_path) -> None:
     warehouse = MacroWarehouse()
-    invalid_snapshot = _curve().model_copy(update={"reinvestment": "unsupported"})
+    row = _direct_curve_row(curve_id="mapped-curve")
+    ledger = row.ledger_value()
+    ledger["tenor_years"] = "corrupt-tenor"
+    _store_direct_curve_ledger(tmp_path, row, ledger)
+
+    selected = warehouse.curve_rate(
+        root=tmp_path,
+        curve_id="mapped-curve",
+        tenor_years=1.0,
+        decision_time="2025-01-01T00:00:00+00:00",
+    )
+    assert selected["status"] == "unavailable"
+    assert "malformed" in str(selected["reason"])
+    assert selected["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("reinvestment", (None, "unsupported"))
+def test_unsupported_reinvestment_is_unavailable_at_snapshot_and_readback(
+    tmp_path, reinvestment
+) -> None:
+    warehouse = MacroWarehouse()
+    invalid_snapshot = _curve().model_copy(update={"reinvestment": reinvestment})
     with pytest.raises(MacroWarehouseError, match="reinvestment"):
         warehouse.ingest_curve(invalid_snapshot, root=tmp_path / "snapshot")
 
     row = _direct_curve_row(
         curve_id="mapped-curve",
-        reinvestment="unsupported",
+        reinvestment=reinvestment,
     )
     _store_direct_curve_row(tmp_path, row)
     selected = warehouse.curve_rate(
@@ -438,6 +479,7 @@ def test_unsupported_reinvestment_is_unavailable_at_snapshot_and_readback(tmp_pa
     )
     assert selected["status"] == "unavailable"
     assert "reinvestment" in str(selected["reason"])
+    assert selected["execution_allowed"] is False
 
 
 def test_curve_snapshot_preserves_distinct_publication_and_availability(tmp_path) -> None:
