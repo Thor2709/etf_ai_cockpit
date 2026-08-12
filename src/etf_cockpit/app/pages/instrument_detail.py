@@ -127,6 +127,9 @@ def render_news_context_panel(model: InstrumentDetailViewModel) -> ft.Control:
                     f"ingested_at={item.get('ingested_at', 'unavailable')}",
                     f"provider_name={item.get('provider_name', 'unavailable')}",
                     f"credibility={item.get('credibility', 'unverified')}",
+                    f"credibility_flag_status={item.get('credibility_flag_status', 'unavailable')}",
+                    f"credibility_flags={item.get('credibility_flags', 'unknown')}",
+                    f"credibility_reason_codes={item.get('credibility_reason_codes', 'unknown')}",
                     f"instrument_mapping_method={item.get('instrument_mapping_method', 'unavailable')}",
                     f"available_at_decision_time={bool(item.get('available_at_decision_time', False))}",
                     f"timestamp_status={item.get('timestamp_status', 'unavailable')}",
@@ -139,7 +142,7 @@ def render_news_context_panel(model: InstrumentDetailViewModel) -> ft.Control:
     return panel(
         ft.Column(
             [
-                section_header("News & context", "Source URL, timestamps, provider and point-in-time status are shown for each item; news is context-only."),
+                section_header("News & context", "Source URL, timestamps, provider and point-in-time status are shown for each item; manual credibility flags are context-only and cannot change scores or actions."),
                 body,
             ],
             spacing=8,

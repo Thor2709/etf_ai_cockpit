@@ -9,7 +9,13 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.ui_facade import build_version_registry, compatibility_summary, extract_and_validate_audit_archive
+from etf_cockpit.application.ui_facade import (
+    build_version_registry,
+    compatibility_summary,
+    extract_and_validate_audit_archive,
+    load_manual_news,
+    manual_news_markdown,
+)
 from etf_cockpit.audit.thesis_diary import (
     ThesisDiaryIntegrityError,
     ThesisDiaryStore,
@@ -26,6 +32,21 @@ from etf_cockpit.audit.local_llm import (
 )
 from etf_cockpit.services import ChatGPTBridge
 from etf_cockpit.governance.product_scope import load_authority_matrix
+
+
+def _manual_note_credibility_text() -> str:
+    """Render the same local-only credibility evidence included in audit exports."""
+
+    try:
+        notes = load_manual_news()
+    except Exception as exc:
+        return (
+            "Manual note credibility evidence unavailable; manual review required "
+            f"({type(exc).__name__}). executable_authority=false"
+        )
+    if notes.empty:
+        return "No manual thesis/news notes imported; credibility flags are unavailable. executable_authority=false"
+    return manual_news_markdown(notes)
 
 
 def _thesis_diary_text() -> str:
@@ -75,6 +96,7 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
     output = ft.Text(state.last_message, color=theme.MUTED, selectable=True)
     llm_output = ft.Text("Local LLM audit has not been run in this session.", color=theme.MUTED, selectable=True)
     diary_output = ft.Text(_thesis_diary_text(), color=theme.MUTED, selectable=True, size=11)
+    credibility_output = ft.Text(_manual_note_credibility_text(), color=theme.MUTED, selectable=True, size=11)
     authority_matrix = load_authority_matrix()
     version_summary = compatibility_summary(build_version_registry())
 
@@ -242,6 +264,15 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
                     [
                         section_header("LLM thesis diary", "Instrument-specific, dated context only. Human review and forward outcomes are persisted; diary output cannot alter scores, actions, risk gates or trade proposals."),
                         diary_output,
+                    ],
+                    spacing=10,
+                )
+            ),
+            panel(
+                ft.Column(
+                    [
+                        section_header("Manual note credibility", "Structured local flags expose promotional and missing-method evidence. They cannot alter scores, actions or execution authority."),
+                        credibility_output,
                     ],
                     spacing=10,
                 )

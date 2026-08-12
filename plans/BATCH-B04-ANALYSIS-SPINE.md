@@ -3467,3 +3467,34 @@ evidence control is context-only with visible provenance/as-of and
 `execution_allowed=false`. The final review correction passes 34 focused digest
 and 6 run-change tests plus Ruff, compile, programme freshness and diff hygiene.
 Freeze one exact replacement head for both reviews and fresh hosted validation.
+
+## ISSUE-0053 completion and ISSUE-0058 lane — 2026-08-12
+
+ISSUE-0053 PR #680 merged exact independently approved head
+`a5bd22b0906c55ad789e261e8bfceedb029787b0` as exact main
+`542862895dbdc7f29b1dd4c9b686ac526ae8ab94`; O-tier run `31551246756`
+passed classifier, preflight, supply chain and terminal validation. ISSUE-0058
+is the next dependency-ready P2 product gap and its clean branch
+`codex/issue0058-product-20260812` starts from that exact main.
+
+Extend only the existing manual-note credibility classifier and current
+UI/audit consumers with structured flags for promotional funnels, closed-source
+and screenshot claims, implausible return claims and missing methodology,
+benchmark, drawdown, costs/slippage, sample size or reproducibility evidence.
+Keep all notes local, context-only and `execution_allowed=false`; add no
+provider, network, score or execution authority.
+
+The bounded implementation persists nine deterministic reason codes and
+per-code states, validates their internal consistency and leaves legacy rows
+explicitly unknown/unavailable. News & Context, Data & Models, Audit
+Notes/export and Instrument Detail consume the same local evidence; corrupt
+stores fail visibly closed. The consolidated review correction excludes source
+metadata from claim semantics, handles explicit "no missing" evidence lists,
+checks persisted states against canonical reclassification and restores the
+presentation/application boundary. Fourteen focused tests and architecture
+checks pass; the 204-test affected run had one unrelated cache-lifecycle timing
+failure that passed its single allowed exact retry. Ruff, compile, programme
+freshness and diff hygiene pass. Freeze one replacement O-tier exact head for
+both independent reviews and fresh cadence-required hosted package validation;
+preserve
+`execution_allowed=false` and `executable_authority=false`.
