@@ -3807,3 +3807,20 @@ Run `31637457785` is cancelled and invalid. The bounded follow-up requires
 exact rejection/no-write regressions. The macro-warehouse suite and static
 checks pass. Freeze one replacement H-tier head for paired review and fresh
 Linux, Windows and terminal evidence; preserve `execution_allowed=false`.
+
+ISSUE-0051 PR #682 merged exact reviewed head
+`83c2843632e2e88a39fe3fcefa21858b436aada4` as exact main
+`6b9a79d86e4d17656619c1f969b5f44a2d47c4d9` after H-tier run
+`31638791406` passed Linux, Windows and terminal evidence. Post-merge
+convergence run `31642819307` then failed closed because the existing latest
+ISSUE-0018 authority sequence 23 has no GitHub projection. The original writer
+attempt recorded zero transport writes before caller-proof failure and its
+rerun remained ineligible; live readback confirms issue #22 has no comments and
+all other durable authority projections match. The sole bounded repair uses a
+fresh first-attempt OIDC-attested invocation but remains hard-bound to that
+exact ISSUE-0018 authority, source/head, candidate, ledger and remote identity.
+It rejects any existing, partial, non-latest or ambiguous projection and must
+finish with full authority reconciliation and generic zero-action readback.
+No product, canonical status, permissions, retry, compensation or execution
+authority changes are permitted. Require paired exact-head review and fresh
+Linux/Windows/terminal H-tier evidence before merge and one-time recovery.

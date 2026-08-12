@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/issue-transitions/github-mutation-authority.jsonl
+  workflow_dispatch: {}
 
 permissions:
   actions: read
@@ -59,11 +60,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git fetch --no-tags origin main
-          python -m scripts.apply_reviewed_status_completion \
-            --root . \
-            --candidate .github/issue-transitions/post-merge-control-candidate.json \
-            --evidence-out artifacts/programme-status-completion/evidence.json \
+          args=(
+            --root .
+            --candidate .github/issue-transitions/post-merge-control-candidate.json
+            --evidence-out artifacts/programme-status-completion/evidence.json
             --apply
+          )
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            args+=(--recover-issue-0018-status)
+          fi
+          python -m scripts.apply_reviewed_status_completion "${args[@]}"
       - name: Upload status-completion evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

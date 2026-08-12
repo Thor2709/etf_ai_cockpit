@@ -165,6 +165,155 @@ def _remote(status: str = "implemented_initially") -> list[dict[str, object]]:
     ]
 
 
+def _issue0018_recovery_fixture() -> tuple[
+    dict[str, object],
+    dict[str, object],
+    dict[str, object],
+    list[dict[str, object]],
+    list[dict[str, object]],
+]:
+    root = Path(__file__).resolve().parents[1]
+    records = gateway.load_authority_ledger(root)
+    authority = copy.deepcopy(records[-1])
+    prior = copy.deepcopy(records[:-1])
+    candidate = json.loads(
+        (root / completion.DEFAULT_CANDIDATE).read_text(encoding="utf-8")
+    )
+    registry = json.loads((root / sync.REGISTRY_PATH).read_text(encoding="utf-8"))
+    record = next(row for row in registry["records"] if row["canonical_id"] == "ISSUE-0018")
+    record = copy.deepcopy(record)
+    record["programme_status"] = "implemented_initially"
+    remote = [
+        {
+            "id": authority["payload"]["database_id"],
+            "node_id": authority["payload"]["node_id"],
+            "number": authority["payload"]["issue_number"],
+            "title": record["title"],
+            "body": sync.managed_block(record),
+            "state": "OPEN",
+            "url": "https://example.invalid/issues/22",
+        }
+    ]
+    binding = {"authority_id": authority["authority_id"], "authority_sequence": 23}
+    return authority, binding, candidate, remote, records, prior
+
+
+def test_issue0018_recovery_accepts_only_the_exact_latest_omission() -> None:
+    authority, binding, candidate, remote, records, prior = _issue0018_recovery_fixture()
+
+    target = completion.validate_issue0018_recovery_contract(
+        authority=authority,
+        binding=binding,
+        candidate=candidate,
+        plan={},
+        remote=remote,
+        records=records,
+        prior_records=prior,
+    )
+
+    assert target["number"] == 22
+    assert authority["authority_id"] == completion.RECOVERY_AUTHORITY_ID
+
+
+@pytest.mark.parametrize("mutation", ["extra_record", "wrong_type", "duplicate_target", "integrated"])
+def test_issue0018_recovery_rejects_adversarial_projection_shapes(
+    mutation: str,
+) -> None:
+    authority, binding, candidate, remote, records, prior = _issue0018_recovery_fixture()
+    if mutation == "extra_record":
+        records.append(copy.deepcopy(authority))
+    elif mutation == "wrong_type":
+        authority["authority_type"] = "status_replay"
+    elif mutation == "duplicate_target":
+        remote.append(copy.deepcopy(remote[0]))
+    else:
+        remote[0]["body"] = remote[0]["body"].replace(
+            "Programme status: `implemented_initially`",
+            "Programme status: `integrated`",
+        )
+
+    with pytest.raises(ValueError):
+        completion.validate_issue0018_recovery_contract(
+            authority=authority,
+            binding=binding,
+            candidate=candidate,
+            plan={},
+            remote=remote,
+            records=records,
+            prior_records=prior,
+        )
+
+
+def test_issue0018_recovery_attestation_requires_fresh_dispatch_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps({"ref": "refs/heads/main", "inputs": {}}), encoding="utf-8"
+    )
+    values = {
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_EVENT_NAME": completion.RECOVERY_EVENT_NAME,
+        "GITHUB_REF": "refs/heads/main",
+        "GITHUB_SHA": MERGE,
+        "GITHUB_RUN_ATTEMPT": "1",
+        "GITHUB_RUN_ID": RUN_ATTESTATION["run_id"],
+        "GITHUB_RUN_NUMBER": RUN_ATTESTATION["run_number"],
+        "GITHUB_WORKFLOW_REF": RUN_ATTESTATION["workflow_ref"],
+        "GITHUB_REPOSITORY": gateway.REPO,
+        "GITHUB_ACTOR": "operator",
+        "GITHUB_EVENT_PATH": str(event_path),
+    }
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+
+    attestation = completion.github_actions_recovery_attestation(
+        lambda _run_id: _live_actions_run(
+            event=completion.RECOVERY_EVENT_NAME,
+            head_sha=MERGE,
+        )
+    )
+
+    assert attestation["event_before"] == completion.RECOVERY_SOURCE_SHA
+    assert attestation["event_after"] == completion.RECOVERY_HEAD_SHA
+    assert attestation["oidc_sha"] == MERGE
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    monkeypatch.setenv("GH_TOKEN", "recovery-token")
+    audience = hashlib.sha256(b"recovery-token").hexdigest()
+    token = _signed_oidc(
+        private_key,
+        audience,
+        event_name=completion.RECOVERY_EVENT_NAME,
+        sha=MERGE,
+        workflow_sha=MERGE,
+    )
+    completion.verify_fresh_caller_proof(
+        attestation,
+        run_reader=lambda _run_id: _live_actions_run(
+            event=completion.RECOVERY_EVENT_NAME,
+            head_sha=MERGE,
+        ),
+        check_reader=lambda _check_id: _live_check(head_sha=MERGE),
+        token_requester=lambda requested: token if requested == audience else "",
+        jwks_reader=lambda: _jwk(private_key),
+        used_jtis=set(),
+        now=lambda: NOW,
+    )
+
+    event_path.write_text(
+        json.dumps({"ref": "refs/heads/main", "inputs": {"target": "other"}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(gateway.MutationPolicyError, match="invalid_status_recovery_event"):
+        completion.github_actions_recovery_attestation(
+            lambda _run_id: _live_actions_run(
+                event=completion.RECOVERY_EVENT_NAME,
+                head_sha=MERGE,
+            )
+        )
+
+
 def _remote_with_status_event(
     raw_status: str, event_to_status: str
 ) -> list[dict[str, object]]:
@@ -1593,7 +1742,10 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     assert status_workflow[True]["push"]["paths"] == [
         ".github/issue-transitions/github-mutation-authority.jsonl"
     ]
+    assert status_workflow[True]["workflow_dispatch"] == {}
+    assert "inputs:" not in status_text
     assert "--apply" in status_text
+    assert "--recover-issue-0018-status" in status_text
     assert "--expected-parent" not in status_text
     assert "--main-ref" not in status_text
     module_invocation = "python -m scripts.apply_reviewed_status_completion"

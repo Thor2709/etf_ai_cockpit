@@ -35,6 +35,13 @@ SHA_RE = re.compile(r"[0-9a-f]{40}")
 HASH_RE = re.compile(r"[0-9a-f]{64}")
 STATUS_RE = re.compile(r"^- Programme status: `([^`]+)`$", re.MULTILINE)
 SINGLE_HOP_STATUS_TARGETS = frozenset({"ready", "in_progress", "integrated"})
+RECOVERY_AUTHORITY_ID = (
+    "db7622b54f8afd1ccdf24a6b356f3691aecb2e46b68c90136e8389aa2b9c08d8"
+)
+RECOVERY_SOURCE_SHA = "94e6376e1a81cdd11bc6c64adc1ebd6499c26bac"
+RECOVERY_HEAD_SHA = "f4f6707d19e4de0d26144971f6c254750e44aaa2"
+RECOVERY_STABLE_ID = "ISSUE-0018"
+RECOVERY_EVENT_NAME = "workflow_dispatch"
 BOT_AUTHORS = frozenset({"github-actions[bot]"})
 GITHUB_ACTIONS_BOT_USER_ID = "41898282"
 GITHUB_ACTIONS_APP_ID = "15368"
@@ -290,6 +297,18 @@ def _validate_run_attestation(attestation: dict[str, str]) -> None:
         or not HASH_RE.fullmatch(attestation["event_payload_sha256"])
     ):
         raise ValueError("invalid_github_actions_run_attestation")
+
+
+def _is_exact_recovery_event(value: dict[str, Any]) -> bool:
+    return (
+        value.get("event_name") == RECOVERY_EVENT_NAME
+        and value.get("stable_id") == RECOVERY_STABLE_ID
+        and value.get("authority_id") == RECOVERY_AUTHORITY_ID
+        and value.get("source_sha") == RECOVERY_SOURCE_SHA
+        and value.get("head_sha") == RECOVERY_HEAD_SHA
+        and value.get("event_before") == RECOVERY_SOURCE_SHA
+        and value.get("event_after") == RECOVERY_HEAD_SHA
+    )
 
 
 def _validate_single_hop_status_transition(
@@ -668,6 +687,83 @@ def validate_authority_git_transition(
     return before_records, after_records, binding
 
 
+def validate_recovery_authority_git_transition(
+    root: Path,
+    *,
+    source_sha: str,
+    head_sha: str,
+    main_ref: str,
+    authority_id: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """Validate the one fixed authority whose original push is unretryable."""
+
+    if (
+        source_sha != RECOVERY_SOURCE_SHA
+        or head_sha != RECOVERY_HEAD_SHA
+        or authority_id != RECOVERY_AUTHORITY_ID
+    ):
+        raise MutationPolicyError(
+            "status_recovery_contract_mismatch",
+            _policy_evidence("status_recovery_contract_mismatch"),
+        )
+    current_main = subprocess.check_output(
+        ["git", "rev-parse", main_ref], cwd=root, text=True
+    ).strip()
+    checked_head = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True
+    ).strip()
+    if checked_head != current_main:
+        raise MutationPolicyError(
+            "recovery_checkout_head_mismatch",
+            _policy_evidence("recovery_checkout_head_mismatch"),
+        )
+    for ancestor, descendant, error in (
+        (source_sha, head_sha, "authority_source_not_ancestor"),
+        (head_sha, current_main, "recovery_head_not_on_current_main"),
+    ):
+        if subprocess.run(
+            ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+            cwd=root,
+            check=False,
+        ).returncode:
+            raise MutationPolicyError(error, _policy_evidence(error))
+
+    before_bytes = _git_blob_bytes(root, source_sha, AUTHORITY_PATH) or b""
+    original_bytes = _git_blob_bytes(root, head_sha, AUTHORITY_PATH)
+    current_bytes = _git_blob_bytes(root, current_main, AUTHORITY_PATH)
+    if original_bytes is None or current_bytes != original_bytes:
+        raise MutationPolicyError(
+            "recovery_authority_ledger_changed",
+            _policy_evidence("recovery_authority_ledger_changed"),
+        )
+    before_records = parse_authority_ledger(before_bytes) if before_bytes else []
+    after_records = parse_authority_ledger(original_bytes)
+    if (
+        authority_ledger_bytes(after_records[:-1]) != before_bytes
+        or len(after_records) != len(before_records) + 1
+        or after_records[-1]["authority_id"] != authority_id
+    ):
+        raise MutationPolicyError(
+            "authority_ledger_not_exactly_one_append",
+            _policy_evidence("authority_ledger_not_exactly_one_append"),
+        )
+    ledger_oid = subprocess.check_output(
+        ["git", "rev-parse", f"{head_sha}:{AUTHORITY_PATH.as_posix()}"],
+        cwd=root,
+        text=True,
+    ).strip()
+    binding = {
+        "authority_id": authority_id,
+        "authority_sequence": after_records[-1]["sequence"],
+        "authority_type": after_records[-1]["authority_type"],
+        "source_sha": source_sha,
+        "head_sha": head_sha,
+        "ledger_blob_oid": ledger_oid,
+        "ledger_blob_sha256": _sha256(original_bytes),
+    }
+    return before_records, after_records, binding
+
+
 def _author_login(value: Any) -> str:
     if isinstance(value, dict):
         return str(value.get("login", ""))
@@ -796,7 +892,10 @@ def parse_event_comment(body: str) -> dict[str, Any] | None:
         if not SHA_RE.fullmatch(str(value.get(field, ""))):
             raise ValueError(f"invalid_status_event_{field}")
     if (
-        value.get("event_name") != "push"
+        not (
+            value.get("event_name") == "push"
+            or _is_exact_recovery_event(value)
+        )
         or value.get("event_ref") != "refs/heads/main"
         or value.get("run_attempt") != "1"
         or value.get("event_before") != value.get("source_sha")
@@ -2388,8 +2487,15 @@ def append_status_event(
         "repository": repository,
         "event_payload_sha256": event_payload_sha256,
     }
+    recovery_event = (
+        event_name == RECOVERY_EVENT_NAME
+        and stable_id == RECOVERY_STABLE_ID
+        and authority_record.get("authority_id") == RECOVERY_AUTHORITY_ID
+        and source_sha == RECOVERY_SOURCE_SHA
+        and head_sha == RECOVERY_HEAD_SHA
+    )
     if (
-        event_name != "push"
+        not (event_name == "push" or recovery_event)
         or event_ref != "refs/heads/main"
         or run_attempt != "1"
         or event_before != source_sha
