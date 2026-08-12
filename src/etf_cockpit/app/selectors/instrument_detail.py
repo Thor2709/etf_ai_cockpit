@@ -65,6 +65,7 @@ from etf_cockpit.audit.thesis_diary import (
     disclosure_safe_review,
 )
 from etf_cockpit.core.paths import DATA_DIR
+from etf_cockpit.data.manual_notes import MANUAL_NEWS_CLEAN_PATH, load_manual_news
 
 
 @dataclass(frozen=True)
@@ -511,19 +512,32 @@ def _statement_panel_fields(evidence: Mapping[str, object]) -> dict[str, object]
 
 
 def _news_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
+    source_error: str | None = None
     try:
         source = frame if isinstance(frame, pd.DataFrame) else load_news_items(NEWS_CLEAN_PATH)
     except Exception:
-        return _unavailable("News unavailable; the optional local store is missing or corrupt.") | {"items": [], "context_only": True, "executable_authority": False}
-    if source.empty or "instrument_id" not in source.columns:
-        return _unavailable("News unavailable; no timestamp-validated local items are registered.") | {"items": [], "context_only": True, "executable_authority": False}
+        source = pd.DataFrame()
+        source_error = "News unavailable; the optional local store is missing or corrupt."
+    items: list[dict[str, Any]] = []
+    if not source.empty and "instrument_id" in source.columns:
+        try:
+            scoped = sort_news_items(_instrument_rows(source, instrument_id))
+            items.extend(_news_item_record(row) for row in scoped.tail(20).to_dict("records"))
+        except Exception:
+            source_error = "News unavailable; the optional local store is malformed."
+    manual_error: str | None = None
     try:
-        scoped = sort_news_items(_instrument_rows(source, instrument_id))
-    except Exception:
-        return _unavailable("News unavailable; the optional local store is malformed.") | {"items": [], "context_only": True, "executable_authority": False}
-    if scoped.empty:
-        return _unavailable("News unavailable for this instrument.") | {"items": [], "context_only": True, "executable_authority": False}
-    items = [_news_item_record(row) for row in scoped.tail(20).to_dict("records")]
+        manual = load_manual_news(MANUAL_NEWS_CLEAN_PATH)
+        if not manual.empty and "etf_id" in manual.columns:
+            manual_scoped = manual.loc[manual["etf_id"].astype(str).eq(str(instrument_id))]
+            manual_scoped = manual_scoped.sort_values("as_of_date", kind="stable").tail(20)
+            items.extend(_manual_news_item_record(row) for row in manual_scoped.to_dict("records"))
+    except Exception as exc:
+        manual_error = type(exc).__name__
+    if manual_error is not None:
+        items.append(_manual_news_unavailable_record(manual_error))
+    if not items:
+        return _unavailable(source_error or ("News unavailable; no timestamp-validated local items are registered." if source.empty else "News unavailable for this instrument.")) | {"items": [], "context_only": True, "executable_authority": False}
     return {"status": "available", "message": "News is context-only and cannot change deterministic scores.", "items": items, "context_only": True, "executable_authority": False, "execution_allowed": False}
 
 
@@ -597,6 +611,49 @@ def _news_item_record(row: Mapping[str, Any]) -> dict[str, Any]:
         }
     )
     return item
+
+
+def _manual_news_item_record(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Adapt a local manual note to the existing context-only news renderer."""
+
+    item = dict(row)
+    item.update(
+        {
+            "headline": _value_or(item.get("title"), "Untitled manual note"),
+            "source_url": _value_or(item.get("source_url"), "unavailable"),
+            "published_at": _value_or(item.get("as_of_date"), "unavailable"),
+            "ingested_at": _value_or(item.get("imported_at"), "unavailable"),
+            "provider_name": _value_or(item.get("source"), "manual_import"),
+            "credibility": _value_or(item.get("source_credibility"), "unverified"),
+            "instrument_mapping_method": "manual_note_etf_id",
+            "available_at_decision_time": False,
+            "timestamp_status": "dated_only",
+            "manual_note": True,
+            "context_only": True,
+            "executable_authority": False,
+        }
+    )
+    return item
+
+
+def _manual_news_unavailable_record(error_name: str) -> dict[str, Any]:
+    return {
+        "headline": "Manual note credibility evidence unavailable; manual review required",
+        "source_url": "unavailable",
+        "published_at": "unavailable",
+        "ingested_at": "unavailable",
+        "provider_name": "manual_import",
+        "credibility": "unavailable",
+        "credibility_flag_status": "unavailable",
+        "credibility_flags": "unknown",
+        "credibility_reason_codes": f"read_error:{error_name}",
+        "instrument_mapping_method": "manual_note_etf_id",
+        "available_at_decision_time": False,
+        "timestamp_status": "unavailable",
+        "manual_note": True,
+        "context_only": True,
+        "executable_authority": False,
+    }
 
 
 def _etf_disclosure_panel(

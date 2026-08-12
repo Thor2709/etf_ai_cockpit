@@ -54,9 +54,18 @@ def data_models_page(_page: ft.Page, state: AppState) -> ft.Control:
         )
         for meta in state.snapshot.data_report.dataset_metadata
     ]
-    manual_notes = load_manual_news()
-    if manual_notes.empty:
-        manual_note_lines = ["No manual thesis/news notes imported."]
+    try:
+        manual_notes = load_manual_news()
+        manual_note_error = None
+    except Exception as exc:
+        manual_notes = pd.DataFrame()
+        manual_note_error = type(exc).__name__
+    if manual_note_error is not None:
+        manual_note_lines = [
+            f"Manual note credibility evidence unavailable; manual review required ({manual_note_error}). executable_authority=false"
+        ]
+    elif manual_notes.empty:
+        manual_note_lines = ["No manual thesis/news notes imported; credibility flags are unavailable. executable_authority=false"]
     else:
         recent_notes = manual_notes.copy()
         recent_notes["as_of_date"] = recent_notes["as_of_date"].astype(str)
@@ -64,7 +73,9 @@ def data_models_page(_page: ft.Page, state: AppState) -> ft.Control:
         manual_note_lines = [
             (
                 f"{row['as_of_date']} | {row.get('etf_id') or 'portfolio'} | {row.get('title') or 'Untitled note'} | "
-                f"source={row.get('source') or 'manual_import'} | executable_authority=false"
+                f"source={row.get('source') or 'manual_import'} | credibility_flag_status={row.get('credibility_flag_status', 'unavailable')} | "
+                f"credibility_flags={row.get('credibility_flags', 'unknown')} | credibility_reason_codes={row.get('credibility_reason_codes', 'unknown')} | "
+                f"executable_authority=false"
             )
             for _, row in recent_notes.iterrows()
         ]

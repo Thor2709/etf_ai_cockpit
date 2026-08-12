@@ -2199,3 +2199,30 @@ next action and whether the requested outcome is actually complete.
   and 6 run-change tests, plus Ruff, compile, programme freshness and diff
   hygiene. Freeze one replacement head for paired review and fresh required
   hosted validation; add no provider, macro inference or authority.
+
+## ISSUE-0053 merge and ISSUE-0058 product checkpoint — 2026-08-12
+
+- ISSUE-0053 PR #680 merged exact independently approved head
+  `a5bd22b0906c55ad789e261e8bfceedb029787b0` as exact main
+  `542862895dbdc7f29b1dd4c9b686ac526ae8ab94`. O-tier run `31551246756`
+  passed classifier, preflight, supply chain and terminal validation; the
+  classifier required no Linux/Windows package jobs. The local digest remains
+  context-only and `execution_allowed=false` is unchanged.
+- ISSUE-0058, "Closed-source/promotional-claim detector for imported notes",
+  is the next dependency-ready product gap: P2, `planned`, no blocking or
+  activation dependencies. Clean lane `codex/issue0058-product-20260812`
+  starts at exact main `542862895dbdc7f29b1dd4c9b686ac526ae8ab94` with an
+  empty diff.
+- Extend only the existing manual-note credibility classifier and its current
+  UI/audit consumers to expose the accepted promotional and missing-method
+  evidence flags. Keep imported notes context-only, local, non-executable and
+  visibly attributable; add no provider, network or scoring authority.
+- The bounded implementation now persists nine deterministic reason codes and
+  per-code states, rejects internally inconsistent structured evidence, and
+  leaves legacy rows explicitly unknown/unavailable. News & Context, Data &
+  Models, Audit Notes/export and Instrument Detail show the same local evidence;
+  corrupt stores fail visibly closed. Eleven focused regressions and the full
+  198-test affected audit/instrument/news batch pass, plus Ruff, compile,
+  programme freshness and diff hygiene. Freeze one complete O-tier candidate
+  for parallel whole-diff/risk review and hosted validation;
+  `execution_allowed=false` and `executable_authority=false` remain unchanged.

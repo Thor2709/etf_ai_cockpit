@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -19,6 +20,19 @@ MANUAL_NEWS_CLEAN_PATH = CLEAN_DIR / "manual_news.parquet"
 
 DATE_COLUMNS = ("as_of_date", "date", "published_at", "published_date", "note_date")
 TEXT_COLUMNS = ("note", "text", "summary", "content", "thesis", "body")
+CREDIBILITY_SCHEMA_VERSION = "manual_news.credibility.v2"
+CREDIBILITY_FLAG_CODES = (
+    "performance_screenshot_without_methodology",
+    "dm_or_funnel_language",
+    "closed_source_claim",
+    "missing_benchmark",
+    "missing_drawdown",
+    "missing_cost_slippage",
+    "missing_sample_size",
+    "missing_reproducible_method",
+    "too_good_to_be_true_return_claim",
+)
+CREDIBILITY_FLAG_COLUMNS = tuple(f"credibility_flag_{code}" for code in CREDIBILITY_FLAG_CODES)
 
 
 @dataclass(frozen=True)
@@ -98,6 +112,20 @@ def validate_manual_news(
     normalised["promotional_risk"] = [item["promotional_risk"] for item in credibility]
     normalised["reproducibility"] = [item["reproducibility"] for item in credibility]
     normalised["claim_quality"] = [item["claim_quality"] for item in credibility]
+    evidence = [classify_manual_note_credibility(row) for _, row in normalised.iterrows()]
+    normalised["credibility_schema_version"] = CREDIBILITY_SCHEMA_VERSION
+    normalised["credibility_flag_status"] = "available"
+    normalised["credibility_flags"] = [
+        "|".join(code for code in CREDIBILITY_FLAG_CODES if item[code] == "detected") or "none"
+        for item in evidence
+    ]
+    normalised["credibility_reason_codes"] = normalised["credibility_flags"]
+    normalised["credibility_evidence"] = [
+        json.dumps({code: item[code] for code in CREDIBILITY_FLAG_CODES}, sort_keys=True)
+        for item in evidence
+    ]
+    for code, column in zip(CREDIBILITY_FLAG_CODES, CREDIBILITY_FLAG_COLUMNS):
+        normalised[column] = [item[code] for item in evidence]
 
     if "executable_authority" in frame.columns and frame["executable_authority"].fillna(False).astype(str).str.lower().isin({"true", "1", "yes"}).any():
         warnings.append("Imported executable_authority values were ignored and forced to false.")
@@ -198,6 +226,15 @@ def load_manual_news(path: Path = MANUAL_NEWS_CLEAN_PATH) -> pd.DataFrame:
     if not path.exists():
         return _empty_manual_news_frame()
     frame = pd.read_parquet(path)
+    expected_columns = {
+        "credibility_schema_version",
+        "credibility_flag_status",
+        "credibility_flags",
+        "credibility_reason_codes",
+        "credibility_evidence",
+        *CREDIBILITY_FLAG_COLUMNS,
+    }
+    structured_schema_present = expected_columns.issubset(frame.columns)
     for column in _empty_manual_news_frame().columns:
         if column not in frame.columns:
             frame[column] = "" if column != "executable_authority" else False
@@ -208,6 +245,26 @@ def load_manual_news(path: Path = MANUAL_NEWS_CLEAN_PATH) -> pd.DataFrame:
             credibility = [_source_credibility(row) for _, row in frame.iterrows()]
             for column in ("source_type_category", "evidence_grade", "source_credibility", "promotional_risk", "reproducibility", "claim_quality"):
                 frame[column] = [item[column] for item in credibility]
+    if not structured_schema_present:
+        # Older parquet frames cannot be reclassified on load: retain their
+        # legacy credibility fields but make the new evidence state explicit.
+        frame["credibility_schema_version"] = "unknown"
+        frame["credibility_flag_status"] = "unavailable"
+        frame["credibility_flags"] = "unknown"
+        frame["credibility_reason_codes"] = "unknown"
+        frame["credibility_evidence"] = "unknown"
+        for column in CREDIBILITY_FLAG_COLUMNS:
+            frame[column] = "unknown"
+    else:
+        invalid_rows = [index for index, row in frame.iterrows() if not _structured_credibility_valid(row)]
+        if invalid_rows:
+            frame.loc[invalid_rows, "credibility_schema_version"] = "unknown"
+            frame.loc[invalid_rows, "credibility_flag_status"] = "unavailable"
+            frame.loc[invalid_rows, "credibility_flags"] = "unknown"
+            frame.loc[invalid_rows, "credibility_reason_codes"] = "unknown"
+            frame.loc[invalid_rows, "credibility_evidence"] = "unknown"
+            for column in CREDIBILITY_FLAG_COLUMNS:
+                frame.loc[invalid_rows, column] = "unknown"
     return frame
 
 
@@ -231,11 +288,15 @@ def manual_news_markdown(frame: pd.DataFrame, *, max_rows: int = 20) -> str:
         credibility = str(row.get("source_credibility") or "unverified")
         promotional = str(row.get("promotional_risk") or "unknown")
         reproducibility = str(row.get("reproducibility") or "unknown")
+        flags = str(row.get("credibility_flags") or "unknown")
+        flag_status = str(row.get("credibility_flag_status") or "unavailable")
+        evidence = str(row.get("credibility_evidence") or "unknown")
         note = str(row.get("note") or "").replace("\r", " ").replace("\n", " ").strip()
         lines.append(
             f"- {row.get('as_of_date')} | {etf_id} | {title} | source={source} | "
             f"evidence_grade={grade} | credibility={credibility} | promotional_risk={promotional} | "
-            f"reproducibility={reproducibility} | executable_authority=false"
+            f"reproducibility={reproducibility} | credibility_flags={flags} | "
+            f"credibility_flag_status={flag_status} | credibility_evidence={evidence} | executable_authority=false"
         )
         lines.append(f"  {note}")
     return "\n".join(lines).rstrip() + "\n"
@@ -283,6 +344,12 @@ def _empty_manual_news_frame() -> pd.DataFrame:
             "promotional_risk",
             "reproducibility",
             "claim_quality",
+            "credibility_schema_version",
+            "credibility_flag_status",
+            "credibility_flags",
+            "credibility_reason_codes",
+            "credibility_evidence",
+            *CREDIBILITY_FLAG_COLUMNS,
         ]
     )
 
@@ -341,6 +408,90 @@ def _source_credibility(row: pd.Series) -> dict[str, str]:
         "reproducibility": "unknown",
         "claim_quality": "context_only",
     }
+
+
+_NEGATION_RE = re.compile(
+    r"\b(?:no|not|without|never|none|missing|unavailable|absent|omitted|lack(?:s|ing)?)\b"
+)
+
+
+def _contains_claim(text: str, pattern: str) -> bool:
+    for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+        prefix = text[max(0, match.start() - 45) : match.start()]
+        if _NEGATION_RE.search(re.split(r"[.,;:!?]", prefix)[-1]):
+            continue
+        return True
+    return False
+
+
+def _contains_absence(text: str, pattern: str) -> bool:
+    absence = r"\b(?:no|without|missing|unavailable|absent|omitted|not\s+(?:provided|shown|disclosed|reported))\b"
+    for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+        sentence = re.split(r"[.!?]", text[max(0, match.start() - 140) : match.start()])[-1]
+        absence_match = list(re.finditer(absence, sentence, flags=re.IGNORECASE))
+        if absence_match and not re.search(r"\bbut\b", sentence[absence_match[-1].end() :], flags=re.IGNORECASE):
+            return True
+    return bool(
+        re.search(
+            rf"{pattern}\W{{0,140}}(?:is\s+)?(?:missing|unavailable|absent|omitted|not\s+(?:provided|shown|disclosed|reported))\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _credibility_evidence(row: pd.Series) -> dict[str, str]:
+    text = " ".join(str(row.get(field) or "") for field in ("source", "source_url", "title", "note")).casefold()
+    performance_screenshot = _contains_claim(text, r"\bscreenshot\b") and _contains_claim(text, r"(?:\breturns?\b|\bprofit(?:s|able)?\b|\bwin\s*rate\b|\bsharpe\b|\bperformance\b)")
+    performance_claim = performance_screenshot or _contains_claim(text, r"(?:\breturns?\b|\bprofit(?:s|able)?\b|\bwin\s*rate\b|\bsharpe\b|\bannuali[sz]ed\b)")
+    methodology_present = _contains_claim(text, r"(?:\bmethodolog(?:y|ies)\b|\bmethod\b|\brules?\b|\bbacktest(?:ed|ing)?\b|\breproduc(?:ible|e|ed)\b|\breplicat(?:e|ed|able)\b|\bsource\s+code\b|\bgithub\b|\bentry\s+and\s+exit\b)")
+    benchmark_present = _contains_claim(text, r"(?:\bbenchmark\b|\bcompar(?:e|ed|ison)\b|\bvs\.?\b|\brelative\s+to\b|\boutperform(?:ed|s)?\b)")
+    drawdown_present = _contains_claim(text, r"\bdrawdown\b")
+    cost_present = _contains_claim(text, r"(?:\bcosts?\b|\bslippage\b|\bspread\b|\bexpense\s+ratio\b|\bcommission\b|\bfriction\b|\bfees?\b)")
+    sample_present = _contains_claim(text, r"(?:\bsample\s+size\b|\bobservations?\b|\btrades?\b|\btransactions?\b|\bn\s*[=:]\s*\d+)" )
+    too_good = _contains_claim(text, r"(?:too\s+good\s+to\s+be\s+true|\b\+?\d{3,}(?:\.\d+)?\s*%|\b\d+(?:\.\d+)?\s*x\b|\b(?:double|tripled?)\b|\bguaranteed\b.{0,24}\b(?:returns?|profits?)\b)")
+    missing_benchmark = _contains_absence(text, r"\bbenchmark\b") or (performance_claim and not benchmark_present)
+    missing_drawdown = _contains_absence(text, r"\bdrawdown\b") or (performance_claim and not drawdown_present)
+    missing_cost = _contains_absence(text, r"(?:\bcosts?\b|\bslippage\b|\bfees?\b)") or (performance_claim and not cost_present)
+    missing_sample = _contains_absence(text, r"(?:\bsample\s+size\b|\bobservations?\b|\btrades?\b)") or (performance_claim and not sample_present)
+    missing_method = _contains_absence(text, r"(?:\bmethodolog(?:y|ies)\b|\bmethod\b|\breproduc(?:ible|e|ed)\b|\breplicat(?:e|ed|able)\b)") or (performance_claim and not methodology_present)
+    return {
+        "performance_screenshot_without_methodology": "detected" if performance_screenshot and (not methodology_present or _contains_absence(text, r"(?:\bmethodolog(?:y|ies)\b|\bmethod\b|\breproduc(?:ible|e|ed)\b|\breplicat(?:e|ed|able)\b)")) else "not_detected",
+        "dm_or_funnel_language": "detected" if _contains_claim(text, r"(?:\bdm\s+me\b|\bsend\s+(?:me\s+)?a?\s*dm\b|\bmessage\s+me\b|\bdirect\s+message\b|\bfunnel\b|\bpaid\s+group\b|\bsubscribe\b|\blink\s+in\s+bio\b|\bjoin\s+(?:my|the)\s+group\b)") else "not_detected",
+        "closed_source_claim": "detected" if _contains_claim(text, r"(?:\bclosed[-\s]?source\b|\bblack[-\s]?box\b|\bproprietary\s+(?:algorithm|system|model)\b|\bsecret\s+(?:algorithm|strategy)\b)") else "not_detected",
+        "missing_benchmark": "detected" if missing_benchmark else "not_detected",
+        "missing_drawdown": "detected" if missing_drawdown else "not_detected",
+        "missing_cost_slippage": "detected" if missing_cost else "not_detected",
+        "missing_sample_size": "detected" if missing_sample else "not_detected",
+        "missing_reproducible_method": "detected" if missing_method else "not_detected",
+        "too_good_to_be_true_return_claim": "detected" if too_good else "not_detected",
+    }
+
+
+def classify_manual_note_credibility(row: pd.Series) -> dict[str, str]:
+    """Classify local note claims into stable evidence flags without score authority."""
+
+    return _credibility_evidence(row)
+
+
+def _structured_credibility_valid(row: pd.Series) -> bool:
+    if str(row.get("credibility_schema_version") or "") != CREDIBILITY_SCHEMA_VERSION:
+        return False
+    if str(row.get("credibility_flag_status") or "") != "available":
+        return False
+    states = {code: str(row.get(column) or "") for code, column in zip(CREDIBILITY_FLAG_CODES, CREDIBILITY_FLAG_COLUMNS)}
+    if any(value not in {"detected", "not_detected"} for value in states.values()):
+        return False
+    detected = "|".join(code for code in CREDIBILITY_FLAG_CODES if states[code] == "detected") or "none"
+    if str(row.get("credibility_flags") or "") != detected:
+        return False
+    if str(row.get("credibility_reason_codes") or "") != detected:
+        return False
+    try:
+        evidence = json.loads(str(row.get("credibility_evidence") or ""))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
+    return evidence == states
 
 
 def _store_raw_manual_import(result: ProviderResult, frame: pd.DataFrame, raw_dir: Path, timestamp: str, checksum: str) -> Path:

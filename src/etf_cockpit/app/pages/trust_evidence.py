@@ -17,6 +17,7 @@ from etf_cockpit.app.state import ActivityUnavailableError, AppState
 from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.paths import RAW_DIR, STATEMENT_FACTS_PATH
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
+from etf_cockpit.data.manual_notes import MANUAL_NEWS_CLEAN_PATH, load_manual_news
 from etf_cockpit.application.ui_facade import (
     BENCHMARK_ATTRIBUTION_PATH,
     CORRELATION_CLUSTERS_PATH,
@@ -381,6 +382,7 @@ def news_context_page(_page: ft.Page, state: AppState) -> ft.Control:
         "Free/manual news and context evidence. News is non-executable and cannot directly change scores or actions.",
         [
             ("News/context inventory", NEWS_CONTEXT_PATH, ["instrument_id", "source_url", "published_at", "ingested_at", "provider_name", "credibility", "instrument_mapping_method", "available_at_decision_time", "timestamp_status", "context_only", "executable_authority", "raw_path"]),
+            ("Manual note credibility evidence", MANUAL_NEWS_CLEAN_PATH, ["as_of_date", "etf_id", "title", "credibility_flag_status", "credibility_flags", "credibility_reason_codes", "executable_authority"]),
             ("Point-in-time validation", NEWS_TIMESTAMP_VALIDATION_PATH, ["news_id", "timestamp_status", "backtest_eligible", "reason", "available_at_decision_time", "instrument_mapping_method"]),
             ("Optional free provider status", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "message"]),
             ("Fundamental source limitations", FUNDAMENTAL_CLEAN_PATH, ["instrument_id", "source", "source_authority", "limitations", "score_eligible", "executable_authority"]),
@@ -400,6 +402,36 @@ def _news_context_extra(state: AppState) -> ft.Control:
     else:
         body = ft.Column(
             [ft.Text(f"{row['instrument_id']} | {row['headline']} | headline={row['headline_direction']} price={row['price_direction']} | {row['reason']}", color=theme.AMBER, selectable=True, size=11) for _, row in contradictions.iterrows()],
+            spacing=4,
+        )
+    try:
+        manual_notes = load_manual_news(MANUAL_NEWS_CLEAN_PATH)
+        manual_note_error = None
+    except Exception as exc:
+        manual_notes = pd.DataFrame()
+        manual_note_error = type(exc).__name__
+    if manual_note_error is not None:
+        manual_body = ft.Text(
+            f"Manual note credibility evidence unavailable; manual review required ({manual_note_error}). executable_authority=false",
+            color=theme.AMBER,
+            selectable=True,
+        )
+    elif manual_notes.empty:
+        manual_body: ft.Control = ft.Text("No manual thesis/news notes imported; credibility flags are unavailable.", color=theme.MUTED, selectable=True)
+    else:
+        manual_body = ft.Column(
+            [
+                ft.Text(
+                    f"{row.get('as_of_date', 'unavailable')} | {row.get('etf_id') or 'portfolio'} | "
+                    f"{row.get('title') or 'Untitled note'} | credibility_flag_status={row.get('credibility_flag_status', 'unavailable')} | "
+                    f"credibility_flags={row.get('credibility_flags', 'unknown')} | "
+                    f"credibility_reason_codes={row.get('credibility_reason_codes', 'unknown')} | executable_authority=false",
+                    color=theme.MUTED,
+                    selectable=True,
+                    size=11,
+                )
+                for _, row in manual_notes.sort_values("as_of_date", ascending=False).head(20).iterrows()
+            ],
             spacing=4,
         )
     try:
@@ -445,6 +477,8 @@ def _news_context_extra(state: AppState) -> ft.Control:
     return panel(
         ft.Column(
             [
+                section_header("Manual note credibility", "Structured local-only flags distinguish detected claims from missing or unavailable supporting evidence; they cannot change scores or actions."),
+                manual_body,
                 section_header("News contradictions", "Explicit headline direction is compared with the next dated deterministic close; this panel is informational and cannot alter scores or actions."),
                 body,
                 section_header("Event calendar status", "Earnings, dividend, split and high-risk action records retain source and availability metadata."),
