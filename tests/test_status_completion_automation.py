@@ -173,12 +173,25 @@ def _issue0018_recovery_fixture() -> tuple[
     list[dict[str, object]],
 ]:
     root = Path(__file__).resolve().parents[1]
-    records = gateway.load_authority_ledger(root)
+    current_records = gateway.load_authority_ledger(root)
+    recovery_index = next(
+        index
+        for index, row in enumerate(current_records)
+        if row.get("authority_id") == completion.RECOVERY_AUTHORITY_ID
+    )
+    records = copy.deepcopy(current_records[: recovery_index + 1])
     authority = copy.deepcopy(records[-1])
     prior = copy.deepcopy(records[:-1])
-    candidate = json.loads(
-        (root / completion.DEFAULT_CANDIDATE).read_text(encoding="utf-8")
-    )
+    candidate = {
+        "authority_ref": completion.RECOVERY_AUTHORITY_REF,
+        "expected_parent_sha": completion.RECOVERY_SOURCE_SHA,
+        "plan_semantic_sha256": completion.RECOVERY_PLAN_SHA,
+        "expected_update": {
+            "stable_id": completion.RECOVERY_STABLE_ID,
+            "from_status": "implemented_initially",
+            "to_status": "integrated",
+        },
+    }
     registry = json.loads((root / sync.REGISTRY_PATH).read_text(encoding="utf-8"))
     record = next(row for row in registry["records"] if row["canonical_id"] == "ISSUE-0018")
     record = copy.deepcopy(record)

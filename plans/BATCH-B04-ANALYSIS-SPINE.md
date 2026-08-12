@@ -3824,3 +3824,21 @@ finish with full authority reconciliation and generic zero-action readback.
 No product, canonical status, permissions, retry, compensation or execution
 authority changes are permitted. Require paired exact-head review and fresh
 Linux/Windows/terminal H-tier evidence before merge and one-time recovery.
+
+`RECOVERED` repair PR #683 merged exact reviewed head
+`9d2a08800d09bb71313ebe3addc2e2ee2ec78b37` as
+`84f0353573f8ff7d49af1934d3149271009fc22c` after H-tier run
+`31645482556` passed Linux, the permitted Windows timeout retry and terminal
+validation. Recovery run `31650363325` then appended exactly the absent
+ISSUE-0018 proposal and receipt and completed with full reconciliation and
+zero-action readback; an independent generic live plan is also zero action and
+`execution_allowed=false` remains unchanged.
+
+`IN_PROGRESS` clean branch `codex/issue0051-lifecycle-start-20260813` starts
+from exact main `84f0353573f8ff7d49af1934d3149271009fc22c`. Advance only ISSUE-0051
+from `planned` to `in_progress` using PR #682 merge
+`6b9a79d86e4d17656619c1f969b5f44a2d47c4d9`, H-tier run `31638791406`
+and its exact product reviews. This is the required legal prefix for the
+separate aggregate `in_progress -> implemented_initially -> integrated`
+completion; no product, dependency edge, permissions or execution authority
+changes are included.
