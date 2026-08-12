@@ -2452,6 +2452,14 @@ next action and whether the requested outcome is actually complete.
   price endpoints and strictly types direct-score currency. Exact regressions
   and affected suites pass with static and diff checks. Freeze one replacement
   H-tier head for paired final review and hosted validation.
+- Paired review rejected `91881c4bc6d30c0f22fd469d4f854064ecdda7ed`
+  because fallback provenance could contradict the selected curve. Exact-head
+  run `31623845675` is cancelled and invalid. Product commit
+  `d21ec796e9aa52eb9ef89f8a33cfc7e1c0031eba` requires primary evidence to
+  omit `fallback_from` and fallback evidence to name a distinct nonblank
+  primary in construction and serialized readback. Exact regressions and the
+  ISSUE-0051 suite pass with static and diff checks. Freeze one replacement
+  H-tier head for paired final review and hosted validation.
 - Paired review rejected `fd112929181768b6d065b45da97f9e5929bc0357`
   because generic curve ingestion bypassed serialized admission, future
   malformed rows poisoned earlier decision-time reads, the JSON manifest could
