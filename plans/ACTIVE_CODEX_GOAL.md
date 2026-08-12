@@ -2450,6 +2450,15 @@ next action and whether the requested outcome is actually complete.
   regressions and the complete affected focused surface, Ruff, compile,
   byte-clean generation and diff hygiene pass. Freeze one replacement H-tier
   head for paired final review and fresh hosted validation.
+- Paired review rejected `c559e0cd0c0663d58eefdff81836aed26cde96dc`
+  because unavailable direct scores retained injected cash fields and a primary
+  with missing freshness suppressed a valid fresh fallback. Exact-head run
+  `31617207389` is cancelled and invalid. Consolidated product commit
+  `3840fd5fe5fb3c9c91d74fd366ded6b92a34930b` clears all unavailable cash
+  projection fields and requires both freshness declarations to be explicitly
+  fresh before selection. Exact regressions and the complete affected focused
+  surface, Ruff, compile, byte-clean generation and diff hygiene pass. Freeze
+  one replacement H-tier head for paired final review and hosted validation.
 - Paired review rejected `302fb671ab25c23cff9a2c45bbe405f836562b10`
   for inverted persisted chronology, blank curve lineage, direct-score cash
   bypass, stale-primary fallback suppression, future malformed generic history

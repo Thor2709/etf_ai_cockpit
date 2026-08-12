@@ -3602,6 +3602,16 @@ Exact regressions and the complete affected focused, static and programme
 checks pass. Freeze one replacement H-tier head for paired final review and
 fresh Linux, Windows and terminal validation.
 
+Paired review rejected `c559e0cd0c0663d58eefdff81836aed26cde96dc`
+because unavailable direct scores retained injected cash fields and a primary
+with missing freshness suppressed a valid fresh fallback. Exact-head run
+`31617207389` is cancelled and invalid. Consolidated product commit
+`3840fd5fe5fb3c9c91d74fd366ded6b92a34930b` clears all unavailable cash
+projection fields and requires both freshness declarations to be explicitly
+fresh before selection. Exact regressions and the complete affected focused,
+static and programme checks pass. Freeze one replacement H-tier head for
+paired final review and fresh Linux, Windows and terminal validation.
+
 Paired review rejected `7245e76ac27606f9542fd71dd354d178fcdcd5b1`
 for partial snapshot visibility, inferred availability accepted as exact and
 persisted cash accepted without currency. Run `31593071919` is cancelled and
