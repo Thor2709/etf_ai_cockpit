@@ -14,6 +14,7 @@ from etf_cockpit.data.macro_warehouse import (
     CurvePoint,
     CurveSnapshot,
     MacroWarehouse,
+    MacroWarehouseError,
     RiskFreeProxyMapping,
 )
 from etf_cockpit.features.benchmark_attribution import build_benchmark_attribution
@@ -21,6 +22,7 @@ from etf_cockpit.features.cash_comparison import (
     adjusted_endpoint_available_at,
     build_cash_comparison,
     exact_adjusted_total_return,
+    cash_comparison_to_projection,
     total_return_from_rate,
     validate_cash_comparison_result,
     year_fraction,
@@ -49,6 +51,7 @@ def _evidence(**updates: object) -> dict[str, object]:
         "effective_at": "2024-01-01T00:00:00+00:00",
         "available_at": "2024-12-31T00:00:00+00:00",
         "source_id": "official-curve",
+        "source_authority": "official_public_file",
         "source_checksum": "a" * 64,
         "source_terms": "official-public-file",
         "methodology": "official spot curve",
@@ -184,6 +187,49 @@ def test_cash_comparison_fail_closed_for_mismatch_or_unavailable_evidence(update
     assert result.execution_allowed is False
 
 
+@pytest.mark.parametrize("authority", (None, "official", "vendor_text_claim"))
+def test_cash_comparison_requires_positive_official_provenance(authority: str | None) -> None:
+    prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
+    result = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(source_authority=authority),
+        decision_time="2025-01-03T00:00:00+00:00",
+    )
+    assert result.status == "unavailable"
+    assert "provenance" in str(result.reason)
+
+
+def test_cash_builder_and_serialized_validator_reject_inverted_bitemporal_evidence() -> None:
+    prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
+    built = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(
+            effective_at="2025-01-03T00:00:00+00:00",
+            available_at="2024-12-31T00:00:00+00:00",
+        ),
+        decision_time="2025-01-03T00:00:00+00:00",
+    )
+    assert built.status == "unavailable"
+    assert "effective_at" in str(built.reason)
+
+    valid = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(),
+        decision_time="2025-01-03T00:00:00+00:00",
+    ).as_dict()
+    forged = {**valid, "effective_at": "2025-01-01T00:00:00+00:00", "available_at": "2024-12-31T00:00:00+00:00", "vintage": "2024-12-31T00:00:00+00:00"}
+    assert validate_cash_comparison_result(forged, expected_currency="AUD").status == "unavailable"
+
+
 def test_cash_comparison_does_not_turn_missing_inflation_into_real_return() -> None:
     prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
     result = build_cash_comparison(
@@ -199,25 +245,26 @@ def test_cash_comparison_does_not_turn_missing_inflation_into_real_return() -> N
     assert "real" not in result.as_dict()
 
 
-def _curve(*, version: str = "v1", available_at: str = "2024-12-31T00:00:00+00:00", rate: float = 0.05, curve_type: str = "spot", freshness: str | None = "fresh", revision: int = 1) -> CurveSnapshot:
+def _curve(*, version: str = "v1", available_at: str = "2024-12-31T00:00:00+00:00", effective_at: str = "2024-01-01T00:00:00+00:00", rate: float = 0.05, curve_type: str = "spot", freshness: str | None = "fresh", revision: int = 1, day_count: str = "ACT/365F", tenor_years: float = 1.0 / 365.0) -> CurveSnapshot:
     return CurveSnapshot(
         curve_id="aud-cash",
         curve_version=version,
         curve_type=curve_type,
         currency="AUD",
-        effective_at="2024-01-01T00:00:00+00:00",
+        effective_at=effective_at,
         available_at=available_at,
         ingested_at=available_at,
         source_id="official-curve",
+        source_authority="official_public_file",
         source_checksum=("a" if version == "v1" else "b") * 64,
         source_terms="official-public-file",
         methodology="official spot curve",
         compounding="annual",
-        day_count="ACT/365F",
+        day_count=day_count,
         reinvestment="reinvested_income",
         freshness=freshness,
         freshness_status=freshness,
-        points=(CurvePoint(tenor_years=1.0 / 365.0, rate=rate),),
+        points=(CurvePoint(tenor_years=tenor_years, rate=rate),),
         revision=revision,
     )
 
@@ -261,6 +308,49 @@ def test_warehouse_cash_comparison_selects_only_vintage_known_by_period_start(tm
     )
     assert unsupported["status"] == "unavailable"
     assert "spot" in str(unsupported["reason"])
+
+
+@pytest.mark.parametrize("day_count", ("ACT/360", "ACT/ACT-ISDA"))
+def test_warehouse_queries_exact_tenor_under_selected_curve_day_count(tmp_path, day_count: str) -> None:
+    start, end = "2024-12-31", "2025-01-02"
+    horizon = year_fraction(start, end, day_count)
+    warehouse = MacroWarehouse()
+    warehouse.ingest_curve(
+        _curve(day_count=day_count, tenor_years=horizon),
+        root=tmp_path,
+    )
+    mapping = RiskFreeProxyMapping(
+        currency="AUD",
+        minimum_horizon_years=horizon,
+        maximum_horizon_years=horizon,
+        curve_id="aud-cash",
+        methodology="official cash mapping",
+    )
+    result = warehouse.cash_comparison(
+        root=tmp_path,
+        mappings=(mapping,),
+        currency="AUD",
+        start_date=start,
+        end_date=end,
+        decision_time="2025-01-03T00:00:00+00:00",
+        adjusted_prices=pd.Series([100.0, 110.0], index=pd.to_datetime([start, end])),
+    )
+    assert result["status"] == "available"
+    assert result["day_count"] == day_count
+    assert result["horizon_years"] == pytest.approx(horizon)
+
+
+def test_curve_ingest_rejects_ambiguous_timestamps_and_unofficial_provenance(tmp_path) -> None:
+    with pytest.raises(MacroWarehouseError, match="timezone-aware"):
+        MacroWarehouse().ingest_curve(
+            _curve(effective_at="2024-01-01"),
+            root=tmp_path,
+        )
+    with pytest.raises(ValueError):
+        CurveSnapshot(
+            **_curve().model_dump(exclude={"source_authority"}),
+            source_authority="official",
+        )
 
 
 def test_curve_interpolation_never_mixes_partial_revisions(tmp_path) -> None:
@@ -311,6 +401,7 @@ def test_benchmark_attribution_and_projection_fields_keep_cash_descriptive() -> 
         pd.Series([0.01, 0.02, 0.0], index=index),
         pd.Series([0.005, 0.01, 0.0], index=index),
         cash_comparison=cash.as_dict(),
+        instrument_currency="AUD",
     )
     assert result.cash_return == pytest.approx(cash.cash_return)
     assert result.excess_over_cash == pytest.approx(cash.excess_over_cash)
@@ -330,6 +421,38 @@ def test_benchmark_attribution_rejects_cash_for_another_instrument_currency() ->
     assert result.cash_return is None
     assert result.excess_over_cash is None
     assert result.execution_allowed is False
+
+
+def test_valid_cash_survives_insufficient_broad_attribution() -> None:
+    index = pd.date_range("2025-01-01", periods=1, freq="D")
+    cash = _available_eur_result()
+    result = build_benchmark_attribution(
+        pd.Series([0.01], index=index),
+        pd.Series([0.005], index=index),
+        cash_comparison=cash,
+        instrument_currency="EUR",
+    )
+    assert result.status == "unavailable"
+    assert result.cash_comparison_status == "available"
+    assert result.cash_return == pytest.approx(cash["cash_return"])
+    assert result.excess_over_cash == pytest.approx(cash["excess_over_cash"])
+
+
+@pytest.mark.parametrize("instrument_currency", (None, "USD"))
+def test_persistence_requires_matching_instrument_currency_for_cash(
+    tmp_path, monkeypatch, instrument_currency: str | None
+) -> None:
+    valid = _available_eur_result()
+    projection = cash_comparison_to_projection(valid, expected_currency="EUR")
+    frame = pd.DataFrame(
+        [{"instrument_id": "EUR-TEST", "instrument_currency": instrument_currency, **projection}]
+    )
+    attribution_path = tmp_path / "benchmark_attribution.parquet"
+    monkeypatch.setattr(trust_artifacts, "BENCHMARK_ATTRIBUTION_PATH", attribution_path)
+    trust_artifacts.write_benchmark_attribution(frame)
+    persisted = pd.read_parquet(attribution_path)
+    assert persisted.loc[0, "cash_comparison_status"] == "unavailable"
+    assert pd.isna(persisted.loc[0, "cash_return"])
 
 
 def _control_text(control: object) -> str:
@@ -631,6 +754,7 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
             available_at=available,
             ingested_at=available,
             source_id="official-local-public-file",
+            source_authority="official_public_file",
             source_checksum="d" * 64,
             source_terms="official-public-file",
             methodology="Official EUR spot curve",
@@ -652,6 +776,7 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
     available_score = {score.display_id: score for score in scores}[instrument_id]
     assert available_score.cash_comparison_status == "available"
     assert available_score.cash_currency == "EUR"
+    assert available_score.cash_source_authority == "official_public_file"
     assert available_score.cash_curve_id == "eur-official-local-spot"
     assert available_score.cash_decision_time == adjusted_endpoint_available_at(
         available_score.cash_end_date
@@ -671,6 +796,7 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
     )["attribution"]
     assert readback["cash_comparison_status"] == "available"
     assert readback["cash_return"] == pytest.approx(available_score.cash_return)
+    assert readback["cash_source_authority"] == "official_public_file"
     assert "available" in _control_text(
         _comparison_table(available_score, available_score)
     )

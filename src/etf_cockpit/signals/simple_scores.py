@@ -292,6 +292,7 @@ class SimpleInstrumentScore:
     cash_comparison_status: str = "unavailable"
     cash_comparison_reason: str | None = "Cash comparison unavailable; no caller-provided mapping result."
     cash_source_id: str | None = None
+    cash_source_authority: str | None = None
     cash_source_checksum: str | None = None
     cash_source_terms: str | None = None
     cash_methodology: str | None = None
@@ -948,6 +949,7 @@ def simple_scoreboard_frame(
             "cash_comparison_status": score.cash_comparison_status,
             "cash_comparison_reason": score.cash_comparison_reason,
             "cash_source_id": score.cash_source_id,
+            "cash_source_authority": score.cash_source_authority,
             "cash_source_checksum": score.cash_source_checksum,
             "cash_source_terms": score.cash_source_terms,
             "cash_methodology": score.cash_methodology,
@@ -2418,6 +2420,7 @@ def _cash_comparison_info(
         "cash_comparison_status": value["status"],
         "cash_comparison_reason": value.get("reason"),
         "cash_source_id": value.get("source_id"),
+        "cash_source_authority": value.get("source_authority"),
         "cash_source_checksum": value.get("source_checksum"),
         "cash_source_terms": value.get("source_terms"),
         "cash_methodology": value.get("methodology"),

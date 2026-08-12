@@ -2276,3 +2276,15 @@ next action and whether the requested outcome is actually complete.
   35 tests; Ruff, compile, programme freshness and diff hygiene remain clean.
   Publish only the resulting replacement H-tier head for paired re-review and
   full hosted evidence.
+- Paired review of that head then reproduced five additional bounded defects:
+  official provenance and explicit timestamps were not positively enforced,
+  curve tenor selection assumed ACT/365F, cash disappeared when broad
+  attribution was unavailable, inverted effective/available times survived,
+  and missing instrument currency could bypass generic binding. One
+  consolidated correction now closes all five with explicit official-source
+  authority, timezone-aware curve timestamps, day-count-coupled tenor lookup,
+  preserved descriptive cash fields, strict bitemporal ordering and mandatory
+  currency at attribution/persistence boundaries. The final ISSUE-0051 suite
+  passes 45 tests and directly affected warehouse, attribution, score and trust
+  suites pass; static, compile, programme-freshness and diff checks are clean.
+  Freeze one replacement H-tier head and disregard cancelled run `31563287001`.

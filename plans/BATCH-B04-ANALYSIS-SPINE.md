@@ -3535,3 +3535,16 @@ whose conservative next-UTC-day availability time is still in the future.
 The final ISSUE-0051 suite passes 35 tests; Ruff, compile, programme freshness
 and diff hygiene remain clean. Freeze one replacement H-tier exact head for
 both independent reviews and fresh Linux, Windows and terminal validation.
+
+Paired review of that head reproduced five further bounded defects: official
+provenance and explicit curve timestamps were not positive contracts, tenor
+selection assumed ACT/365F, valid cash was lost when broad attribution lacked
+observations, inverted effective/available times survived and missing currency
+could bypass generic attribution/persistence binding. One consolidated
+correction closes all five with explicit official-source authority,
+timezone-aware timestamps, day-count-coupled lookup, preserved descriptive
+cash, bitemporal ordering and mandatory currency. The ISSUE-0051 suite passes
+45 tests and directly affected warehouse, attribution, score and trust suites
+pass; Ruff, compile, programme freshness and diff hygiene are clean. Cancelled
+run `31563287001` is invalid; freeze one replacement H-tier head for paired
+review and fresh Linux, Windows and terminal validation.

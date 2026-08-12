@@ -29,6 +29,7 @@ _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S+00:00"
 _ALLOWED_KINDS = {"macro", "factor", "risk_free", "benchmark"}
 _ALLOWED_FREQUENCIES = {"daily", "monthly", "quarterly", "annual", "irregular"}
 RISK_FREE_PROXY_CONFIG_PATH = CONFIG_DIR / "risk_free_proxies.json"
+_OFFICIAL_CURVE_AUTHORITIES = {"official_regulator", "official_public_file"}
 _UNIT_FACTORS = {
     ("percentage", "decimal"): 0.01,
     ("percent", "decimal"): 0.01,
@@ -60,6 +61,7 @@ class MacroObservation(BaseModel):
     currency: str | None = None
     dataset_kind: str = "macro"
     source_id: str
+    source_authority: str | None = None
     source_checksum: str
     source_terms: str = "manual_review_required"
     methodology: str = ""
@@ -113,6 +115,7 @@ class MacroObservation(BaseModel):
             "currency": self.currency,
             "dataset_kind": self.dataset_kind,
             "source_terms": self.source_terms,
+            "source_authority": self.source_authority,
             "methodology": self.methodology,
             "transformation_version": self.transformation_version,
             "source_observation_ids": list(self.source_observation_ids),
@@ -167,6 +170,26 @@ def _timestamp(value: str | date | datetime, field_name: str) -> str:
     return parsed.astimezone(timezone.utc).strftime(_TIMESTAMP_FORMAT)
 
 
+def _explicit_timestamp(value: str | date | datetime, field_name: str) -> str:
+    """Normalize a curve timestamp only when its timezone is explicit."""
+
+    if isinstance(value, date) and not isinstance(value, datetime):
+        raise MacroWarehouseError(f"{field_name} must be an explicit timezone-aware timestamp")
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise MacroWarehouseError(
+                f"{field_name} must be an explicit timezone-aware timestamp"
+            ) from exc
+    if parsed.tzinfo is None:
+        raise MacroWarehouseError(f"{field_name} must be an explicit timezone-aware timestamp")
+    return parsed.astimezone(timezone.utc).strftime(_TIMESTAMP_FORMAT)
+
+
 def _period_start(value: object) -> str:
     text = str(value or "").strip()
     if not text:
@@ -194,17 +217,18 @@ def _validate(observation: MacroObservation) -> MacroObservation:
         raise MacroWarehouseError("macro dataset_id and series_id are required")
     if len(observation.source_checksum) != 64 or any(char not in "0123456789abcdefABCDEF" for char in observation.source_checksum):
         raise MacroWarehouseError("macro source_checksum must be a SHA-256 value")
-    for field_name in ("published_at", "available_at", "observed_at", "ingested_at"):
-        _timestamp(getattr(observation, field_name), field_name)
+    normalized = {
+        field_name: _timestamp(getattr(observation, field_name), field_name)
+        for field_name in ("published_at", "available_at", "observed_at", "ingested_at")
+    }
+    if normalized["observed_at"] > normalized["available_at"]:
+        raise MacroWarehouseError("macro effective/observed_at cannot be after available_at")
     if observation.revised_at is not None:
         _timestamp(observation.revised_at, "revised_at")
     return observation.model_copy(
         update={
             "period_start": _period_start(observation.period_start),
-            "published_at": _timestamp(observation.published_at, "published_at"),
-            "available_at": _timestamp(observation.available_at, "available_at"),
-            "observed_at": _timestamp(observation.observed_at, "observed_at"),
-            "ingested_at": _timestamp(observation.ingested_at, "ingested_at"),
+            **normalized,
             "revised_at": _timestamp(observation.revised_at, "revised_at") if observation.revised_at else None,
             "source_checksum": observation.source_checksum.lower(),
         }
@@ -231,6 +255,7 @@ class CurveSnapshot(BaseModel):
     available_at: str
     ingested_at: str
     source_id: str
+    source_authority: Literal["official_regulator", "official_public_file"] | None = None
     source_checksum: str
     source_terms: str
     methodology: str
@@ -326,6 +351,8 @@ def _validate_curve(snapshot: CurveSnapshot) -> CurveSnapshot:
         raise MacroWarehouseError("curve extrapolation policy is unsupported")
     if snapshot.execution_allowed:
         raise MacroWarehouseError("curve snapshots cannot grant execution authority")
+    if snapshot.source_authority not in _OFFICIAL_CURVE_AUTHORITIES:
+        raise MacroWarehouseError("cash curve provenance must explicitly identify an official source")
     points = tuple(sorted(snapshot.points, key=lambda item: item.tenor_years))
     if len(points) < 1 or len({item.tenor_years for item in points}) != len(points):
         raise MacroWarehouseError("curve tenor points must be non-empty and unique")
@@ -345,12 +372,16 @@ def _validate_curve(snapshot: CurveSnapshot) -> CurveSnapshot:
     for freshness in (snapshot.freshness, snapshot.freshness_status):
         if freshness is not None and freshness not in {"fresh", "stale", "conflicted", "malformed", "unavailable"}:
             raise MacroWarehouseError(f"unsupported curve freshness: {freshness}")
+    effective_at = _explicit_timestamp(snapshot.effective_at, "effective_at")
+    available_at = _explicit_timestamp(snapshot.available_at, "available_at")
+    if effective_at > available_at:
+        raise MacroWarehouseError("curve effective_at cannot be after available_at")
     return snapshot.model_copy(
         update={
             "currency": snapshot.currency.upper(),
-            "effective_at": _timestamp(snapshot.effective_at, "effective_at"),
-            "available_at": _timestamp(snapshot.available_at, "available_at"),
-            "ingested_at": _timestamp(snapshot.ingested_at, "ingested_at"),
+            "effective_at": effective_at,
+            "available_at": available_at,
+            "ingested_at": _explicit_timestamp(snapshot.ingested_at, "ingested_at"),
             "points": points,
         }
     )
@@ -675,6 +706,7 @@ class MacroWarehouse:
                 currency=curve.currency,
                 dataset_kind="risk_free",
                 source_id=curve.source_id,
+                source_authority=curve.source_authority,
                 source_checksum=curve.source_checksum,
                 source_terms=curve.source_terms,
                 methodology=curve.methodology,
@@ -771,6 +803,7 @@ class MacroWarehouse:
                 row.freshness,
                 row.freshness_status,
                 row.source_id,
+                row.source_authority,
             )
             for row in rows
         }
@@ -825,6 +858,7 @@ class MacroWarehouse:
             "rate": rate,
             "unit": "decimal",
             "source_id": rows[0].source_id,
+            "source_authority": rows[0].source_authority,
             "source_checksum": rows[0].source_checksum,
             "source_terms": rows[0].source_terms,
             "methodology": rows[0].methodology,
@@ -933,7 +967,18 @@ class MacroWarehouse:
                     decision_time=knowledge_cutoff,
                 )
                 if selected.get("status") != "available":
-                    last_result = dict(selected)
+                    if last_result is None:
+                        last_result = dict(selected)
+                    continue
+                if selected.get("day_count") != day_count:
+                    if last_result is None:
+                        last_result = {
+                            "status": "unavailable",
+                            "reason": "selected curve day count does not match the requested exact tenor",
+                            "currency": str(currency).upper(),
+                            "horizon_years": year_fraction(start_date, end_date, day_count),
+                            "execution_allowed": False,
+                        }
                     continue
                 result = build_cash_comparison(
                     adjusted_prices=adjusted_prices,
@@ -945,7 +990,9 @@ class MacroWarehouse:
                     knowledge_cutoff=knowledge_cutoff,
                     inflation_context=inflation_context,
                 ).as_dict()
-                return result
+                if result.get("status") == "available":
+                    return result
+                last_result = result
             return last_result or {
                 "status": "unavailable",
                 "reason": "no currency+horizon cash proxy mapping is declared",

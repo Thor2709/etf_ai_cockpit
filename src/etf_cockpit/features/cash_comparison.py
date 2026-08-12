@@ -168,6 +168,7 @@ class CashComparisonResult:
     effective_at: str | None = None
     available_at: str | None = None
     source_id: str | None = None
+    source_authority: str | None = None
     source_checksum: str | None = None
     source_terms: str | None = None
     methodology: str | None = None
@@ -232,6 +233,11 @@ def build_cash_comparison(
             return _unavailable("cash currency does not match instrument currency", currency=currency)
         if cash_evidence.get("curve_type") != "spot":
             return _unavailable("cash comparison requires spot-curve evidence", currency=currency)
+        if cash_evidence.get("source_authority") not in {
+            "official_regulator",
+            "official_public_file",
+        }:
+            return _unavailable("cash evidence provenance is not official", currency=currency)
         freshness = cash_evidence.get("freshness")
         freshness_status = cash_evidence.get("freshness_status")
         if (
@@ -250,6 +256,7 @@ def build_cash_comparison(
             "effective_at",
             "available_at",
             "source_id",
+            "source_authority",
             "source_checksum",
             "source_terms",
             "methodology",
@@ -284,6 +291,8 @@ def build_cash_comparison(
             return _unavailable("adjusted end-price evidence is not yet available", currency=currency)
         if vintage != available_at:
             return _unavailable("cash vintage contradicts available_at", currency=currency)
+        if effective_at > available_at:
+            return _unavailable("cash evidence effective_at is after available_at", currency=currency)
         if vintage > cutoff or available_at > cutoff or effective_at > start_cutoff:
             return _unavailable("cash evidence is not point-in-time eligible", currency=currency)
         if cash_evidence.get("extrapolation_allowed") is not False:
@@ -325,6 +334,7 @@ def build_cash_comparison(
         effective_at=effective_at.isoformat(),
         available_at=available_at.isoformat(),
         source_id=str(cash_evidence["source_id"]),
+        source_authority=str(cash_evidence["source_authority"]),
         source_checksum=str(cash_evidence["source_checksum"]),
         source_terms=str(cash_evidence["source_terms"]),
         methodology=str(cash_evidence["methodology"]),
@@ -379,6 +389,7 @@ def validate_cash_comparison_result(
             "effective_at",
             "available_at",
             "source_id",
+            "source_authority",
             "source_checksum",
             "source_terms",
             "methodology",
@@ -432,6 +443,8 @@ def validate_cash_comparison_result(
             raise ValueError("cash knowledge cutoff is inconsistent with period start")
         if vintage != available:
             raise ValueError("cash vintage contradicts available_at")
+        if effective > available:
+            raise ValueError("cash evidence effective_at is after available_at")
         if vintage > cutoff or available > cutoff or effective > cutoff:
             raise ValueError("cash evidence is not point-in-time eligible")
         if decision < endpoint_available or decision < cutoff:
@@ -442,6 +455,11 @@ def validate_cash_comparison_result(
             raise ValueError("cash comparison freshness is stale or conflicted")
         if raw["curve_type"] != "spot":
             raise ValueError("cash comparison requires spot-curve evidence")
+        if raw["source_authority"] not in {
+            "official_regulator",
+            "official_public_file",
+        }:
+            raise ValueError("cash comparison provenance is not official")
         if raw.get("interpolation") not in {"linear", "none"}:
             raise ValueError("cash curve interpolation policy is unsupported")
         if raw.get("extrapolation_allowed") is not False:
@@ -475,6 +493,7 @@ def validate_cash_comparison_result(
         effective_at=effective.isoformat(),
         available_at=available.isoformat(),
         source_id=str(raw["source_id"]),
+        source_authority=str(raw["source_authority"]),
         source_checksum=checksum.lower(),
         source_terms=str(raw["source_terms"]),
         methodology=str(raw["methodology"]),
@@ -519,6 +538,7 @@ def cash_comparison_from_projection(value: Mapping[str, object]) -> dict[str, ob
         "rate": "cash_rate",
         "vintage": "cash_vintage",
         "source_id": "cash_source_id",
+        "source_authority": "cash_source_authority",
         "source_checksum": "cash_source_checksum",
         "source_terms": "cash_source_terms",
         "methodology": "cash_methodology",
@@ -569,6 +589,7 @@ def cash_comparison_to_projection(
         "cash_rate": cash.get("rate"),
         "cash_vintage": cash.get("vintage"),
         "cash_source_id": cash.get("source_id"),
+        "cash_source_authority": cash.get("source_authority"),
         "cash_source_checksum": cash.get("source_checksum"),
         "cash_source_terms": cash.get("source_terms"),
         "cash_methodology": cash.get("methodology"),

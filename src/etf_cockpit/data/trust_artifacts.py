@@ -422,6 +422,7 @@ BENCHMARK_ATTRIBUTION_COLUMNS = [
     "cash_comparison_status",
     "cash_comparison_reason",
     "cash_source_id",
+    "cash_source_authority",
     "cash_source_checksum",
     "cash_source_terms",
     "cash_methodology",
@@ -1143,6 +1144,12 @@ def write_benchmark_attribution(scoreboard: pd.DataFrame) -> Path:
         expected_currency = row.get("instrument_currency")
         if expected_currency is None or pd.isna(expected_currency):
             expected_currency = None
+        if raw_cash.get("status") == "available" and expected_currency is None:
+            raw_cash = {
+                "status": "unavailable",
+                "reason": "instrument currency is unavailable for cash comparison",
+                "execution_allowed": False,
+            }
         cash = validate_cash_comparison_result(
             raw_cash,
             expected_currency=expected_currency,
@@ -1194,6 +1201,7 @@ def write_benchmark_attribution(scoreboard: pd.DataFrame) -> Path:
                 "cash_comparison_status": cash["status"],
                 "cash_comparison_reason": cash.get("reason"),
                 "cash_source_id": cash.get("source_id"),
+                "cash_source_authority": cash.get("source_authority"),
                 "cash_source_checksum": cash.get("source_checksum"),
                 "cash_source_terms": cash.get("source_terms"),
                 "cash_methodology": cash.get("methodology"),

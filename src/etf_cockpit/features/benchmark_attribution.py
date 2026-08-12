@@ -49,6 +49,7 @@ class AttributionResult:
     cash_comparison_status: str = "unavailable"
     cash_comparison_reason: str | None = "Cash comparison unavailable."
     cash_source_id: str | None = None
+    cash_source_authority: str | None = None
     cash_source_checksum: str | None = None
     cash_source_terms: str | None = None
     cash_methodology: str | None = None
@@ -109,8 +110,12 @@ def build_benchmark_attribution(
         axis=1,
         join="inner",
     ).dropna()
+    cash = _cash_fields(cash_comparison, expected_currency=instrument_currency)
     if len(broad_frame) < 2:
-        return _unavailable("Fewer than two clean overlapping instrument/broad return observations are available.")
+        return _unavailable(
+            "Fewer than two clean overlapping instrument/broad return observations are available.",
+            cash_fields=cash,
+        )
 
     instrument_return = _compound(broad_frame["instrument"])
     benchmark_return = _compound(broad_frame["broad"])
@@ -161,7 +166,6 @@ def build_benchmark_attribution(
             theme_alpha_proxy = _alpha(theme_instrument_return, theme_return, theme_beta)
 
     as_of = _as_of(broad_frame.index)
-    cash = _cash_fields(cash_comparison, expected_currency=instrument_currency)
     return AttributionResult(
         instrument_return=instrument_return,
         benchmark_return=benchmark_return,
@@ -241,8 +245,23 @@ def _as_of(index: pd.Index) -> str | None:
     return parsed.max().date().isoformat()
 
 
-def _unavailable(reason: str) -> AttributionResult:
-    return AttributionResult(None, None, None, None, None, None, "N/A", 0, reason=reason)
+def _unavailable(
+    reason: str,
+    *,
+    cash_fields: Mapping[str, object] | None = None,
+) -> AttributionResult:
+    return AttributionResult(
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "N/A",
+        0,
+        reason=reason,
+        **(dict(cash_fields) if cash_fields is not None else {}),
+    )
 
 
 def _cash_fields(
@@ -250,10 +269,12 @@ def _cash_fields(
     *,
     expected_currency: str | None = None,
 ) -> dict[str, object]:
-    value = validate_cash_comparison_result(
-        value,
-        expected_currency=expected_currency,
-    ).as_dict()
+    if value is not None and expected_currency is None:
+        value = {
+            "status": "unavailable",
+            "reason": "instrument currency is unavailable for cash comparison",
+        }
+    value = validate_cash_comparison_result(value, expected_currency=expected_currency).as_dict()
     return {
         "cash_instrument_return": _optional_float(value.get("instrument_return")),
         "cash_return": _optional_float(value.get("cash_return")),
@@ -267,6 +288,7 @@ def _cash_fields(
         "cash_comparison_status": str(value.get("status", "unavailable")),
         "cash_comparison_reason": value.get("reason") if value else "Cash comparison unavailable.",
         "cash_source_id": value.get("source_id"),
+        "cash_source_authority": value.get("source_authority"),
         "cash_source_checksum": value.get("source_checksum"),
         "cash_source_terms": value.get("source_terms"),
         "cash_methodology": value.get("methodology"),
