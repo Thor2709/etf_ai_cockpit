@@ -279,7 +279,11 @@ def build_cash_comparison(
     currency = str(instrument_currency or "").strip().upper()
     if len(currency) != 3 or not currency.isalpha():
         return _unavailable("instrument currency is unavailable", currency=currency or None)
-    if not isinstance(cash_evidence, Mapping) or cash_evidence.get("status") != "available":
+    if (
+        not isinstance(cash_evidence, Mapping)
+        or not isinstance(cash_evidence.get("status"), str)
+        or cash_evidence.get("status") != "available"
+    ):
         return _unavailable(str(cash_evidence.get("reason", "cash evidence is unavailable")) if isinstance(cash_evidence, Mapping) else "cash evidence is unavailable", currency=currency, start_date=start.isoformat(), end_date=end.isoformat())
     evidence_currency = str(cash_evidence.get("currency") or "").upper()
     day_count = cash_evidence.get("day_count")
@@ -479,8 +483,12 @@ def validate_cash_comparison_result(
         raw = value
     else:
         return _unavailable("Cash comparison unavailable; no result was supplied.")
-    if raw.get("status") != "available":
-        return _unavailable(str(raw.get("reason") or "Cash comparison is unavailable."))
+    status = raw.get("status")
+    if not isinstance(status, str) or status != "available":
+        reason = raw.get("reason")
+        return _unavailable(
+            reason if isinstance(reason, str) and reason.strip() else "Cash comparison is unavailable."
+        )
     try:
         if raw.get("execution_allowed") is not False:
             raise ValueError("cash comparison cannot grant execution authority")

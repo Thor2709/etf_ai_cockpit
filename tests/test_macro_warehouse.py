@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
+import sqlite3
 
 from etf_cockpit.data import macro_warehouse as macro_warehouse_module
 from etf_cockpit.data.bitemporal import BitemporalError, BitemporalStore
+from etf_cockpit.data.local_storage import TransactionalStore
 from etf_cockpit.data.macro_warehouse import (
     BenchmarkMetadata,
     CurvePoint,
@@ -117,7 +120,22 @@ def test_missing_country_and_currency_are_explicitly_unavailable(tmp_path) -> No
     assert report["missing_country_or_currency_count"] == 1
 
 
-def test_direct_curve_observation_rejects_ambiguous_timestamps(tmp_path) -> None:
+def test_generic_ingest_rejects_curve_rows_before_any_write(tmp_path) -> None:
+    row = _direct_curve_row(
+        dataset_id="curve:valid-curve",
+        series_id="valid-curve:1Y",
+        curve_id="valid-curve",
+    )
+
+    with pytest.raises(MacroWarehouseError, match="ingest_curve"):
+        MacroWarehouse().ingest([row], root=tmp_path)
+
+    with BitemporalStore(tmp_path) as store:
+        assert store.observations("curve:valid-curve") == ()
+        assert store.store.list("macro_warehouse_manifest") == ()
+
+
+def test_generic_ingest_rejects_curve_observation_before_timestamp_validation(tmp_path) -> None:
     row = _row(
         dataset_id="curve:aud-direct",
         series_id="curve:aud-direct:1",
@@ -139,7 +157,7 @@ def test_direct_curve_observation_rejects_ambiguous_timestamps(tmp_path) -> None
         ingested_at="2024-01-01",
     )
 
-    with pytest.raises(MacroWarehouseError, match="timezone-aware"):
+    with pytest.raises(MacroWarehouseError, match="ingest_curve"):
         MacroWarehouse().ingest([row], root=tmp_path)
 
 
@@ -524,7 +542,7 @@ def _store_direct_curve_ledger(tmp_path, row: MacroObservation, ledger: dict[str
 def test_direct_curve_row_binds_declared_curve_to_storage_dataset(tmp_path) -> None:
     warehouse = MacroWarehouse()
     row = _direct_curve_row()
-    with pytest.raises(MacroWarehouseError, match="dataset identity"):
+    with pytest.raises(MacroWarehouseError, match="ingest_curve"):
         warehouse.ingest([row], root=tmp_path)
 
     _store_direct_curve_row(tmp_path, row)
@@ -545,7 +563,7 @@ def test_direct_curve_row_rejects_publication_after_availability(tmp_path) -> No
         curve_id="mapped-curve",
         published_at="2030-01-01T00:00:00+00:00",
     )
-    with pytest.raises(MacroWarehouseError, match="published_at"):
+    with pytest.raises(MacroWarehouseError, match="ingest_curve"):
         warehouse.ingest([row], root=tmp_path)
 
     _store_direct_curve_row(tmp_path, row)
@@ -610,7 +628,7 @@ def test_curve_snapshot_append_is_atomic_and_authoritative_retry_succeeds(
     assert len(warehouse.observations(root=tmp_path, dataset_id="curve:aud-official-spot")) == 2
 
 
-def test_curve_manifest_failure_rolls_back_and_authoritative_retry_succeeds(
+def test_curve_manifest_projection_failure_keeps_authoritative_sqlite_append(
     tmp_path, monkeypatch
 ) -> None:
     warehouse = MacroWarehouse()
@@ -625,13 +643,37 @@ def test_curve_manifest_failure_rolls_back_and_authoritative_retry_succeeds(
         return original(*args, **kwargs)
 
     monkeypatch.setattr(macro_warehouse_module, "atomic_write_json", fail_once)
-    with pytest.raises(OSError, match="injected manifest failure"):
-        warehouse.ingest_curve(snapshot, root=tmp_path)
-    assert warehouse.observations(root=tmp_path, dataset_id="curve:aud-official-spot") == []
-
     summary = warehouse.ingest_curve(snapshot, root=tmp_path)
     assert summary["row_count"] == 2
+    assert summary["authoritative_storage"] == "sqlite"
     assert len(warehouse.observations(root=tmp_path, dataset_id="curve:aud-official-spot")) == 2
+    with TransactionalStore(tmp_path) as store:
+        persisted = store.get("macro_warehouse_manifest", str(summary["run_id"]))
+    assert persisted is not None
+    assert persisted.payload == summary
+    assert not (tmp_path / "data" / "macro_warehouse" / "manifest.json").exists()
+
+
+def test_curve_commit_failure_rolls_back_points_and_manifest(
+    tmp_path, monkeypatch
+) -> None:
+    @contextmanager
+    def fail_commit(self):
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            yield self.connection
+        finally:
+            self.connection.rollback()
+        raise sqlite3.OperationalError("injected commit failure")
+
+    monkeypatch.setattr(TransactionalStore, "transaction", fail_commit)
+    with pytest.raises(sqlite3.OperationalError, match="injected commit failure"):
+        MacroWarehouse().ingest_curve(_curve(), root=tmp_path)
+
+    with BitemporalStore(tmp_path) as store:
+        assert store.observations("curve:aud-official-spot") == ()
+        assert store.store.list("macro_warehouse_manifest") == ()
+    assert not (tmp_path / "data" / "macro_warehouse" / "manifest.json").exists()
 
 
 def test_curve_admission_rejects_availability_regression_before_append(tmp_path) -> None:
@@ -702,6 +744,39 @@ def test_curve_rate_ignores_invalid_future_history_for_historical_query(tmp_path
     )
     _store_direct_curve_row(tmp_path, first)
     _store_direct_curve_row(tmp_path, future_duplicate)
+    with BitemporalStore(tmp_path) as store:
+        store.store.connection.execute(
+            """
+            INSERT INTO bitemporal_observations
+                (observation_id, dataset_id, entity_id, stable_id, run_id, value_json,
+                 valid_from, valid_to, published_at, available_at, observed_at,
+                 ingested_at, revised_at, revision, source_id, source_checksum,
+                 timezone_confidence, availability_confidence, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "f" * 64,
+                "curve:historical-curve",
+                "historical-curve:1Y",
+                "historical-curve:1Y",
+                "future-malformed",
+                "{malformed-json",
+                "2025-01-01T00:00:00.000000+00:00",
+                None,
+                "2025-03-01T00:00:00.000000+00:00",
+                "2025-03-01T00:00:00.123457+00:00",
+                "2025-01-01T00:00:00.000000+00:00",
+                "2025-03-01T00:00:00.000000+00:00",
+                None,
+                2,
+                "future-malformed-source",
+                "d" * 64,
+                "exact",
+                "exact",
+                "active",
+            ),
+        )
+        store.store.connection.commit()
 
     selected = MacroWarehouse().curve_rate(
         root=tmp_path,
@@ -713,10 +788,40 @@ def test_curve_rate_ignores_invalid_future_history_for_historical_query(tmp_path
     assert selected["source_id"] == first.source_id
 
 
+def test_curve_rate_preserves_subsecond_cutoff_and_includes_exact_availability(
+    tmp_path,
+) -> None:
+    row = _direct_curve_row(
+        dataset_id="curve:subsecond-curve",
+        series_id="subsecond-curve:1Y",
+        curve_id="subsecond-curve",
+        available_at="2025-01-15T00:00:00.123456+00:00",
+        observed_at="2025-01-01T00:00:00.000000+00:00",
+        published_at="2025-01-01T00:00:00.000000+00:00",
+        methodology="official subsecond curve",
+    )
+    _store_direct_curve_row(tmp_path, row)
+
+    exact = MacroWarehouse().curve_rate(
+        root=tmp_path,
+        curve_id="subsecond-curve",
+        tenor_years=1.0,
+        decision_time="2025-01-15T00:00:00.123456+00:00",
+    )
+    before = MacroWarehouse().curve_rate(
+        root=tmp_path,
+        curve_id="subsecond-curve",
+        tenor_years=1.0,
+        decision_time="2025-01-15T00:00:00.123455+00:00",
+    )
+    assert exact["status"] == "available"
+    assert before["status"] == "unavailable"
+
+
 def test_non_risk_free_curve_rows_are_unavailable_for_cash(tmp_path) -> None:
     warehouse = MacroWarehouse()
     row = _direct_curve_row(curve_id="mapped-curve", dataset_kind="benchmark")
-    with pytest.raises(MacroWarehouseError, match="risk_free"):
+    with pytest.raises(MacroWarehouseError, match="ingest_curve"):
         warehouse.ingest([row], root=tmp_path / "reject")
 
     _store_direct_curve_row(tmp_path, row)

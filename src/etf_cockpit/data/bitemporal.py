@@ -230,20 +230,26 @@ class BitemporalStore:
         dataset_id: str | None,
         *,
         entity_id: str | None = None,
+        available_at_lte: str | datetime | None = None,
         _connection: sqlite3.Connection | None = None,
     ) -> tuple[BitemporalObservation, ...]:
         query = "SELECT * FROM bitemporal_observations"
-        params: tuple[object, ...] = ()
+        clauses: list[str] = []
+        params: list[object] = []
         if dataset_id is not None:
-            query += " WHERE dataset_id = ?"
-            params = (str(dataset_id),)
+            clauses.append("dataset_id = ?")
+            params.append(str(dataset_id))
         if entity_id is not None:
-            query += " AND " if " WHERE " in query else " WHERE "
-            query += "entity_id = ?"
-            params += (str(entity_id),)
+            clauses.append("entity_id = ?")
+            params.append(str(entity_id))
+        if available_at_lte is not None:
+            clauses.append("available_at <= ?")
+            params.append(_timestamp(available_at_lte, "available_at cutoff"))
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
         query += " ORDER BY stable_id, available_at, revision, observation_id"
         connection = _connection or self.store.connection
-        return tuple(_observation(row) for row in connection.execute(query, params))
+        return tuple(_observation(row) for row in connection.execute(query, tuple(params)))
 
     def as_of(self, dataset_id: str, decision_time: str | datetime, *, entity_id: str | None = None) -> pd.DataFrame:
         cutoff = _timestamp(decision_time, "decision_time")

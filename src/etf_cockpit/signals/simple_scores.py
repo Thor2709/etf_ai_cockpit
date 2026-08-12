@@ -2245,7 +2245,7 @@ def _friction_edge_fields(
             order_value_eur=order_value_eur,
             cost_estimate=cost_estimate,
         )
-        if result.status != "available":
+        if not isinstance(result.status, str) or result.status != "available":
             return _unavailable_friction_fields(result.reason)
         gross_bps = None if result.q50_return is None else result.q50_return * 10_000.0
         net_bps = None if result.net_expected_return is None else result.net_expected_return * 10_000.0

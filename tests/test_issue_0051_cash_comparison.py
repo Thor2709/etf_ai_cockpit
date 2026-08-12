@@ -730,6 +730,8 @@ def test_benchmark_attribution_and_projection_fields_keep_cash_descriptive() -> 
     )
     assert result.cash_return == pytest.approx(cash.cash_return)
     assert result.excess_over_cash == pytest.approx(cash.excess_over_cash)
+    assert result.cash_unit == "decimal"
+    assert result.cash_dataset_kind == "risk_free"
     assert result.execution_allowed is False
 
 
@@ -760,6 +762,8 @@ def test_valid_cash_survives_insufficient_broad_attribution() -> None:
     assert result.status == "unavailable"
     assert result.cash_comparison_status == "available"
     assert result.cash_return == pytest.approx(cash["cash_return"])
+    assert result.cash_unit == "decimal"
+    assert result.cash_dataset_kind == "risk_free"
     assert result.excess_over_cash == pytest.approx(cash["excess_over_cash"])
 
 
@@ -897,6 +901,30 @@ def test_cash_projection_round_trip_preserves_non_execution_authority() -> None:
     assert round_trip.unit == "decimal"
     assert round_trip.dataset_kind == "risk_free"
     assert round_trip.execution_allowed is False
+
+
+def test_cash_validator_and_simple_consumer_fail_closed_on_pd_na_status() -> None:
+    forged = {**_available_eur_result(), "status": pd.NA}
+    validated = validate_cash_comparison_result(forged, expected_currency="EUR")
+    assert validated.status == "unavailable"
+    assert validated.execution_allowed is False
+
+    snapshot = build_snapshot()
+    instrument_id = snapshot.signals[0].etf_id
+    score = next(
+        item
+        for item in build_simple_instrument_scores(
+            snapshot.config,
+            snapshot.signals,
+            snapshot.forecasts,
+            snapshot.prices,
+            cash_comparison_lookup={instrument_id: forged},
+        )
+        if item.display_id == instrument_id
+    )
+    assert score.cash_comparison_status == "unavailable"
+    assert score.cash_unit is None
+    assert score.cash_dataset_kind is None
 
 
 def test_injected_cash_comparison_propagates_without_changing_score_authority(
@@ -1145,7 +1173,7 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
     start = instrument_prices.iloc[0]["date"].date()
     end = instrument_prices.iloc[-1]["date"].date()
     horizon = (end - start).days / 365.0
-    available = (pd.Timestamp(start, tz="UTC") - pd.Timedelta(days=1)).isoformat()
+    available = (pd.Timestamp(start, tz="UTC") - pd.Timedelta(days=2)).isoformat()
 
     mapping_path = tmp_path / "risk_free_proxies.json"
     mapping_path.write_text(

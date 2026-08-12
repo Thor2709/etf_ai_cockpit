@@ -478,7 +478,7 @@ def _validate_benchmark(metadata: BenchmarkMetadata) -> BenchmarkMetadata:
         raise MacroWarehouseError(
             f"benchmark metadata missing required fields: {', '.join(missing)}"
         )
-    if metadata.execution_allowed:
+    if metadata.execution_allowed is not False:
         raise MacroWarehouseError("benchmark metadata cannot grant execution authority")
     if metadata.category not in {
         "sovereign",
@@ -780,6 +780,7 @@ def _macro_manifest(
         "source_ids": sorted({row.source_id for row in rows}),
         "source_terms": sorted({row.source_terms for row in rows}),
         "transformations": sorted({row.transformation_version for row in rows}),
+        "authoritative_storage": "sqlite",
         "execution_allowed": False,
     }
 
@@ -813,6 +814,40 @@ def _append_macro_rows(
         )
 
 
+def _append_macro_manifest(
+    store: BitemporalStore,
+    manifest: Mapping[str, object],
+    *,
+    connection: sqlite3.Connection,
+) -> None:
+    store.store.put_in_transaction(
+        connection,
+        "macro_warehouse_manifest",
+        str(manifest["run_id"]),
+        manifest,
+        immutable=True,
+    )
+
+
+def _is_curve_bearing(row: object) -> bool:
+    dataset_id = getattr(row, "dataset_id", None)
+    return (isinstance(dataset_id, str) and dataset_id.startswith("curve:")) or any(
+        getattr(row, field_name, None) is not None
+        for field_name in ("curve_id", "curve_type", "curve_version", "tenor_years")
+    )
+
+
+def _project_manifest(path: Path, manifest: Mapping[str, object]) -> None:
+    """Write the non-authoritative JSON projection after SQLite commits."""
+
+    try:
+        atomic_write_json(path, dict(manifest))
+    except Exception:
+        # The SQLite record and points are already authoritative and committed.
+        # Projection repair/retry is deliberately outside this bounded contract.
+        return
+
+
 class MacroWarehouse:
     """Adapter exposing macro observations and explicit unavailable summaries."""
 
@@ -820,7 +855,12 @@ class MacroWarehouse:
         return Path(root) / "data" / "macro_warehouse" / "manifest.json"
 
     def ingest(self, observations: Iterable[MacroObservation], *, root: Path, run_id: str | None = None) -> dict[str, object]:
-        rows = [_validate(row) for row in observations]
+        incoming = list(observations)
+        if any(_is_curve_bearing(row) for row in incoming):
+            raise MacroWarehouseError(
+                "curve observations must use MacroWarehouse.ingest_curve"
+            )
+        rows = [_validate(row) for row in incoming]
         if not rows:
             raise MacroWarehouseError("cannot ingest an empty macro batch")
         batch_payload = [row.model_dump(mode="json") for row in rows]
@@ -836,9 +876,10 @@ class MacroWarehouse:
                         resolved_run_id=resolved_run_id,
                         connection=connection,
                     )
-                    atomic_write_json(self._manifest_path(Path(root)), manifest)
+                    _append_macro_manifest(store, manifest, connection=connection)
         except BitemporalError as exc:
             raise MacroWarehouseError(str(exc)) from exc
+        _project_manifest(self._manifest_path(Path(root)), manifest)
         return manifest
 
     def observations(self, *, root: Path, dataset_id: str | None = None) -> list[MacroObservation]:
@@ -940,9 +981,10 @@ class MacroWarehouse:
                         resolved_run_id=resolved_run_id,
                         connection=connection,
                     )
-                    atomic_write_json(self._manifest_path(Path(root)), manifest)
+                    _append_macro_manifest(store, manifest, connection=connection)
         except BitemporalError as exc:
             raise MacroWarehouseError(str(exc)) from exc
+        _project_manifest(self._manifest_path(Path(root)), manifest)
         return manifest
 
     def ingest_benchmark(
@@ -983,20 +1025,22 @@ class MacroWarehouse:
         decision_time: str,
     ) -> dict[str, object]:
         try:
-            history = self.observations(
-                root=root, dataset_id=f"curve:{curve_id}"
-            )
             cutoff = _timestamp_value(
                 _explicit_timestamp(decision_time, "decision_time")
             )
-            eligible_history = [
-                row
-                for row in history
-                if _timestamp_value(
-                    _explicit_timestamp(row.available_at, "available_at")
+            with BitemporalStore(Path(root)) as store:
+                raw_history = store.observations(
+                    f"curve:{curve_id}", available_at_lte=decision_time
                 )
-                <= cutoff
-            ]
+                eligible_history = []
+                for raw_row in raw_history:
+                    available_at = _timestamp_value(
+                        _explicit_timestamp(raw_row.available_at, "available_at")
+                    )
+                    if available_at <= cutoff:
+                        eligible_history.append(
+                            MacroObservation.from_ledger(raw_row.__dict__)
+                        )
             history_issue = _curve_history_issue(eligible_history, curve_id)
             if history_issue is not None:
                 return {

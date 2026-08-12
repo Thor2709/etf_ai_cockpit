@@ -41,6 +41,8 @@ class AttributionResult:
     cash_return: float | None = None
     excess_over_cash: float | None = None
     cash_currency: str | None = None
+    cash_unit: str | None = None
+    cash_dataset_kind: str | None = None
     cash_start_date: str | None = None
     cash_end_date: str | None = None
     cash_horizon_years: float | None = None
@@ -281,6 +283,8 @@ def _cash_fields(
         "cash_return": _optional_float(value.get("cash_return")),
         "excess_over_cash": _optional_float(value.get("excess_over_cash")),
         "cash_currency": value.get("currency"),
+        "cash_unit": value.get("unit"),
+        "cash_dataset_kind": value.get("dataset_kind"),
         "cash_start_date": value.get("start_date"),
         "cash_end_date": value.get("end_date"),
         "cash_horizon_years": _optional_float(value.get("horizon_years")),
