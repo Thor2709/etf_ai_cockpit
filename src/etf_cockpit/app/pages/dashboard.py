@@ -20,18 +20,32 @@ from etf_cockpit.application.alerts import (
     AlertRecord,
     AlertRevisionConflict,
     AlertStatus,
+    AlertType,
     dismiss_local_alert,
     read_local_alerts,
     snooze_local_alert,
 )
+from etf_cockpit.application.digest import (
+    DashboardDigest,
+    build_digest,
+    filter_news_contradiction_inputs,
+    score_run_pair_as_of,
+)
 from etf_cockpit.application.ui_facade import (
+    EVENT_CLEAN_PATH,
     NEWS_CLEAN_PATH,
+    MacroWarehouse,
+    MacroWarehouseError,
     SimpleInstrumentScore,
+    build_news_contradiction_rows,
     build_simple_instrument_scores,
     compare_runs,
+    events_available_as_of,
     filter_forecasts_for_universe,
+    load_calendar_events,
     load_latest_forecasts,
     load_news_items,
+    normalise_event_decision_time,
     score_history_frame,
     sort_news_items,
 )
@@ -78,6 +92,7 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
     return ft.Column(
         [
             _evidence_state_panel(state),
+            _what_matters_today(state, scores=scores),
             cards,
             _alerts_digest(page, state),
             _run_changes_digest(page, state),
@@ -114,6 +129,264 @@ def _evidence_state_panel(state: AppState) -> ft.Container:
         f"Data health is {state.snapshot.data_report.status}; scores and model outputs remain advisory evidence.",
         details=f"Evidence mode: {theme.EVIDENCE_MODE_LABELS.get(state.evidence_mode, state.evidence_mode)} | execution_allowed=false",
     )
+
+
+def _what_matters_today(state: AppState, *, scores: list[SimpleInstrumentScore] | None = None) -> ft.Container:
+    """Render the bounded local context digest without granting authority."""
+
+    try:
+        digest = _dashboard_digest(state, scores=scores)
+        rows: list[ft.Control] = []
+        for item in digest.items:
+            as_of = item.as_of or "as-of unavailable"
+            rows.append(
+                ft.Text(
+                    f"{item.severity.upper()} | {item.title}: {item.detail} "
+                    f"(status={item.status}, source={item.provenance}, as_of={as_of}, execution_allowed=false)",
+                    color=theme.TEXT if item.status == "available" else theme.AMBER,
+                    selectable=True,
+                    size=11,
+                    max_lines=4,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                )
+            )
+        unavailable = [source for source, status in digest.source_status if status != "available"]
+        if unavailable:
+            rows.append(
+                ft.Text(
+                    "Unavailable/manual-review inputs: " + ", ".join(unavailable),
+                    color=theme.MUTED,
+                    selectable=True,
+                    size=11,
+                )
+            )
+        body: ft.Control = ft.Column(rows, spacing=4)
+    except Exception as exc:
+        body = ft.Text(
+            f"Digest unavailable; manual review required ({type(exc).__name__}). execution_allowed=false",
+            color=theme.AMBER,
+            selectable=True,
+        )
+    control = panel(
+        ft.Column(
+            [
+                section_header(
+                    "What matters today",
+                    "Deterministic local context across score changes, warnings, models, contradictions, events, freshness and audit status; informational only.",
+                ),
+                body,
+            ],
+            spacing=8,
+        )
+    )
+    control.key = "dashboard.what-matters-today"
+    return control
+
+
+def _dashboard_digest(state: AppState, *, scores: list[SimpleInstrumentScore] | None = None) -> DashboardDigest:
+    as_of = str(getattr(getattr(state.snapshot, "data_report", None), "as_of_date", "") or "") or None
+    cutoff = normalise_event_decision_time(as_of)
+    report = _latest_run_change_report(cutoff)
+    records: dict[str, list[dict[str, object]] | None] = {
+        "score_changes": _score_change_record(report, as_of=as_of),
+        "warning_changes": _warning_change_record(report, as_of=as_of),
+    }
+
+    alerts = (
+        _read_alerts(as_of=cutoff.to_pydatetime(), limit=None)
+        if cutoff is not None
+        else AlertReadback("unavailable")
+    )
+    records["alerts"] = _alert_record(alerts, as_of=as_of)
+    records["model_failures"] = _model_failure_record(alerts, as_of=as_of)
+    records["manual_review"] = _manual_review_record(report, scores or (), as_of=as_of)
+    records["stale_data"] = _stale_data_record(state, alerts, as_of=as_of)
+    records["contradictions"] = _contradiction_record(state, as_of=as_of, cutoff=cutoff)
+    records["upcoming_events"] = _event_record(as_of=as_of, cutoff=cutoff)
+    records["audit_export"] = _audit_export_record(state, as_of=as_of)
+    return build_digest(records, as_of=as_of)
+
+
+def _latest_run_change_report(cutoff: object):
+    history = score_history_frame()
+    selected = score_run_pair_as_of(history, cutoff)
+    if selected is None:
+        return None
+    eligible_history, current, previous = selected
+    return compare_runs(eligible_history, current, previous)
+
+
+def _score_change_record(report, *, as_of: str | None) -> list[dict[str, object]] | None:
+    if report is None:
+        return None
+    score_comparable = [change for change in report.changes if change.score_delta is not None]
+    rank_comparable = [change for change in report.changes if change.score_rank_delta is not None]
+    score_changed = sorted(
+        (change for change in score_comparable if change.score_delta != 0),
+        key=lambda change: (-abs(change.score_delta), change.instrument_id),
+    )
+    rank_changed = sorted(
+        (change for change in rank_comparable if change.score_rank_delta != 0),
+        key=lambda change: (-abs(change.score_rank_delta), change.instrument_id),
+    )
+    score_detail = (
+        "scores: " + ", ".join(f"{change.instrument_id} {change.score_delta:+.1f}" for change in score_changed[:3])
+        if score_changed
+        else "scores: no change"
+        if score_comparable
+        else "scores: unavailable"
+    )
+    rank_detail = (
+        "ranks: " + ", ".join(f"{change.instrument_id} {change.score_rank_delta:+.0f}" for change in rank_changed[:3])
+        if rank_changed
+        else "ranks: no change"
+        if rank_comparable
+        else "ranks: unavailable"
+    )
+    if not score_comparable and not rank_comparable:
+        status, severity = "unavailable", "warning"
+    elif not score_comparable or not rank_comparable:
+        status, severity = "manual_review", "warning"
+    else:
+        status = "available"
+        severity = "warning" if score_changed or rank_changed else "info"
+    return [{"title": "Biggest score/rank changes", "detail": f"{score_detail}; {rank_detail}.", "status": status, "severity": severity, "as_of": as_of, "provenance": "score_history"}]
+
+
+def _warning_change_record(report, *, as_of: str | None) -> list[dict[str, object]] | None:
+    if report is None:
+        return None
+    warning_evidence_unavailable = not report.changes or any(
+        change.current_warnings == "unavailable"
+        or change.previous_warnings in {None, "unavailable"}
+        for change in report.changes
+    )
+    if warning_evidence_unavailable:
+        return [{
+            "title": "Score warning changes unavailable",
+            "detail": "Current or previous warning evidence is unavailable; warning changes require manual review.",
+            "status": "unavailable",
+            "severity": "warning",
+            "as_of": as_of,
+            "provenance": "score_history",
+        }]
+    added = sorted({warning for change in report.changes for warning in change.warnings_added})
+    removed = sorted({warning for change in report.changes for warning in change.warnings_removed})
+    if not added and not removed:
+        return [{"title": "No new or removed score warnings", "detail": "The latest two local score runs have no warning-flag changes.", "status": "available", "severity": "info", "as_of": as_of, "provenance": "score_history"}]
+    parts = []
+    if added:
+        parts.append("added=" + ", ".join(added[:4]))
+    if removed:
+        parts.append("removed=" + ", ".join(removed[:4]))
+    return [{"title": "New/removed score warnings", "detail": "; ".join(parts), "status": "available", "severity": "warning", "as_of": as_of, "provenance": "score_history"}]
+
+
+def _alert_record(readback: AlertReadback, *, as_of: str | None) -> list[dict[str, object]]:
+    if readback.status != "available":
+        return [{"title": "Local alerts unavailable", "detail": "Alert storage could not be read; current warnings require manual review.", "status": "unavailable", "severity": "warning", "as_of": as_of, "provenance": "local_alerts"}]
+    if not readback.records:
+        return [{"title": "No active local warnings", "detail": "The local alert seam is available and contains no active records.", "status": "available", "severity": "info", "as_of": as_of, "provenance": "local_alerts"}]
+    critical = any(record.alert.severity.value == "critical" for record in readback.records)
+    subjects = ", ".join(sorted({record.alert.subject_id for record in readback.records})[:5])
+    return [{"title": f"{len(readback.records)} active local warning(s)", "detail": f"Review: {subjects}.", "status": "available", "severity": "critical" if critical else "warning", "as_of": as_of, "provenance": "local_alerts"}]
+
+
+def _model_failure_record(readback: AlertReadback, *, as_of: str | None) -> list[dict[str, object]] | None:
+    if readback.status != "available":
+        return [{"title": "Model failure status unavailable", "detail": "Local alert storage could not be read, so model failures cannot be ruled out.", "status": "unavailable", "severity": "warning", "as_of": as_of, "provenance": "local_alerts"}]
+    failures = [record for record in readback.records if record.alert.alert_type is AlertType.MODEL_FORECAST_FAILURE]
+    if not failures:
+        return [{"title": "No active model failures", "detail": "No model-forecast failure alert is registered in the local alert seam.", "status": "available", "severity": "info", "as_of": as_of, "provenance": "local_alerts"}]
+    subjects = ", ".join(sorted({record.alert.subject_id for record in failures})[:5])
+    return [{"title": "Model failures require review", "detail": f"Forecast failure alerts: {subjects}.", "status": "available", "severity": "critical", "as_of": as_of, "provenance": "local_alerts"}]
+
+
+def _manual_review_record(report, scores, *, as_of: str | None) -> list[dict[str, object]] | None:
+    identifiers = {change.instrument_id for change in (report.changes if report is not None else ()) if "review" in change.current_action.casefold()}
+    identifiers.update(
+        str(getattr(score, "display_id", ""))
+        for score in scores
+        if any(
+            "review" in str(getattr(score, field, "")).casefold()
+            for field in ("decision", "final_action")
+        )
+    )
+    identifiers.discard("")
+    if report is None and not scores:
+        return None
+    if not identifiers:
+        return [{"title": "No instrument is flagged for manual review", "detail": "Current local score and display evidence contains no manual-review decision.", "status": "available", "severity": "info", "as_of": as_of, "provenance": "score_history/dashboard_scores"}]
+    return [{"title": f"{len(identifiers)} instrument(s) need manual review", "detail": ", ".join(sorted(identifiers)[:6]), "status": "manual_review", "severity": "warning", "as_of": as_of, "provenance": "score_history/dashboard_scores"}]
+
+
+def _stale_data_record(state: AppState, alerts: AlertReadback, *, as_of: str | None) -> list[dict[str, object]]:
+    status = str(getattr(getattr(state.snapshot, "data_report", None), "status", "") or "").casefold()
+    stale_subjects = sorted({record.alert.subject_id for record in alerts.records if record.alert.alert_type is AlertType.STALE_DATA}) if alerts.status == "available" else []
+    if alerts.status != "available" or not status:
+        return [{"title": "Stale-data status unavailable", "detail": "The data-health or alert input is unavailable; freshness requires manual review.", "status": "unavailable", "severity": "warning", "as_of": as_of, "provenance": "data_report/local_alerts"}]
+    if status == "clean" and not stale_subjects:
+        return [{"title": "No stale data warning is registered", "detail": "The current data-health report is Clean and no stale-data alert is active.", "status": "available", "severity": "info", "as_of": as_of, "provenance": "data_report/local_alerts"}]
+    detail = f"data health={status}"
+    if stale_subjects:
+        detail += "; stale alerts=" + ", ".join(stale_subjects[:5])
+    return [{"title": "Stale or non-clean data needs review", "detail": detail, "status": "manual_review", "severity": "warning", "as_of": as_of, "provenance": "data_report/local_alerts"}]
+
+
+def _contradiction_record(
+    state: AppState,
+    *,
+    as_of: str | None,
+    cutoff: object | None = None,
+) -> list[dict[str, object]]:
+    try:
+        news = sort_news_items(load_news_items(NEWS_CLEAN_PATH))
+        prices = getattr(state.snapshot, "prices", pd.DataFrame())
+        filtered_inputs = filter_news_contradiction_inputs(
+            news,
+            prices,
+            cutoff if cutoff is not None else normalise_event_decision_time(as_of),
+        )
+        macro = MacroWarehouse().summary(root=ROOT, decision_time=as_of)
+    except (MacroWarehouseError, OSError, TypeError, ValueError):
+        return [{"title": "News/macro contradiction status unavailable", "detail": "Local contradiction inputs could not be read; no contradiction is inferred.", "status": "unavailable", "severity": "warning", "as_of": as_of, "provenance": "news_context/macro_warehouse"}]
+    if filtered_inputs is None:
+        return [{"title": "News/macro contradictions unavailable", "detail": "Point-in-time news or adjusted-price evidence is missing, malformed, or unavailable at the snapshot cutoff; no contradiction is inferred.", "status": "unavailable", "severity": "warning", "as_of": as_of, "provenance": "news_context/adjusted_prices/macro_warehouse"}]
+    filtered_news, filtered_prices = filtered_inputs
+    contradictions = build_news_contradiction_rows(filtered_news, filtered_prices)
+    macro_status = str(macro.get("status", "unavailable"))
+    count = len(contradictions)
+    detail = f"{count} deterministic news contradiction(s); macro contradiction comparison is unavailable (macro context={macro_status})."
+    return [{"title": "News/macro contradiction status", "detail": detail, "status": "manual_review", "severity": "warning", "as_of": as_of, "provenance": "news_context/adjusted_prices/macro_warehouse"}]
+
+
+def _event_record(*, as_of: str | None, cutoff: object | None = None) -> list[dict[str, object]] | None:
+    decision_time = cutoff if isinstance(cutoff, pd.Timestamp) else normalise_event_decision_time(as_of)
+    if decision_time is None:
+        return None
+    try:
+        events = load_calendar_events(EVENT_CLEAN_PATH)
+        events = events_available_as_of(events, decision_time) if not events.empty else events
+    except (OSError, TypeError, ValueError):
+        return [{"title": "Upcoming events unavailable", "detail": "The local event calendar could not be read at the snapshot decision time.", "status": "unavailable", "severity": "warning", "as_of": as_of, "provenance": "event_calendar"}]
+    if events.empty:
+        return [{"title": "Upcoming events unavailable", "detail": "No validated event records are available at the snapshot decision time.", "status": "unavailable", "severity": "warning", "as_of": as_of, "provenance": "event_calendar"}]
+    upcoming = events[pd.to_datetime(events["event_date"], errors="coerce").dt.date >= decision_time.date()]
+    if upcoming.empty:
+        return [{"title": "No upcoming validated events", "detail": "The available local event calendar contains no event on or after the snapshot date.", "status": "available", "severity": "info", "as_of": as_of, "provenance": "event_calendar"}]
+    labels = ", ".join(f"{row.get('instrument_id', 'unavailable')} {row.get('event_date', 'unavailable')}" for _, row in upcoming.head(4).iterrows())
+    return [{"title": f"{len(upcoming)} upcoming event(s)", "detail": labels, "status": "available", "severity": "warning", "as_of": as_of, "provenance": "event_calendar"}]
+
+
+def _audit_export_record(state: AppState, *, as_of: str | None) -> list[dict[str, object]]:
+    export_path = getattr(state, "last_export_path", None)
+    activities = tuple(getattr(state, "recent_activity", ()) or ())
+    failures = [entry for entry in activities if "export" in str(getattr(entry, "label", "")).casefold() and str(getattr(entry, "status", "")).casefold() in {"failed", "unavailable", "cancelled", "interrupted"}]
+    if failures:
+        return [{"title": "Recent audit/export failed", "detail": str(getattr(failures[-1], "message", "Manual review is required.")), "status": "manual_review", "severity": "warning", "as_of": as_of, "provenance": "session_activity"}]
+    if export_path:
+        return [{"title": "Audit/export available", "detail": f"Latest packet: {Path(str(export_path)).name}.", "status": "available", "severity": "info", "as_of": as_of, "provenance": "session_activity"}]
+    return [{"title": "No recent audit/export in this session", "detail": "No local audit packet export has been recorded; export status is informational and does not change authority.", "status": "available", "severity": "info", "as_of": as_of, "provenance": "session_activity"}]
 
 
 def _run_changes_digest(_page: ft.Page, _state: AppState) -> ft.Control:
@@ -173,9 +446,21 @@ def _news_digest(page: ft.Page, state: AppState) -> ft.Control:
     )
 
 
-def _read_alerts(*, subject_id: str | None = None, include_inactive: bool = False) -> AlertReadback:
+def _read_alerts(
+    *,
+    subject_id: str | None = None,
+    as_of: datetime | str | None = None,
+    include_inactive: bool = False,
+    limit: int | None = 8,
+) -> AlertReadback:
     try:
-        return read_local_alerts(ROOT, subject_id=subject_id, include_inactive=include_inactive, limit=8)
+        return read_local_alerts(
+            ROOT,
+            subject_id=subject_id,
+            as_of=as_of,
+            include_inactive=include_inactive,
+            limit=limit,
+        )
     except Exception:
         return AlertReadback("unavailable")
 

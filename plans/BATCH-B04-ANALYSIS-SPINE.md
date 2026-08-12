@@ -3434,3 +3434,36 @@ store unavailability. Focused alert, UI, storage and architecture tests plus
 changed-app smoke and static/programme checks pass. Freeze one classified head
 for both independent reviews and hosted evidence; no external notification or
 execution path is added.
+
+## ISSUE-0033 completion and ISSUE-0053 lane — 2026-08-12
+
+ISSUE-0033 PR #679 merged reviewed head
+`2e51ad9301930b2cfcc2a20d70dd52152719801f` as exact main
+`6df628966908ba15b5359762e1efe99c0199618f`; H-tier run `31545092924`
+passed Linux, Windows and terminal validation. Exact-main audits show no
+remaining ISSUE-0034 or ISSUE-0036 product delta. ISSUE-0053 is the next
+dependency-ready phase-01 product issue and its clean branch
+`codex/issue0053-product-20260812` starts from that exact main.
+
+Implement a concise, deterministic, context-only Dashboard digest covering
+score/rank changes, warning changes, model failures, news/macro conflicts,
+manual-review needs, upcoming events, stale data and recent audit/export
+status. Use current canonical application/data seams and treat the old
+unmerged ISSUE-0053 branch only as reference evidence; do not transplant its
+stale repository state. No order, provider, network or execution authority is
+added and `execution_allowed=false` remains unchanged.
+
+The bounded implementation now builds a stable, severity-ordered and capped
+nine-source digest from existing local evidence. One validated snapshot cutoff
+governs timestamp-attributable score runs, the complete active alert population,
+news/adjusted-price evidence and upcoming events. Canonical news metadata and
+finite positive, instrument-matched prices fail closed; score and rank truth
+remain separate; missing evidence is not reported as zero change; interrupted
+exports and both decision fields reach manual review. Conflicting same-date
+adjusted closes fail closed and warning no-change is emitted only when both runs
+provide comparable evidence. Macro contradiction comparison remains explicitly
+manual-review because no canonical comparison seam exists. The Dashboard
+evidence control is context-only with visible provenance/as-of and
+`execution_allowed=false`. The final review correction passes 34 focused digest
+and 6 run-change tests plus Ruff, compile, programme freshness and diff hygiene.
+Freeze one exact replacement head for both reviews and fresh hosted validation.

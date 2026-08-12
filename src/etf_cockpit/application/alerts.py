@@ -203,11 +203,21 @@ def read_local_alerts(
     root: Path,
     *,
     subject_id: str | None = None,
+    as_of: datetime | str | None = None,
     include_inactive: bool = False,
-    limit: int = 8,
+    limit: int | None = 8,
 ) -> AlertReadback:
     try:
-        return AlertReadback("available", list_local_alerts(root, subject_id=subject_id, include_inactive=include_inactive, limit=limit))
+        return AlertReadback(
+            "available",
+            list_local_alerts(
+                root,
+                subject_id=subject_id,
+                as_of=as_of,
+                include_inactive=include_inactive,
+                limit=limit,
+            ),
+        )
     except Exception:
         return AlertReadback("unavailable")
 
@@ -216,12 +226,14 @@ def list_local_alerts(
     root: Path,
     *,
     subject_id: str | None = None,
+    as_of: datetime | str | None = None,
     include_inactive: bool = False,
-    limit: int = 8,
+    limit: int | None = 8,
 ) -> tuple[AlertRecord, ...]:
     with AlertStore(root) as store:
         return store.list(
             subject_id=subject_id,
+            as_of=as_of,
             include_inactive=include_inactive,
             limit=limit,
         )

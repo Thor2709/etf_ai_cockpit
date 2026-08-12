@@ -68,6 +68,60 @@ def test_all_accepted_alert_types_are_typed_and_non_executable(alert_type, domai
     assert alert.is_blocked() is False
 
 
+def test_application_readback_supports_cutoff_and_unbounded_active_population(tmp_path) -> None:
+    cutoff = NOW.replace(hour=13)
+    with AlertStore(tmp_path) as store:
+        store.create(
+            _alert(
+                AlertType.MODEL_FORECAST_FAILURE,
+                suffix="older-model",
+                occurred_at=NOW.replace(hour=9),
+                available_at=NOW.replace(hour=9),
+            )
+        )
+        store.create(
+            _alert(
+                AlertType.STALE_DATA,
+                suffix="older-stale",
+                occurred_at=NOW.replace(hour=9, minute=1),
+                available_at=NOW.replace(hour=9, minute=1),
+            )
+        )
+        for index in range(10):
+            occurred_at = NOW.replace(hour=10, minute=index)
+            store.create(
+                _alert(
+                    AlertType.RANK_CHANGE,
+                    subject_id=f"RANK-{index}",
+                    suffix=f"newer-{index}",
+                    occurred_at=occurred_at,
+                    available_at=occurred_at,
+                )
+            )
+        store.create(
+            _alert(
+                AlertType.MODEL_FORECAST_FAILURE,
+                subject_id="FUTURE",
+                suffix="post-cutoff",
+                occurred_at=NOW.replace(day=2),
+                available_at=NOW.replace(day=2),
+            )
+        )
+
+    complete = read_local_alerts(tmp_path, as_of=cutoff, limit=None)
+    bounded = read_local_alerts(tmp_path, as_of=cutoff)
+
+    assert complete.status == "available"
+    assert len(complete.records) == 12
+    assert {record.alert.alert_type for record in complete.records} >= {
+        AlertType.MODEL_FORECAST_FAILURE,
+        AlertType.STALE_DATA,
+    }
+    assert all(record.alert.subject_id != "FUTURE" for record in complete.records)
+    assert len(bounded.records) == 8
+    assert all(record.alert.alert_type is AlertType.RANK_CHANGE for record in bounded.records)
+
+
 def test_strict_malformed_input_is_rejected() -> None:
     alert = _alert(AlertType.STALE_DATA)
     payload = alert.to_dict()

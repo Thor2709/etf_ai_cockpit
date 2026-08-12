@@ -2165,3 +2165,37 @@ next action and whether the requested outcome is actually complete.
   architecture set, changed-app offline smoke, Ruff, compile, programme
   freshness and diff hygiene pass. Classify and freeze one complete head for
   parallel review and required hosted validation; `execution_allowed=false`.
+
+## ISSUE-0033 merge and ISSUE-0053 product checkpoint — 2026-08-12
+
+- ISSUE-0033 PR #679 merged exact independently approved head
+  `2e51ad9301930b2cfcc2a20d70dd52152719801f` as exact main
+  `6df628966908ba15b5359762e1efe99c0199618f`. H-tier run `31545092924`
+  passed classifier, preflight, supply chain, Linux, Windows and terminal
+  validation. Alerts remain local and informational by default;
+  `execution_allowed=false` is unchanged.
+- Exact-main audit confirms ISSUE-0034 and ISSUE-0036 already retain their
+  product implementations, so they are not being repeated while lifecycle
+  sequence 23 remains frozen. ISSUE-0053, "What matters today digest", is the
+  next dependency-ready phase-01 product gap: P1/P2, `planned`, no blocking or
+  activation dependencies.
+- Clean lane `codex/issue0053-product-20260812` starts at exact main
+  `6df628966908ba15b5359762e1efe99c0199618f` with an empty product diff. An
+  older unmerged ISSUE-0053 branch is reference evidence only; do not merge or
+  cherry-pick its stale repository-wide state. Adapt only the bounded digest
+  behavior to current main, preserving local-only context and
+  `execution_allowed=false`.
+- The bounded current-main implementation now renders all nine accepted digest
+  categories through one deterministic 12-item context projection. One
+  validated snapshot cutoff governs timestamp-attributable score runs, the
+  complete active alert population, news/adjusted-price evidence and upcoming
+  events. Canonical news metadata and finite positive, instrument-matched price
+  evidence fail closed; score and rank truth remain separate; missing evidence
+  is not reported as zero change; interrupted exports and both decision fields
+  reach manual review. Conflicting same-date adjusted closes fail closed and
+  warning no-change is emitted only when both runs provide comparable evidence.
+  Macro contradiction comparison remains explicitly manual-review because no
+  canonical seam exists. The final review correction passes 34 focused digest
+  and 6 run-change tests, plus Ruff, compile, programme freshness and diff
+  hygiene. Freeze one replacement head for paired review and fresh required
+  hosted validation; add no provider, macro inference or authority.
