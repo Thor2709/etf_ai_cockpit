@@ -640,6 +640,11 @@ def test_direct_score_clears_contradictory_cash_identity_before_scoreboard(tmp_p
     assert forged_row["cash_comparison_status"] == "unavailable"
     assert pd.isna(forged_row["cash_return"])
 
+    malformed_status = replace(score, cash_comparison_status=pd.NA)
+    assert malformed_status.cash_comparison_status == "unavailable"
+    assert malformed_status.cash_return is None
+    assert malformed_status.execution_allowed is False
+
     mixed_path = write_simple_scoreboard(
         [replace(score, cash_curve_revision=7), forged_unavailable],
         tmp_path / "mixed-scoreboard.parquet",

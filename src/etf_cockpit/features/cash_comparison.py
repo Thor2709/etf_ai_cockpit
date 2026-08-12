@@ -276,7 +276,11 @@ def build_cash_comparison(
             end_date=end.isoformat(),
             knowledge_cutoff=cutoff.isoformat(),
         )
-    currency = str(instrument_currency or "").strip().upper()
+    currency = (
+        instrument_currency.strip().upper()
+        if isinstance(instrument_currency, str)
+        else ""
+    )
     if len(currency) != 3 or not currency.isalpha():
         return _unavailable("instrument currency is unavailable", currency=currency or None)
     if (
