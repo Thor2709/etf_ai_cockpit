@@ -953,11 +953,28 @@ def test_cash_builder_fails_closed_on_pd_na_instrument_currency() -> None:
         start_date="2025-01-01",
         end_date="2026-01-01",
         instrument_currency=pd.NA,
-        cash_evidence=_evidence(),
+        cash_evidence=_evidence(currency="EUR"),
         decision_time="2026-01-02T00:00:00+00:00",
     )
     assert result.status == "unavailable"
     assert "currency" in str(result.reason)
+    assert result.execution_allowed is False
+
+
+def test_cash_builder_rejects_offset_price_endpoint_before_utc_availability() -> None:
+    result = build_cash_comparison(
+        adjusted_prices=pd.Series(
+            [100.0, 110.0],
+            index=["2025-01-01", "2025-01-02T23:30:00-12:00"],
+        ),
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="EUR",
+        cash_evidence=_evidence(currency="EUR"),
+        decision_time="2025-01-03T00:00:00+00:00",
+    )
+    assert result.status == "unavailable"
+    assert "date" in str(result.reason) or "timestamp" in str(result.reason)
     assert result.execution_allowed is False
 
 

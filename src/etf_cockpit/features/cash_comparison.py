@@ -125,13 +125,30 @@ def validated_adjusted_price_frame(
     dates: list[date] = []
     values: list[float] = []
     for raw_date, raw_value in zip(raw_dates, raw_values, strict=True):
-        if isinstance(raw_date, bool) or not isinstance(raw_date, (date, datetime, pd.Timestamp, str)):
-            raise ValueError("adjusted price date is invalid")
-        try:
-            parsed_date = pd.Timestamp(raw_date)
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise ValueError("adjusted price date is invalid") from exc
-        if pd.isna(parsed_date):
+        if isinstance(raw_date, str):
+            if len(raw_date) != 10 or raw_date[4] != "-" or raw_date[7] != "-":
+                raise ValueError("adjusted price date must be date-only")
+            try:
+                parsed_day = date.fromisoformat(raw_date)
+            except ValueError as exc:
+                raise ValueError("adjusted price date must be date-only") from exc
+        elif isinstance(raw_date, datetime):
+            parsed_timestamp = pd.Timestamp(raw_date)
+            if (
+                parsed_timestamp.hour
+                or parsed_timestamp.minute
+                or parsed_timestamp.second
+                or parsed_timestamp.microsecond
+                or (
+                    parsed_timestamp.tzinfo is not None
+                    and parsed_timestamp.utcoffset() != pd.Timedelta(0)
+                )
+            ):
+                raise ValueError("adjusted price timestamp must be UTC midnight")
+            parsed_day = parsed_timestamp.date()
+        elif isinstance(raw_date, date) and not isinstance(raw_date, bool):
+            parsed_day = raw_date
+        else:
             raise ValueError("adjusted price date is invalid")
         if isinstance(raw_value, bool) or not isinstance(raw_value, Real):
             raise ValueError("adjusted price value must be numeric")
@@ -141,7 +158,7 @@ def validated_adjusted_price_frame(
             raise ValueError("adjusted price value must be numeric") from exc
         if not math.isfinite(parsed_value):
             raise ValueError("adjusted price value must be finite")
-        dates.append(parsed_date.date())
+        dates.append(parsed_day)
         values.append(parsed_value)
 
     if not dates:

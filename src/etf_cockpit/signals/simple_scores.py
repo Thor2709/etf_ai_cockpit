@@ -462,7 +462,11 @@ class SimpleInstrumentScore:
         cash_payload["execution_allowed"] = False
         status_value = cash_payload["status"]
         raw_status = status_value if isinstance(status_value, str) else "unavailable"
-        expected_currency = str(self.instrument_currency or "").strip().upper()
+        expected_currency = (
+            self.instrument_currency.strip().upper()
+            if isinstance(self.instrument_currency, str)
+            else ""
+        )
         if raw_status == "available" and (
             len(expected_currency) != 3 or not expected_currency.isalpha()
         ):
