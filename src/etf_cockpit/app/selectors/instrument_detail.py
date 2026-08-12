@@ -23,6 +23,8 @@ from etf_cockpit.application.ui_facade import (
     build_direct_overlap_view,
     build_document_inventory,
     compare_runs,
+    cash_comparison_from_projection,
+    cash_comparison_to_projection,
     direct_overlap_payload,
     latest_fundamental_rows,
     load_fundamental_evidence,
@@ -1557,7 +1559,14 @@ def build_instrument_detail(
         all_features = _instrument_rows(getattr(snapshot, "features", None), instrument_id)
         if not all_features.empty and "date" in all_features.columns:
             features = all_features.sort_values("date", kind="stable").tail(1)
-    derived = _derived_evidence_panel(instrument_id)
+    derived = _derived_evidence_panel(
+        instrument_id,
+        expected_currency=(
+            identity.currency
+            if identity is not None
+            else candidate.instrument_currency if candidate is not None else None
+        ),
+    )
     friction = _friction_panel(instrument_id, candidate_score=candidate)
     scoreboard = _scoreboard_row(instrument_id, candidate_score=candidate)
     decision_time = getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
@@ -1769,7 +1778,11 @@ def build_instrument_detail(
     )
 
 
-def _derived_evidence_panel(instrument_id: str) -> dict[str, dict[str, Any]]:
+def _derived_evidence_panel(
+    instrument_id: str,
+    *,
+    expected_currency: str | None = None,
+) -> dict[str, dict[str, Any]]:
     """Load persisted crowding/attribution evidence without recalculating UI authority."""
 
     crowding: dict[str, Any] = {"status": "unavailable", "message": "Correlation cluster evidence is unavailable.", "execution_allowed": False}
@@ -1787,7 +1800,17 @@ def _derived_evidence_panel(instrument_id: str) -> dict[str, dict[str, Any]]:
             frame = pd.read_parquet(BENCHMARK_ATTRIBUTION_PATH)
             rows = _instrument_rows(frame, instrument_id)
             if not rows.empty:
-                attribution = {**rows.iloc[-1].to_dict(), "status": str(rows.iloc[-1].get("status", "available")), "execution_allowed": False}
+                persisted = rows.iloc[-1].to_dict()
+                sanitized_cash = cash_comparison_to_projection(
+                    cash_comparison_from_projection(persisted),
+                    expected_currency=expected_currency,
+                )
+                attribution = {
+                    **persisted,
+                    **sanitized_cash,
+                    "status": str(rows.iloc[-1].get("status", "available")),
+                    "execution_allowed": False,
+                }
     except Exception:
         pass
     return {"crowding": crowding, "attribution": attribution}

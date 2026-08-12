@@ -50,6 +50,10 @@ from etf_cockpit.data.score_history import project_classification_score_frame
 from etf_cockpit.signals.feature_drivers import build_feature_drivers
 from etf_cockpit.signals.canonical_scoring import load_score_policy
 from etf_cockpit.features.crowding import build_correlation_clusters
+from etf_cockpit.features.cash_comparison import (
+    cash_comparison_from_projection,
+    validate_cash_comparison_result,
+)
 
 PROVIDER_PROBE_PATH = CLEAN_DIR / "provider_probe_results.parquet"
 IDENTITY_PATH = CLEAN_DIR / "instrument_identity.parquet"
@@ -372,6 +376,7 @@ CORRELATION_CLUSTER_COLUMNS = [
 
 BENCHMARK_ATTRIBUTION_COLUMNS = [
     "instrument_id",
+    "instrument_currency",
     "benchmark_id",
     "benchmark_period_days",
     "benchmark_return",
@@ -428,11 +433,14 @@ BENCHMARK_ATTRIBUTION_COLUMNS = [
     "cash_available_at",
     "cash_curve_id",
     "cash_curve_version",
+    "cash_curve_revision",
     "cash_curve_type",
+    "cash_extrapolation_allowed",
     "cash_fallback",
     "cash_fallback_from",
     "cash_interpolation",
     "cash_freshness",
+    "cash_freshness_status",
     "cash_decision_time",
     "cash_knowledge_cutoff",
     "inflation_context",
@@ -1131,9 +1139,18 @@ def write_benchmark_attribution(scoreboard: pd.DataFrame) -> Path:
         return _write_dual(pd.DataFrame(columns=BENCHMARK_ATTRIBUTION_COLUMNS), BENCHMARK_ATTRIBUTION_PATH)
     rows = []
     for _, row in scoreboard.iterrows():
+        raw_cash = cash_comparison_from_projection(row.to_dict())
+        expected_currency = row.get("instrument_currency")
+        if expected_currency is None or pd.isna(expected_currency):
+            expected_currency = None
+        cash = validate_cash_comparison_result(
+            raw_cash,
+            expected_currency=expected_currency,
+        ).as_dict()
         rows.append(
             {
                 "instrument_id": row.get("instrument_id"),
+                "instrument_currency": row.get("instrument_currency"),
                 "benchmark_id": row.get("benchmark_id"),
                 "benchmark_period_days": row.get("benchmark_period_days"),
                 "benchmark_return": row.get("benchmark_return"),
@@ -1165,37 +1182,40 @@ def write_benchmark_attribution(scoreboard: pd.DataFrame) -> Path:
                 "cost_stress_scenario": row.get("cost_stress_scenario"),
                 "friction_status": row.get("friction_status", "unavailable"),
                 "friction_reason": row.get("friction_reason", "Friction-adjusted edge unavailable."),
-                "cash_instrument_return": row.get("cash_instrument_return"),
-                "cash_return": row.get("cash_return"),
-                "excess_over_cash": row.get("excess_over_cash"),
-                "cash_currency": row.get("cash_currency"),
-                "cash_start_date": row.get("cash_start_date"),
-                "cash_end_date": row.get("cash_end_date"),
-                "cash_horizon_years": row.get("cash_horizon_years"),
-                "cash_rate": row.get("cash_rate"),
-                "cash_vintage": row.get("cash_vintage"),
-                "cash_comparison_status": row.get("cash_comparison_status", "unavailable"),
-                "cash_comparison_reason": row.get("cash_comparison_reason", "Cash comparison unavailable."),
-                "cash_source_id": row.get("cash_source_id"),
-                "cash_source_checksum": row.get("cash_source_checksum"),
-                "cash_source_terms": row.get("cash_source_terms"),
-                "cash_methodology": row.get("cash_methodology"),
-                "cash_mapping_methodology": row.get("cash_mapping_methodology"),
-                "cash_day_count": row.get("cash_day_count"),
-                "cash_compounding": row.get("cash_compounding"),
-                "cash_reinvestment": row.get("cash_reinvestment"),
-                "cash_effective_at": row.get("cash_effective_at"),
-                "cash_available_at": row.get("cash_available_at"),
-                "cash_curve_id": row.get("cash_curve_id"),
-                "cash_curve_version": row.get("cash_curve_version"),
-                "cash_curve_type": row.get("cash_curve_type"),
-                "cash_fallback": row.get("cash_fallback"),
-                "cash_fallback_from": row.get("cash_fallback_from"),
-                "cash_interpolation": row.get("cash_interpolation"),
-                "cash_freshness": row.get("cash_freshness"),
-                "cash_decision_time": row.get("cash_decision_time"),
-                "cash_knowledge_cutoff": row.get("cash_knowledge_cutoff"),
-                "inflation_context": row.get("inflation_context"),
+                "cash_instrument_return": cash.get("instrument_return"),
+                "cash_return": cash.get("cash_return"),
+                "excess_over_cash": cash.get("excess_over_cash"),
+                "cash_currency": cash.get("currency"),
+                "cash_start_date": cash.get("start_date"),
+                "cash_end_date": cash.get("end_date"),
+                "cash_horizon_years": cash.get("horizon_years"),
+                "cash_rate": cash.get("rate"),
+                "cash_vintage": cash.get("vintage"),
+                "cash_comparison_status": cash["status"],
+                "cash_comparison_reason": cash.get("reason"),
+                "cash_source_id": cash.get("source_id"),
+                "cash_source_checksum": cash.get("source_checksum"),
+                "cash_source_terms": cash.get("source_terms"),
+                "cash_methodology": cash.get("methodology"),
+                "cash_mapping_methodology": cash.get("mapping_methodology"),
+                "cash_day_count": cash.get("day_count"),
+                "cash_compounding": cash.get("compounding"),
+                "cash_reinvestment": cash.get("reinvestment"),
+                "cash_effective_at": cash.get("effective_at"),
+                "cash_available_at": cash.get("available_at"),
+                "cash_curve_id": cash.get("curve_id"),
+                "cash_curve_version": cash.get("curve_version"),
+                "cash_curve_revision": cash.get("curve_revision"),
+                "cash_curve_type": cash.get("curve_type"),
+                "cash_extrapolation_allowed": cash.get("extrapolation_allowed"),
+                "cash_fallback": cash.get("fallback"),
+                "cash_fallback_from": cash.get("fallback_from"),
+                "cash_interpolation": cash.get("interpolation"),
+                "cash_freshness": cash.get("freshness"),
+                "cash_freshness_status": cash.get("freshness_status"),
+                "cash_decision_time": cash.get("decision_time"),
+                "cash_knowledge_cutoff": cash.get("knowledge_cutoff"),
+                "inflation_context": cash.get("inflation_context"),
                 "source_dataset": "derived_scoreboard",
                 "as_of_date": row.get("latest_price_date"),
                 "status": row.get("analysis_status", "unavailable"),

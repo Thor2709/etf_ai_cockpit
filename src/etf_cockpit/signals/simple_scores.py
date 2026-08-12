@@ -17,6 +17,7 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RAW_DIR, REPORTS_DIR, ROOT
 from etf_cockpit.core.types import SignalResult
 from etf_cockpit.data.classification import classification_score_state
+from etf_cockpit.data.macro_warehouse import MacroWarehouse, load_risk_free_proxy_mappings
 from etf_cockpit.data.score_history import project_classification_score_frame
 from etf_cockpit.governance.gate_policy import resolve_authority
 from etf_cockpit.data.reference_data import load_reference_dataset
@@ -25,6 +26,10 @@ from etf_cockpit.data.universe_store import support_decision
 from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
 from etf_cockpit.data.universe_store import load_universe
 from etf_cockpit.features.crowding import ClusterReport, build_correlation_clusters
+from etf_cockpit.features.cash_comparison import (
+    adjusted_endpoint_available_at,
+    validate_cash_comparison_result,
+)
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
 from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast_calibration, load_forecast_history
 from etf_cockpit.models.forecast_scores import (
@@ -69,6 +74,8 @@ SECONDARY_ETF_GROUP_LABEL = "Secondary tier - ETFs"
 SECONDARY_STOCK_GROUP_LABEL = "Secondary tier - stocks/equity certificates"
 SPAREBANKEN_GROUP_LABEL = "Sparebanken - Norwegian savings-bank equity-certificate issuers"
 PENDING_WORKFLOW_REASON = "Run Refresh yfinance data, then Run algorithms, then Run forecasting models."
+CASH_MACRO_ROOT = ROOT
+_CASH_COMPARISON_RETURN_WINDOW = 120
 
 ETF_EVIDENCE_WEIGHTS = {
     "momentum": 0.22,
@@ -237,6 +244,7 @@ class SimpleInstrumentScore:
     one_line_reason: str
     components: list[SimpleScoreComponent]
     warnings: list[str]
+    instrument_currency: str | None = None
     isin: str | None = None
     analysis_tier: str = ""
     data_policy: str = ""
@@ -295,11 +303,14 @@ class SimpleInstrumentScore:
     cash_available_at: str | None = None
     cash_curve_id: str | None = None
     cash_curve_version: str | None = None
+    cash_curve_revision: int | None = None
     cash_curve_type: str | None = None
+    cash_extrapolation_allowed: bool | None = None
     cash_fallback: bool | None = None
     cash_fallback_from: str | None = None
     cash_interpolation: str | None = None
     cash_freshness: str | None = None
+    cash_freshness_status: str | None = None
     cash_decision_time: str | None = None
     cash_knowledge_cutoff: str | None = None
     inflation_context: object = None
@@ -616,6 +627,8 @@ def build_simple_instrument_scores(
         if etf.id in config.universe.enabled_ids
     }
     benchmark_attribution = build_benchmark_attribution_lookup(prices, benchmark_id=benchmark_id, metadata=metadata)
+    if cash_comparison_lookup is None:
+        cash_comparison_lookup = _build_local_cash_comparison_lookup(config, prices)
     crowding = build_correlation_clusters(prices, metadata)
     backtest_trust = _backtest_trust_lookup(universe_revision=universe_revision)
     universe_scores = build_universe_simple_scores(
@@ -870,6 +883,7 @@ def simple_scoreboard_frame(
             "instrument_id": score.display_id,
             "symbol": score.yahoo_symbol,
             "name": score.name,
+            "instrument_currency": score.instrument_currency,
             "isin": score.isin,
             "isin_status": _isin_status(score.isin),
             "asset_type": score.asset_type,
@@ -945,11 +959,14 @@ def simple_scoreboard_frame(
             "cash_available_at": score.cash_available_at,
             "cash_curve_id": score.cash_curve_id,
             "cash_curve_version": score.cash_curve_version,
+            "cash_curve_revision": score.cash_curve_revision,
             "cash_curve_type": score.cash_curve_type,
+            "cash_extrapolation_allowed": score.cash_extrapolation_allowed,
             "cash_fallback": score.cash_fallback,
             "cash_fallback_from": score.cash_fallback_from,
             "cash_interpolation": score.cash_interpolation,
             "cash_freshness": score.cash_freshness,
+            "cash_freshness_status": score.cash_freshness_status,
             "cash_decision_time": score.cash_decision_time,
             "cash_knowledge_cutoff": score.cash_knowledge_cutoff,
             "inflation_context": score.inflation_context,
@@ -1159,7 +1176,11 @@ def build_universe_simple_scores(
         calibration_info = _calibration_info(calibration_by_id, signal.etf_id)
         fit_info = _portfolio_fit_info(portfolio_fit, signal.etf_id)
         attribution_info = _benchmark_attribution_info(benchmark_attribution, signal.etf_id)
-        cash_info = _cash_comparison_info(cash_comparison_lookup, signal.etf_id)
+        cash_info = _cash_comparison_info(
+            cash_comparison_lookup,
+            signal.etf_id,
+            expected_currency=identity.currency,
+        )
         crowding_info = _crowding_info(crowding_lookup, signal.etf_id)
         trust_info = _backtest_trust_info(backtest_trust, signal.etf_id, candidate=False)
         maturity = _evidence_maturity(
@@ -1191,6 +1212,7 @@ def build_universe_simple_scores(
                 asset_type=_display_asset_type(identity),
                 name=identity.name,
                 yahoo_symbol=symbol_map.get(signal.etf_id, identity.ticker),
+                instrument_currency=identity.currency,
                 latest_date=str(price_info.get("date", signal.signal_date)),
                 latest_price=_safe_float(price_info.get("price")),
                 isin=identity.isin,
@@ -1515,6 +1537,7 @@ def _pending_configured_score(identity, yahoo_symbol: str) -> SimpleInstrumentSc
         asset_type=asset_type,
         name=identity.name,
         yahoo_symbol=yahoo_symbol,
+        instrument_currency=identity.currency,
         latest_date="pending refresh",
         latest_price=None,
         isin=identity.isin or "needs_verification",
@@ -2372,63 +2395,16 @@ def _benchmark_attribution_info(lookup: dict[str, dict[str, object]], instrument
 
 
 def _cash_comparison_info(
-    lookup: Mapping[str, Mapping[str, object]], instrument_id: str
+    lookup: Mapping[str, Mapping[str, object]],
+    instrument_id: str,
+    *,
+    expected_currency: str,
 ) -> dict[str, object]:
-    value = lookup.get(str(instrument_id))
-    if not isinstance(value, Mapping):
-        value = {}
-    status = str(value.get("status", "unavailable"))
-    reason = (
-        value.get("reason")
-        if value
-        else "Cash comparison unavailable; no caller-provided mapping result."
+    validated = validate_cash_comparison_result(
+        lookup.get(str(instrument_id)),
+        expected_currency=expected_currency,
     )
-    required_available_fields = (
-        "instrument_return",
-        "cash_return",
-        "excess_over_cash",
-        "currency",
-        "start_date",
-        "end_date",
-        "horizon_years",
-        "rate",
-        "vintage",
-        "source_id",
-        "source_checksum",
-        "source_terms",
-        "methodology",
-        "day_count",
-        "compounding",
-        "reinvestment",
-        "effective_at",
-        "available_at",
-        "curve_type",
-        "freshness",
-        "decision_time",
-        "knowledge_cutoff",
-    )
-    checksum = str(value.get("source_checksum", ""))
-    available_is_complete = (
-        status == "available"
-        and value.get("execution_allowed") is False
-        and all(value.get(field) not in (None, "") for field in required_available_fields)
-        and all(
-            _safe_float(value.get(field)) is not None
-            for field in (
-                "instrument_return",
-                "cash_return",
-                "excess_over_cash",
-                "horizon_years",
-                "rate",
-            )
-        )
-        and len(checksum) == 64
-        and all(character in "0123456789abcdefABCDEF" for character in checksum)
-    )
-    if status == "available" and not available_is_complete:
-        value = {}
-        status = "unavailable"
-        reason = "Cash comparison unavailable; caller-provided result is incomplete or invalid."
+    value = validated.as_dict()
     return {
         "cash_instrument_return": value.get("instrument_return"),
         "cash_return": value.get("cash_return"),
@@ -2439,8 +2415,8 @@ def _cash_comparison_info(
         "cash_horizon_years": value.get("horizon_years"),
         "cash_rate": value.get("rate"),
         "cash_vintage": value.get("vintage"),
-        "cash_comparison_status": status,
-        "cash_comparison_reason": reason,
+        "cash_comparison_status": value["status"],
+        "cash_comparison_reason": value.get("reason"),
         "cash_source_id": value.get("source_id"),
         "cash_source_checksum": value.get("source_checksum"),
         "cash_source_terms": value.get("source_terms"),
@@ -2453,15 +2429,68 @@ def _cash_comparison_info(
         "cash_available_at": value.get("available_at"),
         "cash_curve_id": value.get("curve_id"),
         "cash_curve_version": value.get("curve_version"),
+        "cash_curve_revision": value.get("curve_revision"),
         "cash_curve_type": value.get("curve_type"),
+        "cash_extrapolation_allowed": value.get("extrapolation_allowed"),
         "cash_fallback": value.get("fallback"),
         "cash_fallback_from": value.get("fallback_from"),
         "cash_interpolation": value.get("interpolation"),
         "cash_freshness": value.get("freshness"),
+        "cash_freshness_status": value.get("freshness_status"),
         "cash_decision_time": value.get("decision_time"),
         "cash_knowledge_cutoff": value.get("knowledge_cutoff"),
         "inflation_context": value.get("inflation_context"),
     }
+
+
+def _build_local_cash_comparison_lookup(
+    config: AppConfig,
+    prices: pd.DataFrame,
+) -> dict[str, Mapping[str, object]]:
+    mappings = load_risk_free_proxy_mappings()
+    if not mappings:
+        return {
+            instrument_id: {
+                "status": "unavailable",
+                "reason": "No valid local risk-free proxy mapping is configured.",
+                "execution_allowed": False,
+            }
+            for instrument_id in config.universe.enabled_ids
+        }
+    if prices.empty or not {
+        "etf_id",
+        "date",
+        "adjusted_close",
+    }.issubset(prices.columns):
+        return {}
+    warehouse = MacroWarehouse()
+    output: dict[str, Mapping[str, object]] = {}
+    frame = prices.loc[:, ["etf_id", "date", "adjusted_close"]].copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce", utc=True)
+    frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
+    identities = config.universe.by_id()
+    for instrument_id in config.universe.enabled_ids:
+        identity = identities.get(instrument_id)
+        rows = frame.loc[frame["etf_id"].astype(str) == instrument_id].dropna(
+            subset=["date", "adjusted_close"]
+        )
+        rows = rows.sort_values("date")
+        if identity is None or len(rows) < 2 or rows["date"].dt.date.duplicated().any():
+            continue
+        comparison_rows = rows.tail(_CASH_COMPARISON_RETURN_WINDOW + 1)
+        start_date = comparison_rows.iloc[0]["date"].date().isoformat()
+        end_date = comparison_rows.iloc[-1]["date"].date().isoformat()
+        adjusted_prices = comparison_rows.loc[:, ["date", "adjusted_close"]]
+        output[instrument_id] = warehouse.cash_comparison(
+            root=CASH_MACRO_ROOT,
+            mappings=mappings,
+            currency=identity.currency,
+            start_date=start_date,
+            end_date=end_date,
+            decision_time=adjusted_endpoint_available_at(end_date),
+            adjusted_prices=adjusted_prices,
+        )
+    return output
 
 
 def _crowding_info(lookup: dict[str, object], instrument_id: str) -> dict[str, object]:

@@ -8,7 +8,7 @@ changes scores, rankings, gates, forecasts or execution authority.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, timedelta
 import math
 from collections.abc import Mapping
 
@@ -32,6 +32,13 @@ def period_start_knowledge_cutoff(start_date: object) -> str:
 
     start = _as_date(start_date, "start_date")
     return f"{start.isoformat()}T00:00:00+00:00"
+
+
+def adjusted_endpoint_available_at(end_date: object) -> str:
+    """Return the conservative availability time for a date-only adjusted endpoint."""
+
+    end = _as_date(end_date, "end_date")
+    return f"{(end + timedelta(days=1)).isoformat()}T00:00:00+00:00"
 
 
 def _utc_timestamp(value: object, field_name: str) -> pd.Timestamp:
@@ -95,6 +102,8 @@ def total_return_from_rate(
         return float((1.0 + rate) ** horizon - 1.0)
     if compounding == "continuous":
         return float(math.exp(rate * horizon) - 1.0)
+    if 1.0 + rate * horizon <= 0.0:
+        raise ValueError("simple compounding requires 1 + annual_rate * horizon > 0")
     return float(rate * horizon)
 
 
@@ -165,11 +174,14 @@ class CashComparisonResult:
     mapping_methodology: str | None = None
     curve_id: str | None = None
     curve_version: str | None = None
+    curve_revision: int | None = None
     curve_type: str | None = None
+    extrapolation_allowed: bool | None = None
     fallback: bool | None = None
     fallback_from: str | None = None
     interpolation: str | None = None
     freshness: str | None = None
+    freshness_status: str | None = None
     decision_time: str | None = None
     knowledge_cutoff: str | None = None
     inflation_context: object = None
@@ -220,8 +232,13 @@ def build_cash_comparison(
             return _unavailable("cash currency does not match instrument currency", currency=currency)
         if cash_evidence.get("curve_type") != "spot":
             return _unavailable("cash comparison requires spot-curve evidence", currency=currency)
-        freshness = cash_evidence.get("freshness_status") or cash_evidence.get("freshness")
-        if freshness not in _FRESHNESS:
+        freshness = cash_evidence.get("freshness")
+        freshness_status = cash_evidence.get("freshness_status")
+        if (
+            freshness not in _FRESHNESS
+            or freshness_status not in _FRESHNESS
+            or freshness != freshness_status
+        ):
             return _unavailable("cash evidence freshness is unavailable or stale", currency=currency)
         required = (
             "rate",
@@ -236,6 +253,13 @@ def build_cash_comparison(
             "source_checksum",
             "source_terms",
             "methodology",
+            "mapping_methodology",
+            "curve_id",
+            "curve_version",
+            "curve_revision",
+            "interpolation",
+            "extrapolation_allowed",
+            "fallback",
         )
         if any(cash_evidence.get(name) in (None, "") for name in required):
             return _unavailable("cash convention, reinvestment, freshness or lineage is unavailable", currency=currency)
@@ -248,12 +272,31 @@ def build_cash_comparison(
         if cash_evidence.get("compounding") not in _COMPOUNDING:
             return _unavailable("cash compounding convention is unsupported", currency=currency)
         available_at = _utc_timestamp(cash_evidence.get("available_at"), "available_at")
+        vintage = _utc_timestamp(cash_evidence.get("vintage"), "vintage")
         decision = _utc_timestamp(decision_time, "decision_time")
         effective_at = _utc_timestamp(cash_evidence.get("effective_at"), "effective_at")
+        endpoint_available = _utc_timestamp(
+            adjusted_endpoint_available_at(end), "adjusted endpoint availability"
+        )
         if decision < cutoff:
             return _unavailable("decision time precedes the cash knowledge cutoff", currency=currency)
-        if available_at > cutoff or effective_at > start_cutoff:
+        if decision < endpoint_available:
+            return _unavailable("adjusted end-price evidence is not yet available", currency=currency)
+        if vintage != available_at:
+            return _unavailable("cash vintage contradicts available_at", currency=currency)
+        if vintage > cutoff or available_at > cutoff or effective_at > start_cutoff:
             return _unavailable("cash evidence is not point-in-time eligible", currency=currency)
+        if cash_evidence.get("extrapolation_allowed") is not False:
+            return _unavailable("cash curve extrapolation policy is unavailable or unsupported", currency=currency)
+        if cash_evidence.get("interpolation") not in {"linear", "none"}:
+            return _unavailable("cash curve interpolation policy is unsupported", currency=currency)
+        if not isinstance(cash_evidence.get("fallback"), bool):
+            return _unavailable("cash curve fallback identity is unavailable", currency=currency)
+        if cash_evidence.get("fallback") and not cash_evidence.get("fallback_from"):
+            return _unavailable("cash curve fallback reason is unavailable", currency=currency)
+        curve_revision = int(cash_evidence.get("curve_revision"))
+        if curve_revision < 1:
+            return _unavailable("cash curve revision is invalid", currency=currency)
         checksum = str(cash_evidence["source_checksum"])
         if len(checksum) != 64 or any(character not in "0123456789abcdefABCDEF" for character in checksum):
             return _unavailable("cash evidence checksum is malformed", currency=currency)
@@ -278,9 +321,9 @@ def build_cash_comparison(
         compounding=str(cash_evidence["compounding"]),
         day_count=str(day_count),
         reinvestment=str(cash_evidence["reinvestment"]),
-        vintage=str(cash_evidence["vintage"]),
-        effective_at=str(cash_evidence["effective_at"]),
-        available_at=str(cash_evidence["available_at"]),
+        vintage=vintage.isoformat(),
+        effective_at=effective_at.isoformat(),
+        available_at=available_at.isoformat(),
         source_id=str(cash_evidence["source_id"]),
         source_checksum=str(cash_evidence["source_checksum"]),
         source_terms=str(cash_evidence["source_terms"]),
@@ -288,12 +331,15 @@ def build_cash_comparison(
         mapping_methodology=str(cash_evidence["mapping_methodology"]) if cash_evidence.get("mapping_methodology") is not None else None,
         curve_id=str(cash_evidence["curve_id"]) if cash_evidence.get("curve_id") is not None else None,
         curve_version=str(cash_evidence["curve_version"]) if cash_evidence.get("curve_version") is not None else None,
+        curve_revision=curve_revision,
         curve_type=str(cash_evidence["curve_type"]),
+        extrapolation_allowed=False,
         fallback=bool(cash_evidence.get("fallback")) if cash_evidence.get("fallback") is not None else None,
         fallback_from=str(cash_evidence["fallback_from"]) if cash_evidence.get("fallback_from") is not None else None,
         interpolation=str(cash_evidence["interpolation"]) if cash_evidence.get("interpolation") is not None else None,
-        freshness=str(cash_evidence.get("freshness_status") or cash_evidence.get("freshness")),
-        decision_time=str(decision_time),
+        freshness=str(freshness),
+        freshness_status=str(freshness_status),
+        decision_time=decision.isoformat(),
         knowledge_cutoff=cutoff.isoformat(),
         inflation_context=dict(inflation_context) if inflation_context is not None else None,
     )
@@ -303,6 +349,252 @@ def _unavailable(reason: str, **fields: object) -> CashComparisonResult:
     return CashComparisonResult(status="unavailable", reason=reason, **fields)
 
 
+def validate_cash_comparison_result(
+    value: Mapping[str, object] | CashComparisonResult | None,
+    *,
+    expected_currency: str | None = None,
+) -> CashComparisonResult:
+    """Validate and sanitize serialized descriptive cash evidence for generic consumers."""
+
+    raw: Mapping[str, object]
+    if isinstance(value, CashComparisonResult):
+        raw = value.as_dict()
+    elif isinstance(value, Mapping):
+        raw = value
+    else:
+        return _unavailable("Cash comparison unavailable; no result was supplied.")
+    if raw.get("status") != "available":
+        return _unavailable(str(raw.get("reason") or "Cash comparison is unavailable."))
+    try:
+        if raw.get("execution_allowed") is not False:
+            raise ValueError("cash comparison cannot grant execution authority")
+        required_text = (
+            "currency",
+            "start_date",
+            "end_date",
+            "compounding",
+            "day_count",
+            "reinvestment",
+            "vintage",
+            "effective_at",
+            "available_at",
+            "source_id",
+            "source_checksum",
+            "source_terms",
+            "methodology",
+            "mapping_methodology",
+            "curve_id",
+            "curve_version",
+            "curve_type",
+            "interpolation",
+            "freshness",
+            "freshness_status",
+            "decision_time",
+            "knowledge_cutoff",
+        )
+        if any(raw.get(name) in (None, "") for name in required_text):
+            raise ValueError("cash comparison lineage or convention is incomplete")
+        currency = str(raw["currency"]).strip().upper()
+        if len(currency) != 3 or not currency.isalpha():
+            raise ValueError("cash comparison currency is invalid")
+        if expected_currency is not None and currency != str(expected_currency).strip().upper():
+            raise ValueError("cash currency does not match instrument currency")
+        start = _as_date(raw["start_date"], "start_date")
+        end = _as_date(raw["end_date"], "end_date")
+        day_count = str(raw["day_count"])
+        compounding = str(raw["compounding"])
+        if day_count not in _DAY_COUNTS or compounding not in _COMPOUNDING:
+            raise ValueError("cash comparison convention is unsupported")
+        horizon = year_fraction(start, end, day_count)
+        observed_horizon = _finite_float(raw.get("horizon_years"), "horizon_years")
+        if not math.isclose(observed_horizon, horizon, rel_tol=0.0, abs_tol=1e-12):
+            raise ValueError("cash comparison horizon is inconsistent")
+        instrument_return = _finite_float(raw.get("instrument_return"), "instrument_return")
+        rate = _finite_float(raw.get("rate"), "rate")
+        observed_cash_return = _finite_float(raw.get("cash_return"), "cash_return")
+        observed_excess = _finite_float(raw.get("excess_over_cash"), "excess_over_cash")
+        cash_return = total_return_from_rate(rate, horizon, compounding=compounding)
+        excess = instrument_return - cash_return
+        if not math.isclose(observed_cash_return, cash_return, rel_tol=0.0, abs_tol=1e-12):
+            raise ValueError("cash return is inconsistent with rate and horizon")
+        if not math.isclose(observed_excess, excess, rel_tol=0.0, abs_tol=1e-12):
+            raise ValueError("excess over cash is inconsistent")
+        vintage = _utc_timestamp(raw["vintage"], "vintage")
+        effective = _utc_timestamp(raw["effective_at"], "effective_at")
+        available = _utc_timestamp(raw["available_at"], "available_at")
+        decision = _utc_timestamp(raw["decision_time"], "decision_time")
+        cutoff = _utc_timestamp(raw["knowledge_cutoff"], "knowledge_cutoff")
+        expected_cutoff = _utc_timestamp(period_start_knowledge_cutoff(start), "period start")
+        endpoint_available = _utc_timestamp(
+            adjusted_endpoint_available_at(end), "adjusted endpoint availability"
+        )
+        if cutoff != expected_cutoff:
+            raise ValueError("cash knowledge cutoff is inconsistent with period start")
+        if vintage != available:
+            raise ValueError("cash vintage contradicts available_at")
+        if vintage > cutoff or available > cutoff or effective > cutoff:
+            raise ValueError("cash evidence is not point-in-time eligible")
+        if decision < endpoint_available or decision < cutoff:
+            raise ValueError("comparison decision precedes required evidence")
+        freshness = str(raw["freshness"])
+        freshness_status = str(raw["freshness_status"])
+        if freshness != "fresh" or freshness_status != "fresh" or freshness != freshness_status:
+            raise ValueError("cash comparison freshness is stale or conflicted")
+        if raw["curve_type"] != "spot":
+            raise ValueError("cash comparison requires spot-curve evidence")
+        if raw.get("interpolation") not in {"linear", "none"}:
+            raise ValueError("cash curve interpolation policy is unsupported")
+        if raw.get("extrapolation_allowed") is not False:
+            raise ValueError("cash curve extrapolation is unsupported")
+        if not isinstance(raw.get("fallback"), bool):
+            raise ValueError("cash curve fallback identity is unavailable")
+        if raw.get("fallback") and raw.get("fallback_from") in (None, ""):
+            raise ValueError("cash curve fallback reason is unavailable")
+        revision = int(raw.get("curve_revision"))
+        if revision < 1:
+            raise ValueError("cash curve revision is invalid")
+        checksum = str(raw["source_checksum"])
+        if len(checksum) != 64 or any(character not in "0123456789abcdefABCDEF" for character in checksum):
+            raise ValueError("cash evidence checksum is malformed")
+    except (ArithmeticError, TypeError, ValueError, OverflowError) as exc:
+        return _unavailable(f"Cash comparison unavailable; {exc}.")
+    return CashComparisonResult(
+        status="available",
+        instrument_return=instrument_return,
+        cash_return=cash_return,
+        excess_over_cash=excess,
+        currency=currency,
+        start_date=start.isoformat(),
+        end_date=end.isoformat(),
+        horizon_years=horizon,
+        rate=rate,
+        compounding=compounding,
+        day_count=day_count,
+        reinvestment=str(raw["reinvestment"]),
+        vintage=vintage.isoformat(),
+        effective_at=effective.isoformat(),
+        available_at=available.isoformat(),
+        source_id=str(raw["source_id"]),
+        source_checksum=checksum.lower(),
+        source_terms=str(raw["source_terms"]),
+        methodology=str(raw["methodology"]),
+        mapping_methodology=str(raw["mapping_methodology"]),
+        curve_id=str(raw["curve_id"]),
+        curve_version=str(raw["curve_version"]),
+        curve_revision=revision,
+        curve_type="spot",
+        extrapolation_allowed=False,
+        fallback=bool(raw["fallback"]),
+        fallback_from=str(raw["fallback_from"]) if raw.get("fallback_from") is not None else None,
+        interpolation=str(raw["interpolation"]),
+        freshness="fresh",
+        freshness_status="fresh",
+        decision_time=decision.isoformat(),
+        knowledge_cutoff=cutoff.isoformat(),
+        inflation_context=raw.get("inflation_context"),
+        execution_allowed=False,
+    )
+
+
+def _finite_float(value: object, field_name: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{field_name} must be finite")
+    return number
+
+
+def cash_comparison_from_projection(value: Mapping[str, object]) -> dict[str, object]:
+    """Restore a serialized result from canonical scoreboard/attribution field names."""
+
+    keys = {
+        "status": "cash_comparison_status",
+        "reason": "cash_comparison_reason",
+        "instrument_return": "cash_instrument_return",
+        "cash_return": "cash_return",
+        "excess_over_cash": "excess_over_cash",
+        "currency": "cash_currency",
+        "start_date": "cash_start_date",
+        "end_date": "cash_end_date",
+        "horizon_years": "cash_horizon_years",
+        "rate": "cash_rate",
+        "vintage": "cash_vintage",
+        "source_id": "cash_source_id",
+        "source_checksum": "cash_source_checksum",
+        "source_terms": "cash_source_terms",
+        "methodology": "cash_methodology",
+        "mapping_methodology": "cash_mapping_methodology",
+        "day_count": "cash_day_count",
+        "compounding": "cash_compounding",
+        "reinvestment": "cash_reinvestment",
+        "effective_at": "cash_effective_at",
+        "available_at": "cash_available_at",
+        "curve_id": "cash_curve_id",
+        "curve_version": "cash_curve_version",
+        "curve_revision": "cash_curve_revision",
+        "curve_type": "cash_curve_type",
+        "extrapolation_allowed": "cash_extrapolation_allowed",
+        "fallback": "cash_fallback",
+        "fallback_from": "cash_fallback_from",
+        "interpolation": "cash_interpolation",
+        "freshness": "cash_freshness",
+        "freshness_status": "cash_freshness_status",
+        "decision_time": "cash_decision_time",
+        "knowledge_cutoff": "cash_knowledge_cutoff",
+        "inflation_context": "inflation_context",
+        "execution_allowed": "execution_allowed",
+    }
+    return {field: value.get(projected) for field, projected in keys.items()}
+
+
+def cash_comparison_to_projection(
+    value: Mapping[str, object] | CashComparisonResult | None,
+    *,
+    expected_currency: str | None = None,
+) -> dict[str, object]:
+    """Return only validated cash fields under canonical projection names."""
+
+    cash = validate_cash_comparison_result(
+        value, expected_currency=expected_currency
+    ).as_dict()
+    projected = {
+        "cash_comparison_status": cash["status"],
+        "cash_comparison_reason": cash.get("reason"),
+        "cash_instrument_return": cash.get("instrument_return"),
+        "cash_return": cash.get("cash_return"),
+        "excess_over_cash": cash.get("excess_over_cash"),
+        "cash_currency": cash.get("currency"),
+        "cash_start_date": cash.get("start_date"),
+        "cash_end_date": cash.get("end_date"),
+        "cash_horizon_years": cash.get("horizon_years"),
+        "cash_rate": cash.get("rate"),
+        "cash_vintage": cash.get("vintage"),
+        "cash_source_id": cash.get("source_id"),
+        "cash_source_checksum": cash.get("source_checksum"),
+        "cash_source_terms": cash.get("source_terms"),
+        "cash_methodology": cash.get("methodology"),
+        "cash_mapping_methodology": cash.get("mapping_methodology"),
+        "cash_day_count": cash.get("day_count"),
+        "cash_compounding": cash.get("compounding"),
+        "cash_reinvestment": cash.get("reinvestment"),
+        "cash_effective_at": cash.get("effective_at"),
+        "cash_available_at": cash.get("available_at"),
+        "cash_curve_id": cash.get("curve_id"),
+        "cash_curve_version": cash.get("curve_version"),
+        "cash_curve_revision": cash.get("curve_revision"),
+        "cash_curve_type": cash.get("curve_type"),
+        "cash_extrapolation_allowed": cash.get("extrapolation_allowed"),
+        "cash_fallback": cash.get("fallback"),
+        "cash_fallback_from": cash.get("fallback_from"),
+        "cash_interpolation": cash.get("interpolation"),
+        "cash_freshness": cash.get("freshness"),
+        "cash_freshness_status": cash.get("freshness_status"),
+        "cash_decision_time": cash.get("decision_time"),
+        "cash_knowledge_cutoff": cash.get("knowledge_cutoff"),
+        "inflation_context": cash.get("inflation_context"),
+    }
+    return projected
+
+
 # The small aliases keep the pure financial vocabulary discoverable to callers.
 calculate_cash_total_return = total_return_from_rate
 cash_year_fraction = year_fraction
@@ -310,11 +602,15 @@ cash_year_fraction = year_fraction
 
 __all__ = [
     "CashComparisonResult",
+    "adjusted_endpoint_available_at",
     "build_cash_comparison",
     "calculate_cash_total_return",
+    "cash_comparison_from_projection",
+    "cash_comparison_to_projection",
     "cash_year_fraction",
     "exact_adjusted_total_return",
     "period_start_knowledge_cutoff",
     "total_return_from_rate",
     "year_fraction",
+    "validate_cash_comparison_result",
 ]

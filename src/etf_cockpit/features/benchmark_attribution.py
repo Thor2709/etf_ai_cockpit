@@ -6,6 +6,8 @@ from collections.abc import Mapping
 
 import pandas as pd
 
+from etf_cockpit.features.cash_comparison import validate_cash_comparison_result
+
 
 @dataclass(frozen=True)
 class AttributionResult:
@@ -58,11 +60,14 @@ class AttributionResult:
     cash_available_at: str | None = None
     cash_curve_id: str | None = None
     cash_curve_version: str | None = None
+    cash_curve_revision: int | None = None
     cash_curve_type: str | None = None
+    cash_extrapolation_allowed: bool | None = None
     cash_fallback: bool | None = None
     cash_fallback_from: str | None = None
     cash_interpolation: str | None = None
     cash_freshness: str | None = None
+    cash_freshness_status: str | None = None
     cash_decision_time: str | None = None
     cash_knowledge_cutoff: str | None = None
     inflation_context: object = None
@@ -239,8 +244,7 @@ def _unavailable(reason: str) -> AttributionResult:
 
 
 def _cash_fields(value: Mapping[str, object] | None) -> dict[str, object]:
-    if not isinstance(value, Mapping):
-        return {}
+    value = validate_cash_comparison_result(value).as_dict()
     return {
         "cash_instrument_return": _optional_float(value.get("instrument_return")),
         "cash_return": _optional_float(value.get("cash_return")),
@@ -265,11 +269,14 @@ def _cash_fields(value: Mapping[str, object] | None) -> dict[str, object]:
         "cash_available_at": value.get("available_at"),
         "cash_curve_id": value.get("curve_id"),
         "cash_curve_version": value.get("curve_version"),
+        "cash_curve_revision": value.get("curve_revision"),
         "cash_curve_type": value.get("curve_type"),
+        "cash_extrapolation_allowed": value.get("extrapolation_allowed"),
         "cash_fallback": value.get("fallback"),
         "cash_fallback_from": value.get("fallback_from"),
         "cash_interpolation": value.get("interpolation"),
         "cash_freshness": value.get("freshness"),
+        "cash_freshness_status": value.get("freshness_status"),
         "cash_decision_time": value.get("decision_time"),
         "cash_knowledge_cutoff": value.get("knowledge_cutoff"),
         "inflation_context": value.get("inflation_context"),

@@ -21,12 +21,14 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
 from etf_cockpit.core.atomic_io import atomic_write_json
+from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.data.bitemporal import BitemporalError, BitemporalStore
 
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S+00:00"
 _ALLOWED_KINDS = {"macro", "factor", "risk_free", "benchmark"}
 _ALLOWED_FREQUENCIES = {"daily", "monthly", "quarterly", "annual", "irregular"}
+RISK_FREE_PROXY_CONFIG_PATH = CONFIG_DIR / "risk_free_proxies.json"
 _UNIT_FACTORS = {
     ("percentage", "decimal"): 0.01,
     ("percent", "decimal"): 0.01,
@@ -275,6 +277,46 @@ class RiskFreeProxyMapping(BaseModel):
     execution_allowed: Literal[False] = False
 
 
+def load_risk_free_proxy_mappings(
+    path: Path | None = None,
+) -> tuple[RiskFreeProxyMapping, ...]:
+    """Load the explicit local mapping contract; absent or malformed config fails closed."""
+
+    target = Path(path) if path is not None else RISK_FREE_PROXY_CONFIG_PATH
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        if not isinstance(payload, Mapping) or payload.get("schema_version") != "1.0":
+            return ()
+        if payload.get("execution_allowed") is not False:
+            return ()
+        rows = payload.get("mappings")
+        if not isinstance(rows, list):
+            return ()
+        mappings = tuple(RiskFreeProxyMapping.model_validate(row) for row in rows)
+        if any(
+            item.minimum_horizon_years > item.maximum_horizon_years
+            or len(item.currency.strip()) != 3
+            or not item.curve_id.strip()
+            or not item.methodology.strip()
+            for item in mappings
+        ):
+            return ()
+        signatures = {
+            (
+                item.currency.upper(),
+                item.minimum_horizon_years,
+                item.maximum_horizon_years,
+                item.curve_id,
+            )
+            for item in mappings
+        }
+        if len(signatures) != len(mappings):
+            return ()
+        return mappings
+    except (OSError, TypeError, ValueError):
+        return ()
+
+
 def _validate_curve(snapshot: CurveSnapshot) -> CurveSnapshot:
     if snapshot.curve_type not in {"spot", "par", "forward"}:
         raise MacroWarehouseError(f"unsupported curve_type: {snapshot.curve_type}")
@@ -300,9 +342,9 @@ def _validate_curve(snapshot: CurveSnapshot) -> CurveSnapshot:
         raise MacroWarehouseError(f"unsupported curve day count: {snapshot.day_count}")
     if snapshot.reinvestment is not None and not snapshot.reinvestment.strip():
         raise MacroWarehouseError("curve reinvestment declaration cannot be empty")
-    freshness = snapshot.freshness_status or snapshot.freshness
-    if freshness is not None and freshness not in {"fresh", "stale", "conflicted", "malformed", "unavailable"}:
-        raise MacroWarehouseError(f"unsupported curve freshness: {freshness}")
+    for freshness in (snapshot.freshness, snapshot.freshness_status):
+        if freshness is not None and freshness not in {"fresh", "stale", "conflicted", "malformed", "unavailable"}:
+            raise MacroWarehouseError(f"unsupported curve freshness: {freshness}")
     return snapshot.model_copy(
         update={
             "currency": snapshot.currency.upper(),
@@ -711,9 +753,16 @@ class MacroWarehouse:
         rows = [row for row in rows if row.observed_at == latest_effective_at]
         metadata_signatures = {
             (
+                row.revision,
+                row.curve_id,
+                row.source_checksum,
+                row.source_terms,
                 row.curve_version,
                 row.curve_type,
                 row.currency,
+                row.methodology,
+                row.observed_at,
+                row.available_at,
                 row.interpolation,
                 row.extrapolation_allowed,
                 row.compounding,
@@ -722,8 +771,6 @@ class MacroWarehouse:
                 row.freshness,
                 row.freshness_status,
                 row.source_id,
-                row.methodology,
-                row.available_at,
             )
             for row in rows
         }
@@ -731,6 +778,18 @@ class MacroWarehouse:
             return {
                 "status": "unavailable",
                 "reason": "curve snapshot metadata is conflicted",
+                "curve_id": curve_id,
+                "execution_allowed": False,
+            }
+        if any(
+            row.freshness is not None
+            and row.freshness_status is not None
+            and row.freshness != row.freshness_status
+            for row in rows
+        ):
+            return {
+                "status": "unavailable",
+                "reason": "curve snapshot freshness is conflicted",
                 "curve_id": curve_id,
                 "execution_allowed": False,
             }
@@ -760,6 +819,7 @@ class MacroWarehouse:
             "curve_id": curve_id,
             "curve_type": rows[0].curve_type,
             "curve_version": rows[0].curve_version,
+            "curve_revision": rows[0].revision,
             "currency": rows[0].currency,
             "tenor_years": tenor_years,
             "rate": rate,
@@ -772,11 +832,12 @@ class MacroWarehouse:
             "available_at": _timestamp(rows[0].available_at, "available_at"),
             "vintage": _timestamp(rows[0].available_at, "available_at"),
             "interpolation": rows[0].interpolation,
+            "extrapolation_allowed": rows[0].extrapolation_allowed,
             "compounding": rows[0].compounding,
             "day_count": rows[0].day_count,
             "reinvestment": rows[0].reinvestment,
-            "freshness": rows[0].freshness_status or rows[0].freshness,
-            "freshness_status": rows[0].freshness_status or rows[0].freshness,
+            "freshness": rows[0].freshness,
+            "freshness_status": rows[0].freshness_status,
             "fallback": False,
             "execution_allowed": False,
         }
@@ -890,7 +951,14 @@ class MacroWarehouse:
                 "reason": "no currency+horizon cash proxy mapping is declared",
                 "execution_allowed": False,
             }
-        except (ArithmeticError, TypeError, ValueError, OSError) as exc:
+        except (
+            ArithmeticError,
+            BitemporalError,
+            MacroWarehouseError,
+            TypeError,
+            ValueError,
+            OSError,
+        ) as exc:
             return {
                 "status": "unavailable",
                 "reason": f"cash comparison evidence is malformed: {type(exc).__name__}",
@@ -983,7 +1051,9 @@ __all__ = [
     "MacroWarehouse",
     "MacroWarehouseError",
     "RiskFreeProxyMapping",
+    "RISK_FREE_PROXY_CONFIG_PATH",
     "interpolate_curve",
+    "load_risk_free_proxy_mappings",
     "parse_csv_records",
     "parse_world_bank_records",
     "transform_observations",
