@@ -3612,6 +3612,15 @@ fresh before selection. Exact regressions and the complete affected focused,
 static and programme checks pass. Freeze one replacement H-tier head for
 paired final review and fresh Linux, Windows and terminal validation.
 
+Paired review rejected `5d8f7203648442928fcbad55ab3d02385a0df820`
+on one malformed-input escape: `pd.NA` cash currency was normalized before
+the guarded boundary. Exact-head run `31619460965` is cancelled and invalid.
+Product commit `77e0b932e2cb97f7c920e44a3daa3bfbdeb3f6e2` strictly types evidence
+currency inside the fail-closed block; the exact regression and complete
+ISSUE-0051 suite pass with static and diff checks. Freeze one replacement
+H-tier head for paired final review and fresh Linux, Windows and terminal
+validation.
+
 Paired review rejected `7245e76ac27606f9542fd71dd354d178fcdcd5b1`
 for partial snapshot visibility, inferred availability accepted as exact and
 persisted cash accepted without currency. Run `31593071919` is cancelled and

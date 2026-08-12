@@ -2459,6 +2459,13 @@ next action and whether the requested outcome is actually complete.
   fresh before selection. Exact regressions and the complete affected focused
   surface, Ruff, compile, byte-clean generation and diff hygiene pass. Freeze
   one replacement H-tier head for paired final review and hosted validation.
+- Paired review rejected `5d8f7203648442928fcbad55ab3d02385a0df820`
+  on one malformed-input escape: `pd.NA` cash currency was normalized before
+  the guarded boundary. Exact-head run `31619460965` is cancelled and invalid.
+  Product commit `77e0b932e2cb97f7c920e44a3daa3bfbdeb3f6e2` strictly types evidence
+  currency inside the fail-closed block; the exact regression and complete
+  ISSUE-0051 suite pass with static and diff checks. Freeze one replacement
+  H-tier head for paired final review and fresh hosted validation.
 - Paired review rejected `302fb671ab25c23cff9a2c45bbe405f836562b10`
   for inverted persisted chronology, blank curve lineage, direct-score cash
   bypass, stale-primary fallback suppression, future malformed generic history
