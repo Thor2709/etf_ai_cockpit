@@ -2452,6 +2452,16 @@ next action and whether the requested outcome is actually complete.
   price endpoints and strictly types direct-score currency. Exact regressions
   and affected suites pass with static and diff checks. Freeze one replacement
   H-tier head for paired final review and hosted validation.
+- Paired review rejected `5f7f4144529f923c6499498ee29db98ef97c48e8`
+  because the exported return helper accepted non-positive periods and cash
+  comparison evidence lacked immutable instrument identity. Exact-head run
+  `31624964263` is cancelled and invalid. Product commit
+  `56f3d13f17fc723478d4a853ba59be908abc8c43` rejects same-day/inverted
+  periods and binds instrument identity through calculation, validation,
+  score, attribution, persistence and selector readback. Same-currency swap
+  and period regressions plus the complete affected focused surface, Ruff,
+  compile, byte-clean generation and diff hygiene pass. Freeze one replacement
+  H-tier head after the attributable packaged gate reaches a terminal result.
 - Paired review rejected `91881c4bc6d30c0f22fd469d4f854064ecdda7ed`
   because fallback provenance could contradict the selected curve. Exact-head
   run `31623845675` is cancelled and invalid. Product commit

@@ -3612,6 +3612,17 @@ fresh before selection. Exact regressions and the complete affected focused,
 static and programme checks pass. Freeze one replacement H-tier head for
 paired final review and fresh Linux, Windows and terminal validation.
 
+Paired review rejected `5f7f4144529f923c6499498ee29db98ef97c48e8`
+because the exported return helper accepted non-positive periods and cash
+comparison evidence lacked immutable instrument identity. Exact-head run
+`31624964263` is cancelled and invalid. Product commit
+`56f3d13f17fc723478d4a853ba59be908abc8c43` rejects same-day/inverted
+periods and binds instrument identity through calculation, validation, score,
+attribution, persistence and selector readback. Same-currency swap and period
+regressions plus the complete affected focused, static and programme checks
+pass. Freeze one replacement H-tier head after the attributable packaged gate
+reaches a terminal result.
+
 Paired review rejected `5d8f7203648442928fcbad55ab3d02385a0df820`
 on one malformed-input escape: `pd.NA` cash currency was normalized before
 the guarded boundary. Exact-head run `31619460965` is cancelled and invalid.
