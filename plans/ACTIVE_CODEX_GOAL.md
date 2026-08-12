@@ -2574,3 +2574,26 @@ next action and whether the requested outcome is actually complete.
   compensation, body rewrite, broader resource authority or lifecycle change.
   Freeze only after focused tests, static checks, paired review and fresh
   Linux/Windows/terminal H-tier evidence.
+
+## ISSUE-0018 recovery completion and ISSUE-0051 lifecycle start
+
+- Bounded repair PR #683 merged exact reviewed head
+  `9d2a08800d09bb71313ebe3addc2e2ee2ec78b37` as
+  `84f0353573f8ff7d49af1934d3149271009fc22c`. H-tier run
+  `31645482556` passed Linux, the documented single Windows timeout retry and
+  authoritative terminal validation; both final independent reviews approved.
+- First-attempt recovery run `31650363325` appended exactly the missing
+  ISSUE-0018 proposal and receipt. Its evidence records
+  `terminal_status=applied_and_verified`, two transport writes, full authority
+  reconciliation, `zero_action_readback=true` and `execution_allowed=false`.
+  Independent generic live reconciliation is zero action with no blocked,
+  create, update, close or reopen operations. The bounded repair is complete
+  and must not be reopened without a fresh deterministic failure.
+- Clean branch `codex/issue0051-lifecycle-start-20260813` starts from exact
+  main `84f0353573f8ff7d49af1934d3149271009fc22c`. Record only ISSUE-0051
+  `planned -> in_progress`, bound to merged product PR #682, reviewed merge
+  `6b9a79d86e4d17656619c1f969b5f44a2d47c4d9`, H-tier run
+  `31638791406` and the exact independent product reviews. Generate all
+  projections mechanically, prepare the checksum-bound status authority, and
+  require E-tier guards plus ordered writer and zero-action readback before the
+  separate atomic two-hop completion transaction.

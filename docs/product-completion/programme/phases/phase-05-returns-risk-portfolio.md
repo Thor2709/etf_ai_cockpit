@@ -51,7 +51,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0028` | `P0/P1` | `implemented_initially` | `analysis-and-validation` | - | - | `ISSUE-0125` | `ISSUE-0120`, `ISSUE-0125`, `ISSUE-0128` |
 | `ISSUE-0029` | `P1/P2` | `planned` | `analysis-and-validation` | - | - | - | `ISSUE-0074`, `ISSUE-0075`, `ISSUE-0130` |
 | `ISSUE-0046` | `P1/P2` | `planned` | `analysis-and-validation` | - | - | - | `ISSUE-0108`, `ISSUE-0112`, `ISSUE-0115`, `ISSUE-0130` |
-| `ISSUE-0051` | `P1/P2` | `planned` | `analysis-and-validation` | - | - | `ISSUE-0112` | `ISSUE-0088`, `ISSUE-0112` |
+| `ISSUE-0051` | `P1/P2` | `in_progress` | `analysis-and-validation` | - | - | `ISSUE-0112` | `ISSUE-0088`, `ISSUE-0112` |
 | `ISSUE-0052` | `P1` | `implemented_initially` | `analysis-and-validation` | - | - | `ISSUE-0110` | `ISSUE-0105`, `ISSUE-0110`, `ISSUE-0113`, `ISSUE-0115` |
 | `ISSUE-0059` | `P1/P2` | `implemented_initially` | `analysis-and-validation` | - | - | `ISSUE-0110`, `ISSUE-0112`, `ISSUE-0116` | `ISSUE-0105`, `ISSUE-0110`, `ISSUE-0116` |
 | `ISSUE-0060` | `P1` | `implemented_initially` | `analysis-and-validation` | - | - | `ISSUE-0070` | `ISSUE-0008`, `ISSUE-0070`, `ISSUE-0132`, `ISSUE-0133` |

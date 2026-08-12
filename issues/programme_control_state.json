@@ -1162,17 +1162,45 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0051": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #682 merged exact independently approved head 83c2843632e2e88a39fe3fcefa21858b436aada4 as 6b9a79d86e4d17656619c1f969b5f44a2d47c4d9",
+            "Release run 31638791406 passed classifier, authority preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Acceptance evidence covers point-in-time currency- and horizon-matched official cash curves and proxies, explicit unavailable states, reinvestment and inflation context, persisted lineage, attribution and Instrument Detail integration while execution_allowed=false"
+          ],
+          "review_reference": "PR #682 exact-head product reviews and H-tier validation",
+          "reviewed_date": "2026-08-13",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "status": "in_progress"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "PR #682 exact-head product reviews and H-tier validation",
+        "to": "in_progress"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #682 merged exact independently approved head 83c2843632e2e88a39fe3fcefa21858b436aada4 as 6b9a79d86e4d17656619c1f969b5f44a2d47c4d9",
+            "Release run 31638791406 passed classifier, authority preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Acceptance evidence covers point-in-time currency- and horizon-matched official cash curves and proxies, explicit unavailable states, reinvestment and inflation context, persisted lineage, attribution and Instrument Detail integration while execution_allowed=false"
+          ],
+          "from": "planned",
+          "review_reference": "PR #682 exact-head product reviews and H-tier validation",
+          "reviewed_date": "2026-08-13",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "to": "in_progress",
+          "verified_commit": "6b9a79d86e4d17656619c1f969b5f44a2d47c4d9"
+        }
+      ],
+      "verified_commit": "6b9a79d86e4d17656619c1f969b5f44a2d47c4d9",
+      "verified_date": "2026-08-13"
     },
     "ISSUE-0052": {
       "acceptance_evidence": [],
