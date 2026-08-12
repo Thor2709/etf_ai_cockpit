@@ -542,6 +542,48 @@ def test_replay_gateway_rejects_top_level_commit_mismatch_without_writes() -> No
     assert transport.writes == 0
 
 
+def test_status_gateway_accepts_only_the_exact_recovery_dispatch_event() -> None:
+    predecessor_id, predecessor_hash = gateway._legacy_anchor(
+        gateway.RECOVERY_STABLE_ID, "implemented_initially"
+    )
+    event, body = gateway.build_status_event(
+        stable_id=gateway.RECOVERY_STABLE_ID,
+        from_status="implemented_initially",
+        to_status="integrated",
+        source_sha=gateway.RECOVERY_SOURCE_SHA,
+        head_sha=gateway.RECOVERY_HEAD_SHA,
+        candidate_blob_sha256="1" * 64,
+        plan_sha256="2" * 64,
+        predecessor_event_id=predecessor_id,
+        predecessor_event_sha256=predecessor_hash,
+        event_name=gateway.RECOVERY_EVENT_NAME,
+        event_ref="refs/heads/main",
+        run_attempt="1",
+        event_before=gateway.RECOVERY_SOURCE_SHA,
+        event_after=gateway.RECOVERY_HEAD_SHA,
+        actor="operator",
+        pusher="operator",
+        run_id="12345",
+        run_number="7",
+        workflow_ref=RUN_ATTESTATION["workflow_ref"],
+        repository=gateway.REPO,
+        event_payload_sha256="3" * 64,
+        authority_id=gateway.RECOVERY_AUTHORITY_ID,
+        authority_sequence=23,
+        ledger_blob_oid="4" * 40,
+        ledger_blob_sha256="5" * 64,
+        candidate_blob_oid="6" * 40,
+    )
+
+    assert gateway.parse_event_comment(body) == event
+    invalid = copy.deepcopy(event)
+    invalid["authority_id"] = "f" * 64
+    with pytest.raises(ValueError, match="invalid_status_event_workflow_binding"):
+        gateway.parse_event_comment(
+            gateway.EVENT_PREFIX + gateway._json_bytes(invalid).decode()
+        )
+
+
 @pytest.mark.parametrize("superseded_at", [1, 2])
 def test_status_revalidates_live_authority_immediately_before_each_post(
     superseded_at: int,

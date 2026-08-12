@@ -2546,3 +2546,31 @@ next action and whether the requested outcome is actually complete.
   H-tier head for paired review and fresh hosted evidence; no adjacent
   chronology or storage contract is changed and `execution_allowed=false`
   remains unchanged.
+
+## ISSUE-0051 merge and bounded ISSUE-0018 projection recovery
+
+- ISSUE-0051 PR #682 merged exact reviewed product head
+  `83c2843632e2e88a39fe3fcefa21858b436aada4` as
+  `6b9a79d86e4d17656619c1f969b5f44a2d47c4d9`. H-tier run
+  `31638791406` passed classifier, preflight, supply chain, Linux and Windows
+  with 3,573 tests per platform, and terminal validation. The merge has exact
+  parents `5d584e860ade7a7b0ecbbaaaa5efb3161c47c2b9` and the reviewed head;
+  `execution_allowed=false` remains unchanged.
+- Exact-main convergence run `31642819307` failed closed with zero desired
+  writes because the latest existing ISSUE-0018 status authority has no remote
+  projection. Live reconciliation proves this is the sole mismatch: authority
+  sequence 23 expected one ISSUE-0018 `implemented_initially -> integrated`
+  event while GitHub issue #22 still has zero comments. Original writer run
+  `31497001531` attempt 1 recorded `transport_writes=0` before a caller-proof
+  read failure; attempt 2 correctly remained ineligible.
+- The one permitted bounded H-tier repair is isolated in clean worktree
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_post0051`, branch
+  `codex/post0051-convergence-20260813`, from exact base
+  `6b9a79d86e4d17656619c1f969b5f44a2d47c4d9`. It authorizes only a fresh,
+  first-attempt, OIDC-attested dispatch for the exact unrecoverable ISSUE-0018
+  authority, requires unchanged historical candidate and ledger blobs, one
+  absent projection, all prior authorities reconciled, and post-write full
+  reconciliation with zero-action readback. It adds no write retry,
+  compensation, body rewrite, broader resource authority or lifecycle change.
+  Freeze only after focused tests, static checks, paired review and fresh
+  Linux/Windows/terminal H-tier evidence.

@@ -81,6 +81,18 @@ WORKFLOW_NAME = "Programme status completion"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 OIDC_JWKS_URL = f"{OIDC_ISSUER}/.well-known/jwks"
 OIDC_MAX_AGE_SECONDS = 60
+RECOVERY_EVENT_NAME = mutation_gateway.RECOVERY_EVENT_NAME
+RECOVERY_AUTHORITY_ID = mutation_gateway.RECOVERY_AUTHORITY_ID
+RECOVERY_AUTHORITY_REF = "21796ad5c30c5f53cd5487b5bbc1876321122b392579c08357cdd7e2af461cf0"
+RECOVERY_SOURCE_SHA = mutation_gateway.RECOVERY_SOURCE_SHA
+RECOVERY_HEAD_SHA = mutation_gateway.RECOVERY_HEAD_SHA
+RECOVERY_STABLE_ID = mutation_gateway.RECOVERY_STABLE_ID
+RECOVERY_ISSUE_NUMBER = 22
+RECOVERY_DATABASE_ID = "4864677440"
+RECOVERY_NODE_ID = "I_kwDOTVHm5c8AAAABIfUWQA"
+RECOVERY_PLAN_SHA = "ed62f5135396abb107b07b808aafe77733a2b3856e45cbb11ddb179458c9b0d7"
+RECOVERY_CANDIDATE_BLOB_OID = "70249b2b7a6a3f3f862dd42dfff558a1d91c7a5d"
+RECOVERY_CANDIDATE_BLOB_SHA256 = "106f2a9c01bcbdf80ea9834f95b8f65d2f7f3c778de6b1be77987db4dce82bf2"
 
 
 def _git(root: Path, *args: str) -> str:
@@ -378,11 +390,11 @@ def verify_actions_oidc_token(
         "sub": f"repo:{mutation_gateway.REPO}:ref:refs/heads/main",
         "repository": mutation_gateway.REPO,
         "repository_id": repository_id,
-        "event_name": "push",
-        "ref": "refs/heads/main",
-        "sha": attestation["event_after"],
+        "event_name": attestation.get("oidc_event_name", "push"),
+        "ref": attestation.get("oidc_ref", "refs/heads/main"),
+        "sha": attestation.get("oidc_sha", attestation["event_after"]),
         "workflow_ref": attestation["workflow_ref"],
-        "workflow_sha": attestation["event_after"],
+        "workflow_sha": attestation.get("oidc_workflow_sha", attestation["event_after"]),
         "run_id": attestation["run_id"],
         "run_number": attestation["run_number"],
         "run_attempt": "1",
@@ -415,9 +427,9 @@ def validate_live_actions_run(
         or not str(repository.get("id", "")).isdigit()
         or run.get("path") != WORKFLOW_PATH
         or run.get("name") != WORKFLOW_NAME
-        or run.get("event") != "push"
+        or run.get("event") != attestation.get("oidc_event_name", "push")
         or run.get("head_branch") != "main"
-        or run.get("head_sha") != attestation["event_after"]
+        or run.get("head_sha") != attestation.get("oidc_sha", attestation["event_after"])
         or str(run.get("run_number", "")) != attestation["run_number"]
         or str(run.get("run_attempt", "")) != "1"
         or run.get("status") != "in_progress"
@@ -450,7 +462,7 @@ def validate_live_check_run(
     )
     if (
         str(check.get("id", "")) != check_run_id
-        or check.get("head_sha") != attestation["event_after"]
+        or check.get("head_sha") != attestation.get("oidc_sha", attestation["event_after"])
         or check.get("status") != "in_progress"
         or not isinstance(app, dict)
         or app.get("slug") != "github-actions"
@@ -620,6 +632,99 @@ def github_actions_push_attestation(
     return attestation
 
 
+def github_actions_recovery_attestation(
+    run_reader: Callable[[str], dict[str, Any]] = read_actions_run,
+) -> dict[str, str]:
+    """Attest the exact, single-use dispatch used for ISSUE-0018 recovery."""
+
+    required = {
+        key: os.environ.get(key, "")
+        for key in (
+            "GITHUB_ACTIONS",
+            "GITHUB_EVENT_NAME",
+            "GITHUB_REF",
+            "GITHUB_SHA",
+            "GITHUB_RUN_ATTEMPT",
+            "GITHUB_RUN_ID",
+            "GITHUB_RUN_NUMBER",
+            "GITHUB_WORKFLOW_REF",
+            "GITHUB_REPOSITORY",
+            "GITHUB_ACTOR",
+            "GITHUB_EVENT_PATH",
+        )
+    }
+    event_path = Path(required["GITHUB_EVENT_PATH"])
+    if (
+        required["GITHUB_ACTIONS"] != "true"
+        or required["GITHUB_EVENT_NAME"] != RECOVERY_EVENT_NAME
+        or required["GITHUB_REF"] != "refs/heads/main"
+        or not SHA_RE.fullmatch(required["GITHUB_SHA"])
+        or required["GITHUB_RUN_ATTEMPT"] != "1"
+        or not event_path.is_file()
+    ):
+        raise mutation_gateway.MutationPolicyError(
+            "ineligible_status_recovery_invocation",
+            mutation_gateway._policy_evidence("ineligible_status_recovery_invocation"),
+        )
+    event_bytes = event_path.read_bytes()
+    try:
+        event = json.loads(event_bytes)
+    except json.JSONDecodeError as exc:
+        raise mutation_gateway.MutationPolicyError(
+            "invalid_status_recovery_event",
+            mutation_gateway._policy_evidence("invalid_status_recovery_event"),
+        ) from exc
+    if (
+        not isinstance(event, dict)
+        or event.get("ref") != "refs/heads/main"
+        or event.get("inputs") not in (None, {})
+    ):
+        raise mutation_gateway.MutationPolicyError(
+            "invalid_status_recovery_event",
+            mutation_gateway._policy_evidence("invalid_status_recovery_event"),
+        )
+    attestation = {
+        "event_name": RECOVERY_EVENT_NAME,
+        "event_ref": "refs/heads/main",
+        "run_attempt": required["GITHUB_RUN_ATTEMPT"],
+        "event_before": RECOVERY_SOURCE_SHA,
+        "event_after": RECOVERY_HEAD_SHA,
+        "actor": required["GITHUB_ACTOR"],
+        "pusher": required["GITHUB_ACTOR"],
+        "run_id": required["GITHUB_RUN_ID"],
+        "run_number": required["GITHUB_RUN_NUMBER"],
+        "workflow_ref": required["GITHUB_WORKFLOW_REF"],
+        "repository": required["GITHUB_REPOSITORY"],
+        "event_payload_sha256": hashlib.sha256(event_bytes).hexdigest(),
+        "oidc_event_name": RECOVERY_EVENT_NAME,
+        "oidc_ref": "refs/heads/main",
+        "oidc_sha": required["GITHUB_SHA"],
+        "oidc_workflow_sha": required["GITHUB_SHA"],
+    }
+    try:
+        mutation_gateway._validate_run_attestation(
+            {
+                key: attestation[key]
+                for key in (
+                    "run_id",
+                    "run_number",
+                    "workflow_ref",
+                    "repository",
+                    "event_payload_sha256",
+                )
+            }
+        )
+        validate_live_actions_run(attestation, run_reader)
+    except (ValueError, mutation_gateway.MutationGatewayError) as exc:
+        raise mutation_gateway.MutationPolicyError(
+            "status_recovery_invocation_attestation_mismatch",
+            mutation_gateway._policy_evidence(
+                "status_recovery_invocation_attestation_mismatch"
+            ),
+        ) from exc
+    return attestation
+
+
 def revalidate_live_authority(
     root: Path,
     *,
@@ -630,17 +735,27 @@ def revalidate_live_authority(
     run_reader: Callable[[str], dict[str, Any]],
     main_fetcher: Callable[[Path], None],
     caller_proof_verifier: Callable[[], None],
+    recovery: bool = False,
 ) -> None:
     """Refresh live read authorities immediately before one GitHub POST."""
 
     main_fetcher(root)
     caller_proof_verifier()
-    mutation_gateway.validate_authority_git_transition(
-        root,
-        event_before=expected_parent,
-        event_after=expected_head,
-        main_ref=main_ref,
-    )
+    if recovery:
+        mutation_gateway.validate_recovery_authority_git_transition(
+            root,
+            source_sha=expected_parent,
+            head_sha=expected_head,
+            main_ref=str(main_ref),
+            authority_id=RECOVERY_AUTHORITY_ID,
+        )
+    else:
+        mutation_gateway.validate_authority_git_transition(
+            root,
+            event_before=expected_parent,
+            event_after=expected_head,
+            main_ref=main_ref,
+        )
 
 
 def load_candidate(candidate_bytes: bytes) -> dict[str, Any]:
@@ -1057,6 +1172,82 @@ def validate_candidate(
         raise ValueError("current plan contains a non-status delta")
 
 
+def validate_issue0018_recovery_contract(
+    *,
+    authority: dict[str, Any],
+    binding: dict[str, Any],
+    candidate: dict[str, Any],
+    plan: dict[str, Any],
+    remote: list[dict[str, Any]],
+    records: list[dict[str, Any]],
+    prior_records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Allow only the demonstrated, latest ISSUE-0018 omission."""
+
+    payload = authority.get("payload")
+    if (
+        authority.get("authority_id") != RECOVERY_AUTHORITY_ID
+        or authority.get("authority_type") != "status"
+        or authority.get("sequence") != 23
+        or not isinstance(payload, dict)
+        or binding.get("authority_id") != RECOVERY_AUTHORITY_ID
+        or binding.get("authority_sequence") != 23
+        or payload.get("stable_id") != RECOVERY_STABLE_ID
+        or payload.get("issue_number") != RECOVERY_ISSUE_NUMBER
+        or payload.get("database_id") != RECOVERY_DATABASE_ID
+        or payload.get("node_id") != RECOVERY_NODE_ID
+        or payload.get("from_status") != "implemented_initially"
+        or payload.get("to_status") != "integrated"
+        or payload.get("source_sha") != RECOVERY_SOURCE_SHA
+        or payload.get("candidate_path") != DEFAULT_CANDIDATE.as_posix()
+        or payload.get("candidate_authority_ref") != RECOVERY_AUTHORITY_REF
+        or payload.get("candidate_blob_oid") != RECOVERY_CANDIDATE_BLOB_OID
+        or payload.get("candidate_blob_sha256") != RECOVERY_CANDIDATE_BLOB_SHA256
+        or payload.get("plan_sha256") != RECOVERY_PLAN_SHA
+        or candidate.get("authority_ref") != RECOVERY_AUTHORITY_REF
+        or candidate.get("expected_parent_sha") != RECOVERY_SOURCE_SHA
+        or candidate.get("plan_semantic_sha256") != RECOVERY_PLAN_SHA
+        or candidate.get("expected_update")
+        != {
+            "stable_id": RECOVERY_STABLE_ID,
+            "from_status": "implemented_initially",
+            "to_status": "integrated",
+        }
+        or len(records) != 24
+        or records[:-1] != prior_records
+        or len(prior_records) != 23
+        or prior_records[-1].get("sequence") != 22
+    ):
+        raise ValueError("status recovery authority contract mismatch")
+
+    matches = [
+        issue
+        for issue in (sync.normalise_remote_issue(row) for row in remote)
+        if RECOVERY_STABLE_ID in set(sync.MARKER_RE.findall(issue["body"]))
+    ]
+    if len(matches) != 1:
+        raise ValueError("status recovery target issue identity is ambiguous")
+    target = matches[0]
+    if (
+        target["number"] != RECOVERY_ISSUE_NUMBER
+        or target["id"] != str(payload["database_id"])
+        or target["node_id"] != str(payload["node_id"])
+        or sync.MARKER_RE.findall(target["body"]) != [RECOVERY_STABLE_ID]
+    ):
+        raise ValueError("status recovery target issue identity mismatch")
+    projection = mutation_gateway.project_status_events(target)
+    if (
+        not projection.get("accepted")
+        or projection.get("status") != "implemented_initially"
+        or any(
+            event.get("authority_id") == RECOVERY_AUTHORITY_ID
+            for event in projection.get("authority_events", [])
+        )
+    ):
+        raise ValueError("status recovery projection is existing, partial, or ambiguous")
+    return target
+
+
 def run(
     root: Path,
     candidate_path: Path,
@@ -1083,11 +1274,13 @@ def run(
     actions_run_reader: Callable[[str], dict[str, Any]] = read_actions_run,
     main_fetcher: Callable[[Path], None] = fetch_origin_main,
     caller_proof_verifier: Callable[[], None] | None = None,
+    recovery: bool = False,
 ) -> None:
     evidence: dict[str, Any] = {
         "schema_version": "etf-ai-cockpit.status-completion-evidence/1.0",
         "execution_allowed": False,
         "mode": "apply" if apply else "validate",
+        "recovery": recovery,
         "expected_parent_sha": expected_parent,
         "expected_head_sha": expected_head,
         "terminal_status": "failed",
@@ -1111,12 +1304,24 @@ def run(
             repository = mutation_gateway.REPO
             event_payload_sha256 = "0" * 64
 
+        event_binding_ok = (
+            event_name == "push"
+            and event_ref == "refs/heads/main"
+            and run_attempt == "1"
+            and event_before == expected_parent
+            and event_after == expected_head
+        ) or (
+            recovery
+            and event_name == RECOVERY_EVENT_NAME
+            and event_ref == "refs/heads/main"
+            and run_attempt == "1"
+            and expected_parent == RECOVERY_SOURCE_SHA
+            and expected_head == RECOVERY_HEAD_SHA
+            and event_before == RECOVERY_SOURCE_SHA
+            and event_after == RECOVERY_HEAD_SHA
+        )
         if (
-            event_name != "push"
-            or event_ref != "refs/heads/main"
-            or run_attempt != "1"
-            or event_before != expected_parent
-            or event_after != expected_head
+            not event_binding_ok
             or not actor
             or not pusher
             or not run_id
@@ -1155,14 +1360,25 @@ def run(
                 )
             caller_proof_verifier()
         proof_revalidator = caller_proof_verifier
-        prior_records, records, git_binding = (
-            mutation_gateway.validate_authority_git_transition(
-                root,
-                event_before=expected_parent,
-                event_after=expected_head,
-                main_ref=main_ref,
+        if recovery:
+            prior_records, records, git_binding = (
+                mutation_gateway.validate_recovery_authority_git_transition(
+                    root,
+                    source_sha=expected_parent,
+                    head_sha=expected_head,
+                    main_ref=str(main_ref),
+                    authority_id=RECOVERY_AUTHORITY_ID,
+                )
             )
-        )
+        else:
+            prior_records, records, git_binding = (
+                mutation_gateway.validate_authority_git_transition(
+                    root,
+                    event_before=expected_parent,
+                    event_after=expected_head,
+                    main_ref=main_ref,
+                )
+            )
         authority = records[-1]
         evidence["authority"] = git_binding
         registry = json.loads((root / REGISTRY_PATH).read_text(encoding="utf-8"))
@@ -1214,7 +1430,7 @@ def run(
                 candidate_bytes=candidate_bytes,
                 expected_parent=expected_parent,
                 expected_head=expected_head,
-                main_ref=main_ref,
+                main_ref=None if recovery else main_ref,
             )
             validate_candidate(candidate, plan, remote)
             candidate_oid = _git(
@@ -1232,6 +1448,16 @@ def run(
                 or payload["plan_sha256"] != candidate["plan_semantic_sha256"]
             ):
                 raise ValueError("candidate does not bind the committed authority")
+            if recovery:
+                validate_issue0018_recovery_contract(
+                    authority=authority,
+                    binding=git_binding,
+                    candidate=candidate,
+                    plan=plan,
+                    remote=remote,
+                    records=records,
+                    prior_records=prior_records,
+                )
             expected_update = candidate["expected_update"]
             stable_id = str(expected_update["stable_id"])
             reviewed_matches = [
@@ -1305,6 +1531,7 @@ def run(
                     run_reader=actions_run_reader,
                     main_fetcher=main_fetcher,
                     caller_proof_verifier=proof_revalidator,  # type: ignore[arg-type]
+                    recovery=recovery,
                 ),
             )
         elif authority["authority_type"] == "status_replay":
@@ -1561,6 +1788,7 @@ def main(
     parser.add_argument("--expected-head")
     parser.add_argument("--main-ref")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--recover-issue-0018-status", action="store_true")
     parser.add_argument("--evidence-out", type=Path)
     args = parser.parse_args(argv)
     root = args.root.resolve()
@@ -1572,12 +1800,18 @@ def main(
         evidence_out = root / evidence_out
     attestation: dict[str, str] = {}
     caller_proof_verifier: Callable[[], None] | None = None
+    if args.recover_issue_0018_status and not args.apply:
+        parser.error("status recovery requires --apply")
     if args.apply:
         if args.expected_parent or args.expected_head or args.main_ref:
             parser.error(
                 "--apply derives push identity and main authority from GitHub Actions"
             )
-        attestation = github_actions_push_attestation(actions_run_reader)
+        attestation = (
+            github_actions_recovery_attestation(actions_run_reader)
+            if args.recover_issue_0018_status
+            else github_actions_push_attestation(actions_run_reader)
+        )
         expected_parent = attestation["event_before"]
         expected_head = attestation["event_after"]
         main_ref = "origin/main"
@@ -1622,6 +1856,7 @@ def main(
         actions_run_reader=actions_run_reader,
         main_fetcher=main_fetcher,
         caller_proof_verifier=caller_proof_verifier,
+        recovery=args.recover_issue_0018_status,
     )
     return 0
 
