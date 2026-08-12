@@ -3576,6 +3576,20 @@ chronology-prefix and manifest rollback regressions plus the complete affected
 focused, static and programme checks pass. Freeze one replacement H-tier head
 for paired final review and fresh Linux, Windows and terminal validation.
 
+Paired review rejected `fd112929181768b6d065b45da97f9e5929bc0357`
+because generic curve ingestion bypassed serialized admission, future
+malformed rows poisoned earlier decision-time reads, the JSON manifest could
+diverge from a failed SQLite commit, direct attribution omitted unit/kind, and
+non-string status could escape fail-closed validation. Exact-head run
+`31609238072` is cancelled and invalid. Consolidated product commit
+`4ed063c0b7411a0e70e95d76a5b84e0d5b618333` rejects generic curve rows,
+filters raw history before decoding, stores the authoritative immutable
+manifest with points in SQLite while treating JSON as projection, and
+preserves cash identity with strict malformed-status handling. Exact
+regressions and the complete affected focused, static and programme checks
+pass. Freeze one replacement H-tier head for paired final review and fresh
+Linux, Windows and terminal validation.
+
 Paired review rejected `7245e76ac27606f9542fd71dd354d178fcdcd5b1`
 for partial snapshot visibility, inferred availability accepted as exact and
 persisted cash accepted without currency. Run `31593071919` is cancelled and

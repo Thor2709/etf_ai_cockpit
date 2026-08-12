@@ -2437,3 +2437,16 @@ next action and whether the requested outcome is actually complete.
   rollback regressions plus the complete affected focused surface, Ruff,
   compile, byte-clean generation and diff hygiene pass. Freeze one replacement
   H-tier head for paired final review and fresh hosted validation.
+- Paired review rejected `fd112929181768b6d065b45da97f9e5929bc0357`
+  because generic curve ingestion bypassed serialized admission, future
+  malformed rows poisoned earlier decision-time reads, the JSON manifest could
+  diverge from a failed SQLite commit, direct attribution omitted unit/kind,
+  and non-string status could escape fail-closed validation. Exact-head run
+  `31609238072` is cancelled and invalid. Consolidated product commit
+  `4ed063c0b7411a0e70e95d76a5b84e0d5b618333` rejects generic curve rows,
+  filters raw history before decoding, stores the authoritative immutable
+  manifest with points in SQLite while treating JSON as projection, and
+  preserves cash identity with strict malformed-status handling. Exact
+  regressions and the complete affected focused surface, Ruff, compile,
+  byte-clean generation and diff hygiene pass. Freeze one replacement H-tier
+  head for paired final review and fresh hosted validation.
