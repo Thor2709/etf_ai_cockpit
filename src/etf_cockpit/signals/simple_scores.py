@@ -286,6 +286,8 @@ class SimpleInstrumentScore:
     cash_return: float | None = None
     excess_over_cash: float | None = None
     cash_currency: str | None = None
+    cash_unit: str | None = None
+    cash_dataset_kind: str | None = None
     cash_start_date: str | None = None
     cash_end_date: str | None = None
     cash_horizon_years: float | None = None
@@ -946,6 +948,8 @@ def simple_scoreboard_frame(
             "cash_return": score.cash_return,
             "excess_over_cash": score.excess_over_cash,
             "cash_currency": score.cash_currency,
+            "cash_unit": score.cash_unit,
+            "cash_dataset_kind": score.cash_dataset_kind,
             "cash_start_date": score.cash_start_date,
             "cash_end_date": score.cash_end_date,
             "cash_horizon_years": score.cash_horizon_years,
@@ -2432,6 +2436,8 @@ def _cash_comparison_info(
         "cash_return": value.get("cash_return"),
         "excess_over_cash": value.get("excess_over_cash"),
         "cash_currency": value.get("currency"),
+        "cash_unit": value.get("unit"),
+        "cash_dataset_kind": value.get("dataset_kind"),
         "cash_start_date": value.get("start_date"),
         "cash_end_date": value.get("end_date"),
         "cash_horizon_years": value.get("horizon_years"),

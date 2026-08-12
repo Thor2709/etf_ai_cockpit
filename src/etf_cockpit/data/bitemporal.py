@@ -225,7 +225,13 @@ class BitemporalStore:
             status,
         )
 
-    def observations(self, dataset_id: str | None, *, entity_id: str | None = None) -> tuple[BitemporalObservation, ...]:
+    def observations(
+        self,
+        dataset_id: str | None,
+        *,
+        entity_id: str | None = None,
+        _connection: sqlite3.Connection | None = None,
+    ) -> tuple[BitemporalObservation, ...]:
         query = "SELECT * FROM bitemporal_observations"
         params: tuple[object, ...] = ()
         if dataset_id is not None:
@@ -236,7 +242,8 @@ class BitemporalStore:
             query += "entity_id = ?"
             params += (str(entity_id),)
         query += " ORDER BY stable_id, available_at, revision, observation_id"
-        return tuple(_observation(row) for row in self.store.connection.execute(query, params))
+        connection = _connection or self.store.connection
+        return tuple(_observation(row) for row in connection.execute(query, params))
 
     def as_of(self, dataset_id: str, decision_time: str | datetime, *, entity_id: str | None = None) -> pd.DataFrame:
         cutoff = _timestamp(decision_time, "decision_time")

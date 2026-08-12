@@ -41,6 +41,7 @@ def _evidence(**updates: object) -> dict[str, object]:
     value: dict[str, object] = {
         "status": "available",
         "dataset_kind": "risk_free",
+        "unit": "decimal",
         "curve_type": "spot",
         "currency": "AUD",
         "tenor_years": 1.0 / 365.0,
@@ -66,6 +67,7 @@ def _evidence(**updates: object) -> dict[str, object]:
         "interpolation": "none",
         "extrapolation_allowed": False,
         "fallback": False,
+        "execution_allowed": False,
     }
     value.update(updates)
     return value
@@ -161,6 +163,31 @@ def test_cash_builder_rejects_non_risk_free_curve_evidence() -> None:
         end_date="2025-01-02",
         instrument_currency="AUD",
         cash_evidence=_evidence(dataset_kind="benchmark"),
+        decision_time="2025-01-03T00:00:00+00:00",
+    )
+    assert result.status == "unavailable"
+    assert result.execution_allowed is False
+
+
+@pytest.mark.parametrize(
+    "update",
+    (
+        {"unit": "percentage"},
+        {"dataset_kind": "benchmark"},
+        {"execution_allowed": True},
+        {"execution_allowed": 0},
+    ),
+)
+def test_cash_builder_rejects_contradictory_unit_kind_or_authority(
+    update: dict[str, object],
+) -> None:
+    prices = pd.Series([100.0, 101.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
+    result = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(**update),
         decision_time="2025-01-03T00:00:00+00:00",
     )
     assert result.status == "unavailable"
@@ -861,10 +888,14 @@ def test_cash_projection_round_trip_preserves_non_execution_authority() -> None:
         _available_eur_result(), expected_currency="EUR"
     )
     assert projection["execution_allowed"] is False
+    assert projection["cash_unit"] == "decimal"
+    assert projection["cash_dataset_kind"] == "risk_free"
     round_trip = validate_cash_comparison_result(
         cash_comparison_from_projection(projection), expected_currency="EUR"
     )
     assert round_trip.status == "available"
+    assert round_trip.unit == "decimal"
+    assert round_trip.dataset_kind == "risk_free"
     assert round_trip.execution_allowed is False
 
 
@@ -957,6 +988,8 @@ def test_injected_cash_comparison_propagates_without_changing_score_authority(
     frame = simple_scoreboard_frame([available, other_unavailable])
     row = frame.iloc[0]
     assert row["cash_return"] == pytest.approx(injected["cash_return"])
+    assert row["cash_unit"] == "decimal"
+    assert row["cash_dataset_kind"] == "risk_free"
     assert row["cash_source_id"] == injected["source_id"]
     assert row["cash_source_terms"] == injected["source_terms"]
     assert row["cash_knowledge_cutoff"] == injected["knowledge_cutoff"]
@@ -976,11 +1009,15 @@ def test_injected_cash_comparison_propagates_without_changing_score_authority(
         "attribution"
     ]
     assert persisted["cash_return"] == pytest.approx(injected["cash_return"])
+    assert persisted["cash_unit"] == "decimal"
+    assert persisted["cash_dataset_kind"] == "risk_free"
     assert persisted["cash_source_terms"] == injected["source_terms"]
     assert persisted["cash_knowledge_cutoff"] == injected["knowledge_cutoff"]
     assert str(pd.read_parquet(attribution_path)["cash_curve_revision"].dtype) == "Int64"
     assert not bool(persisted["execution_allowed"])
     assert readback["cash_return"] == pytest.approx(injected["cash_return"])
+    assert readback["cash_unit"] == "decimal"
+    assert readback["cash_dataset_kind"] == "risk_free"
     assert readback["cash_source_id"] == injected["source_id"]
     assert readback["cash_source_terms"] == injected["source_terms"]
     assert readback["cash_knowledge_cutoff"] == injected["knowledge_cutoff"]

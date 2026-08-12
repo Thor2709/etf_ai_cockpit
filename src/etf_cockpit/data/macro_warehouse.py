@@ -16,6 +16,7 @@ import json
 import math
 from numbers import Integral
 from pathlib import Path
+import sqlite3
 from typing import Iterable, Literal, Mapping
 
 import pandas as pd
@@ -712,6 +713,8 @@ def _curve_history_issue(rows: Iterable[MacroObservation], curve_id: str) -> str
             return "curve dataset identity does not match curve_id"
         if row.dataset_kind != "risk_free":
             return "curve dataset_kind must be risk_free"
+        if row.unit != "decimal":
+            return "curve unit must be decimal"
         effective_at = _timestamp_value(_explicit_timestamp(row.observed_at, "observed_at"))
         available_at = _timestamp_value(_explicit_timestamp(row.available_at, "available_at"))
         key = (effective_at, row.revision)
@@ -762,6 +765,54 @@ def _curve_history_issue(rows: Iterable[MacroObservation], curve_id: str) -> str
     return None
 
 
+def _macro_manifest(
+    rows: list[MacroObservation],
+    resolved_run_id: str,
+    batch_hash: str,
+) -> dict[str, object]:
+    return {
+        "schema_version": "1.0",
+        "warehouse_version": "macro-warehouse.v1",
+        "run_id": resolved_run_id,
+        "batch_sha256": batch_hash,
+        "row_count": len(rows),
+        "dataset_ids": sorted({row.dataset_id for row in rows}),
+        "source_ids": sorted({row.source_id for row in rows}),
+        "source_terms": sorted({row.source_terms for row in rows}),
+        "transformations": sorted({row.transformation_version for row in rows}),
+        "execution_allowed": False,
+    }
+
+
+def _append_macro_rows(
+    store: BitemporalStore,
+    rows: list[MacroObservation],
+    *,
+    resolved_run_id: str,
+    connection: sqlite3.Connection,
+) -> None:
+    for row in rows:
+        store.record_observation(
+            dataset_id=row.dataset_id,
+            entity_id=row.series_id,
+            stable_id=row.stable_id,
+            value=row.ledger_value(),
+            source_id=row.source_id,
+            source_checksum=row.source_checksum,
+            revision=row.revision,
+            valid_from=f"{row.period_start}T00:00:00+00:00",
+            available_at=row.available_at,
+            observed_at=row.observed_at,
+            published_at=row.published_at,
+            run_id=resolved_run_id,
+            ingested_at=row.ingested_at,
+            revised_at=row.revised_at,
+            timezone_confidence=row.timezone_confidence,
+            availability_confidence=row.availability_confidence,
+            _connection=connection,
+        )
+
+
 class MacroWarehouse:
     """Adapter exposing macro observations and explicit unavailable summaries."""
 
@@ -775,44 +826,19 @@ class MacroWarehouse:
         batch_payload = [row.model_dump(mode="json") for row in rows]
         batch_hash = _source_checksum(json.dumps(batch_payload, sort_keys=True, separators=(",", ":")))
         resolved_run_id = run_id or f"macro-{batch_hash[:24]}"
+        manifest = _macro_manifest(rows, resolved_run_id, batch_hash)
         try:
             with BitemporalStore(Path(root)) as store:
                 with store.store.transaction() as connection:
-                    for row in rows:
-                        store.record_observation(
-                            dataset_id=row.dataset_id,
-                            entity_id=row.series_id,
-                            stable_id=row.stable_id,
-                            value=row.ledger_value(),
-                            source_id=row.source_id,
-                            source_checksum=row.source_checksum,
-                            revision=row.revision,
-                            valid_from=f"{row.period_start}T00:00:00+00:00",
-                            available_at=row.available_at,
-                            observed_at=row.observed_at,
-                            published_at=row.published_at,
-                            run_id=resolved_run_id,
-                            ingested_at=row.ingested_at,
-                            revised_at=row.revised_at,
-                            timezone_confidence=row.timezone_confidence,
-                            availability_confidence=row.availability_confidence,
-                            _connection=connection,
-                        )
+                    _append_macro_rows(
+                        store,
+                        rows,
+                        resolved_run_id=resolved_run_id,
+                        connection=connection,
+                    )
+                    atomic_write_json(self._manifest_path(Path(root)), manifest)
         except BitemporalError as exc:
             raise MacroWarehouseError(str(exc)) from exc
-        manifest = {
-            "schema_version": "1.0",
-            "warehouse_version": "macro-warehouse.v1",
-            "run_id": resolved_run_id,
-            "batch_sha256": batch_hash,
-            "row_count": len(rows),
-            "dataset_ids": sorted({row.dataset_id for row in rows}),
-            "source_ids": sorted({row.source_id for row in rows}),
-            "source_terms": sorted({row.source_terms for row in rows}),
-            "transformations": sorted({row.transformation_version for row in rows}),
-            "execution_allowed": False,
-        }
-        atomic_write_json(self._manifest_path(Path(root)), manifest)
         return manifest
 
     def observations(self, *, root: Path, dataset_id: str | None = None) -> list[MacroObservation]:
@@ -840,22 +866,6 @@ class MacroWarehouse:
 
     def ingest_curve(self, snapshot: CurveSnapshot, *, root: Path) -> dict[str, object]:
         curve = _validate_curve(snapshot)
-        try:
-            existing = self.observations(
-                root=root, dataset_id=f"curve:{curve.curve_id}"
-            )
-        except (BitemporalError, TypeError, ValueError) as exc:
-            raise MacroWarehouseError(f"persisted curve history is malformed: {exc}") from exc
-        history_issue = _curve_history_issue(existing, curve.curve_id)
-        if history_issue is not None:
-            raise MacroWarehouseError(history_issue)
-        effective_at = _timestamp_value(curve.effective_at)
-        if any(
-            _timestamp_value(_explicit_timestamp(row.observed_at, "observed_at")) == effective_at
-            and row.revision >= curve.revision
-            for row in existing
-        ):
-            raise MacroWarehouseError("curve revision must advance without duplicate identity")
         observations = [
             MacroObservation(
                 dataset_id=f"curve:{curve.curve_id}",
@@ -891,7 +901,49 @@ class MacroWarehouse:
             )
             for point in curve.points
         ]
-        return self.ingest(observations, root=root)
+        batch_payload = [row.model_dump(mode="json") for row in observations]
+        batch_hash = _source_checksum(
+            json.dumps(batch_payload, sort_keys=True, separators=(",", ":"))
+        )
+        resolved_run_id = f"macro-{batch_hash[:24]}"
+        manifest = _macro_manifest(observations, resolved_run_id, batch_hash)
+        try:
+            with BitemporalStore(Path(root)) as store:
+                with store.store.transaction() as connection:
+                    existing = [
+                        MacroObservation.from_ledger(row.__dict__)
+                        for row in store.observations(
+                            f"curve:{curve.curve_id}",
+                            _connection=connection,
+                        )
+                    ]
+                    effective_at = _timestamp_value(curve.effective_at)
+                    if any(
+                        _timestamp_value(
+                            _explicit_timestamp(row.observed_at, "observed_at")
+                        )
+                        == effective_at
+                        and row.revision >= curve.revision
+                        for row in existing
+                    ):
+                        raise MacroWarehouseError(
+                            "curve revision must advance without duplicate identity"
+                        )
+                    history_issue = _curve_history_issue(
+                        [*existing, *observations], curve.curve_id
+                    )
+                    if history_issue is not None:
+                        raise MacroWarehouseError(history_issue)
+                    _append_macro_rows(
+                        store,
+                        observations,
+                        resolved_run_id=resolved_run_id,
+                        connection=connection,
+                    )
+                    atomic_write_json(self._manifest_path(Path(root)), manifest)
+        except BitemporalError as exc:
+            raise MacroWarehouseError(str(exc)) from exc
+        return manifest
 
     def ingest_benchmark(
         self, metadata: BenchmarkMetadata, *, root: Path
@@ -934,7 +986,18 @@ class MacroWarehouse:
             history = self.observations(
                 root=root, dataset_id=f"curve:{curve_id}"
             )
-            history_issue = _curve_history_issue(history, curve_id)
+            cutoff = _timestamp_value(
+                _explicit_timestamp(decision_time, "decision_time")
+            )
+            eligible_history = [
+                row
+                for row in history
+                if _timestamp_value(
+                    _explicit_timestamp(row.available_at, "available_at")
+                )
+                <= cutoff
+            ]
+            history_issue = _curve_history_issue(eligible_history, curve_id)
             if history_issue is not None:
                 return {
                     "status": "unavailable",

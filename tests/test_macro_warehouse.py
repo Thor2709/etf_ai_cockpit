@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
+from etf_cockpit.data import macro_warehouse as macro_warehouse_module
 from etf_cockpit.data.bitemporal import BitemporalError, BitemporalStore
 from etf_cockpit.data.macro_warehouse import (
     BenchmarkMetadata,
@@ -605,6 +608,109 @@ def test_curve_snapshot_append_is_atomic_and_authoritative_retry_succeeds(
     summary = warehouse.ingest_curve(snapshot, root=tmp_path)
     assert summary["row_count"] == 2
     assert len(warehouse.observations(root=tmp_path, dataset_id="curve:aud-official-spot")) == 2
+
+
+def test_curve_manifest_failure_rolls_back_and_authoritative_retry_succeeds(
+    tmp_path, monkeypatch
+) -> None:
+    warehouse = MacroWarehouse()
+    snapshot = _curve()
+    original = macro_warehouse_module.atomic_write_json
+    calls = {"count": 0}
+
+    def fail_once(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise OSError("injected manifest failure")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(macro_warehouse_module, "atomic_write_json", fail_once)
+    with pytest.raises(OSError, match="injected manifest failure"):
+        warehouse.ingest_curve(snapshot, root=tmp_path)
+    assert warehouse.observations(root=tmp_path, dataset_id="curve:aud-official-spot") == []
+
+    summary = warehouse.ingest_curve(snapshot, root=tmp_path)
+    assert summary["row_count"] == 2
+    assert len(warehouse.observations(root=tmp_path, dataset_id="curve:aud-official-spot")) == 2
+
+
+def test_curve_admission_rejects_availability_regression_before_append(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    warehouse.ingest_curve(
+        _curve(available_at="2025-01-03T00:00:00+00:00"), root=tmp_path
+    )
+    with pytest.raises(MacroWarehouseError, match="revision"):
+        warehouse.ingest_curve(
+            _curve(
+                revision=2,
+                available_at="2025-01-02T00:00:00+00:00",
+            ),
+            root=tmp_path,
+        )
+    assert len(warehouse.observations(root=tmp_path, dataset_id="curve:aud-official-spot")) == 2
+
+
+def test_concurrent_same_effective_revision_different_sources_have_one_commit(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    first = _curve()
+    second = first.model_copy(
+        update={
+            "source_id": "official-central-bank-other-source",
+            "source_checksum": "c" * 64,
+        }
+    )
+
+    def append(snapshot: CurveSnapshot) -> str:
+        warehouse.ingest_curve(snapshot, root=tmp_path)
+        return "committed"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = []
+        for future in (
+            executor.submit(append, first),
+            executor.submit(append, second),
+        ):
+            try:
+                results.append(future.result())
+            except MacroWarehouseError:
+                results.append("rejected")
+
+    assert sorted(results) == ["committed", "rejected"]
+    rows = warehouse.observations(root=tmp_path, dataset_id="curve:aud-official-spot")
+    assert len(rows) == 2
+    assert {row.source_id for row in rows} in (
+        {first.source_id},
+        {second.source_id},
+    )
+
+
+def test_curve_rate_ignores_invalid_future_history_for_historical_query(tmp_path) -> None:
+    first = _direct_curve_row(
+        dataset_id="curve:historical-curve",
+        series_id="historical-curve:1Y",
+        curve_id="historical-curve",
+        available_at="2025-01-02T00:00:00+00:00",
+        source_terms="official terms",
+        methodology="official method",
+    )
+    future_duplicate = first.model_copy(
+        update={
+            "source_id": "future-source",
+            "source_checksum": "c" * 64,
+            "available_at": "2025-03-01T00:00:00+00:00",
+        }
+    )
+    _store_direct_curve_row(tmp_path, first)
+    _store_direct_curve_row(tmp_path, future_duplicate)
+
+    selected = MacroWarehouse().curve_rate(
+        root=tmp_path,
+        curve_id="historical-curve",
+        tenor_years=1.0,
+        decision_time="2025-01-15T00:00:00+00:00",
+    )
+    assert selected["status"] == "available"
+    assert selected["source_id"] == first.source_id
 
 
 def test_non_risk_free_curve_rows_are_unavailable_for_cash(tmp_path) -> None:

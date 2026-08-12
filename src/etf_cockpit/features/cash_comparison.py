@@ -210,6 +210,8 @@ class CashComparisonResult:
     cash_return: float | None = None
     excess_over_cash: float | None = None
     currency: str | None = None
+    unit: str | None = None
+    dataset_kind: str | None = None
     start_date: str | None = None
     end_date: str | None = None
     horizon_years: float | None = None
@@ -283,10 +285,14 @@ def build_cash_comparison(
     day_count = cash_evidence.get("day_count")
     horizon = None
     try:
+        if cash_evidence.get("execution_allowed") is not False:
+            return _unavailable("cash evidence cannot grant execution authority", currency=currency)
         if evidence_currency != currency:
             return _unavailable("cash currency does not match instrument currency", currency=currency)
         if cash_evidence.get("dataset_kind") != "risk_free":
             return _unavailable("cash comparison requires risk_free curve evidence", currency=currency)
+        if cash_evidence.get("unit") != "decimal":
+            return _unavailable("cash comparison requires decimal rate evidence", currency=currency)
         if cash_evidence.get("curve_type") != "spot":
             return _unavailable("cash comparison requires spot-curve evidence", currency=currency)
         if cash_evidence.get("source_authority") not in {
@@ -316,6 +322,8 @@ def build_cash_comparison(
             "source_authority",
             "source_checksum",
             "dataset_kind",
+            "unit",
+            "execution_allowed",
             "source_terms",
             "methodology",
             "mapping_methodology",
@@ -417,6 +425,8 @@ def build_cash_comparison(
         cash_return=cash_return,
         excess_over_cash=instrument_return - cash_return,
         currency=currency,
+        unit="decimal",
+        dataset_kind="risk_free",
         start_date=start.isoformat(),
         end_date=end.isoformat(),
         horizon_years=horizon,
@@ -474,6 +484,10 @@ def validate_cash_comparison_result(
     try:
         if raw.get("execution_allowed") is not False:
             raise ValueError("cash comparison cannot grant execution authority")
+        if raw.get("dataset_kind") != "risk_free":
+            raise ValueError("cash comparison requires risk_free curve evidence")
+        if raw.get("unit") != "decimal":
+            raise ValueError("cash comparison requires decimal rate evidence")
         required_text = (
             "currency",
             "start_date",
@@ -584,6 +598,8 @@ def validate_cash_comparison_result(
         cash_return=cash_return,
         excess_over_cash=excess,
         currency=currency,
+        unit="decimal",
+        dataset_kind="risk_free",
         start_date=start.isoformat(),
         end_date=end.isoformat(),
         horizon_years=horizon,
@@ -637,6 +653,8 @@ def cash_comparison_from_projection(value: Mapping[str, object]) -> dict[str, ob
         "cash_return": "cash_return",
         "excess_over_cash": "excess_over_cash",
         "currency": "cash_currency",
+        "unit": "cash_unit",
+        "dataset_kind": "cash_dataset_kind",
         "start_date": "cash_start_date",
         "end_date": "cash_end_date",
         "horizon_years": "cash_horizon_years",
@@ -689,6 +707,8 @@ def cash_comparison_to_projection(
         "cash_return": cash.get("cash_return"),
         "excess_over_cash": cash.get("excess_over_cash"),
         "cash_currency": cash.get("currency"),
+        "cash_unit": cash.get("unit"),
+        "cash_dataset_kind": cash.get("dataset_kind"),
         "cash_start_date": cash.get("start_date"),
         "cash_end_date": cash.get("end_date"),
         "cash_horizon_years": cash.get("horizon_years"),
