@@ -3559,6 +3559,15 @@ persisted readback. Exact regressions and the complete affected financial,
 persistence and UI suites plus static/programme checks pass. Freeze one
 replacement H-tier head for paired review and fresh hosted validation.
 
+Paired review rejected `ea1f13105a22f7824a1870be14600f0f1d4b6435`
+for missing/duplicate direct tenor identity and unsupported reinvestment. Run
+`31594650274` is cancelled and invalid. Consolidated product commit
+`a418e341941bd4d1ac7fa25527d73ab700ff4e6a` makes malformed direct rows
+explicitly unavailable, requires unique complete tenors and restricts cash to
+the supported reinvested-income convention through every boundary. Exact
+regressions, complete cash/macro/bitemporal suites and static/programme checks
+pass. Freeze one replacement H-tier head for paired review and fresh gates.
+
 Final paired review then reproduced one direct-ingest timezone bypass and two
 strict-decoding gaps: blank lineage and fractional/boolean revision identities.
 The bounded follow-up requires explicit timezone-aware timestamps on every

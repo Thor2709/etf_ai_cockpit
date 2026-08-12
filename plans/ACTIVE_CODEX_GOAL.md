@@ -2377,3 +2377,14 @@ next action and whether the requested outcome is actually complete.
   attribution/score/detail suites, compile, programme freshness and diff
   hygiene pass. Freeze one replacement H-tier head for paired review and fresh
   Linux, Windows and terminal evidence.
+- Paired review rejected `ea1f13105a22f7824a1870be14600f0f1d4b6435`
+  for duplicate or missing direct tenors and unsupported reinvestment semantics.
+  Run `31594650274` is cancelled and invalid. Consolidated product commit
+  `a418e341941bd4d1ac7fa25527d73ab700ff4e6a` converts malformed direct-row
+  validation to explicit unavailable, requires complete unique tenor identity,
+  and permits only the supported `reinvested_income` cash convention at
+  snapshot, readback, construction and serialized validation boundaries.
+  Exact missing/duplicate-tenor and reinvestment regressions plus complete
+  cash/macro/bitemporal suites, Ruff, compile, programme freshness and diff
+  hygiene pass. Freeze one replacement H-tier head for paired review and fresh
+  hosted validation.
