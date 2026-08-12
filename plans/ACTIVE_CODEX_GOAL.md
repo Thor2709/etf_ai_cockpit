@@ -2316,3 +2316,15 @@ next action and whether the requested outcome is actually complete.
   tests pass; Ruff, compile, programme freshness and diff hygiene pass. Run
   `31581729559` is invalid/cancelled; freeze one new H-tier head for fresh
   paired review and full hosted evidence.
+- Paired review of `a6a185930517b8668298a0b687aad660a6ffe7be`
+  reproduced the final bounded integrity/readback set: coercive or non-finite
+  curve points, marker-path and CSV revision coercion, and loss of valid
+  scoreboard cash when persisted attribution is unavailable. Hosted run
+  `31584468586` is cancelled and invalid. Consolidated product commit
+  `90bde0e18934662c1aafe9e27b9c70c371f3d40a` strictly validates curve rates
+  and tenors, rejects untyped CSV revisions and malformed stored revisions,
+  and preserves validated scoreboard cash in Instrument Detail. The complete
+  cash/macro/bitemporal/detail set, directly coupled attribution/score/detail
+  suites, Ruff, compile, programme freshness and diff hygiene pass. Freeze one
+  fully documented H-tier replacement head for both final reviews and fresh
+  Linux, Windows and terminal evidence; no adjacent architecture is added.

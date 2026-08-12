@@ -3580,3 +3580,14 @@ attribution, score and Instrument Detail tests pass; Ruff, compile, programme
 freshness and diff hygiene pass. Run `31581729559` is invalid/cancelled;
 freeze one replacement H-tier head for fresh paired review and Linux, Windows
 and terminal gates.
+
+Paired review of `a6a185930517b8668298a0b687aad660a6ffe7be`
+then reproduced only coercive/non-finite curve points, marker and CSV revision
+coercion, and dropped valid scoreboard cash during attribution fallback. Run
+`31584468586` is cancelled and invalid. Consolidated product commit
+`90bde0e18934662c1aafe9e27b9c70c371f3d40a` closes those exact paths with
+strict curve evidence, strict stored/import revision identity and validated
+scoreboard-cash fallback. The complete affected financial, persistence and UI
+suites plus Ruff, compile, programme freshness and diff hygiene pass. Freeze
+one documented replacement H-tier head for parallel final review and fresh
+Linux, Windows and terminal gates; do not widen the repair.
