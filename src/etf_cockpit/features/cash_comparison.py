@@ -184,6 +184,7 @@ class CashComparisonResult:
     reinvestment: str | None = None
     vintage: str | None = None
     effective_at: str | None = None
+    published_at: str | None = None
     available_at: str | None = None
     source_id: str | None = None
     source_authority: str | None = None
@@ -272,6 +273,7 @@ def build_cash_comparison(
             "reinvestment",
             "vintage",
             "effective_at",
+            "published_at",
             "available_at",
             "source_id",
             "source_authority",
@@ -294,6 +296,7 @@ def build_cash_comparison(
             "reinvestment",
             "vintage",
             "effective_at",
+            "published_at",
             "available_at",
             "source_id",
             "source_authority",
@@ -324,6 +327,9 @@ def build_cash_comparison(
         if cash_evidence.get("compounding") not in _COMPOUNDING:
             return _unavailable("cash compounding convention is unsupported", currency=currency)
         available_at = _utc_timestamp(cash_evidence.get("available_at"), "available_at")
+        published_at = _utc_timestamp(
+            cash_evidence.get("published_at"), "published_at"
+        )
         vintage = _utc_timestamp(cash_evidence.get("vintage"), "vintage")
         decision = _utc_timestamp(decision_time, "decision_time")
         effective_at = _utc_timestamp(cash_evidence.get("effective_at"), "effective_at")
@@ -338,7 +344,9 @@ def build_cash_comparison(
             return _unavailable("cash vintage contradicts available_at", currency=currency)
         if effective_at > available_at:
             return _unavailable("cash evidence effective_at is after available_at", currency=currency)
-        if vintage > cutoff or available_at > cutoff or effective_at > start_cutoff:
+        if published_at > available_at:
+            return _unavailable("cash evidence published_at is after available_at", currency=currency)
+        if vintage > cutoff or available_at > cutoff or published_at > cutoff or effective_at > start_cutoff:
             return _unavailable("cash evidence is not point-in-time eligible", currency=currency)
         if cash_evidence.get("extrapolation_allowed") is not False:
             return _unavailable("cash curve extrapolation policy is unavailable or unsupported", currency=currency)
@@ -378,6 +386,7 @@ def build_cash_comparison(
         reinvestment=str(cash_evidence["reinvestment"]),
         vintage=vintage.isoformat(),
         effective_at=effective_at.isoformat(),
+        published_at=published_at.isoformat(),
         available_at=available_at.isoformat(),
         source_id=str(cash_evidence["source_id"]),
         source_authority=str(cash_evidence["source_authority"]),
@@ -433,6 +442,7 @@ def validate_cash_comparison_result(
             "reinvestment",
             "vintage",
             "effective_at",
+            "published_at",
             "available_at",
             "source_id",
             "source_authority",
@@ -480,6 +490,7 @@ def validate_cash_comparison_result(
             raise ValueError("excess over cash is inconsistent")
         vintage = _utc_timestamp(raw["vintage"], "vintage")
         effective = _utc_timestamp(raw["effective_at"], "effective_at")
+        published = _utc_timestamp(raw["published_at"], "published_at")
         available = _utc_timestamp(raw["available_at"], "available_at")
         decision = _utc_timestamp(raw["decision_time"], "decision_time")
         cutoff = _utc_timestamp(raw["knowledge_cutoff"], "knowledge_cutoff")
@@ -493,7 +504,9 @@ def validate_cash_comparison_result(
             raise ValueError("cash vintage contradicts available_at")
         if effective > available:
             raise ValueError("cash evidence effective_at is after available_at")
-        if vintage > cutoff or available > cutoff or effective > cutoff:
+        if published > available:
+            raise ValueError("cash evidence published_at is after available_at")
+        if vintage > cutoff or available > cutoff or published > cutoff or effective > cutoff:
             raise ValueError("cash evidence is not point-in-time eligible")
         if decision < endpoint_available or decision < cutoff:
             raise ValueError("comparison decision precedes required evidence")
@@ -537,6 +550,7 @@ def validate_cash_comparison_result(
         reinvestment=str(raw["reinvestment"]),
         vintage=vintage.isoformat(),
         effective_at=effective.isoformat(),
+        published_at=published.isoformat(),
         available_at=available.isoformat(),
         source_id=str(raw["source_id"]),
         source_authority=str(raw["source_authority"]),
@@ -595,6 +609,7 @@ def cash_comparison_from_projection(value: Mapping[str, object]) -> dict[str, ob
         "compounding": "cash_compounding",
         "reinvestment": "cash_reinvestment",
         "effective_at": "cash_effective_at",
+        "published_at": "cash_published_at",
         "available_at": "cash_available_at",
         "curve_id": "cash_curve_id",
         "curve_version": "cash_curve_version",
@@ -646,6 +661,7 @@ def cash_comparison_to_projection(
         "cash_compounding": cash.get("compounding"),
         "cash_reinvestment": cash.get("reinvestment"),
         "cash_effective_at": cash.get("effective_at"),
+        "cash_published_at": cash.get("published_at"),
         "cash_available_at": cash.get("available_at"),
         "cash_curve_id": cash.get("curve_id"),
         "cash_curve_version": cash.get("curve_version"),

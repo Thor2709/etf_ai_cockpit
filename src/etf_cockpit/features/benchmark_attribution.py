@@ -58,6 +58,7 @@ class AttributionResult:
     cash_compounding: str | None = None
     cash_reinvestment: str | None = None
     cash_effective_at: str | None = None
+    cash_published_at: str | None = None
     cash_available_at: str | None = None
     cash_curve_id: str | None = None
     cash_curve_version: str | None = None
@@ -297,6 +298,7 @@ def _cash_fields(
         "cash_compounding": value.get("compounding"),
         "cash_reinvestment": value.get("reinvestment"),
         "cash_effective_at": value.get("effective_at"),
+        "cash_published_at": value.get("published_at"),
         "cash_available_at": value.get("available_at"),
         "cash_curve_id": value.get("curve_id"),
         "cash_curve_version": value.get("curve_version"),

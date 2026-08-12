@@ -263,28 +263,29 @@ def test_curve_interpolation_is_declared_bounded_and_supports_negative_rates() -
         interpolate_curve(points, 2.0, policy="linear", extrapolation_allowed=True)
 
 
-def test_direct_curve_row_binds_declared_curve_to_storage_dataset(tmp_path) -> None:
-    warehouse = MacroWarehouse()
-    row = _row(
-        dataset_id="curve:mapped-curve",
-        series_id="mapped-curve:1Y",
-        value=0.01,
-        unit="decimal",
-        frequency="irregular",
-        curve_id="foreign-curve",
-        curve_type="spot",
-        curve_version="v1",
-        tenor_years=1.0,
-        interpolation="none",
-        compounding="annual",
-        day_count="ACT/365F",
-        reinvestment="reinvested_income",
-        freshness="fresh",
-        freshness_status="fresh",
-    )
-    with pytest.raises(MacroWarehouseError, match="dataset identity"):
-        warehouse.ingest([row], root=tmp_path)
+def _direct_curve_row(**updates: object) -> MacroObservation:
+    values: dict[str, object] = {
+        "dataset_id": "curve:mapped-curve",
+        "series_id": "mapped-curve:1Y",
+        "value": 0.01,
+        "unit": "decimal",
+        "frequency": "irregular",
+        "curve_id": "foreign-curve",
+        "curve_type": "spot",
+        "curve_version": "v1",
+        "tenor_years": 1.0,
+        "interpolation": "none",
+        "compounding": "annual",
+        "day_count": "ACT/365F",
+        "reinvestment": "reinvested_income",
+        "freshness": "fresh",
+        "freshness_status": "fresh",
+    }
+    values.update(updates)
+    return _row(**values)
 
+
+def _store_direct_curve_row(tmp_path, row: MacroObservation) -> None:
     with BitemporalStore(tmp_path) as store:
         store.record_observation(
             dataset_id=row.dataset_id,
@@ -301,6 +302,15 @@ def test_direct_curve_row_binds_declared_curve_to_storage_dataset(tmp_path) -> N
             ingested_at=row.ingested_at,
             run_id="malformed-direct-row",
         )
+
+
+def test_direct_curve_row_binds_declared_curve_to_storage_dataset(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    row = _direct_curve_row()
+    with pytest.raises(MacroWarehouseError, match="dataset identity"):
+        warehouse.ingest([row], root=tmp_path)
+
+    _store_direct_curve_row(tmp_path, row)
     selected = warehouse.curve_rate(
         root=tmp_path,
         curve_id="mapped-curve",
@@ -309,6 +319,27 @@ def test_direct_curve_row_binds_declared_curve_to_storage_dataset(tmp_path) -> N
     )
     assert selected["status"] == "unavailable"
     assert "dataset identity" in str(selected["reason"])
+    assert selected["execution_allowed"] is False
+
+
+def test_direct_curve_row_rejects_publication_after_availability(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    row = _direct_curve_row(
+        curve_id="mapped-curve",
+        published_at="2030-01-01T00:00:00+00:00",
+    )
+    with pytest.raises(MacroWarehouseError, match="published_at"):
+        warehouse.ingest([row], root=tmp_path)
+
+    _store_direct_curve_row(tmp_path, row)
+    selected = warehouse.curve_rate(
+        root=tmp_path,
+        curve_id="mapped-curve",
+        tenor_years=1.0,
+        decision_time="2025-01-01T00:00:00+00:00",
+    )
+    assert selected["status"] == "unavailable"
+    assert "published_at" in str(selected["reason"])
     assert selected["execution_allowed"] is False
 
 

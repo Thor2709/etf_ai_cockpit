@@ -301,6 +301,7 @@ class SimpleInstrumentScore:
     cash_compounding: str | None = None
     cash_reinvestment: str | None = None
     cash_effective_at: str | None = None
+    cash_published_at: str | None = None
     cash_available_at: str | None = None
     cash_curve_id: str | None = None
     cash_curve_version: str | None = None
@@ -958,6 +959,7 @@ def simple_scoreboard_frame(
             "cash_compounding": score.cash_compounding,
             "cash_reinvestment": score.cash_reinvestment,
             "cash_effective_at": score.cash_effective_at,
+            "cash_published_at": score.cash_published_at,
             "cash_available_at": score.cash_available_at,
             "cash_curve_id": score.cash_curve_id,
             "cash_curve_version": score.cash_curve_version,
@@ -2429,6 +2431,7 @@ def _cash_comparison_info(
         "cash_compounding": value.get("compounding"),
         "cash_reinvestment": value.get("reinvestment"),
         "cash_effective_at": value.get("effective_at"),
+        "cash_published_at": value.get("published_at"),
         "cash_available_at": value.get("available_at"),
         "cash_curve_id": value.get("curve_id"),
         "cash_curve_version": value.get("curve_version"),

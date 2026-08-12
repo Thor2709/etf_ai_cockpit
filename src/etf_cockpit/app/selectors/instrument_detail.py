@@ -1318,9 +1318,13 @@ def _risk_panel(features: object, friction: Mapping[str, Any], crowding: Mapping
 def _attribution_panel(derived: Mapping[str, Any], scoreboard: Mapping[str, Any]) -> dict[str, Any]:
     value = dict(derived.get("attribution", {}))
     expected_currency = _safe_text(scoreboard.get("instrument_currency"))
-    scoreboard_cash = cash_comparison_to_projection(
-        cash_comparison_from_projection(scoreboard),
-        expected_currency=expected_currency,
+    scoreboard_cash = (
+        cash_comparison_to_projection(
+            cash_comparison_from_projection(scoreboard),
+            expected_currency=expected_currency,
+        )
+        if expected_currency is not None
+        else {"cash_comparison_status": "unavailable"}
     )
     if (
         scoreboard_cash.get("cash_comparison_status") == "available"

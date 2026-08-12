@@ -255,6 +255,8 @@ def _validate(observation: MacroObservation) -> MacroObservation:
     }
     if normalized["observed_at"] > normalized["available_at"]:
         raise MacroWarehouseError("macro effective/observed_at cannot be after available_at")
+    if normalized["published_at"] > normalized["available_at"]:
+        raise MacroWarehouseError("macro published_at cannot be after available_at")
     if observation.revised_at is not None:
         timestamp_normalizer(observation.revised_at, "revised_at")
     return observation.model_copy(
@@ -838,6 +840,17 @@ class MacroWarehouse:
                 "curve_id": curve_id,
                 "execution_allowed": False,
             }
+        if any(
+            _explicit_timestamp(row.published_at, "published_at")
+            > _explicit_timestamp(row.available_at, "available_at")
+            for row in rows
+        ):
+            return {
+                "status": "unavailable",
+                "reason": "curve published_at cannot be after available_at",
+                "curve_id": curve_id,
+                "execution_allowed": False,
+            }
         latest_effective_at = max(row.observed_at for row in rows)
         rows = [row for row in rows if row.observed_at == latest_effective_at]
         metadata_signatures = {
@@ -851,6 +864,7 @@ class MacroWarehouse:
                 row.currency,
                 row.methodology,
                 row.observed_at,
+                row.published_at,
                 row.available_at,
                 row.interpolation,
                 row.extrapolation_allowed,
@@ -920,6 +934,7 @@ class MacroWarehouse:
             "source_terms": rows[0].source_terms,
             "methodology": rows[0].methodology,
             "effective_at": _timestamp(rows[0].observed_at, "effective_at"),
+            "published_at": _timestamp(rows[0].published_at, "published_at"),
             "available_at": _timestamp(rows[0].available_at, "available_at"),
             "vintage": _timestamp(rows[0].available_at, "available_at"),
             "interpolation": rows[0].interpolation,

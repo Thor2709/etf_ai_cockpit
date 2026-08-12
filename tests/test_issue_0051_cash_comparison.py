@@ -49,6 +49,7 @@ def _evidence(**updates: object) -> dict[str, object]:
         "freshness_status": "fresh",
         "vintage": "2024-12-31T00:00:00+00:00",
         "effective_at": "2024-01-01T00:00:00+00:00",
+        "published_at": "2024-12-31T00:00:00+00:00",
         "available_at": "2024-12-31T00:00:00+00:00",
         "source_id": "official-curve",
         "source_authority": "official_public_file",
@@ -239,6 +240,37 @@ def test_cash_builder_and_serialized_validator_reject_inverted_bitemporal_eviden
     ).as_dict()
     forged = {**valid, "effective_at": "2025-01-01T00:00:00+00:00", "available_at": "2024-12-31T00:00:00+00:00", "vintage": "2024-12-31T00:00:00+00:00"}
     assert validate_cash_comparison_result(forged, expected_currency="AUD").status == "unavailable"
+
+
+def test_cash_builder_and_serialized_validator_reject_future_publication() -> None:
+    prices = pd.Series(
+        [100.0, 110.0],
+        index=pd.to_datetime(["2025-01-01", "2025-01-02"]),
+    )
+    built = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(published_at="2030-01-01T00:00:00+00:00"),
+        decision_time="2025-01-03T00:00:00+00:00",
+    )
+    assert built.status == "unavailable"
+    assert "published_at" in str(built.reason)
+
+    valid = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(),
+        decision_time="2025-01-03T00:00:00+00:00",
+    ).as_dict()
+    forged = {**valid, "published_at": "2030-01-01T00:00:00+00:00"}
+    assert (
+        validate_cash_comparison_result(forged, expected_currency="AUD").status
+        == "unavailable"
+    )
 
 
 @pytest.mark.parametrize(
@@ -710,6 +742,16 @@ def test_instrument_detail_fallback_preserves_valid_scoreboard_cash() -> None:
     assert panel["cash_comparison_status"] == "available"
     assert panel["cash_return"] == pytest.approx(scoreboard["cash_return"])
     assert panel["execution_allowed"] is False
+
+    missing_currency = dict(scoreboard)
+    missing_currency.pop("instrument_currency")
+    rejected = instrument_detail_selector._attribution_panel(
+        {"attribution": {"status": "unavailable"}},
+        missing_currency,
+    )
+    assert rejected["status"] == "unavailable"
+    assert rejected.get("cash_comparison_status") != "available"
+    assert rejected["execution_allowed"] is False
 
 
 def test_injected_cash_comparison_propagates_without_changing_score_authority(
