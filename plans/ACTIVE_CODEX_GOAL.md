@@ -2423,3 +2423,17 @@ next action and whether the requested outcome is actually complete.
   affected 247-test focused surface, Ruff, compile, byte-clean generation and
   diff hygiene pass. Freeze one replacement H-tier head for paired final
   review and fresh hosted validation.
+- Paired review rejected `b78373eb8759c02b5ced04ad0872bae38f8fab6e`
+  because cash unit/kind/input-authority identity was not preserved, curve
+  history validation was outside the serialized append boundary and poisoned
+  earlier decision-time prefixes, and manifest failure left a committed batch
+  that could not be resubmitted. Exact-head run `31605516797` is cancelled and
+  invalid. Consolidated product commit
+  `24c02406819052da86c297fcf9d5f5ca5b3f88d9` carries and validates decimal risk-free evidence and disabled
+  authority through every projection/readback, serializes prospective history
+  validation with all snapshot points, limits readback validation to eligible
+  history, and rolls database changes back when manifest projection fails.
+  Exact unit/authority, concurrent-conflict, chronology-prefix and manifest
+  rollback regressions plus the complete affected focused surface, Ruff,
+  compile, byte-clean generation and diff hygiene pass. Freeze one replacement
+  H-tier head for paired final review and fresh hosted validation.

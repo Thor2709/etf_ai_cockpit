@@ -3562,6 +3562,20 @@ affected 247-test focused surface plus static and programme checks pass.
 Freeze one replacement H-tier head for paired final review and fresh Linux,
 Windows and terminal validation.
 
+Paired review rejected `b78373eb8759c02b5ced04ad0872bae38f8fab6e`
+because cash unit/kind/input-authority identity was not preserved, curve
+history validation was outside the serialized append boundary and poisoned
+earlier decision-time prefixes, and manifest failure left a committed batch
+that could not be resubmitted. Exact-head run `31605516797` is cancelled and
+invalid. Consolidated product commit `24c02406819052da86c297fcf9d5f5ca5b3f88d9` carries and validates decimal
+risk-free evidence and disabled authority through every projection/readback,
+serializes prospective history validation with all snapshot points, limits
+readback validation to eligible history, and rolls database changes back when
+manifest projection fails. Exact unit/authority, concurrent-conflict,
+chronology-prefix and manifest rollback regressions plus the complete affected
+focused, static and programme checks pass. Freeze one replacement H-tier head
+for paired final review and fresh Linux, Windows and terminal validation.
+
 Paired review rejected `7245e76ac27606f9542fd71dd354d178fcdcd5b1`
 for partial snapshot visibility, inferred availability accepted as exact and
 persisted cash accepted without currency. Run `31593071919` is cancelled and
