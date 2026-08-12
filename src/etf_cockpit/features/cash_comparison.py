@@ -430,10 +430,16 @@ def build_cash_comparison(
             return _unavailable("cash curve interpolation policy is unsupported", currency=currency)
         if not isinstance(cash_evidence.get("fallback"), bool):
             return _unavailable("cash curve fallback identity is unavailable", currency=currency)
-        if cash_evidence.get("fallback") and not _has_nonblank_text(
-            cash_evidence.get("fallback_from")
-        ):
-            return _unavailable("cash curve fallback reason is unavailable", currency=currency)
+        fallback = cash_evidence["fallback"]
+        fallback_from = cash_evidence.get("fallback_from")
+        curve_id = cash_evidence.get("curve_id")
+        if fallback:
+            if not _has_nonblank_text(fallback_from):
+                return _unavailable("cash curve fallback reason is unavailable", currency=currency)
+            if str(fallback_from).strip() == str(curve_id).strip():
+                return _unavailable("cash curve fallback identity contradicts curve_id", currency=currency)
+        elif fallback_from is not None:
+            return _unavailable("primary cash curve cannot declare fallback_from", currency=currency)
         curve_revision = _positive_revision(cash_evidence.get("curve_revision"))
         checksum = str(cash_evidence["source_checksum"])
         if len(checksum) != 64 or any(character not in "0123456789abcdefABCDEF" for character in checksum):
@@ -616,8 +622,15 @@ def validate_cash_comparison_result(
             raise ValueError("cash curve extrapolation is unsupported")
         if not isinstance(raw.get("fallback"), bool):
             raise ValueError("cash curve fallback identity is unavailable")
-        if raw.get("fallback") and not _has_nonblank_text(raw.get("fallback_from")):
-            raise ValueError("cash curve fallback reason is unavailable")
+        fallback = raw["fallback"]
+        fallback_from = raw.get("fallback_from")
+        if fallback:
+            if not _has_nonblank_text(fallback_from):
+                raise ValueError("cash curve fallback reason is unavailable")
+            if str(fallback_from).strip() == str(raw.get("curve_id")).strip():
+                raise ValueError("cash curve fallback identity contradicts curve_id")
+        elif fallback_from is not None:
+            raise ValueError("primary cash curve cannot declare fallback_from")
         revision = _positive_revision(raw.get("curve_revision"))
         checksum = str(raw["source_checksum"])
         if len(checksum) != 64 or any(character not in "0123456789abcdefABCDEF" for character in checksum):

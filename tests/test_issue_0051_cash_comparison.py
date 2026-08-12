@@ -553,6 +553,28 @@ def test_fallback_lineage_must_be_nonblank_at_construction_and_readback() -> Non
         == "unavailable"
     )
 
+    contradictory_cases = (
+        {"fallback": False, "fallback_from": "unrelated-primary"},
+        {"fallback": True, "fallback_from": _evidence()["curve_id"]},
+    )
+    for updates in contradictory_cases:
+        built_contradiction = build_cash_comparison(
+            adjusted_prices=prices,
+            start_date="2025-01-01",
+            end_date="2025-01-02",
+            instrument_currency="AUD",
+            cash_evidence=_evidence(**updates),
+            decision_time="2025-01-03T00:00:00+00:00",
+        )
+        assert built_contradiction.status == "unavailable"
+        forged_contradiction = {**valid, **updates}
+        assert (
+            validate_cash_comparison_result(
+                forged_contradiction, expected_currency="AUD"
+            ).status
+            == "unavailable"
+        )
+
 
 def test_cash_comparison_does_not_turn_missing_inflation_into_real_return() -> None:
     prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
