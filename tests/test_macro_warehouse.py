@@ -91,6 +91,17 @@ def test_csv_parser_and_reversible_unit_frequency_transform(tmp_path) -> None:
     assert transformed[0].source_checksum != rows[0].source_checksum
 
 
+def test_csv_parser_rejects_textual_revision_identity() -> None:
+    with pytest.raises(MacroWarehouseError, match="revision identity is textual"):
+        parse_csv_records(
+            "series_id,period_start,value,revision\nrate,2024-01-01,4.0,1\n",
+            dataset_id="csv-rates",
+            source_id="local-fixture",
+            available_at="2024-05-01T00:00:00+00:00",
+            ingested_at="2024-05-02T00:00:00+00:00",
+        )
+
+
 def test_missing_country_and_currency_are_explicitly_unavailable(tmp_path) -> None:
     row = _row(country=None, currency=None)
     assert row.availability_status == "unavailable_context"
@@ -137,6 +148,46 @@ def test_curve_models_reject_coerced_revision_identities(revision: object) -> No
         CurveSnapshot.model_validate(
             {**_curve().model_dump(), "revision": revision}
         )
+
+
+@pytest.mark.parametrize(
+    "point",
+    (
+        {"tenor_years": 1.0, "rate": True},
+        {"tenor_years": float("inf"), "rate": 0.01},
+        {"tenor_years": float("nan"), "rate": 0.01},
+        {"tenor_years": "1.0", "rate": 0.01},
+        {"tenor_years": 1.0, "rate": "0.01"},
+    ),
+)
+def test_curve_points_reject_coercive_or_nonfinite_values(
+    point: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError):
+        CurvePoint.model_validate(point)
+
+
+@pytest.mark.parametrize(
+    "updates",
+    (
+        {"value": True, "tenor_years": 1.0},
+        {"value": "0.01", "tenor_years": 1.0},
+        {"value": 0.01, "tenor_years": float("inf")},
+        {"value": 0.01, "tenor_years": float("nan")},
+    ),
+)
+def test_direct_curve_rows_reject_malformed_points(
+    updates: dict[str, object],
+) -> None:
+    values = {
+        **_row().model_dump(),
+        "curve_id": "aud-direct",
+        "curve_type": "spot",
+        "curve_version": "v1",
+        **updates,
+    }
+    with pytest.raises(ValueError):
+        MacroObservation.model_validate(values)
 
 
 @pytest.mark.parametrize("revision", (True, 1.0, 1.5, "1"))

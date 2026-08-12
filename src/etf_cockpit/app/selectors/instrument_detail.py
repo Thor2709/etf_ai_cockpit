@@ -1317,6 +1317,16 @@ def _risk_panel(features: object, friction: Mapping[str, Any], crowding: Mapping
 
 def _attribution_panel(derived: Mapping[str, Any], scoreboard: Mapping[str, Any]) -> dict[str, Any]:
     value = dict(derived.get("attribution", {}))
+    expected_currency = _safe_text(scoreboard.get("instrument_currency"))
+    scoreboard_cash = cash_comparison_to_projection(
+        cash_comparison_from_projection(scoreboard),
+        expected_currency=expected_currency,
+    )
+    if (
+        scoreboard_cash.get("cash_comparison_status") == "available"
+        and value.get("cash_comparison_status") != "available"
+    ):
+        value.update(scoreboard_cash)
     aliases = {
         "alpha": ("alpha", "alpha_proxy"),
         "beta": ("beta", "benchmark_beta"),
@@ -1331,7 +1341,13 @@ def _attribution_panel(derived: Mapping[str, Any], scoreboard: Mapping[str, Any]
             ),
             next((_safe_float(value.get(name)) for name in names if _safe_float(value.get(name)) is not None), None),
         )
-    value.setdefault("status", "available" if any(value.get(key) is not None for key in ("alpha", "beta", "correlation")) else "unavailable")
+    available = any(
+        value.get(key) is not None for key in ("alpha", "beta", "correlation")
+    ) or value.get("cash_comparison_status") == "available"
+    if value.get("status") != "available" and available:
+        value["status"] = "available"
+    else:
+        value.setdefault("status", "unavailable")
     for key, metadata in _provenance_fields(scoreboard).items():
         value.setdefault(key, metadata)
     value["execution_allowed"] = False

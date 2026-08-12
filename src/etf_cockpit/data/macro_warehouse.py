@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Iterable, Literal, Mapping
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from etf_cockpit.core.atomic_io import atomic_write_json
 from etf_cockpit.core.paths import CONFIG_DIR
@@ -79,7 +79,7 @@ class MacroObservation(BaseModel):
     curve_id: str | None = None
     curve_type: str | None = None
     curve_version: str | None = None
-    tenor_years: float | None = None
+    tenor_years: float | None = Field(default=None, gt=0, strict=True, allow_inf_nan=False)
     interpolation: str | None = None
     extrapolation_allowed: bool = False
     compounding: str | None = None
@@ -90,6 +90,19 @@ class MacroObservation(BaseModel):
     benchmark_id: str | None = None
     benchmark_version: str | None = None
     benchmark_category: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _strict_curve_rate(cls, values: object) -> object:
+        if not isinstance(values, Mapping):
+            return values
+        curve_fields = ("curve_id", "curve_type", "curve_version", "tenor_years")
+        if not any(values.get(field) is not None for field in curve_fields):
+            return values
+        rate = values.get("value")
+        if isinstance(rate, bool) or not isinstance(rate, float) or not math.isfinite(rate):
+            raise ValueError("curve rate must be a finite float")
+        return values
 
     @property
     def stable_id(self) -> str:
@@ -260,8 +273,8 @@ def _validate(observation: MacroObservation) -> MacroObservation:
 class CurvePoint(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    tenor_years: float = Field(gt=0)
-    rate: float
+    tenor_years: float = Field(gt=0, strict=True, allow_inf_nan=False)
+    rate: float = Field(strict=True, allow_inf_nan=False)
 
 
 class CurveSnapshot(BaseModel):
@@ -568,10 +581,18 @@ def parse_csv_records(
                 available_at=str(row.get("available_at") or available_at),
                 observed_at=str(row.get("observed_at") or row.get("period_start") or row.get("date")),
                 ingested_at=ingested_at,
-                revision=int(row.get("revision") or 1),
+                revision=_csv_revision(row.get("revision")),
             )
         )
     return [_validate(row) for row in parsed]
+
+
+def _csv_revision(value: object) -> int:
+    if value is None or not str(value).strip():
+        return 1
+    raise MacroWarehouseError(
+        "CSV revision identity is textual; use the typed local import path"
+    )
 
 
 def _transformed_value(value: float, source_unit: str, target_unit: str) -> float:

@@ -91,6 +91,56 @@ def test_revision_identity_is_strict_at_append_and_readback(
         _observation(row)
 
 
+@pytest.mark.parametrize("method", ("record_retraction", "record_supersession"))
+@pytest.mark.parametrize("revision", (True, 1.5, "1"))
+def test_marker_paths_reject_malformed_stored_revision(
+    tmp_path: Path,
+    monkeypatch,
+    method: str,
+    revision: object,
+) -> None:
+    with BitemporalStore(tmp_path) as store:
+        original = _record(
+            store,
+            revision=1,
+            available_at="2026-01-02T10:00:00Z",
+            value="reported",
+        )
+        row = dict(
+            store.store.connection.execute(
+                "SELECT * FROM bitemporal_observations WHERE observation_id = ?",
+                (original.observation_id,),
+            ).fetchone()
+        )
+        row["revision"] = revision
+        original_connection = store.store.connection
+
+        class _Connection:
+            @staticmethod
+            def execute(*_args):
+                class _Cursor:
+                    @staticmethod
+                    def fetchone():
+                        return row
+
+                return _Cursor()
+
+            @staticmethod
+            def close() -> None:
+                original_connection.close()
+
+        monkeypatch.setattr(store.store, "connection", _Connection())
+        kwargs = {
+            "available_at": "2026-01-03T10:00:00Z",
+            "run_id": "run-marker",
+            "reason": "test",
+        }
+        if method == "record_supersession":
+            kwargs["replacement_observation_id"] = "replacement"
+        with pytest.raises(BitemporalError, match="positive integer"):
+            getattr(store, method)(original.observation_id, **kwargs)
+
+
 @pytest.mark.parametrize(
     ("decision_time", "expected"),
     [
