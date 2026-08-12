@@ -2341,3 +2341,15 @@ next action and whether the requested outcome is actually complete.
   regressions, complete cash and macro suites, bitemporal coverage, Ruff,
   compile, programme freshness and diff hygiene pass. Freeze one documented
   replacement H-tier head for paired review and fresh hosted evidence.
+- Paired review rejected `df9f7115f7df5992828798fe6e36f56ef765d63f`
+  after reproducing future publication chronology accepted as then-known curve
+  evidence and scoreboard cash accepted without a declared instrument currency.
+  Run `31589943093` is cancelled and invalid. Consolidated product commit
+  `e7b5bec9b74fe3ed0fc46541abbbb58c43102d48` requires
+  `published_at <= available_at` at curve ingest/readback, carries publication
+  identity through cash construction, validation, scores, attribution,
+  persistence and projections, and requires nonblank instrument currency for
+  selector fallback. Exact publication/currency regressions, complete cash and
+  macro suites, coupled attribution/score/detail suites, Ruff, compile,
+  programme freshness and diff hygiene pass. Freeze one replacement H-tier
+  exact head for paired review and fresh Linux, Windows and terminal evidence.

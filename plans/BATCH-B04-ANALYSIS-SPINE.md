@@ -3603,3 +3603,13 @@ and readback, and retains the fallback regression in the focused ISSUE-0051
 suite. The exact regressions, complete cash/macro suites, bitemporal coverage
 and static/programme checks pass. Freeze one replacement H-tier head for
 parallel review and fresh Linux, Windows and terminal gates.
+
+Paired review rejected `df9f7115f7df5992828798fe6e36f56ef765d63f`
+for future publication evidence accepted as then-known and scoreboard cash
+accepted without declared instrument currency. Run `31589943093` is cancelled
+and invalid. Consolidated product commit
+`e7b5bec9b74fe3ed0fc46541abbbb58c43102d48` binds publication chronology
+from curve ingest/readback through every cash projection and requires currency
+before selector fallback. Exact regressions, complete cash/macro suites,
+coupled attribution/score/detail suites and static/programme checks pass.
+Freeze one replacement H-tier head for paired review and fresh hosted gates.
