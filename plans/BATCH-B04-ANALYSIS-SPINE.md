@@ -3549,6 +3549,19 @@ pass; Ruff, compile, programme freshness and diff hygiene are clean. Cancelled
 run `31563287001` is invalid; freeze one replacement H-tier head for paired
 review and fresh Linux, Windows and terminal validation.
 
+Paired review rejected `8f37a76abe2742985f48c7074a7c7a5fd05f37b0`
+after reproducing malformed adjusted-price rows being discarded, partial
+multi-point curve writes, nullable curve revisions widened in mixed-row
+persistence, and non-risk-free rows accepted as cash curves. Exact-head run
+`31601620259` is cancelled and invalid. Consolidated product commit
+`695acd192656107059e77361d33d2efe3f775012` strictly validates every adjusted-price row in both calculation
+paths, commits each curve snapshot atomically, preserves nullable integer
+revision identity through persistence, and requires `risk_free` curve kind
+throughout ingest and readback. Exact adversarial regressions and the full
+affected 247-test focused surface plus static and programme checks pass.
+Freeze one replacement H-tier head for paired final review and fresh Linux,
+Windows and terminal validation.
+
 Paired review rejected `7245e76ac27606f9542fd71dd354d178fcdcd5b1`
 for partial snapshot visibility, inferred availability accepted as exact and
 persisted cash accepted without currency. Run `31593071919` is cancelled and
