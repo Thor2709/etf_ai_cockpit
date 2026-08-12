@@ -463,17 +463,20 @@ def _validate_curve(snapshot: CurveSnapshot) -> CurveSnapshot:
     effective_at = _explicit_timestamp(snapshot.effective_at, "effective_at")
     published_at = _explicit_timestamp(snapshot.published_at, "published_at")
     available_at = _explicit_timestamp(snapshot.available_at, "available_at")
+    ingested_at = _explicit_timestamp(snapshot.ingested_at, "ingested_at")
     if _timestamp_value(effective_at) > _timestamp_value(available_at):
         raise MacroWarehouseError("curve effective_at cannot be after available_at")
     if _timestamp_value(published_at) > _timestamp_value(available_at):
         raise MacroWarehouseError("curve published_at cannot be after available_at")
+    if _timestamp_value(ingested_at) < _timestamp_value(available_at):
+        raise MacroWarehouseError("curve ingested_at cannot be before available_at")
     return snapshot.model_copy(
         update={
             "currency": snapshot.currency.upper(),
             "effective_at": effective_at,
             "published_at": published_at,
             "available_at": available_at,
-            "ingested_at": _explicit_timestamp(snapshot.ingested_at, "ingested_at"),
+            "ingested_at": ingested_at,
             "points": points,
             "revision": revision,
         }
@@ -731,11 +734,13 @@ def _curve_history_issue(rows: Iterable[MacroObservation], curve_id: str) -> str
             return "curve dataset_kind must be risk_free"
         if row.unit != "decimal":
             return "curve unit must be decimal"
-        _explicit_timestamp(row.ingested_at, "ingested_at")
+        ingested_at = _timestamp_value(_explicit_timestamp(row.ingested_at, "ingested_at"))
         effective_at = _timestamp_value(_explicit_timestamp(row.observed_at, "observed_at"))
         available_at = _timestamp_value(_explicit_timestamp(row.available_at, "available_at"))
         if effective_at > available_at:
             return "curve effective_at cannot be after available_at"
+        if ingested_at < available_at:
+            return "curve ingested_at cannot be before available_at"
         if not isinstance(row.curve_version, str) or not row.curve_version.strip():
             return "curve_version must not be blank"
         key = (effective_at, row.revision)

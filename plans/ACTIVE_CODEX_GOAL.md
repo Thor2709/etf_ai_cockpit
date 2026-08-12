@@ -2535,3 +2535,14 @@ next action and whether the requested outcome is actually complete.
   byte-clean programme generation and diff hygiene. Freeze one replacement
   H-tier head for both exact-head reviews and fresh hosted evidence;
   `execution_allowed=false` remains unchanged.
+
+- Whole-diff review approved `dac31303204db8b7a6c0dc39a11bb6ff3e6d576c`,
+  while risk review reproduced one well-formed but impossible PIT chronology:
+  curve `ingested_at` could precede `available_at` at admission and persisted
+  readback. Run `31637457785` is cancelled and invalid. The sole follow-up
+  enforces `ingested_at >= available_at` at both existing validation boundaries
+  and adds admission/no-write and persisted-unavailable regressions. The full
+  macro-warehouse suite, Ruff and diff hygiene pass. Freeze one replacement
+  H-tier head for paired review and fresh hosted evidence; no adjacent
+  chronology or storage contract is changed and `execution_allowed=false`
+  remains unchanged.

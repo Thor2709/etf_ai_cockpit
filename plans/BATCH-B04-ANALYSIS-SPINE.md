@@ -3799,3 +3799,11 @@ timezone-aware ingestion lineage at curve-history readback. Exact regressions,
 the complete ISSUE-0051 and macro-warehouse suites, and static/programme checks
 pass. Freeze one replacement H-tier head for paired review and fresh Linux,
 Windows and terminal validation; preserve `execution_allowed=false`.
+
+Whole-diff review approved `dac31303204db8b7a6c0dc39a11bb6ff3e6d576c`,
+while risk review reproduced curve ingestion preceding declared availability.
+Run `31637457785` is cancelled and invalid. The bounded follow-up requires
+`ingested_at >= available_at` at admission and persisted-history readback, with
+exact rejection/no-write regressions. The macro-warehouse suite and static
+checks pass. Freeze one replacement H-tier head for paired review and fresh
+Linux, Windows and terminal evidence; preserve `execution_allowed=false`.

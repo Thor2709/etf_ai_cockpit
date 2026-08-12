@@ -358,6 +358,7 @@ def test_curve_readback_fails_closed_for_persisted_regressing_history(tmp_path) 
     later_regression = first.model_copy(
         update={
             "available_at": "2024-01-03T00:00:00+00:00",
+            "ingested_at": "2024-01-03T00:00:00+00:00",
             "revision": 1,
         }
     )
@@ -392,6 +393,27 @@ def test_curve_readback_fails_closed_for_effective_at_after_available_at(tmp_pat
     )
     assert selected["status"] == "unavailable"
     assert "effective_at" in str(selected["reason"])
+
+
+def test_curve_readback_fails_closed_for_ingested_at_before_available_at(tmp_path) -> None:
+    row = _direct_curve_row(
+        curve_id="ingested-before-availability",
+        dataset_id="curve:ingested-before-availability",
+        series_id="ingested-before-availability:1Y",
+        available_at="2025-01-02T00:00:00+00:00",
+        ingested_at="2025-01-01T23:59:59+00:00",
+    )
+    _store_direct_curve_row(tmp_path, row)
+
+    selected = MacroWarehouse().curve_rate(
+        root=tmp_path,
+        curve_id="ingested-before-availability",
+        tenor_years=1.0,
+        decision_time="2025-01-05T00:00:00+00:00",
+    )
+    assert selected["status"] == "unavailable"
+    assert "ingested_at" in str(selected["reason"])
+    assert selected["execution_allowed"] is False
 
 
 def test_curve_readback_fails_closed_for_whitespace_curve_version(tmp_path) -> None:
@@ -651,6 +673,20 @@ def test_curve_interpolation_is_declared_bounded_and_supports_negative_rates() -
         interpolate_curve(points, 2.0, policy="linear", extrapolation_allowed=True)
 
 
+def test_curve_admission_rejects_ingested_at_before_available_at_before_append(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    snapshot = _curve().model_copy(
+        update={"ingested_at": "2025-01-01T23:59:59+00:00"}
+    )
+
+    with pytest.raises(MacroWarehouseError, match="ingested_at.*available_at"):
+        warehouse.ingest_curve(snapshot, root=tmp_path)
+
+    assert warehouse.observations(
+        root=tmp_path, dataset_id="curve:aud-official-spot"
+    ) == []
+
+
 def _direct_curve_row(**updates: object) -> MacroObservation:
     values: dict[str, object] = {
         "dataset_id": "curve:mapped-curve",
@@ -671,6 +707,10 @@ def _direct_curve_row(**updates: object) -> MacroObservation:
         "freshness_status": "fresh",
     }
     values.update(updates)
+    if "ingested_at" not in updates:
+        values["ingested_at"] = updates.get(
+            "available_at", "2024-02-01T00:00:00+00:00"
+        )
     return _row(**values)
 
 
