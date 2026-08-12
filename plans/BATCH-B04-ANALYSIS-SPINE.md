@@ -3454,11 +3454,16 @@ stale repository state. No order, provider, network or execution authority is
 added and `execution_allowed=false` remains unchanged.
 
 The bounded implementation now builds a stable, severity-ordered and capped
-nine-source digest from existing local evidence. News contradiction inputs are
-strictly filtered to snapshot-available news and adjusted prices; absent or
-malformed inputs remain unavailable, and macro contradiction comparison is
-explicitly manual-review because no canonical comparison seam exists. The
-Dashboard evidence control is context-only with visible provenance/as-of and
-`execution_allowed=false`. Eight focused digest tests and the complete 68-test
-affected UI/architecture/application batch plus Ruff, compile and diff hygiene
-pass. Freeze one exact head for both reviews and hosted validation.
+nine-source digest from existing local evidence. One validated snapshot cutoff
+governs timestamp-attributable score runs, the complete active alert population,
+news/adjusted-price evidence and upcoming events. Canonical news metadata and
+finite positive, instrument-matched prices fail closed; score and rank truth
+remain separate; missing evidence is not reported as zero change; interrupted
+exports and both decision fields reach manual review. Macro contradiction
+comparison remains explicitly manual-review because no canonical comparison
+seam exists. The Dashboard evidence control is context-only with visible
+provenance/as-of and `execution_allowed=false`. The consolidated correction
+passes 72 focused alert/digest tests and the complete 148-test affected
+UI/architecture/application batch plus Ruff, compile, programme freshness and
+diff hygiene. Freeze one exact replacement head for both reviews and hosted
+validation.

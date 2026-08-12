@@ -8,9 +8,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+import math
 from typing import Any
 
 import pandas as pd
+
+from etf_cockpit.data.news_context import NEWS_SCHEMA_VERSION, NewsItem, validate_news_item
 
 
 DIGEST_SOURCES = (
@@ -31,6 +34,39 @@ _VALID_SEVERITIES = frozenset(_SEVERITY_ORDER)
 MAX_DIGEST_ITEMS = 12
 
 
+def score_run_pair_as_of(
+    history: pd.DataFrame,
+    cutoff: object,
+) -> tuple[pd.DataFrame, str, str] | None:
+    """Return the latest two timestamp-attributable score runs at ``cutoff``."""
+
+    if not isinstance(history, pd.DataFrame) or history.empty:
+        return None
+    if not {"run_id", "run_completed_at"} <= set(history.columns):
+        return None
+    cutoff_ts = _aware_utc(cutoff)
+    if cutoff_ts is None:
+        return None
+
+    eligible: list[tuple[pd.Timestamp, str]] = []
+    for run_id, rows in history.groupby(history["run_id"].astype(str), sort=False):
+        timestamps = tuple(rows["run_completed_at"].map(_aware_utc))
+        if not timestamps or any(timestamp is None for timestamp in timestamps):
+            continue
+        unique = {timestamp.isoformat() for timestamp in timestamps if timestamp is not None}
+        if len(unique) != 1:
+            continue
+        timestamp = next(timestamp for timestamp in timestamps if timestamp is not None)
+        if timestamp <= cutoff_ts:
+            eligible.append((timestamp, str(run_id)))
+    eligible.sort(key=lambda item: (item[0], item[1]))
+    if len(eligible) < 2:
+        return None
+    previous, current = eligible[-2][1], eligible[-1][1]
+    selected = history.loc[history["run_id"].astype(str).isin({previous, current})].copy()
+    return selected, current, previous
+
+
 def filter_news_contradiction_inputs(
     news: pd.DataFrame,
     prices: pd.DataFrame,
@@ -45,36 +81,180 @@ def filter_news_contradiction_inputs(
 
     if not isinstance(news, pd.DataFrame) or not isinstance(prices, pd.DataFrame) or news.empty or prices.empty:
         return None
-    if not {"instrument_id", "published_at", "ingested_at", "available_at_decision_time", "headline"} <= set(news.columns):
+    required_news = {
+        "schema_version",
+        "news_id",
+        "instrument_id",
+        "headline",
+        "published_at",
+        "ingested_at",
+        "available_at_decision_time",
+        "timestamp_status",
+        "backtest_eligible",
+        "timestamp_confidence",
+        "source_url",
+        "provider_name",
+        "source_authority",
+        "instrument_mapping_method",
+        "context_only",
+        "executable_authority",
+    }
+    if not required_news <= set(news.columns):
         return None
-    if not {"instrument_id", "date", "adjusted_close"} <= set(prices.columns):
+    if not {"date", "adjusted_close"} <= set(prices.columns) or not {"instrument_id", "etf_id"}.intersection(prices.columns):
         return None
     cutoff_ts = _aware_utc(cutoff)
     if cutoff_ts is None:
         return None
 
     news_frame = news.copy()
+    if not all(_canonical_news_row(row) for _, row in news_frame.iterrows()):
+        return None
     published = news_frame["published_at"].map(_aware_utc)
     ingested = news_frame["ingested_at"].map(_aware_utc)
-    available = news_frame["available_at_decision_time"].map(_is_true)
     news_frame = news_frame.loc[
-        available & published.notna() & ingested.notna() & (published <= cutoff_ts) & (ingested <= cutoff_ts)
+        published.notna()
+        & ingested.notna()
+        & (published <= cutoff_ts)
+        & (ingested <= cutoff_ts)
     ].copy()
 
     price_frame = prices.copy()
-    price_dates = pd.to_datetime(price_frame["date"], errors="coerce")
-    adjusted_close = pd.to_numeric(price_frame["adjusted_close"], errors="coerce")
-    instrument_ids = price_frame["instrument_id"].astype(str).str.strip()
-    price_frame = price_frame.loc[
-        price_dates.notna()
-        & adjusted_close.notna()
-        & instrument_ids.ne("")
-        & (price_dates.dt.date <= cutoff_ts.date())
-    ].copy()
-    price_frame["adjusted_close"] = adjusted_close.loc[price_frame.index]
-    if news_frame.empty or price_frame.empty:
+    instrument_ids = _normalise_price_identity(price_frame)
+    if instrument_ids is None:
         return None
-    return news_frame.reset_index(drop=True), price_frame.reset_index(drop=True)
+    price_frame["instrument_id"] = instrument_ids
+    news_instruments = set(news_frame["instrument_id"].astype(str).str.strip())
+    price_frame = price_frame.loc[price_frame["instrument_id"].isin(news_instruments)].copy()
+    if price_frame.empty:
+        return None
+    price_dates = pd.to_datetime(price_frame["date"], errors="coerce")
+    if bool(price_dates.isna().any()):
+        return None
+    within_cutoff = price_dates.dt.date <= cutoff_ts.date()
+    price_frame = price_frame.loc[within_cutoff].copy()
+    price_dates = price_dates.loc[price_frame.index]
+    if price_frame.empty:
+        return None
+    adjusted_close = pd.to_numeric(price_frame["adjusted_close"], errors="coerce")
+    finite_positive = adjusted_close.map(
+        lambda value: bool(pd.notna(value) and math.isfinite(float(value)) and float(value) > 0)
+    )
+    if not bool(finite_positive.all()):
+        return None
+    price_frame["adjusted_close"] = adjusted_close
+    price_frame["_digest_date"] = price_dates.dt.date
+    for _, item in news_frame.iterrows():
+        published = _aware_utc(item["published_at"])
+        if published is None:
+            return None
+        scoped = price_frame.loc[price_frame["instrument_id"].eq(str(item["instrument_id"]).strip())]
+        if scoped.loc[scoped["_digest_date"] <= published.date()].empty:
+            return None
+        if scoped.loc[scoped["_digest_date"] > published.date()].empty:
+            return None
+    return (
+        news_frame.reset_index(drop=True),
+        price_frame.drop(columns=["_digest_date"], errors="ignore").reset_index(drop=True),
+    )
+
+
+def _canonical_news_row(row: pd.Series) -> bool:
+    if _scalar_text(row.get("schema_version")) != NEWS_SCHEMA_VERSION:
+        return False
+    if not all(
+        _scalar_text(row.get(field))
+        for field in (
+            "news_id",
+            "instrument_id",
+            "headline",
+            "source_url",
+            "provider_name",
+            "source_authority",
+            "instrument_mapping_method",
+        )
+    ):
+        return False
+    for canonical, alias in (
+        ("provider_name", "provider"),
+        ("source_url", "url"),
+        ("source_authority", "source"),
+    ):
+        canonical_value = _scalar_text(row.get(canonical))
+        alias_value = _scalar_text(row.get(alias))
+        if alias_value and canonical_value != alias_value:
+            return False
+    available = _canonical_bool(row.get("available_at_decision_time"))
+    backtest_eligible = _canonical_bool(row.get("backtest_eligible"))
+    context_only = _canonical_bool(row.get("context_only"))
+    executable_authority = _canonical_bool(row.get("executable_authority"))
+    if available is not True or backtest_eligible is not True or context_only is not True or executable_authority is not False:
+        return False
+    published = _aware_utc(row.get("published_at"))
+    ingested = _aware_utc(row.get("ingested_at"))
+    if published is None or ingested is None or ingested < published:
+        return False
+    item = NewsItem(
+        news_id=_scalar_text(row["news_id"]),
+        instrument_id=_scalar_text(row["instrument_id"]),
+        source=_scalar_text(row["source_authority"]),
+        provider_name=_scalar_text(row["provider_name"]),
+        headline=_scalar_text(row["headline"]),
+        published_at=_scalar_text(row["published_at"]),
+        ingested_at=_scalar_text(row["ingested_at"]),
+        source_url=_scalar_text(row["source_url"]),
+        instrument_mapping_method=_scalar_text(row["instrument_mapping_method"]),
+        available_at_decision_time=available,
+        timestamp_confidence=_scalar_text(row["timestamp_confidence"]),
+        current_only=_canonical_bool(row.get("current_only")) is True,
+        revised=_canonical_bool(row.get("revised")) is True,
+        context_only=context_only,
+        executable_authority=executable_authority,
+    )
+    validation = validate_news_item(item, max(published, ingested).to_pydatetime())
+    return (
+        validation.status == "valid_context"
+        and validation.backtest_eligible is True
+        and _scalar_text(row["timestamp_status"]) == validation.status
+        and _scalar_text(row["timestamp_confidence"]) == validation.timestamp_confidence
+        and backtest_eligible is validation.backtest_eligible
+        and available is validation.available_at_decision_time
+    )
+
+
+def _normalise_price_identity(frame: pd.DataFrame) -> pd.Series | None:
+    instrument = (
+        frame["instrument_id"].map(_scalar_text)
+        if "instrument_id" in frame.columns
+        else pd.Series("", index=frame.index, dtype=str)
+    )
+    etf = (
+        frame["etf_id"].map(_scalar_text)
+        if "etf_id" in frame.columns
+        else pd.Series("", index=frame.index, dtype=str)
+    )
+    if bool((instrument.ne("") & etf.ne("") & instrument.ne(etf)).any()):
+        return None
+    return instrument.where(instrument.ne(""), etf)
+
+
+def _canonical_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if type(value).__module__ == "numpy" and type(value).__name__ == "bool_":
+        return bool(value)
+    return None
+
+
+def _scalar_text(value: object) -> str:
+    if value is None:
+        return ""
+    try:
+        if bool(pd.isna(value)):
+            return ""
+    except (TypeError, ValueError):
+        return ""
+    return str(value).strip()
 
 
 def _aware_utc(value: object) -> pd.Timestamp | None:
@@ -85,10 +265,6 @@ def _aware_utc(value: object) -> pd.Timestamp | None:
     if timestamp.tzinfo is None or timestamp.utcoffset() is None:
         return None
     return timestamp.tz_convert("UTC")
-
-
-def _is_true(value: object) -> bool:
-    return (isinstance(value, bool) and value) or str(value).strip().casefold() == "true"
 
 
 @dataclass(frozen=True)
@@ -224,4 +400,5 @@ __all__ = [
     "MAX_DIGEST_ITEMS",
     "build_digest",
     "filter_news_contradiction_inputs",
+    "score_run_pair_as_of",
 ]

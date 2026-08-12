@@ -25,7 +25,12 @@ from etf_cockpit.application.alerts import (
     read_local_alerts,
     snooze_local_alert,
 )
-from etf_cockpit.application.digest import DashboardDigest, build_digest, filter_news_contradiction_inputs
+from etf_cockpit.application.digest import (
+    DashboardDigest,
+    build_digest,
+    filter_news_contradiction_inputs,
+    score_run_pair_as_of,
+)
 from etf_cockpit.application.ui_facade import (
     EVENT_CLEAN_PATH,
     NEWS_CLEAN_PATH,
@@ -179,52 +184,73 @@ def _what_matters_today(state: AppState, *, scores: list[SimpleInstrumentScore] 
 
 
 def _dashboard_digest(state: AppState, *, scores: list[SimpleInstrumentScore] | None = None) -> DashboardDigest:
-    report = _latest_run_change_report()
     as_of = str(getattr(getattr(state.snapshot, "data_report", None), "as_of_date", "") or "") or None
+    cutoff = normalise_event_decision_time(as_of)
+    report = _latest_run_change_report(cutoff)
     records: dict[str, list[dict[str, object]] | None] = {
         "score_changes": _score_change_record(report, as_of=as_of),
         "warning_changes": _warning_change_record(report, as_of=as_of),
     }
 
-    alerts = _read_alerts()
+    alerts = (
+        _read_alerts(as_of=cutoff.to_pydatetime(), limit=None)
+        if cutoff is not None
+        else AlertReadback("unavailable")
+    )
     records["alerts"] = _alert_record(alerts, as_of=as_of)
     records["model_failures"] = _model_failure_record(alerts, as_of=as_of)
     records["manual_review"] = _manual_review_record(report, scores or (), as_of=as_of)
     records["stale_data"] = _stale_data_record(state, alerts, as_of=as_of)
-    records["contradictions"] = _contradiction_record(state, as_of=as_of)
-    records["upcoming_events"] = _event_record(as_of=as_of)
+    records["contradictions"] = _contradiction_record(state, as_of=as_of, cutoff=cutoff)
+    records["upcoming_events"] = _event_record(as_of=as_of, cutoff=cutoff)
     records["audit_export"] = _audit_export_record(state, as_of=as_of)
     return build_digest(records, as_of=as_of)
 
 
-def _latest_run_change_report():
+def _latest_run_change_report(cutoff: object):
     history = score_history_frame()
-    if history.empty or "run_id" not in history.columns:
+    selected = score_run_pair_as_of(history, cutoff)
+    if selected is None:
         return None
-    if "run_completed_at" in history.columns:
-        history = history.sort_values(["run_completed_at", "run_id"], kind="stable")
-    runs = list(dict.fromkeys(history["run_id"].astype(str).tolist()))
-    if len(runs) < 2:
-        return None
-    return compare_runs(history, runs[-1], runs[-2])
+    eligible_history, current, previous = selected
+    return compare_runs(eligible_history, current, previous)
 
 
 def _score_change_record(report, *, as_of: str | None) -> list[dict[str, object]] | None:
     if report is None:
         return None
-    changes = [
-        change
-        for change in report.changes
-        if change.score_delta not in (None, 0) or change.score_rank_delta not in (None, 0)
-    ]
-    changes.sort(key=lambda change: (-max(abs(change.score_delta or 0), abs(change.score_rank_delta or 0)), change.instrument_id))
-    if not changes:
-        return [{"title": "No score or rank changes", "detail": "The latest two local score runs have no tracked score/rank movement.", "status": "available", "severity": "info", "as_of": as_of, "provenance": "score_history"}]
-    detail = "; ".join(
-        f"{change.instrument_id} score {change.score_delta:+.1f}" if change.score_delta not in (None, 0) else f"{change.instrument_id} rank {change.score_rank_delta:+.0f}"
-        for change in changes[:3]
+    score_comparable = [change for change in report.changes if change.score_delta is not None]
+    rank_comparable = [change for change in report.changes if change.score_rank_delta is not None]
+    score_changed = sorted(
+        (change for change in score_comparable if change.score_delta != 0),
+        key=lambda change: (-abs(change.score_delta), change.instrument_id),
     )
-    return [{"title": "Biggest score/rank changes", "detail": detail, "status": "available", "severity": "warning", "as_of": as_of, "provenance": "score_history"}]
+    rank_changed = sorted(
+        (change for change in rank_comparable if change.score_rank_delta != 0),
+        key=lambda change: (-abs(change.score_rank_delta), change.instrument_id),
+    )
+    score_detail = (
+        "scores: " + ", ".join(f"{change.instrument_id} {change.score_delta:+.1f}" for change in score_changed[:3])
+        if score_changed
+        else "scores: no change"
+        if score_comparable
+        else "scores: unavailable"
+    )
+    rank_detail = (
+        "ranks: " + ", ".join(f"{change.instrument_id} {change.score_rank_delta:+.0f}" for change in rank_changed[:3])
+        if rank_changed
+        else "ranks: no change"
+        if rank_comparable
+        else "ranks: unavailable"
+    )
+    if not score_comparable and not rank_comparable:
+        status, severity = "unavailable", "warning"
+    elif not score_comparable or not rank_comparable:
+        status, severity = "manual_review", "warning"
+    else:
+        status = "available"
+        severity = "warning" if score_changed or rank_changed else "info"
+    return [{"title": "Biggest score/rank changes", "detail": f"{score_detail}; {rank_detail}.", "status": status, "severity": severity, "as_of": as_of, "provenance": "score_history"}]
 
 
 def _warning_change_record(report, *, as_of: str | None) -> list[dict[str, object]] | None:
@@ -264,7 +290,14 @@ def _model_failure_record(readback: AlertReadback, *, as_of: str | None) -> list
 
 def _manual_review_record(report, scores, *, as_of: str | None) -> list[dict[str, object]] | None:
     identifiers = {change.instrument_id for change in (report.changes if report is not None else ()) if "review" in change.current_action.casefold()}
-    identifiers.update(str(getattr(score, "display_id", "")) for score in scores if "review" in str(getattr(score, "decision", "")).casefold())
+    identifiers.update(
+        str(getattr(score, "display_id", ""))
+        for score in scores
+        if any(
+            "review" in str(getattr(score, field, "")).casefold()
+            for field in ("decision", "final_action")
+        )
+    )
     identifiers.discard("")
     if report is None and not scores:
         return None
@@ -286,11 +319,20 @@ def _stale_data_record(state: AppState, alerts: AlertReadback, *, as_of: str | N
     return [{"title": "Stale or non-clean data needs review", "detail": detail, "status": "manual_review", "severity": "warning", "as_of": as_of, "provenance": "data_report/local_alerts"}]
 
 
-def _contradiction_record(state: AppState, *, as_of: str | None) -> list[dict[str, object]]:
+def _contradiction_record(
+    state: AppState,
+    *,
+    as_of: str | None,
+    cutoff: object | None = None,
+) -> list[dict[str, object]]:
     try:
         news = sort_news_items(load_news_items(NEWS_CLEAN_PATH))
         prices = getattr(state.snapshot, "prices", pd.DataFrame())
-        filtered_inputs = filter_news_contradiction_inputs(news, prices, normalise_event_decision_time(as_of))
+        filtered_inputs = filter_news_contradiction_inputs(
+            news,
+            prices,
+            cutoff if cutoff is not None else normalise_event_decision_time(as_of),
+        )
         macro = MacroWarehouse().summary(root=ROOT, decision_time=as_of)
     except (MacroWarehouseError, OSError, TypeError, ValueError):
         return [{"title": "News/macro contradiction status unavailable", "detail": "Local contradiction inputs could not be read; no contradiction is inferred.", "status": "unavailable", "severity": "warning", "as_of": as_of, "provenance": "news_context/macro_warehouse"}]
@@ -304,8 +346,8 @@ def _contradiction_record(state: AppState, *, as_of: str | None) -> list[dict[st
     return [{"title": "News/macro contradiction status", "detail": detail, "status": "manual_review", "severity": "warning", "as_of": as_of, "provenance": "news_context/adjusted_prices/macro_warehouse"}]
 
 
-def _event_record(*, as_of: str | None) -> list[dict[str, object]] | None:
-    decision_time = normalise_event_decision_time(as_of)
+def _event_record(*, as_of: str | None, cutoff: object | None = None) -> list[dict[str, object]] | None:
+    decision_time = cutoff if isinstance(cutoff, pd.Timestamp) else normalise_event_decision_time(as_of)
     if decision_time is None:
         return None
     try:
@@ -325,7 +367,7 @@ def _event_record(*, as_of: str | None) -> list[dict[str, object]] | None:
 def _audit_export_record(state: AppState, *, as_of: str | None) -> list[dict[str, object]]:
     export_path = getattr(state, "last_export_path", None)
     activities = tuple(getattr(state, "recent_activity", ()) or ())
-    failures = [entry for entry in activities if "export" in str(getattr(entry, "label", "")).casefold() and str(getattr(entry, "status", "")).casefold() in {"failed", "unavailable"}]
+    failures = [entry for entry in activities if "export" in str(getattr(entry, "label", "")).casefold() and str(getattr(entry, "status", "")).casefold() in {"failed", "unavailable", "cancelled", "interrupted"}]
     if failures:
         return [{"title": "Recent audit/export failed", "detail": str(getattr(failures[-1], "message", "Manual review is required.")), "status": "manual_review", "severity": "warning", "as_of": as_of, "provenance": "session_activity"}]
     if export_path:
@@ -390,9 +432,21 @@ def _news_digest(page: ft.Page, state: AppState) -> ft.Control:
     )
 
 
-def _read_alerts(*, subject_id: str | None = None, include_inactive: bool = False) -> AlertReadback:
+def _read_alerts(
+    *,
+    subject_id: str | None = None,
+    as_of: datetime | str | None = None,
+    include_inactive: bool = False,
+    limit: int | None = 8,
+) -> AlertReadback:
     try:
-        return read_local_alerts(ROOT, subject_id=subject_id, include_inactive=include_inactive, limit=8)
+        return read_local_alerts(
+            ROOT,
+            subject_id=subject_id,
+            as_of=as_of,
+            include_inactive=include_inactive,
+            limit=limit,
+        )
     except Exception:
         return AlertReadback("unavailable")
 

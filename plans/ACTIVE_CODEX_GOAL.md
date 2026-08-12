@@ -2186,12 +2186,15 @@ next action and whether the requested outcome is actually complete.
   behavior to current main, preserving local-only context and
   `execution_allowed=false`.
 - The bounded current-main implementation now renders all nine accepted digest
-  categories through one deterministic 12-item context projection. Score/rank
-  and warning changes, alerts/model failures, manual-review and stale-data
-  states, point-in-time news contradictions, upcoming events and session
-  audit/export status use existing local seams; missing adjusted-price inputs
-  fail unavailable and macro contradiction comparison remains explicitly
-  manual-review because no canonical seam exists. Dashboard/UI, digest,
-  architecture and application checks pass (68 affected tests), plus Ruff,
-  compile and diff hygiene. Freeze one classified head for paired review and
+  categories through one deterministic 12-item context projection. One
+  validated snapshot cutoff governs timestamp-attributable score runs, the
+  complete active alert population, news/adjusted-price evidence and upcoming
+  events. Canonical news metadata and finite positive, instrument-matched price
+  evidence fail closed; score and rank truth remain separate; missing evidence
+  is not reported as zero change; interrupted exports and both decision fields
+  reach manual review. Macro contradiction comparison remains explicitly
+  manual-review because no canonical seam exists. The consolidated review
+  correction passes 72 focused alert/digest tests and the complete 148-test
+  affected UI/architecture/application batch, plus Ruff, compile, programme
+  freshness and diff hygiene. Freeze one replacement head for paired review and
   required hosted validation; add no provider, macro inference or authority.
