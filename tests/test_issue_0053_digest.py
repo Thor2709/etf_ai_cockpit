@@ -310,6 +310,35 @@ def test_contradiction_inputs_require_finite_positive_scoped_price_evidence(bad_
     assert filter_news_contradiction_inputs(news, prices, "2026-08-12T23:59:59+00:00") is None
 
 
+def test_contradiction_inputs_reject_conflicting_duplicate_prices_independent_of_row_order() -> None:
+    news = pd.DataFrame([_news_row()])
+    prices = pd.DataFrame([
+        _price_row(),
+        _price_row(adjusted_close=99.0),
+        _price_row(date="2026-08-11", adjusted_close=101.0),
+    ])
+
+    assert filter_news_contradiction_inputs(news, prices, "2026-08-12T23:59:59+00:00") is None
+    assert filter_news_contradiction_inputs(news, prices.iloc[::-1], "2026-08-12T23:59:59+00:00") is None
+
+
+def test_contradiction_inputs_deterministically_collapse_exact_duplicate_prices() -> None:
+    news = pd.DataFrame([_news_row()])
+    prices = pd.DataFrame([
+        _price_row(),
+        _price_row(),
+        _price_row(date="2026-08-11", adjusted_close=101.0),
+    ])
+
+    first = filter_news_contradiction_inputs(news, prices, "2026-08-12T23:59:59+00:00")
+    reversed_rows = filter_news_contradiction_inputs(news, prices.iloc[::-1], "2026-08-12T23:59:59+00:00")
+
+    assert first is not None
+    assert reversed_rows is not None
+    pd.testing.assert_frame_equal(first[1], reversed_rows[1])
+    assert first[1]["date"].tolist() == ["2026-08-09", "2026-08-11"]
+
+
 def test_score_history_uses_attributable_runs_at_or_before_cutoff(monkeypatch) -> None:
     history = pd.DataFrame([
         {"run_id": "old", "run_completed_at": "2026-08-09T10:00:00+00:00", "instrument_id": "VWCE", "final_combined_score_10": 4.0, "rank": 3},
@@ -371,6 +400,42 @@ def test_score_rank_summary_shows_both_and_distinguishes_unavailable_from_zero()
     assert zero_record["status"] == "available"
     assert "scores: no change" in str(zero_record["detail"])
     assert "ranks: no change" in str(zero_record["detail"])
+
+
+@pytest.mark.parametrize("missing_run", ["old", "new"])
+def test_warning_summary_is_unavailable_when_either_run_lacks_warning_evidence(missing_run) -> None:
+    history = pd.DataFrame([
+        {
+            "run_id": "old",
+            "instrument_id": "VWCE",
+            "warnings": None if missing_run == "old" else "stale_data_warning",
+        },
+        {
+            "run_id": "new",
+            "instrument_id": "VWCE",
+            "warnings": None if missing_run == "new" else "stale_data_warning",
+        },
+    ])
+    report = dashboard.compare_runs(history, "new", "old")
+
+    record = dashboard._warning_change_record(report, as_of="2026-08-12")[0]
+
+    assert record["status"] == "unavailable"
+    assert "manual review" in str(record["detail"])
+    assert record["title"] != "No new or removed score warnings"
+
+
+def test_warning_summary_preserves_proven_zero_change() -> None:
+    history = pd.DataFrame([
+        {"run_id": "old", "instrument_id": "VWCE", "warnings": "stale_data_warning"},
+        {"run_id": "new", "instrument_id": "VWCE", "warnings": "stale_data_warning"},
+    ])
+    report = dashboard.compare_runs(history, "new", "old")
+
+    record = dashboard._warning_change_record(report, as_of="2026-08-12")[0]
+
+    assert record["status"] == "available"
+    assert record["title"] == "No new or removed score warnings"
 
 
 def test_manual_review_includes_final_action() -> None:

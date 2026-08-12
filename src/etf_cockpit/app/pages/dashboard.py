@@ -256,6 +256,20 @@ def _score_change_record(report, *, as_of: str | None) -> list[dict[str, object]
 def _warning_change_record(report, *, as_of: str | None) -> list[dict[str, object]] | None:
     if report is None:
         return None
+    warning_evidence_unavailable = not report.changes or any(
+        change.current_warnings == "unavailable"
+        or change.previous_warnings in {None, "unavailable"}
+        for change in report.changes
+    )
+    if warning_evidence_unavailable:
+        return [{
+            "title": "Score warning changes unavailable",
+            "detail": "Current or previous warning evidence is unavailable; warning changes require manual review.",
+            "status": "unavailable",
+            "severity": "warning",
+            "as_of": as_of,
+            "provenance": "score_history",
+        }]
     added = sorted({warning for change in report.changes for warning in change.warnings_added})
     removed = sorted({warning for change in report.changes for warning in change.warnings_removed})
     if not added and not removed:

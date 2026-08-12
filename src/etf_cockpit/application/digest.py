@@ -144,6 +144,18 @@ def filter_news_contradiction_inputs(
         return None
     price_frame["adjusted_close"] = adjusted_close
     price_frame["_digest_date"] = price_dates.dt.date
+    duplicate_values = price_frame.groupby(
+        ["instrument_id", "_digest_date"],
+        sort=True,
+    )["adjusted_close"].nunique(dropna=False)
+    if bool(duplicate_values.gt(1).any()):
+        return None
+    price_frame["date"] = price_frame["_digest_date"].map(str)
+    price_frame = (
+        price_frame[["instrument_id", "date", "adjusted_close", "_digest_date"]]
+        .sort_values(["instrument_id", "_digest_date"], kind="stable")
+        .drop_duplicates(["instrument_id", "_digest_date"])
+    )
     for _, item in news_frame.iterrows():
         published = _aware_utc(item["published_at"])
         if published is None:

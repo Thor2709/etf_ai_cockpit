@@ -2192,9 +2192,10 @@ next action and whether the requested outcome is actually complete.
   events. Canonical news metadata and finite positive, instrument-matched price
   evidence fail closed; score and rank truth remain separate; missing evidence
   is not reported as zero change; interrupted exports and both decision fields
-  reach manual review. Macro contradiction comparison remains explicitly
-  manual-review because no canonical seam exists. The consolidated review
-  correction passes 72 focused alert/digest tests and the complete 148-test
-  affected UI/architecture/application batch, plus Ruff, compile, programme
-  freshness and diff hygiene. Freeze one replacement head for paired review and
-  required hosted validation; add no provider, macro inference or authority.
+  reach manual review. Conflicting same-date adjusted closes fail closed and
+  warning no-change is emitted only when both runs provide comparable evidence.
+  Macro contradiction comparison remains explicitly manual-review because no
+  canonical seam exists. The final review correction passes 34 focused digest
+  and 6 run-change tests, plus Ruff, compile, programme freshness and diff
+  hygiene. Freeze one replacement head for paired review and fresh required
+  hosted validation; add no provider, macro inference or authority.
