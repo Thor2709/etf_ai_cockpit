@@ -80,6 +80,7 @@ class MacroObservation(BaseModel):
     curve_type: str | None = None
     curve_version: str | None = None
     tenor_years: float | None = Field(default=None, gt=0, strict=True, allow_inf_nan=False)
+    curve_point_count: int | None = Field(default=None, ge=1, strict=True)
     interpolation: str | None = None
     extrapolation_allowed: bool = False
     compounding: str | None = None
@@ -137,6 +138,7 @@ class MacroObservation(BaseModel):
             "curve_type": self.curve_type,
             "curve_version": self.curve_version,
             "tenor_years": self.tenor_years,
+            "curve_point_count": self.curve_point_count,
             "interpolation": self.interpolation,
             "extrapolation_allowed": self.extrapolation_allowed,
             "compounding": self.compounding,
@@ -769,6 +771,7 @@ class MacroWarehouse:
                 curve_type=curve.curve_type,
                 curve_version=curve.curve_version,
                 tenor_years=point.tenor_years,
+                curve_point_count=len(curve.points),
                 interpolation=curve.interpolation,
                 extrapolation_allowed=False,
                 compounding=curve.compounding,
@@ -842,6 +845,17 @@ class MacroWarehouse:
                 "execution_allowed": False,
             }
         if any(
+            row.availability_confidence != "exact"
+            or row.timezone_confidence != "exact"
+            for row in rows
+        ):
+            return {
+                "status": "unavailable",
+                "reason": "curve availability and timezone confidence must be exact",
+                "curve_id": curve_id,
+                "execution_allowed": False,
+            }
+        if any(
             _explicit_timestamp(row.published_at, "published_at")
             > _explicit_timestamp(row.available_at, "available_at")
             for row in rows
@@ -862,6 +876,7 @@ class MacroWarehouse:
                 row.source_terms,
                 row.curve_version,
                 row.curve_type,
+                row.curve_point_count,
                 row.currency,
                 row.methodology,
                 row.observed_at,
@@ -883,6 +898,14 @@ class MacroWarehouse:
             return {
                 "status": "unavailable",
                 "reason": "curve snapshot metadata is conflicted",
+                "curve_id": curve_id,
+                "execution_allowed": False,
+            }
+        point_count = rows[0].curve_point_count
+        if point_count is None or point_count != len(rows):
+            return {
+                "status": "unavailable",
+                "reason": "curve snapshot is incomplete",
                 "curve_id": curve_id,
                 "execution_allowed": False,
             }

@@ -277,6 +277,7 @@ def _direct_curve_row(**updates: object) -> MacroObservation:
         "curve_type": "spot",
         "curve_version": "v1",
         "tenor_years": 1.0,
+        "curve_point_count": 1,
         "interpolation": "none",
         "compounding": "annual",
         "day_count": "ACT/365F",
@@ -343,6 +344,55 @@ def test_direct_curve_row_rejects_publication_after_availability(tmp_path) -> No
     )
     assert selected["status"] == "unavailable"
     assert "published_at" in str(selected["reason"])
+    assert selected["execution_allowed"] is False
+
+
+def test_partial_curve_snapshot_is_never_visible(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    row = _direct_curve_row(
+        curve_id="mapped-curve",
+        curve_point_count=2,
+    )
+    _store_direct_curve_row(tmp_path, row)
+    selected = warehouse.curve_rate(
+        root=tmp_path,
+        curve_id="mapped-curve",
+        tenor_years=1.0,
+        decision_time="2025-01-01T00:00:00+00:00",
+    )
+    assert selected["status"] == "unavailable"
+    assert "incomplete" in str(selected["reason"])
+    assert selected["execution_allowed"] is False
+
+
+def test_curve_with_inferred_availability_is_never_visible(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    row = _direct_curve_row(curve_id="mapped-curve")
+    with BitemporalStore(tmp_path) as store:
+        store.record_observation(
+            dataset_id=row.dataset_id,
+            entity_id=row.series_id,
+            stable_id=row.stable_id,
+            value=row.ledger_value(),
+            source_id=row.source_id,
+            source_checksum=row.source_checksum,
+            revision=row.revision,
+            valid_from="2024-01-01T00:00:00+00:00",
+            published_at=row.published_at,
+            available_at=row.available_at,
+            observed_at=row.observed_at,
+            ingested_at=row.ingested_at,
+            run_id="inferred-direct-row",
+            availability_confidence="inferred",
+        )
+    selected = warehouse.curve_rate(
+        root=tmp_path,
+        curve_id="mapped-curve",
+        tenor_years=1.0,
+        decision_time="2025-01-01T00:00:00+00:00",
+    )
+    assert selected["status"] == "unavailable"
+    assert "confidence" in str(selected["reason"])
     assert selected["execution_allowed"] is False
 
 

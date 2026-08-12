@@ -861,7 +861,9 @@ def test_injected_cash_comparison_propagates_without_changing_score_authority(
     )
     trust_artifacts.write_benchmark_attribution(frame)
     persisted = pd.read_parquet(attribution_path).iloc[0]
-    readback = instrument_detail_selector._derived_evidence_panel(instrument_id)[
+    readback = instrument_detail_selector._derived_evidence_panel(
+        instrument_id, expected_currency="EUR"
+    )[
         "attribution"
     ]
     assert persisted["cash_return"] == pytest.approx(injected["cash_return"])
@@ -873,6 +875,13 @@ def test_injected_cash_comparison_propagates_without_changing_score_authority(
     assert readback["cash_source_terms"] == injected["source_terms"]
     assert readback["cash_knowledge_cutoff"] == injected["knowledge_cutoff"]
     assert readback["execution_allowed"] is False
+
+    missing_currency = instrument_detail_selector._derived_evidence_panel(
+        instrument_id
+    )["attribution"]
+    assert missing_currency["cash_comparison_status"] == "unavailable"
+    assert missing_currency.get("cash_return") is None
+    assert missing_currency["execution_allowed"] is False
 
     comparison_text = _control_text(_comparison_table(available, unavailable))
     assert "Cash return" in comparison_text

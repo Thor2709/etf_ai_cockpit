@@ -1324,7 +1324,7 @@ def _attribution_panel(derived: Mapping[str, Any], scoreboard: Mapping[str, Any]
             expected_currency=expected_currency,
         )
         if expected_currency is not None
-        else {"cash_comparison_status": "unavailable"}
+        else cash_comparison_to_projection(None)
     )
     if (
         scoreboard_cash.get("cash_comparison_status") == "available"
@@ -1821,9 +1821,13 @@ def _derived_evidence_panel(
             rows = _instrument_rows(frame, instrument_id)
             if not rows.empty:
                 persisted = rows.iloc[-1].to_dict()
-                sanitized_cash = cash_comparison_to_projection(
-                    cash_comparison_from_projection(persisted),
-                    expected_currency=expected_currency,
+                sanitized_cash = (
+                    cash_comparison_to_projection(
+                        cash_comparison_from_projection(persisted),
+                        expected_currency=expected_currency,
+                    )
+                    if _safe_text(expected_currency) is not None
+                    else cash_comparison_to_projection(None)
                 )
                 attribution = {
                     **persisted,
