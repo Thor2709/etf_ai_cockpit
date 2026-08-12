@@ -246,6 +246,8 @@ def _validate(observation: MacroObservation) -> MacroObservation:
             observation.tenor_years,
         )
     )
+    if curve_evidence and observation.dataset_id != f"curve:{observation.curve_id}":
+        raise MacroWarehouseError("curve dataset identity does not match curve_id")
     timestamp_normalizer = _explicit_timestamp if curve_evidence else _timestamp
     normalized = {
         field_name: timestamp_normalizer(getattr(observation, field_name), field_name)
@@ -826,6 +828,16 @@ class MacroWarehouse:
                 "execution_allowed": False,
             }
         rows = [MacroObservation.model_validate(item) for item in frame.to_dict("records")]
+        if any(
+            row.dataset_id != f"curve:{curve_id}" or row.curve_id != curve_id
+            for row in rows
+        ):
+            return {
+                "status": "unavailable",
+                "reason": "curve dataset identity does not match curve_id",
+                "curve_id": curve_id,
+                "execution_allowed": False,
+            }
         latest_effective_at = max(row.observed_at for row in rows)
         rows = [row for row in rows if row.observed_at == latest_effective_at]
         metadata_signatures = {

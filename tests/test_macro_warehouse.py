@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from etf_cockpit.data.bitemporal import BitemporalStore
 from etf_cockpit.data.macro_warehouse import (
     BenchmarkMetadata,
     CurvePoint,
@@ -260,6 +261,55 @@ def test_curve_interpolation_is_declared_bounded_and_supports_negative_rates() -
         interpolate_curve(points, 2.0, policy="none")
     with pytest.raises(MacroWarehouseError, match="extrapolation"):
         interpolate_curve(points, 2.0, policy="linear", extrapolation_allowed=True)
+
+
+def test_direct_curve_row_binds_declared_curve_to_storage_dataset(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    row = _row(
+        dataset_id="curve:mapped-curve",
+        series_id="mapped-curve:1Y",
+        value=0.01,
+        unit="decimal",
+        frequency="irregular",
+        curve_id="foreign-curve",
+        curve_type="spot",
+        curve_version="v1",
+        tenor_years=1.0,
+        interpolation="none",
+        compounding="annual",
+        day_count="ACT/365F",
+        reinvestment="reinvested_income",
+        freshness="fresh",
+        freshness_status="fresh",
+    )
+    with pytest.raises(MacroWarehouseError, match="dataset identity"):
+        warehouse.ingest([row], root=tmp_path)
+
+    with BitemporalStore(tmp_path) as store:
+        store.record_observation(
+            dataset_id=row.dataset_id,
+            entity_id=row.series_id,
+            stable_id=row.stable_id,
+            value=row.ledger_value(),
+            source_id=row.source_id,
+            source_checksum=row.source_checksum,
+            revision=row.revision,
+            valid_from="2024-01-01T00:00:00+00:00",
+            published_at=row.published_at,
+            available_at=row.available_at,
+            observed_at=row.observed_at,
+            ingested_at=row.ingested_at,
+            run_id="malformed-direct-row",
+        )
+    selected = warehouse.curve_rate(
+        root=tmp_path,
+        curve_id="mapped-curve",
+        tenor_years=1.0,
+        decision_time="2025-01-01T00:00:00+00:00",
+    )
+    assert selected["status"] == "unavailable"
+    assert "dataset identity" in str(selected["reason"])
+    assert selected["execution_allowed"] is False
 
 
 @pytest.mark.parametrize("curve_type", ("spot", "par", "forward"))

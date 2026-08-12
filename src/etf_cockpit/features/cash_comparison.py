@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 import math
-from numbers import Integral
+from numbers import Integral, Real
 from collections.abc import Mapping
 
 import pandas as pd
@@ -101,9 +101,9 @@ def total_return_from_rate(
 ) -> float:
     """Convert an annual decimal rate into a total return for an exact period."""
 
-    rate = float(annual_rate)
-    horizon = float(years)
-    if not math.isfinite(rate) or not math.isfinite(horizon) or horizon <= 0:
+    rate = _finite_float(annual_rate, "annual_rate")
+    horizon = _finite_float(years, "years")
+    if horizon <= 0:
         raise ValueError("rate and horizon must be finite, with a positive horizon")
     if compounding not in _COMPOUNDING:
         raise ValueError(f"unsupported compounding: {compounding}")
@@ -316,7 +316,9 @@ def build_cash_comparison(
         if day_count not in _DAY_COUNTS:
             return _unavailable("cash day-count convention is unsupported", currency=currency)
         horizon = year_fraction(start, end, str(day_count))
-        observed_horizon = float(cash_evidence.get("tenor_years"))
+        observed_horizon = _finite_float(
+            cash_evidence.get("tenor_years"), "tenor_years"
+        )
         if not math.isclose(observed_horizon, horizon, rel_tol=0.0, abs_tol=1e-12):
             return _unavailable("cash horizon does not exactly match the comparison period", currency=currency)
         if cash_evidence.get("compounding") not in _COMPOUNDING:
@@ -353,8 +355,9 @@ def build_cash_comparison(
         if len(checksum) != 64 or any(character not in "0123456789abcdefABCDEF" for character in checksum):
             return _unavailable("cash evidence checksum is malformed", currency=currency)
         instrument_return = exact_adjusted_total_return(adjusted_prices, start, end)
+        cash_rate = _finite_float(cash_evidence.get("rate"), "rate")
         cash_return = total_return_from_rate(
-            float(cash_evidence["rate"]),
+            cash_rate,
             horizon,
             compounding=str(cash_evidence["compounding"]),
         )
@@ -369,7 +372,7 @@ def build_cash_comparison(
         start_date=start.isoformat(),
         end_date=end.isoformat(),
         horizon_years=horizon,
-        rate=float(cash_evidence["rate"]),
+        rate=cash_rate,
         compounding=str(cash_evidence["compounding"]),
         day_count=str(day_count),
         reinvestment=str(cash_evidence["reinvestment"]),
@@ -559,6 +562,8 @@ def validate_cash_comparison_result(
 
 
 def _finite_float(value: object, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{field_name} must be numeric")
     number = float(value)
     if not math.isfinite(number):
         raise ValueError(f"{field_name} must be finite")

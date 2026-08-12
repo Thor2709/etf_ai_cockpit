@@ -90,6 +90,17 @@ def test_total_return_conventions_and_negative_rates(compounding: str) -> None:
     assert result == pytest.approx(expected)
 
 
+@pytest.mark.parametrize("value", (True, "0.01"))
+@pytest.mark.parametrize("field_name", ("annual_rate", "years"))
+def test_total_return_rejects_coercive_financial_values(
+    field_name: str, value: object
+) -> None:
+    arguments: dict[str, object] = {"annual_rate": 0.01, "years": 1.0}
+    arguments[field_name] = value
+    with pytest.raises(ValueError, match="must be numeric"):
+        total_return_from_rate(**arguments, compounding="annual")  # type: ignore[arg-type]
+
+
 def test_annual_rate_domain_is_strict() -> None:
     with pytest.raises(ValueError, match="annual_rate > -1"):
         total_return_from_rate(-1.0, 1.0, compounding="annual")
@@ -645,6 +656,60 @@ def _available_eur_result() -> dict[str, object]:
     )
     assert result.status == "available"
     return result.as_dict()
+
+
+@pytest.mark.parametrize("value", (True, "0.01"))
+@pytest.mark.parametrize("field_name", ("rate", "tenor_years"))
+def test_cash_builder_rejects_coercive_curve_values(
+    field_name: str, value: object
+) -> None:
+    evidence = _evidence(currency="EUR", tenor_years=1.0)
+    evidence[field_name] = value
+    result = build_cash_comparison(
+        adjusted_prices=pd.Series(
+            [100.0, 105.79], index=pd.to_datetime(["2025-01-01", "2026-01-01"])
+        ),
+        start_date="2025-01-01",
+        end_date="2026-01-01",
+        instrument_currency="EUR",
+        cash_evidence=evidence,
+        decision_time="2026-01-02T00:00:00+00:00",
+    )
+    assert result.status == "unavailable"
+
+
+@pytest.mark.parametrize("value", (True, "0.01"))
+@pytest.mark.parametrize(
+    "field_name",
+    ("instrument_return", "cash_return", "excess_over_cash", "horizon_years", "rate"),
+)
+def test_serialized_cash_comparison_rejects_coercive_financial_values(
+    field_name: str, value: object
+) -> None:
+    result = validate_cash_comparison_result(
+        {**_available_eur_result(), field_name: value},
+        expected_currency="EUR",
+    )
+    assert result.status == "unavailable"
+    assert result.execution_allowed is False
+
+
+def test_instrument_detail_fallback_preserves_valid_scoreboard_cash() -> None:
+    scoreboard = {
+        "instrument_currency": "EUR",
+        **cash_comparison_to_projection(
+            _available_eur_result(), expected_currency="EUR"
+        ),
+        "execution_allowed": False,
+    }
+    panel = instrument_detail_selector._attribution_panel(
+        {"attribution": {"status": "unavailable"}},
+        scoreboard,
+    )
+    assert panel["status"] == "available"
+    assert panel["cash_comparison_status"] == "available"
+    assert panel["cash_return"] == pytest.approx(scoreboard["cash_return"])
+    assert panel["execution_allowed"] is False
 
 
 def test_injected_cash_comparison_propagates_without_changing_score_authority(

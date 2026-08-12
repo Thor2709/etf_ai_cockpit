@@ -543,54 +543,6 @@ def test_attribution_alpha_fallback_never_uses_sector_alpha() -> None:
     assert panel["sector_alpha_proxy"] == 0.42
 
 
-def test_attribution_fallback_preserves_valid_scoreboard_cash() -> None:
-    scoreboard = {
-        "instrument_currency": "EUR",
-        "cash_comparison_status": "available",
-        "cash_instrument_return": 0.05,
-        "cash_return": 0.01,
-        "excess_over_cash": 0.04,
-        "cash_currency": "EUR",
-        "cash_start_date": "2025-01-01",
-        "cash_end_date": "2026-01-01",
-        "cash_horizon_years": 1.0,
-        "cash_rate": 0.01,
-        "cash_vintage": "2024-12-31T00:00:00+00:00",
-        "cash_source_id": "official",
-        "cash_source_authority": "official_public_file",
-        "cash_source_checksum": "a" * 64,
-        "cash_source_terms": "official terms",
-        "cash_methodology": "official method",
-        "cash_mapping_methodology": "EUR mapping",
-        "cash_day_count": "ACT/365F",
-        "cash_compounding": "annual",
-        "cash_reinvestment": "reinvested_income",
-        "cash_effective_at": "2024-01-01T00:00:00+00:00",
-        "cash_available_at": "2024-12-31T00:00:00+00:00",
-        "cash_curve_id": "eur-spot",
-        "cash_curve_version": "v1",
-        "cash_curve_revision": 1,
-        "cash_curve_type": "spot",
-        "cash_extrapolation_allowed": False,
-        "cash_fallback": False,
-        "cash_fallback_from": None,
-        "cash_interpolation": "none",
-        "cash_freshness": "fresh",
-        "cash_freshness_status": "fresh",
-        "cash_decision_time": "2026-01-02T00:00:00+00:00",
-        "cash_knowledge_cutoff": "2025-01-01T00:00:00+00:00",
-        "execution_allowed": False,
-    }
-    panel = _attribution_panel(
-        {"attribution": {"status": "unavailable"}},
-        scoreboard,
-    )
-    assert panel["status"] == "available"
-    assert panel["cash_comparison_status"] == "available"
-    assert panel["cash_return"] == pytest.approx(0.01)
-    assert panel["execution_allowed"] is False
-
-
 def test_safe_bool_accepts_numpy_and_pandas_boolean_scalars_but_fail_closes_malformed_values() -> None:
     pandas_boolean = pd.array([True], dtype="boolean")[0]
 
