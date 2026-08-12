@@ -3613,3 +3613,14 @@ from curve ingest/readback through every cash projection and requires currency
 before selector fallback. Exact regressions, complete cash/macro suites,
 coupled attribution/score/detail suites and static/programme checks pass.
 Freeze one replacement H-tier head for paired review and fresh hosted gates.
+
+Paired review rejected `8e13454f837383f91ba57a76b63c9fbd88b99210`
+for synthesized snapshot publication, coercive proxy horizon bounds and a
+missing non-execution field in projection round-trip. Run `31591207680` is
+cancelled and invalid. Consolidated product commit
+`ef02901442c360e494cca8999aaf80d04f24acb3` makes publication explicit and
+independent, strictly validates finite bounds, and preserves
+`execution_allowed=false` through canonical projection/readback. Exact
+regressions and the complete cash/macro/bitemporal surface plus static and
+programme checks pass. Freeze one replacement H-tier head for paired final
+review and fresh Linux, Windows and terminal validation.

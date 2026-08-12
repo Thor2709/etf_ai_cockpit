@@ -2353,3 +2353,15 @@ next action and whether the requested outcome is actually complete.
   macro suites, coupled attribution/score/detail suites, Ruff, compile,
   programme freshness and diff hygiene pass. Freeze one replacement H-tier
   exact head for paired review and fresh Linux, Windows and terminal evidence.
+- Paired review rejected `8e13454f837383f91ba57a76b63c9fbd88b99210`
+  because official snapshots synthesized publication from availability,
+  boolean/string/non-finite proxy horizon bounds were coerced, and the
+  projection helper omitted its mandatory non-execution flag. Run
+  `31591207680` is cancelled and invalid. Consolidated product commit
+  `ef02901442c360e494cca8999aaf80d04f24acb3` requires and preserves an
+  explicit timezone-aware snapshot publication timestamp, strictly validates
+  finite mapping bounds, and makes cash projection/readback round-trip with
+  `execution_allowed=false`. Distinct and inverted publication, malformed
+  mapping and direct round-trip regressions plus complete cash/macro/bitemporal
+  suites, Ruff, compile, programme freshness and diff hygiene pass. Freeze one
+  replacement H-tier exact head for paired review and fresh hosted gates.
