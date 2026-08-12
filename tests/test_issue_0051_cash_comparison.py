@@ -21,6 +21,7 @@ from etf_cockpit.features.benchmark_attribution import build_benchmark_attributi
 from etf_cockpit.features.cash_comparison import (
     adjusted_endpoint_available_at,
     build_cash_comparison,
+    cash_comparison_from_projection,
     exact_adjusted_total_return,
     cash_comparison_to_projection,
     total_return_from_rate,
@@ -440,13 +441,14 @@ def test_cash_comparison_does_not_turn_missing_inflation_into_real_return() -> N
     assert "real" not in result.as_dict()
 
 
-def _curve(*, version: str = "v1", available_at: str = "2024-12-31T00:00:00+00:00", effective_at: str = "2024-01-01T00:00:00+00:00", rate: float = 0.05, curve_type: str = "spot", freshness: str | None = "fresh", revision: int = 1, day_count: str = "ACT/365F", tenor_years: float = 1.0 / 365.0) -> CurveSnapshot:
+def _curve(*, version: str = "v1", available_at: str = "2024-12-31T00:00:00+00:00", published_at: str | None = None, effective_at: str = "2024-01-01T00:00:00+00:00", rate: float = 0.05, curve_type: str = "spot", freshness: str | None = "fresh", revision: int = 1, day_count: str = "ACT/365F", tenor_years: float = 1.0 / 365.0) -> CurveSnapshot:
     return CurveSnapshot(
         curve_id="aud-cash",
         curve_version=version,
         curve_type=curve_type,
         currency="AUD",
         effective_at=effective_at,
+        published_at=published_at or available_at,
         available_at=available_at,
         ingested_at=available_at,
         source_id="official-curve",
@@ -732,7 +734,6 @@ def test_instrument_detail_fallback_preserves_valid_scoreboard_cash() -> None:
         **cash_comparison_to_projection(
             _available_eur_result(), expected_currency="EUR"
         ),
-        "execution_allowed": False,
     }
     panel = instrument_detail_selector._attribution_panel(
         {"attribution": {"status": "unavailable"}},
@@ -752,6 +753,18 @@ def test_instrument_detail_fallback_preserves_valid_scoreboard_cash() -> None:
     assert rejected["status"] == "unavailable"
     assert rejected.get("cash_comparison_status") != "available"
     assert rejected["execution_allowed"] is False
+
+
+def test_cash_projection_round_trip_preserves_non_execution_authority() -> None:
+    projection = cash_comparison_to_projection(
+        _available_eur_result(), expected_currency="EUR"
+    )
+    assert projection["execution_allowed"] is False
+    round_trip = validate_cash_comparison_result(
+        cash_comparison_from_projection(projection), expected_currency="EUR"
+    )
+    assert round_trip.status == "available"
+    assert round_trip.execution_allowed is False
 
 
 def test_injected_cash_comparison_propagates_without_changing_score_authority(
@@ -1010,6 +1023,7 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
             curve_type="spot",
             currency="EUR",
             effective_at=available,
+            published_at=available,
             available_at=available,
             ingested_at=available,
             source_id="official-local-public-file",

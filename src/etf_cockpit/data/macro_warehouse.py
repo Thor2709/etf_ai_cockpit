@@ -291,6 +291,7 @@ class CurveSnapshot(BaseModel):
     curve_type: str
     currency: str
     effective_at: str
+    published_at: str
     available_at: str
     ingested_at: str
     source_id: str
@@ -333,8 +334,8 @@ class RiskFreeProxyMapping(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     currency: str
-    minimum_horizon_years: float = Field(ge=0)
-    maximum_horizon_years: float = Field(gt=0)
+    minimum_horizon_years: float = Field(ge=0, strict=True, allow_inf_nan=False)
+    maximum_horizon_years: float = Field(gt=0, strict=True, allow_inf_nan=False)
     curve_id: str
     fallback_curve_ids: tuple[str, ...] = ()
     methodology: str
@@ -759,7 +760,7 @@ class MacroWarehouse:
                 source_checksum=curve.source_checksum,
                 source_terms=curve.source_terms,
                 methodology=curve.methodology,
-                published_at=curve.available_at,
+                published_at=curve.published_at,
                 available_at=curve.available_at,
                 observed_at=curve.effective_at,
                 ingested_at=curve.ingested_at,

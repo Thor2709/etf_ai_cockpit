@@ -676,6 +676,7 @@ def cash_comparison_to_projection(
         "cash_decision_time": cash.get("decision_time"),
         "cash_knowledge_cutoff": cash.get("knowledge_cutoff"),
         "inflation_context": cash.get("inflation_context"),
+        "execution_allowed": False,
     }
     return projected
 

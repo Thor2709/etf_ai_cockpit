@@ -10,6 +10,7 @@ from etf_cockpit.data.macro_warehouse import (
     MacroWarehouseError,
     RiskFreeProxyMapping,
     interpolate_curve,
+    load_risk_free_proxy_mappings,
     parse_csv_records,
     parse_world_bank_records,
     transform_observations,
@@ -224,6 +225,7 @@ def _curve(
     curve_id: str = "aud-official-spot",
     version: str = "v1",
     effective_at: str = "2025-01-01T00:00:00+00:00",
+    published_at: str | None = None,
     available_at: str = "2025-01-02T00:00:00+00:00",
     revision: int = 1,
     rates: tuple[float, float] = (-0.01, 0.01),
@@ -234,6 +236,7 @@ def _curve(
         curve_type="spot",
         currency="AUD",
         effective_at=effective_at,
+        published_at=published_at or available_at,
         available_at=available_at,
         ingested_at=available_at,
         source_id="official-central-bank-local-snapshot",
@@ -341,6 +344,68 @@ def test_direct_curve_row_rejects_publication_after_availability(tmp_path) -> No
     assert selected["status"] == "unavailable"
     assert "published_at" in str(selected["reason"])
     assert selected["execution_allowed"] is False
+
+
+def test_curve_snapshot_preserves_distinct_publication_and_availability(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    snapshot = _curve(
+        published_at="2025-01-01T12:00:00+00:00",
+        available_at="2025-01-02T00:00:00+00:00",
+    )
+    warehouse.ingest_curve(snapshot, root=tmp_path)
+    selected = warehouse.curve_rate(
+        root=tmp_path,
+        curve_id=snapshot.curve_id,
+        tenor_years=1.0,
+        decision_time="2025-02-01T00:00:00+00:00",
+    )
+    assert selected["status"] == "available"
+    assert selected["published_at"] == "2025-01-01T12:00:00+00:00"
+    assert selected["available_at"] == "2025-01-02T00:00:00+00:00"
+
+    invalid = snapshot.model_copy(
+        update={"published_at": "2025-01-03T00:00:00+00:00"}
+    )
+    with pytest.raises(MacroWarehouseError, match="published_at"):
+        warehouse.ingest_curve(invalid, root=tmp_path / "invalid")
+
+
+@pytest.mark.parametrize(
+    "updates",
+    (
+        {"minimum_horizon_years": True},
+        {"maximum_horizon_years": "10.0"},
+        {"minimum_horizon_years": float("nan")},
+        {"maximum_horizon_years": float("inf")},
+    ),
+)
+def test_proxy_mapping_loader_rejects_coercive_or_nonfinite_horizons(
+    tmp_path, updates: dict[str, object]
+) -> None:
+    import json
+
+    row: dict[str, object] = {
+        "currency": "AUD",
+        "minimum_horizon_years": 0.0,
+        "maximum_horizon_years": 10.0,
+        "curve_id": "aud-official",
+        "fallback_curve_ids": [],
+        "methodology": "official mapping",
+        "execution_allowed": False,
+    }
+    row.update(updates)
+    path = tmp_path / "risk_free_proxies.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "mappings": [row],
+                "execution_allowed": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert load_risk_free_proxy_mappings(path) == ()
 
 
 @pytest.mark.parametrize("curve_type", ("spot", "par", "forward"))
