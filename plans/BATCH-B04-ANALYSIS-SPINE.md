@@ -3590,6 +3590,18 @@ regressions and the complete affected focused, static and programme checks
 pass. Freeze one replacement H-tier head for paired final review and fresh
 Linux, Windows and terminal validation.
 
+Paired review rejected `302fb671ab25c23cff9a2c45bbe405f836562b10`
+for inverted persisted chronology, blank curve lineage, direct-score cash
+bypass, stale-primary fallback suppression, future malformed generic history
+poisoning, and duplicate-key proxy configuration. Exact-head run
+`31613846758` is cancelled and invalid. Consolidated product commit
+`db7d17166875324c3c5802bdd6f11a13e78df7a3` closes those six exact
+boundaries with fail-closed chronology/lineage/config validation, cutoff-first
+decoding, fresh fallback selection, and canonical score cash sanitization.
+Exact regressions and the complete affected focused, static and programme
+checks pass. Freeze one replacement H-tier head for paired final review and
+fresh Linux, Windows and terminal validation.
+
 Paired review rejected `7245e76ac27606f9542fd71dd354d178fcdcd5b1`
 for partial snapshot visibility, inferred availability accepted as exact and
 persisted cash accepted without currency. Run `31593071919` is cancelled and
