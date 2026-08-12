@@ -1022,7 +1022,7 @@ def test_injected_cash_comparison_propagates_without_changing_score_authority(
     assert row["cash_source_terms"] == injected["source_terms"]
     assert row["cash_knowledge_cutoff"] == injected["knowledge_cutoff"]
     assert str(frame["cash_curve_revision"].dtype) == "Int64"
-    assert row["execution_allowed"] is False or not bool(row["execution_allowed"])
+    assert bool(row["execution_allowed"]) is False
 
     attribution_path = tmp_path / "benchmark_attribution.parquet"
     monkeypatch.setattr(trust_artifacts, "BENCHMARK_ATTRIBUTION_PATH", attribution_path)
@@ -1042,7 +1042,7 @@ def test_injected_cash_comparison_propagates_without_changing_score_authority(
     assert persisted["cash_source_terms"] == injected["source_terms"]
     assert persisted["cash_knowledge_cutoff"] == injected["knowledge_cutoff"]
     assert str(pd.read_parquet(attribution_path)["cash_curve_revision"].dtype) == "Int64"
-    assert not bool(persisted["execution_allowed"])
+    assert bool(persisted["execution_allowed"]) is False
     assert readback["cash_return"] == pytest.approx(injected["cash_return"])
     assert readback["cash_unit"] == "decimal"
     assert readback["cash_dataset_kind"] == "risk_free"

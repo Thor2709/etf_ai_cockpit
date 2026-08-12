@@ -440,6 +440,50 @@ class SimpleInstrumentScore:
             else:
                 derived = "complete"
             object.__setattr__(self, "analysis_status", derived)
+        cash_fields = tuple(
+            field_name
+            for field_name in self.__dataclass_fields__
+            if field_name.startswith("cash_")
+        ) + ("excess_over_cash",)
+        cash_payload = {
+            (
+                "cash_return"
+                if field_name == "cash_return"
+                else field_name[5:] if field_name.startswith("cash_") else field_name
+            ): getattr(self, field_name)
+            for field_name in cash_fields
+        }
+        cash_payload["status"] = cash_payload.pop(
+            "comparison_status", self.cash_comparison_status
+        )
+        cash_payload["reason"] = cash_payload.pop(
+            "comparison_reason", self.cash_comparison_reason
+        )
+        cash_payload["execution_allowed"] = False
+        raw_status = cash_payload["status"]
+        expected_currency = str(self.instrument_currency or "").strip().upper()
+        if raw_status == "available" and (
+            len(expected_currency) != 3 or not expected_currency.isalpha()
+        ):
+            expected_currency = "__invalid_instrument_currency__"
+        validated_cash = validate_cash_comparison_result(
+            cash_payload,
+            expected_currency=expected_currency if raw_status == "available" else None,
+        )
+        if raw_status == "available" and validated_cash.status != "available":
+            for field_name in cash_fields:
+                if field_name == "cash_comparison_status":
+                    object.__setattr__(self, field_name, "unavailable")
+                elif field_name == "cash_comparison_reason":
+                    object.__setattr__(
+                        self,
+                        field_name,
+                        validated_cash.reason
+                        or "Cash comparison unavailable; invalid direct score evidence.",
+                    )
+                else:
+                    object.__setattr__(self, field_name, None)
+            object.__setattr__(self, "inflation_context", None)
         object.__setattr__(self, "execution_allowed", False)
 
     def to_v2_dict(self) -> dict[str, object]:

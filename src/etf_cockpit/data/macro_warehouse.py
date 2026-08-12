@@ -331,6 +331,8 @@ class CurveSnapshot(BaseModel):
     def _execution_must_remain_disabled(self) -> CurveSnapshot:
         if self.execution_allowed is not False:
             raise ValueError("curve snapshots cannot grant execution authority")
+        if not self.curve_version.strip():
+            raise ValueError("curve_version must not be blank")
         return self
 
 
@@ -378,7 +380,10 @@ def load_risk_free_proxy_mappings(
 
     target = Path(path) if path is not None else RISK_FREE_PROXY_CONFIG_PATH
     try:
-        payload = json.loads(target.read_text(encoding="utf-8"))
+        payload = json.loads(
+            target.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
         if not isinstance(payload, Mapping) or payload.get("schema_version") != "1.0":
             return ()
         if payload.get("execution_allowed") is not False:
@@ -409,6 +414,17 @@ def load_risk_free_proxy_mappings(
         return mappings
     except (OSError, TypeError, ValueError):
         return ()
+
+
+def _reject_duplicate_json_keys(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
 
 
 def _validate_curve(snapshot: CurveSnapshot) -> CurveSnapshot:
@@ -717,6 +733,10 @@ def _curve_history_issue(rows: Iterable[MacroObservation], curve_id: str) -> str
             return "curve unit must be decimal"
         effective_at = _timestamp_value(_explicit_timestamp(row.observed_at, "observed_at"))
         available_at = _timestamp_value(_explicit_timestamp(row.available_at, "available_at"))
+        if effective_at > available_at:
+            return "curve effective_at cannot be after available_at"
+        if not isinstance(row.curve_version, str) or not row.curve_version.strip():
+            return "curve_version must not be blank"
         key = (effective_at, row.revision)
         point_key = row.tenor_years
         signature = (
@@ -890,7 +910,19 @@ class MacroWarehouse:
     def observations_as_of(self, *, root: Path, decision_time: str) -> list[MacroObservation]:
         """Return the latest valid revision available at a decision cutoff."""
 
-        dataset_ids = sorted({row.dataset_id for row in self.observations(root=root)})
+        cutoff = _explicit_timestamp(decision_time, "decision_time")
+        cutoff_sql = _timestamp_value(cutoff).isoformat(timespec="microseconds")
+        with BitemporalStore(Path(root)) as store:
+            raw_dataset_ids = store.store.connection.execute(
+                """
+                SELECT DISTINCT dataset_id
+                FROM bitemporal_observations
+                WHERE available_at <= ?
+                ORDER BY dataset_id
+                """,
+                (cutoff_sql,),
+            ).fetchall()
+        dataset_ids = [str(row[0]) for row in raw_dataset_ids]
         selected: list[MacroObservation] = []
         for dataset_id in dataset_ids:
             frame = self.as_of(root=root, dataset_id=dataset_id, decision_time=decision_time)
@@ -1195,7 +1227,8 @@ class MacroWarehouse:
             or row.source_authority not in _OFFICIAL_CURVE_AUTHORITIES
             or not row.source_terms.strip()
             or not row.methodology.strip()
-            or not row.curve_version
+            or not isinstance(row.curve_version, str)
+            or not row.curve_version.strip()
             or not row.curve_type
             or not row.interpolation
             or len(row.source_checksum) != 64
@@ -1298,7 +1331,13 @@ class MacroWarehouse:
                 tenor_years=horizon_years,
                 decision_time=decision_time,
             )
-            if selected["status"] == "available":
+            freshness = selected.get("freshness")
+            freshness_status = selected.get("freshness_status")
+            if (
+                selected["status"] == "available"
+                and freshness in {None, "fresh"}
+                and freshness_status in {None, "fresh"}
+            ):
                 if str(selected.get("currency", "")).upper() != currency.upper():
                     continue
                 return {

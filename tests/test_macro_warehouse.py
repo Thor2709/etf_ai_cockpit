@@ -173,6 +173,11 @@ def test_curve_models_reject_coerced_revision_identities(revision: object) -> No
         )
 
 
+def test_curve_snapshot_rejects_whitespace_curve_version() -> None:
+    with pytest.raises(ValueError, match="curve_version"):
+        CurveSnapshot.model_validate({**_curve().model_dump(), "curve_version": "   "})
+
+
 @pytest.mark.parametrize(
     "point",
     (
@@ -368,6 +373,45 @@ def test_curve_readback_fails_closed_for_persisted_regressing_history(tmp_path) 
     assert "revision" in str(selected["reason"])
 
 
+def test_curve_readback_fails_closed_for_effective_at_after_available_at(tmp_path) -> None:
+    row = _direct_curve_row(
+        curve_id="effective-after-availability",
+        dataset_id="curve:effective-after-availability",
+        series_id="effective-after-availability:1Y",
+        observed_at="2025-01-03T00:00:00+00:00",
+        available_at="2025-01-02T00:00:00+00:00",
+    )
+    _store_direct_curve_row(tmp_path, row)
+
+    selected = MacroWarehouse().curve_rate(
+        root=tmp_path,
+        curve_id="effective-after-availability",
+        tenor_years=1.0,
+        decision_time="2025-01-05T00:00:00+00:00",
+    )
+    assert selected["status"] == "unavailable"
+    assert "effective_at" in str(selected["reason"])
+
+
+def test_curve_readback_fails_closed_for_whitespace_curve_version(tmp_path) -> None:
+    row = _direct_curve_row(
+        curve_id="blank-version",
+        dataset_id="curve:blank-version",
+        series_id="blank-version:1Y",
+        curve_version="   ",
+    )
+    _store_direct_curve_row(tmp_path, row)
+
+    selected = MacroWarehouse().curve_rate(
+        root=tmp_path,
+        curve_id="blank-version",
+        tenor_years=1.0,
+        decision_time="2025-01-05T00:00:00+00:00",
+    )
+    assert selected["status"] == "unavailable"
+    assert "curve_version" in str(selected["reason"])
+
+
 def test_curve_readback_fails_closed_for_persisted_duplicate_revision_identity(tmp_path) -> None:
     first = _direct_curve_row(
         dataset_id="curve:duplicate-curve",
@@ -429,6 +473,43 @@ def test_malformed_primary_curve_falls_back_only_to_official_lineage(tmp_path) -
     assert selected["curve_id"] == "fallback-curve"
     assert selected["fallback"] is True
     assert selected["execution_allowed"] is False
+
+
+def test_stale_primary_curve_falls_back_to_fresh_curve(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    warehouse.ingest_curve(
+        _curve(curve_id="stale-primary").model_copy(
+            update={"freshness": "stale", "freshness_status": "stale"}
+        ),
+        root=tmp_path,
+    )
+    warehouse.ingest_curve(
+        _curve(curve_id="fresh-fallback").model_copy(
+            update={"freshness": "fresh", "freshness_status": "fresh"}
+        ),
+        root=tmp_path,
+    )
+
+    selected = warehouse.risk_free_rate(
+        root=tmp_path,
+        mappings=(
+            RiskFreeProxyMapping(
+                currency="AUD",
+                minimum_horizon_years=1.0,
+                maximum_horizon_years=1.0,
+                curve_id="stale-primary",
+                fallback_curve_ids=("fresh-fallback",),
+                methodology="official mapping",
+            ),
+        ),
+        currency="AUD",
+        horizon_years=1.0,
+        decision_time="2025-01-05T00:00:00+00:00",
+    )
+    assert selected["status"] == "available"
+    assert selected["curve_id"] == "fresh-fallback"
+    assert selected["fallback"] is True
+    assert selected["freshness"] == "fresh"
 
 
 def _curve(
@@ -788,6 +869,75 @@ def test_curve_rate_ignores_invalid_future_history_for_historical_query(tmp_path
     assert selected["source_id"] == first.source_id
 
 
+@pytest.mark.parametrize(
+    ("malformed_available_at", "should_fail_closed"),
+    (
+        ("2025-03-01T00:00:00.000000+00:00", False),
+        ("2025-01-10T00:00:00.000000+00:00", True),
+    ),
+)
+def test_observations_as_of_decodes_only_cutoff_eligible_rows(
+    tmp_path, malformed_available_at: str, should_fail_closed: bool
+) -> None:
+    row = _row(
+        dataset_id="historical-macro",
+        series_id="historical-macro:AU",
+        available_at="2025-01-02T00:00:00+00:00",
+        published_at="2025-01-02T00:00:00+00:00",
+        ingested_at="2025-01-02T00:00:00+00:00",
+    )
+    warehouse = MacroWarehouse()
+    warehouse.ingest([row], root=tmp_path)
+    with BitemporalStore(tmp_path) as store:
+        store.store.connection.execute(
+            """
+            INSERT INTO bitemporal_observations
+                (observation_id, dataset_id, entity_id, stable_id, run_id, value_json,
+                 valid_from, valid_to, published_at, available_at, observed_at,
+                 ingested_at, revised_at, revision, source_id, source_checksum,
+                 timezone_confidence, availability_confidence, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "e" * 64,
+                "future-malformed-dataset",
+                "future-malformed:AU",
+                "future-malformed:AU",
+                "future-malformed-run",
+                "{malformed-json",
+                "2025-01-01T00:00:00.000000+00:00",
+                None,
+                malformed_available_at,
+                malformed_available_at,
+                "2025-01-01T00:00:00.000000+00:00",
+                "2025-03-01T00:00:00.000000+00:00",
+                None,
+                1,
+                "future-malformed-source",
+                "f" * 64,
+                "exact",
+                "exact",
+                "active",
+            ),
+        )
+        store.store.connection.commit()
+
+    if should_fail_closed:
+        with pytest.raises(ValueError):
+            warehouse.observations_as_of(
+                root=tmp_path,
+                decision_time="2025-01-15T00:00:00+00:00",
+            )
+    else:
+        selected = warehouse.observations_as_of(
+            root=tmp_path,
+            decision_time="2025-01-15T00:00:00+00:00",
+        )
+        assert [(item.dataset_id, item.value) for item in selected] == [
+            ("historical-macro", row.value)
+        ]
+
+
 def test_curve_rate_preserves_subsecond_cutoff_and_includes_exact_availability(
     tmp_path,
 ) -> None:
@@ -990,6 +1140,19 @@ def test_proxy_mapping_loader_rejects_coercive_or_nonfinite_horizons(
                 "execution_allowed": False,
             }
         ),
+        encoding="utf-8",
+    )
+    assert load_risk_free_proxy_mappings(path) == ()
+
+
+def test_proxy_mapping_loader_rejects_duplicate_json_keys_in_nested_mapping(tmp_path) -> None:
+    path = tmp_path / "risk_free_proxies.json"
+    path.write_text(
+        '{"schema_version":"1.0","mappings":[{"currency":"AUD",'
+        '"currency":"EUR","minimum_horizon_years":0.0,'
+        '"maximum_horizon_years":10.0,"curve_id":"aud-official",'
+        '"fallback_curve_ids":[],"methodology":"official mapping",'
+        '"execution_allowed":false}],"execution_allowed":false}',
         encoding="utf-8",
     )
     assert load_risk_free_proxy_mappings(path) == ()
