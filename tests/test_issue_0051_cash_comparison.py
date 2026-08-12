@@ -854,6 +854,28 @@ def test_persistence_requires_matching_instrument_currency_for_cash(
     assert pd.isna(persisted.loc[0, "cash_return"])
 
 
+def test_persistence_fails_closed_on_non_scalar_instrument_currency(
+    tmp_path, monkeypatch
+) -> None:
+    valid = _available_eur_result()
+    projection = cash_comparison_to_projection(
+        valid, expected_currency="EUR", expected_instrument_id="TEST-EUR"
+    )
+    frame = pd.DataFrame(
+        [{"instrument_id": "EUR-TEST", "instrument_currency": ["EUR", "USD"], **projection}]
+    )
+    attribution_path = tmp_path / "benchmark_attribution.parquet"
+    monkeypatch.setattr(trust_artifacts, "BENCHMARK_ATTRIBUTION_PATH", attribution_path)
+
+    trust_artifacts.write_benchmark_attribution(frame)
+
+    persisted = pd.read_parquet(attribution_path).iloc[0]
+    assert persisted["cash_comparison_status"] == "unavailable"
+    assert pd.isna(persisted["cash_return"])
+    assert pd.isna(persisted["excess_over_cash"])
+    assert bool(persisted["execution_allowed"]) is False
+
+
 def _control_text(control: object) -> str:
     values: list[str] = []
     value = getattr(control, "value", None)

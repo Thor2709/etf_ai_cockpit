@@ -731,6 +731,7 @@ def _curve_history_issue(rows: Iterable[MacroObservation], curve_id: str) -> str
             return "curve dataset_kind must be risk_free"
         if row.unit != "decimal":
             return "curve unit must be decimal"
+        _explicit_timestamp(row.ingested_at, "ingested_at")
         effective_at = _timestamp_value(_explicit_timestamp(row.observed_at, "observed_at"))
         available_at = _timestamp_value(_explicit_timestamp(row.available_at, "available_at"))
         if effective_at > available_at:

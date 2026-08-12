@@ -3789,3 +3789,13 @@ a configured EUR instrument. The complete ISSUE-0051 suite and static,
 programme and diff checks pass. Freeze one replacement H-tier head for paired
 review and fresh hosted Linux, Windows and terminal validation; preserve
 `execution_allowed=false`.
+
+Paired review of `70eae22148fc3b32779991cd44d73b0c4759df13`
+approved canonical attribution binding but reproduced non-scalar currency
+raising during attribution persistence and malformed persisted curve
+`ingested_at` reading as available. Run `31635448229` is cancelled and invalid.
+The combined correction strictly types persistence currency and validates
+timezone-aware ingestion lineage at curve-history readback. Exact regressions,
+the complete ISSUE-0051 and macro-warehouse suites, and static/programme checks
+pass. Freeze one replacement H-tier head for paired review and fresh Linux,
+Windows and terminal validation; preserve `execution_allowed=false`.

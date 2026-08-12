@@ -2522,3 +2522,16 @@ next action and whether the requested outcome is actually complete.
   compile, byte-clean programme generation and diff hygiene pass. Freeze one
   replacement H-tier head for both exact-head reviews and fresh Linux, Windows
   and terminal validation; `execution_allowed=false` remains unchanged.
+
+- Paired review of `70eae22148fc3b32779991cd44d73b0c4759df13`
+  approved the canonical attribution correction but reproduced two additional
+  malformed persistence boundaries before merge: non-scalar instrument
+  currency could raise during benchmark-attribution publication, and malformed
+  persisted curve `ingested_at` lineage could read back as available. Run
+  `31635448229` is cancelled and invalid. One consolidated correction requires
+  scalar textual currency before cash persistence and timezone-aware
+  `ingested_at` during persisted curve-history validation. Exact regressions and
+  the complete ISSUE-0051 and macro-warehouse suites pass with Ruff, compile,
+  byte-clean programme generation and diff hygiene. Freeze one replacement
+  H-tier head for both exact-head reviews and fresh hosted evidence;
+  `execution_allowed=false` remains unchanged.

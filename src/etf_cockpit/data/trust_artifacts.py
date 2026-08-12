@@ -1147,7 +1147,7 @@ def write_benchmark_attribution(scoreboard: pd.DataFrame) -> Path:
     for _, row in scoreboard.iterrows():
         raw_cash = cash_comparison_from_projection(row.to_dict())
         expected_currency = row.get("instrument_currency")
-        if expected_currency is None or pd.isna(expected_currency):
+        if not isinstance(expected_currency, str) or pd.isna(expected_currency):
             expected_currency = None
         if raw_cash.get("status") == "available" and expected_currency is None:
             raw_cash = {

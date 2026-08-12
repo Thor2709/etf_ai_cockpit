@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
+import json
 import sqlite3
 
 from etf_cockpit.data import macro_warehouse as macro_warehouse_module
@@ -433,6 +434,57 @@ def test_curve_readback_fails_closed_for_persisted_duplicate_revision_identity(t
     )
     assert selected["status"] == "unavailable"
     assert "duplicated" in str(selected["reason"])
+
+
+def test_curve_readback_fails_closed_for_malformed_persisted_ingested_at(tmp_path) -> None:
+    row = _direct_curve_row(
+        curve_id="malformed-ingested-at",
+        dataset_id="curve:malformed-ingested-at",
+        series_id="malformed-ingested-at:1Y",
+    )
+    with BitemporalStore(tmp_path) as store:
+        store.store.connection.execute(
+            """
+            INSERT INTO bitemporal_observations
+                (observation_id, dataset_id, entity_id, stable_id, run_id, value_json,
+                 valid_from, valid_to, published_at, available_at, observed_at,
+                 ingested_at, revised_at, revision, source_id, source_checksum,
+                 timezone_confidence, availability_confidence, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "e" * 64,
+                row.dataset_id,
+                row.series_id,
+                row.stable_id,
+                "malformed-ingested-at-run",
+                json.dumps(row.ledger_value(), sort_keys=True),
+                "2024-01-01T00:00:00.000000+00:00",
+                None,
+                row.published_at,
+                row.available_at,
+                row.observed_at,
+                "not-a-time",
+                None,
+                row.revision,
+                row.source_id,
+                row.source_checksum,
+                "exact",
+                "exact",
+                "active",
+            ),
+        )
+        store.store.connection.commit()
+
+    selected = MacroWarehouse().curve_rate(
+        root=tmp_path,
+        curve_id="malformed-ingested-at",
+        tenor_years=1.0,
+        decision_time="2025-01-01T00:00:00+00:00",
+    )
+    assert selected["status"] == "unavailable"
+    assert "ingested_at" in str(selected["reason"])
+    assert selected["execution_allowed"] is False
 
 
 def test_malformed_primary_curve_falls_back_only_to_official_lineage(tmp_path) -> None:
