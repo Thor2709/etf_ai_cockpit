@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -7,6 +8,7 @@ import json
 from numbers import Integral
 from pathlib import Path
 import re
+import sqlite3
 from typing import Any
 
 import pandas as pd
@@ -77,6 +79,11 @@ class VintageManifest:
         }
 
 
+@contextmanager
+def _existing_transaction(connection: sqlite3.Connection):
+    yield connection
+
+
 class BitemporalStore:
     """Append-only observation ledger with effective and decision-time dimensions."""
 
@@ -114,6 +121,7 @@ class BitemporalStore:
         availability_confidence: str = "exact",
         status: str = "active",
         require_revision_advance: bool = False,
+        _connection: sqlite3.Connection | None = None,
     ) -> BitemporalObservation:
         dataset_id, entity_id, stable_id, run_id, source_id = _identities(dataset_id, entity_id, stable_id or entity_id, run_id, source_id)
         if available_at is None:
@@ -149,7 +157,8 @@ class BitemporalStore:
             json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
         ).hexdigest()
         payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-        with self.store.transaction() as connection:
+        transaction = self.store.transaction() if _connection is None else _existing_transaction(_connection)
+        with transaction as connection:
             try:
                 if require_revision_advance:
                     row = connection.execute(

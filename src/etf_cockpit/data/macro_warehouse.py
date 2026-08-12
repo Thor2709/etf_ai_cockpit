@@ -259,6 +259,8 @@ def _validate(observation: MacroObservation) -> MacroObservation:
             observation.tenor_years,
         )
     )
+    if curve_evidence and observation.dataset_kind != "risk_free":
+        raise MacroWarehouseError("curve observations must have dataset_kind risk_free")
     if curve_evidence and observation.dataset_id != f"curve:{observation.curve_id}":
         raise MacroWarehouseError("curve dataset identity does not match curve_id")
     timestamp_normalizer = _explicit_timestamp if curve_evidence else _timestamp
@@ -300,6 +302,7 @@ class CurveSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     curve_id: str
+    dataset_kind: Literal["risk_free"] = "risk_free"
     curve_version: str
     curve_type: str
     currency: str
@@ -408,6 +411,8 @@ def load_risk_free_proxy_mappings(
 
 
 def _validate_curve(snapshot: CurveSnapshot) -> CurveSnapshot:
+    if snapshot.dataset_kind != "risk_free":
+        raise MacroWarehouseError("curve snapshots must have dataset_kind risk_free")
     if snapshot.curve_type not in {"spot", "par", "forward"}:
         raise MacroWarehouseError(f"unsupported curve_type: {snapshot.curve_type}")
     if snapshot.interpolation not in {"linear", "none"}:
@@ -705,11 +710,14 @@ def _curve_history_issue(rows: Iterable[MacroObservation], curve_id: str) -> str
     for row in rows:
         if row.dataset_id != f"curve:{curve_id}" or row.curve_id != curve_id:
             return "curve dataset identity does not match curve_id"
+        if row.dataset_kind != "risk_free":
+            return "curve dataset_kind must be risk_free"
         effective_at = _timestamp_value(_explicit_timestamp(row.observed_at, "observed_at"))
         available_at = _timestamp_value(_explicit_timestamp(row.available_at, "available_at"))
         key = (effective_at, row.revision)
         point_key = row.tenor_years
         signature = (
+            row.dataset_kind,
             row.curve_version,
             row.curve_type,
             row.curve_point_count,
@@ -769,25 +777,27 @@ class MacroWarehouse:
         resolved_run_id = run_id or f"macro-{batch_hash[:24]}"
         try:
             with BitemporalStore(Path(root)) as store:
-                for row in rows:
-                    store.record_observation(
-                        dataset_id=row.dataset_id,
-                        entity_id=row.series_id,
-                        stable_id=row.stable_id,
-                        value=row.ledger_value(),
-                        source_id=row.source_id,
-                        source_checksum=row.source_checksum,
-                        revision=row.revision,
-                        valid_from=f"{row.period_start}T00:00:00+00:00",
-                        available_at=row.available_at,
-                        observed_at=row.observed_at,
-                        published_at=row.published_at,
-                        run_id=resolved_run_id,
-                        ingested_at=row.ingested_at,
-                        revised_at=row.revised_at,
-                        timezone_confidence=row.timezone_confidence,
-                        availability_confidence=row.availability_confidence,
-                    )
+                with store.store.transaction() as connection:
+                    for row in rows:
+                        store.record_observation(
+                            dataset_id=row.dataset_id,
+                            entity_id=row.series_id,
+                            stable_id=row.stable_id,
+                            value=row.ledger_value(),
+                            source_id=row.source_id,
+                            source_checksum=row.source_checksum,
+                            revision=row.revision,
+                            valid_from=f"{row.period_start}T00:00:00+00:00",
+                            available_at=row.available_at,
+                            observed_at=row.observed_at,
+                            published_at=row.published_at,
+                            run_id=resolved_run_id,
+                            ingested_at=row.ingested_at,
+                            revised_at=row.revised_at,
+                            timezone_confidence=row.timezone_confidence,
+                            availability_confidence=row.availability_confidence,
+                            _connection=connection,
+                        )
         except BitemporalError as exc:
             raise MacroWarehouseError(str(exc)) from exc
         manifest = {
@@ -1114,6 +1124,7 @@ class MacroWarehouse:
         return {
             "status": "available",
             "curve_id": curve_id,
+            "dataset_kind": rows[0].dataset_kind,
             "curve_type": rows[0].curve_type,
             "curve_version": rows[0].curve_version,
             "curve_revision": rows[0].revision,

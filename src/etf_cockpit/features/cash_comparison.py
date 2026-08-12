@@ -100,6 +100,59 @@ def _is_leap(year: int) -> bool:
     return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
 
 
+def validated_adjusted_price_frame(
+    adjusted_prices: pd.Series | pd.DataFrame,
+) -> pd.DataFrame:
+    """Validate every raw adjusted-price row before normalising its fields."""
+
+    if isinstance(adjusted_prices, pd.DataFrame):
+        if "date" not in adjusted_prices.columns:
+            raise ValueError("adjusted price frame requires date")
+        value_column = next(
+            (name for name in ("total_return_index", "adjusted_close") if name in adjusted_prices.columns),
+            None,
+        )
+        if value_column is None:
+            raise ValueError("adjusted price frame requires total_return_index or adjusted_close")
+        raw_dates = adjusted_prices["date"].tolist()
+        raw_values = adjusted_prices[value_column].tolist()
+    elif isinstance(adjusted_prices, pd.Series):
+        raw_dates = list(adjusted_prices.index)
+        raw_values = adjusted_prices.tolist()
+    else:
+        raise TypeError("adjusted_prices must be a Series or DataFrame")
+
+    dates: list[date] = []
+    values: list[float] = []
+    for raw_date, raw_value in zip(raw_dates, raw_values, strict=True):
+        if isinstance(raw_date, bool) or not isinstance(raw_date, (date, datetime, pd.Timestamp, str)):
+            raise ValueError("adjusted price date is invalid")
+        try:
+            parsed_date = pd.Timestamp(raw_date)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("adjusted price date is invalid") from exc
+        if pd.isna(parsed_date):
+            raise ValueError("adjusted price date is invalid")
+        if isinstance(raw_value, bool) or not isinstance(raw_value, Real):
+            raise ValueError("adjusted price value must be numeric")
+        try:
+            parsed_value = float(raw_value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("adjusted price value must be numeric") from exc
+        if not math.isfinite(parsed_value):
+            raise ValueError("adjusted price value must be finite")
+        dates.append(parsed_date.date())
+        values.append(parsed_value)
+
+    if not dates:
+        raise ValueError("adjusted price evidence is unavailable")
+    if len(set(dates)) != len(dates):
+        raise ValueError("adjusted price evidence has conflicting dates")
+    if any(value <= 0 for value in values):
+        raise ValueError("adjusted prices must be finite and positive")
+    return pd.DataFrame({"date": dates, "value": values})
+
+
 def total_return_from_rate(
     annual_rate: float,
     years: float,
@@ -138,37 +191,12 @@ def exact_adjusted_total_return(
 
     start = _as_date(start_date, "start_date")
     end = _as_date(end_date, "end_date")
-    if isinstance(adjusted_prices, pd.DataFrame):
-        frame = adjusted_prices.copy()
-        if "date" not in frame.columns:
-            raise ValueError("adjusted price frame requires date")
-        value_column = next(
-            (name for name in ("total_return_index", "adjusted_close") if name in frame.columns),
-            None,
-        )
-        if value_column is None:
-            raise ValueError("adjusted price frame requires total_return_index or adjusted_close")
-        dates = pd.to_datetime(frame["date"], errors="coerce", utc=True, format="mixed")
-        values = pd.to_numeric(frame[value_column], errors="coerce")
-        frame = pd.DataFrame({"date": dates.dt.date, "value": values})
-    elif isinstance(adjusted_prices, pd.Series):
-        dates = pd.to_datetime(adjusted_prices.index, errors="coerce", utc=True, format="mixed")
-        values = pd.to_numeric(adjusted_prices, errors="coerce")
-        frame = pd.DataFrame({"date": dates.date, "value": values.to_numpy()})
-    else:
-        raise TypeError("adjusted_prices must be a Series or DataFrame")
-    frame = frame.dropna(subset=["date", "value"])
-    if frame.empty:
-        raise ValueError("adjusted price evidence is unavailable")
-    if frame["date"].duplicated().any():
-        raise ValueError("adjusted price evidence has conflicting dates")
+    frame = validated_adjusted_price_frame(adjusted_prices)
     selected = frame.set_index("date")["value"]
     if start not in selected.index or end not in selected.index:
         raise ValueError("exact adjusted-return period is unavailable")
     first = float(selected.loc[start])
     last = float(selected.loc[end])
-    if not math.isfinite(first) or not math.isfinite(last) or first <= 0 or last <= 0:
-        raise ValueError("adjusted prices must be finite and positive")
     result = last / first - 1.0
     if not math.isfinite(result) or result <= -1.0:
         raise ValueError("instrument total return must be finite and greater than -1")
@@ -257,6 +285,8 @@ def build_cash_comparison(
     try:
         if evidence_currency != currency:
             return _unavailable("cash currency does not match instrument currency", currency=currency)
+        if cash_evidence.get("dataset_kind") != "risk_free":
+            return _unavailable("cash comparison requires risk_free curve evidence", currency=currency)
         if cash_evidence.get("curve_type") != "spot":
             return _unavailable("cash comparison requires spot-curve evidence", currency=currency)
         if cash_evidence.get("source_authority") not in {
@@ -285,6 +315,7 @@ def build_cash_comparison(
             "source_id",
             "source_authority",
             "source_checksum",
+            "dataset_kind",
             "source_terms",
             "methodology",
             "mapping_methodology",

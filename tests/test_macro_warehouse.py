@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from etf_cockpit.data.bitemporal import BitemporalStore
+from etf_cockpit.data.bitemporal import BitemporalError, BitemporalStore
 from etf_cockpit.data.macro_warehouse import (
     BenchmarkMetadata,
     CurvePoint,
@@ -572,6 +572,56 @@ def test_partial_curve_snapshot_is_never_visible(tmp_path) -> None:
     )
     assert selected["status"] == "unavailable"
     assert "incomplete" in str(selected["reason"])
+    assert selected["execution_allowed"] is False
+
+
+def test_curve_snapshot_append_is_atomic_and_authoritative_retry_succeeds(
+    tmp_path, monkeypatch
+) -> None:
+    warehouse = MacroWarehouse()
+    snapshot = _curve().model_copy(
+        update={
+            "points": (
+                CurvePoint(tenor_years=1.0 / 365.0, rate=0.01),
+                CurvePoint(tenor_years=2.0 / 365.0, rate=0.02),
+            )
+        }
+    )
+    original = BitemporalStore.record_observation
+    calls = {"count": 0}
+
+    def fail_on_second(self, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise BitemporalError("injected point failure")
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(BitemporalStore, "record_observation", fail_on_second)
+    with pytest.raises(MacroWarehouseError, match="injected point failure"):
+        warehouse.ingest_curve(snapshot, root=tmp_path)
+    assert warehouse.observations(root=tmp_path, dataset_id="curve:aud-official-spot") == []
+
+    monkeypatch.setattr(BitemporalStore, "record_observation", original)
+    summary = warehouse.ingest_curve(snapshot, root=tmp_path)
+    assert summary["row_count"] == 2
+    assert len(warehouse.observations(root=tmp_path, dataset_id="curve:aud-official-spot")) == 2
+
+
+def test_non_risk_free_curve_rows_are_unavailable_for_cash(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    row = _direct_curve_row(curve_id="mapped-curve", dataset_kind="benchmark")
+    with pytest.raises(MacroWarehouseError, match="risk_free"):
+        warehouse.ingest([row], root=tmp_path / "reject")
+
+    _store_direct_curve_row(tmp_path, row)
+    selected = warehouse.curve_rate(
+        root=tmp_path,
+        curve_id="mapped-curve",
+        tenor_years=1.0,
+        decision_time="2025-01-01T00:00:00+00:00",
+    )
+    assert selected["status"] == "unavailable"
+    assert "risk_free" in str(selected["reason"])
     assert selected["execution_allowed"] is False
 
 

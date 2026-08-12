@@ -5,6 +5,7 @@ from dataclasses import asdict
 from io import BytesIO
 import json
 import math
+from numbers import Integral
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1232,7 +1233,24 @@ def write_benchmark_attribution(scoreboard: pd.DataFrame) -> Path:
                 "execution_allowed": False,
             }
         )
-    return _write_dual(pd.DataFrame(rows, columns=BENCHMARK_ATTRIBUTION_COLUMNS), BENCHMARK_ATTRIBUTION_PATH)
+    revision_values = [row.get("cash_curve_revision") for row in rows]
+    frame = pd.DataFrame(rows, columns=BENCHMARK_ATTRIBUTION_COLUMNS)
+    frame["cash_curve_revision"] = _strict_nullable_revision_array(
+        revision_values
+    )
+    return _write_dual(frame, BENCHMARK_ATTRIBUTION_PATH)
+
+
+def _strict_nullable_revision_array(values: list[object]) -> pd.arrays.IntegerArray:
+    normalised: list[int | None] = []
+    for value in values:
+        if value is None or pd.isna(value):
+            normalised.append(None)
+            continue
+        if isinstance(value, bool) or not isinstance(value, Integral):
+            raise ValueError("cash_curve_revision must be a nullable integer")
+        normalised.append(int(value))
+    return pd.array(normalised, dtype="Int64")
 
 
 def _configured_metadata(config: AppConfig | None) -> dict[str, object]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -508,6 +509,70 @@ def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
     assert "model_contamination_risk" in frame.columns
     assert "model_authority_reason" in frame.columns
     assert "calibration_required" in frame.columns
+
+
+def test_scoreboard_cash_revisions_round_trip_as_nullable_integers(tmp_path) -> None:
+    report = pd.DataFrame(
+        [{
+            "instrument_id": "ABC",
+            "name": "ABC Test Stock",
+            "yahoo_symbol": "ABC.DE",
+            "latest_date": "2026-01-01",
+            "latest_price": 100.0,
+            "rows": 300,
+            "return_3m": 0.10,
+            "return_6m": 0.18,
+            "return_12m": 0.25,
+            "volatility_60d_ann": 0.18,
+            "current_drawdown": -0.04,
+            "sma50_signal": True,
+            "sma200_signal": True,
+            "median_turnover_60d_eur": 2_500_000,
+            "blocked_by": "",
+        }]
+    )
+    score = build_candidate_simple_scores(report, pd.DataFrame())[0]
+    frame = simple_scoreboard_frame(
+        [replace(score, cash_curve_revision=7), score]
+    )
+    assert str(frame["cash_curve_revision"].dtype) == "Int64"
+    path = write_simple_scoreboard(
+        [replace(score, cash_curve_revision=7), score], tmp_path / "scoreboard.parquet"
+    )
+    persisted = pd.read_parquet(path)
+    assert str(persisted["cash_curve_revision"].dtype) == "Int64"
+    assert persisted["cash_curve_revision"].tolist() == [7, pd.NA]
+
+
+@pytest.mark.parametrize(
+    "bad_row",
+    (
+        {"date": "2026-01-02", "adjusted_close": True},
+        {"date": "2026-01-02", "adjusted_close": "101.0"},
+        {"date": "not-a-date", "adjusted_close": 101.0},
+        {"date": "2026-01-01", "adjusted_close": 101.0},
+    ),
+)
+def test_local_cash_path_fails_closed_on_malformed_adjusted_prices(
+    monkeypatch, bad_row: dict[str, object]
+) -> None:
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    rows = [
+        {"etf_id": instrument_id, "date": "2026-01-01", "adjusted_close": 100.0},
+        {"etf_id": instrument_id, "date": "2026-01-02", "adjusted_close": 101.0},
+    ]
+    rows[1].update(bad_row)
+    monkeypatch.setattr(
+        simple_scores_module,
+        "load_risk_free_proxy_mappings",
+        lambda: (object(),),
+    )
+    lookup = simple_scores_module._build_local_cash_comparison_lookup(
+        snapshot.config, pd.DataFrame(rows), as_of="2026-01-04T00:00:00+00:00"
+    )
+    assert lookup[instrument_id]["status"] == "unavailable"
+    assert lookup[instrument_id]["execution_allowed"] is False
 
 
 def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_score(

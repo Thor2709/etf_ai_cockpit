@@ -40,6 +40,7 @@ from etf_cockpit.signals import simple_scores as simple_scores_module
 def _evidence(**updates: object) -> dict[str, object]:
     value: dict[str, object] = {
         "status": "available",
+        "dataset_kind": "risk_free",
         "curve_type": "spot",
         "currency": "AUD",
         "tenor_years": 1.0 / 365.0,
@@ -122,6 +123,48 @@ def test_exact_adjusted_return_requires_both_period_endpoints() -> None:
     assert exact_adjusted_total_return(prices, "2025-01-01", "2025-01-03") == pytest.approx(0.10)
     with pytest.raises(ValueError, match="exact adjusted-return period"):
         exact_adjusted_total_return(prices, "2025-01-01", "2025-01-02")
+
+
+@pytest.mark.parametrize(
+    "prices",
+    (
+        pd.DataFrame(
+            {"date": ["2025-01-01", "2025-01-02"], "adjusted_close": [100.0, True]}
+        ),
+        pd.DataFrame(
+            {"date": ["2025-01-01", "2025-01-02"], "adjusted_close": [100.0, "101.0"]}
+        ),
+        pd.DataFrame(
+            {
+                "date": ["2025-01-01", "not-a-date", "2025-01-03"],
+                "adjusted_close": [100.0, 101.0, 102.0],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "date": ["2025-01-01", "2025-01-02", "2025-01-02"],
+                "adjusted_close": [100.0, 101.0, 101.5],
+            }
+        ),
+    ),
+)
+def test_exact_adjusted_return_rejects_malformed_raw_evidence(prices: pd.DataFrame) -> None:
+    with pytest.raises(ValueError):
+        exact_adjusted_total_return(prices, "2025-01-01", "2025-01-03")
+
+
+def test_cash_builder_rejects_non_risk_free_curve_evidence() -> None:
+    prices = pd.Series([100.0, 101.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"]))
+    result = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(dataset_kind="benchmark"),
+        decision_time="2025-01-03T00:00:00+00:00",
+    )
+    assert result.status == "unavailable"
+    assert result.execution_allowed is False
 
 
 def test_cash_comparison_is_currency_horizon_vintage_and_inflation_context_matched() -> None:
@@ -904,12 +947,20 @@ def test_injected_cash_comparison_propagates_without_changing_score_authority(
     assert malformed.cash_return is None
     assert authority(malformed) == authority(baseline)
 
-    frame = simple_scoreboard_frame([available])
+    other_unavailable = next(
+        score
+        for score in build_simple_instrument_scores(
+            snapshot.config, snapshot.signals, snapshot.forecasts, snapshot.prices
+        )
+        if score.display_id != instrument_id
+    )
+    frame = simple_scoreboard_frame([available, other_unavailable])
     row = frame.iloc[0]
     assert row["cash_return"] == pytest.approx(injected["cash_return"])
     assert row["cash_source_id"] == injected["source_id"]
     assert row["cash_source_terms"] == injected["source_terms"]
     assert row["cash_knowledge_cutoff"] == injected["knowledge_cutoff"]
+    assert str(frame["cash_curve_revision"].dtype) == "Int64"
     assert row["execution_allowed"] is False or not bool(row["execution_allowed"])
 
     attribution_path = tmp_path / "benchmark_attribution.parquet"
@@ -927,6 +978,7 @@ def test_injected_cash_comparison_propagates_without_changing_score_authority(
     assert persisted["cash_return"] == pytest.approx(injected["cash_return"])
     assert persisted["cash_source_terms"] == injected["source_terms"]
     assert persisted["cash_knowledge_cutoff"] == injected["knowledge_cutoff"]
+    assert str(pd.read_parquet(attribution_path)["cash_curve_revision"].dtype) == "Int64"
     assert not bool(persisted["execution_allowed"])
     assert readback["cash_return"] == pytest.approx(injected["cash_return"])
     assert readback["cash_source_id"] == injected["source_id"]

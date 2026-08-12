@@ -6,6 +6,7 @@ from datetime import date
 import hashlib
 import json
 from math import isfinite, tanh
+from numbers import Integral
 from pathlib import Path
 import re
 from typing import Iterable, Literal
@@ -29,6 +30,7 @@ from etf_cockpit.features.crowding import ClusterReport, build_correlation_clust
 from etf_cockpit.features.cash_comparison import (
     adjusted_endpoint_available_at,
     validate_cash_comparison_result,
+    validated_adjusted_price_frame,
 )
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
 from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast_calibration, load_forecast_history
@@ -880,7 +882,9 @@ def simple_scoreboard_frame(
     """
 
     rows: list[dict[str, object]] = []
+    revision_values: list[object] = []
     for score in scores:
+        revision_values.append(score.cash_curve_revision)
         row: dict[str, object] = {
             "instrument_id": score.display_id,
             "symbol": score.yahoo_symbol,
@@ -1053,7 +1057,21 @@ def simple_scoreboard_frame(
             row[f"{component.key}_status"] = component.status
             row[f"{component.key}_authority"] = component.authority
         rows.append(row)
-    return pd.DataFrame(rows)
+    frame = pd.DataFrame(rows)
+    frame["cash_curve_revision"] = _strict_nullable_revision_array(revision_values)
+    return frame
+
+
+def _strict_nullable_revision_array(values: list[object]) -> pd.arrays.IntegerArray:
+    normalised: list[int | None] = []
+    for value in values:
+        if value is None or pd.isna(value):
+            normalised.append(None)
+            continue
+        if isinstance(value, bool) or not isinstance(value, Integral):
+            raise ValueError("cash_curve_revision must be a nullable integer")
+        normalised.append(int(value))
+    return pd.array(normalised, dtype="Int64")
 
 
 def write_simple_scoreboard(scores: list[SimpleInstrumentScore], path: Path | None = None) -> Path:
@@ -2474,8 +2492,6 @@ def _build_local_cash_comparison_lookup(
     warehouse = MacroWarehouse()
     output: dict[str, Mapping[str, object]] = {}
     frame = prices.loc[:, ["etf_id", "date", "adjusted_close"]].copy()
-    frame["date"] = pd.to_datetime(frame["date"], errors="coerce", utc=True)
-    frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     try:
         decision = pd.Timestamp.now(tz="UTC") if as_of is None else pd.Timestamp(as_of)
     except (TypeError, ValueError, OverflowError):
@@ -2486,14 +2502,26 @@ def _build_local_cash_comparison_lookup(
     identities = config.universe.by_id()
     for instrument_id in config.universe.enabled_ids:
         identity = identities.get(instrument_id)
-        rows = frame.loc[frame["etf_id"].astype(str) == instrument_id].dropna(
-            subset=["date", "adjusted_close"]
-        )
+        raw_rows = frame.loc[frame["etf_id"].astype(str) == instrument_id]
+        if raw_rows.empty:
+            continue
+        try:
+            rows = validated_adjusted_price_frame(
+                raw_rows.loc[:, ["date", "adjusted_close"]]
+            ).rename(columns={"value": "adjusted_close"})
+        except (TypeError, ValueError) as exc:
+            output[instrument_id] = {
+                "status": "unavailable",
+                "reason": f"adjusted price evidence is malformed: {exc}",
+                "execution_allowed": False,
+            }
+            continue
+        rows["date"] = pd.to_datetime(rows["date"], utc=True)
         rows = rows.sort_values("date")
         rows = rows.loc[
             rows["date"].dt.normalize() + pd.Timedelta(days=1) <= decision
         ]
-        if identity is None or len(rows) < 2 or rows["date"].dt.date.duplicated().any():
+        if identity is None or len(rows) < 2:
             continue
         comparison_rows = rows.tail(_CASH_COMPARISON_RETURN_WINDOW + 1)
         start_date = comparison_rows.iloc[0]["date"].date().isoformat()
