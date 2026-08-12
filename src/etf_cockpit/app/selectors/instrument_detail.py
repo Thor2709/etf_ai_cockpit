@@ -23,6 +23,8 @@ from etf_cockpit.application.ui_facade import (
     build_direct_overlap_view,
     build_document_inventory,
     compare_runs,
+    cash_comparison_from_projection,
+    cash_comparison_to_projection,
     direct_overlap_payload,
     latest_fundamental_rows,
     load_fundamental_evidence,
@@ -1313,8 +1315,30 @@ def _risk_panel(features: object, friction: Mapping[str, Any], crowding: Mapping
     }
 
 
-def _attribution_panel(derived: Mapping[str, Any], scoreboard: Mapping[str, Any]) -> dict[str, Any]:
+def _attribution_panel(
+    derived: Mapping[str, Any],
+    scoreboard: Mapping[str, Any],
+    *,
+    expected_instrument_id: str | None = None,
+    expected_currency: str | None = None,
+) -> dict[str, Any]:
     value = dict(derived.get("attribution", {}))
+    expected_instrument_id = _safe_text(expected_instrument_id)
+    expected_currency = _safe_text(expected_currency)
+    scoreboard_cash = (
+        cash_comparison_to_projection(
+            cash_comparison_from_projection(scoreboard),
+            expected_currency=expected_currency,
+            expected_instrument_id=expected_instrument_id,
+        )
+        if expected_currency is not None and expected_instrument_id is not None
+        else cash_comparison_to_projection(None)
+    )
+    if (
+        scoreboard_cash.get("cash_comparison_status") == "available"
+        and value.get("cash_comparison_status") != "available"
+    ):
+        value.update(scoreboard_cash)
     aliases = {
         "alpha": ("alpha", "alpha_proxy"),
         "beta": ("beta", "benchmark_beta"),
@@ -1329,7 +1353,13 @@ def _attribution_panel(derived: Mapping[str, Any], scoreboard: Mapping[str, Any]
             ),
             next((_safe_float(value.get(name)) for name in names if _safe_float(value.get(name)) is not None), None),
         )
-    value.setdefault("status", "available" if any(value.get(key) is not None for key in ("alpha", "beta", "correlation")) else "unavailable")
+    available = any(
+        value.get(key) is not None for key in ("alpha", "beta", "correlation")
+    ) or value.get("cash_comparison_status") == "available"
+    if value.get("status") != "available" and available:
+        value["status"] = "available"
+    else:
+        value.setdefault("status", "unavailable")
     for key, metadata in _provenance_fields(scoreboard).items():
         value.setdefault(key, metadata)
     value["execution_allowed"] = False
@@ -1557,7 +1587,12 @@ def build_instrument_detail(
         all_features = _instrument_rows(getattr(snapshot, "features", None), instrument_id)
         if not all_features.empty and "date" in all_features.columns:
             features = all_features.sort_values("date", kind="stable").tail(1)
-    derived = _derived_evidence_panel(instrument_id)
+    canonical_currency = (
+        identity.currency
+        if identity is not None
+        else candidate.instrument_currency if candidate is not None else None
+    )
+    derived = _derived_evidence_panel(instrument_id, expected_currency=canonical_currency)
     friction = _friction_panel(instrument_id, candidate_score=candidate)
     scoreboard = _scoreboard_row(instrument_id, candidate_score=candidate)
     decision_time = getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
@@ -1750,7 +1785,12 @@ def build_instrument_detail(
             "scores": _score_panel(signal, scoreboard, derived, friction),
             "feature_drivers": _feature_driver_panel(instrument_id),
             "risk": _risk_panel(features, friction, derived["crowding"]),
-            "attribution": _attribution_panel(derived, scoreboard),
+            "attribution": _attribution_panel(
+                derived,
+                scoreboard,
+                expected_instrument_id=instrument_id,
+                expected_currency=canonical_currency,
+            ),
             "fundamentals": _fundamentals_panel(instrument_id, fundamentals),
             "etf_disclosures": disclosure,
             "etf_structure": structure,
@@ -1769,7 +1809,11 @@ def build_instrument_detail(
     )
 
 
-def _derived_evidence_panel(instrument_id: str) -> dict[str, dict[str, Any]]:
+def _derived_evidence_panel(
+    instrument_id: str,
+    *,
+    expected_currency: str | None = None,
+) -> dict[str, dict[str, Any]]:
     """Load persisted crowding/attribution evidence without recalculating UI authority."""
 
     crowding: dict[str, Any] = {"status": "unavailable", "message": "Correlation cluster evidence is unavailable.", "execution_allowed": False}
@@ -1787,7 +1831,22 @@ def _derived_evidence_panel(instrument_id: str) -> dict[str, dict[str, Any]]:
             frame = pd.read_parquet(BENCHMARK_ATTRIBUTION_PATH)
             rows = _instrument_rows(frame, instrument_id)
             if not rows.empty:
-                attribution = {**rows.iloc[-1].to_dict(), "status": str(rows.iloc[-1].get("status", "available")), "execution_allowed": False}
+                persisted = rows.iloc[-1].to_dict()
+                sanitized_cash = (
+                    cash_comparison_to_projection(
+                        cash_comparison_from_projection(persisted),
+                        expected_currency=expected_currency,
+                        expected_instrument_id=instrument_id,
+                    )
+                    if _safe_text(expected_currency) is not None
+                    else cash_comparison_to_projection(None)
+                )
+                attribution = {
+                    **persisted,
+                    **sanitized_cash,
+                    "status": str(rows.iloc[-1].get("status", "available")),
+                    "execution_allowed": False,
+                }
     except Exception:
         pass
     return {"crowding": crowding, "attribution": attribution}

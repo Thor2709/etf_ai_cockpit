@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import isfinite
+from collections.abc import Mapping
 
 import pandas as pd
+
+from etf_cockpit.features.cash_comparison import validate_cash_comparison_result
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,45 @@ class AttributionResult:
     status: str = "unavailable"
     reason: str = "Benchmark attribution unavailable."
     execution_allowed: bool = False
+    cash_instrument_return: float | None = None
+    cash_return: float | None = None
+    excess_over_cash: float | None = None
+    cash_instrument_id: str | None = None
+    cash_currency: str | None = None
+    cash_unit: str | None = None
+    cash_dataset_kind: str | None = None
+    cash_start_date: str | None = None
+    cash_end_date: str | None = None
+    cash_horizon_years: float | None = None
+    cash_rate: float | None = None
+    cash_vintage: str | None = None
+    cash_comparison_status: str = "unavailable"
+    cash_comparison_reason: str | None = "Cash comparison unavailable."
+    cash_source_id: str | None = None
+    cash_source_authority: str | None = None
+    cash_source_checksum: str | None = None
+    cash_source_terms: str | None = None
+    cash_methodology: str | None = None
+    cash_mapping_methodology: str | None = None
+    cash_day_count: str | None = None
+    cash_compounding: str | None = None
+    cash_reinvestment: str | None = None
+    cash_effective_at: str | None = None
+    cash_published_at: str | None = None
+    cash_available_at: str | None = None
+    cash_curve_id: str | None = None
+    cash_curve_version: str | None = None
+    cash_curve_revision: int | None = None
+    cash_curve_type: str | None = None
+    cash_extrapolation_allowed: bool | None = None
+    cash_fallback: bool | None = None
+    cash_fallback_from: str | None = None
+    cash_interpolation: str | None = None
+    cash_freshness: str | None = None
+    cash_freshness_status: str | None = None
+    cash_decision_time: str | None = None
+    cash_knowledge_cutoff: str | None = None
+    inflation_context: object = None
 
     @property
     def broad_return(self) -> float | None:
@@ -53,6 +95,10 @@ def build_benchmark_attribution(
     broad_returns: pd.Series,
     sector_returns: pd.Series | None = None,
     theme_returns: pd.Series | None = None,
+    cash_comparison: Mapping[str, object] | None = None,
+    *,
+    instrument_currency: str | None = None,
+    instrument_id: str | None = None,
 ) -> AttributionResult:
     """Return descriptive broad and sector-relative attribution evidence.
 
@@ -69,8 +115,16 @@ def build_benchmark_attribution(
         axis=1,
         join="inner",
     ).dropna()
+    cash = _cash_fields(
+        cash_comparison,
+        expected_currency=instrument_currency,
+        expected_instrument_id=instrument_id,
+    )
     if len(broad_frame) < 2:
-        return _unavailable("Fewer than two clean overlapping instrument/broad return observations are available.")
+        return _unavailable(
+            "Fewer than two clean overlapping instrument/broad return observations are available.",
+            cash_fields=cash,
+        )
 
     instrument_return = _compound(broad_frame["instrument"])
     benchmark_return = _compound(broad_frame["broad"])
@@ -146,6 +200,7 @@ def build_benchmark_attribution(
         as_of=as_of,
         status="available",
         reason="Broad benchmark attribution computed from overlapping clean returns.",
+        **cash,
     )
 
 
@@ -199,5 +254,87 @@ def _as_of(index: pd.Index) -> str | None:
     return parsed.max().date().isoformat()
 
 
-def _unavailable(reason: str) -> AttributionResult:
-    return AttributionResult(None, None, None, None, None, None, "N/A", 0, reason=reason)
+def _unavailable(
+    reason: str,
+    *,
+    cash_fields: Mapping[str, object] | None = None,
+) -> AttributionResult:
+    return AttributionResult(
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "N/A",
+        0,
+        reason=reason,
+        **(dict(cash_fields) if cash_fields is not None else {}),
+    )
+
+
+def _cash_fields(
+    value: Mapping[str, object] | None,
+    *,
+    expected_currency: str | None = None,
+    expected_instrument_id: str | None = None,
+) -> dict[str, object]:
+    if value is not None and expected_currency is None:
+        value = {
+            "status": "unavailable",
+            "reason": "instrument currency is unavailable for cash comparison",
+        }
+    value = validate_cash_comparison_result(
+        value,
+        expected_currency=expected_currency,
+        expected_instrument_id=expected_instrument_id,
+    ).as_dict()
+    return {
+        "cash_instrument_return": _optional_float(value.get("instrument_return")),
+        "cash_return": _optional_float(value.get("cash_return")),
+        "excess_over_cash": _optional_float(value.get("excess_over_cash")),
+        "cash_instrument_id": value.get("instrument_id"),
+        "cash_currency": value.get("currency"),
+        "cash_unit": value.get("unit"),
+        "cash_dataset_kind": value.get("dataset_kind"),
+        "cash_start_date": value.get("start_date"),
+        "cash_end_date": value.get("end_date"),
+        "cash_horizon_years": _optional_float(value.get("horizon_years")),
+        "cash_rate": _optional_float(value.get("rate")),
+        "cash_vintage": value.get("vintage"),
+        "cash_comparison_status": str(value.get("status", "unavailable")),
+        "cash_comparison_reason": value.get("reason") if value else "Cash comparison unavailable.",
+        "cash_source_id": value.get("source_id"),
+        "cash_source_authority": value.get("source_authority"),
+        "cash_source_checksum": value.get("source_checksum"),
+        "cash_source_terms": value.get("source_terms"),
+        "cash_methodology": value.get("methodology"),
+        "cash_mapping_methodology": value.get("mapping_methodology"),
+        "cash_day_count": value.get("day_count"),
+        "cash_compounding": value.get("compounding"),
+        "cash_reinvestment": value.get("reinvestment"),
+        "cash_effective_at": value.get("effective_at"),
+        "cash_published_at": value.get("published_at"),
+        "cash_available_at": value.get("available_at"),
+        "cash_curve_id": value.get("curve_id"),
+        "cash_curve_version": value.get("curve_version"),
+        "cash_curve_revision": value.get("curve_revision"),
+        "cash_curve_type": value.get("curve_type"),
+        "cash_extrapolation_allowed": value.get("extrapolation_allowed"),
+        "cash_fallback": value.get("fallback"),
+        "cash_fallback_from": value.get("fallback_from"),
+        "cash_interpolation": value.get("interpolation"),
+        "cash_freshness": value.get("freshness"),
+        "cash_freshness_status": value.get("freshness_status"),
+        "cash_decision_time": value.get("decision_time"),
+        "cash_knowledge_cutoff": value.get("knowledge_cutoff"),
+        "inflation_context": value.get("inflation_context"),
+    }
+
+
+def _optional_float(value: object) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if isfinite(number) else None

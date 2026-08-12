@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+from numbers import Integral
 from pathlib import Path
 import re
+import sqlite3
 from typing import Any
 
 import pandas as pd
@@ -26,6 +29,12 @@ class BitemporalError(ValueError):
 
 class AmbiguousAvailabilityError(BitemporalError):
     """Raised when the application cannot prove when an observation was available."""
+
+
+def _positive_revision(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, Integral) or value < 1:
+        raise BitemporalError("revision must be a positive integer")
+    return int(value)
 
 
 @dataclass(frozen=True)
@@ -70,6 +79,11 @@ class VintageManifest:
         }
 
 
+@contextmanager
+def _existing_transaction(connection: sqlite3.Connection):
+    yield connection
+
+
 class BitemporalStore:
     """Append-only observation ledger with effective and decision-time dimensions."""
 
@@ -107,14 +121,14 @@ class BitemporalStore:
         availability_confidence: str = "exact",
         status: str = "active",
         require_revision_advance: bool = False,
+        _connection: sqlite3.Connection | None = None,
     ) -> BitemporalObservation:
         dataset_id, entity_id, stable_id, run_id, source_id = _identities(dataset_id, entity_id, stable_id or entity_id, run_id, source_id)
         if available_at is None:
             raise AmbiguousAvailabilityError("available_at is required for point-in-time authority")
         if not _CHECKSUM.fullmatch(str(source_checksum)):
             raise BitemporalError("source_checksum must be a 64-character SHA-256 value")
-        if revision < 1:
-            raise BitemporalError("revision must be positive")
+        revision = _positive_revision(revision)
         if timezone_confidence not in _CONFIDENCE:
             raise BitemporalError(f"unsupported timezone_confidence: {timezone_confidence}")
         if availability_confidence not in {"exact", "inferred"}:
@@ -143,14 +157,15 @@ class BitemporalStore:
             json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
         ).hexdigest()
         payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-        with self.store.transaction() as connection:
+        transaction = self.store.transaction() if _connection is None else _existing_transaction(_connection)
+        with transaction as connection:
             try:
                 if require_revision_advance:
                     row = connection.execute(
                         "SELECT revision, available_at FROM bitemporal_observations WHERE dataset_id = ? AND stable_id = ? ORDER BY revision DESC, available_at DESC LIMIT 1",
                         (dataset_id, stable_id),
                     ).fetchone()
-                    maximum = int(row[0]) if row is not None else 0
+                    maximum = _positive_revision(row[0]) if row is not None else 0
                     if revision <= maximum:
                         raise BitemporalError(f"revision must advance beyond {maximum} for {stable_id}")
                     if row is not None and str(canonical["available_at"]) < str(row[1]):
@@ -210,18 +225,31 @@ class BitemporalStore:
             status,
         )
 
-    def observations(self, dataset_id: str | None, *, entity_id: str | None = None) -> tuple[BitemporalObservation, ...]:
+    def observations(
+        self,
+        dataset_id: str | None,
+        *,
+        entity_id: str | None = None,
+        available_at_lte: str | datetime | None = None,
+        _connection: sqlite3.Connection | None = None,
+    ) -> tuple[BitemporalObservation, ...]:
         query = "SELECT * FROM bitemporal_observations"
-        params: tuple[object, ...] = ()
+        clauses: list[str] = []
+        params: list[object] = []
         if dataset_id is not None:
-            query += " WHERE dataset_id = ?"
-            params = (str(dataset_id),)
+            clauses.append("dataset_id = ?")
+            params.append(str(dataset_id))
         if entity_id is not None:
-            query += " AND " if " WHERE " in query else " WHERE "
-            query += "entity_id = ?"
-            params += (str(entity_id),)
+            clauses.append("entity_id = ?")
+            params.append(str(entity_id))
+        if available_at_lte is not None:
+            clauses.append("available_at <= ?")
+            params.append(_timestamp(available_at_lte, "available_at cutoff"))
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
         query += " ORDER BY stable_id, available_at, revision, observation_id"
-        return tuple(_observation(row) for row in self.store.connection.execute(query, params))
+        connection = _connection or self.store.connection
+        return tuple(_observation(row) for row in connection.execute(query, tuple(params)))
 
     def as_of(self, dataset_id: str, decision_time: str | datetime, *, entity_id: str | None = None) -> pd.DataFrame:
         cutoff = _timestamp(decision_time, "decision_time")
@@ -285,7 +313,7 @@ class BitemporalStore:
             value={"retracts_observation_id": observation_id, "reason": str(reason)},
             source_id=str(row["source_id"]),
             source_checksum=str(row["source_checksum"]),
-            revision=int(row["revision"]) + 1,
+            revision=_positive_revision(row["revision"]) + 1,
             valid_from=str(row["valid_from"]),
             valid_to=str(row["valid_to"]) if row["valid_to"] else None,
             published_at=available_at,
@@ -326,7 +354,7 @@ class BitemporalStore:
             },
             source_id=str(row["source_id"]),
             source_checksum=str(row["source_checksum"]),
-            revision=int(row["revision"]) + 1,
+            revision=_positive_revision(row["revision"]) + 1,
             valid_from=str(row["valid_from"]),
             valid_to=str(row["valid_to"]) if row["valid_to"] else None,
             published_at=available_at,
@@ -386,7 +414,7 @@ def _observation(row: Any) -> BitemporalObservation:
         str(row["observed_at"]),
         str(row["ingested_at"]),
         str(row["revised_at"]) if row["revised_at"] else None,
-        int(row["revision"]),
+        _positive_revision(row["revision"]),
         str(row["source_id"]),
         str(row["source_checksum"]),
         str(row["timezone_confidence"]),

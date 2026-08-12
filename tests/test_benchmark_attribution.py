@@ -26,6 +26,8 @@ def test_benchmark_attribution_reports_broad_and_sector_relative_evidence() -> N
     assert result.sector_sample_size == 6
     assert result.as_of == "2026-01-06"
     assert result.execution_allowed is False
+    assert result.cash_unit is None
+    assert result.cash_dataset_kind is None
 
 
 def test_benchmark_attribution_marks_insufficient_broad_or_sector_data_as_unavailable() -> None:
@@ -35,3 +37,5 @@ def test_benchmark_attribution_marks_insufficient_broad_or_sector_data_as_unavai
     assert result.instrument_return is None
     assert result.sector_attribution == "N/A"
     assert result.sector_relative_return is None
+    assert result.cash_unit is None
+    assert result.cash_dataset_kind is None

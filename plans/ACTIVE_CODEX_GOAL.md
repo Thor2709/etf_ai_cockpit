@@ -2231,3 +2231,318 @@ next action and whether the requested outcome is actually complete.
   replacement O-tier candidate for parallel whole-diff/risk review and fresh
   cadence-required hosted package validation;
   `execution_allowed=false` and `executable_authority=false` remain unchanged.
+
+## ISSUE-0058 merge and ISSUE-0051 product checkpoint — 2026-08-12
+
+- ISSUE-0058 PR #681 merged exact independently approved head
+  `c37e7452c1ef7abf2568854094d636bc21362935` as exact main
+  `5d584e860ade7a7b0ecbbaaaa5efb3161c47c2b9`. Cadence-required run
+  `31555021894` passed classifier, preflight, supply chain, Linux, Windows and
+  terminal validation. Manual-note credibility remains context-only and
+  `execution_allowed=false` is unchanged.
+- ISSUE-0046 is mechanically ready but cannot be implemented without the
+  distribution and benchmark/cash contracts owned by unresolved ISSUE-0108
+  and ISSUE-0112. ISSUE-0051, "Currency-specific risk-free and cash
+  comparisons", is the next dependency-ready issue and supplies the cash
+  comparison prerequisite for ISSUE-0112 without inventing benchmark policy.
+- Clean lane `codex/issue0051-product-20260812` starts from exact main
+  `5d584e860ade7a7b0ecbbaaaa5efb3161c47c2b9` with an empty diff. Implement
+  only point-in-time, currency-, horizon- and vintage-matched cash comparison
+  from official local/imported curve evidence with declared compounding, day
+  count, reinvestment and freshness semantics. Missing or incompatible
+  evidence remains explicitly unavailable; add no provider, benchmark,
+  scoring, broker or execution authority. Expected validation tier is H.
+- The bounded implementation adds a pure exact-period cash-return calculator
+  for annual, continuous and simple compounding with ACT/360, ACT/365F and
+  ACT/ACT-ISDA conventions. Eligible evidence must be an official spot curve
+  with complete source lineage, declared reinvestment/freshness, exact
+  currency and horizon, and a vintage available by the UTC period-start
+  knowledge cutoff. Later revisions, stale/conflicted/malformed evidence,
+  unsupported curves and partial lineage fail explicitly unavailable;
+  inflation remains context only.
+- Caller-supplied validated comparisons now round-trip descriptively through
+  `SimpleInstrumentScore`, the canonical scoreboard, benchmark-attribution
+  projection, Comparison and Instrument Detail. Missing or malformed injected
+  results remain unavailable and cannot alter scores, actions, gates or
+  authority. The focused seven-suite regression passes 183 tests; the final
+  ISSUE-0051 suite passes 24 tests, with Ruff, compile, programme freshness and
+  diff hygiene clean. Freeze one H-tier head for paired whole-diff/risk review
+  and fresh Linux, Windows and terminal validation.
+- Final root review reproduced and closed two remaining identity/time gaps
+  before publication: direct attribution now binds cash evidence to the
+  instrument currency, and the normal local score path excludes adjusted-price
+  endpoints whose conservative next-UTC-day availability time has not arrived
+  instead of synthesising a future decision. The final ISSUE-0051 suite passes
+  35 tests; Ruff, compile, programme freshness and diff hygiene remain clean.
+  Publish only the resulting replacement H-tier head for paired re-review and
+  full hosted evidence.
+- Paired review of that head then reproduced five additional bounded defects:
+  official provenance and explicit timestamps were not positively enforced,
+  curve tenor selection assumed ACT/365F, cash disappeared when broad
+  attribution was unavailable, inverted effective/available times survived,
+  and missing instrument currency could bypass generic binding. One
+  consolidated correction now closes all five with explicit official-source
+  authority, timezone-aware curve timestamps, day-count-coupled tenor lookup,
+  preserved descriptive cash fields, strict bitemporal ordering and mandatory
+  currency at attribution/persistence boundaries. The final ISSUE-0051 suite
+  passes 45 tests and directly affected warehouse, attribution, score and trust
+  suites pass; static, compile, programme-freshness and diff checks are clean.
+  Freeze one replacement H-tier head and disregard cancelled run `31563287001`.
+- Final paired review found one direct-ingest timezone bypass plus whitespace
+  lineage and non-integral revision coercion. The narrowly scoped follow-up
+  now requires explicit timezone-aware timestamps for every curve-bearing
+  warehouse row, nonblank lineage at construction/readback and positive
+  integral non-boolean revisions. The combined ISSUE-0051 and macro-warehouse
+  run passes 67 tests; Ruff, compile, programme freshness and diff hygiene pass.
+  Cancelled run `31564924105` is invalid; publish only the new exact head.
+- Paired review of `bb98f3151d05501272754b0f26f681f282621233`
+  then reproduced coercive revision decoding at both curve model boundaries and
+  impossible total returns at serialized/continuous-compounding boundaries.
+  The bounded correction makes `MacroObservation.revision` and
+  `CurveSnapshot.revision` strict positive integers, rejects boolean/float/
+  string identities, and requires every instrument/cash total return to remain
+  finite and greater than -100%. The combined ISSUE-0051 and macro-warehouse
+  suites, Ruff, compile, programme freshness and diff hygiene pass. Although
+  run `31565656403` passed, its rejected head makes that evidence invalid;
+  publish one replacement H-tier head for fresh paired review and full gates.
+- Paired review of `a6833a337b1e31572b6cb082bbf01bd07555a95d`
+  then reproduced three remaining boundary bypasses: ledger/readback revision
+  coercion, adjusted-price division underflow to an impossible -100% return,
+  and whitespace-only fallback lineage. The consolidated correction now
+  validates revisions before bitemporal append and at both bitemporal/macro
+  readback, rejects underflowed adjusted returns during construction, and
+  requires conditional fallback lineage to be nonblank. All 156 directly
+  affected bitemporal, macro, cash, attribution, score and Instrument Detail
+  tests pass; Ruff, compile, programme freshness and diff hygiene pass. Run
+  `31581729559` is invalid/cancelled; freeze one new H-tier head for fresh
+  paired review and full hosted evidence.
+- Paired review of `a6a185930517b8668298a0b687aad660a6ffe7be`
+  reproduced the final bounded integrity/readback set: coercive or non-finite
+  curve points, marker-path and CSV revision coercion, and loss of valid
+  scoreboard cash when persisted attribution is unavailable. Hosted run
+  `31584468586` is cancelled and invalid. Consolidated product commit
+  `90bde0e18934662c1aafe9e27b9c70c371f3d40a` strictly validates curve rates
+  and tenors, rejects untyped CSV revisions and malformed stored revisions,
+  and preserves validated scoreboard cash in Instrument Detail. The complete
+  cash/macro/bitemporal/detail set, directly coupled attribution/score/detail
+  suites, Ruff, compile, programme freshness and diff hygiene pass. Freeze one
+  fully documented H-tier replacement head for both final reviews and fresh
+  Linux, Windows and terminal evidence; no adjacent architecture is added.
+- Both reviews rejected `3e9049d329d7ed455b43885f345928ecaa5d22c4`
+  after reproducing coercive boolean/string financial values; risk review also
+  reproduced a direct curve row whose declared identity disagreed with its
+  storage dataset. Run `31587875943` is invalid and failed preflight because
+  the four-file affected suite exceeded its 240-second budget. Consolidated
+  product commit `f0cded147c0eeaec0cc48ab4b724e6bb4b16c9a6` rejects
+  non-numeric cash rates, horizons, returns and excess fields before conversion,
+  binds direct curve rows to `curve:<curve_id>` on ingest and readback, and
+  keeps the Instrument Detail fallback regression in the focused ISSUE-0051
+  suite so the unchanged slow UI file is no longer selected. All exact
+  regressions, complete cash and macro suites, bitemporal coverage, Ruff,
+  compile, programme freshness and diff hygiene pass. Freeze one documented
+  replacement H-tier head for paired review and fresh hosted evidence.
+- Paired review rejected `df9f7115f7df5992828798fe6e36f56ef765d63f`
+  after reproducing future publication chronology accepted as then-known curve
+  evidence and scoreboard cash accepted without a declared instrument currency.
+  Run `31589943093` is cancelled and invalid. Consolidated product commit
+  `e7b5bec9b74fe3ed0fc46541abbbb58c43102d48` requires
+  `published_at <= available_at` at curve ingest/readback, carries publication
+  identity through cash construction, validation, scores, attribution,
+  persistence and projections, and requires nonblank instrument currency for
+  selector fallback. Exact publication/currency regressions, complete cash and
+  macro suites, coupled attribution/score/detail suites, Ruff, compile,
+  programme freshness and diff hygiene pass. Freeze one replacement H-tier
+  exact head for paired review and fresh Linux, Windows and terminal evidence.
+- Paired review rejected `8e13454f837383f91ba57a76b63c9fbd88b99210`
+  because official snapshots synthesized publication from availability,
+  boolean/string/non-finite proxy horizon bounds were coerced, and the
+  projection helper omitted its mandatory non-execution flag. Run
+  `31591207680` is cancelled and invalid. Consolidated product commit
+  `ef02901442c360e494cca8999aaf80d04f24acb3` requires and preserves an
+  explicit timezone-aware snapshot publication timestamp, strictly validates
+  finite mapping bounds, and makes cash projection/readback round-trip with
+  `execution_allowed=false`. Distinct and inverted publication, malformed
+  mapping and direct round-trip regressions plus complete cash/macro/bitemporal
+  suites, Ruff, compile, programme freshness and diff hygiene pass. Freeze one
+  replacement H-tier exact head for paired review and fresh hosted gates.
+- Paired review rejected `7245e76ac27606f9542fd71dd354d178fcdcd5b1`
+  after reproducing partial multi-point curve visibility, inferred availability
+  accepted as exact, and persisted cash accepted without instrument currency.
+  Run `31593071919` is cancelled and invalid. Consolidated product commit
+  `e6a2b209a05a0ed4d51370a72e6a58f03a56f6ad` binds every curve row to the
+  declared snapshot point count, rejects incomplete snapshots and non-exact
+  availability/timezone confidence, and clears persisted cash fields when
+  currency is absent. Exact partial-write, inferred-confidence and persisted
+  currency regressions plus complete cash/macro/bitemporal and coupled
+  attribution/score/detail suites, compile, programme freshness and diff
+  hygiene pass. Freeze one replacement H-tier head for paired review and fresh
+  Linux, Windows and terminal evidence.
+- Paired review rejected `ea1f13105a22f7824a1870be14600f0f1d4b6435`
+  for duplicate or missing direct tenors and unsupported reinvestment semantics.
+  Run `31594650274` is cancelled and invalid. Consolidated product commit
+  `a418e341941bd4d1ac7fa25527d73ab700ff4e6a` converts malformed direct-row
+  validation to explicit unavailable, requires complete unique tenor identity,
+  and permits only the supported `reinvested_income` cash convention at
+  snapshot, readback, construction and serialized validation boundaries.
+  Exact missing/duplicate-tenor and reinvestment regressions plus complete
+  cash/macro/bitemporal suites, Ruff, compile, programme freshness and diff
+  hygiene pass. Freeze one replacement H-tier head for paired review and fresh
+  hosted validation.
+- Paired review rejected `b311951978c8a29d704b03bb084c277c9365a4fa`
+  after reproducing malformed persisted curve rows escaping readback and a
+  missing reinvestment convention being treated as supported. Exact-head run
+  `31596482736` is cancelled and invalid. Consolidated product commit
+  `0f873715766c48815ceea8f471eb01d39c512183` moves persisted-row decoding
+  inside the fail-closed curve boundary and requires the supported
+  `reinvested_income` convention at snapshot and readback boundaries. Exact
+  corrupt-ledger and missing-reinvestment regressions plus the complete
+  cash/macro/bitemporal suite, Ruff, compile, programme freshness and diff
+  hygiene pass. Freeze one replacement H-tier head for paired final review and
+  fresh hosted validation.
+- Paired review rejected `4bfd2203b8c4f9891600608b0fde7411100a0f72`
+  with six reproduced evidence-boundary defects: subsecond timestamp loss,
+  duplicate or regressing curve revisions, coercive authority booleans,
+  ambiguous financial dates, a builder/readback cutoff mismatch, and direct
+  curves lacking official lineage suppressing valid fallback. Exact-head run
+  `31598259140` is cancelled and invalid. Consolidated product commit
+  `16aa063435d95cea57f5d71204336bc8c5dc3000` preserves subsecond chronology,
+  validates persisted revision history, strictly types policy/authority data,
+  requires canonical dates and cutoffs, and fails closed on unofficial curve
+  lineage. Exact adversarial regressions and the complete affected focused
+  suites, Ruff, compile, programme freshness and diff hygiene pass. Freeze one
+  replacement H-tier head for paired final review and fresh hosted validation.
+- Paired review rejected `8f37a76abe2742985f48c7074a7c7a5fd05f37b0`
+  after reproducing malformed adjusted-price rows being discarded, partial
+  multi-point curve writes, nullable curve revisions widened in mixed-row
+  persistence, and non-risk-free rows accepted as cash curves. Exact-head run
+  `31601620259` is cancelled and invalid. Consolidated product commit
+  `695acd192656107059e77361d33d2efe3f775012` strictly validates every adjusted-price row in both calculation
+  paths, commits each curve snapshot atomically, preserves nullable integer
+  revision identity through persistence, and requires `risk_free` curve kind
+  throughout ingest and readback. Exact adversarial regressions and the full
+  affected 247-test focused surface, Ruff, compile, byte-clean generation and
+  diff hygiene pass. Freeze one replacement H-tier head for paired final
+  review and fresh hosted validation.
+- Paired review rejected `b78373eb8759c02b5ced04ad0872bae38f8fab6e`
+  because cash unit/kind/input-authority identity was not preserved, curve
+  history validation was outside the serialized append boundary and poisoned
+  earlier decision-time prefixes, and manifest failure left a committed batch
+  that could not be resubmitted. Exact-head run `31605516797` is cancelled and
+  invalid. Consolidated product commit
+  `24c02406819052da86c297fcf9d5f5ca5b3f88d9` carries and validates decimal risk-free evidence and disabled
+  authority through every projection/readback, serializes prospective history
+  validation with all snapshot points, limits readback validation to eligible
+  history, and rolls database changes back when manifest projection fails.
+  Exact unit/authority, concurrent-conflict, chronology-prefix and manifest
+  rollback regressions plus the complete affected focused surface, Ruff,
+  compile, byte-clean generation and diff hygiene pass. Freeze one replacement
+  H-tier head for paired final review and fresh hosted validation.
+- Paired review rejected `4547bb9effb5cc281153453fcd51c660cb244df3`
+  because `pd.NA` direct-score status and instrument currency could escape as
+  ambiguous-boolean exceptions. Exact-head run `31620960088` is cancelled and
+  invalid. Product commit `2933fc2df7c52d06df579b835fa6b54cfdc9ccbb`
+  strictly normalizes those two scalar boundaries to unavailable; exact
+  regressions and the affected suites pass with static and diff checks. Freeze
+  one replacement H-tier head for paired final review and hosted validation.
+- Paired review rejected `1ed00119a5978ae656380064bdfbf0a96f61da2f`
+  because offset-bearing adjusted-price timestamps were reduced to local dates
+  before UTC availability and direct-score `pd.NA` instrument currency could
+  raise. Exact-head run `31622330986` is cancelled and invalid. Product commit
+  `45ea6cf56d343ab5e7d6cbe8c3944a7aeceee1e5` enforces date-only/UTC-midnight
+  price endpoints and strictly types direct-score currency. Exact regressions
+  and affected suites pass with static and diff checks. Freeze one replacement
+  H-tier head for paired final review and hosted validation.
+- Paired review rejected `5f7f4144529f923c6499498ee29db98ef97c48e8`
+  because the exported return helper accepted non-positive periods and cash
+  comparison evidence lacked immutable instrument identity. Exact-head run
+  `31624964263` is cancelled and invalid. Product commit
+  `56f3d13f17fc723478d4a853ba59be908abc8c43` rejects same-day/inverted
+  periods and binds instrument identity through calculation, validation,
+  score, attribution, persistence and selector readback. Same-currency swap
+  and period regressions plus the complete affected focused surface, Ruff,
+  compile, byte-clean generation and diff hygiene pass. Freeze one replacement
+  H-tier head after the attributable packaged gate reaches a terminal result.
+- Paired review rejected `91881c4bc6d30c0f22fd469d4f854064ecdda7ed`
+  because fallback provenance could contradict the selected curve. Exact-head
+  run `31623845675` is cancelled and invalid. Product commit
+  `d21ec796e9aa52eb9ef89f8a33cfc7e1c0031eba` requires primary evidence to
+  omit `fallback_from` and fallback evidence to name a distinct nonblank
+  primary in construction and serialized readback. Exact regressions and the
+  ISSUE-0051 suite pass with static and diff checks. Freeze one replacement
+  H-tier head for paired final review and hosted validation.
+- Paired review rejected `fd112929181768b6d065b45da97f9e5929bc0357`
+  because generic curve ingestion bypassed serialized admission, future
+  malformed rows poisoned earlier decision-time reads, the JSON manifest could
+  diverge from a failed SQLite commit, direct attribution omitted unit/kind,
+  and non-string status could escape fail-closed validation. Exact-head run
+  `31609238072` is cancelled and invalid. Consolidated product commit
+  `4ed063c0b7411a0e70e95d76a5b84e0d5b618333` rejects generic curve rows,
+  filters raw history before decoding, stores the authoritative immutable
+  manifest with points in SQLite while treating JSON as projection, and
+  preserves cash identity with strict malformed-status handling. Exact
+  regressions and the complete affected focused surface, Ruff, compile,
+  byte-clean generation and diff hygiene pass. Freeze one replacement H-tier
+  head for paired final review and fresh hosted validation.
+- Paired review rejected `c559e0cd0c0663d58eefdff81836aed26cde96dc`
+  because unavailable direct scores retained injected cash fields and a primary
+  with missing freshness suppressed a valid fresh fallback. Exact-head run
+  `31617207389` is cancelled and invalid. Consolidated product commit
+  `3840fd5fe5fb3c9c91d74fd366ded6b92a34930b` clears all unavailable cash
+  projection fields and requires both freshness declarations to be explicitly
+  fresh before selection. Exact regressions and the complete affected focused
+  surface, Ruff, compile, byte-clean generation and diff hygiene pass. Freeze
+  one replacement H-tier head for paired final review and hosted validation.
+- Paired review rejected `5d8f7203648442928fcbad55ab3d02385a0df820`
+  on one malformed-input escape: `pd.NA` cash currency was normalized before
+  the guarded boundary. Exact-head run `31619460965` is cancelled and invalid.
+  Product commit `77e0b932e2cb97f7c920e44a3daa3bfbdeb3f6e2` strictly types evidence
+  currency inside the fail-closed block; the exact regression and complete
+  ISSUE-0051 suite pass with static and diff checks. Freeze one replacement
+  H-tier head for paired final review and fresh hosted validation.
+- Paired review rejected `302fb671ab25c23cff9a2c45bbe405f836562b10`
+  for inverted persisted chronology, blank curve lineage, direct-score cash
+  bypass, stale-primary fallback suppression, future malformed generic history
+  poisoning, and duplicate-key proxy configuration. Exact-head run
+  `31613846758` is cancelled and invalid. Consolidated product commit
+  `db7d17166875324c3c5802bdd6f11a13e78df7a3` closes those six exact
+  boundaries with fail-closed chronology/lineage/config validation, cutoff-first
+  decoding, fresh fallback selection, and canonical score cash sanitization.
+  Exact regressions and the complete affected focused surface, Ruff, compile,
+  byte-clean generation and diff hygiene pass. Freeze one replacement H-tier
+  head for paired final review and fresh hosted validation.
+
+- Final paired review of `366407d644fffd0e6276b41e1292a73f05a7a771`
+  produced one approval and one reproduced identity defect: Instrument Detail
+  could validate persisted scoreboard cash against the row's self-declared
+  currency instead of the configured instrument currency. Hosted run
+  `31631451728` was cancelled and is invalid. The sole consolidated correction
+  binds attribution fallback to the canonical instrument ID and currency passed
+  by `build_instrument_detail`; contradictory USD evidence for a configured EUR
+  instrument remains unavailable. The complete ISSUE-0051 suite, Ruff,
+  compile, byte-clean programme generation and diff hygiene pass. Freeze one
+  replacement H-tier head for both exact-head reviews and fresh Linux, Windows
+  and terminal validation; `execution_allowed=false` remains unchanged.
+
+- Paired review of `70eae22148fc3b32779991cd44d73b0c4759df13`
+  approved the canonical attribution correction but reproduced two additional
+  malformed persistence boundaries before merge: non-scalar instrument
+  currency could raise during benchmark-attribution publication, and malformed
+  persisted curve `ingested_at` lineage could read back as available. Run
+  `31635448229` is cancelled and invalid. One consolidated correction requires
+  scalar textual currency before cash persistence and timezone-aware
+  `ingested_at` during persisted curve-history validation. Exact regressions and
+  the complete ISSUE-0051 and macro-warehouse suites pass with Ruff, compile,
+  byte-clean programme generation and diff hygiene. Freeze one replacement
+  H-tier head for both exact-head reviews and fresh hosted evidence;
+  `execution_allowed=false` remains unchanged.
+
+- Whole-diff review approved `dac31303204db8b7a6c0dc39a11bb6ff3e6d576c`,
+  while risk review reproduced one well-formed but impossible PIT chronology:
+  curve `ingested_at` could precede `available_at` at admission and persisted
+  readback. Run `31637457785` is cancelled and invalid. The sole follow-up
+  enforces `ingested_at >= available_at` at both existing validation boundaries
+  and adds admission/no-write and persisted-unavailable regressions. The full
+  macro-warehouse suite, Ruff and diff hygiene pass. Freeze one replacement
+  H-tier head for paired review and fresh hosted evidence; no adjacent
+  chronology or storage contract is changed and `execution_allowed=false`
+  remains unchanged.

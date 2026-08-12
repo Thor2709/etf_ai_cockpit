@@ -12,6 +12,10 @@ from pathlib import Path
 from etf_cockpit.data.etf_structure import project_etf_structure
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.parsed_disclosures import read_etf_report_records
+from etf_cockpit.features.cash_comparison import (
+    cash_comparison_from_projection,  # noqa: F401
+    cash_comparison_to_projection,  # noqa: F401
+)
 
 from etf_cockpit.analysis.fixed_income_analytics import (
     FixedIncomeAnalyticsError,

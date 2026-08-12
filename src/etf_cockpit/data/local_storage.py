@@ -409,11 +409,10 @@ class TransactionalStore:
         try:
             self.connection.execute("BEGIN IMMEDIATE")
             yield self.connection
+            self.connection.commit()
         except Exception:
             self.connection.rollback()
             raise
-        else:
-            self.connection.commit()
 
     @contextmanager
     def read_transaction(self) -> Iterator[sqlite3.Connection]:
@@ -445,6 +444,39 @@ class TransactionalStore:
             or expected_revision < 0
         ):
             raise ValueError("expected_revision must be a non-negative integer")
+        with self.transaction() as connection:
+            stored = self.put_in_transaction(
+                connection,
+                entity_type,
+                entity_id,
+                payload,
+                expected_revision=expected_revision,
+            )
+        return stored
+
+    def put_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        entity_type: str,
+        entity_id: str,
+        payload: Mapping[str, Any],
+        *,
+        expected_revision: int | None = None,
+        immutable: bool = False,
+    ) -> StoredRecord:
+        """Put one record into the caller's already-open transaction."""
+
+        if connection is not self.connection or not connection.in_transaction:
+            raise ValueError("put_in_transaction requires this store's open transaction")
+        entity_type, entity_id = _validate_identity(entity_type, entity_id)
+        if not isinstance(payload, Mapping):
+            raise TypeError("payload must be a mapping")
+        if expected_revision is not None and (
+            isinstance(expected_revision, bool)
+            or not isinstance(expected_revision, int)
+            or expected_revision < 0
+        ):
+            raise ValueError("expected_revision must be a non-negative integer")
         encoded = json.dumps(
             dict(payload),
             sort_keys=True,
@@ -453,40 +485,51 @@ class TransactionalStore:
             allow_nan=False,
         )
         now = _utc_now()
-        with self.transaction() as connection:
-            previous = connection.execute(
-                "SELECT revision, created_at FROM transactional_records WHERE entity_type = ? AND entity_id = ?",
-                (entity_type, entity_id),
-            ).fetchone()
-            current_revision = int(previous[0]) if previous else 0
-            if expected_revision is not None and current_revision != expected_revision:
+        previous = connection.execute(
+            "SELECT revision, created_at, payload_json, updated_at FROM transactional_records WHERE entity_type = ? AND entity_id = ?",
+            (entity_type, entity_id),
+        ).fetchone()
+        if previous and immutable:
+            if dict(json.loads(str(previous[2]))) != dict(payload):
                 raise StorageRevisionConflict(
-                    f"expected revision {expected_revision}, current revision is {current_revision}"
+                    f"immutable record already exists with different content: {entity_id}"
                 )
-            revision = int(previous[0]) + 1 if previous else 1
-            created_at = str(previous[1]) if previous else now
-            connection.execute(
-                """
-                INSERT INTO transactional_records
-                    (entity_type, entity_id, payload_json, revision, created_at, updated_at, deleted_at)
-                VALUES (?, ?, ?, ?, ?, ?, NULL)
-                ON CONFLICT(entity_type, entity_id) DO UPDATE SET
-                    payload_json = excluded.payload_json,
-                    revision = excluded.revision,
-                    updated_at = excluded.updated_at,
-                    deleted_at = NULL
-                """,
-                (entity_type, entity_id, encoded, revision, created_at, now),
+            return StoredRecord(
+                entity_type,
+                entity_id,
+                dict(json.loads(str(previous[2]))),
+                int(previous[0]),
+                str(previous[1]),
+                str(previous[3]),
             )
-            stored = StoredRecord(
-                entity_type=entity_type,
-                entity_id=entity_id,
-                payload=dict(json.loads(encoded)),
-                revision=revision,
-                created_at=created_at,
-                updated_at=now,
+        current_revision = int(previous[0]) if previous else 0
+        if expected_revision is not None and current_revision != expected_revision:
+            raise StorageRevisionConflict(
+                f"expected revision {expected_revision}, current revision is {current_revision}"
             )
-        return stored
+        revision = current_revision + 1
+        created_at = str(previous[1]) if previous else now
+        connection.execute(
+            """
+            INSERT INTO transactional_records
+                (entity_type, entity_id, payload_json, revision, created_at, updated_at, deleted_at)
+            VALUES (?, ?, ?, ?, ?, ?, NULL)
+            ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                revision = excluded.revision,
+                updated_at = excluded.updated_at,
+                deleted_at = NULL
+            """,
+            (entity_type, entity_id, encoded, revision, created_at, now),
+        )
+        return StoredRecord(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            payload=dict(json.loads(encoded)),
+            revision=revision,
+            created_at=created_at,
+            updated_at=now,
+        )
 
     def put_many(
         self,

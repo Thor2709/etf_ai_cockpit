@@ -12,6 +12,7 @@ from etf_cockpit.data.bitemporal import (
     BitemporalError,
     BitemporalStore,
     bitemporal_history_summary,
+    _observation,
 )
 
 
@@ -39,6 +40,105 @@ def _record(store: BitemporalStore, *, revision: int, available_at: str, value: 
         availability_confidence="exact",
         status=status,
     )
+
+
+@pytest.mark.parametrize("revision", (True, 1.0, 1.5, "1"))
+def test_revision_identity_is_strict_at_append_and_readback(
+    tmp_path: Path,
+    revision: object,
+) -> None:
+    with BitemporalStore(tmp_path) as store:
+        with pytest.raises(BitemporalError, match="positive integer"):
+            store.record_observation(
+                dataset_id="fundamentals",
+                entity_id="ETF-1",
+                stable_id="metric:earnings",
+                run_id="run-malformed",
+                value={"value": "reported"},
+                valid_from="2025-12-31T00:00:00Z",
+                valid_to="2026-12-31T00:00:00Z",
+                published_at="2026-01-02T10:00:00Z",
+                available_at="2026-01-02T10:00:00Z",
+                observed_at="2026-01-02T10:00:00Z",
+                ingested_at="2026-01-03T00:00:00Z",
+                revision=revision,  # type: ignore[arg-type]
+                source_id="source:official",
+                source_checksum=CHECKSUM,
+            )
+
+    row = {
+        "observation_id": "observation",
+        "dataset_id": "dataset",
+        "entity_id": "entity",
+        "stable_id": "stable",
+        "run_id": "run",
+        "value_json": "{}",
+        "valid_from": "2026-01-01T00:00:00+00:00",
+        "valid_to": None,
+        "published_at": "2026-01-01T00:00:00+00:00",
+        "available_at": "2026-01-01T00:00:00+00:00",
+        "observed_at": "2026-01-01T00:00:00+00:00",
+        "ingested_at": "2026-01-01T00:00:00+00:00",
+        "revised_at": None,
+        "revision": revision,
+        "source_id": "source",
+        "source_checksum": CHECKSUM,
+        "timezone_confidence": "exact",
+        "availability_confidence": "exact",
+        "status": "active",
+    }
+    with pytest.raises(BitemporalError, match="positive integer"):
+        _observation(row)
+
+
+@pytest.mark.parametrize("method", ("record_retraction", "record_supersession"))
+@pytest.mark.parametrize("revision", (True, 1.5, "1"))
+def test_marker_paths_reject_malformed_stored_revision(
+    tmp_path: Path,
+    monkeypatch,
+    method: str,
+    revision: object,
+) -> None:
+    with BitemporalStore(tmp_path) as store:
+        original = _record(
+            store,
+            revision=1,
+            available_at="2026-01-02T10:00:00Z",
+            value="reported",
+        )
+        row = dict(
+            store.store.connection.execute(
+                "SELECT * FROM bitemporal_observations WHERE observation_id = ?",
+                (original.observation_id,),
+            ).fetchone()
+        )
+        row["revision"] = revision
+        original_connection = store.store.connection
+
+        class _Connection:
+            @staticmethod
+            def execute(*_args):
+                class _Cursor:
+                    @staticmethod
+                    def fetchone():
+                        return row
+
+                return _Cursor()
+
+            @staticmethod
+            def close() -> None:
+                original_connection.close()
+
+        monkeypatch.setattr(store.store, "connection", _Connection())
+        kwargs = {
+            "available_at": "2026-01-03T10:00:00Z",
+            "run_id": "run-marker",
+            "reason": "test",
+        }
+        if method == "record_supersession":
+            kwargs["replacement_observation_id"] = "replacement"
+        with pytest.raises(BitemporalError, match="positive integer"):
+            getattr(store, method)(original.observation_id, **kwargs)
 
 
 @pytest.mark.parametrize(

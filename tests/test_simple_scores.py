@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ from etf_cockpit.app.components.simple_scores import _score_history_panel
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import RAW_DIR
+from etf_cockpit.features.cash_comparison import build_cash_comparison
 from etf_cockpit.data.classification import ClassificationOverride, ClassificationStore
 from etf_cockpit.services import DataService, build_snapshot
 from etf_cockpit.signals import simple_scores as simple_scores_module
@@ -510,6 +512,187 @@ def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
     assert "calibration_required" in frame.columns
 
 
+def test_unavailable_score_clears_injected_cash_revision(tmp_path) -> None:
+    report = pd.DataFrame(
+        [{
+            "instrument_id": "ABC",
+            "name": "ABC Test Stock",
+            "yahoo_symbol": "ABC.DE",
+            "latest_date": "2026-01-01",
+            "latest_price": 100.0,
+            "rows": 300,
+            "return_3m": 0.10,
+            "return_6m": 0.18,
+            "return_12m": 0.25,
+            "volatility_60d_ann": 0.18,
+            "current_drawdown": -0.04,
+            "sma50_signal": True,
+            "sma200_signal": True,
+            "median_turnover_60d_eur": 2_500_000,
+            "blocked_by": "",
+        }]
+    )
+    score = build_candidate_simple_scores(report, pd.DataFrame())[0]
+    frame = simple_scoreboard_frame([replace(score, cash_curve_revision=7), score])
+    assert str(frame["cash_curve_revision"].dtype) == "Int64"
+    path = write_simple_scoreboard(
+        [replace(score, cash_curve_revision=7), score], tmp_path / "scoreboard.parquet"
+    )
+    persisted = pd.read_parquet(path)
+    assert str(persisted["cash_curve_revision"].dtype) == "Int64"
+    assert pd.isna(persisted["cash_curve_revision"].iloc[0])
+    assert pd.isna(persisted["cash_curve_revision"].iloc[1])
+
+
+def test_direct_score_clears_contradictory_cash_identity_before_scoreboard(tmp_path) -> None:
+    cash = build_cash_comparison(
+        instrument_id="ABC",
+        adjusted_prices=pd.Series(
+            [100.0, 105.79],
+            index=pd.to_datetime(["2025-01-01", "2026-01-01"]),
+        ),
+        start_date="2025-01-01",
+        end_date="2026-01-01",
+        instrument_currency="EUR",
+        cash_evidence={
+            "status": "available",
+            "execution_allowed": False,
+            "currency": "EUR",
+            "dataset_kind": "risk_free",
+            "unit": "decimal",
+            "curve_type": "spot",
+            "source_authority": "official_public_file",
+            "freshness": "fresh",
+            "freshness_status": "fresh",
+            "rate": 0.0123,
+            "tenor_years": 1.0,
+            "compounding": "annual",
+            "day_count": "ACT/365F",
+            "reinvestment": "reinvested_income",
+            "vintage": "2025-01-01T00:00:00+00:00",
+            "effective_at": "2025-01-01T00:00:00+00:00",
+            "published_at": "2025-01-01T00:00:00+00:00",
+            "available_at": "2025-01-01T00:00:00+00:00",
+            "source_id": "official-eur-curve",
+            "source_checksum": "a" * 64,
+            "source_terms": "official terms",
+            "methodology": "official method",
+            "mapping_methodology": "official mapping",
+            "curve_id": "eur-cash",
+            "curve_version": "v1",
+            "curve_revision": 1,
+            "interpolation": "none",
+            "extrapolation_allowed": False,
+            "fallback": False,
+        },
+        decision_time="2026-01-02T00:00:00+00:00",
+        inflation_context={"status": "unavailable"},
+    )
+    cash_fields = simple_scores_module._cash_comparison_info(
+        {"ABC": cash.as_dict()}, "ABC", expected_currency="EUR"
+    )
+    score = SimpleInstrumentScore(
+        instrument_key="configured:ABC",
+        display_id="ABC",
+        source_group="Primary tier",
+        asset_type="ETF",
+        name="ABC",
+        yahoo_symbol="ABC.DE",
+        latest_date="2026-01-01",
+        latest_price=100.0,
+        final_score_10=7.0,
+        decision="review",
+        one_line_reason="review evidence",
+        components=[],
+        warnings=[],
+        instrument_currency="EUR",
+        **cash_fields,
+    )
+
+    invalid = replace(score, cash_currency="USD")
+    assert invalid.cash_comparison_status == "unavailable"
+    assert invalid.cash_comparison_reason
+    assert invalid.cash_return is None
+    assert invalid.cash_currency is None
+    assert invalid.cash_curve_revision is None
+    assert invalid.inflation_context is None
+
+    row = simple_scoreboard_frame([invalid]).iloc[0]
+    assert row["cash_comparison_status"] == "unavailable"
+    assert pd.isna(row["cash_return"])
+    assert pd.isna(row["cash_currency"])
+    assert bool(row["execution_allowed"]) is False
+
+    forged_unavailable = replace(
+        score,
+        cash_comparison_status="unavailable",
+        cash_comparison_reason="declared unavailable",
+        cash_return=0.25,
+        cash_currency="EUR",
+        cash_unit="decimal",
+        cash_dataset_kind="risk_free",
+    )
+    assert forged_unavailable.cash_comparison_status == "unavailable"
+    assert forged_unavailable.cash_return is None
+    assert forged_unavailable.cash_currency is None
+    assert forged_unavailable.cash_unit is None
+    assert forged_unavailable.cash_dataset_kind is None
+    forged_row = simple_scoreboard_frame([forged_unavailable]).iloc[0]
+    assert forged_row["cash_comparison_status"] == "unavailable"
+    assert pd.isna(forged_row["cash_return"])
+
+    malformed_status = replace(score, cash_comparison_status=pd.NA)
+    assert malformed_status.cash_comparison_status == "unavailable"
+    assert malformed_status.cash_return is None
+    assert malformed_status.execution_allowed is False
+
+    malformed_currency = replace(score, instrument_currency=pd.NA)
+    assert malformed_currency.cash_comparison_status == "unavailable"
+    assert malformed_currency.cash_return is None
+    assert malformed_currency.cash_currency is None
+    assert malformed_currency.execution_allowed is False
+
+    mixed_path = write_simple_scoreboard(
+        [replace(score, cash_curve_revision=7), forged_unavailable],
+        tmp_path / "mixed-scoreboard.parquet",
+    )
+    mixed = pd.read_parquet(mixed_path)
+    assert str(mixed["cash_curve_revision"].dtype) == "Int64"
+    assert mixed["cash_curve_revision"].iloc[0] == 7
+    assert pd.isna(mixed["cash_curve_revision"].iloc[1])
+
+
+@pytest.mark.parametrize(
+    "bad_row",
+    (
+        {"date": "2026-01-02", "adjusted_close": True},
+        {"date": "2026-01-02", "adjusted_close": "101.0"},
+        {"date": "not-a-date", "adjusted_close": 101.0},
+        {"date": "2026-01-01", "adjusted_close": 101.0},
+    ),
+)
+def test_local_cash_path_fails_closed_on_malformed_adjusted_prices(
+    monkeypatch, bad_row: dict[str, object]
+) -> None:
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    rows = [
+        {"etf_id": instrument_id, "date": "2026-01-01", "adjusted_close": 100.0},
+        {"etf_id": instrument_id, "date": "2026-01-02", "adjusted_close": 101.0},
+    ]
+    rows[1].update(bad_row)
+    monkeypatch.setattr(
+        simple_scores_module,
+        "load_risk_free_proxy_mappings",
+        lambda: (object(),),
+    )
+    lookup = simple_scores_module._build_local_cash_comparison_lookup(
+        snapshot.config, pd.DataFrame(rows), as_of="2026-01-04T00:00:00+00:00"
+    )
+    assert lookup[instrument_id]["status"] == "unavailable"
+    assert lookup[instrument_id]["execution_allowed"] is False
+
+
 def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_score(
     monkeypatch,
     tmp_path,
@@ -572,7 +755,7 @@ def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_scor
     assert pd.isna(projected.iloc[0]["canonical_attractiveness_10"])
     assert projected.iloc[0]["classification_dependency_status"] == "classification_override_invalidated"
     assert projected.iloc[0]["analysis_status"] == "unavailable"
-    assert not bool(projected.iloc[0]["execution_allowed"])
+    assert bool(projected.iloc[0]["execution_allowed"]) is False
 
 
 def test_score_construction_fails_closed_when_classification_storage_is_unavailable(monkeypatch) -> None:
