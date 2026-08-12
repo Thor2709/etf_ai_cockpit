@@ -316,6 +316,27 @@ def test_cash_builder_and_validator_reject_blank_lineage(
     )
 
 
+def test_cash_builder_and_validator_reject_unsupported_reinvestment() -> None:
+    prices = pd.Series(
+        [100.0, 110.0], index=pd.to_datetime(["2025-01-01", "2025-01-02"])
+    )
+    built = build_cash_comparison(
+        adjusted_prices=prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        instrument_currency="AUD",
+        cash_evidence=_evidence(reinvestment="unsupported"),
+        decision_time="2025-01-03T00:00:00+00:00",
+    )
+    assert built.status == "unavailable"
+    assert "reinvestment" in str(built.reason)
+
+    forged = {**_available_eur_result(), "reinvestment": "unsupported"}
+    validated = validate_cash_comparison_result(forged, expected_currency="EUR")
+    assert validated.status == "unavailable"
+    assert "reinvestment" in str(validated.reason)
+
+
 @pytest.mark.parametrize("revision", (True, 1.5, "1"))
 def test_cash_builder_and_validator_reject_non_integral_revision(
     revision: object,

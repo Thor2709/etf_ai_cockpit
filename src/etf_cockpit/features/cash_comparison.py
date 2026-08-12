@@ -19,6 +19,7 @@ import pandas as pd
 _DAY_COUNTS = {"ACT/360", "ACT/365F", "ACT/ACT-ISDA"}
 _COMPOUNDING = {"annual", "continuous", "simple"}
 _FRESHNESS = {"fresh"}
+_REINVESTMENT = {"reinvested_income"}
 
 
 def _positive_revision(value: object) -> int:
@@ -326,6 +327,8 @@ def build_cash_comparison(
             return _unavailable("cash horizon does not exactly match the comparison period", currency=currency)
         if cash_evidence.get("compounding") not in _COMPOUNDING:
             return _unavailable("cash compounding convention is unsupported", currency=currency)
+        if cash_evidence.get("reinvestment") not in _REINVESTMENT:
+            return _unavailable("cash reinvestment convention is unsupported", currency=currency)
         available_at = _utc_timestamp(cash_evidence.get("available_at"), "available_at")
         published_at = _utc_timestamp(
             cash_evidence.get("published_at"), "published_at"
@@ -472,6 +475,8 @@ def validate_cash_comparison_result(
         compounding = str(raw["compounding"])
         if day_count not in _DAY_COUNTS or compounding not in _COMPOUNDING:
             raise ValueError("cash comparison convention is unsupported")
+        if raw.get("reinvestment") not in _REINVESTMENT:
+            raise ValueError("cash reinvestment convention is unsupported")
         horizon = year_fraction(start, end, day_count)
         observed_horizon = _finite_float(raw.get("horizon_years"), "horizon_years")
         if not math.isclose(observed_horizon, horizon, rel_tol=0.0, abs_tol=1e-12):

@@ -410,8 +410,8 @@ def _validate_curve(snapshot: CurveSnapshot) -> CurveSnapshot:
         raise MacroWarehouseError(f"unsupported curve compounding: {snapshot.compounding}")
     if snapshot.day_count is not None and snapshot.day_count not in {"ACT/360", "ACT/365F", "ACT/ACT-ISDA"}:
         raise MacroWarehouseError(f"unsupported curve day count: {snapshot.day_count}")
-    if snapshot.reinvestment is not None and not snapshot.reinvestment.strip():
-        raise MacroWarehouseError("curve reinvestment declaration cannot be empty")
+    if snapshot.reinvestment is not None and snapshot.reinvestment != "reinvested_income":
+        raise MacroWarehouseError("curve reinvestment convention is unsupported")
     for freshness in (snapshot.freshness, snapshot.freshness_status):
         if freshness is not None and freshness not in {"fresh", "stale", "conflicted", "malformed", "unavailable"}:
             raise MacroWarehouseError(f"unsupported curve freshness: {freshness}")
@@ -833,7 +833,18 @@ class MacroWarehouse:
                 "curve_id": curve_id,
                 "execution_allowed": False,
             }
-        rows = [MacroObservation.model_validate(item) for item in frame.to_dict("records")]
+        try:
+            rows = [
+                MacroObservation.model_validate(item)
+                for item in frame.to_dict("records")
+            ]
+        except ValueError as exc:
+            return {
+                "status": "unavailable",
+                "reason": f"curve snapshot row is malformed: {exc}",
+                "curve_id": curve_id,
+                "execution_allowed": False,
+            }
         if any(
             row.dataset_id != f"curve:{curve_id}" or row.curve_id != curve_id
             for row in rows
@@ -909,6 +920,21 @@ class MacroWarehouse:
                 "curve_id": curve_id,
                 "execution_allowed": False,
             }
+        tenors = [row.tenor_years for row in rows]
+        if any(tenor is None for tenor in tenors) or len(set(tenors)) != len(tenors):
+            return {
+                "status": "unavailable",
+                "reason": "curve tenor points must be complete and unique",
+                "curve_id": curve_id,
+                "execution_allowed": False,
+            }
+        if rows[0].reinvestment not in {None, "reinvested_income"}:
+            return {
+                "status": "unavailable",
+                "reason": "curve reinvestment convention is unsupported",
+                "curve_id": curve_id,
+                "execution_allowed": False,
+            }
         if any(
             row.freshness is not None
             and row.freshness_status is not None
@@ -924,7 +950,6 @@ class MacroWarehouse:
         points = tuple(
             CurvePoint(tenor_years=float(row.tenor_years), rate=row.value)
             for row in rows
-            if row.tenor_years is not None
         )
         try:
             rate = interpolate_curve(
