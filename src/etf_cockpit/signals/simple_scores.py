@@ -470,7 +470,7 @@ class SimpleInstrumentScore:
             cash_payload,
             expected_currency=expected_currency if raw_status == "available" else None,
         )
-        if raw_status == "available" and validated_cash.status != "available":
+        if validated_cash.status != "available":
             for field_name in cash_fields:
                 if field_name == "cash_comparison_status":
                     object.__setattr__(self, field_name, "unavailable")

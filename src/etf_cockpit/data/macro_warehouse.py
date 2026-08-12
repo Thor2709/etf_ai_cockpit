@@ -1335,8 +1335,8 @@ class MacroWarehouse:
             freshness_status = selected.get("freshness_status")
             if (
                 selected["status"] == "available"
-                and freshness in {None, "fresh"}
-                and freshness_status in {None, "fresh"}
+                and freshness == "fresh"
+                and freshness_status == "fresh"
             ):
                 if str(selected.get("currency", "")).upper() != currency.upper():
                     continue

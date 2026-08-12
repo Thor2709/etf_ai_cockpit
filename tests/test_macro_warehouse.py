@@ -512,6 +512,44 @@ def test_stale_primary_curve_falls_back_to_fresh_curve(tmp_path) -> None:
     assert selected["freshness"] == "fresh"
 
 
+def test_missing_freshness_primary_falls_back_to_fresh_curve(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    warehouse.ingest_curve(
+        _curve(curve_id="incomplete-primary").model_copy(
+            update={"freshness": None, "freshness_status": None}
+        ),
+        root=tmp_path,
+    )
+    warehouse.ingest_curve(
+        _curve(curve_id="fresh-fallback").model_copy(
+            update={"freshness": "fresh", "freshness_status": "fresh"}
+        ),
+        root=tmp_path,
+    )
+
+    selected = warehouse.risk_free_rate(
+        root=tmp_path,
+        mappings=(
+            RiskFreeProxyMapping(
+                currency="AUD",
+                minimum_horizon_years=1.0,
+                maximum_horizon_years=1.0,
+                curve_id="incomplete-primary",
+                fallback_curve_ids=("fresh-fallback",),
+                methodology="official mapping",
+            ),
+        ),
+        currency="AUD",
+        horizon_years=1.0,
+        decision_time="2025-01-05T00:00:00+00:00",
+    )
+    assert selected["status"] == "available"
+    assert selected["curve_id"] == "fresh-fallback"
+    assert selected["fallback"] is True
+    assert selected["freshness"] == "fresh"
+    assert selected["freshness_status"] == "fresh"
+
+
 def _curve(
     *,
     curve_id: str = "aud-official-spot",
@@ -538,6 +576,8 @@ def _curve(
         methodology="Official decimal zero-rate curve",
         interpolation="linear",
         reinvestment="reinvested_income",
+        freshness="fresh",
+        freshness_status="fresh",
         points=(
             CurvePoint(tenor_years=1.0, rate=rates[0]),
             CurvePoint(tenor_years=3.0, rate=rates[1]),

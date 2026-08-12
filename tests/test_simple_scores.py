@@ -512,7 +512,7 @@ def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
     assert "calibration_required" in frame.columns
 
 
-def test_scoreboard_cash_revisions_round_trip_as_nullable_integers(tmp_path) -> None:
+def test_unavailable_score_clears_injected_cash_revision(tmp_path) -> None:
     report = pd.DataFrame(
         [{
             "instrument_id": "ABC",
@@ -533,20 +533,18 @@ def test_scoreboard_cash_revisions_round_trip_as_nullable_integers(tmp_path) -> 
         }]
     )
     score = build_candidate_simple_scores(report, pd.DataFrame())[0]
-    frame = simple_scoreboard_frame(
-        [replace(score, cash_curve_revision=7), score]
-    )
+    frame = simple_scoreboard_frame([replace(score, cash_curve_revision=7), score])
     assert str(frame["cash_curve_revision"].dtype) == "Int64"
     path = write_simple_scoreboard(
         [replace(score, cash_curve_revision=7), score], tmp_path / "scoreboard.parquet"
     )
     persisted = pd.read_parquet(path)
     assert str(persisted["cash_curve_revision"].dtype) == "Int64"
-    assert persisted["cash_curve_revision"].iloc[0] == 7
+    assert pd.isna(persisted["cash_curve_revision"].iloc[0])
     assert pd.isna(persisted["cash_curve_revision"].iloc[1])
 
 
-def test_direct_score_clears_contradictory_cash_identity_before_scoreboard() -> None:
+def test_direct_score_clears_contradictory_cash_identity_before_scoreboard(tmp_path) -> None:
     cash = build_cash_comparison(
         adjusted_prices=pd.Series(
             [100.0, 105.79],
@@ -623,6 +621,33 @@ def test_direct_score_clears_contradictory_cash_identity_before_scoreboard() -> 
     assert pd.isna(row["cash_return"])
     assert pd.isna(row["cash_currency"])
     assert bool(row["execution_allowed"]) is False
+
+    forged_unavailable = replace(
+        score,
+        cash_comparison_status="unavailable",
+        cash_comparison_reason="declared unavailable",
+        cash_return=0.25,
+        cash_currency="EUR",
+        cash_unit="decimal",
+        cash_dataset_kind="risk_free",
+    )
+    assert forged_unavailable.cash_comparison_status == "unavailable"
+    assert forged_unavailable.cash_return is None
+    assert forged_unavailable.cash_currency is None
+    assert forged_unavailable.cash_unit is None
+    assert forged_unavailable.cash_dataset_kind is None
+    forged_row = simple_scoreboard_frame([forged_unavailable]).iloc[0]
+    assert forged_row["cash_comparison_status"] == "unavailable"
+    assert pd.isna(forged_row["cash_return"])
+
+    mixed_path = write_simple_scoreboard(
+        [replace(score, cash_curve_revision=7), forged_unavailable],
+        tmp_path / "mixed-scoreboard.parquet",
+    )
+    mixed = pd.read_parquet(mixed_path)
+    assert str(mixed["cash_curve_revision"].dtype) == "Int64"
+    assert mixed["cash_curve_revision"].iloc[0] == 7
+    assert pd.isna(mixed["cash_curve_revision"].iloc[1])
 
 
 @pytest.mark.parametrize(
