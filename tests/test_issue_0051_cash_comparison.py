@@ -870,7 +870,9 @@ def _control_text(control: object) -> str:
     return "\n".join(item for item in values if item)
 
 
-def _available_eur_result(instrument_id: str = "TEST-EUR") -> dict[str, object]:
+def _available_eur_result(
+    instrument_id: str = "TEST-EUR", *, currency: str = "EUR"
+) -> dict[str, object]:
     result = build_cash_comparison(
         instrument_id=instrument_id,
         adjusted_prices=pd.Series(
@@ -878,15 +880,15 @@ def _available_eur_result(instrument_id: str = "TEST-EUR") -> dict[str, object]:
         ),
         start_date="2025-01-01",
         end_date="2026-01-01",
-        instrument_currency="EUR",
+        instrument_currency=currency,
         cash_evidence=_evidence(
-            currency="EUR",
+            currency=currency,
             tenor_years=1.0,
             rate=0.0123,
             source_id="official-caller-provided-curve",
             source_checksum="c" * 64,
-            mapping_methodology="caller-provided EUR cash mapping",
-            curve_id="eur-caller-provided-spot",
+            mapping_methodology=f"caller-provided {currency} cash mapping",
+            curve_id=f"{currency.lower()}-caller-provided-spot",
         ),
         decision_time="2026-01-02T00:00:00+00:00",
         inflation_context={"status": "unavailable"},
@@ -945,6 +947,8 @@ def test_instrument_detail_fallback_preserves_valid_scoreboard_cash() -> None:
     panel = instrument_detail_selector._attribution_panel(
         {"attribution": {"status": "unavailable"}},
         scoreboard,
+        expected_instrument_id="TEST-EUR",
+        expected_currency="EUR",
     )
     assert panel["status"] == "available"
     assert panel["cash_comparison_status"] == "available"
@@ -960,6 +964,29 @@ def test_instrument_detail_fallback_preserves_valid_scoreboard_cash() -> None:
     assert rejected["status"] == "unavailable"
     assert rejected.get("cash_comparison_status") != "available"
     assert rejected["execution_allowed"] is False
+
+
+def test_instrument_detail_attribution_binds_scoreboard_cash_to_canonical_identity() -> None:
+    scoreboard = {
+        "instrument_id": "STALE-USD",
+        "instrument_currency": "USD",
+        **cash_comparison_to_projection(
+            _available_eur_result(instrument_id="STALE-USD", currency="USD"),
+            expected_currency="USD",
+            expected_instrument_id="STALE-USD",
+        ),
+    }
+    panel = instrument_detail_selector._attribution_panel(
+        {"attribution": {"status": "unavailable"}},
+        scoreboard,
+        expected_instrument_id="TEST-EUR",
+        expected_currency="EUR",
+    )
+
+    assert panel["status"] == "unavailable"
+    assert panel.get("cash_comparison_status") != "available"
+    assert panel.get("cash_return") is None
+    assert panel["execution_allowed"] is False
 
 
 def test_cash_projection_round_trip_preserves_non_execution_authority() -> None:

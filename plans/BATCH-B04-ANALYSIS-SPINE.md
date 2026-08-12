@@ -3778,3 +3778,14 @@ requires canonical dates and cutoffs, and fails closed on unofficial curve
 lineage. Exact adversarial regressions and complete affected focused, static
 and programme checks pass. Freeze one replacement H-tier head for paired final
 review and fresh Linux, Windows and terminal validation.
+
+Final paired review of `366407d644fffd0e6276b41e1292a73f05a7a771`
+produced one approval and one exact identity finding: persisted scoreboard cash
+could be reaccepted against its self-declared currency instead of the canonical
+configured currency. Run `31631451728` is cancelled and invalid. The single
+bounded correction passes canonical instrument ID and currency into the
+existing attribution validator, so stale USD evidence remains unavailable for
+a configured EUR instrument. The complete ISSUE-0051 suite and static,
+programme and diff checks pass. Freeze one replacement H-tier head for paired
+review and fresh hosted Linux, Windows and terminal validation; preserve
+`execution_allowed=false`.

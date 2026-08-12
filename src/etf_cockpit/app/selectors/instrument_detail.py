@@ -1315,17 +1315,23 @@ def _risk_panel(features: object, friction: Mapping[str, Any], crowding: Mapping
     }
 
 
-def _attribution_panel(derived: Mapping[str, Any], scoreboard: Mapping[str, Any]) -> dict[str, Any]:
+def _attribution_panel(
+    derived: Mapping[str, Any],
+    scoreboard: Mapping[str, Any],
+    *,
+    expected_instrument_id: str | None = None,
+    expected_currency: str | None = None,
+) -> dict[str, Any]:
     value = dict(derived.get("attribution", {}))
-    expected_instrument_id = _safe_text(scoreboard.get("instrument_id"))
-    expected_currency = _safe_text(scoreboard.get("instrument_currency"))
+    expected_instrument_id = _safe_text(expected_instrument_id)
+    expected_currency = _safe_text(expected_currency)
     scoreboard_cash = (
         cash_comparison_to_projection(
             cash_comparison_from_projection(scoreboard),
             expected_currency=expected_currency,
             expected_instrument_id=expected_instrument_id,
         )
-        if expected_currency is not None
+        if expected_currency is not None and expected_instrument_id is not None
         else cash_comparison_to_projection(None)
     )
     if (
@@ -1581,14 +1587,12 @@ def build_instrument_detail(
         all_features = _instrument_rows(getattr(snapshot, "features", None), instrument_id)
         if not all_features.empty and "date" in all_features.columns:
             features = all_features.sort_values("date", kind="stable").tail(1)
-    derived = _derived_evidence_panel(
-        instrument_id,
-        expected_currency=(
-            identity.currency
-            if identity is not None
-            else candidate.instrument_currency if candidate is not None else None
-        ),
+    canonical_currency = (
+        identity.currency
+        if identity is not None
+        else candidate.instrument_currency if candidate is not None else None
     )
+    derived = _derived_evidence_panel(instrument_id, expected_currency=canonical_currency)
     friction = _friction_panel(instrument_id, candidate_score=candidate)
     scoreboard = _scoreboard_row(instrument_id, candidate_score=candidate)
     decision_time = getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
@@ -1781,7 +1785,12 @@ def build_instrument_detail(
             "scores": _score_panel(signal, scoreboard, derived, friction),
             "feature_drivers": _feature_driver_panel(instrument_id),
             "risk": _risk_panel(features, friction, derived["crowding"]),
-            "attribution": _attribution_panel(derived, scoreboard),
+            "attribution": _attribution_panel(
+                derived,
+                scoreboard,
+                expected_instrument_id=instrument_id,
+                expected_currency=canonical_currency,
+            ),
             "fundamentals": _fundamentals_panel(instrument_id, fundamentals),
             "etf_disclosures": disclosure,
             "etf_structure": structure,

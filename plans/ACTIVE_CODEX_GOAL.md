@@ -2510,3 +2510,15 @@ next action and whether the requested outcome is actually complete.
   Exact regressions and the complete affected focused surface, Ruff, compile,
   byte-clean generation and diff hygiene pass. Freeze one replacement H-tier
   head for paired final review and fresh hosted validation.
+
+- Final paired review of `366407d644fffd0e6276b41e1292a73f05a7a771`
+  produced one approval and one reproduced identity defect: Instrument Detail
+  could validate persisted scoreboard cash against the row's self-declared
+  currency instead of the configured instrument currency. Hosted run
+  `31631451728` was cancelled and is invalid. The sole consolidated correction
+  binds attribution fallback to the canonical instrument ID and currency passed
+  by `build_instrument_detail`; contradictory USD evidence for a configured EUR
+  instrument remains unavailable. The complete ISSUE-0051 suite, Ruff,
+  compile, byte-clean programme generation and diff hygiene pass. Freeze one
+  replacement H-tier head for both exact-head reviews and fresh Linux, Windows
+  and terminal validation; `execution_allowed=false` remains unchanged.
