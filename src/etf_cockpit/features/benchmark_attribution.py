@@ -91,6 +91,8 @@ def build_benchmark_attribution(
     sector_returns: pd.Series | None = None,
     theme_returns: pd.Series | None = None,
     cash_comparison: Mapping[str, object] | None = None,
+    *,
+    instrument_currency: str | None = None,
 ) -> AttributionResult:
     """Return descriptive broad and sector-relative attribution evidence.
 
@@ -159,7 +161,7 @@ def build_benchmark_attribution(
             theme_alpha_proxy = _alpha(theme_instrument_return, theme_return, theme_beta)
 
     as_of = _as_of(broad_frame.index)
-    cash = _cash_fields(cash_comparison)
+    cash = _cash_fields(cash_comparison, expected_currency=instrument_currency)
     return AttributionResult(
         instrument_return=instrument_return,
         benchmark_return=benchmark_return,
@@ -243,8 +245,15 @@ def _unavailable(reason: str) -> AttributionResult:
     return AttributionResult(None, None, None, None, None, None, "N/A", 0, reason=reason)
 
 
-def _cash_fields(value: Mapping[str, object] | None) -> dict[str, object]:
-    value = validate_cash_comparison_result(value).as_dict()
+def _cash_fields(
+    value: Mapping[str, object] | None,
+    *,
+    expected_currency: str | None = None,
+) -> dict[str, object]:
+    value = validate_cash_comparison_result(
+        value,
+        expected_currency=expected_currency,
+    ).as_dict()
     return {
         "cash_instrument_return": _optional_float(value.get("instrument_return")),
         "cash_return": _optional_float(value.get("cash_return")),

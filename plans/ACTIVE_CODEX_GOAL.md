@@ -2268,3 +2268,11 @@ next action and whether the requested outcome is actually complete.
   ISSUE-0051 suite passes 24 tests, with Ruff, compile, programme freshness and
   diff hygiene clean. Freeze one H-tier head for paired whole-diff/risk review
   and fresh Linux, Windows and terminal validation.
+- Final root review reproduced and closed two remaining identity/time gaps
+  before publication: direct attribution now binds cash evidence to the
+  instrument currency, and the normal local score path excludes adjusted-price
+  endpoints whose conservative next-UTC-day availability time has not arrived
+  instead of synthesising a future decision. The final ISSUE-0051 suite passes
+  35 tests; Ruff, compile, programme freshness and diff hygiene remain clean.
+  Publish only the resulting replacement H-tier head for paired re-review and
+  full hosted evidence.

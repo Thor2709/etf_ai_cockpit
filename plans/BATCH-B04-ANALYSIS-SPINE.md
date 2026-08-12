@@ -3527,3 +3527,11 @@ missing or malformed input cannot change score, action, gate or authority.
 The focused seven-suite regression passes 183 tests and the final ISSUE-0051
 suite passes 24, plus static, compile, programme-freshness and diff checks.
 Freeze one H-tier exact head for paired review and full hosted evidence.
+
+Final root review reproduced two remaining fail-closed gaps before publication.
+Direct benchmark attribution now validates cash evidence against the declared
+instrument currency, and the normal local path excludes adjusted endpoints
+whose conservative next-UTC-day availability time is still in the future.
+The final ISSUE-0051 suite passes 35 tests; Ruff, compile, programme freshness
+and diff hygiene remain clean. Freeze one replacement H-tier exact head for
+both independent reviews and fresh Linux, Windows and terminal validation.

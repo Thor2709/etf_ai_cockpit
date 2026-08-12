@@ -2446,6 +2446,8 @@ def _cash_comparison_info(
 def _build_local_cash_comparison_lookup(
     config: AppConfig,
     prices: pd.DataFrame,
+    *,
+    as_of: object | None = None,
 ) -> dict[str, Mapping[str, object]]:
     mappings = load_risk_free_proxy_mappings()
     if not mappings:
@@ -2468,6 +2470,13 @@ def _build_local_cash_comparison_lookup(
     frame = prices.loc[:, ["etf_id", "date", "adjusted_close"]].copy()
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce", utc=True)
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
+    try:
+        decision = pd.Timestamp.now(tz="UTC") if as_of is None else pd.Timestamp(as_of)
+    except (TypeError, ValueError, OverflowError):
+        return {}
+    if pd.isna(decision) or decision.tzinfo is None:
+        return {}
+    decision = decision.tz_convert("UTC")
     identities = config.universe.by_id()
     for instrument_id in config.universe.enabled_ids:
         identity = identities.get(instrument_id)
@@ -2475,6 +2484,9 @@ def _build_local_cash_comparison_lookup(
             subset=["date", "adjusted_close"]
         )
         rows = rows.sort_values("date")
+        rows = rows.loc[
+            rows["date"].dt.normalize() + pd.Timedelta(days=1) <= decision
+        ]
         if identity is None or len(rows) < 2 or rows["date"].dt.date.duplicated().any():
             continue
         comparison_rows = rows.tail(_CASH_COMPARISON_RETURN_WINDOW + 1)

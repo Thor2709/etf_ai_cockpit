@@ -317,6 +317,21 @@ def test_benchmark_attribution_and_projection_fields_keep_cash_descriptive() -> 
     assert result.execution_allowed is False
 
 
+def test_benchmark_attribution_rejects_cash_for_another_instrument_currency() -> None:
+    index = pd.date_range("2025-01-01", periods=3, freq="D")
+    result = build_benchmark_attribution(
+        pd.Series([0.01, 0.02, 0.0], index=index),
+        pd.Series([0.005, 0.01, 0.0], index=index),
+        cash_comparison=_available_eur_result(),
+        instrument_currency="USD",
+    )
+
+    assert result.cash_comparison_status == "unavailable"
+    assert result.cash_return is None
+    assert result.excess_over_cash is None
+    assert result.execution_allowed is False
+
+
 def _control_text(control: object) -> str:
     values: list[str] = []
     value = getattr(control, "value", None)
@@ -638,7 +653,10 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
     assert available_score.cash_comparison_status == "available"
     assert available_score.cash_currency == "EUR"
     assert available_score.cash_curve_id == "eur-official-local-spot"
-    assert available_score.cash_decision_time == adjusted_endpoint_available_at(end)
+    assert available_score.cash_decision_time == adjusted_endpoint_available_at(
+        available_score.cash_end_date
+    )
+    assert pd.Timestamp(available_score.cash_decision_time) <= pd.Timestamp.now(tz="UTC")
     assert available_score.execution_allowed is False
 
     frame = simple_scoreboard_frame([available_score])
@@ -687,3 +705,39 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
             score.final_action,
             score.authority_decision,
         ) == baseline_authority
+
+
+def test_local_cash_lookup_excludes_an_adjusted_endpoint_not_yet_available(
+    monkeypatch,
+) -> None:
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    identity = snapshot.config.universe.by_id()[instrument_id]
+    future_end = pd.Timestamp("2030-01-02T00:00:00Z")
+    prices = pd.DataFrame(
+        {
+            "etf_id": [instrument_id, instrument_id],
+            "date": [future_end - pd.Timedelta(days=1), future_end],
+            "adjusted_close": [100.0, 101.0],
+        }
+    )
+    mapping = RiskFreeProxyMapping(
+        currency=identity.currency,
+        minimum_horizon_years=0.0,
+        maximum_horizon_years=10.0,
+        curve_id="unused",
+        fallback_curve_ids=(),
+        methodology="test mapping",
+    )
+    monkeypatch.setattr(
+        simple_scores_module,
+        "load_risk_free_proxy_mappings",
+        lambda: (mapping,),
+    )
+    lookup = simple_scores_module._build_local_cash_comparison_lookup(
+        snapshot.config,
+        prices,
+        as_of="2030-01-02T12:00:00Z",
+    )
+
+    assert instrument_id not in lookup
