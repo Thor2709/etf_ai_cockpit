@@ -172,6 +172,55 @@ def test_ui_projection_binds_selected_records_and_full_registry_to_content_diges
         )
 
 
+def _resolved_registry() -> tuple[CanonicalBenchmarkRegistry, AnalysisResolution]:
+    registry = _registry()
+    resolution = registry.resolve_analysis(
+        analysis_id="projection-membership",
+        purpose="comparison",
+        instrument_id="ETF-1",
+        instrument=INSTRUMENT,
+        currency="AUD",
+        horizon_years=1.0,
+        start_date="2024-02-01",
+        end_date="2025-02-01",
+        decision_time="2024-02-02T00:00:00Z",
+        reference_portfolio_ids=("reference:equal_weight",),
+    )
+    return registry, resolution
+
+
+@pytest.mark.parametrize("field", ("benchmark", "cash", "peer_set"))
+def test_ui_projection_rejects_forged_available_selection_digest(field: str) -> None:
+    registry, resolution = _resolved_registry()
+    forged = replace(getattr(resolution, field), content_hash=HASH_B)
+
+    with pytest.raises(BenchmarkReferenceError, match="not uniquely bound to registry"):
+        registry.ui_projection(replace(resolution, **{field: forged}))
+
+
+def test_ui_projection_rejects_foreign_reference_digest() -> None:
+    registry, resolution = _resolved_registry()
+    foreign = replace(resolution.references[0], methodology="foreign methodology")
+
+    with pytest.raises(BenchmarkReferenceError, match="selected reference.*not uniquely bound"):
+        registry.ui_projection(replace(resolution, references=(foreign,)))
+
+
+def test_ui_projection_rejects_absent_and_duplicate_available_members() -> None:
+    registry, resolution = _resolved_registry()
+    absent = replace(resolution.benchmark, selected_id="benchmark:absent")
+    with pytest.raises(BenchmarkReferenceError, match="selected benchmark.*not uniquely bound"):
+        registry.ui_projection(replace(resolution, benchmark=absent))
+
+    object.__setattr__(
+        registry,
+        "benchmarks",
+        (registry.benchmarks[0], registry.benchmarks[0]),
+    )
+    with pytest.raises(BenchmarkReferenceError, match="selected benchmark.*not uniquely bound"):
+        registry.ui_projection(resolution)
+
+
 def test_specificity_is_deterministic_and_ties_are_ambiguous() -> None:
     broad = _benchmark()
     specific = _benchmark(
@@ -498,6 +547,30 @@ def _vwce(**updates: object) -> VwceAnchorEvidence:
     }
     value.update(updates)
     return VwceAnchorEvidence(**value)  # type: ignore[arg-type]
+
+
+def test_canonical_hash_rejects_nested_non_string_key_collision_and_cannot_authorize_claims() -> None:
+    registered = _vwce(fees={"1": "same"})
+    unregistered = _vwce(fees={1: "same", "1": "same"})
+    registry = CanonicalBenchmarkRegistry(vwce_anchors=(registered,))
+    resolution = resolve_vwce_anchor(
+        registered,
+        listing_id="listing:xetra",
+        effective_date="2024-02-01",
+        decision_time="2024-02-02T00:00:00Z",
+        currency="EUR",
+        horizon_years=1.0,
+    )
+
+    with pytest.raises(BenchmarkReferenceError, match="canonical mappings require string keys"):
+        unregistered.digest()
+    with pytest.raises(BenchmarkReferenceError, match="canonical mappings require string keys"):
+        project_profile_relative_analysis(
+            {"analysis_status": "available"},
+            resolution,
+            anchor=unregistered,
+            registry=registry,
+        )
 
 
 def test_vwce_listings_resolve_to_one_share_class_and_stale_anchor_blocks_only_relative_claims() -> None:

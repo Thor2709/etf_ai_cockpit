@@ -150,7 +150,9 @@ def _hashes(values: Sequence[str], field: str) -> tuple[str, ...]:
 
 def _canonical(value: object) -> object:
     if isinstance(value, Mapping):
-        return {str(key): _canonical(value[key]) for key in sorted(value, key=str)}
+        if any(not isinstance(key, str) for key in value):
+            raise BenchmarkReferenceError("canonical mappings require string keys")
+        return {key: _canonical(value[key]) for key in sorted(value)}
     if isinstance(value, (list, tuple, set, frozenset)):
         return [_canonical(item) for item in value]
     return value
@@ -683,6 +685,7 @@ class Selection:
     reason: str | None
     specificity: int | None = None
     execution_allowed: Literal[False] = False
+    content_hash: str | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in {"benchmark", "cash", "peer"}:
@@ -691,6 +694,11 @@ class Selection:
             raise BenchmarkReferenceError("selection status is unsupported")
         if self.execution_allowed is not False:
             raise BenchmarkReferenceError("selection cannot grant execution authority")
+        if self.content_hash is not None and (
+            not isinstance(self.content_hash, str)
+            or _SHA256.fullmatch(self.content_hash.lower()) is None
+        ):
+            raise BenchmarkReferenceError("selection content_hash must be SHA-256")
 
     @property
     def display_name(self) -> str:
@@ -1019,22 +1027,29 @@ class CanonicalBenchmarkRegistry:
             if anchor_matches != 1:
                 raise BenchmarkReferenceError("selected VWCE anchor is not uniquely bound to registry")
 
-        def definition(kind: str, selected_id: str | None, version: str | None) -> _HasCanonicalDigest | None:
-            if selected_id is None:
+        def definition(selection: Selection) -> _HasCanonicalDigest | None:
+            if selection.status != "available":
                 return None
             collections: dict[str, Sequence[_HasCanonicalDigest]] = {
                 "benchmark": self.benchmarks,
                 "cash": self.cash_proxies,
                 "peer": self.peer_sets,
             }
-            for item in collections[kind]:
-                item_id = _definition_id(item)
-                if item_id == selected_id and getattr(item, "version", None) == version:
-                    return item
-            return None
+            matches = [
+                item
+                for item in collections[selection.kind]
+                if _definition_id(item) == selection.selected_id
+                and getattr(item, "version", None) == selection.version
+                and item.digest() == selection.content_hash
+            ]
+            if len(matches) != 1:
+                raise BenchmarkReferenceError(
+                    f"selected {selection.kind} is not uniquely bound to registry"
+                )
+            return matches[0]
 
         def item(selection: Selection) -> dict[str, object]:
-            selected = definition(selection.kind, selection.selected_id, selection.version)
+            selected = definition(selection)
             return {
                 "status": selection.status,
                 "display": selection.display_name,
@@ -1044,6 +1059,19 @@ class CanonicalBenchmarkRegistry:
                 "specificity": selection.specificity,
                 "content_hash": None if selected is None else selected.digest(),
             }
+
+        for reference in resolution.references:
+            matches = [
+                item
+                for item in self.reference_portfolios
+                if item.portfolio_id == reference.portfolio_id
+                and item.version == reference.version
+                and item.digest() == reference.digest()
+            ]
+            if len(matches) != 1:
+                raise BenchmarkReferenceError(
+                    "selected reference is not uniquely bound to registry"
+                )
 
         selected_records: dict[str, object] = {
             "benchmark": item(resolution.benchmark)["content_hash"],
@@ -1165,7 +1193,10 @@ class CanonicalBenchmarkRegistry:
         alignment_reason = _alignment_reason(item.currency, currency, item.minimum_horizon_years, item.maximum_horizon_years, horizon, item.start_date, item.end_date, start, end)
         if alignment_reason:
             return _unavailable("benchmark", alignment_reason)
-        return Selection("benchmark", "available", item.benchmark_id, item.version, None, len(item.selector))
+        return Selection(
+            "benchmark", "available", item.benchmark_id, item.version, None,
+            len(item.selector), content_hash=item.digest(),
+        )
 
     def _select_cash(self, instrument: Mapping[str, object], currency: str, horizon: float, start: str, end: str, cutoff: str, version: str | None) -> Selection:
         candidates = [item for item in self.cash_proxies if _selector_matches(item.selector, instrument) and (version is None or item.version == version)]
@@ -1181,7 +1212,10 @@ class CanonicalBenchmarkRegistry:
         alignment_reason = _alignment_reason(item.currency, currency, item.minimum_horizon_years, item.maximum_horizon_years, horizon, item.start_date, item.end_date, start, end)
         if alignment_reason:
             return _unavailable("cash", alignment_reason)
-        return Selection("cash", "available", item.proxy_id, item.version, None, len(item.selector))
+        return Selection(
+            "cash", "available", item.proxy_id, item.version, None,
+            len(item.selector), content_hash=item.digest(),
+        )
 
     def _select_peer(self, instrument: Mapping[str, object], start: str, cutoff: str, version: str | None) -> Selection:
         candidates = [item for item in self.peer_sets if _selector_matches(item.selector, instrument) and (version is None or item.version == version) and _pit(item.effective_at, item.known_at, start, cutoff)]
@@ -1193,7 +1227,10 @@ class CanonicalBenchmarkRegistry:
         item = candidates[0]
         if item.status != "available":
             return _unavailable("peer", "peer_set_stale_or_unavailable")
-        return Selection("peer", "available", item.peer_set_id, item.version, None, len(item.selector))
+        return Selection(
+            "peer", "available", item.peer_set_id, item.version, None,
+            len(item.selector), content_hash=item.digest(),
+        )
 
     def _reference(
         self,
