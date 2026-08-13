@@ -3842,3 +3842,16 @@ and its exact product reviews. This is the required legal prefix for the
 separate aggregate `in_progress -> implemented_initially -> integrated`
 completion; no product, dependency edge, permissions or execution authority
 changes are included.
+
+`MERGED` ISSUE-0051 initial lifecycle PR #684 preserved exact reviewed head
+`342316801ffdb4efc62cdccd160067f2047ef62b` as
+`c546f1dd4b2c01356c7164fafa18bab065efa2d1`. Tier-O run `31651266717`,
+the standalone guard and both independent reviews passed. Ordered writer run
+`31651750441` applied only `planned -> in_progress`, completed full authority
+reconciliation and zero-action readback, and preserved `execution_allowed=false`.
+
+`IN_PROGRESS` clean branch `codex/issue0051-completion-20260813` starts from
+exact main `c546f1dd4b2c01356c7164fafa18bab065efa2d1`. Record only the aggregate
+ISSUE-0051 replay `in_progress -> implemented_initially -> integrated` against
+product PR #682 with two independently legal hops, identical product/review
+evidence, one proposal/receipt and no dependency-edge or product change.
