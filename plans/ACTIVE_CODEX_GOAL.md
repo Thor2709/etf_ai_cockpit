@@ -32,10 +32,22 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   Product commit `5e8a82153a095c70a2dc3457c60e3891092c6226` adds only the canonical
   benchmark, cash, peer, reference-portfolio and VWCE-anchor contract plus its
   focused tests.
-- Focused ISSUE-0112 and adjacent cash, attribution, peer-cohort and optimiser
-  evidence reports 166 passing tests. Ruff, mypy, compile, diff hygiene and
-  programme check mode pass. The final product diff classifies H because it
-  establishes protected financial and point-in-time comparison semantics.
+- PR #688 initial frozen head `76d061ae0452ddfe358829adecd5a91241dbaf03`
+  is rejected and hosted run `31677268341` is cancelled/stale. Both independent
+  reviewers reproduced one consolidated finding set: unbound VWCE fact/currency/
+  horizon cutoffs, mutable caller-owned versioned evidence, hash-only serialized
+  validation, unenforced canonical share-class identity, unaligned reference
+  portfolios and a test-only production contract.
+- Consolidated correction commit `e927fe25914ec33193cfc74c8b3496c4ef7e4b21`
+  closes all findings in the existing contract and portfolio-analysis facade.
+  It seals nested evidence and the registry, semantically reconstructs serialized
+  records, enforces canonical VWCE identity and PIT/currency/horizon/conversion
+  evidence, aligns reference portfolios at effective and knowledge cutoffs, and
+  projects benchmark/profile evidence without changing raw analysis. The complete
+  229-test focused/adjacent set passes; Ruff, contract mypy, compile, diff hygiene
+  and programme check mode pass. Existing application-facade mypy output remains
+  at its unchanged five-error baseline. Freeze one replacement exact head for
+  paired re-review and fresh H-tier Linux, Windows and terminal evidence.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

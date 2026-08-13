@@ -3910,3 +3910,17 @@ be published. Freeze this product-only lane for paired exact-head review and
 fresh H-tier Linux/Windows/terminal evidence. After merge, execute the legal
 one-hop start and aggregate two-hop completion with ordered-writer and generic
 zero-action readback, without changing product code or execution authority.
+
+`CORRECTED` PR #688 initial head
+`76d061ae0452ddfe358829adecd5a91241dbaf03` is rejected by both independent
+reviewers and run `31677268341` is cancelled/stale. Consolidated commit
+`e927fe25914ec33193cfc74c8b3496c4ef7e4b21` binds VWCE fact, effective,
+knowledge, currency, horizon and conversion evidence; seals all nested inputs
+and the registry; reconstructs serialized records semantically; enforces the
+canonical share class; aligns reference portfolios; and connects the contract
+to the portfolio-analysis facade with raw-analysis invariance. All 229 focused
+ISSUE-0112, sandbox, cash, attribution, peer and optimiser tests pass with Ruff,
+contract mypy, compile, programme byte-clean and diff hygiene evidence. Freeze
+one documented replacement head for both independent reviews and fresh H-tier
+Linux/Windows/terminal validation; no canonical lifecycle, provider/broker,
+release or execution authority changed.
