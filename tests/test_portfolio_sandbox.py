@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from etf_cockpit import services
 from etf_cockpit.application.portfolio_sandbox import (
     PORTFOLIO_SANDBOX_ENTITY,
     PORTFOLIO_SANDBOX_RESULT_ENTITY,
@@ -25,12 +26,46 @@ from etf_cockpit.data.local_storage import StorageRevisionConflict, Transactiona
 from etf_cockpit.portfolio.sandbox import holdings_checksum
 from etf_cockpit.portfolio.sandbox import select_holdings_view
 from etf_cockpit.portfolio.benchmark_reference_contract import (
+    BenchmarkDefinition,
     CanonicalBenchmarkRegistry,
     VWCE_CANONICAL_ISIN,
     VWCE_CANONICAL_SHARE_CLASS,
     VwceAnchorEvidence,
     VwceListingObservation,
+    declare_reference_portfolios,
 )
+
+
+def _benchmark_registry(source_hash: str) -> CanonicalBenchmarkRegistry:
+    return CanonicalBenchmarkRegistry(
+        benchmarks=(BenchmarkDefinition(
+            benchmark_id="benchmark:fixture",
+            version="1.0.0",
+            hierarchy="asset",
+            selector={"asset_class": "equity"},
+            currency="AUD",
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=10.0,
+            effective_at="2024-01-01T00:00:00Z",
+            known_at="2024-01-02T00:00:00Z",
+            start_date="2020-01-01",
+            end_date="2030-01-01",
+            methodology="fixture",
+            constituents=("VWCE",),
+            source_hashes=(source_hash,),
+        ),),
+        reference_portfolios=declare_reference_portfolios(
+            ("VWCE",),
+            current_weights={"VWCE": 1.0},
+            effective_at="2024-01-01T00:00:00Z",
+            known_at="2024-01-02T00:00:00Z",
+            currency="AUD",
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=10.0,
+            start_date="2020-01-01",
+            end_date="2030-01-01",
+        ),
+    )
 
 
 def _snapshot(*, revision: str = "universe-1", vwce_weight: float = 0.4):
@@ -226,6 +261,71 @@ def test_default_production_and_persistence_paths_consume_snapshot_reference_evi
     assert loaded.result_payload is not None
     assert saved.result_payload["service_evidence"]["profile_relative"] == loaded.result_payload["service_evidence"]["profile_relative"]
     assert loaded.result_payload["service_evidence"]["profile_relative"]["execution_allowed"] is False
+
+
+def test_build_snapshot_wires_explicit_reference_evidence_into_real_production_path(monkeypatch) -> None:
+    class FakeDataService:
+        def __init__(self, config):
+            self.config = config
+
+        def update_prices(self, **kwargs):
+            return None
+
+        def load_prices(self):
+            return pd.DataFrame()
+
+        def validate_prices(self, prices, *, holdings=None):
+            return SimpleNamespace(as_of_date="2026-07-18")
+
+    monkeypatch.setattr(services, "configure_logging", lambda: None)
+    monkeypatch.setattr(services, "ensure_project_dirs", lambda: None)
+    monkeypatch.setattr(services, "load_config", load_config)
+    monkeypatch.setattr(services, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(services, "DataService", FakeDataService)
+    monkeypatch.setattr(services, "load_holdings", lambda: pd.DataFrame([
+        {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0},
+    ]))
+    monkeypatch.setattr(services, "model_availability", lambda config: {"timesfm": False, "toto": False})
+    monkeypatch.setattr(services, "model_diagnostics", lambda config: [])
+    monkeypatch.setattr(services, "load_latest_forecasts", lambda **kwargs: pd.DataFrame())
+    monkeypatch.setattr(services, "_load_structure_caps", lambda *args: {})
+    monkeypatch.setattr(services, "load_etf_economics_records", lambda: ())
+    monkeypatch.setattr(services, "load_total_return_evidence", lambda path: None)
+    monkeypatch.setattr(services, "load_closure_proxy_policy", lambda: None)
+
+    snapshot = services._build_snapshot(force_sample=True)
+    assert isinstance(snapshot.benchmark_reference_registry, CanonicalBenchmarkRegistry)
+    assert snapshot.benchmark_reference_registry.as_payload()["registry_hash"]
+    assert snapshot.vwce_anchor_evidence is None
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+    assert analysis.service_evidence["benchmark_reference"]["status"] == "unavailable"
+    assert analysis.service_evidence["benchmark_reference"]["registry_hash"]
+    assert analysis.service_evidence["profile_relative"]["profile_relative_status"] == "unavailable"
+    assert analysis.execution_allowed is False
+
+
+def test_changed_registry_source_hash_rejects_persisted_result_on_load(tmp_path) -> None:
+    snapshot = _snapshot()
+    snapshot.benchmark_reference_registry = _benchmark_registry("a" * 64)
+    snapshot.benchmark_reference_instrument = {"asset_class": "equity"}
+    snapshot.benchmark_reference_currency = "AUD"
+    snapshot.benchmark_reference_horizon_years = 1.0
+    snapshot.benchmark_reference_start_date = "2024-02-01"
+    snapshot.benchmark_reference_end_date = "2025-02-01"
+    snapshot.benchmark_reference_decision_time = "2024-02-02T00:00:00Z"
+    snapshot.benchmark_reference_portfolio_ids = ("reference:equal_weight",)
+    save_portfolio_candidate(
+        snapshot,
+        name="Registry stale result",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.6, "LYP6": 0.3},
+        cash_weight=0.1,
+        expected_revision=0,
+        root=tmp_path,
+    )
+    snapshot.benchmark_reference_registry = _benchmark_registry("b" * 64)
+    with pytest.raises(ValueError, match="does not match canonical recomputation"):
+        load_portfolio_candidate(snapshot, "Registry stale result", root=tmp_path)
 
 
 def test_candidate_overlap_excludes_evidence_known_after_snapshot_as_of(monkeypatch) -> None:

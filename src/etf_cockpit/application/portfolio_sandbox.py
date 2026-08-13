@@ -133,6 +133,9 @@ def analyse_portfolio_candidate(
     vwce_conversion_evidence: Mapping[str, object] | None = None,
 ) -> PortfolioAnalysis:
     reference_registry = reference_registry or getattr(snapshot, "benchmark_reference_registry", None)
+    reference_registry_supplied = reference_registry is not None
+    if reference_registry is None:
+        reference_registry = CanonicalBenchmarkRegistry()
     reference_instrument = reference_instrument or getattr(snapshot, "benchmark_reference_instrument", None)
     reference_currency = reference_currency or getattr(snapshot, "benchmark_reference_currency", None)
     reference_horizon_years = reference_horizon_years if reference_horizon_years is not None else getattr(snapshot, "benchmark_reference_horizon_years", None)
@@ -223,7 +226,7 @@ def analyse_portfolio_candidate(
             decision_time=reference_decision_time,
             conversion_evidence=vwce_conversion_evidence,
         )
-        if reference_registry is not None and (
+        if reference_registry_supplied and (
             reference_resolution is None or reference_resolution.blockers
         ):
             anchor_resolution = replace(anchor_resolution, status="unavailable", reason="reference_resolution_incomplete")
@@ -232,6 +235,18 @@ def analyse_portfolio_candidate(
             anchor_resolution,
             anchor=vwce_anchor,
             conversion_evidence=vwce_conversion_evidence,
+        )
+    else:
+        services["profile_relative"] = project_profile_relative_analysis(
+            {"analysis_id": candidate.candidate_id, "analysis_status": "available"},
+            VwceAnchorResolution(
+                "unavailable",
+                None,
+                vwce_listing_id,
+                "vwce_anchor_unavailable",
+                output_currency=reference_currency,
+                horizon_years=reference_horizon_years,
+            ),
         )
     return replace(analysis, snapshot_binding=binding, service_evidence=services)
 
@@ -249,6 +264,21 @@ def _resolve_reference_evidence(
     decision_time: str | None,
     reference_portfolio_ids: tuple[str, ...],
 ) -> tuple[dict[str, object], AnalysisResolution | None]:
+    registry_hash = str(registry.as_payload()["registry_hash"])
+
+    def unavailable(blocker: str) -> tuple[dict[str, object], AnalysisResolution | None]:
+        return (
+            {
+                "contract": "benchmark-reference-contract.v1",
+                "status": "unavailable",
+                "blockers": [blocker],
+                "registry_hash": registry_hash,
+                "provenance": {"registry_hash": registry_hash, "selected_records": {}},
+                "execution_allowed": False,
+            },
+            None,
+        )
+
     if (
         instrument is None
         or currency is None
@@ -257,15 +287,7 @@ def _resolve_reference_evidence(
         or end_date is None
         or decision_time is None
     ):
-        return (
-            {
-                "contract": "benchmark-reference-contract.v1",
-                "status": "unavailable",
-                "blockers": ["reference_resolution_inputs_unavailable"],
-                "execution_allowed": False,
-            },
-            None,
-        )
+        return unavailable("reference_resolution_inputs_unavailable")
     try:
         resolution = registry.resolve_analysis(
             analysis_id=analysis_id,
@@ -280,15 +302,7 @@ def _resolve_reference_evidence(
             reference_portfolio_ids=reference_portfolio_ids,
         )
     except (BenchmarkReferenceError, TypeError, ValueError) as exc:
-        return (
-            {
-                "contract": "benchmark-reference-contract.v1",
-                "status": "unavailable",
-                "blockers": [f"reference_resolution_invalid:{type(exc).__name__}"],
-                "execution_allowed": False,
-            },
-            None,
-        )
+        return unavailable(f"reference_resolution_invalid:{type(exc).__name__}")
     projection = registry.ui_projection(resolution)
     projection["status"] = "available" if not resolution.blockers else "unavailable"
     return projection, resolution

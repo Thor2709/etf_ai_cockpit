@@ -92,6 +92,10 @@ def test_portfolio_sandbox_validation_and_analysis_are_readable() -> None:
     assert "Current versus candidate" in result_text
     assert "EUR +12,000.00" in result_text
     assert "ETF overlap is unavailable" in result_text
+    assert "benchmark_reference: status=unavailable" in result_text
+    assert "profile_relative: status=unavailable" in result_text
+    assert "provenance=registry_hash:" in result_text
+    assert "provenance=anchor_digest:" in result_text
     overlap_text = _text(_by_key(root, "portfolio.etf-overlap"))
     assert "coverage_status=missing" in overlap_text
     assert "No holdings evidence is available" in overlap_text

@@ -820,6 +820,9 @@ class VwceAnchorResolution:
     anchor_digest: str | None = None
     conversion_digest: str | None = None
     execution_allowed: Literal[False] = False
+    effective_date: str | None = None
+    decision_time: str | None = None
+    replay_digest: str | None = None
 
     def __post_init__(self) -> None:
         if self.status not in {"available", "unavailable", "ambiguous"}:
@@ -979,7 +982,24 @@ class CanonicalBenchmarkRegistry:
     def ui_projection(self, resolution: AnalysisResolution) -> dict[str, object]:
         """Return a read-only comparison projection with explicit blockers."""
 
+        registry_hash = str(self.as_payload()["registry_hash"])
+
+        def definition(kind: str, selected_id: str | None, version: str | None) -> _HasCanonicalDigest | None:
+            if selected_id is None:
+                return None
+            collections: dict[str, Sequence[_HasCanonicalDigest]] = {
+                "benchmark": self.benchmarks,
+                "cash": self.cash_proxies,
+                "peer": self.peer_sets,
+            }
+            for item in collections[kind]:
+                item_id = _definition_id(item)
+                if item_id == selected_id and getattr(item, "version", None) == version:
+                    return item
+            return None
+
         def item(selection: Selection) -> dict[str, object]:
+            selected = definition(selection.kind, selection.selected_id, selection.version)
             return {
                 "status": selection.status,
                 "display": selection.display_name,
@@ -987,7 +1007,18 @@ class CanonicalBenchmarkRegistry:
                 "version": selection.version,
                 "reason": selection.reason,
                 "specificity": selection.specificity,
+                "content_hash": None if selected is None else selected.digest(),
             }
+
+        selected_records: dict[str, object] = {
+            "benchmark": item(resolution.benchmark)["content_hash"],
+            "cash": item(resolution.cash)["content_hash"],
+            "peer_set": item(resolution.peer_set)["content_hash"],
+            "references": {
+                f"{reference.portfolio_id}@{reference.version}": reference.digest()
+                for reference in resolution.references
+            },
+        }
 
         return {
             "contract": CONTRACT,
@@ -997,10 +1028,21 @@ class CanonicalBenchmarkRegistry:
             "cash": item(resolution.cash),
             "peer_set": item(resolution.peer_set),
             "references": [
-                {"id": reference.portfolio_id, "version": reference.version, "method": reference.method}
+                {
+                    "id": reference.portfolio_id,
+                    "version": reference.version,
+                    "method": reference.method,
+                    "content_hash": reference.digest(),
+                }
                 for reference in resolution.references
             ],
             "blockers": list(resolution.blockers),
+            "registry_hash": registry_hash,
+            "selected_records": selected_records,
+            "provenance": {
+                "registry_hash": registry_hash,
+                "selected_records": selected_records,
+            },
             "execution_allowed": False,
         }
 
@@ -1317,6 +1359,8 @@ def resolve_vwce_anchor(
             anchor_digest=anchor_digest,
         )
     selected = min(matches, key=lambda item: (item.ticker, item.venue, item.currency, item.source_hash))
+    if selected.source_hash not in anchor.source_hashes:
+        return unavailable("listing_provenance_unavailable")
     conversion_digest: str | None = None
     if selected.currency != currency:
         if not _conversion_is_available(
@@ -1328,6 +1372,15 @@ def resolve_vwce_anchor(
         ):
             return unavailable("currency_alignment_unavailable")
         conversion_digest = _content_hash(conversion_evidence) if isinstance(conversion_evidence, Mapping) else None
+    replay_fields = {
+        "anchor_digest": anchor_digest,
+        "listing_id": listing_id,
+        "effective_date": effective_date,
+        "decision_time": decision_time,
+        "output_currency": currency,
+        "horizon_years": validated_horizon,
+        "conversion_digest": conversion_digest,
+    }
     return VwceAnchorResolution(
         "available",
         canonical_share_class_id,
@@ -1339,6 +1392,10 @@ def resolve_vwce_anchor(
         validated_horizon,
         anchor_digest,
         conversion_digest,
+        False,
+        effective_date,
+        decision_time,
+        _content_hash(replay_fields),
     )
 
 
@@ -1396,8 +1453,11 @@ def project_profile_relative_analysis(
         "observation_known_at": anchor_resolution.observation_known_at,
         "output_currency": anchor_resolution.output_currency,
         "horizon_years": anchor_resolution.horizon_years,
+        "effective_date": anchor_resolution.effective_date,
+        "knowledge_cutoff": anchor_resolution.decision_time,
         "anchor_digest": anchor_resolution.anchor_digest,
         "conversion_digest": anchor_resolution.conversion_digest,
+        "replay_digest": anchor_resolution.replay_digest,
         "execution_allowed": False,
     }
     anchor_projection["resolution_digest"] = _content_hash(anchor_projection)
@@ -1448,13 +1508,46 @@ def _complete_available_anchor_resolution(
     if effective > known or horizon is None or horizon <= 0:
         return False
     if resolution.conversion_digest is None:
-        return conversion_evidence is None
-    return (
+        if conversion_evidence is not None:
+            return False
+    elif not (
         isinstance(resolution.conversion_digest, str)
         and _SHA256.fullmatch(resolution.conversion_digest.lower()) is not None
         and isinstance(conversion_evidence, Mapping)
         and resolution.conversion_digest == _content_hash(conversion_evidence)
-    )
+    ):
+        return False
+    if (
+        not isinstance(resolution.effective_date, str)
+        or not isinstance(resolution.decision_time, str)
+        or not isinstance(resolution.replay_digest, str)
+        or _SHA256.fullmatch(resolution.replay_digest.lower()) is None
+    ):
+        return False
+    replay_fields = {
+        "anchor_digest": resolution.anchor_digest,
+        "listing_id": resolution.listing_id,
+        "effective_date": resolution.effective_date,
+        "decision_time": resolution.decision_time,
+        "output_currency": resolution.output_currency,
+        "horizon_years": horizon,
+        "conversion_digest": resolution.conversion_digest,
+    }
+    if resolution.replay_digest != _content_hash(replay_fields):
+        return False
+    try:
+        replayed = resolve_vwce_anchor(
+            anchor,
+            listing_id=resolution.listing_id,
+            effective_date=resolution.effective_date,
+            decision_time=resolution.decision_time,
+            currency=resolution.output_currency,
+            horizon_years=horizon,
+            conversion_evidence=conversion_evidence,
+        )
+    except (BenchmarkReferenceError, TypeError, ValueError):
+        return False
+    return replayed == resolution
 
 
 __all__ = [

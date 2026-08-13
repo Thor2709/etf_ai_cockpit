@@ -498,6 +498,46 @@ def _analysis_view(analysis: PortfolioAnalysis) -> ft.Control:
             for row in analysis.allocations
         ],
     )
+    benchmark = analysis.service_evidence.get("benchmark_reference")
+    profile = analysis.service_evidence.get("profile_relative")
+    benchmark = benchmark if isinstance(benchmark, dict) else {}
+    profile = profile if isinstance(profile, dict) else {}
+    benchmark_blockers = ", ".join(str(item) for item in benchmark.get("blockers", ())) or "none"
+    profile_blockers = ", ".join(str(item) for item in profile.get("blockers", ())) or "none"
+    benchmark_provenance = benchmark.get("provenance", {})
+    benchmark_registry_hash = benchmark.get("registry_hash")
+    if isinstance(benchmark_provenance, dict):
+        benchmark_registry_hash = benchmark_provenance.get("registry_hash", benchmark_registry_hash)
+    anchor_resolution = profile.get("anchor_resolution", {})
+    anchor_resolution = anchor_resolution if isinstance(anchor_resolution, dict) else {}
+    reference_evidence = panel(
+        ft.Column(
+            [
+                section_header(
+                    "Benchmark and profile reference evidence",
+                    "Canonical status, blockers and provenance remain visible; unavailable evidence never becomes an implicit comparison.",
+                ),
+                ft.Text(
+                    "benchmark_reference: "
+                    f"status={benchmark.get('status', 'unavailable')} | blockers={benchmark_blockers} | "
+                    f"provenance=registry_hash:{benchmark_registry_hash or 'unavailable'}",
+                    color=theme.MUTED,
+                    selectable=True,
+                    size=11,
+                ),
+                ft.Text(
+                    "profile_relative: "
+                    f"status={profile.get('profile_relative_status', profile.get('status', 'unavailable'))} | blockers={profile_blockers} | "
+                    f"provenance=anchor_digest:{anchor_resolution.get('anchor_digest') or 'unavailable'} "
+                    f"conversion_digest:{anchor_resolution.get('conversion_digest') or 'unavailable'} "
+                    f"resolution_digest:{anchor_resolution.get('resolution_digest') or 'unavailable'}",
+                    color=theme.MUTED,
+                    selectable=True,
+                    size=11,
+                ),
+            ]
+        )
+    )
     return ft.Column(
         [
             panel(
@@ -531,6 +571,7 @@ def _analysis_view(analysis: PortfolioAnalysis) -> ft.Control:
             overlap_evidence_panel(analysis.overlap, key="portfolio.etf-overlap"),
             _holding_evidence_view(analysis),
             _constraint_evidence_view(analysis),
+            reference_evidence,
             panel(
                 ft.Column(
                     [

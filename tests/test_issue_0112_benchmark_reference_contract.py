@@ -130,6 +130,28 @@ def test_mapping_is_shared_by_attribution_and_validation_and_exposes_read_only_u
     assert projection["execution_allowed"] is False
 
 
+def test_ui_projection_binds_selected_records_and_full_registry_to_content_digests() -> None:
+    first = _registry()
+    second = _registry(benchmark=_benchmark(source_hashes=(HASH_B,)))
+    arguments = {
+        "analysis_id": "digest-analysis",
+        "purpose": "comparison",
+        "instrument_id": "ETF-1",
+        "instrument": INSTRUMENT,
+        "currency": "AUD",
+        "horizon_years": 1.0,
+        "start_date": "2024-02-01",
+        "end_date": "2025-02-01",
+        "decision_time": "2024-02-02T00:00:00Z",
+        "reference_portfolio_ids": ("reference:equal_weight",),
+    }
+    first_projection = first.ui_projection(first.resolve_analysis(**arguments))
+    second_projection = second.ui_projection(second.resolve_analysis(**arguments))
+    assert first_projection["registry_hash"] != second_projection["registry_hash"]
+    assert first_projection["benchmark"]["content_hash"] != second_projection["benchmark"]["content_hash"]
+    assert first_projection["provenance"]["registry_hash"] == first_projection["registry_hash"]
+
+
 def test_specificity_is_deterministic_and_ties_are_ambiguous() -> None:
     broad = _benchmark()
     specific = _benchmark(
@@ -535,6 +557,48 @@ def test_vwce_true_latest_tie_is_ambiguous_and_invalid_identity_fails_closed() -
     with pytest.raises(BenchmarkReferenceError, match="duplicate versioned identifiers"):
         duplicate = _vwce()
         CanonicalBenchmarkRegistry(vwce_anchors=(duplicate, duplicate))
+
+
+@pytest.mark.parametrize(
+    "change",
+    (
+        {"listing_id": "listing:forged"},
+        {"horizon_years": 2.0},
+        {"effective_date": "2023-01-01"},
+        {"decision_time": "2023-01-02T00:00:00Z"},
+        {"conversion_digest": HASH_B},
+    ),
+)
+def test_available_profile_resolution_is_replayed_against_bound_evidence(change: dict[str, object]) -> None:
+    anchor = _vwce()
+    resolution = resolve_vwce_anchor(
+        anchor,
+        listing_id="listing:xetra",
+        effective_date="2024-02-01",
+        decision_time="2024-02-02T00:00:00Z",
+        currency="EUR",
+        horizon_years=1.0,
+    )
+    forged = replace(resolution, **change)
+    projection = contract.project_profile_relative_analysis(
+        {"analysis_id": "forged"}, forged, anchor=anchor,
+    )
+    assert projection["profile_relative_claims_allowed"] is False
+    assert projection["profile_relative_status"] == "unavailable"
+
+
+def test_vwce_listing_source_hash_must_belong_to_anchor_provenance() -> None:
+    forged_listing = replace(_vwce().listing_observations[0], source_hash=HASH_B)
+    resolution = resolve_vwce_anchor(
+        _vwce(source_hashes=(HASH_A,), listing_observations=(forged_listing,)),
+        listing_id="listing:xetra",
+        effective_date="2024-02-01",
+        decision_time="2024-02-02T00:00:00Z",
+        currency="EUR",
+        horizon_years=1.0,
+    )
+    assert resolution.status == "unavailable"
+    assert resolution.reason == "listing_provenance_unavailable"
 
 
 def test_vwce_fact_cutoffs_currency_and_horizon_fail_closed_without_conversion() -> None:

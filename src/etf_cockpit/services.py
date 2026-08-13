@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import date
 import json
 from pathlib import Path
@@ -75,6 +75,7 @@ from etf_cockpit.models.forecast_scores import forecast_component_maps, forecast
 from etf_cockpit.models.local_weights import LocalModelStatus
 from etf_cockpit.models.registry import model_availability, model_diagnostics
 from etf_cockpit.portfolio.risk import target_policy_issues
+from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry, VwceAnchorEvidence
 from etf_cockpit.signals.signal_pipeline import generate_signals
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION
 
@@ -230,6 +231,17 @@ class CockpitSnapshot:
     etf_fund_total_return: TotalReturnEvidence | None = None
     etf_benchmark_total_return: TotalReturnEvidence | None = None
     etf_closure_policy: ClosureProxyPolicy | None = None
+    benchmark_reference_registry: CanonicalBenchmarkRegistry = field(default_factory=CanonicalBenchmarkRegistry)
+    benchmark_reference_instrument: Mapping[str, object] | None = None
+    benchmark_reference_currency: str | None = None
+    benchmark_reference_horizon_years: float | None = None
+    benchmark_reference_start_date: str | None = None
+    benchmark_reference_end_date: str | None = None
+    benchmark_reference_decision_time: str | None = None
+    benchmark_reference_portfolio_ids: tuple[str, ...] = ()
+    vwce_anchor_evidence: VwceAnchorEvidence | None = None
+    vwce_listing_id: str | None = None
+    vwce_conversion_evidence: Mapping[str, object] | None = None
 
 
 class DataService:
@@ -1333,6 +1345,17 @@ def _build_snapshot(
         etf_fund_total_return=etf_fund_total_return,
         etf_benchmark_total_return=etf_benchmark_total_return,
         etf_closure_policy=etf_closure_policy,
+        benchmark_reference_registry=CanonicalBenchmarkRegistry(),
+        benchmark_reference_instrument=None,
+        benchmark_reference_currency=None,
+        benchmark_reference_horizon_years=None,
+        benchmark_reference_start_date=None,
+        benchmark_reference_end_date=None,
+        benchmark_reference_decision_time=None,
+        benchmark_reference_portfolio_ids=(),
+        vwce_anchor_evidence=None,
+        vwce_listing_id=None,
+        vwce_conversion_evidence=None,
     )
 
 
