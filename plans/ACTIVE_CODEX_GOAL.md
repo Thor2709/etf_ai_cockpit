@@ -112,6 +112,14 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   resolutions and profile inputs. All 292 affected tests plus Ruff, targeted
   contract mypy, compile, programme freshness and diff hygiene pass. Freeze one
   replacement exact head for paired final review and fresh H-tier evidence.
+- Paired review of `e9bab1eeaae710c056e7dff18bb365395587d6c2`
+  rejected two provenance validations; run `31689397297` is cancelled/stale.
+  Commit `0511bb7e5a7984d1fa24899db13c584e22b90b81` rejects non-string
+  mapping keys before canonical hashing and requires exact unique registry
+  membership for every projected available selection and reference. All 298
+  affected tests plus Ruff, targeted contract mypy, compile, programme freshness
+  and diff hygiene pass. Freeze one replacement head for final paired review and
+  fresh H-tier Linux/Windows/terminal evidence.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

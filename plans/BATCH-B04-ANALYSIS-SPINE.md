@@ -3992,3 +3992,13 @@ anchor membership and strictly rejects malformed hash and execution evidence.
 All 292 affected tests plus Ruff, targeted contract mypy, compile, programme
 freshness and diff hygiene pass. Freeze one replacement exact head for paired
 final review and fresh H-tier Linux/Windows/terminal evidence.
+
+`CORRECTED` head `e9bab1eeaae710c056e7dff18bb365395587d6c2` is rejected
+and run `31689397297` is cancelled/stale. Paired review reproduced a non-string
+mapping-key canonical digest collision and forged/non-member projected records.
+Commit `0511bb7e5a7984d1fa24899db13c584e22b90b81` rejects non-string
+keys recursively and requires each projected available selection/reference to
+match exactly one registry record by canonical identity, version and digest.
+All 298 affected tests plus Ruff, targeted contract mypy, compile, programme
+freshness and diff hygiene pass. Freeze one replacement head for final paired
+review and fresh H-tier Linux/Windows/terminal evidence.
