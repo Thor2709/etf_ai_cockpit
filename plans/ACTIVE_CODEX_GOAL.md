@@ -103,6 +103,15 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   plus Ruff, targeted contract mypy, compile, programme freshness and diff hygiene
   pass. Freeze one replacement exact head for paired final review and fresh H-tier
   Linux/Windows/terminal evidence; no adjacent architecture or authority changed.
+- Paired review of `4aa2ef11f72b33775dd6a7cd031c7473a3dff2c7`
+  rejected four newly reproduced fail-closed boundaries; run `31687764826` is
+  cancelled/stale. Commit `858ea6310369dbcb7a765aac128e11307e7b47b6`
+  selects the newest PIT-authoritative reference portfolio before alignment,
+  requires every profile anchor to be uniquely registry-bound, strictly types
+  listing hashes and rejects nested execution authority in selections,
+  resolutions and profile inputs. All 292 affected tests plus Ruff, targeted
+  contract mypy, compile, programme freshness and diff hygiene pass. Freeze one
+  replacement exact head for paired final review and fresh H-tier evidence.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

@@ -3981,3 +3981,14 @@ tied-source validation and strict input handling. All 286 affected tests plus
 Ruff, targeted contract mypy, compile, programme freshness and diff hygiene pass.
 Freeze one replacement exact head for paired final review and fresh H-tier Linux,
 Windows and terminal evidence; preserve `execution_allowed=false`.
+
+`CORRECTED` head `4aa2ef11f72b33775dd6a7cd031c7473a3dff2c7` is rejected
+and run `31687764826` is cancelled/stale. Paired review reproduced only four
+fail-closed product boundaries: fallback to an older aligned reference version,
+standalone anchors outside the canonical registry, string-like listing hashes
+and nested execution authority. Commit `858ea6310369dbcb7a765aac128e11307e7b47b6`
+selects authoritative references before alignment, requires unique registry
+anchor membership and strictly rejects malformed hash and execution evidence.
+All 292 affected tests plus Ruff, targeted contract mypy, compile, programme
+freshness and diff hygiene pass. Freeze one replacement exact head for paired
+final review and fresh H-tier Linux/Windows/terminal evidence.
