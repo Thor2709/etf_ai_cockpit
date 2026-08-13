@@ -269,6 +269,15 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   Freeze one final exact head, rerun both reviews against it and require fresh
   Linux, Windows, terminal, packaged and parallel-pilot H-tier evidence.
 
+- Replacement head `79fc7445aa2b053baba49fd7b8f7fb36055d8ff9` is rejected:
+  backtest alone still admitted a date-only close before an intraday cutoff, and
+  two committed blank lines failed whole-diff whitespace preflight. Run
+  `31731679751` is cancelled/stale. The surgical correction scopes backtest
+  prices through the shared exact decision-window helper before every calculation,
+  adds the noon-cutoff regression and removes only the two whitespace defects.
+  Focused backtest/attribution tests, the exact hosted changed-test selection and
+  all five packaged workflows pass with static, programme and diff checks clean.
+
 ## Historical ISSUE-0017 product checkpoint
 
 - ISSUE-0016 PR #671 merged exact reviewed head

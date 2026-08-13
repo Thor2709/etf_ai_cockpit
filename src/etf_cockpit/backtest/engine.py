@@ -13,6 +13,7 @@ import pandas as pd
 
 from etf_cockpit.backtest.benchmarks import equal_weights, momentum_weights, target_weights, trend_weights
 from etf_cockpit.backtest.metrics import performance_metrics
+from etf_cockpit.application.benchmark_reference import clip_to_decision_window
 from etf_cockpit.core.constants import TRADING_DAYS_PER_YEAR
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.types import DataQualityReport
@@ -273,6 +274,20 @@ def run_backtest(
     validate_execution_disabled(benchmark_reference or unavailable_reference_projection())
     validate_execution_disabled(reference_identity or {})
     calculation_window = _declared_calculation_window(reference_identity)
+    if calculation_window is not None:
+        if not isinstance(reference_identity, Mapping):
+            raise BacktestDataUnavailableError("invalid_reference_window: calculation window is missing")
+        analysis = reference_identity.get("analysis")
+        if not isinstance(analysis, Mapping):
+            raise BacktestDataUnavailableError("invalid_reference_window: calculation window is missing")
+        prices = clip_to_decision_window(
+            prices,
+            start_date=analysis.get("start_date"),
+            end_date=analysis.get("end_date"),
+            decision_time=analysis.get("decision_time"),
+        )
+        if prices.empty:
+            raise BacktestDataUnavailableError("invalid_reference_window: no prices are available at the decision cutoff")
     pivot_raw = _price_pivot(prices)
     if calculation_window is not None:
         start, end = calculation_window

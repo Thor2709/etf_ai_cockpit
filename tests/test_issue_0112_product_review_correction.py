@@ -14,7 +14,7 @@ from etf_cockpit.application.benchmark_reference import (
     validate_benchmark_reference,
 )
 from etf_cockpit.application.validation import _clip_to_reference_window
-from etf_cockpit.backtest.engine import BacktestDataUnavailableError, _declared_calculation_window
+from etf_cockpit.backtest.engine import BacktestDataUnavailableError, _declared_calculation_window, run_backtest
 from etf_cockpit.features.regime import (
     _average_correlation,
     _candidate_pct_above_sma200,
@@ -39,6 +39,7 @@ from etf_cockpit.services import SignalService
 from etf_cockpit.signals import simple_scores as simple_scores_module
 from etf_cockpit.signals.simple_scores import build_simple_instrument_scores
 from etf_cockpit.core.config import load_config
+from etf_cockpit.data.sample_data import generate_sample_prices
 from etf_cockpit.core.types import ForecastResult
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkReferenceError,
@@ -342,6 +343,26 @@ def test_shared_window_clip_caps_intraday_authority_and_date_only_rows() -> None
         decision_time="2025-01-02T12:00:00Z",
     )
     assert date_only.empty
+
+
+def test_backtest_excludes_date_only_close_before_intraday_decision_cutoff() -> None:
+    config = load_config()
+    end_date = date(2025, 1, 3)
+    prices = generate_sample_prices(config, periods=261, end_date=end_date)
+    start_date = pd.to_datetime(prices["date"]).min().date()
+    identity = {
+        "status": "available",
+        "analysis": {
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "decision_time": "2025-01-03T12:00:00Z",
+        },
+        "execution_allowed": False,
+    }
+
+    report = run_backtest(config, prices, reference_identity=identity)
+
+    assert pd.to_datetime(report.results["end_date"]).max().date() < end_date
 
 
 def test_regime_rejects_nested_forged_benchmark_authority() -> None:

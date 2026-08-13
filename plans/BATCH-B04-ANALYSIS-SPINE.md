@@ -4165,3 +4165,11 @@ corrects only those six defects and adds direct regressions. The prior full-suit
 failures, adversarial ISSUE-0112 set, broad affected tests, changed validation,
 Ruff, targeted mypy, compile, generator freshness and diff hygiene pass. Freeze
 one final head for paired exact review and fresh authoritative H-tier evidence.
+
+`CORRECTED` head `79fc7445aa2b053baba49fd7b8f7fb36055d8ff9` is rejected and
+run `31731679751` is cancelled/stale. Backtest still normalized an exact intraday
+cutoff and admitted that date's close, while two blank CRLF lines failed the
+whole-diff whitespace gate. Scope all backtest prices through the shared exact
+decision-window helper, add the noon-cutoff regression and remove only those
+whitespace defects. Focused and exact changed-test/package evidence plus static,
+programme and diff checks pass; freeze one replacement head for final review/H.
