@@ -40,7 +40,49 @@ REFERENCE_METHODS: tuple[ReferenceMethod, ...] = (
     "no_trade",
 )
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$")
+_SEMVER = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+    r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
+)
+
+
+@dataclass(frozen=True, order=True)
+class _SemVer:
+    major: int
+    minor: int
+    patch: int
+    release: int
+    prerelease: tuple[tuple[int, int | str], ...]
+
+
+def _semver(value: str, field: str) -> _SemVer:
+    match = _SEMVER.fullmatch(value)
+    if match is None:
+        raise BenchmarkReferenceError(f"{field} must be semantic version text")
+    prerelease = match.group(4)
+    identifiers: list[tuple[int, int | str]] = []
+    if prerelease:
+        for identifier in prerelease.split("."):
+            if identifier.isdigit():
+                if len(identifier) > 1 and identifier.startswith("0"):
+                    raise BenchmarkReferenceError(f"{field} must be semantic version text")
+                identifiers.append((0, int(identifier)))
+            else:
+                identifiers.append((1, identifier))
+    return _SemVer(
+        int(match.group(1)),
+        int(match.group(2)),
+        int(match.group(3)),
+        0 if prerelease else 1,
+        tuple(identifiers),
+    )
+
+
+def _version_sort_key(value: str, field: str = "version") -> tuple[_SemVer, str]:
+    """Sort by SemVer precedence, then raw text for build-tie determinism."""
+
+    return _semver(value, field), value
 
 
 class _HasCanonicalDigest(Protocol):
@@ -104,13 +146,6 @@ def _hashes(values: Sequence[str], field: str) -> tuple[str, ...]:
     return result
 
 
-def _semver(value: str, field: str) -> tuple[int, int, int]:
-    match = _SEMVER.fullmatch(value)
-    if match is None:
-        raise BenchmarkReferenceError(f"{field} must be semantic version text")
-    return tuple(int(item) for item in match.groups())  # type: ignore[return-value]
-
-
 def _canonical(value: object) -> object:
     if isinstance(value, Mapping):
         return {str(key): _canonical(value[key]) for key in sorted(value, key=str)}
@@ -171,6 +206,14 @@ def _normalise_ids(values: Sequence[str], field: str) -> tuple[str, ...]:
     return result
 
 
+def _horizon(value: object, field: str, *, allow_none: bool = False) -> float | None:
+    if value is None and allow_none:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        raise BenchmarkReferenceError(f"{field} must be a finite number")
+    return float(value)
+
+
 def _validate_window(
     effective_at: str,
     known_at: str,
@@ -213,7 +256,9 @@ class BenchmarkDefinition:
         object.__setattr__(self, "selector", _selector(self.selector, "benchmark selector"))
         if self.currency != self.currency.upper() or not re.fullmatch(r"[A-Z]{3}", self.currency):
             raise BenchmarkReferenceError("benchmark currency must be an ISO-4217 code")
-        if not 0 <= self.minimum_horizon_years <= self.maximum_horizon_years:
+        minimum_horizon = _horizon(self.minimum_horizon_years, "benchmark minimum_horizon_years")
+        maximum_horizon = _horizon(self.maximum_horizon_years, "benchmark maximum_horizon_years")
+        if minimum_horizon is None or maximum_horizon is None or not 0 <= minimum_horizon <= maximum_horizon:
             raise BenchmarkReferenceError("benchmark horizon bounds are invalid")
         _validate_window(self.effective_at, self.known_at, self.start_date, self.end_date)
         _text(self.methodology, "methodology")
@@ -276,7 +321,9 @@ class CashProxyDefinition:
         object.__setattr__(self, "selector", _selector(self.selector, "cash selector"))
         if self.currency != self.currency.upper() or not re.fullmatch(r"[A-Z]{3}", self.currency):
             raise BenchmarkReferenceError("cash currency must be an ISO-4217 code")
-        if not 0 <= self.minimum_horizon_years <= self.maximum_horizon_years:
+        minimum_horizon = _horizon(self.minimum_horizon_years, "cash minimum_horizon_years")
+        maximum_horizon = _horizon(self.maximum_horizon_years, "cash maximum_horizon_years")
+        if minimum_horizon is None or maximum_horizon is None or not 0 <= minimum_horizon <= maximum_horizon:
             raise BenchmarkReferenceError("cash horizon bounds are invalid")
         _validate_window(self.effective_at, self.known_at, self.start_date, self.end_date)
         _text(self.methodology, "methodology")
@@ -393,9 +440,9 @@ class ReferencePortfolioDefinition:
             if (
                 self.minimum_horizon_years is None
                 or self.maximum_horizon_years is None
-                or not math.isfinite(self.minimum_horizon_years)
-                or not math.isfinite(self.maximum_horizon_years)
-                or not 0 <= self.minimum_horizon_years <= self.maximum_horizon_years
+                or _horizon(self.minimum_horizon_years, "reference minimum_horizon_years") is None
+                or _horizon(self.maximum_horizon_years, "reference maximum_horizon_years") is None
+                or not 0 <= float(self.minimum_horizon_years) <= float(self.maximum_horizon_years)
             ):
                 raise BenchmarkReferenceError("reference portfolio horizon bounds are invalid")
         if self.start_date is not None or self.end_date is not None:
@@ -469,6 +516,8 @@ class VwceListingObservation:
             raise BenchmarkReferenceError("listing effective_at cannot be after known_at")
         if _SHA256.fullmatch(self.source_hash.lower()) is None:
             raise BenchmarkReferenceError("listing source_hash must be SHA-256")
+        if self.status not in {"available", "stale", "unavailable"}:
+            raise BenchmarkReferenceError("listing status is unsupported")
 
 
 @dataclass(frozen=True)
@@ -523,15 +572,22 @@ class VwceAnchorEvidence:
         if not self.listing_observations:
             raise BenchmarkReferenceError("at least one VWCE listing observation is required")
         object.__setattr__(self, "listing_observations", tuple(self.listing_observations))
-        if _timestamp(self.effective_at, "effective_at") > _timestamp(self.known_at, "known_at"):
+        anchor_effective = _timestamp(self.effective_at, "effective_at")
+        anchor_known = _timestamp(self.known_at, "known_at")
+        if anchor_effective > anchor_known:
             raise BenchmarkReferenceError("VWCE effective_at cannot be after known_at")
+        for observation in self.listing_observations:
+            if _timestamp(observation.effective_at, "listing effective_at") < anchor_effective:
+                raise BenchmarkReferenceError("listing effective_at precedes anchor authority")
+            if _timestamp(observation.known_at, "listing known_at") > anchor_known:
+                raise BenchmarkReferenceError("listing known_at exceeds anchor authority")
         if self.minimum_horizon_years is not None or self.maximum_horizon_years is not None:
             if (
                 self.minimum_horizon_years is None
                 or self.maximum_horizon_years is None
-                or not math.isfinite(self.minimum_horizon_years)
-                or not math.isfinite(self.maximum_horizon_years)
-                or not 0 <= self.minimum_horizon_years <= self.maximum_horizon_years
+                or _horizon(self.minimum_horizon_years, "VWCE minimum_horizon_years") is None
+                or _horizon(self.maximum_horizon_years, "VWCE maximum_horizon_years") is None
+                or not 0 <= float(self.minimum_horizon_years) <= float(self.maximum_horizon_years)
             ):
                 raise BenchmarkReferenceError("VWCE horizon bounds are invalid")
         known_date = _timestamp(self.known_at, "known_at").date()
@@ -546,6 +602,9 @@ class VwceAnchorEvidence:
         object.__setattr__(self, "fees", _freeze(self.fees))
         object.__setattr__(self, "tracking", _freeze(self.tracking))
         object.__setattr__(self, "product_risk_indicator", _freeze(self.product_risk_indicator))
+        _assert_no_execution(self.fees)
+        _assert_no_execution(self.tracking)
+        _assert_no_execution(self.product_risk_indicator)
         if self.status not in {"available", "stale", "unavailable"}:
             raise BenchmarkReferenceError("VWCE status is unsupported")
         if self.execution_allowed is not False:
@@ -641,7 +700,8 @@ class AnalysisDeclaration:
             raise BenchmarkReferenceError("analysis purpose is unsupported")
         if not re.fullmatch(r"[A-Z]{3}", self.currency):
             raise BenchmarkReferenceError("analysis currency must be an ISO-4217 code")
-        if self.horizon_years <= 0:
+        horizon = _horizon(self.horizon_years, "analysis horizon_years")
+        if horizon is None or horizon <= 0:
             raise BenchmarkReferenceError("analysis horizon must be positive")
         _validate_window(self.decision_time, self.decision_time, self.start_date, self.end_date)
         if _date(self.start_date, "start_date") >= _date(self.end_date, "end_date"):
@@ -754,6 +814,8 @@ class VwceAnchorResolution:
     observation_known_at: str | None = None
     output_currency: str | None = None
     horizon_years: float | None = None
+    anchor_digest: str | None = None
+    conversion_digest: str | None = None
     execution_allowed: Literal[False] = False
 
 
@@ -782,11 +844,16 @@ class CanonicalBenchmarkRegistry:
         reference_portfolios: Sequence[ReferencePortfolioDefinition] = (),
         vwce_anchors: Sequence[VwceAnchorEvidence] = (),
     ) -> None:
-        self.benchmarks = tuple(sorted(benchmarks, key=lambda item: (item.benchmark_id, _semver(item.version, "version"))))
-        self.cash_proxies = tuple(sorted(cash_proxies, key=lambda item: (item.proxy_id, _semver(item.version, "version"))))
-        self.peer_sets = tuple(sorted(peer_sets, key=lambda item: (item.peer_set_id, _semver(item.version, "version"))))
-        self.reference_portfolios = tuple(sorted(reference_portfolios, key=lambda item: (item.portfolio_id, _semver(item.version, "version"))))
-        self.vwce_anchors = tuple(sorted(vwce_anchors, key=lambda item: (item.canonical_share_class_id, _timestamp(item.known_at, "known_at"))))
+        self.benchmarks = tuple(sorted(benchmarks, key=lambda item: (item.benchmark_id, _version_sort_key(item.version))))
+        self.cash_proxies = tuple(sorted(cash_proxies, key=lambda item: (item.proxy_id, _version_sort_key(item.version))))
+        self.peer_sets = tuple(sorted(peer_sets, key=lambda item: (item.peer_set_id, _version_sort_key(item.version))))
+        self.reference_portfolios = tuple(sorted(reference_portfolios, key=lambda item: (item.portfolio_id, _version_sort_key(item.version))))
+        self.vwce_anchors = tuple(sorted(vwce_anchors, key=lambda item: (
+            item.canonical_share_class_id,
+            _timestamp(item.known_at, "known_at"),
+            _timestamp(item.effective_at, "effective_at"),
+            item.digest(),
+        )))
         self._check_unique((item.benchmark_id, item.version) for item in self.benchmarks)
         self._check_unique((item.proxy_id, item.version) for item in self.cash_proxies)
         self._check_unique((item.peer_set_id, item.version) for item in self.peer_sets)
@@ -866,6 +933,7 @@ class CanonicalBenchmarkRegistry:
             cash_version=cash_version,
             peer_version=peer_version,
         )
+        normalized_reference_ids = _normalise_ids(reference_portfolio_ids, "reference_portfolio_ids")
         declaration = AnalysisDeclaration(
             analysis_id=analysis_id,
             purpose=purpose,
@@ -878,11 +946,11 @@ class CanonicalBenchmarkRegistry:
             benchmark_id=benchmark.selected_id or f"unavailable:{benchmark.kind}",
             cash_proxy_id=cash.selected_id or f"unavailable:{cash.kind}",
             peer_set_id=peer.selected_id,
-            reference_portfolio_ids=tuple(reference_portfolio_ids),
+            reference_portfolio_ids=normalized_reference_ids,
         )
         references: list[ReferencePortfolioDefinition] = []
         reference_blockers: set[str] = set()
-        for reference_id in reference_portfolio_ids:
+        for reference_id in normalized_reference_ids:
             try:
                 references.append(
                     self._reference(
@@ -1068,14 +1136,15 @@ class CanonicalBenchmarkRegistry:
         ]
         if not matches:
             raise BenchmarkReferenceError(f"reference portfolio is unavailable: {reference_id}")
-        matches.sort(key=lambda item: (_timestamp(item.effective_at, "effective_at"), _semver(item.version, "version")), reverse=True)
+        matches.sort(key=lambda item: (_timestamp(item.effective_at, "effective_at"), _version_sort_key(item.version)), reverse=True)
         return matches[0]
 
 
 def _validate_period(currency: str, horizon: float, start: str, end: str, cutoff: str) -> None:
     if not re.fullmatch(r"[A-Z]{3}", currency) or currency != currency.upper():
         raise BenchmarkReferenceError("analysis currency must be an ISO-4217 code")
-    if horizon <= 0:
+    validated_horizon = _horizon(horizon, "analysis horizon_years")
+    if validated_horizon is None or validated_horizon <= 0:
         raise BenchmarkReferenceError("analysis horizon must be positive")
     _date(start, "start_date")
     _date(end, "end_date")
@@ -1106,7 +1175,7 @@ def _best_by_id(candidates: Sequence[_SelectableT]) -> list[_SelectableT]:
     ids = {_definition_id(item) for item in candidates}
     if len(ids) > 1:
         return list(candidates)
-    candidates = sorted(candidates, key=lambda item: (_timestamp(item.effective_at, "effective_at"), _semver(item.version, "version")), reverse=True)
+    candidates = sorted(candidates, key=lambda item: (_timestamp(item.effective_at, "effective_at"), _version_sort_key(item.version)), reverse=True)
     return [candidates[0]]
 
 
@@ -1176,17 +1245,33 @@ def resolve_vwce_anchor(
 ) -> VwceAnchorResolution:
     """Resolve one listing to the canonical VWCE share class at two cutoffs."""
 
+    anchor_digest = anchor.digest()
+    canonical_share_class_id = anchor.canonical_share_class_id
+
+    def unavailable(reason: str) -> VwceAnchorResolution:
+        return VwceAnchorResolution(
+            "unavailable",
+            canonical_share_class_id,
+            listing_id,
+            reason,
+            anchor_digest=anchor_digest,
+        )
+
     effective_cutoff = _date(effective_date, "effective_date")
     cutoff = _timestamp(decision_time, "decision_time")
     if currency is None or not re.fullmatch(r"[A-Z]{3}", currency) or currency != currency.upper():
-        return VwceAnchorResolution("unavailable", None, None, "currency_alignment_unavailable")
-    if horizon_years is None or isinstance(horizon_years, bool) or not math.isfinite(horizon_years) or horizon_years <= 0:
-        return VwceAnchorResolution("unavailable", None, None, "horizon_alignment_unavailable")
+        return unavailable("currency_alignment_unavailable")
+    try:
+        validated_horizon = _horizon(horizon_years, "VWCE horizon_years")
+    except BenchmarkReferenceError:
+        return unavailable("horizon_alignment_unavailable")
+    if validated_horizon is None or validated_horizon <= 0:
+        return unavailable("horizon_alignment_unavailable")
     if anchor.status != "available" or _timestamp(anchor.known_at, "known_at") > cutoff:
-        return VwceAnchorResolution("unavailable", None, None, "anchor_stale_or_unavailable")
+        return unavailable("anchor_stale_or_unavailable")
     effective_cutoff_time = datetime.combine(effective_cutoff, datetime.min.time(), tzinfo=timezone.utc)
     if _timestamp(anchor.effective_at, "effective_at") > effective_cutoff_time:
-        return VwceAnchorResolution("unavailable", None, None, "anchor_not_yet_effective")
+        return unavailable("anchor_not_yet_effective")
     fact_dates = (
         anchor.official_facts_as_of,
         anchor.benchmark_as_of,
@@ -1195,9 +1280,9 @@ def resolve_vwce_anchor(
         anchor.risk_indicator_as_of,
     )
     if any(_date(value, "VWCE fact date") > effective_cutoff or datetime.combine(_date(value, "VWCE fact date"), datetime.min.time(), tzinfo=timezone.utc) > cutoff for value in fact_dates):
-        return VwceAnchorResolution("unavailable", None, None, "vwce_facts_unavailable_at_cutoff")
-    if anchor.minimum_horizon_years is None or anchor.maximum_horizon_years is None or not anchor.minimum_horizon_years <= horizon_years <= anchor.maximum_horizon_years:
-        return VwceAnchorResolution("unavailable", None, None, "horizon_alignment_unavailable")
+        return unavailable("vwce_facts_unavailable_at_cutoff")
+    if anchor.minimum_horizon_years is None or anchor.maximum_horizon_years is None or not anchor.minimum_horizon_years <= validated_horizon <= anchor.maximum_horizon_years:
+        return unavailable("horizon_alignment_unavailable")
     matches = [
         item for item in anchor.listing_observations
         if item.listing_id == listing_id
@@ -1206,32 +1291,43 @@ def resolve_vwce_anchor(
         and _timestamp(item.known_at, "known_at") <= cutoff
     ]
     if not matches:
-        return VwceAnchorResolution("unavailable", None, None, "listing_unavailable_at_cutoff")
+        return unavailable("listing_unavailable_at_cutoff")
     latest_effective = max(_timestamp(item.effective_at, "effective_at") for item in matches)
     matches = [item for item in matches if _timestamp(item.effective_at, "effective_at") == latest_effective]
     latest_known = max(_timestamp(item.known_at, "known_at") for item in matches)
     matches = [item for item in matches if _timestamp(item.known_at, "known_at") == latest_known]
     identities = {(item.ticker, item.venue, item.currency) for item in matches}
     if len(identities) > 1:
-        return VwceAnchorResolution("ambiguous", None, None, "ambiguous_listing_observation")
+        return VwceAnchorResolution(
+            "ambiguous",
+            canonical_share_class_id,
+            listing_id,
+            "ambiguous_listing_observation",
+            anchor_digest=anchor_digest,
+        )
     selected = min(matches, key=lambda item: (item.ticker, item.venue, item.currency, item.source_hash))
-    if selected.currency != currency and not _conversion_is_available(
-        conversion_evidence,
-        from_currency=selected.currency,
-        to_currency=currency,
-        effective_cutoff=effective_cutoff_time,
-        known_cutoff=cutoff,
-    ):
-        return VwceAnchorResolution("unavailable", None, None, "currency_alignment_unavailable")
+    conversion_digest: str | None = None
+    if selected.currency != currency:
+        if not _conversion_is_available(
+            conversion_evidence,
+            from_currency=selected.currency,
+            to_currency=currency,
+            effective_cutoff=effective_cutoff_time,
+            known_cutoff=cutoff,
+        ):
+            return unavailable("currency_alignment_unavailable")
+        conversion_digest = _content_hash(conversion_evidence) if isinstance(conversion_evidence, Mapping) else None
     return VwceAnchorResolution(
         "available",
-        anchor.canonical_share_class_id,
+        canonical_share_class_id,
         listing_id,
         None,
         selected.effective_at,
         selected.known_at,
         currency,
-        horizon_years,
+        validated_horizon,
+        anchor_digest,
+        conversion_digest,
     )
 
 
@@ -1268,12 +1364,27 @@ def project_profile_relative_analysis(
 ) -> dict[str, object]:
     """Block only profile-relative claims when the VWCE anchor is unavailable."""
 
+    anchor_projection = {
+        "status": anchor_resolution.status,
+        "reason": anchor_resolution.reason,
+        "canonical_share_class_id": anchor_resolution.canonical_share_class_id,
+        "listing_id": anchor_resolution.listing_id,
+        "observation_effective_at": anchor_resolution.observation_effective_at,
+        "observation_known_at": anchor_resolution.observation_known_at,
+        "output_currency": anchor_resolution.output_currency,
+        "horizon_years": anchor_resolution.horizon_years,
+        "anchor_digest": anchor_resolution.anchor_digest,
+        "conversion_digest": anchor_resolution.conversion_digest,
+        "execution_allowed": False,
+    }
+    anchor_projection["resolution_digest"] = _content_hash(anchor_projection)
     result = {
         "contract": CONTRACT,
         "raw_analysis": deepcopy(dict(raw_analysis)),
         "profile_relative_status": "available" if anchor_resolution.status == "available" else "unavailable",
         "profile_relative_claims_allowed": anchor_resolution.status == "available",
         "anchor_reason": anchor_resolution.reason,
+        "anchor_resolution": anchor_projection,
         "blockers": [] if anchor_resolution.status == "available" else ["vwce_anchor_unavailable"],
         "execution_allowed": False,
     }

@@ -146,10 +146,43 @@ def test_analysis_facade_applies_vwce_profile_alignment_without_changing_raw_ana
     misaligned = analyse_portfolio_candidate(
         snapshot, candidate, reference_currency="AUD", **arguments,
     )
+    conversion = {
+        "from_currency": "EUR", "to_currency": "AUD",
+        "effective_at": "2024-01-01T00:00:00Z", "known_at": "2024-01-02T00:00:00Z",
+        "source_hash": "a" * 64,
+    }
+    converted = analyse_portfolio_candidate(
+        snapshot,
+        candidate,
+        reference_currency="AUD",
+        reference_registry=CanonicalBenchmarkRegistry(),
+        reference_portfolio_ids=("reference:missing",),
+        vwce_conversion_evidence=conversion,
+        **arguments,
+    )
+    aud_converted = analyse_portfolio_candidate(
+        snapshot,
+        candidate,
+        reference_currency="AUD",
+        vwce_conversion_evidence=conversion,
+        **arguments,
+    )
+    conversion["source_hash"] = "b" * 64
 
     assert aligned.allocations == misaligned.allocations == baseline.allocations
     assert aligned.service_evidence["profile_relative"]["profile_relative_claims_allowed"] is True
     assert misaligned.service_evidence["profile_relative"]["profile_relative_claims_allowed"] is False
+    profile = converted.service_evidence["profile_relative"]
+    assert profile["profile_relative_claims_allowed"] is False
+    assert profile["anchor_reason"] == "reference_resolution_incomplete"
+    assert profile["anchor_resolution"]["status"] == "unavailable"
+    assert profile["anchor_resolution"]["canonical_share_class_id"] == VWCE_CANONICAL_SHARE_CLASS
+    assert profile["anchor_resolution"]["anchor_digest"] == anchor.digest()
+    assert profile["anchor_resolution"]["conversion_digest"] is not None
+    assert profile["anchor_resolution"]["resolution_digest"]
+    assert profile["anchor_resolution"]["execution_allowed"] is False
+    assert aud_converted.service_evidence["profile_relative"]["profile_relative_claims_allowed"] is True
+    assert aud_converted.service_evidence["profile_relative"]["anchor_resolution"]["conversion_digest"] is not None
     assert aligned.execution_allowed is misaligned.execution_allowed is False
 
 

@@ -243,6 +243,83 @@ def test_registry_hash_is_order_independent_and_tamper_evident() -> None:
     assert _benchmark().digest() == _benchmark(constituents=("AAA", "BBB")).digest()
 
 
+def test_semver_precedence_and_build_ties_are_deterministic() -> None:
+    prerelease = _benchmark(version="1.0.0-rc.1")
+    release = _benchmark(version="1.0.0")
+    build_a = _benchmark(version="1.0.1+build.a")
+    build_b = _benchmark(version="1.0.1+build.b")
+    first = CanonicalBenchmarkRegistry(benchmarks=(build_b, release, prerelease, build_a))
+    second = CanonicalBenchmarkRegistry(benchmarks=(prerelease, build_a, build_b, release))
+    assert first.as_payload() == second.as_payload()
+    assert [item.version for item in first.benchmarks] == [
+        "1.0.0-rc.1", "1.0.0", "1.0.1+build.a", "1.0.1+build.b",
+    ]
+
+
+@pytest.mark.parametrize("value", [True, float("nan"), float("inf"), float("-inf")])
+def test_horizon_bounds_reject_boolean_and_non_finite_values_at_contract_boundaries(value: object) -> None:
+    with pytest.raises(BenchmarkReferenceError, match="finite"):
+        _benchmark(minimum_horizon_years=value)
+    with pytest.raises(BenchmarkReferenceError, match="finite"):
+        _cash(maximum_horizon_years=value)
+    with pytest.raises(BenchmarkReferenceError, match="finite"):
+        ReferencePortfolioDefinition(
+            "reference:equal_weight", "1.0.0", "equal_weight", ("AAA",), "fixture",
+            "2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z",
+            currency="AUD", minimum_horizon_years=value, maximum_horizon_years=10.0,
+        )
+    with pytest.raises(BenchmarkReferenceError, match="finite"):
+        contract.AnalysisDeclaration(
+            "analysis", "comparison", "ETF-1", "AUD", value,
+            "2024-01-01", "2024-02-01", "2024-01-02T00:00:00Z",
+            "benchmark:x", "cash:x", None, ("reference:x",),
+        )
+
+
+def test_vwce_listing_status_is_validated_directly_and_after_recomputed_hash() -> None:
+    with pytest.raises(BenchmarkReferenceError, match="listing status"):
+        VwceListingObservation(
+            "listing:xetra", "VWCE", "XETR", "EUR",
+            "2020-01-01T00:00:00Z", "2024-01-02T00:00:00Z", HASH_A, status="bogus",
+        )
+    registry = CanonicalBenchmarkRegistry(vwce_anchors=(_vwce(),))
+    tampered = deepcopy(registry.as_payload())
+    observation = tampered["records"][-1]["payload"]["listing_observations"][0]
+    observation["status"] = "bogus"
+    record = tampered["records"][-1]
+    record["content_hash"] = contract._content_hash(record["payload"])
+    tampered["registry_hash"] = contract._content_hash({key: tampered[key] for key in tampered if key != "registry_hash"})
+    with pytest.raises(BenchmarkReferenceError, match="semantically invalid"):
+        CanonicalBenchmarkRegistry.validate_payload(tampered)
+
+
+def test_vwce_observation_chronology_is_bound_to_anchor_authority() -> None:
+    listing = VwceListingObservation(
+        "listing:xetra", "VWCE", "XETR", "EUR",
+        "2020-01-01T00:00:00Z", "2024-01-03T00:00:00Z", HASH_A,
+    )
+    with pytest.raises(BenchmarkReferenceError, match="exceeds anchor authority"):
+        _vwce(listing_observations=(listing,))
+    prior = replace(listing, effective_at="2019-12-31T00:00:00Z", known_at="2020-01-01T00:00:00Z")
+    with pytest.raises(BenchmarkReferenceError, match="precedes anchor authority"):
+        _vwce(listing_observations=(prior,))
+
+
+def test_vwce_direct_construction_rejects_nested_execution_authority() -> None:
+    with pytest.raises(BenchmarkReferenceError, match="execution authority"):
+        _vwce(fees={"execution_allowed": True})
+
+
+@pytest.mark.parametrize("value", [True, "1", float("nan"), float("inf")])
+def test_vwce_requested_horizon_rejects_boolean_string_and_non_finite_values(value: object) -> None:
+    result = resolve_vwce_anchor(
+        _vwce(), listing_id="listing:xetra", effective_date="2024-02-01",
+        decision_time="2024-02-02T00:00:00Z", currency="EUR", horizon_years=value,
+    )
+    assert result.status == "unavailable"
+    assert result.reason == "horizon_alignment_unavailable"
+
+
 def test_caller_owned_nested_evidence_is_detached_and_sealed() -> None:
     selector = {"asset_class": "equity"}
     weights = {"AAA": 0.7, "BBB": 0.3}

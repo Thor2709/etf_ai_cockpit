@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import sqlite3
 from datetime import datetime
+from types import MappingProxyType
 from typing import Mapping
 
 import pandas as pd
@@ -129,6 +130,7 @@ def analyse_portfolio_candidate(
     reference_portfolio_ids: tuple[str, ...] = (),
     vwce_anchor: VwceAnchorEvidence | None = None,
     vwce_listing_id: str | None = None,
+    vwce_conversion_evidence: Mapping[str, object] | None = None,
 ) -> PortfolioAnalysis:
     holdings = select_holdings_view(getattr(snapshot, "holdings"), holdings_view)
     binding = portfolio_snapshot_binding(
@@ -207,11 +209,12 @@ def analyse_portfolio_candidate(
             horizon_years=reference_horizon_years,
             effective_date=reference_start_date,
             decision_time=reference_decision_time,
+            conversion_evidence=vwce_conversion_evidence,
         )
-        if reference_resolution is not None and reference_resolution.blockers:
-            anchor_resolution = VwceAnchorResolution(
-                "unavailable", None, None, "reference_resolution_incomplete"
-            )
+        if reference_registry is not None and (
+            reference_resolution is None or reference_resolution.blockers
+        ):
+            anchor_resolution = replace(anchor_resolution, status="unavailable", reason="reference_resolution_incomplete")
         services["profile_relative"] = project_profile_relative_analysis(
             {"analysis_id": candidate.candidate_id, "analysis_status": "available"},
             anchor_resolution,
@@ -285,6 +288,7 @@ def _resolve_profile_anchor(
     horizon_years: float | None,
     effective_date: str | None,
     decision_time: str | None,
+    conversion_evidence: Mapping[str, object] | None,
 ) -> VwceAnchorResolution:
     if (
         listing_id is None
@@ -293,7 +297,17 @@ def _resolve_profile_anchor(
         or effective_date is None
         or decision_time is None
     ):
-        return VwceAnchorResolution("unavailable", None, None, "profile_alignment_inputs_unavailable")
+        return replace(
+            VwceAnchorResolution(
+                "unavailable",
+                anchor.canonical_share_class_id,
+                listing_id,
+                "profile_alignment_inputs_unavailable",
+                anchor_digest=anchor.digest(),
+            ),
+            output_currency=currency,
+            horizon_years=horizon_years,
+        )
     try:
         return resolve_vwce_anchor(
             anchor,
@@ -302,9 +316,28 @@ def _resolve_profile_anchor(
             decision_time=decision_time,
             currency=currency,
             horizon_years=horizon_years,
+            conversion_evidence=None if conversion_evidence is None else _freeze_mapping(conversion_evidence),
         )
     except (BenchmarkReferenceError, TypeError, ValueError):
-        return VwceAnchorResolution("unavailable", None, None, "profile_anchor_invalid")
+        return VwceAnchorResolution(
+            "unavailable",
+            anchor.canonical_share_class_id,
+            listing_id,
+            "profile_anchor_invalid",
+            anchor_digest=anchor.digest(),
+        )
+
+
+def _freeze_mapping(value: object) -> object:
+    """Detach conversion evidence before it crosses the resolver boundary."""
+
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_mapping(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_mapping(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return tuple(_freeze_mapping(item) for item in value)
+    return value
 
 
 def save_portfolio_candidate(
