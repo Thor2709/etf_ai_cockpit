@@ -266,6 +266,8 @@ class BenchmarkDefinition:
         object.__setattr__(self, "source_hashes", _hashes(self.source_hashes, "source_hashes"))
         if self.status not in {"available", "stale", "unavailable"}:
             raise BenchmarkReferenceError("benchmark status is unsupported")
+        if type(self.opportunity_anchor) is not bool:
+            raise BenchmarkReferenceError("opportunity_anchor must be a boolean")
         if self.canonical_identity is not None:
             _text(self.canonical_identity, "canonical_identity")
         if self.execution_allowed is not False:
@@ -1065,15 +1067,14 @@ class CanonicalBenchmarkRegistry:
     def _select_benchmark(self, instrument: Mapping[str, object], currency: str, horizon: float, start: str, end: str, cutoff: str, version: str | None) -> Selection:
         candidates = [item for item in self.benchmarks if _selector_matches(item.selector, instrument) and (version is None or item.version == version)]
         candidates = [item for item in candidates if _pit(item.effective_at, item.known_at, start, cutoff)]
-        candidates = [item for item in candidates if item.status == "available"]
         if not candidates:
-            matching = [item for item in self.benchmarks if _selector_matches(item.selector, instrument) and (version is None or item.version == version)]
-            reason = "benchmark_stale_or_unavailable" if any(item.status != "available" for item in matching) else "no_point_in_time_mapping"
-            return _unavailable("benchmark", reason)
+            return _unavailable("benchmark", "no_point_in_time_mapping")
         candidates = _best_by_id(candidates)
         if len(candidates) != 1:
             return Selection("benchmark", "ambiguous", None, None, "ambiguous_mapping", max(len(item.selector) for item in candidates))
         item = candidates[0]
+        if item.status != "available":
+            return _unavailable("benchmark", "benchmark_stale_or_unavailable")
         alignment_reason = _alignment_reason(item.currency, currency, item.minimum_horizon_years, item.maximum_horizon_years, horizon, item.start_date, item.end_date, start, end)
         if alignment_reason:
             return _unavailable("benchmark", alignment_reason)
@@ -1081,28 +1082,30 @@ class CanonicalBenchmarkRegistry:
 
     def _select_cash(self, instrument: Mapping[str, object], currency: str, horizon: float, start: str, end: str, cutoff: str, version: str | None) -> Selection:
         candidates = [item for item in self.cash_proxies if _selector_matches(item.selector, instrument) and (version is None or item.version == version)]
-        candidates = [item for item in candidates if _pit(item.effective_at, item.known_at, start, cutoff) and item.status == "available"]
+        candidates = [item for item in candidates if _pit(item.effective_at, item.known_at, start, cutoff)]
         if not candidates:
-            matching = [item for item in self.cash_proxies if _selector_matches(item.selector, instrument) and (version is None or item.version == version)]
-            reason = "cash_stale_or_unavailable" if any(item.status != "available" for item in matching) else "no_point_in_time_mapping"
-            return _unavailable("cash", reason)
+            return _unavailable("cash", "no_point_in_time_mapping")
         candidates = _best_by_id(candidates)
         if len(candidates) != 1:
             return Selection("cash", "ambiguous", None, None, "ambiguous_mapping", max(len(item.selector) for item in candidates))
         item = candidates[0]
+        if item.status != "available":
+            return _unavailable("cash", "cash_stale_or_unavailable")
         alignment_reason = _alignment_reason(item.currency, currency, item.minimum_horizon_years, item.maximum_horizon_years, horizon, item.start_date, item.end_date, start, end)
         if alignment_reason:
             return _unavailable("cash", alignment_reason)
         return Selection("cash", "available", item.proxy_id, item.version, None, len(item.selector))
 
     def _select_peer(self, instrument: Mapping[str, object], start: str, cutoff: str, version: str | None) -> Selection:
-        candidates = [item for item in self.peer_sets if _selector_matches(item.selector, instrument) and (version is None or item.version == version) and _pit(item.effective_at, item.known_at, start, cutoff) and item.status == "available"]
+        candidates = [item for item in self.peer_sets if _selector_matches(item.selector, instrument) and (version is None or item.version == version) and _pit(item.effective_at, item.known_at, start, cutoff)]
         if not candidates:
             return _unavailable("peer", "peer_set_unavailable")
         candidates = _best_by_id(candidates)
         if len(candidates) != 1:
             return Selection("peer", "ambiguous", None, None, "ambiguous_mapping", max(len(item.selector) for item in candidates))
         item = candidates[0]
+        if item.status != "available":
+            return _unavailable("peer", "peer_set_stale_or_unavailable")
         return Selection("peer", "available", item.peer_set_id, item.version, None, len(item.selector))
 
     def _reference(
@@ -1364,9 +1367,14 @@ def project_profile_relative_analysis(
 ) -> dict[str, object]:
     """Block only profile-relative claims when the VWCE anchor is unavailable."""
 
+    complete_available = _complete_available_anchor_resolution(anchor_resolution)
+    projected_status = "available" if complete_available else "unavailable"
+    projected_reason = anchor_resolution.reason if anchor_resolution.reason else (
+        None if complete_available else "anchor_resolution_incomplete"
+    )
     anchor_projection = {
-        "status": anchor_resolution.status,
-        "reason": anchor_resolution.reason,
+        "status": projected_status,
+        "reason": projected_reason,
         "canonical_share_class_id": anchor_resolution.canonical_share_class_id,
         "listing_id": anchor_resolution.listing_id,
         "observation_effective_at": anchor_resolution.observation_effective_at,
@@ -1381,14 +1389,41 @@ def project_profile_relative_analysis(
     result = {
         "contract": CONTRACT,
         "raw_analysis": deepcopy(dict(raw_analysis)),
-        "profile_relative_status": "available" if anchor_resolution.status == "available" else "unavailable",
-        "profile_relative_claims_allowed": anchor_resolution.status == "available",
-        "anchor_reason": anchor_resolution.reason,
+        "profile_relative_status": projected_status,
+        "profile_relative_claims_allowed": complete_available,
+        "anchor_reason": projected_reason,
         "anchor_resolution": anchor_projection,
-        "blockers": [] if anchor_resolution.status == "available" else ["vwce_anchor_unavailable"],
+        "blockers": [] if complete_available else ["vwce_anchor_unavailable"],
         "execution_allowed": False,
     }
     return result
+
+
+def _complete_available_anchor_resolution(resolution: VwceAnchorResolution) -> bool:
+    if resolution.status != "available" or resolution.reason is not None:
+        return False
+    if (
+        resolution.canonical_share_class_id != VWCE_CANONICAL_SHARE_CLASS
+        or not isinstance(resolution.listing_id, str)
+        or not resolution.listing_id.strip()
+        or not isinstance(resolution.output_currency, str)
+        or re.fullmatch(r"[A-Z]{3}", resolution.output_currency) is None
+        or not isinstance(resolution.anchor_digest, str)
+        or _SHA256.fullmatch(resolution.anchor_digest.lower()) is None
+    ):
+        return False
+    try:
+        effective = _timestamp(resolution.observation_effective_at, "observation_effective_at")
+        known = _timestamp(resolution.observation_known_at, "observation_known_at")
+        horizon = _horizon(resolution.horizon_years, "horizon_years")
+    except BenchmarkReferenceError:
+        return False
+    if effective > known or horizon is None or horizon <= 0:
+        return False
+    return resolution.conversion_digest is None or (
+        isinstance(resolution.conversion_digest, str)
+        and _SHA256.fullmatch(resolution.conversion_digest.lower()) is not None
+    )
 
 
 __all__ = [

@@ -192,6 +192,35 @@ def test_pit_version_replay_rejects_future_unknown_and_stale_evidence() -> None:
     assert stale.reason == "benchmark_stale_or_unavailable"
 
 
+def test_authoritative_stale_version_never_falls_back_to_older_available_definition() -> None:
+    old_benchmark = _benchmark(version="1.0.0", effective_at="2023-01-01T00:00:00Z", known_at="2023-01-02T00:00:00Z")
+    stale_benchmark = _benchmark(version="2.0.0", effective_at="2024-01-01T00:00:00Z", known_at="2024-01-02T00:00:00Z", status="stale")
+    old_cash = _cash(version="1.0.0", effective_at="2023-01-01T00:00:00Z", known_at="2023-01-02T00:00:00Z")
+    stale_cash = _cash(version="2.0.0", effective_at="2024-01-01T00:00:00Z", known_at="2024-01-02T00:00:00Z", status="stale")
+    old_peer = _peer(version="1.0.0", effective_at="2023-01-01T00:00:00Z", known_at="2023-01-02T00:00:00Z")
+    stale_peer = _peer(version="2.0.0", effective_at="2024-01-01T00:00:00Z", known_at="2024-01-02T00:00:00Z", status="stale")
+    registry = CanonicalBenchmarkRegistry(
+        benchmarks=(old_benchmark, stale_benchmark),
+        cash_proxies=(old_cash, stale_cash),
+        peer_sets=(old_peer, stale_peer),
+    )
+    benchmark, cash, peer = registry.map_instrument(
+        INSTRUMENT, currency="AUD", horizon_years=1.0,
+        start_date="2024-02-01", end_date="2025-02-01",
+        decision_time="2024-02-02T00:00:00Z",
+    )
+    assert benchmark.reason == "benchmark_stale_or_unavailable"
+    assert cash.reason == "cash_stale_or_unavailable"
+    assert peer.reason == "peer_set_stale_or_unavailable"
+    assert benchmark.status == cash.status == peer.status == "unavailable"
+
+
+@pytest.mark.parametrize("value", [1, "yes", None])
+def test_opportunity_anchor_requires_a_strict_boolean(value: object) -> None:
+    with pytest.raises(BenchmarkReferenceError, match="opportunity_anchor"):
+        _benchmark(opportunity_anchor=value)
+
+
 def test_reference_portfolio_requires_effective_and_known_cutoffs() -> None:
     future = ReferencePortfolioDefinition(
         "reference:future",
@@ -393,6 +422,16 @@ def test_vwce_listings_resolve_to_one_share_class_and_stale_anchor_blocks_only_r
     assert projection["profile_relative_claims_allowed"] is False
     assert projection["raw_analysis"] == raw
     assert projection["execution_allowed"] is False
+
+
+def test_profile_projection_rejects_incomplete_manual_available_resolution() -> None:
+    projection = project_profile_relative_analysis(
+        {"return": 0.12},
+        contract.VwceAnchorResolution("available", None, None, None),
+    )
+    assert projection["profile_relative_claims_allowed"] is False
+    assert projection["profile_relative_status"] == "unavailable"
+    assert projection["anchor_reason"] == "anchor_resolution_incomplete"
 
 
 def test_vwce_listing_observations_replay_historical_and_latest_versions() -> None:
