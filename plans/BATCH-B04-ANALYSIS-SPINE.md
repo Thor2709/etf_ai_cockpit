@@ -4155,3 +4155,13 @@ these paths. The complete affected suite and exact hosted changed-test command,
 including all five packaged workflows, pass with Ruff, targeted mypy, compile,
 byte-clean generation and diff hygiene. Freeze one replacement head for paired
 review and fresh H-tier Linux, Windows, terminal and parallel-pilot evidence.
+
+`CORRECTED` head `660acbc93444d255341ed337ad3e6cf5fd11894a` is rejected by
+both reviewers and run `31726428231` is cancelled/stale. The consolidated newly
+reproduced set is same-date-window benchmark attribution, candidate breadth PIT
+cutoffs, exact intraday clipping, normal-path official cash evidence, the updated
+BacktestService seam and cache structural-validation ordering. One bounded pass
+corrects only those six defects and adds direct regressions. The prior full-suite
+failures, adversarial ISSUE-0112 set, broad affected tests, changed validation,
+Ruff, targeted mypy, compile, generator freshness and diff hygiene pass. Freeze
+one final head for paired exact review and fresh authoritative H-tier evidence.

@@ -258,6 +258,17 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   programme generation and diff hygiene pass. Freeze one new exact head for both
   final reviews and a fresh H-tier run with Linux, Windows, terminal and pilots.
 
+- Replacement head `660acbc93444d255341ed337ad3e6cf5fd11894a` is rejected by
+  both exact-head reviewers and hosted run `31726428231` is cancelled/stale.
+  The newly demonstrated final set is same-window benchmark attribution,
+  future candidate exclusion, exact intraday cutoff clipping, ordinary official
+  cash evidence wiring, BacktestService call compatibility and cache structural
+  validation ordering. One bounded correction addresses only those six paths;
+  the four reproduced full-suite failures, adversarial ISSUE-0112 tests, broad
+  affected suite and changed validation pass with static/programme hygiene.
+  Freeze one final exact head, rerun both reviews against it and require fresh
+  Linux, Windows, terminal, packaged and parallel-pilot H-tier evidence.
+
 ## Historical ISSUE-0017 product checkpoint
 
 - ISSUE-0016 PR #671 merged exact reviewed head
