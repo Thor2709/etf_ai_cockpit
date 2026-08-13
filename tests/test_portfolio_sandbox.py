@@ -24,6 +24,13 @@ from etf_cockpit.core.config import load_config
 from etf_cockpit.data.local_storage import StorageRevisionConflict, TransactionalStore
 from etf_cockpit.portfolio.sandbox import holdings_checksum
 from etf_cockpit.portfolio.sandbox import select_holdings_view
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    CanonicalBenchmarkRegistry,
+    VWCE_CANONICAL_ISIN,
+    VWCE_CANONICAL_SHARE_CLASS,
+    VwceAnchorEvidence,
+    VwceListingObservation,
+)
 
 
 def _snapshot(*, revision: str = "universe-1", vwce_weight: float = 0.4):
@@ -73,6 +80,77 @@ def test_candidate_analysis_is_deterministic_and_non_executable() -> None:
     assert first.cost.total_order_value_eur == pytest.approx(30_000)
     assert any(row.bucket == "Europe" and row.target_weight == pytest.approx(0.3) for row in first.region_exposure)
     assert any("canonical direct holdings evidence is missing" in warning for warning in first.warnings)
+
+
+def test_analysis_facade_projects_reference_contract_unavailable_without_corrupting_raw_analysis() -> None:
+    snapshot = _snapshot()
+    candidate = _candidate(snapshot)
+    baseline = analyse_portfolio_candidate(snapshot, candidate)
+    projected = analyse_portfolio_candidate(
+        snapshot,
+        candidate,
+        reference_registry=CanonicalBenchmarkRegistry(),
+        reference_instrument={"asset_class": "equity"},
+        reference_currency="AUD",
+        reference_horizon_years=1.0,
+        reference_start_date="2024-01-01",
+        reference_end_date="2025-01-01",
+        reference_decision_time="2024-01-02T00:00:00Z",
+        reference_portfolio_ids=(),
+    )
+    assert projected.allocations == baseline.allocations
+    assert projected.service_evidence["benchmark_reference"]["status"] == "unavailable"
+    assert projected.service_evidence["benchmark_reference"]["execution_allowed"] is False
+    assert projected.execution_allowed is False
+
+
+def test_analysis_facade_applies_vwce_profile_alignment_without_changing_raw_analysis() -> None:
+    snapshot = _snapshot()
+    candidate = _candidate(snapshot)
+    baseline = analyse_portfolio_candidate(snapshot, candidate)
+    listing = VwceListingObservation(
+        "listing:xetra", "VWCE", "XETR", "EUR",
+        "2020-01-01T00:00:00Z", "2024-01-02T00:00:00Z", "a" * 64,
+    )
+    anchor = VwceAnchorEvidence(
+        canonical_isin=VWCE_CANONICAL_ISIN,
+        canonical_share_class_id=VWCE_CANONICAL_SHARE_CLASS,
+        official_facts_as_of="2024-01-01",
+        benchmark_name="FTSE All-World",
+        benchmark_as_of="2024-01-01",
+        fees={"ongoing_charges": "fixture"},
+        fees_as_of="2024-01-01",
+        tracking={"tracking_difference": "fixture"},
+        tracking_as_of="2024-01-01",
+        product_risk_indicator={"version": "priips-2.0", "value": "fixture"},
+        risk_indicator_as_of="2024-01-01",
+        currency="USD",
+        source_hashes=("a" * 64,),
+        listing_observations=(listing,),
+        effective_at="2020-01-01T00:00:00Z",
+        known_at="2024-01-02T00:00:00Z",
+        minimum_horizon_years=0.1,
+        maximum_horizon_years=10.0,
+    )
+    arguments = {
+        "reference_horizon_years": 1.0,
+        "reference_start_date": "2024-02-01",
+        "reference_end_date": "2025-02-01",
+        "reference_decision_time": "2024-02-02T00:00:00Z",
+        "vwce_anchor": anchor,
+        "vwce_listing_id": "listing:xetra",
+    }
+    aligned = analyse_portfolio_candidate(
+        snapshot, candidate, reference_currency="EUR", **arguments,
+    )
+    misaligned = analyse_portfolio_candidate(
+        snapshot, candidate, reference_currency="AUD", **arguments,
+    )
+
+    assert aligned.allocations == misaligned.allocations == baseline.allocations
+    assert aligned.service_evidence["profile_relative"]["profile_relative_claims_allowed"] is True
+    assert misaligned.service_evidence["profile_relative"]["profile_relative_claims_allowed"] is False
+    assert aligned.execution_allowed is misaligned.execution_allowed is False
 
 
 def test_candidate_overlap_excludes_evidence_known_after_snapshot_as_of(monkeypatch) -> None:

@@ -14,10 +14,12 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     ReferencePortfolioDefinition,
     VwceAnchorEvidence,
     VwceListingObservation,
+    VWCE_CANONICAL_SHARE_CLASS,
     declare_reference_portfolios,
     project_profile_relative_analysis,
     resolve_vwce_anchor,
 )
+import etf_cockpit.portfolio.benchmark_reference_contract as contract
 
 
 HASH_A = "a" * 64
@@ -87,6 +89,11 @@ def _registry(*, benchmark: BenchmarkDefinition | None = None, cash: CashProxyDe
         current_weights={"AAA": 0.7, "BBB": 0.3},
         effective_at="2024-01-01T00:00:00Z",
         known_at="2024-01-02T00:00:00Z",
+        currency="AUD",
+        minimum_horizon_years=0.1,
+        maximum_horizon_years=10.0,
+        start_date="2020-01-01",
+        end_date="2030-01-01",
     )
     return CanonicalBenchmarkRegistry(
         benchmarks=(benchmark or _benchmark(),),
@@ -193,7 +200,12 @@ def test_reference_portfolio_requires_effective_and_known_cutoffs() -> None:
         ("AAA", "BBB"),
         "future-effective fixture",
         "2025-01-02T00:00:00Z",
-        "2024-01-01T00:00:00Z",
+        "2025-01-03T00:00:00Z",
+        currency="AUD",
+        minimum_horizon_years=0.1,
+        maximum_horizon_years=10.0,
+        start_date="2020-01-01",
+        end_date="2030-01-01",
     )
     registry = CanonicalBenchmarkRegistry(
         benchmarks=(_benchmark(),),
@@ -231,11 +243,44 @@ def test_registry_hash_is_order_independent_and_tamper_evident() -> None:
     assert _benchmark().digest() == _benchmark(constituents=("AAA", "BBB")).digest()
 
 
+def test_caller_owned_nested_evidence_is_detached_and_sealed() -> None:
+    selector = {"asset_class": "equity"}
+    weights = {"AAA": 0.7, "BBB": 0.3}
+    benchmark = _benchmark(selector=selector)
+    reference = ReferencePortfolioDefinition(
+        "reference:no_trade", "1.0.0", "no_trade", ("AAA", "BBB"), "hold current",
+        "2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z", weights,
+        currency="AUD", minimum_horizon_years=0.1, maximum_horizon_years=10.0,
+        start_date="2020-01-01", end_date="2030-01-01",
+    )
+    selector["asset_class"] = "fixed_income"
+    weights["AAA"] = 0.1
+    assert benchmark.selector["asset_class"] == "equity"
+    assert reference.current_weights["AAA"] == 0.7
+    with pytest.raises(TypeError):
+        benchmark.selector["asset_class"] = "fixed_income"  # type: ignore[index]
+    with pytest.raises(TypeError):
+        reference.current_weights["AAA"] = 0.1  # type: ignore[index]
+
+    nested = {"ongoing_charges": {"value": "fixture"}}
+    evidence = _vwce(fees=nested)
+    nested["ongoing_charges"]["value"] = "tampered"
+    assert evidence.fees["ongoing_charges"]["value"] == "fixture"  # type: ignore[index]
+    observations = [evidence.listing_observations[0]]
+    detached = _vwce(listing_observations=observations)
+    observations.clear()
+    assert len(detached.listing_observations) == 1
+
+    registry = _registry()
+    with pytest.raises(AttributeError, match="immutable"):
+        registry.benchmarks = ()
+
+
 def _vwce(**updates: object) -> VwceAnchorEvidence:
     listing = VwceListingObservation("listing:xetra", "VWCE", "XETR", "EUR", "2020-01-01T00:00:00Z", "2024-01-02T00:00:00Z", HASH_A)
     value: dict[str, object] = {
         "canonical_isin": "IE00BK5BQT80",
-        "canonical_share_class_id": "vwce-share-class",
+        "canonical_share_class_id": VWCE_CANONICAL_SHARE_CLASS,
         "official_facts_as_of": "2024-01-01",
         "benchmark_name": "FTSE All-World",
         "benchmark_as_of": "2024-01-01",
@@ -250,6 +295,8 @@ def _vwce(**updates: object) -> VwceAnchorEvidence:
         "listing_observations": (listing,),
         "effective_at": "2020-01-01T00:00:00Z",
         "known_at": "2024-01-02T00:00:00Z",
+        "minimum_horizon_years": 0.1,
+        "maximum_horizon_years": 10.0,
     }
     value.update(updates)
     return VwceAnchorEvidence(**value)  # type: ignore[arg-type]
@@ -257,13 +304,13 @@ def _vwce(**updates: object) -> VwceAnchorEvidence:
 
 def test_vwce_listings_resolve_to_one_share_class_and_stale_anchor_blocks_only_relative_claims() -> None:
     anchor = _vwce()
-    resolved = resolve_vwce_anchor(anchor, listing_id="listing:xetra", effective_date="2024-02-01", decision_time="2024-02-02T00:00:00Z")
-    assert resolved.canonical_share_class_id == "vwce-share-class"
+    resolved = resolve_vwce_anchor(anchor, listing_id="listing:xetra", effective_date="2024-02-01", decision_time="2024-02-02T00:00:00Z", currency="EUR", horizon_years=1.0)
+    assert resolved.canonical_share_class_id == VWCE_CANONICAL_SHARE_CLASS
     assert resolved.listing_id == "listing:xetra"
     assert anchor.product_risk_indicator["version"] == "priips-2.0"
     assert "product_risk_indicator" not in INSTRUMENT
 
-    blocked = resolve_vwce_anchor(replace(anchor, status="stale"), listing_id="listing:xetra", effective_date="2024-02-01", decision_time="2024-02-02T00:00:00Z")
+    blocked = resolve_vwce_anchor(replace(anchor, status="stale"), listing_id="listing:xetra", effective_date="2024-02-01", decision_time="2024-02-02T00:00:00Z", currency="EUR", horizon_years=1.0)
     raw = {"return": 0.12, "raw_status": "available"}
     projection = project_profile_relative_analysis(raw, blocked)
     assert projection["profile_relative_claims_allowed"] is False
@@ -283,21 +330,31 @@ def test_vwce_listing_observations_replay_historical_and_latest_versions() -> No
         known_at="2023-01-02T00:00:00Z",
         source_hash=HASH_B,
     )
-    anchor = _vwce(
+    historical_anchor = _vwce(
+        official_facts_as_of="2020-01-01",
+        benchmark_as_of="2020-01-01",
+        fees_as_of="2020-01-01",
+        tracking_as_of="2020-01-01",
+        risk_indicator_as_of="2020-01-01",
         known_at="2020-01-02T00:00:00Z",
-        listing_observations=(latest, historical),
+        listing_observations=(historical,),
     )
+    anchor = _vwce(listing_observations=(latest, historical))
     replay = resolve_vwce_anchor(
-        anchor,
+        historical_anchor,
         listing_id="listing:xetra",
         effective_date="2022-01-01",
         decision_time="2022-01-02T00:00:00Z",
+        currency="EUR",
+        horizon_years=1.0,
     )
     current = resolve_vwce_anchor(
         anchor,
         listing_id="listing:xetra",
         effective_date="2024-02-01",
         decision_time="2024-02-02T00:00:00Z",
+        currency="EUR",
+        horizon_years=1.0,
     )
     assert replay.status == current.status == "available"
     assert replay.observation_effective_at == "2020-01-01T00:00:00Z"
@@ -309,7 +366,7 @@ def test_vwce_true_latest_tie_is_ambiguous_and_invalid_identity_fails_closed() -
     listing = VwceListingObservation("listing:xetra", "VWCE", "XETR", "EUR", "2020-01-01T00:00:00Z", "2024-01-02T00:00:00Z", HASH_A)
     conflicting = replace(listing, ticker="VWCE-CONFLICT", source_hash=HASH_B)
     anchor = _vwce(listing_observations=(listing, conflicting))
-    result = resolve_vwce_anchor(anchor, listing_id="listing:xetra", effective_date="2024-02-01", decision_time="2024-02-02T00:00:00Z")
+    result = resolve_vwce_anchor(anchor, listing_id="listing:xetra", effective_date="2024-02-01", decision_time="2024-02-02T00:00:00Z", currency="EUR", horizon_years=1.0)
     assert result.status == "ambiguous"
 
     corroborated = resolve_vwce_anchor(
@@ -317,14 +374,100 @@ def test_vwce_true_latest_tie_is_ambiguous_and_invalid_identity_fails_closed() -
         listing_id="listing:xetra",
         effective_date="2024-02-01",
         decision_time="2024-02-02T00:00:00Z",
+        currency="EUR",
+        horizon_years=1.0,
     )
     assert corroborated.status == "available"
     with pytest.raises(BenchmarkReferenceError, match="canonical ISIN"):
         _vwce(canonical_isin="not-vwce")
+    with pytest.raises(BenchmarkReferenceError, match="canonical share class"):
+        _vwce(canonical_share_class_id="vwce-share-class")
+    with pytest.raises(BenchmarkReferenceError, match="duplicate versioned identifiers"):
+        duplicate = _vwce()
+        CanonicalBenchmarkRegistry(vwce_anchors=(duplicate, duplicate))
+
+
+def test_vwce_fact_cutoffs_currency_and_horizon_fail_closed_without_conversion() -> None:
+    future_fact = resolve_vwce_anchor(
+        _vwce(official_facts_as_of="2024-03-01", known_at="2024-03-02T00:00:00Z"),
+        listing_id="listing:xetra", effective_date="2024-02-01",
+        decision_time="2024-04-02T00:00:00Z", currency="EUR", horizon_years=1.0,
+    )
+    assert future_fact.reason == "vwce_facts_unavailable_at_cutoff"
+    knowledge_cutoff = resolve_vwce_anchor(
+        _vwce(), listing_id="listing:xetra", effective_date="2024-03-01",
+        decision_time="2024-01-01T00:00:00Z", currency="EUR", horizon_years=1.0,
+    )
+    assert knowledge_cutoff.reason == "anchor_stale_or_unavailable"
+    assert resolve_vwce_anchor(
+        _vwce(), listing_id="listing:xetra", effective_date="2024-02-01",
+        decision_time="2024-02-02T00:00:00Z", currency="AUD", horizon_years=1.0,
+    ).reason == "currency_alignment_unavailable"
+    assert resolve_vwce_anchor(
+        _vwce(), listing_id="listing:xetra", effective_date="2024-02-01",
+        decision_time="2024-02-02T00:00:00Z", currency="EUR", horizon_years=20.0,
+    ).reason == "horizon_alignment_unavailable"
+    conversion = resolve_vwce_anchor(
+        _vwce(), listing_id="listing:xetra", effective_date="2024-02-01",
+        decision_time="2024-02-02T00:00:00Z", currency="AUD", horizon_years=1.0,
+        conversion_evidence={
+            "from_currency": "EUR", "to_currency": "AUD",
+            "effective_at": "2024-01-01T00:00:00Z", "known_at": "2024-01-02T00:00:00Z",
+            "source_hash": HASH_A,
+        },
+    )
+    assert conversion.status == "available"
+    regressing_conversion = resolve_vwce_anchor(
+        _vwce(), listing_id="listing:xetra", effective_date="2024-02-01",
+        decision_time="2024-02-02T00:00:00Z", currency="AUD", horizon_years=1.0,
+        conversion_evidence={
+            "from_currency": "EUR", "to_currency": "AUD",
+            "effective_at": "2024-01-03T00:00:00Z", "known_at": "2024-01-02T00:00:00Z",
+            "source_hash": HASH_A,
+        },
+    )
+    assert regressing_conversion.reason == "currency_alignment_unavailable"
+
+
+def test_registry_payload_requires_strict_semantic_reconstruction() -> None:
+    payload = _registry().as_payload()
+    assert CanonicalBenchmarkRegistry.validate_payload(payload) == payload
+
+    arbitrary = deepcopy(payload)
+    arbitrary["unexpected"] = "reject"
+    arbitrary["registry_hash"] = contract._content_hash({key: arbitrary[key] for key in arbitrary if key != "registry_hash"})
+    with pytest.raises(BenchmarkReferenceError, match="envelope"):
+        CanonicalBenchmarkRegistry.validate_payload(arbitrary)
+
+    nested_execution = deepcopy(payload)
+    benchmark_record = nested_execution["records"][0]
+    benchmark_record["payload"]["selector"]["execution_allowed"] = True
+    benchmark_record["content_hash"] = contract._content_hash(benchmark_record["payload"])
+    nested_execution["registry_hash"] = contract._content_hash({key: nested_execution[key] for key in nested_execution if key != "registry_hash"})
+    with pytest.raises(BenchmarkReferenceError, match="execution authority"):
+        CanonicalBenchmarkRegistry.validate_payload(nested_execution)
+
+    malformed = deepcopy(payload)
+    malformed["records"][0]["payload"]["minimum_horizon_years"] = "one"
+    malformed["records"][0]["content_hash"] = contract._content_hash(malformed["records"][0]["payload"])
+    malformed["registry_hash"] = contract._content_hash({key: malformed[key] for key in malformed if key != "registry_hash"})
+    with pytest.raises(BenchmarkReferenceError, match="semantically invalid"):
+        CanonicalBenchmarkRegistry.validate_payload(malformed)
+
+    duplicate = deepcopy(payload)
+    duplicate["records"].append(deepcopy(duplicate["records"][0]))
+    duplicate["registry_hash"] = contract._content_hash({key: duplicate[key] for key in duplicate if key != "registry_hash"})
+    with pytest.raises(BenchmarkReferenceError, match="duplicate"):
+        CanonicalBenchmarkRegistry.validate_payload(duplicate)
 
 
 def test_reference_declarations_include_no_trade_and_require_exact_current_weights() -> None:
-    references = declare_reference_portfolios(("BBB", "AAA"), current_weights={"AAA": 0.7, "BBB": 0.3}, effective_at="2024-01-01T00:00:00Z", known_at="2024-01-02T00:00:00Z")
+    references = declare_reference_portfolios(
+        ("BBB", "AAA"), current_weights={"AAA": 0.7, "BBB": 0.3},
+        effective_at="2024-01-01T00:00:00Z", known_at="2024-01-02T00:00:00Z",
+        currency="AUD", minimum_horizon_years=0.1, maximum_horizon_years=10.0,
+        start_date="2020-01-01", end_date="2030-01-01",
+    )
     assert [item.method for item in references] == ["equal_weight", "maximum_diversification", "no_trade"]
     assert references[-1].current_weights == {"AAA": 0.7, "BBB": 0.3}
     with pytest.raises(BenchmarkReferenceError, match="cover"):
@@ -357,3 +500,37 @@ def test_no_trade_reference_current_weights_must_sum_to_one() -> None:
             "hold current", "2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z",
             {"AAA": 0.4, "BBB": 0.4},
         )
+
+
+def test_reference_selection_requires_currency_horizon_and_date_coverage() -> None:
+    reference = _registry().reference_portfolios[0]
+    registry = CanonicalBenchmarkRegistry(
+        benchmarks=(_benchmark(),), cash_proxies=(_cash(),), peer_sets=(_peer(),),
+        reference_portfolios=(replace(reference, currency="EUR"),),
+    )
+    resolution = registry.resolve_analysis(
+        analysis_id="reference-alignment", purpose="comparison", instrument_id="ETF-1",
+        instrument=INSTRUMENT, currency="AUD", horizon_years=1.0,
+        start_date="2024-02-01", end_date="2025-02-01",
+        decision_time="2024-02-02T00:00:00Z", reference_portfolio_ids=(reference.portfolio_id,),
+    )
+    assert resolution.references == ()
+    assert resolution.blockers == (f"reference:unavailable:{reference.portfolio_id}",)
+
+    late_reference = replace(
+        reference,
+        effective_at="2024-06-01T00:00:00Z",
+        known_at="2024-06-02T00:00:00Z",
+    )
+    late_registry = CanonicalBenchmarkRegistry(
+        benchmarks=(_benchmark(),), cash_proxies=(_cash(),), peer_sets=(_peer(),),
+        reference_portfolios=(late_reference,),
+    )
+    late = late_registry.resolve_analysis(
+        analysis_id="reference-effective-cutoff", purpose="comparison", instrument_id="ETF-1",
+        instrument=INSTRUMENT, currency="AUD", horizon_years=1.0,
+        start_date="2024-02-01", end_date="2025-02-01",
+        decision_time="2025-01-01T00:00:00Z", reference_portfolio_ids=(reference.portfolio_id,),
+    )
+    assert late.references == ()
+    assert late.blockers == (f"reference:unavailable:{reference.portfolio_id}",)

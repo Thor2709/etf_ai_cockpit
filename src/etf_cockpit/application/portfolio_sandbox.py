@@ -31,6 +31,15 @@ from etf_cockpit.portfolio.sandbox import (
     holdings_checksum,
     select_holdings_view,
 )
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    AnalysisResolution,
+    BenchmarkReferenceError,
+    CanonicalBenchmarkRegistry,
+    VwceAnchorEvidence,
+    VwceAnchorResolution,
+    project_profile_relative_analysis,
+    resolve_vwce_anchor,
+)
 from etf_cockpit.application.overlap import build_direct_overlap_view, direct_overlap_payload
 from etf_cockpit.application.portfolio_optimiser import build_portfolio_optimiser
 from etf_cockpit.portfolio.optimiser import OptimiserConstraints
@@ -110,6 +119,16 @@ def analyse_portfolio_candidate(
     portfolio_id: str | None = None,
     snapshot_id: str | None = None,
     holdings_view: str = "combined",
+    reference_registry: CanonicalBenchmarkRegistry | None = None,
+    reference_instrument: Mapping[str, object] | None = None,
+    reference_currency: str | None = None,
+    reference_horizon_years: float | None = None,
+    reference_start_date: str | None = None,
+    reference_end_date: str | None = None,
+    reference_decision_time: str | None = None,
+    reference_portfolio_ids: tuple[str, ...] = (),
+    vwce_anchor: VwceAnchorEvidence | None = None,
+    vwce_listing_id: str | None = None,
 ) -> PortfolioAnalysis:
     holdings = select_holdings_view(getattr(snapshot, "holdings"), holdings_view)
     binding = portfolio_snapshot_binding(
@@ -166,7 +185,126 @@ def analyse_portfolio_candidate(
         )
     services = _service_evidence(snapshot, analysis)
     services["capability_matrix"] = _capability_matrix_evidence(governed_holdings, target_capabilities)
+    reference_resolution: AnalysisResolution | None = None
+    if reference_registry is not None:
+        services["benchmark_reference"], reference_resolution = _resolve_reference_evidence(
+            reference_registry,
+            analysis_id=candidate.candidate_id,
+            instrument_id=candidate.candidate_id,
+            instrument=reference_instrument,
+            currency=reference_currency,
+            horizon_years=reference_horizon_years,
+            start_date=reference_start_date,
+            end_date=reference_end_date,
+            decision_time=reference_decision_time,
+            reference_portfolio_ids=reference_portfolio_ids,
+        )
+    if vwce_anchor is not None:
+        anchor_resolution = _resolve_profile_anchor(
+            vwce_anchor,
+            listing_id=vwce_listing_id,
+            currency=reference_currency,
+            horizon_years=reference_horizon_years,
+            effective_date=reference_start_date,
+            decision_time=reference_decision_time,
+        )
+        if reference_resolution is not None and reference_resolution.blockers:
+            anchor_resolution = VwceAnchorResolution(
+                "unavailable", None, None, "reference_resolution_incomplete"
+            )
+        services["profile_relative"] = project_profile_relative_analysis(
+            {"analysis_id": candidate.candidate_id, "analysis_status": "available"},
+            anchor_resolution,
+        )
     return replace(analysis, snapshot_binding=binding, service_evidence=services)
+
+
+def _resolve_reference_evidence(
+    registry: CanonicalBenchmarkRegistry,
+    *,
+    analysis_id: str,
+    instrument_id: str,
+    instrument: Mapping[str, object] | None,
+    currency: str | None,
+    horizon_years: float | None,
+    start_date: str | None,
+    end_date: str | None,
+    decision_time: str | None,
+    reference_portfolio_ids: tuple[str, ...],
+) -> tuple[dict[str, object], AnalysisResolution | None]:
+    if (
+        instrument is None
+        or currency is None
+        or horizon_years is None
+        or start_date is None
+        or end_date is None
+        or decision_time is None
+    ):
+        return (
+            {
+                "contract": "benchmark-reference-contract.v1",
+                "status": "unavailable",
+                "blockers": ["reference_resolution_inputs_unavailable"],
+                "execution_allowed": False,
+            },
+            None,
+        )
+    try:
+        resolution = registry.resolve_analysis(
+            analysis_id=analysis_id,
+            purpose="comparison",
+            instrument_id=instrument_id,
+            instrument=instrument,
+            currency=currency,
+            horizon_years=horizon_years,
+            start_date=start_date,
+            end_date=end_date,
+            decision_time=decision_time,
+            reference_portfolio_ids=reference_portfolio_ids,
+        )
+    except (BenchmarkReferenceError, TypeError, ValueError) as exc:
+        return (
+            {
+                "contract": "benchmark-reference-contract.v1",
+                "status": "unavailable",
+                "blockers": [f"reference_resolution_invalid:{type(exc).__name__}"],
+                "execution_allowed": False,
+            },
+            None,
+        )
+    projection = registry.ui_projection(resolution)
+    projection["status"] = "available" if not resolution.blockers else "unavailable"
+    return projection, resolution
+
+
+def _resolve_profile_anchor(
+    anchor: VwceAnchorEvidence,
+    *,
+    listing_id: str | None,
+    currency: str | None,
+    horizon_years: float | None,
+    effective_date: str | None,
+    decision_time: str | None,
+) -> VwceAnchorResolution:
+    if (
+        listing_id is None
+        or currency is None
+        or horizon_years is None
+        or effective_date is None
+        or decision_time is None
+    ):
+        return VwceAnchorResolution("unavailable", None, None, "profile_alignment_inputs_unavailable")
+    try:
+        return resolve_vwce_anchor(
+            anchor,
+            listing_id=listing_id,
+            effective_date=effective_date,
+            decision_time=decision_time,
+            currency=currency,
+            horizon_years=horizon_years,
+        )
+    except (BenchmarkReferenceError, TypeError, ValueError):
+        return VwceAnchorResolution("unavailable", None, None, "profile_anchor_invalid")
 
 
 def save_portfolio_candidate(

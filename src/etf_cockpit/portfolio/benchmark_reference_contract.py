@@ -16,6 +16,7 @@ import hashlib
 import json
 import math
 import re
+from types import MappingProxyType
 from typing import Literal, Protocol, TypeVar
 
 
@@ -47,6 +48,8 @@ class _HasCanonicalDigest(Protocol):
     def content_hash(self) -> str: ...
 
     def digest(self) -> str: ...
+
+    def payload(self) -> dict[str, object]: ...
 
 
 class _SelectableDefinition(Protocol):
@@ -116,6 +119,46 @@ def _canonical(value: object) -> object:
     return value
 
 
+def _freeze(value: object) -> object:
+    """Recursively detach and seal caller-owned evidence."""
+
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return tuple(sorted((_freeze(item) for item in value), key=repr))
+    return value
+
+
+def _thaw(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_thaw(item) for item in value]
+    return value
+
+
+def _selector(value: object, field: str) -> Mapping[str, str]:
+    if not isinstance(value, Mapping) or not value:
+        raise BenchmarkReferenceError(f"{field} must contain non-empty exact values")
+    result: dict[str, str] = {}
+    for key, item in value.items():
+        result[_text(key, f"{field} key")] = _text(item, f"{field} value")
+    return MappingProxyType(result)
+
+
+def _assert_no_execution(value: object) -> None:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if key == "execution_allowed" and item is not False:
+                raise BenchmarkReferenceError("serialized evidence cannot grant execution authority")
+            _assert_no_execution(item)
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        for item in value:
+            _assert_no_execution(item)
+
+
 def _content_hash(payload: Mapping[str, object]) -> str:
     encoded = json.dumps(_canonical(payload), sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -167,8 +210,7 @@ class BenchmarkDefinition:
         _semver(self.version, "version")
         if self.hierarchy not in HIERARCHIES:
             raise BenchmarkReferenceError("benchmark hierarchy is unsupported")
-        if not self.selector or any(not _text(k, "selector key") or not _text(v, "selector value") for k, v in self.selector.items()):
-            raise BenchmarkReferenceError("benchmark selector must contain non-empty exact values")
+        object.__setattr__(self, "selector", _selector(self.selector, "benchmark selector"))
         if self.currency != self.currency.upper() or not re.fullmatch(r"[A-Z]{3}", self.currency):
             raise BenchmarkReferenceError("benchmark currency must be an ISO-4217 code")
         if not 0 <= self.minimum_horizon_years <= self.maximum_horizon_years:
@@ -189,7 +231,7 @@ class BenchmarkDefinition:
             "benchmark_id": self.benchmark_id,
             "version": self.version,
             "hierarchy": self.hierarchy,
-            "selector": dict(self.selector),
+            "selector": _thaw(self.selector),
             "currency": self.currency,
             "minimum_horizon_years": self.minimum_horizon_years,
             "maximum_horizon_years": self.maximum_horizon_years,
@@ -231,8 +273,7 @@ class CashProxyDefinition:
     def __post_init__(self) -> None:
         _text(self.proxy_id, "proxy_id")
         _semver(self.version, "version")
-        if not self.selector or any(not _text(k, "selector key") or not _text(v, "selector value") for k, v in self.selector.items()):
-            raise BenchmarkReferenceError("cash selector must contain non-empty exact values")
+        object.__setattr__(self, "selector", _selector(self.selector, "cash selector"))
         if self.currency != self.currency.upper() or not re.fullmatch(r"[A-Z]{3}", self.currency):
             raise BenchmarkReferenceError("cash currency must be an ISO-4217 code")
         if not 0 <= self.minimum_horizon_years <= self.maximum_horizon_years:
@@ -249,7 +290,7 @@ class CashProxyDefinition:
         return {
             "proxy_id": self.proxy_id,
             "version": self.version,
-            "selector": dict(self.selector),
+            "selector": _thaw(self.selector),
             "currency": self.currency,
             "minimum_horizon_years": self.minimum_horizon_years,
             "maximum_horizon_years": self.maximum_horizon_years,
@@ -287,8 +328,7 @@ class PeerSetDefinition:
         _semver(self.version, "version")
         if self.hierarchy not in HIERARCHIES:
             raise BenchmarkReferenceError("peer hierarchy is unsupported")
-        if not self.selector or any(not _text(k, "selector key") or not _text(v, "selector value") for k, v in self.selector.items()):
-            raise BenchmarkReferenceError("peer selector must contain non-empty exact values")
+        object.__setattr__(self, "selector", _selector(self.selector, "peer selector"))
         object.__setattr__(self, "member_instrument_ids", _normalise_ids(self.member_instrument_ids, "member_instrument_ids"))
         if _timestamp(self.effective_at, "effective_at") > _timestamp(self.known_at, "known_at"):
             raise BenchmarkReferenceError("effective_at cannot be after known_at")
@@ -304,7 +344,7 @@ class PeerSetDefinition:
             "peer_set_id": self.peer_set_id,
             "version": self.version,
             "hierarchy": self.hierarchy,
-            "selector": dict(self.selector),
+            "selector": _thaw(self.selector),
             "member_instrument_ids": list(self.member_instrument_ids),
             "effective_at": _timestamp(self.effective_at, "effective_at").isoformat(),
             "known_at": _timestamp(self.known_at, "known_at").isoformat(),
@@ -330,6 +370,11 @@ class ReferencePortfolioDefinition:
     current_weights: Mapping[str, float] | None = None
     content_hash: str = ""
     execution_allowed: Literal[False] = False
+    currency: str | None = None
+    minimum_horizon_years: float | None = None
+    maximum_horizon_years: float | None = None
+    start_date: str | None = None
+    end_date: str | None = None
 
     def __post_init__(self) -> None:
         _text(self.portfolio_id, "portfolio_id")
@@ -338,8 +383,24 @@ class ReferencePortfolioDefinition:
             raise BenchmarkReferenceError("reference portfolio method is unsupported")
         object.__setattr__(self, "constituent_instrument_ids", _normalise_ids(self.constituent_instrument_ids, "constituent_instrument_ids"))
         _text(self.methodology, "methodology")
-        _timestamp(self.effective_at, "effective_at")
-        _timestamp(self.known_at, "known_at")
+        effective_at = _timestamp(self.effective_at, "effective_at")
+        known_at = _timestamp(self.known_at, "known_at")
+        if effective_at > known_at:
+            raise BenchmarkReferenceError("effective_at cannot be after known_at")
+        if self.currency is not None and (self.currency != self.currency.upper() or not re.fullmatch(r"[A-Z]{3}", self.currency)):
+            raise BenchmarkReferenceError("reference portfolio currency must be an ISO-4217 code")
+        if self.minimum_horizon_years is not None or self.maximum_horizon_years is not None:
+            if (
+                self.minimum_horizon_years is None
+                or self.maximum_horizon_years is None
+                or not math.isfinite(self.minimum_horizon_years)
+                or not math.isfinite(self.maximum_horizon_years)
+                or not 0 <= self.minimum_horizon_years <= self.maximum_horizon_years
+            ):
+                raise BenchmarkReferenceError("reference portfolio horizon bounds are invalid")
+        if self.start_date is not None or self.end_date is not None:
+            if self.start_date is None or self.end_date is None or _date(self.start_date, "start_date") > _date(self.end_date, "end_date"):
+                raise BenchmarkReferenceError("reference portfolio date coverage is invalid")
         if self.method == "no_trade" and self.current_weights is None:
             raise BenchmarkReferenceError("no_trade reference requires current weights")
         if self.current_weights is not None:
@@ -361,6 +422,7 @@ class ReferencePortfolioDefinition:
                 abs_tol=1e-9,
             ):
                 raise BenchmarkReferenceError("no_trade current weights must sum to 1.0")
+            object.__setattr__(self, "current_weights", _freeze(self.current_weights))
         if self.execution_allowed is not False:
             raise BenchmarkReferenceError("reference portfolio cannot grant execution authority")
 
@@ -373,7 +435,12 @@ class ReferencePortfolioDefinition:
             "methodology": self.methodology,
             "effective_at": _timestamp(self.effective_at, "effective_at").isoformat(),
             "known_at": _timestamp(self.known_at, "known_at").isoformat(),
-            "current_weights": None if self.current_weights is None else {key: self.current_weights[key] for key in sorted(self.current_weights)},
+            "current_weights": None if self.current_weights is None else _thaw(self.current_weights),
+            "currency": self.currency,
+            "minimum_horizon_years": self.minimum_horizon_years,
+            "maximum_horizon_years": self.maximum_horizon_years,
+            "start_date": self.start_date,
+            "end_date": self.end_date,
             "execution_allowed": False,
         }
 
@@ -422,6 +489,8 @@ class VwceAnchorEvidence:
     listing_observations: tuple[VwceListingObservation, ...]
     effective_at: str
     known_at: str
+    minimum_horizon_years: float | None = None
+    maximum_horizon_years: float | None = None
     status: Literal["available", "stale", "unavailable"] = "available"
     content_hash: str = ""
     execution_allowed: Literal[False] = False
@@ -429,7 +498,8 @@ class VwceAnchorEvidence:
     def __post_init__(self) -> None:
         if self.canonical_isin != VWCE_CANONICAL_ISIN:
             raise BenchmarkReferenceError("VWCE anchor must use the canonical ISIN")
-        _text(self.canonical_share_class_id, "canonical_share_class_id")
+        if self.canonical_share_class_id != VWCE_CANONICAL_SHARE_CLASS:
+            raise BenchmarkReferenceError("VWCE anchor must use the canonical share class")
         for field, value in (
             ("official_facts_as_of", self.official_facts_as_of),
             ("benchmark_as_of", self.benchmark_as_of),
@@ -452,8 +522,30 @@ class VwceAnchorEvidence:
         object.__setattr__(self, "source_hashes", _hashes(self.source_hashes, "source_hashes"))
         if not self.listing_observations:
             raise BenchmarkReferenceError("at least one VWCE listing observation is required")
+        object.__setattr__(self, "listing_observations", tuple(self.listing_observations))
         if _timestamp(self.effective_at, "effective_at") > _timestamp(self.known_at, "known_at"):
             raise BenchmarkReferenceError("VWCE effective_at cannot be after known_at")
+        if self.minimum_horizon_years is not None or self.maximum_horizon_years is not None:
+            if (
+                self.minimum_horizon_years is None
+                or self.maximum_horizon_years is None
+                or not math.isfinite(self.minimum_horizon_years)
+                or not math.isfinite(self.maximum_horizon_years)
+                or not 0 <= self.minimum_horizon_years <= self.maximum_horizon_years
+            ):
+                raise BenchmarkReferenceError("VWCE horizon bounds are invalid")
+        known_date = _timestamp(self.known_at, "known_at").date()
+        if any(_date(value, field) > known_date for field, value in (
+            ("official_facts_as_of", self.official_facts_as_of),
+            ("benchmark_as_of", self.benchmark_as_of),
+            ("fees_as_of", self.fees_as_of),
+            ("tracking_as_of", self.tracking_as_of),
+            ("risk_indicator_as_of", self.risk_indicator_as_of),
+        )):
+            raise BenchmarkReferenceError("VWCE fact date cannot be after known_at")
+        object.__setattr__(self, "fees", _freeze(self.fees))
+        object.__setattr__(self, "tracking", _freeze(self.tracking))
+        object.__setattr__(self, "product_risk_indicator", _freeze(self.product_risk_indicator))
         if self.status not in {"available", "stale", "unavailable"}:
             raise BenchmarkReferenceError("VWCE status is unsupported")
         if self.execution_allowed is not False:
@@ -466,11 +558,11 @@ class VwceAnchorEvidence:
             "official_facts_as_of": self.official_facts_as_of,
             "benchmark_name": self.benchmark_name,
             "benchmark_as_of": self.benchmark_as_of,
-            "fees": dict(self.fees),
+            "fees": _thaw(self.fees),
             "fees_as_of": self.fees_as_of,
-            "tracking": dict(self.tracking),
+            "tracking": _thaw(self.tracking),
             "tracking_as_of": self.tracking_as_of,
-            "product_risk_indicator": dict(self.product_risk_indicator),
+            "product_risk_indicator": _thaw(self.product_risk_indicator),
             "risk_indicator_as_of": self.risk_indicator_as_of,
             "currency": self.currency,
             "source_hashes": list(self.source_hashes),
@@ -501,6 +593,8 @@ class VwceAnchorEvidence:
             ],
             "effective_at": _timestamp(self.effective_at, "effective_at").isoformat(),
             "known_at": _timestamp(self.known_at, "known_at").isoformat(),
+            "minimum_horizon_years": self.minimum_horizon_years,
+            "maximum_horizon_years": self.maximum_horizon_years,
             "status": self.status,
             "execution_allowed": False,
         }
@@ -572,6 +666,84 @@ class AnalysisResolution:
     execution_allowed: Literal[False] = False
 
 
+_CanonicalRecord = (
+    BenchmarkDefinition
+    | CashProxyDefinition
+    | PeerSetDefinition
+    | ReferencePortfolioDefinition
+    | VwceAnchorEvidence
+)
+
+
+def _typed_payload(kind: object, content: dict[str, object]) -> _CanonicalRecord:
+    fields: dict[str, frozenset[str]] = {
+        "benchmark": frozenset({
+            "benchmark_id", "version", "hierarchy", "selector", "currency",
+            "minimum_horizon_years", "maximum_horizon_years", "effective_at", "known_at",
+            "start_date", "end_date", "methodology", "constituents", "source_hashes",
+            "status", "opportunity_anchor", "canonical_identity", "execution_allowed",
+        }),
+        "cash": frozenset({
+            "proxy_id", "version", "selector", "currency", "minimum_horizon_years",
+            "maximum_horizon_years", "effective_at", "known_at", "start_date", "end_date",
+            "methodology", "source_hashes", "status", "execution_allowed",
+        }),
+        "peer": frozenset({
+            "peer_set_id", "version", "hierarchy", "selector", "member_instrument_ids",
+            "effective_at", "known_at", "methodology", "source_hashes", "status",
+            "execution_allowed",
+        }),
+        "reference": frozenset({
+            "portfolio_id", "version", "method", "constituent_instrument_ids", "methodology",
+            "effective_at", "known_at", "current_weights", "currency", "minimum_horizon_years",
+            "maximum_horizon_years", "start_date", "end_date", "execution_allowed",
+        }),
+        "vwce_anchor": frozenset({
+            "canonical_isin", "canonical_share_class_id", "official_facts_as_of", "benchmark_name",
+            "benchmark_as_of", "fees", "fees_as_of", "tracking", "tracking_as_of",
+            "product_risk_indicator", "risk_indicator_as_of", "currency", "source_hashes",
+            "listing_observations", "effective_at", "known_at", "minimum_horizon_years",
+            "maximum_horizon_years", "status", "execution_allowed",
+        }),
+    }
+    if kind not in fields or set(content) != fields[kind]:
+        raise BenchmarkReferenceError("registry record payload fields are invalid")
+    value = dict(content)
+    for field in ("constituents", "source_hashes", "member_instrument_ids", "constituent_instrument_ids"):
+        if field in value:
+            serialized_values = value[field]
+            if not isinstance(serialized_values, list):
+                raise BenchmarkReferenceError(f"{field} must be a serialized list")
+            value[field] = tuple(serialized_values)
+    if "selector" in value and not isinstance(value["selector"], dict):
+        raise BenchmarkReferenceError("selector must be a serialized object")
+    if "current_weights" in value and value["current_weights"] is not None and not isinstance(value["current_weights"], dict):
+        raise BenchmarkReferenceError("current_weights must be a serialized object or null")
+    if kind == "vwce_anchor":
+        observations = value["listing_observations"]
+        if not isinstance(observations, list):
+            raise BenchmarkReferenceError("listing_observations must be a serialized list")
+        typed_observations: list[VwceListingObservation] = []
+        expected = {"listing_id", "ticker", "venue", "currency", "effective_at", "known_at", "source_hash", "status"}
+        for observation in observations:
+            if not isinstance(observation, dict) or set(observation) != expected:
+                raise BenchmarkReferenceError("VWCE listing observation is invalid")
+            _assert_no_execution(observation)
+            typed_observations.append(VwceListingObservation(**observation))
+        value["listing_observations"] = tuple(typed_observations)
+    if not isinstance(kind, str):
+        raise BenchmarkReferenceError("registry record kind is unsupported")
+    if kind == "benchmark":
+        return BenchmarkDefinition(**value)  # type: ignore[arg-type]
+    if kind == "cash":
+        return CashProxyDefinition(**value)  # type: ignore[arg-type]
+    if kind == "peer":
+        return PeerSetDefinition(**value)  # type: ignore[arg-type]
+    if kind == "reference":
+        return ReferencePortfolioDefinition(**value)  # type: ignore[arg-type]
+    return VwceAnchorEvidence(**value)  # type: ignore[arg-type]
+
+
 @dataclass(frozen=True)
 class VwceAnchorResolution:
     status: Literal["available", "unavailable", "ambiguous"]
@@ -580,11 +752,27 @@ class VwceAnchorResolution:
     reason: str | None
     observation_effective_at: str | None = None
     observation_known_at: str | None = None
+    output_currency: str | None = None
+    horizon_years: float | None = None
     execution_allowed: Literal[False] = False
 
 
 class CanonicalBenchmarkRegistry:
     """Immutable in-memory registry with deterministic point-in-time mapping."""
+
+    __slots__ = (
+        "benchmarks",
+        "cash_proxies",
+        "peer_sets",
+        "reference_portfolios",
+        "vwce_anchors",
+        "_sealed",
+    )
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if getattr(self, "_sealed", False):
+            raise AttributeError("canonical benchmark registry is immutable")
+        object.__setattr__(self, name, value)
 
     def __init__(
         self,
@@ -603,15 +791,25 @@ class CanonicalBenchmarkRegistry:
         self._check_unique((item.proxy_id, item.version) for item in self.cash_proxies)
         self._check_unique((item.peer_set_id, item.version) for item in self.peer_sets)
         self._check_unique((item.portfolio_id, item.version) for item in self.reference_portfolios)
+        self._check_unique(
+            (
+                item.canonical_isin,
+                item.canonical_share_class_id,
+                item.effective_at,
+                item.known_at,
+            )
+            for item in self.vwce_anchors
+        )
         self._validate_content_hashes(self.benchmarks)
         self._validate_content_hashes(self.cash_proxies)
         self._validate_content_hashes(self.peer_sets)
         self._validate_content_hashes(self.reference_portfolios)
         self._validate_content_hashes(self.vwce_anchors)
+        object.__setattr__(self, "_sealed", True)
 
     @staticmethod
-    def _check_unique(values: Iterable[tuple[str, str]]) -> None:
-        pairs: tuple[tuple[str, str], ...] = tuple(values)
+    def _check_unique(values: Iterable[tuple[str, ...]]) -> None:
+        pairs = tuple(values)
         if len(pairs) != len(set(pairs)):
             raise BenchmarkReferenceError("registry contains duplicate versioned identifiers")
 
@@ -686,7 +884,16 @@ class CanonicalBenchmarkRegistry:
         reference_blockers: set[str] = set()
         for reference_id in reference_portfolio_ids:
             try:
-                references.append(self._reference(reference_id, decision_time))
+                references.append(
+                    self._reference(
+                        reference_id,
+                        currency=currency,
+                        horizon=horizon_years,
+                        start=start_date,
+                        end=end_date,
+                        cutoff=decision_time,
+                    )
+                )
             except BenchmarkReferenceError:
                 reference_blockers.add(f"reference:unavailable:{reference_id}")
         blockers = tuple(sorted({f"{selection.kind}:{selection.reason}" for selection in (benchmark, cash, peer) if selection.status != "available" and selection.reason} | reference_blockers))
@@ -744,22 +951,47 @@ class CanonicalBenchmarkRegistry:
     def validate_payload(payload: Mapping[str, object]) -> dict[str, object]:
         """Validate a serialized registry envelope without accepting tampering."""
 
-        if not isinstance(payload, Mapping) or payload.get("contract") != CONTRACT or payload.get("schema_version") != SCHEMA_VERSION or payload.get("execution_allowed") is not False:
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != {"contract", "schema_version", "records", "execution_allowed", "registry_hash"}
+            or payload.get("contract") != CONTRACT
+            or payload.get("schema_version") != SCHEMA_VERSION
+            or payload.get("execution_allowed") is not False
+        ):
             raise BenchmarkReferenceError("registry envelope is invalid")
         records = payload.get("records")
         supplied = payload.get("registry_hash")
         unsigned = {key: payload[key] for key in payload if key != "registry_hash"}
         if not isinstance(records, list) or not isinstance(supplied, str) or supplied != _content_hash(unsigned):
             raise BenchmarkReferenceError("registry hash mismatch")
+        typed_records: list[tuple[str, _CanonicalRecord]] = []
         for record in records:
-            if not isinstance(record, Mapping) or set(record) != {"kind", "payload", "content_hash"}:
+            if not isinstance(record, dict) or set(record) != {"kind", "payload", "content_hash"}:
                 raise BenchmarkReferenceError("registry record envelope is invalid")
-            if record.get("kind") not in {"benchmark", "cash", "peer", "reference", "vwce_anchor"}:
+            kind = record.get("kind")
+            if kind not in {"benchmark", "cash", "peer", "reference", "vwce_anchor"}:
                 raise BenchmarkReferenceError("registry record kind is unsupported")
             content = record.get("payload")
             content_hash = record.get("content_hash")
-            if not isinstance(content, Mapping) or not isinstance(content_hash, str) or content_hash != _content_hash(content):
+            if not isinstance(content, dict) or not isinstance(content_hash, str):
                 raise BenchmarkReferenceError("registry record hash mismatch")
+            _assert_no_execution(content)
+            try:
+                typed = _typed_payload(kind, content)
+            except (BenchmarkReferenceError, TypeError, ValueError, KeyError, AttributeError) as exc:
+                raise BenchmarkReferenceError("registry record payload is semantically invalid") from exc
+            if typed.digest() != content_hash or typed.payload() != content:
+                raise BenchmarkReferenceError("registry record payload is not canonical")
+            typed_records.append((kind, typed))
+        reconstructed = CanonicalBenchmarkRegistry(
+            benchmarks=tuple(item for kind, item in typed_records if kind == "benchmark" and isinstance(item, BenchmarkDefinition)),
+            cash_proxies=tuple(item for kind, item in typed_records if kind == "cash" and isinstance(item, CashProxyDefinition)),
+            peer_sets=tuple(item for kind, item in typed_records if kind == "peer" and isinstance(item, PeerSetDefinition)),
+            reference_portfolios=tuple(item for kind, item in typed_records if kind == "reference" and isinstance(item, ReferencePortfolioDefinition)),
+            vwce_anchors=tuple(item for kind, item in typed_records if kind == "vwce_anchor" and isinstance(item, VwceAnchorEvidence)),
+        )
+        if reconstructed.as_payload() != dict(payload):
+            raise BenchmarkReferenceError("registry payload is not canonical")
         return dict(payload)
 
     def _select_benchmark(self, instrument: Mapping[str, object], currency: str, horizon: float, start: str, end: str, cutoff: str, version: str | None) -> Selection:
@@ -805,14 +1037,34 @@ class CanonicalBenchmarkRegistry:
         item = candidates[0]
         return Selection("peer", "available", item.peer_set_id, item.version, None, len(item.selector))
 
-    def _reference(self, reference_id: str, cutoff: str) -> ReferencePortfolioDefinition:
+    def _reference(
+        self,
+        reference_id: str,
+        *,
+        currency: str,
+        horizon: float,
+        start: str,
+        end: str,
+        cutoff: str,
+    ) -> ReferencePortfolioDefinition:
         cutoff_time = _timestamp(cutoff, "decision_time")
+        effective_cutoff = datetime.combine(
+            _date(start, "start_date"), datetime.min.time(), tzinfo=timezone.utc
+        )
         matches = [
             item
             for item in self.reference_portfolios
             if item.portfolio_id == reference_id
-            and _timestamp(item.effective_at, "effective_at") <= cutoff_time
+            and _timestamp(item.effective_at, "effective_at") <= effective_cutoff
             and _timestamp(item.known_at, "known_at") <= cutoff_time
+            and item.currency == currency
+            and item.minimum_horizon_years is not None
+            and item.maximum_horizon_years is not None
+            and item.minimum_horizon_years <= horizon <= item.maximum_horizon_years
+            and item.start_date is not None
+            and item.end_date is not None
+            and _date(item.start_date, "start_date") <= _date(start, "start_date")
+            and _date(item.end_date, "end_date") >= _date(end, "end_date")
         ]
         if not matches:
             raise BenchmarkReferenceError(f"reference portfolio is unavailable: {reference_id}")
@@ -879,6 +1131,11 @@ def declare_reference_portfolios(
     effective_at: str,
     known_at: str,
     version: str = "1.0.0",
+    currency: str | None = None,
+    minimum_horizon_years: float | None = None,
+    maximum_horizon_years: float | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> tuple[ReferencePortfolioDefinition, ...]:
     """Declare the three comparison baselines used by rebalance evaluation."""
 
@@ -897,6 +1154,11 @@ def declare_reference_portfolios(
             effective_at=effective_at,
             known_at=known_at,
             current_weights=dict(current_weights) if method == "no_trade" else None,
+            currency=currency,
+            minimum_horizon_years=minimum_horizon_years,
+            maximum_horizon_years=maximum_horizon_years,
+            start_date=start_date,
+            end_date=end_date,
         )
         for method in REFERENCE_METHODS
     )
@@ -908,20 +1170,39 @@ def resolve_vwce_anchor(
     listing_id: str,
     effective_date: str,
     decision_time: str,
+    currency: str | None = None,
+    horizon_years: float | None = None,
+    conversion_evidence: Mapping[str, object] | None = None,
 ) -> VwceAnchorResolution:
     """Resolve one listing to the canonical VWCE share class at two cutoffs."""
 
-    _date(effective_date, "effective_date")
+    effective_cutoff = _date(effective_date, "effective_date")
     cutoff = _timestamp(decision_time, "decision_time")
+    if currency is None or not re.fullmatch(r"[A-Z]{3}", currency) or currency != currency.upper():
+        return VwceAnchorResolution("unavailable", None, None, "currency_alignment_unavailable")
+    if horizon_years is None or isinstance(horizon_years, bool) or not math.isfinite(horizon_years) or horizon_years <= 0:
+        return VwceAnchorResolution("unavailable", None, None, "horizon_alignment_unavailable")
     if anchor.status != "available" or _timestamp(anchor.known_at, "known_at") > cutoff:
         return VwceAnchorResolution("unavailable", None, None, "anchor_stale_or_unavailable")
-    if _timestamp(anchor.effective_at, "effective_at") > datetime.combine(_date(effective_date, "effective_date"), datetime.min.time(), tzinfo=timezone.utc):
+    effective_cutoff_time = datetime.combine(effective_cutoff, datetime.min.time(), tzinfo=timezone.utc)
+    if _timestamp(anchor.effective_at, "effective_at") > effective_cutoff_time:
         return VwceAnchorResolution("unavailable", None, None, "anchor_not_yet_effective")
+    fact_dates = (
+        anchor.official_facts_as_of,
+        anchor.benchmark_as_of,
+        anchor.fees_as_of,
+        anchor.tracking_as_of,
+        anchor.risk_indicator_as_of,
+    )
+    if any(_date(value, "VWCE fact date") > effective_cutoff or datetime.combine(_date(value, "VWCE fact date"), datetime.min.time(), tzinfo=timezone.utc) > cutoff for value in fact_dates):
+        return VwceAnchorResolution("unavailable", None, None, "vwce_facts_unavailable_at_cutoff")
+    if anchor.minimum_horizon_years is None or anchor.maximum_horizon_years is None or not anchor.minimum_horizon_years <= horizon_years <= anchor.maximum_horizon_years:
+        return VwceAnchorResolution("unavailable", None, None, "horizon_alignment_unavailable")
     matches = [
         item for item in anchor.listing_observations
         if item.listing_id == listing_id
         and item.status == "available"
-        and _timestamp(item.effective_at, "effective_at") <= datetime.combine(_date(effective_date, "effective_date"), datetime.min.time(), tzinfo=timezone.utc)
+        and _timestamp(item.effective_at, "effective_at") <= effective_cutoff_time
         and _timestamp(item.known_at, "known_at") <= cutoff
     ]
     if not matches:
@@ -934,6 +1215,14 @@ def resolve_vwce_anchor(
     if len(identities) > 1:
         return VwceAnchorResolution("ambiguous", None, None, "ambiguous_listing_observation")
     selected = min(matches, key=lambda item: (item.ticker, item.venue, item.currency, item.source_hash))
+    if selected.currency != currency and not _conversion_is_available(
+        conversion_evidence,
+        from_currency=selected.currency,
+        to_currency=currency,
+        effective_cutoff=effective_cutoff_time,
+        known_cutoff=cutoff,
+    ):
+        return VwceAnchorResolution("unavailable", None, None, "currency_alignment_unavailable")
     return VwceAnchorResolution(
         "available",
         anchor.canonical_share_class_id,
@@ -941,7 +1230,36 @@ def resolve_vwce_anchor(
         None,
         selected.effective_at,
         selected.known_at,
+        currency,
+        horizon_years,
     )
+
+
+def _conversion_is_available(
+    evidence: Mapping[str, object] | None,
+    *,
+    from_currency: str,
+    to_currency: str,
+    effective_cutoff: datetime,
+    known_cutoff: datetime,
+) -> bool:
+    if not isinstance(evidence, Mapping) or set(evidence) != {"from_currency", "to_currency", "effective_at", "known_at", "source_hash"}:
+        return False
+    source_hash = evidence.get("source_hash")
+    try:
+        conversion_effective = _timestamp(evidence.get("effective_at"), "conversion effective_at")
+        conversion_known = _timestamp(evidence.get("known_at"), "conversion known_at")
+        return (
+            evidence.get("from_currency") == from_currency
+            and evidence.get("to_currency") == to_currency
+            and isinstance(source_hash, str)
+            and _SHA256.fullmatch(source_hash.lower()) is not None
+            and conversion_effective <= conversion_known
+            and conversion_effective <= effective_cutoff
+            and conversion_known <= known_cutoff
+        )
+    except (BenchmarkReferenceError, TypeError, AttributeError):
+        return False
 
 
 def project_profile_relative_analysis(
