@@ -30,12 +30,12 @@ import etf_cockpit.portfolio.benchmark_reference_contract as contract
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
-REGISTRY_PATH = Path("configs/benchmark_reference_registry.json")
+REGISTRY_PATH = Path("src/etf_cockpit/resources/benchmark_reference_registry.json")
 INSTRUMENT = {"asset_class": "equity", "exposure": "broad", "country_region": "global", "currency": "AUD"}
 
 
 def test_durable_local_registry_fixture_is_canonical_and_semantically_reconstructed() -> None:
-    registry = load_canonical_benchmark_registry(REGISTRY_PATH)
+    registry = load_canonical_benchmark_registry()
     assert registry.as_payload() == CanonicalBenchmarkRegistry.validate_payload(
         json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
     )
@@ -241,6 +241,78 @@ def _resolved_registry() -> tuple[CanonicalBenchmarkRegistry, AnalysisResolution
     return registry, resolution
 
 
+def test_analysis_resolution_rejects_swapped_or_wrong_selection_slots() -> None:
+    _registry_value, resolution = _resolved_registry()
+    with pytest.raises(BenchmarkReferenceError, match="selection slots are invalid"):
+        replace(resolution, benchmark=resolution.cash, cash=resolution.benchmark)
+    with pytest.raises(BenchmarkReferenceError, match="selection slots are invalid"):
+        replace(resolution, peer_set=resolution.benchmark)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("benchmark_id", "benchmark:forged", "benchmark does not match"),
+        ("cash_proxy_id", "cash:forged", "cash proxy does not match"),
+        ("reference_portfolio_ids", ("reference:maximum_diversification",), "references do not match"),
+    ),
+)
+def test_analysis_resolution_rejects_forged_declaration_bindings(
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    _registry_value, resolution = _resolved_registry()
+    declaration = replace(resolution.declaration, **{field: value})
+    with pytest.raises(BenchmarkReferenceError, match=message):
+        replace(resolution, declaration=declaration)
+
+
+def test_analysis_resolution_rejects_omitted_and_extra_references() -> None:
+    registry, resolution = _resolved_registry()
+    with pytest.raises(BenchmarkReferenceError, match="references do not match"):
+        replace(resolution, references=())
+    extra = next(
+        item for item in registry.reference_portfolios
+        if item.portfolio_id == "reference:maximum_diversification"
+    )
+    with pytest.raises(BenchmarkReferenceError, match="references do not match"):
+        replace(resolution, references=(*resolution.references, extra))
+
+
+def test_ui_projection_rejects_mutated_duplicate_declaration_references() -> None:
+    registry, resolution = _resolved_registry()
+    object.__setattr__(
+        resolution.declaration,
+        "reference_portfolio_ids",
+        resolution.declaration.reference_portfolio_ids * 2,
+    )
+    with pytest.raises(BenchmarkReferenceError, match="references do not match"):
+        registry.ui_projection(resolution)
+
+
+def test_ui_projection_revalidates_mutated_resolution_and_preserves_valid_unavailable() -> None:
+    registry, resolution = _resolved_registry()
+    object.__setattr__(resolution, "cash", resolution.benchmark)
+    with pytest.raises(BenchmarkReferenceError, match="selection slots are invalid"):
+        registry.ui_projection(resolution)
+
+    unavailable = registry.resolve_analysis(
+        analysis_id="unavailable-reference",
+        purpose="comparison",
+        instrument_id="ETF-1",
+        instrument=INSTRUMENT,
+        currency="AUD",
+        horizon_years=1.0,
+        start_date="2024-02-01",
+        end_date="2025-02-01",
+        decision_time="2024-02-02T00:00:00Z",
+        reference_portfolio_ids=("reference:missing",),
+    )
+    projection = registry.ui_projection(unavailable)
+    assert projection["blockers"] == ["reference:unavailable:reference:missing"]
+
+
 @pytest.mark.parametrize("field", ("benchmark", "cash", "peer_set"))
 def test_ui_projection_rejects_forged_available_selection_digest(field: str) -> None:
     registry, resolution = _resolved_registry()
@@ -261,8 +333,11 @@ def test_ui_projection_rejects_foreign_reference_digest() -> None:
 def test_ui_projection_rejects_absent_and_duplicate_available_members() -> None:
     registry, resolution = _resolved_registry()
     absent = replace(resolution.benchmark, selected_id="benchmark:absent")
+    absent_declaration = replace(resolution.declaration, benchmark_id="benchmark:absent")
     with pytest.raises(BenchmarkReferenceError, match="selected benchmark.*not uniquely bound"):
-        registry.ui_projection(replace(resolution, benchmark=absent))
+        registry.ui_projection(replace(
+            resolution, benchmark=absent, declaration=absent_declaration,
+        ))
 
     object.__setattr__(
         registry,

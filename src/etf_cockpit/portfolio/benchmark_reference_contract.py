@@ -13,6 +13,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 import hashlib
+from importlib import resources
 import json
 import math
 from pathlib import Path
@@ -774,11 +775,52 @@ class AnalysisResolution:
     execution_allowed: Literal[False] = False
 
     def __post_init__(self) -> None:
+        self.validate_invariants()
+
+    def validate_invariants(self) -> None:
+        """Revalidate slot, declaration, and reference consistency."""
+
         if self.execution_allowed is not False:
             raise BenchmarkReferenceError("analysis resolution cannot grant execution authority")
         nested = (self.declaration, self.benchmark, self.cash, self.peer_set, *self.references)
         if any(getattr(item, "execution_allowed", None) is not False for item in nested):
             raise BenchmarkReferenceError("analysis resolution contains execution authority")
+        if (
+            self.benchmark.kind != "benchmark"
+            or self.cash.kind != "cash"
+            or self.peer_set.kind != "peer"
+        ):
+            raise BenchmarkReferenceError("analysis resolution selection slots are invalid")
+        expected_benchmark_id = (
+            self.benchmark.selected_id
+            if self.benchmark.status == "available"
+            else "unavailable:benchmark"
+        )
+        expected_cash_id = (
+            self.cash.selected_id
+            if self.cash.status == "available"
+            else "unavailable:cash"
+        )
+        if self.declaration.benchmark_id != expected_benchmark_id:
+            raise BenchmarkReferenceError("analysis declaration benchmark does not match resolution")
+        if self.declaration.cash_proxy_id != expected_cash_id:
+            raise BenchmarkReferenceError("analysis declaration cash proxy does not match resolution")
+        resolved_ids = tuple(item.portfolio_id for item in self.references)
+        unavailable_ids = tuple(
+            blocker.removeprefix("reference:unavailable:")
+            for blocker in self.blockers
+            if blocker.startswith("reference:unavailable:")
+        )
+        if (
+            len(resolved_ids) != len(set(resolved_ids))
+            or len(unavailable_ids) != len(set(unavailable_ids))
+            or len(self.declaration.reference_portfolio_ids)
+            != len(set(self.declaration.reference_portfolio_ids))
+            or set(resolved_ids) & set(unavailable_ids)
+            or set(self.declaration.reference_portfolio_ids)
+            != set(resolved_ids) | set(unavailable_ids)
+        ):
+            raise BenchmarkReferenceError("analysis declaration references do not match resolution")
 
 _CanonicalRecord = (
     BenchmarkDefinition
@@ -1039,6 +1081,7 @@ class CanonicalBenchmarkRegistry:
     ) -> dict[str, object]:
         """Return a read-only comparison projection with explicit blockers."""
 
+        resolution.validate_invariants()
         registry_hash = str(self.as_payload()["registry_hash"])
         if selected_vwce_anchor_digest is not None:
             anchor_matches = sum(
@@ -1337,7 +1380,7 @@ class CanonicalBenchmarkRegistry:
         return authoritative
 
 
-def load_canonical_benchmark_registry(path: Path) -> CanonicalBenchmarkRegistry:
+def load_canonical_benchmark_registry(path: Path | None = None) -> CanonicalBenchmarkRegistry:
     """Load one durable local registry, rejecting duplicate keys and tampering."""
 
     def reject_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -1349,10 +1392,17 @@ def load_canonical_benchmark_registry(path: Path) -> CanonicalBenchmarkRegistry:
         return result
 
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicates)
+        text = (
+            path.read_text(encoding="utf-8")
+            if path is not None
+            else resources.files("etf_cockpit.resources")
+            .joinpath("benchmark_reference_registry.json")
+            .read_text(encoding="utf-8")
+        )
+        raw = json.loads(text, object_pairs_hook=reject_duplicates)
     except BenchmarkReferenceError:
         raise
-    except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ModuleNotFoundError) as exc:
         raise BenchmarkReferenceError("canonical registry is unavailable or malformed") from exc
     if not isinstance(raw, dict):
         raise BenchmarkReferenceError("canonical registry envelope must be a JSON object")

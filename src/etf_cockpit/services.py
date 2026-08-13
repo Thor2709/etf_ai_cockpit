@@ -24,7 +24,6 @@ from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, a
 from etf_cockpit.core.logging import append_jsonl, configure_logging
 from etf_cockpit.core.paths import (
     BACKTESTS_DIR,
-    CONFIG_DIR,
     ETF_BENCHMARK_TOTAL_RETURN_PATH,
     ETF_FUND_TOTAL_RETURN_PATH,
     FORECASTS_DIR,
@@ -89,7 +88,7 @@ from etf_cockpit.signals.signal_pipeline import generate_signals
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION
 
 
-BENCHMARK_REFERENCE_REGISTRY_PATH = CONFIG_DIR / "benchmark_reference_registry.json"
+BENCHMARK_REFERENCE_REGISTRY_PATH: Path | None = None
 _CANONICAL_REFERENCE_IDS = (
     "reference:equal_weight",
     "reference:maximum_diversification",

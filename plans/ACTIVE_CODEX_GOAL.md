@@ -143,6 +143,18 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   All 324 affected tests plus Ruff, targeted mypy, compile, programme freshness
   and diff hygiene pass. Freeze one replacement head for paired final review and
   fresh H-tier Linux/Windows/terminal evidence.
+- Replacement head `3020c4b811179fb7c77158a9fd1a0eb4ac98bc7d` is rejected;
+  run `31694667839` is cancelled/stale. Whole-diff review found no additional
+  code defect, while risk review reproduced two final delivery failures:
+  selection/reference projections were not bound to their declared semantic
+  slots, and the wheel installed the registry outside the application resolver's
+  path. The consolidated correction binds benchmark, cash, peer and reference
+  identities at construction and UI readback, relocates the unchanged registry
+  into an importable package resource and proves an isolated wheel install/load.
+  The 163 focused contract/UI/sandbox/package tests and 152 adjacent financial/
+  PIT tests pass with Ruff, targeted mypy, compile, programme byte-clean, diff
+  hygiene and byte-identical relocation evidence. Commit and freeze one new exact
+  head for paired final review and fresh H-tier Linux/Windows/terminal evidence.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

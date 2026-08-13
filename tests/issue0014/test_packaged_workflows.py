@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -54,6 +55,66 @@ def test_real_sdist_runs_packaged_offline_smoke_from_artifact_root(tmp_path: Pat
 
     assert "smoke_ok mode=offline" in smoke.stdout
     assert str(package.root) in smoke.stdout or "127.0.0.1" in smoke.stdout
+
+
+def test_installed_wheel_loads_packaged_canonical_benchmark_registry(tmp_path: Path) -> None:
+    package_source = copy_repository_runtime(tmp_path / "wheel-source", packaging=True)
+    artifact_root = package_source / "dist"
+    artifact_root.mkdir()
+    build = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from setuptools.build_meta import build_wheel; build_wheel('dist')",
+        ],
+        cwd=package_source,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=120,
+        check=False,
+    )
+    assert build.returncode == 0, build.stdout + build.stderr
+    wheel = next(artifact_root.glob("*.whl"))
+    installed = tmp_path / "installed"
+    install = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--no-deps", "--target", str(installed), str(wheel)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=120,
+        check=False,
+    )
+    assert install.returncode == 0, install.stdout + install.stderr
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    loaded = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                f"sys.path.insert(0, {str(installed)!r}); "
+                "from etf_cockpit.portfolio.benchmark_reference_contract import "
+                "load_canonical_benchmark_registry; "
+                "registry=load_canonical_benchmark_registry(); "
+                "print(registry.as_payload()['registry_hash'])"
+            ),
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+        check=False,
+    )
+    assert loaded.returncode == 0, loaded.stdout + loaded.stderr
+    assert loaded.stdout.strip() == "310f39e344496122d44fa9bbe4a1b23df38bd5894783c53f4fa63bb6e2776a48"
 
 
 def test_posix_package_command_uses_the_configured_isolated_builder(tmp_path: Path) -> None:

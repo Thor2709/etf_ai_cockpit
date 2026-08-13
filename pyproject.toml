@@ -57,8 +57,11 @@ models = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"etf_cockpit.resources" = ["benchmark_reference_registry.json"]
+
 [tool.setuptools.data-files]
-"configs" = ["configs/ui_acceptance.yaml", "configs/benchmark_reference_registry.json"]
+"configs" = ["configs/ui_acceptance.yaml"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

@@ -4027,3 +4027,16 @@ match exactly one registry record by canonical identity, version and digest.
 All 298 affected tests plus Ruff, targeted contract mypy, compile, programme
 freshness and diff hygiene pass. Freeze one replacement head for final paired
 review and fresh H-tier Linux/Windows/terminal evidence.
+
+`CORRECTED` head `3020c4b811179fb7c77158a9fd1a0eb4ac98bc7d` is rejected and
+run `31694667839` is cancelled/stale. Whole-diff review found no additional
+code defect; risk review reproduced unbound semantic selection/reference slots
+and a wheel registry path that the installed application could not resolve.
+The consolidated correction independently revalidates declaration, slot and
+reference identity at projection readback, packages the byte-identical registry
+as an importable resource and proves loading from an isolated wheel install.
+All 163 focused contract/UI/sandbox/package tests and 152 adjacent financial/PIT
+tests pass with Ruff, targeted mypy, compile, programme freshness, diff hygiene
+and byte-identical relocation evidence. Freeze one replacement exact head for
+paired final review and fresh H-tier Linux/Windows/terminal validation; preserve
+all lifecycle, provider/broker/release and `execution_allowed=false` boundaries.
