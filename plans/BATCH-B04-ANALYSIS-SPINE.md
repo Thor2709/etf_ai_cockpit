@@ -3969,3 +3969,15 @@ regressions. The 278 affected contract, sandbox, UI, cash, attribution, peer and
 optimiser tests plus Ruff, targeted contract mypy, compile, programme freshness
 and diff hygiene pass. Freeze one replacement head for paired final review and
 fresh H-tier Linux/Windows/terminal evidence; preserve `execution_allowed=false`.
+
+`CORRECTED` head `d7bb08462ad033ee9537f834ffa89f0ab5fd6e4f` is rejected
+and run `31685879923` is cancelled/stale. The paired review reproduced five
+strict provenance/input defects: a standalone anchor not bound to the supplied
+registry, mixed bound/unbound authoritative listing ties, explicit-empty
+override laundering, duplicate reference requests and non-string source-hash
+coercion. Consolidated commit `006abd94ec4380407484b1227ba1ae35106d6ea6`
+closes exactly those paths with canonical anchor membership/provenance, complete
+tied-source validation and strict input handling. All 286 affected tests plus
+Ruff, targeted contract mypy, compile, programme freshness and diff hygiene pass.
+Freeze one replacement exact head for paired final review and fresh H-tier Linux,
+Windows and terminal evidence; preserve `execution_allowed=false`.

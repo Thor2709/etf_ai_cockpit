@@ -93,6 +93,16 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   and diff-hygiene evidence. Freeze one replacement exact head for paired final
   review and fresh H-tier Linux/Windows/terminal validation; preserve all
   lifecycle, provider/broker/release and `execution_allowed=false` boundaries.
+- Paired review of `d7bb08462ad033ee9537f834ffa89f0ab5fd6e4f`
+  rejected five newly reproduced strict provenance/input boundaries; run
+  `31685879923` is cancelled/stale. Consolidated commit
+  `006abd94ec4380407484b1227ba1ae35106d6ea6` requires exact canonical-registry
+  membership for the selected VWCE anchor, validates every tied listing source,
+  preserves explicit empty overrides for fail-closed validation, rejects duplicate
+  reference requests and forbids source-hash type coercion. All 286 affected tests
+  plus Ruff, targeted contract mypy, compile, programme freshness and diff hygiene
+  pass. Freeze one replacement exact head for paired final review and fresh H-tier
+  Linux/Windows/terminal evidence; no adjacent architecture or authority changed.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid
