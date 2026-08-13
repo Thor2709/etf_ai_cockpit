@@ -1282,6 +1282,7 @@ class AppState:
             benchmark_data_id=reference_context.benchmark_data_id,
             benchmark_reference=reference_context.projection,
             reference_identity=reference_context.identity,
+            peer_member_ids=reference_context.peer_member_ids,
         )
         with self.activity_publication():
             path = write_simple_scoreboard(scores)

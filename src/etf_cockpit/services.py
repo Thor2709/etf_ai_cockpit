@@ -41,7 +41,7 @@ from etf_cockpit.core.versioning import (
     ensure_run_manifest,
     settings_bound_run_id,
 )
-from etf_cockpit.data.duckdb_store import FEATURE_PARQUET, initialise_store, load_holdings, load_prices, write_features
+from etf_cockpit.data.duckdb_store import FEATURE_PARQUET, initialise_store, load_features, load_holdings, load_prices, write_features
 from etf_cockpit.data.etf_economics import (
     ClosureProxyPolicy,
     EtfEconomicsObservation,
@@ -902,7 +902,9 @@ class FeatureService:
         reference_context: CanonicalReferenceContext | None = None,
     ) -> pd.DataFrame:
         settings_identity = current_settings_identity()
-        frame = prices if prices is not None else load_prices()
+        frame = (prices if prices is not None else load_prices()).copy()
+        if "volume" not in frame.columns:
+            frame["volume"] = float("nan")
         if as_of_date:
             frame = frame[pd.to_datetime(frame["date"]).dt.date <= as_of_date]
         context = reference_context if reference_context is not None else self.reference_context
@@ -920,6 +922,8 @@ class FeatureService:
             if context is None
             else context.projection
         )
+        features.attrs["reference_identity"] = context.identity
+        features.attrs["reference_identity_hash"] = _reference_identity_hash(context.identity)
         run_id = settings_bound_run_id(
             f"features_{as_of_date.isoformat() if as_of_date else 'latest'}",
             settings_identity=settings_identity,
@@ -1119,11 +1123,7 @@ class SignalService:
         prices = load_prices()
         prices["date"] = pd.to_datetime(prices["date"]).dt.date
         effective_date = as_of_date or max(prices["date"])
-        feature_frame = features if features is not None else FeatureService(self.config).compute_features(effective_date, prices)
-        latest = latest_features(feature_frame, effective_date)
         holdings = load_holdings()
-        report = DataService(self.config).validate_prices(prices, as_of_date=effective_date, holdings=holdings)
-        status = model_availability(self.config)
         benchmark_reference = _benchmark_reference_snapshot_inputs(
             self.config,
             effective_date,
@@ -1134,8 +1134,34 @@ class SignalService:
             purpose="comparison",
             analysis_id=f"signals:{pd.Timestamp(effective_date).date().isoformat()}",
         )
+        universe_revision = _current_universe_revision()
+        settings_revision = current_settings_revision()
+        cached_features = load_features(
+            FEATURE_PARQUET,
+            universe_revision=universe_revision,
+            settings_revision=settings_revision,
+            reference_identity=reference_context.identity,
+        )
+        supplied_matches = (
+            features is not None
+            and features.attrs.get("reference_identity") == reference_context.identity
+            and features.attrs.get("reference_identity_hash") == _reference_identity_hash(reference_context.identity)
+        )
+        if supplied_matches:
+            feature_frame = features
+        elif not cached_features.empty:
+            feature_frame = cached_features
+        else:
+            feature_frame = FeatureService(self.config, reference_context=reference_context).compute_features(
+                effective_date,
+                prices,
+                reference_context=reference_context,
+            )
+        latest = latest_features(feature_frame, effective_date)
+        report = DataService(self.config).validate_prices(prices, as_of_date=effective_date, holdings=holdings)
+        status = model_availability(self.config)
         forecasts = load_latest_forecasts(
-            universe_revision=_current_universe_revision(),
+            universe_revision=universe_revision,
             reference_identity=reference_context.identity,
         )
         structure_caps = _load_structure_caps(self.config.universe.enabled_ids, effective_date)
@@ -1265,6 +1291,7 @@ class BacktestService:
     def run_backtest(self, *, publish_guard: PublicationScopeFactory | None = None) -> BacktestReport:
         settings_identity = current_settings_identity()
         prices = load_prices()
+        reference_context = _backtest_calculation_context(self.config, self.reference_context, prices)
         fundamentals = load_fundamental_evidence()
         try:
             structure_evidence = _load_local_structural_evidence()
@@ -1279,9 +1306,9 @@ class BacktestService:
                 structure_report_records=(structure_evidence.report_records if structure_evidence else None),
                 structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),
                 structure_holdings=(structure_evidence.holdings if structure_evidence else None),
-                benchmark_data_id=self.reference_context.benchmark_data_id,
-                benchmark_reference=self.reference_context.projection,
-                reference_identity=self.reference_context.identity,
+                benchmark_data_id=reference_context.benchmark_data_id,
+                benchmark_reference=reference_context.projection,
+                reference_identity=reference_context.identity,
             )
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
@@ -1328,7 +1355,7 @@ class BacktestService:
                     output,
                     self.universe_revision,
                     str(settings_identity["settings_revision"]),
-                    self.reference_context.identity,
+                    reference_context.identity,
                 )
         with publication_scope(publish_guard):
             append_jsonl("model_runs.jsonl", "backtest_completed", {"ai_added_value": report.ai_added_value})
@@ -1336,6 +1363,7 @@ class BacktestService:
 
     def _load_cached_backtest(self, as_of_date: date | None = None) -> BacktestReport | None:
         settings_revision = current_settings_revision()
+        reference_context = _backtest_calculation_context(self.config, self.reference_context, load_prices())
         results_path = BACKTESTS_DIR / "backtest_results.csv"
         equity_path = BACKTESTS_DIR / "equity_curves.csv"
         trade_path = BACKTESTS_DIR / "trade_log.csv"
@@ -1348,12 +1376,12 @@ class BacktestService:
             results_path,
             self.universe_revision,
             settings_revision,
-            self.reference_context.identity,
+            reference_context.identity,
         ) or not _cache_matches_universe(
             equity_path,
             self.universe_revision,
             settings_revision,
-            self.reference_context.identity,
+            reference_context.identity,
         ):
             return None
         try:
@@ -1393,7 +1421,7 @@ class BacktestService:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
             if not isinstance(metadata, dict):
                 metadata = {}
-            if metadata.get("reference_identity") != self.reference_context.identity:
+            if metadata.get("reference_identity") != reference_context.identity:
                 return None
             if metadata.get("quality_momentum_strategy_version") != QUALITY_MOMENTUM_VERSION:
                 return None
@@ -1657,6 +1685,62 @@ def _reference_context_from_inputs(
         decision_time=decision_value if isinstance(decision_value, str) else None,
         reference_portfolio_ids=reference_ids,
     )
+
+
+def _backtest_calculation_context(
+    config: AppConfig,
+    base_context: CanonicalReferenceContext,
+    prices: pd.DataFrame,
+) -> CanonicalReferenceContext:
+    """Resolve benchmark evidence against the complete backtest panel window."""
+
+    resolution = base_context.resolution
+    if resolution is None or not isinstance(prices, pd.DataFrame) or prices.empty:
+        return base_context
+    if not isinstance(base_context.instrument, Mapping):
+        return CanonicalReferenceContext(
+            base_context.registry,
+            None,
+            blocker="backtest_reference_inputs_unavailable",
+        )
+    required = {"date", "etf_id", "adjusted_close"}
+    if not required.issubset(prices.columns):
+        return base_context
+    try:
+        frame = prices.loc[:, ["date", "etf_id", "adjusted_close"]].copy()
+        frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+        frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
+        columns = [item for item in config.universe.enabled_ids if item in set(frame["etf_id"].astype(str))]
+        pivot = frame[frame["etf_id"].astype(str).isin(columns)].pivot(
+            index="date", columns="etf_id", values="adjusted_close"
+        ).sort_index()
+        pivot = pivot.reindex(columns=columns)
+        pivot = pivot.loc[pivot.notna().all(axis=1)]
+        if pivot.empty:
+            return base_context
+        start = pivot.index.min().date()
+        end = pivot.index.max().date()
+        if start >= end:
+            return base_context
+        horizon_years = max(0.1, (end - start).days / 365.25)
+        base_cutoff = pd.Timestamp(resolution.declaration.decision_time)
+        end_cutoff = pd.Timestamp(end, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        decision_time = max(base_cutoff, end_cutoff).isoformat()
+        return resolve_canonical_reference(
+            base_context.registry,
+            analysis_id=f"backtest:{start.isoformat()}:{end.isoformat()}",
+            purpose=resolution.declaration.purpose,
+            instrument_id=resolution.declaration.instrument_id,
+            instrument=base_context.instrument,
+            currency=resolution.declaration.currency,
+            horizon_years=horizon_years,
+            start_date=start.isoformat(),
+            end_date=end.isoformat(),
+            decision_time=decision_time,
+            reference_portfolio_ids=resolution.declaration.reference_portfolio_ids,
+        )
+    except (BenchmarkReferenceError, OSError, TypeError, ValueError, KeyError, AttributeError):
+        return CanonicalReferenceContext(base_context.registry, None, blocker="backtest_reference_resolution_unavailable")
 
 
 def _current_portfolio_reference(

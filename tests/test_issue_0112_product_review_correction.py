@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -17,9 +18,11 @@ from etf_cockpit.features.regime import (
 )
 from etf_cockpit.services import (
     _cache_matches_universe,
+    _reference_identity_hash,
     _postprocess_forecast_benchmark_fields,
     _write_universe_cache_metadata,
 )
+from etf_cockpit.data.duckdb_store import load_features
 from etf_cockpit.models.forecast_scores import (
     filter_forecasts_for_universe,
     latest_forecast_file,
@@ -179,6 +182,61 @@ def test_forecast_readers_reject_legacy_metadata(tmp_path) -> None:
         settings_revision="settings",
         reference_identity=identity,
     ) is None
+
+
+def test_source_less_forecast_rows_are_rejected_when_reference_bound() -> None:
+    identity = {"schema": "benchmark-reference-cache.v1", "execution_allowed": False}
+    rows = pd.DataFrame([{"etf_id": "BENCH", "expected_return": 0.01}])
+    assert filter_forecasts_for_universe(rows, "universe", "settings", reference_identity=identity).empty
+
+
+def test_feature_reader_requires_universe_settings_and_reference_sidecar(tmp_path) -> None:
+    path = tmp_path / "features.parquet"
+    pd.DataFrame([{"date": "2025-01-01", "etf_id": "BENCH"}]).to_parquet(path, index=False)
+    identity = {"schema": "benchmark-reference-cache.v1", "execution_allowed": False}
+    metadata = {
+        "universe_revision": "u1",
+        "settings_revision": "s1",
+        "reference_identity": identity,
+        "reference_identity_hash": _reference_identity_hash(identity),
+    }
+    path.with_name(f"{path.name}.meta.json").write_text(json.dumps(metadata), encoding="utf-8")
+    assert load_features(path, universe_revision="u2", settings_revision="s1", reference_identity=identity).empty
+    assert load_features(path, universe_revision="u1", settings_revision="s2", reference_identity=identity).empty
+    loaded = load_features(path, universe_revision="u1", settings_revision="s1", reference_identity=identity)
+    assert len(loaded) == 1
+
+
+def test_attribution_clips_observations_to_declared_calculation_window() -> None:
+    from etf_cockpit.portfolio.attribution import build_performance_attribution
+
+    prices = pd.DataFrame(
+        [
+            {"date": f"2025-01-0{day}", "etf_id": "ALT", "adjusted_close": 100.0 + day}
+            for day in range(1, 7)
+        ]
+    )
+    context = SimpleNamespace(
+        resolution=SimpleNamespace(
+            declaration=SimpleNamespace(start_date="2025-01-02", end_date="2025-01-04")
+        )
+    )
+    report = build_performance_attribution(
+        prices,
+        pd.DataFrame([{"etf_id": "ALT", "current_weight": 1.0}]),
+        reference_context=context,
+    )
+    assert report["coverage"]["return_observations"] == 2
+    assert report["daily"]["date"].min() >= pd.Timestamp("2025-01-02")
+    assert report["daily"]["date"].max() <= pd.Timestamp("2025-01-04")
+
+
+def test_regime_rejects_nested_forged_benchmark_authority() -> None:
+    with pytest.raises(BenchmarkReferenceError):
+        build_market_regime(
+            _prices(),
+            benchmark_reference={"nested": {"execution_allowed": True}},
+        )
 
 
 def test_signal_service_binds_forecast_read_to_current_reference_identity(monkeypatch) -> None:

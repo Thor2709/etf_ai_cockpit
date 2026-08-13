@@ -134,7 +134,7 @@ def test_benchmark_attribution_uses_same_overlapping_horizon_for_instrument_and_
     assert alt["instrument_return"] == round((398.0 / 200.0) - 1.0, 4)
 
 
-def test_theme_only_metadata_maps_to_configured_theme_peers() -> None:
+def test_metadata_cannot_bypass_canonical_peer_selection() -> None:
     dates = pd.bdate_range("2025-01-01", periods=140)
     rows = []
     for index, dt in enumerate(dates):
@@ -157,9 +157,9 @@ def test_theme_only_metadata_maps_to_configured_theme_peers() -> None:
         },
     )
 
-    assert attribution["AI_A"]["theme_attribution_status"] == "available"
-    assert attribution["AI_A"]["theme_relative_return"] is not None
-    assert attribution["AI_A"]["theme_alpha_proxy"] is not None
+    assert attribution["AI_A"]["theme_attribution_status"] == "N/A"
+    assert attribution["AI_A"]["theme_relative_return"] is None
+    assert attribution["AI_A"]["theme_alpha_proxy"] is None
     assert attribution["AI_A"]["sector_attribution_status"] == "N/A"
 
 
@@ -210,6 +210,24 @@ def test_sparse_price_compatibility_keeps_regime_and_portfolio_forward_fill_but_
         forward_filled_returns.tail(60).std(skipna=True).median() * np.sqrt(252)
     )
     assert regime["median_volatility_60d_ann"] == round(expected_regime_volatility, 4)
+    expected_alt = float(
+        pd.concat(
+            [
+                forward_filled_returns["ALT"].tail(252),
+                forward_filled_returns["BENCH"].tail(252),
+            ],
+            axis=1,
+        ).dropna().iloc[:, 0].corr(
+            pd.concat(
+                [
+                    forward_filled_returns["ALT"].tail(252),
+                    forward_filled_returns["BENCH"].tail(252),
+                ],
+                axis=1,
+            ).dropna().iloc[:, 1]
+        )
+    )
+    assert fit["ALT"]["correlation_to_benchmark"] == round(expected_alt, 4)
     assert fit["BENCH"]["correlation_to_benchmark"] == 1.0
     assert attribution["ALT"]["sector_attribution_status"] == "N/A"
     assert attribution["ALT"]["sector_sample_size"] == 0

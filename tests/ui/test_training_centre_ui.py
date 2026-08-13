@@ -28,6 +28,23 @@ def test_training_centre_route_and_acceptance_surface_are_registered() -> None:
         assert label in source
 
 
+def test_training_centre_route_renders_retained_evidence_without_type_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        training_centre,
+        "load_training_evidence",
+        lambda _root: {"training.run": (), "training.model": (), "training.metric": ()},
+    )
+    monkeypatch.setattr(training_centre, "load_optimisation_evidence", lambda _root: {"trials": (), "summaries": ()})
+    monkeypatch.setattr(
+        training_centre.DurableJobScheduler,
+        "list_workflows",
+        lambda _self, limit=100: (),
+    )
+    state = SimpleNamespace(snapshot=None)
+    rendered = training_centre.training_centre_page(SimpleNamespace(go=lambda _route: None), state)
+    assert any(isinstance(item, ft.Text) and item.value == "Training Centre" for item in _walk(rendered))
+
+
 def test_synthetic_scenario_button_regenerates_and_shows_controlled_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

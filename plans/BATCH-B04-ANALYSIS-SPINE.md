@@ -4129,3 +4129,16 @@ uniformly derives or nulls every model's benchmark-relative fields. Freeze one
 replacement head after the affected tests, static/programme/package checks pass,
 then repeat paired review and fresh H-tier evidence; no adjacent architecture or
 authority work is included and `execution_allowed=false` remains unchanged.
+
+`CORRECTED` head `8c5dc03ba1d939a8c4fad28fc8f246741825b77a` is rejected by
+both exact-head reviewers and run `31717953477` is cancelled/stale. The final
+bounded finding set covers exact calculation-window identity, canonical peer
+membership, recursive execution-authority validation, Training Centre argument
+binding, universe/settings/reference feature-cache readback, signal resolution
+ordering, complete N/A schemas, the remaining macro caller and restored sparse
+benchmark correlation. One consolidated correction addresses only those
+reproduced defects. Its 328 affected product/UI tests, 99 macro/regime tests,
+five packaged workflow tests, Ruff, targeted mypy, compile, byte-clean programme
+generation and diff hygiene pass. Freeze one replacement exact head for paired
+review and fresh H-tier Linux, Windows and terminal validation; do not reopen
+adjacent convergence or infrastructure work and preserve `execution_allowed=false`.

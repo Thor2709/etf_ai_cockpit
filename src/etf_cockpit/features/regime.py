@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import json
 from pathlib import Path
 
@@ -9,7 +9,10 @@ import pandas as pd
 
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.features.benchmark_attribution import build_benchmark_attribution
-from etf_cockpit.portfolio.benchmark_reference_contract import unavailable_reference_projection
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    unavailable_reference_projection,
+    validate_execution_disabled,
+)
 
 
 def build_market_regime(
@@ -19,22 +22,25 @@ def build_market_regime(
     max_forward_fill: int | None = None,
     benchmark_id: str | None = None,
     benchmark_reference: Mapping[str, object] | None = None,
+    peer_member_ids: Sequence[str] | None = None,
 ) -> dict[str, object]:
+    validate_execution_disabled(benchmark_reference or _unavailable_reference())
+    reference = dict(benchmark_reference or _unavailable_reference())
     if prices.empty or not {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
-        return _empty_regime("No clean yfinance price panel is available.", benchmark_reference=benchmark_reference)
+        return _empty_regime("No clean yfinance price panel is available.", benchmark_reference=reference)
     frame = prices.copy()
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     pivot = frame.dropna(subset=["date"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
     pivot = pivot.dropna(how="all")
     if len(pivot) < 220:
-        return _empty_regime("Less than 220 trading days are available for regime scoring.", benchmark_reference=benchmark_reference)
+        return _empty_regime("Less than 220 trading days are available for regime scoring.", benchmark_reference=reference)
 
     benchmark_id = str(benchmark_id).strip() if benchmark_id else None
     if benchmark_id is None or benchmark_id not in pivot.columns:
         return _empty_regime(
             "Canonical benchmark/cash resolution is unavailable; regime comparison is N/A.",
-            benchmark_reference=benchmark_reference,
+            benchmark_reference=reference,
         )
 
     filled = pivot.ffill(limit=max_forward_fill)
@@ -78,7 +84,8 @@ def build_market_regime(
         "benchmark_above_sma200": benchmark_above_sma200,
         "benchmark_return_60d": benchmark_return_60d,
         "benchmark_return_120d": benchmark_return_120d,
-        "benchmark_reference": dict(benchmark_reference or _unavailable_reference()),
+        "benchmark_reference": reference,
+        "execution_allowed": False,
         "configured_pct_above_sma200": round(configured_pct_above, 4),
         "candidate_pct_above_sma200": None if candidate_pct_above is None else round(candidate_pct_above, 4),
         "combined_pct_above_sma200": round(combined_pct_above, 4),
@@ -94,7 +101,10 @@ def build_portfolio_fit_lookup(
     *,
     benchmark_id: str | None = None,
     benchmark_reference: Mapping[str, object] | None = None,
+    peer_member_ids: Sequence[str] | None = None,
 ) -> dict[str, dict[str, object]]:
+    validate_execution_disabled(benchmark_reference or _unavailable_reference())
+    reference = dict(benchmark_reference or _unavailable_reference())
     if prices.empty or not {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
         return {}
     frame = prices.copy()
@@ -103,14 +113,14 @@ def build_portfolio_fit_lookup(
     pivot = frame.dropna(subset=["date", "adjusted_close"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index().ffill()
     if pivot.shape[1] < 2:
         return {
-            str(item): _unavailable_fit("not enough clean instruments", benchmark_reference)
+            str(item): _unavailable_fit("not enough clean instruments", reference)
             for item in pivot.columns
         }
     benchmark_id = str(benchmark_id).strip() if benchmark_id else None
     if benchmark_id is None or benchmark_id not in pivot.columns:
         return {
             str(item): _unavailable_fit(
-                "canonical benchmark/cash resolution is unavailable", benchmark_reference
+                "canonical benchmark/cash resolution is unavailable", reference
             )
             for item in pivot.columns
         }
@@ -121,7 +131,9 @@ def build_portfolio_fit_lookup(
         series = returns[instrument_id].dropna()
         joined = pd.concat([series, benchmark], axis=1, join="inner").dropna()
         if len(joined) < 40:
-            output[str(instrument_id)] = {"score": None, "label": "Portfolio fit pending: not enough overlapping returns."}
+            output[str(instrument_id)] = _unavailable_fit(
+                "not enough overlapping returns", reference, label_prefix="Portfolio fit pending"
+            )
             continue
         corr = float(joined.iloc[:, 0].corr(joined.iloc[:, 1]))
         variance = float(joined.iloc[:, 1].var())
@@ -132,6 +144,8 @@ def build_portfolio_fit_lookup(
             "label": f"Benchmark corr {corr:.2f}; beta {_fmt_float(beta)}. Lower duplicate exposure scores better.",
             "correlation_to_benchmark": round(corr, 4),
             "beta_to_benchmark": None if beta is None else round(beta, 4),
+            "benchmark_reference": reference,
+            "execution_allowed": False,
         }
     return output
 
@@ -143,7 +157,11 @@ def build_benchmark_attribution_lookup(
     benchmark_id: str | None = None,
     metadata: dict[str, object] | None = None,
     benchmark_reference: Mapping[str, object] | None = None,
+    peer_member_ids: Sequence[str] | None = None,
 ) -> dict[str, dict[str, object]]:
+    validate_execution_disabled(benchmark_reference or _unavailable_reference())
+    reference = dict(benchmark_reference or _unavailable_reference())
+    peer_member_ids = _canonical_peer_member_ids(reference, peer_member_ids)
     if prices.empty or not {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
         return {}
     frame = prices.copy()
@@ -153,7 +171,7 @@ def build_benchmark_attribution_lookup(
     if pivot.shape[1] < 2:
         return {
             str(item): _unavailable_attribution(
-                str(item), window, "not enough clean instruments", benchmark_reference
+                str(item), window, "not enough clean instruments", reference
             )
             for item in pivot.columns
         }
@@ -161,7 +179,7 @@ def build_benchmark_attribution_lookup(
     if benchmark_id is None or benchmark_id not in pivot.columns:
         return {
             str(item): _unavailable_attribution(
-                str(item), window, "canonical benchmark/cash resolution is unavailable", benchmark_reference
+                str(item), window, "canonical benchmark/cash resolution is unavailable", reference
             )
             for item in pivot.columns
         }
@@ -203,6 +221,8 @@ def build_benchmark_attribution_lookup(
                 "sample_size": len(sample),
                 "as_of": sample.index.max().date().isoformat() if len(sample) else None,
                 "source_dataset": "adjusted_price_returns",
+                "benchmark_reference": reference,
+                "execution_allowed": False,
             }
             continue
         broad_result = build_benchmark_attribution(sample["instrument"], sample["benchmark"])
@@ -212,8 +232,8 @@ def build_benchmark_attribution_lookup(
         corr = broad_result.correlation
         alpha_proxy = broad_result.alpha_proxy
         alpha_t_stat = broad_result.alpha_t_stat
-        sector_result = _sector_attribution_result(returns, str(instrument_id), metadata, window)
-        theme_result = _peer_attribution_result(returns, str(instrument_id), metadata, "theme", window)
+        sector_result = _sector_attribution_result(returns, str(instrument_id), peer_member_ids, window)
+        theme_result = _peer_attribution_result(returns, str(instrument_id), peer_member_ids, "theme", window)
         output[instrument] = {
             "benchmark_id": benchmark_id,
             "period_days": len(sample),
@@ -241,6 +261,8 @@ def build_benchmark_attribution_lookup(
             "sample_size": len(sample),
             "as_of": sample.index.max().date().isoformat() if len(sample) else None,
             "source_dataset": "adjusted_price_returns",
+            "benchmark_reference": reference,
+            "execution_allowed": False,
         }
     return output
 
@@ -285,10 +307,12 @@ def _unavailable_reference() -> dict[str, object]:
 def _unavailable_fit(
     reason: str,
     benchmark_reference: Mapping[str, object] | None = None,
+    *,
+    label_prefix: str = "Portfolio fit unavailable",
 ) -> dict[str, object]:
     return {
         "score": None,
-        "label": f"Portfolio fit unavailable: {reason}.",
+        "label": f"{label_prefix}: {reason}.",
         "status": "N/A",
         "benchmark_reference": dict(benchmark_reference or _unavailable_reference()),
         "execution_allowed": False,
@@ -392,33 +416,23 @@ def _benchmark_attribution_label(
 def _sector_attribution_result(
     returns: pd.DataFrame,
     instrument_id: str,
-    metadata: dict[str, object],
+    peer_member_ids: Sequence[str] | None,
     window: int,
 ) -> dict[str, object]:
-    return _peer_attribution_result(returns, instrument_id, metadata, "sector", window)
+    return _peer_attribution_result(returns, instrument_id, peer_member_ids, "sector", window)
 
 
 def _peer_attribution_result(
     returns: pd.DataFrame,
     instrument_id: str,
-    metadata: dict[str, object],
+    peer_member_ids: Sequence[str] | None,
     dimension: str,
     window: int,
 ) -> dict[str, object]:
-    current = metadata.get(instrument_id)
-    current_value = current.get(dimension) if isinstance(current, dict) else getattr(current, dimension, None)
-    current_value = str(current_value or "").strip()
     prefix = dimension
-    if not current_value:
+    if not peer_member_ids:
         return {f"{prefix}_attribution_status": "N/A", f"{prefix}_sample_size": 0}
-    peers = []
-    for peer in returns.columns:
-        if str(peer) == instrument_id:
-            continue
-        value = metadata.get(str(peer))
-        peer_value = value.get(dimension) if isinstance(value, dict) else getattr(value, dimension, None)
-        if str(peer_value or "").strip() == current_value:
-            peers.append(str(peer))
+    peers = [str(peer) for peer in peer_member_ids if str(peer) in returns.columns and str(peer) != instrument_id]
     if not peers:
         return {f"{prefix}_attribution_status": "N/A", f"{prefix}_sample_size": 0}
     peer_returns = returns[peers].mean(axis=1, skipna=False).rename(prefix)
@@ -439,6 +453,25 @@ def _peer_attribution_result(
         f"{prefix}_attribution_status": "available" if result.status == "available" else "N/A",
         f"{prefix}_sample_size": len(joined),
     }
+
+
+def _canonical_peer_member_ids(
+    reference: Mapping[str, object],
+    peer_member_ids: Sequence[str] | None,
+) -> tuple[str, ...] | None:
+    peer = reference.get("peer_set")
+    selected_records = reference.get("selected_records")
+    if (
+        reference.get("status") != "available"
+        or not isinstance(peer, Mapping)
+        or peer.get("status") != "available"
+        or not isinstance(selected_records, Mapping)
+        or selected_records.get("peer_set") != peer.get("content_hash")
+        or not peer_member_ids
+        or any(not isinstance(item, str) or not item.strip() for item in peer_member_ids)
+    ):
+        return None
+    return tuple(dict.fromkeys(item.strip() for item in peer_member_ids))
 
 
 def _weighted_available(values: list[tuple[float | None, float]]) -> float:

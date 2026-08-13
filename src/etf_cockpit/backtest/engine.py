@@ -110,6 +110,56 @@ def _price_pivot(prices: pd.DataFrame) -> pd.DataFrame:
     return frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index().dropna(how="all")
 
 
+def _declared_calculation_window(
+    reference_identity: Mapping[str, object] | None,
+) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    analysis = reference_identity.get("analysis") if isinstance(reference_identity, Mapping) else None
+    if not isinstance(analysis, Mapping):
+        return None
+    try:
+        start = pd.Timestamp(str(analysis["start_date"]))
+        end = pd.Timestamp(str(analysis["end_date"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+    if pd.isna(start) or pd.isna(end) or start > end:
+        return None
+    return start.normalize(), end.normalize()
+
+
+def _validated_benchmark_data_id(
+    benchmark_data_id: str | None,
+    benchmark_reference: Mapping[str, object] | None,
+    reference_identity: Mapping[str, object] | None,
+    available_columns: pd.Index,
+) -> str | None:
+    """Use a benchmark only when its projection and identity agree exactly."""
+
+    if benchmark_reference is None or reference_identity is None:
+        return None
+    validate_execution_disabled(benchmark_reference)
+    validate_execution_disabled(reference_identity)
+    if benchmark_reference.get("status") != "available" or reference_identity.get("status") != "available":
+        return None
+    benchmark = benchmark_reference.get("benchmark")
+    cash = benchmark_reference.get("cash")
+    if not isinstance(benchmark, Mapping) or not isinstance(cash, Mapping):
+        return None
+    if benchmark.get("status") != "available" or cash.get("status") != "available":
+        return None
+    selected_id = str(benchmark_data_id).strip() if benchmark_data_id is not None else ""
+    if not selected_id or selected_id not in available_columns:
+        return None
+    if benchmark_reference.get("benchmark_data_id") != selected_id:
+        return None
+    if reference_identity.get("benchmark_data_id") != selected_id:
+        return None
+    if reference_identity.get("registry_hash") != benchmark_reference.get("registry_hash"):
+        return None
+    if reference_identity.get("selected_records") != benchmark_reference.get("selected_records"):
+        return None
+    return selected_id
+
+
 def _optional_price_pivot(prices: pd.DataFrame, value: str, columns: list[str]) -> pd.DataFrame:
     if value not in prices.columns:
         return pd.DataFrame(index=pd.to_datetime(prices["date"]).drop_duplicates().sort_values(), columns=columns, dtype=float)
@@ -202,7 +252,13 @@ def run_backtest(
     benchmark_reference: Mapping[str, object] | None = None,
     reference_identity: Mapping[str, object] | None = None,
 ) -> BacktestReport:
+    validate_execution_disabled(benchmark_reference or unavailable_reference_projection())
+    validate_execution_disabled(reference_identity or {})
+    calculation_window = _declared_calculation_window(reference_identity)
     pivot_raw = _price_pivot(prices)
+    if calculation_window is not None:
+        start, end = calculation_window
+        pivot_raw = pivot_raw.loc[(pivot_raw.index >= start) & (pivot_raw.index <= end)]
     columns = [column for column in config.universe.enabled_ids if column in pivot_raw.columns]
     if not columns:
         raise BacktestDataUnavailableError("not_enough_data: no configured instruments have adjusted-close history")
@@ -218,12 +274,12 @@ def run_backtest(
     open_pivot = _optional_price_pivot(prices, "open", columns)
     high_pivot = _optional_price_pivot(prices, "high", columns)
     low_pivot = _optional_price_pivot(prices, "low", columns)
-    canonical_benchmark_id = (
-        str(benchmark_data_id).strip()
-        if benchmark_data_id and str(benchmark_data_id).strip() in pivot.columns
-        else None
+    canonical_benchmark_id = _validated_benchmark_data_id(
+        benchmark_data_id,
+        benchmark_reference,
+        reference_identity,
+        pivot.columns,
     )
-    validate_execution_disabled(benchmark_reference or unavailable_reference_projection())
     canonical_reference = dict(benchmark_reference or unavailable_reference_projection())
     metadata: dict[str, object] = {
         "strategy": "signal_strategy",
@@ -356,6 +412,12 @@ def run_backtest(
                 metadata["quality_momentum_evidence"] = "unavailable"
             # The signal strategy uses the same live signal pipeline, then tilts around targets.
             truncated_prices = prices[pd.to_datetime(prices["date"]) <= dt].copy()
+            if calculation_window is not None:
+                truncated_dates = pd.to_datetime(truncated_prices["date"])
+                truncated_prices = truncated_prices.loc[
+                    (truncated_dates >= calculation_window[0])
+                    & (truncated_dates <= calculation_window[1])
+                ].copy()
             features = compute_features(truncated_prices, benchmark_etf_id=canonical_benchmark_id)
             latest = latest_features(features, as_of_date=dt.date())
             holdings = _holdings_from_weights(weights["signal_strategy"], pivot.iloc[i], equity["signal_strategy"][-1], dt.date())

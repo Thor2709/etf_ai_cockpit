@@ -78,11 +78,12 @@ def training_centre_page(page: ft.Page, state: object) -> ft.Control:
 def _validation_panel(
     page: ft.Page | None,
     prices: object,
-    reference_context: object | None = None,
     retained_reports: tuple[dict[str, object], ...] = (),
     retained_trials: tuple[dict[str, object], ...] = (),
     retained_decisions: tuple[dict[str, object], ...] = (),
     retained_promotions: tuple[dict[str, object], ...] = (),
+    *,
+    reference_context: object | None = None,
 ) -> ft.Container:
     """Show split and promotion evidence without executing a model."""
 

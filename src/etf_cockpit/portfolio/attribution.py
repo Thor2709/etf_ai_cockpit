@@ -49,7 +49,7 @@ def build_performance_attribution(
         if reference_context is None
         else _reference_projection(reference_context),
     )
-    returns = _return_matrix(prices)
+    returns = _return_matrix(_clip_to_declared_window(prices, reference_context))
     weights = _weights(allocation)
     if returns.empty or weights.empty:
         empty["message"] = "Adjusted-price returns or portfolio weights are unavailable."
@@ -147,6 +147,15 @@ def _reference_projection(reference_context: object) -> dict[str, object]:
             projection["status"] = "available" if not resolution.blockers else "unavailable"
             benchmark_data_id = getattr(reference_context, "benchmark_data_id", None)
             projection["benchmark_data_id"] = benchmark_data_id if isinstance(benchmark_data_id, str) else None
+            declaration = resolution.declaration
+            projection["analysis"] = {
+                "instrument_id": declaration.instrument_id,
+                "currency": declaration.currency,
+                "horizon_years": declaration.horizon_years,
+                "start_date": declaration.start_date,
+                "end_date": declaration.end_date,
+                "decision_time": declaration.decision_time,
+            }
             _assert_execution_disabled(projection)
             return projection
         except (BenchmarkReferenceError, TypeError, ValueError, KeyError):
@@ -187,6 +196,24 @@ def _canonical_benchmark_returns(
         "benchmark": benchmark_id,
         "return": series.to_numpy(float),
     })
+
+
+def _clip_to_declared_window(
+    prices: pd.DataFrame | None,
+    reference_context: object | None,
+) -> pd.DataFrame | None:
+    """Prevent a relative result from using observations outside its declaration."""
+
+    if not isinstance(prices, pd.DataFrame) or reference_context is None:
+        return prices
+    resolution = getattr(reference_context, "resolution", None)
+    declaration = getattr(resolution, "declaration", None)
+    start = getattr(declaration, "start_date", None)
+    end = getattr(declaration, "end_date", None)
+    if not isinstance(start, str) or not isinstance(end, str) or "date" not in prices.columns:
+        return prices
+    dates = pd.to_datetime(prices["date"], errors="coerce")
+    return prices.loc[(dates >= pd.Timestamp(start)) & (dates <= pd.Timestamp(end))].copy()
 
 
 def _assert_execution_disabled(value: object) -> None:

@@ -11,6 +11,7 @@ from etf_cockpit.core.atomic_io import wait_for_atomic_group
 from etf_cockpit.core.config import AppConfig, load_config
 from etf_cockpit.core.paths import FEATURES_DIR, PORTFOLIOS_DIR, VALIDATED_DIR
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
+from etf_cockpit.core.versioning import current_settings_revision
 from etf_cockpit.data.sample_data import ensure_sample_files
 from etf_cockpit.data.validation import validate_prices
 
@@ -77,21 +78,29 @@ def write_features(features: pd.DataFrame, path: Path = FEATURE_PARQUET) -> None
 def load_features(
     path: Path = FEATURE_PARQUET,
     *,
+    universe_revision: str | None = None,
+    settings_revision: str | None = None,
     reference_identity: dict[str, object] | None = None,
 ) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
-    if reference_identity is not None:
+    if universe_revision is not None or settings_revision is not None or reference_identity is not None:
         metadata_path = Path(f"{path}.meta.json")
         try:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            encoded = json.dumps(reference_identity, sort_keys=True, separators=(",", ":"), allow_nan=False)
-            identity_hash = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+            encoded = json.dumps(reference_identity, sort_keys=True, separators=(",", ":"), allow_nan=False) if reference_identity is not None else None
+            identity_hash = hashlib.sha256(encoded.encode("utf-8")).hexdigest() if encoded is not None else None
         except (OSError, TypeError, ValueError):
             return pd.DataFrame()
-        if (
-            not isinstance(metadata, dict)
-            or metadata.get("reference_identity") != reference_identity
+        if not isinstance(metadata, dict):
+            return pd.DataFrame()
+        expected_settings = settings_revision or current_settings_revision()
+        if universe_revision is not None and str(metadata.get("universe_revision") or "") != universe_revision:
+            return pd.DataFrame()
+        if (universe_revision is not None or settings_revision is not None) and str(metadata.get("settings_revision") or "") != expected_settings:
+            return pd.DataFrame()
+        if reference_identity is not None and (
+            metadata.get("reference_identity") != reference_identity
             or metadata.get("reference_identity_hash") != identity_hash
         ):
             return pd.DataFrame()

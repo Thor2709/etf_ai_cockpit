@@ -32,6 +32,9 @@ def build_macro_context(
     prices: pd.DataFrame,
     instruments: Iterable[object] = (),
     observations: Iterable[object] = (),
+    *,
+    benchmark_data_id: str | None = None,
+    benchmark_reference: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Build a local macro context snapshot without network access.
 
@@ -69,7 +72,13 @@ def build_macro_context(
     volatility = _volatility_summary(returns)
     regime_frame = filled.rename_axis("date").stack(future_stack=True).rename("adjusted_close").reset_index()
     regime_frame.columns = ["date", "etf_id", "adjusted_close"]
-    regime = build_market_regime(regime_frame, None, max_forward_fill=5)
+    regime = build_market_regime(
+        regime_frame,
+        None,
+        max_forward_fill=5,
+        benchmark_id=benchmark_data_id,
+        benchmark_reference=benchmark_reference,
+    )
     freshness_days = max(0, (date.today() - latest_date.date()).days)
     dashboard_label = _dashboard_label(regime.get("regime_score_10"))
 

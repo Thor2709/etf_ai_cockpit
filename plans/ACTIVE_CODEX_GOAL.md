@@ -229,6 +229,22 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   evidence. Preserve all dependency, external authority and
   `execution_allowed=false` boundaries.
 
+- Replacement head `8c5dc03ba1d939a8c4fad28fc8f246741825b77a` is rejected by
+  both exact-head reviewers and run `31717953477` is cancelled/stale. The
+  consolidated demonstrated set was limited to declaration-window drift in
+  backtest/attribution, non-canonical peer derivation, forged nested execution
+  evidence, Training Centre argument binding, feature-cache identity/readback,
+  pre-resolution signal features, incomplete N/A schemas, an unbound macro
+  caller and the sparse-correlation regression. One bounded correction now
+  resolves the full calculation window, uses only digest-bound canonical peer
+  members, recursively validates relative evidence, binds feature reads to the
+  universe/settings/reference tuple, routes all affected callers and restores
+  complete fail-closed outputs. The complete affected 328-test product/UI set,
+  99 macro/regime tests, all five packaged workflows, Ruff, targeted mypy,
+  compile, byte-clean programme generation and diff hygiene pass. Complete the
+  checkpoint update, then freeze one replacement exact head for paired review
+  and fresh H-tier Linux, Windows and terminal evidence.
+
 ## Historical ISSUE-0017 product checkpoint
 
 - ISSUE-0016 PR #671 merged exact reviewed head

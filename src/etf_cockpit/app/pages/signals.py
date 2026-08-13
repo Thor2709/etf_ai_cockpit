@@ -28,6 +28,7 @@ def signals_page(_page: ft.Page, state: AppState) -> ft.Control:
         benchmark_data_id=reference_context.benchmark_data_id,
         benchmark_reference=reference_context.projection,
         reference_identity=reference_context.identity,
+        peer_member_ids=reference_context.peer_member_ids,
     )
     strong = sum(1 for score in scores if score.final_label == "strong_evidence_candidate")
     positive = sum(1 for score in scores if score.final_label == "positive_evidence_candidate")

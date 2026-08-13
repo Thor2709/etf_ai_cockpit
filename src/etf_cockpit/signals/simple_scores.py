@@ -665,6 +665,7 @@ def build_simple_instrument_scores(
     benchmark_data_id: str | None = None,
     benchmark_reference: Mapping[str, object] | None = None,
     reference_identity: Mapping[str, object] | None = None,
+    peer_member_ids: tuple[str, ...] | None = None,
 ) -> list[SimpleInstrumentScore]:
     if universe_revision is None:
         universe_revision = load_universe().revision
@@ -696,13 +697,15 @@ def build_simple_instrument_scores(
         candidate_report,
         benchmark_id=benchmark_data_id,
         benchmark_reference=benchmark_reference,
+        peer_member_ids=peer_member_ids,
     )
     portfolio_fit = build_portfolio_fit_lookup(
         prices,
         benchmark_id=benchmark_data_id,
         benchmark_reference=benchmark_reference,
+        peer_member_ids=peer_member_ids,
     )
-    metadata = {
+    metadata: dict[str, object] = {
         etf.id: {"sector": etf.sector, "theme": etf.theme}
         for etf in config.universe.etfs
         if etf.id in config.universe.enabled_ids
@@ -712,6 +715,7 @@ def build_simple_instrument_scores(
         benchmark_id=benchmark_data_id,
         metadata=metadata,
         benchmark_reference=benchmark_reference,
+        peer_member_ids=peer_member_ids,
     )
     # Cash comparisons are valid only when the application has resolved and
     # supplied the canonical cash evidence.  Never synthesize a local proxy

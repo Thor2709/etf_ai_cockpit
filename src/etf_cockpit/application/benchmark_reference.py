@@ -22,6 +22,7 @@ class CanonicalReferenceContext:
     registry: CanonicalBenchmarkRegistry
     resolution: AnalysisResolution | None
     blocker: str = "reference_resolution_unavailable"
+    instrument: Mapping[str, object] | None = None
 
     def __init__(
         self,
@@ -30,6 +31,7 @@ class CanonicalReferenceContext:
         legacy_projection: Mapping[str, object] | None = None,
         *,
         blocker: str | None = None,
+        instrument: Mapping[str, object] | None = None,
     ) -> None:
         """Store canonical state only; never retain a caller projection.
 
@@ -46,6 +48,7 @@ class CanonicalReferenceContext:
         object.__setattr__(self, "registry", registry)
         object.__setattr__(self, "resolution", resolution)
         object.__setattr__(self, "blocker", resolved_blocker)
+        object.__setattr__(self, "instrument", None if instrument is None else dict(instrument))
 
     @property
     def projection(self) -> dict[str, object]:
@@ -57,6 +60,15 @@ class CanonicalReferenceContext:
             projection = self.registry.ui_projection(self.resolution)
             projection["status"] = "available" if not self.resolution.blockers else "unavailable"
             projection["benchmark_data_id"] = self.benchmark_data_id
+            declaration = self.resolution.declaration
+            projection["analysis"] = {
+                "instrument_id": declaration.instrument_id,
+                "currency": declaration.currency,
+                "horizon_years": declaration.horizon_years,
+                "start_date": declaration.start_date,
+                "end_date": declaration.end_date,
+                "decision_time": declaration.decision_time,
+            }
             _assert_execution_disabled(projection)
             return json.loads(json.dumps(projection, sort_keys=True, default=str))
         except (BenchmarkReferenceError, TypeError, ValueError, KeyError):
@@ -93,6 +105,23 @@ class CanonicalReferenceContext:
     def identity_hash(self) -> str:
         payload = json.dumps(self.identity, sort_keys=True, separators=(",", ":"), allow_nan=False)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    @property
+    def peer_member_ids(self) -> tuple[str, ...] | None:
+        """Return members only from the exact digest-bound available peer set."""
+
+        resolution = self.resolution
+        if resolution is None or resolution.peer_set.status != "available":
+            return None
+        matches = [
+            item
+            for item in self.registry.peer_sets
+            if item.peer_set_id == resolution.peer_set.selected_id
+            and item.version == resolution.peer_set.version
+            and item.digest() == resolution.peer_set.content_hash
+            and item.status == "available"
+        ]
+        return matches[0].member_instrument_ids if len(matches) == 1 else None
 
     @property
     def benchmark_data_id(self) -> str | None:
@@ -167,7 +196,7 @@ def resolve_canonical_reference(
         or decision_time is None
     ):
         unavailable["blockers"] = ["reference_resolution_inputs_unavailable"]
-        return CanonicalReferenceContext(registry, None, blocker="reference_resolution_inputs_unavailable")
+        return CanonicalReferenceContext(registry, None, blocker="reference_resolution_inputs_unavailable", instrument=instrument)
     try:
         resolution = registry.resolve_analysis(
             analysis_id=analysis_id,
@@ -184,8 +213,8 @@ def resolve_canonical_reference(
         registry.ui_projection(resolution)
     except (BenchmarkReferenceError, TypeError, ValueError, KeyError) as exc:
         unavailable["blockers"] = [f"reference_resolution_invalid:{type(exc).__name__}"]
-        return CanonicalReferenceContext(registry, None, blocker=f"reference_resolution_invalid:{type(exc).__name__}")
-    return CanonicalReferenceContext(registry, resolution)
+        return CanonicalReferenceContext(registry, None, blocker=f"reference_resolution_invalid:{type(exc).__name__}", instrument=instrument)
+    return CanonicalReferenceContext(registry, resolution, instrument=instrument)
 
 
 def context_from_snapshot(

@@ -90,6 +90,7 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
         benchmark_data_id=reference_context.benchmark_data_id,
         benchmark_reference=reference_context.projection,
         reference_identity=reference_context.identity,
+        peer_member_ids=reference_context.peer_member_ids,
     )
     best = scores[0] if scores else None
     configured_count = sum(1 for score in scores if score.source_group == "Primary tier")
