@@ -133,7 +133,6 @@ def analyse_portfolio_candidate(
     vwce_conversion_evidence: Mapping[str, object] | None = None,
 ) -> PortfolioAnalysis:
     reference_registry = reference_registry if reference_registry is not None else getattr(snapshot, "benchmark_reference_registry", None)
-    reference_registry_supplied = reference_registry is not None
     if reference_registry is None:
         reference_registry = CanonicalBenchmarkRegistry()
     reference_instrument = reference_instrument if reference_instrument is not None else getattr(snapshot, "benchmark_reference_instrument", None)
@@ -224,8 +223,8 @@ def analyse_portfolio_candidate(
         registry_anchor_matches = sum(
             item.digest() == anchor_digest for item in reference_registry.vwce_anchors
         )
-        registry_anchor_bound = not reference_registry_supplied or registry_anchor_matches == 1
-        if reference_registry_supplied and not registry_anchor_bound and isinstance(benchmark_reference, dict):
+        registry_anchor_bound = registry_anchor_matches == 1
+        if not registry_anchor_bound and isinstance(benchmark_reference, dict):
             blockers = list(benchmark_reference.get("blockers", ()))
             blockers.append("vwce_anchor:registry_membership_unavailable")
             benchmark_reference["blockers"] = list(dict.fromkeys(blockers))
@@ -239,7 +238,7 @@ def analyse_portfolio_candidate(
             decision_time=reference_decision_time,
             conversion_evidence=vwce_conversion_evidence,
         )
-        if reference_registry_supplied and (
+        if (
             reference_resolution is None
             or reference_resolution.blockers
             or not registry_anchor_bound
@@ -254,6 +253,7 @@ def analyse_portfolio_candidate(
             {"analysis_id": candidate.candidate_id, "analysis_status": "available"},
             anchor_resolution,
             anchor=vwce_anchor,
+            registry=reference_registry,
             conversion_evidence=vwce_conversion_evidence,
         )
     else:
@@ -333,10 +333,13 @@ def _resolve_reference_evidence(
         )
     except (BenchmarkReferenceError, TypeError, ValueError) as exc:
         return unavailable(f"reference_resolution_invalid:{type(exc).__name__}")
-    projection = registry.ui_projection(
-        resolution,
-        selected_vwce_anchor_digest=selected_vwce_anchor_digest,
-    )
+    try:
+        projection = registry.ui_projection(
+            resolution,
+            selected_vwce_anchor_digest=selected_vwce_anchor_digest,
+        )
+    except BenchmarkReferenceError as exc:
+        return unavailable(f"reference_projection_invalid:{type(exc).__name__}")
     projection["status"] = "available" if not resolution.blockers else "unavailable"
     return projection, resolution
 

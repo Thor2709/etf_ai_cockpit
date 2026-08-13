@@ -6,12 +6,15 @@ from copy import deepcopy
 import pytest
 
 from etf_cockpit.portfolio.benchmark_reference_contract import (
+    AnalysisDeclaration,
+    AnalysisResolution,
     BenchmarkDefinition,
     BenchmarkReferenceError,
     CanonicalBenchmarkRegistry,
     CashProxyDefinition,
     PeerSetDefinition,
     ReferencePortfolioDefinition,
+    Selection,
     VwceAnchorEvidence,
     VwceListingObservation,
     VWCE_CANONICAL_SHARE_CLASS,
@@ -131,7 +134,15 @@ def test_mapping_is_shared_by_attribution_and_validation_and_exposes_read_only_u
 
 
 def test_ui_projection_binds_selected_records_and_full_registry_to_content_digests() -> None:
-    first = _registry()
+    anchor = _vwce()
+    base = _registry()
+    first = CanonicalBenchmarkRegistry(
+        benchmarks=base.benchmarks,
+        cash_proxies=base.cash_proxies,
+        peer_sets=base.peer_sets,
+        reference_portfolios=base.reference_portfolios,
+        vwce_anchors=(anchor,),
+    )
     second = _registry(benchmark=_benchmark(source_hashes=(HASH_B,)))
     arguments = {
         "analysis_id": "digest-analysis",
@@ -146,14 +157,19 @@ def test_ui_projection_binds_selected_records_and_full_registry_to_content_diges
         "reference_portfolio_ids": ("reference:equal_weight",),
     }
     first_projection = first.ui_projection(
-        first.resolve_analysis(**arguments), selected_vwce_anchor_digest=HASH_A,
+        first.resolve_analysis(**arguments), selected_vwce_anchor_digest=anchor.digest(),
     )
     second_projection = second.ui_projection(second.resolve_analysis(**arguments))
     assert first_projection["registry_hash"] != second_projection["registry_hash"]
     assert first_projection["benchmark"]["content_hash"] != second_projection["benchmark"]["content_hash"]
     assert first_projection["provenance"]["registry_hash"] == first_projection["registry_hash"]
-    assert first_projection["provenance"]["selected_vwce_anchor_digest"] == HASH_A
-    assert first_projection["selected_records"]["vwce_anchor"] == HASH_A
+    assert first_projection["provenance"]["selected_vwce_anchor_digest"] == anchor.digest()
+    assert first_projection["selected_records"]["vwce_anchor"] == anchor.digest()
+
+    with pytest.raises(BenchmarkReferenceError, match="uniquely bound"):
+        first.ui_projection(
+            first.resolve_analysis(**arguments), selected_vwce_anchor_digest=HASH_B,
+        )
 
 
 def test_specificity_is_deterministic_and_ties_are_ambiguous() -> None:
@@ -371,6 +387,18 @@ def test_vwce_listing_status_is_validated_directly_and_after_recomputed_hash() -
         CanonicalBenchmarkRegistry.validate_payload(tampered)
 
 
+def test_vwce_listing_source_hash_requires_an_actual_string() -> None:
+    class HashLike:
+        def lower(self) -> str:
+            return HASH_A
+
+    with pytest.raises(BenchmarkReferenceError, match="source_hash must be SHA-256"):
+        VwceListingObservation(
+            "listing:xetra", "VWCE", "XETR", "EUR",
+            "2020-01-01T00:00:00Z", "2024-01-02T00:00:00Z", HashLike(),  # type: ignore[arg-type]
+        )
+
+
 def test_vwce_observation_chronology_is_bound_to_anchor_authority() -> None:
     listing = VwceListingObservation(
         "listing:xetra", "VWCE", "XETR", "EUR",
@@ -495,7 +523,63 @@ def test_profile_projection_rejects_incomplete_manual_available_resolution() -> 
     )
     assert projection["profile_relative_claims_allowed"] is False
     assert projection["profile_relative_status"] == "unavailable"
-    assert projection["anchor_reason"] == "anchor_resolution_incomplete"
+    assert projection["anchor_reason"] == "registry_anchor_membership_unavailable"
+
+
+def test_selection_and_analysis_resolution_reject_execution_authority() -> None:
+    with pytest.raises(BenchmarkReferenceError, match="selection cannot grant"):
+        Selection("benchmark", "available", "benchmark:x", "1.0.0", None, execution_allowed=True)  # type: ignore[arg-type]
+
+    declaration = AnalysisDeclaration(
+        "analysis", "comparison", "ETF-1", "AUD", 1.0,
+        "2024-02-01", "2025-02-01", "2024-02-02T00:00:00Z",
+        "benchmark:x", "cash:x", None, ("reference:x",),
+    )
+    available = Selection("benchmark", "available", "benchmark:x", "1.0.0", None)
+    cash = Selection("cash", "available", "cash:x", "1.0.0", None)
+    peer = Selection("peer", "unavailable", None, None, "unavailable")
+    with pytest.raises(BenchmarkReferenceError, match="resolution cannot grant"):
+        AnalysisResolution(declaration, available, cash, peer, (), (), True)  # type: ignore[arg-type]
+
+    object.__setattr__(available, "execution_allowed", True)
+    with pytest.raises(BenchmarkReferenceError, match="contains execution authority"):
+        AnalysisResolution(declaration, available, cash, peer, (), ())
+
+
+def test_profile_projection_rejects_nested_raw_execution_authority_and_keeps_safe_projection_recursive() -> None:
+    anchor = _vwce()
+    registry = CanonicalBenchmarkRegistry(vwce_anchors=(anchor,))
+    resolution = resolve_vwce_anchor(
+        anchor, listing_id="listing:xetra", effective_date="2024-02-01",
+        decision_time="2024-02-02T00:00:00Z", currency="EUR", horizon_years=1.0,
+    )
+    with pytest.raises(BenchmarkReferenceError, match="execution authority"):
+        project_profile_relative_analysis(
+            {"nested": {"execution_allowed": True}},
+            resolution,
+            anchor=anchor,
+            registry=registry,
+        )
+
+    projected = project_profile_relative_analysis(
+        {"nested": {"execution_allowed": False}},
+        resolution,
+        anchor=anchor,
+        registry=registry,
+    )
+
+    def assert_disabled(value: object) -> None:
+        if isinstance(value, dict):
+            if "execution_allowed" in value:
+                assert value["execution_allowed"] is False
+            for item in value.values():
+                assert_disabled(item)
+        elif isinstance(value, list):
+            for item in value:
+                assert_disabled(item)
+
+    assert projected["profile_relative_claims_allowed"] is True
+    assert_disabled(projected)
 
 
 def test_vwce_listing_observations_replay_historical_and_latest_versions() -> None:
@@ -790,3 +874,48 @@ def test_reference_selection_requires_currency_horizon_and_date_coverage() -> No
     )
     assert late.references == ()
     assert late.blockers == (f"reference:unavailable:{reference.portfolio_id}",)
+
+
+@pytest.mark.parametrize(
+    "newer_updates",
+    (
+        {"currency": "EUR"},
+        {"minimum_horizon_years": 2.0, "maximum_horizon_years": 10.0},
+        {"start_date": "2024-06-01", "end_date": "2030-01-01"},
+    ),
+    ids=("currency", "horizon", "coverage"),
+)
+def test_newest_pit_reference_version_blocks_without_falling_back_to_aligned_older_version(
+    newer_updates: dict[str, object],
+) -> None:
+    older = next(
+        item for item in _registry().reference_portfolios
+        if item.portfolio_id == "reference:equal_weight"
+    )
+    newer = replace(
+        older,
+        version="2.0.0",
+        effective_at="2024-01-15T00:00:00Z",
+        known_at="2024-01-16T00:00:00Z",
+        **newer_updates,
+    )
+    registry = CanonicalBenchmarkRegistry(
+        benchmarks=(_benchmark(),),
+        cash_proxies=(_cash(),),
+        peer_sets=(_peer(),),
+        reference_portfolios=(older, newer),
+    )
+    resolution = registry.resolve_analysis(
+        analysis_id="authoritative-reference",
+        purpose="comparison",
+        instrument_id="ETF-1",
+        instrument=INSTRUMENT,
+        currency="AUD",
+        horizon_years=1.0,
+        start_date="2024-02-01",
+        end_date="2025-02-01",
+        decision_time="2024-02-02T00:00:00Z",
+        reference_portfolio_ids=("reference:equal_weight",),
+    )
+    assert resolution.references == ()
+    assert resolution.blockers == ("reference:unavailable:reference:equal_weight",)

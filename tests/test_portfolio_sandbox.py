@@ -260,18 +260,22 @@ def test_analysis_facade_applies_vwce_profile_alignment_without_changing_raw_ana
         maximum_horizon_years=10.0,
     )
     arguments = {
+        "reference_instrument": {"asset_class": "equity"},
         "reference_horizon_years": 1.0,
         "reference_start_date": "2024-02-01",
         "reference_end_date": "2025-02-01",
         "reference_decision_time": "2024-02-02T00:00:00Z",
+        "reference_portfolio_ids": ("reference:equal_weight",),
         "vwce_anchor": anchor,
         "vwce_listing_id": "listing:xetra",
     }
     aligned = analyse_portfolio_candidate(
-        snapshot, candidate, reference_currency="EUR", **arguments,
+        snapshot, candidate, reference_currency="EUR",
+        reference_registry=_canonical_reference_registry(anchor), **arguments,
     )
     misaligned = analyse_portfolio_candidate(
-        snapshot, candidate, reference_currency="AUD", **arguments,
+        snapshot, candidate, reference_currency="AUD",
+        reference_registry=_canonical_reference_registry(anchor), **arguments,
     )
     conversion = {
         "from_currency": "EUR", "to_currency": "AUD",
@@ -283,7 +287,6 @@ def test_analysis_facade_applies_vwce_profile_alignment_without_changing_raw_ana
         candidate,
         reference_currency="AUD",
         reference_registry=CanonicalBenchmarkRegistry(),
-        reference_portfolio_ids=("reference:missing",),
         vwce_conversion_evidence=conversion,
         **arguments,
     )
@@ -291,6 +294,7 @@ def test_analysis_facade_applies_vwce_profile_alignment_without_changing_raw_ana
         snapshot,
         candidate,
         reference_currency="AUD",
+        reference_registry=_canonical_reference_registry(anchor, currency="AUD"),
         vwce_conversion_evidence=conversion,
         **arguments,
     )
@@ -333,11 +337,14 @@ def test_default_production_and_persistence_paths_consume_snapshot_reference_evi
         minimum_horizon_years=0.1, maximum_horizon_years=10.0,
     )
     snapshot.vwce_listing_id = "listing:xetra"
+    snapshot.benchmark_reference_registry = _canonical_reference_registry(snapshot.vwce_anchor_evidence)
+    snapshot.benchmark_reference_instrument = {"asset_class": "equity"}
     snapshot.benchmark_reference_currency = "EUR"
     snapshot.benchmark_reference_horizon_years = 1.0
     snapshot.benchmark_reference_start_date = "2024-02-01"
     snapshot.benchmark_reference_end_date = "2025-02-01"
     snapshot.benchmark_reference_decision_time = "2024-02-02T00:00:00Z"
+    snapshot.benchmark_reference_portfolio_ids = ("reference:equal_weight",)
     candidate = _candidate(snapshot)
 
     direct = analyse_portfolio_candidate(snapshot, candidate)

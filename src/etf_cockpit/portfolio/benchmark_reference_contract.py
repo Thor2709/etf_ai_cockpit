@@ -525,7 +525,7 @@ class VwceListingObservation:
             raise BenchmarkReferenceError("listing currency must be an ISO-4217 code")
         if _timestamp(self.effective_at, "effective_at") > _timestamp(self.known_at, "known_at"):
             raise BenchmarkReferenceError("listing effective_at cannot be after known_at")
-        if _SHA256.fullmatch(self.source_hash.lower()) is None:
+        if not isinstance(self.source_hash, str) or _SHA256.fullmatch(self.source_hash.lower()) is None:
             raise BenchmarkReferenceError("listing source_hash must be SHA-256")
         if self.status not in {"available", "stale", "unavailable"}:
             raise BenchmarkReferenceError("listing status is unsupported")
@@ -684,6 +684,14 @@ class Selection:
     specificity: int | None = None
     execution_allowed: Literal[False] = False
 
+    def __post_init__(self) -> None:
+        if self.kind not in {"benchmark", "cash", "peer"}:
+            raise BenchmarkReferenceError("selection kind is unsupported")
+        if self.status not in {"available", "unavailable", "ambiguous"}:
+            raise BenchmarkReferenceError("selection status is unsupported")
+        if self.execution_allowed is not False:
+            raise BenchmarkReferenceError("selection cannot grant execution authority")
+
     @property
     def display_name(self) -> str:
         return self.selected_id if self.status == "available" and self.selected_id else "N/A"
@@ -737,6 +745,12 @@ class AnalysisResolution:
     blockers: tuple[str, ...]
     execution_allowed: Literal[False] = False
 
+    def __post_init__(self) -> None:
+        if self.execution_allowed is not False:
+            raise BenchmarkReferenceError("analysis resolution cannot grant execution authority")
+        nested = (self.declaration, self.benchmark, self.cash, self.peer_set, *self.references)
+        if any(getattr(item, "execution_allowed", None) is not False for item in nested):
+            raise BenchmarkReferenceError("analysis resolution contains execution authority")
 
 _CanonicalRecord = (
     BenchmarkDefinition
@@ -997,6 +1011,13 @@ class CanonicalBenchmarkRegistry:
         """Return a read-only comparison projection with explicit blockers."""
 
         registry_hash = str(self.as_payload()["registry_hash"])
+        if selected_vwce_anchor_digest is not None:
+            anchor_matches = sum(
+                anchor.digest() == selected_vwce_anchor_digest
+                for anchor in self.vwce_anchors
+            )
+            if anchor_matches != 1:
+                raise BenchmarkReferenceError("selected VWCE anchor is not uniquely bound to registry")
 
         def definition(kind: str, selected_id: str | None, version: str | None) -> _HasCanonicalDigest | None:
             if selected_id is None:
@@ -1194,19 +1215,29 @@ class CanonicalBenchmarkRegistry:
             if item.portfolio_id == reference_id
             and _timestamp(item.effective_at, "effective_at") <= effective_cutoff
             and _timestamp(item.known_at, "known_at") <= cutoff_time
-            and item.currency == currency
-            and item.minimum_horizon_years is not None
-            and item.maximum_horizon_years is not None
-            and item.minimum_horizon_years <= horizon <= item.maximum_horizon_years
-            and item.start_date is not None
-            and item.end_date is not None
-            and _date(item.start_date, "start_date") <= _date(start, "start_date")
-            and _date(item.end_date, "end_date") >= _date(end, "end_date")
         ]
         if not matches:
             raise BenchmarkReferenceError(f"reference portfolio is unavailable: {reference_id}")
-        matches.sort(key=lambda item: (_timestamp(item.effective_at, "effective_at"), _version_sort_key(item.version)), reverse=True)
-        return matches[0]
+        matches.sort(
+            key=lambda item: (
+                _timestamp(item.effective_at, "effective_at"),
+                _version_sort_key(item.version),
+            ),
+            reverse=True,
+        )
+        authoritative = matches[0]
+        if (
+            authoritative.currency != currency
+            or authoritative.minimum_horizon_years is None
+            or authoritative.maximum_horizon_years is None
+            or not authoritative.minimum_horizon_years <= horizon <= authoritative.maximum_horizon_years
+            or authoritative.start_date is None
+            or authoritative.end_date is None
+            or _date(authoritative.start_date, "start_date") > _date(start, "start_date")
+            or _date(authoritative.end_date, "end_date") < _date(end, "end_date")
+        ):
+            raise BenchmarkReferenceError(f"reference portfolio is unavailable: {reference_id}")
+        return authoritative
 
 
 def _validate_period(currency: str, horizon: float, start: str, end: str, cutoff: str) -> None:
@@ -1448,18 +1479,29 @@ def project_profile_relative_analysis(
     anchor_resolution: VwceAnchorResolution,
     *,
     anchor: VwceAnchorEvidence | None = None,
+    registry: CanonicalBenchmarkRegistry | None = None,
     conversion_evidence: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Block only profile-relative claims when the VWCE anchor is unavailable."""
 
-    complete_available = _complete_available_anchor_resolution(
+    _assert_no_execution(raw_analysis)
+    registry_anchor_bound = (
+        anchor is not None
+        and registry is not None
+        and sum(item.digest() == anchor.digest() for item in registry.vwce_anchors) == 1
+    )
+    complete_available = registry_anchor_bound and _complete_available_anchor_resolution(
         anchor_resolution,
         anchor=anchor,
         conversion_evidence=conversion_evidence,
     )
     projected_status = "available" if complete_available else "unavailable"
     projected_reason = anchor_resolution.reason if anchor_resolution.reason else (
-        None if complete_available else "anchor_resolution_incomplete"
+        None if complete_available else (
+            "registry_anchor_membership_unavailable"
+            if not registry_anchor_bound
+            else "anchor_resolution_incomplete"
+        )
     )
     anchor_projection = {
         "status": projected_status,
@@ -1488,6 +1530,7 @@ def project_profile_relative_analysis(
         "blockers": [] if complete_available else ["vwce_anchor_unavailable"],
         "execution_allowed": False,
     }
+    _assert_no_execution(result)
     return result
 
 
