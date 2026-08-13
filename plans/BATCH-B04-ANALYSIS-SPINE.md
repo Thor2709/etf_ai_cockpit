@@ -3855,3 +3855,20 @@ exact main `c546f1dd4b2c01356c7164fafa18bab065efa2d1`. Record only the aggregate
 ISSUE-0051 replay `in_progress -> implemented_initially -> integrated` against
 product PR #682 with two independently legal hops, identical product/review
 evidence, one proposal/receipt and no dependency-edge or product change.
+
+`INTEGRATED` ISSUE-0051 completion PR #685 merged exact reviewed head
+`381c7d013c4e8e326eb3ee68ac5f39adef60bcc3` as
+`e5c70f7f08665f5b041e4a20614061ee9f8a85b8`. Cadence run `31652457420`
+attempt 2 passed Linux, Windows and terminal validation. Writer run
+`31666997864` applied exactly the two ordered hops with one aggregate proposal
+and receipt, two writes, complete reconciliation and zero-action readback;
+`execution_allowed=false` remains unchanged.
+
+`IN_PROGRESS` clean branch `codex/issue0059-integration-20260813` starts from
+exact main `e5c70f7f08665f5b041e4a20614061ee9f8a85b8`. Integrate only ISSUE-0059
+using reviewed product PR #574 head `37ef3fc9e18c682408ecc079fc65e85426ccee7e`,
+merge `80c63200e733fada6ae2d76ac67feb776f281c38` and exact protected evidence
+from release run `30338519123`, status guard `30338519047` and supply-chain run
+`30338519237`. Do not change product code or dependency edges. Require focused
+E-tier validation, exact-head review, ordered writer and generic zero-action
+readback before the separate ISSUE-0112 dependency-edge transaction.

@@ -9,9 +9,9 @@ This file is generated from `issues/issue_registry.json`; it contains no wall-cl
 | `blocked` | 1 |
 | `closed` | 17 |
 | `hardening_required` | 4 |
-| `implemented_initially` | 52 |
+| `implemented_initially` | 51 |
 | `in_progress` | 4 |
-| `integrated` | 69 |
+| `integrated` | 70 |
 | `planned` | 53 |
 | `research_only` | 2 |
 

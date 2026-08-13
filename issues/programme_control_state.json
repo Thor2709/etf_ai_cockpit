@@ -1344,17 +1344,45 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0059": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #574 merged exact reviewed head 37ef3fc9e18c682408ecc079fc65e85426ccee7e as 80c63200e733fada6ae2d76ac67feb776f281c38",
+            "Release run 30338519123 passed authoritative Linux and Windows package gates; status guard run 30338519047 and supply-chain run 30338519237 also passed",
+            "Acceptance evidence verifies point-in-time chronology start_at < end_at <= effective_at <= known_at, common measurement currency, factor/sector/country/currency/residual attribution and reconciliation while execution_allowed=false"
+          ],
+          "review_reference": "PR #574 exact-head review and H-tier validation",
+          "reviewed_date": "2026-08-13",
+          "reviewer": "Codex independent whole-diff reviewer and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "PR #574 exact-head review and H-tier validation",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #574 merged exact reviewed head 37ef3fc9e18c682408ecc079fc65e85426ccee7e as 80c63200e733fada6ae2d76ac67feb776f281c38",
+            "Release run 30338519123 passed authoritative Linux and Windows package gates; status guard run 30338519047 and supply-chain run 30338519237 also passed",
+            "Acceptance evidence verifies point-in-time chronology start_at < end_at <= effective_at <= known_at, common measurement currency, factor/sector/country/currency/residual attribution and reconciliation while execution_allowed=false"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #574 exact-head review and H-tier validation",
+          "reviewed_date": "2026-08-13",
+          "reviewer": "Codex independent whole-diff reviewer and root orchestrator",
+          "to": "integrated",
+          "verified_commit": "37ef3fc9e18c682408ecc079fc65e85426ccee7e"
+        }
+      ],
+      "verified_commit": "37ef3fc9e18c682408ecc079fc65e85426ccee7e",
+      "verified_date": "2026-08-13"
     },
     "ISSUE-0060": {
       "acceptance_evidence": [],
