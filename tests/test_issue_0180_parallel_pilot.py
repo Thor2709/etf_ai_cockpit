@@ -711,6 +711,129 @@ def test_cross_platform_aggregation_accepts_only_known_pid_outcome_difference(tm
     assert report["status"] == "passed"
 
 
+@pytest.mark.parametrize(
+    ("known", "expected_lanes"),
+    (
+        (
+            "tests/test_onboarding.py::test_group_publish_revalidates_destination_identity_after_guard_precondition",
+            ("full_serial", "candidate_safe", "candidate_combined"),
+        ),
+        (
+            "tests/test_universe_store.py::test_junction_swap_before_atomic_resolution_fails_closed[migration]",
+            ("full_serial", "candidate_unsafe", "candidate_combined"),
+        ),
+        (
+            "tests/test_universe_store.py::test_junction_swap_before_atomic_resolution_fails_closed[save]",
+            ("full_serial", "candidate_unsafe", "candidate_combined"),
+        ),
+    ),
+)
+def test_cross_platform_aggregation_accepts_windows_junction_tests(
+    tmp_path: Path,
+    known: str,
+    expected_lanes: tuple[str, ...],
+) -> None:
+    linux = _pilot_report()
+    windows = _pilot_report()
+    for payload, outcome in ((linux, "skipped"), (windows, "passed")):
+        for lane_name, lane in payload["lanes"].items():
+            if lane_name not in expected_lanes:
+                continue
+            for index, current_nodeids in enumerate(lane["executed_nodeids"]):
+                nodeids = list(current_nodeids)
+                old_nodeid = nodeids[0]
+                nodeids[0] = known
+                nodeids.sort()
+                outcomes = {
+                    nodeid: value
+                    for nodeid, value in lane["result_outcomes"][index].items()
+                    if nodeid != old_nodeid
+                }
+                outcomes[known] = outcome
+                lane["executed_nodeids"][index] = nodeids
+                lane["result_outcomes"][index] = outcomes
+                lane["collection_fingerprints"][index] = hashlib.sha256(
+                    json.dumps(nodeids, separators=(",", ":")).encode("utf-8")
+                ).hexdigest()
+                lane["result_fingerprints"][index] = hashlib.sha256(
+                    json.dumps(outcomes, sort_keys=True, separators=(",", ":")).encode(
+                        "utf-8"
+                    )
+                ).hexdigest()
+            payload["lane_fingerprints"][lane_name]["collection"] = lane[
+                "collection_fingerprints"
+            ]
+            payload["lane_fingerprints"][lane_name]["results"] = lane[
+                "result_fingerprints"
+            ]
+    linux_path = tmp_path / "linux.json"
+    windows_path = tmp_path / "windows.json"
+    _write_platform_reports(
+        linux_path,
+        windows_path,
+        linux_report=linux,
+        windows_report=windows,
+    )
+
+    report = aggregate_parallel_pilot.compare_reports(linux_path, windows_path)
+
+    assert report["status"] == "passed"
+
+
+def test_cross_platform_aggregation_rejects_windows_junction_test_in_wrong_lane(
+    tmp_path: Path,
+) -> None:
+    linux = _pilot_report()
+    windows = _pilot_report()
+    known = (
+        "tests/test_universe_store.py::"
+        "test_junction_swap_before_atomic_resolution_fails_closed[save]"
+    )
+    for payload, outcome in ((linux, "skipped"), (windows, "passed")):
+        lane = payload["lanes"]["candidate_safe"]
+        nodeids = list(lane["executed_nodeids"][0])
+        old_nodeid = nodeids[0]
+        nodeids[0] = known
+        nodeids.sort()
+        outcomes = {
+            nodeid: value
+            for nodeid, value in lane["result_outcomes"][0].items()
+            if nodeid != old_nodeid
+        }
+        outcomes[known] = outcome
+        lane["executed_nodeids"][0] = nodeids
+        lane["result_outcomes"][0] = outcomes
+        lane["collection_fingerprints"][0] = hashlib.sha256(
+            json.dumps(nodeids, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        lane["result_fingerprints"][0] = hashlib.sha256(
+            json.dumps(outcomes, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        payload["lane_fingerprints"]["candidate_safe"]["collection"] = lane[
+            "collection_fingerprints"
+        ]
+        payload["lane_fingerprints"]["candidate_safe"]["results"] = lane[
+            "result_fingerprints"
+        ]
+    linux_path = tmp_path / "linux.json"
+    windows_path = tmp_path / "windows.json"
+    _write_platform_reports(
+        linux_path,
+        windows_path,
+        linux_report=linux,
+        windows_report=windows,
+    )
+
+    report = aggregate_parallel_pilot.compare_reports(linux_path, windows_path)
+
+    assert report["status"] == "divergent"
+    assert report["differences"]["candidate_safe.result_outcomes[0]"] == {
+        known: {"linux": "skipped", "windows": "passed"}
+    }
+
+
 def test_cross_platform_aggregation_accepts_only_known_posix_memory_limit_difference(
     tmp_path: Path,
 ) -> None:

@@ -40,6 +40,23 @@ _KNOWN_PLATFORM_OUTCOMES = {
     "tests/test_pid_liveness.py::test_windows_pid_probe_detects_exited_child_before_popen_handle_closes",
     "tests/test_pid_liveness.py::test_windows_pid_probe_does_not_terminate_a_child_process",
 }
+_WINDOWS_JUNCTION_OUTCOMES = {
+    "tests/test_onboarding.py::test_group_publish_revalidates_destination_identity_after_guard_precondition": {
+        "full_serial",
+        "candidate_safe",
+        "candidate_combined",
+    },
+    "tests/test_universe_store.py::test_junction_swap_before_atomic_resolution_fails_closed[migration]": {
+        "full_serial",
+        "candidate_unsafe",
+        "candidate_combined",
+    },
+    "tests/test_universe_store.py::test_junction_swap_before_atomic_resolution_fails_closed[save]": {
+        "full_serial",
+        "candidate_unsafe",
+        "candidate_combined",
+    },
+}
 _KNOWN_PLATFORM_LANES = {"full_serial", "candidate_safe", "candidate_combined"}
 _POSIX_MEMORY_LIMIT_NODEID = (
     "tests/test_etf_report_parser.py::"
@@ -87,12 +104,16 @@ def _platform_outcome_is_allowed(
         and nodeid in _KNOWN_PLATFORM_OUTCOMES
         and (linux, windows) == ("skipped", "passed")
     )
+    known_windows_junction = (
+        lane in _WINDOWS_JUNCTION_OUTCOMES.get(nodeid, set())
+        and (linux, windows) == ("skipped", "passed")
+    )
     known_posix_memory_limit = (
         lane in _POSIX_MEMORY_LIMIT_LANES
         and nodeid == _POSIX_MEMORY_LIMIT_NODEID
         and (linux, windows) == ("passed", "skipped")
     )
-    return known_windows_probe or known_posix_memory_limit
+    return known_windows_probe or known_windows_junction or known_posix_memory_limit
 
 
 def _percentile(values: list[float], percentile: float) -> float:

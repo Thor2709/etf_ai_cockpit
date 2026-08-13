@@ -277,6 +277,16 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   adds the noon-cutoff regression and removes only the two whitespace defects.
   Focused backtest/attribution tests, the exact hosted changed-test selection and
   all five packaged workflows pass with static, programme and diff checks clean.
+- Frozen product head `ecff814fd07ae187196b5bc5e22f0e310dbb0a28` passed both
+  independent exact-head reviews and every Linux, Windows, terminal, release and
+  platform-pilot job in H-tier run `31733243156`. The final cross-platform
+  aggregation alone failed because three tests that explicitly require Windows
+  directory junctions were not in its exact platform-outcome contract. The one
+  bounded correction permits only those three node IDs to be skipped on Linux
+  and pass on Windows, adds exact lane regressions, and replays the successful
+  hosted artifacts to `passed` with no differences. Product semantics and
+  `execution_allowed=false` are unchanged. Freeze one corrected head for paired
+  exact review and fresh H-tier evidence; no adjacent pilot or CI redesign.
 
 ## Historical ISSUE-0017 product checkpoint
 

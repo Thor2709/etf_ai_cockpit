@@ -4173,3 +4173,13 @@ whole-diff whitespace gate. Scope all backtest prices through the shared exact
 decision-window helper, add the noon-cutoff regression and remove only those
 whitespace defects. Focused and exact changed-test/package evidence plus static,
 programme and diff checks pass; freeze one replacement head for final review/H.
+
+`PILOT REPAIR` frozen product head `ecff814fd07ae187196b5bc5e22f0e310dbb0a28`
+passed both independent reviews and every platform/release/terminal job in run
+`31733243156`; only cross-platform aggregation failed. Its report contained the
+three tests that explicitly require Windows directory junctions as Linux skipped
+and Windows passed. Add only those exact node IDs to the existing platform
+outcome contract and cover their actual lanes. Focused tests and replay of the
+successful hosted pilot artifacts pass with zero differences. Product behavior,
+authority and `execution_allowed=false` remain unchanged; require one corrected
+exact head, paired review and fresh H-tier evidence.
