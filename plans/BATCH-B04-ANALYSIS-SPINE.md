@@ -3888,3 +3888,25 @@ ISSUE-0059 in the existing atomic same-consumer edge transaction. Do not
 change ISSUE-0112 lifecycle status or product code. Require generated
 projections, focused E-tier guards and exact-head review before the separate
 ISSUE-0112 product lane.
+
+`MERGED` ISSUE-0112 dependency PR #687 preserved exact reviewed head
+`9816f420a650f64c6c0fbc24f2b7f9720fe8b124` as
+`79d4110f39a0aa903a0df361316befcaaff782eb`. Run `31673015385` passed Linux,
+Windows, terminal validation and the status guard. ISSUE-0112 is dependency-
+ready, remains `planned`, generic reconciliation is zero action and
+`execution_allowed=false` remains unchanged.
+
+`IN_PROGRESS` clean product branch `codex/issue0112-product-review-20260813`
+starts from exact main `79d4110f39a0aa903a0df361316befcaaff782eb`. Product commit
+`5e8a82153a095c70a2dc3457c60e3891092c6226` implements the bounded canonical
+benchmark hierarchy, cash proxy, peer set, equal-weight/maximum-diversification/
+no-trade reference portfolios and ISIN-bound VWCE anchor with explicit PIT,
+version, source-hash, unavailable and UI projection semantics. Focused and
+adjacent evidence reports 166 passing tests with Ruff, mypy, compile, programme
+check and diff hygiene green. A read-only live lifecycle preparation reproduced
+the existing guard requirement that the reviewed product commit must be an
+ancestor of the PR base; the rejected candidate remains isolated and will not
+be published. Freeze this product-only lane for paired exact-head review and
+fresh H-tier Linux/Windows/terminal evidence. After merge, execute the legal
+one-hop start and aggregate two-hop completion with ordered-writer and generic
+zero-action readback, without changing product code or execution authority.

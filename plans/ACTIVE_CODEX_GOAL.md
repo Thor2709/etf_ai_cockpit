@@ -13,7 +13,46 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
-## Current ISSUE-0017 product checkpoint
+## Current ISSUE-0112 product checkpoint (supersedes older checkpoints below)
+
+- ISSUE-0059 integration PR #686 merged exact reviewed head
+  `560e68511eb228d831f9c31e0babdafa26c0a57e` as
+  `87b05852121ff6ecdd1c9b1b8ae5ed423875523c`; writer run `31672396480`
+  completed with full reconciliation, zero-action readback and
+  `execution_allowed=false`.
+- ISSUE-0112 dependency PR #687 merged exact reviewed head
+  `9816f420a650f64c6c0fbc24f2b7f9720fe8b124` as exact main
+  `79d4110f39a0aa903a0df361316befcaaff782eb`. Run `31673015385` passed
+  Linux, Windows, terminal validation and the status guard. Only the ISSUE-0051
+  and ISSUE-0059 dependency edges changed; ISSUE-0112 remained `planned` and
+  generic reconciliation was zero action.
+- Clean product lane
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0112_product_review`,
+  branch `codex/issue0112-product-review-20260813`, starts from that exact base.
+  Product commit `5e8a82153a095c70a2dc3457c60e3891092c6226` adds only the canonical
+  benchmark, cash, peer, reference-portfolio and VWCE-anchor contract plus its
+  focused tests.
+- Focused ISSUE-0112 and adjacent cash, attribution, peer-cohort and optimiser
+  evidence reports 166 passing tests. Ruff, mypy, compile, diff hygiene and
+  programme check mode pass. The final product diff classifies H because it
+  establishes protected financial and point-in-time comparison semantics.
+- A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
+  prepared read-only, then rejected before publication by the existing guard:
+  the reviewed product commit is not an ancestor of the PR base. The invalid
+  control commits remain isolated on local branch
+  `codex/issue0112-product-20260813`; they must not be pushed or merged. Do not
+  redesign the authority contract. Freeze this product-only lane for paired
+  exact-head review and fresh H-tier Linux, Windows and terminal validation.
+- Before merge, require exact product evidence and the existing lifecycle
+  automation/readback tests. After merge, prepare the legal status authority
+  from the new exact main, apply only ISSUE-0112 `planned -> in_progress`,
+  require the ordered writer and generic zero-action readback, then immediately
+  execute the existing aggregate `in_progress -> implemented_initially ->
+  integrated` completion bound to the same reviewed product commit and
+  evidence. Preserve all dependency, external authority and
+  `execution_allowed=false` boundaries.
+
+## Historical ISSUE-0017 product checkpoint
 
 - ISSUE-0016 PR #671 merged exact reviewed head
   `89fb083f9c0244e376b39d85ccea5d96379377b1` as exact main
