@@ -186,6 +186,48 @@ def test_analysis_facade_applies_vwce_profile_alignment_without_changing_raw_ana
     assert aligned.execution_allowed is misaligned.execution_allowed is False
 
 
+def test_default_production_and_persistence_paths_consume_snapshot_reference_evidence(tmp_path) -> None:
+    snapshot = _snapshot()
+    listing = VwceListingObservation(
+        "listing:xetra", "VWCE", "XETR", "EUR",
+        "2020-01-01T00:00:00Z", "2024-01-02T00:00:00Z", "a" * 64,
+    )
+    snapshot.vwce_anchor_evidence = VwceAnchorEvidence(
+        canonical_isin=VWCE_CANONICAL_ISIN,
+        canonical_share_class_id=VWCE_CANONICAL_SHARE_CLASS,
+        official_facts_as_of="2024-01-01", benchmark_name="FTSE All-World",
+        benchmark_as_of="2024-01-01", fees={"ongoing_charges": "fixture"},
+        fees_as_of="2024-01-01", tracking={"tracking_difference": "fixture"},
+        tracking_as_of="2024-01-01",
+        product_risk_indicator={"version": "priips-2.0"},
+        risk_indicator_as_of="2024-01-01", currency="USD",
+        source_hashes=("a" * 64,), listing_observations=(listing,),
+        effective_at="2020-01-01T00:00:00Z", known_at="2024-01-02T00:00:00Z",
+        minimum_horizon_years=0.1, maximum_horizon_years=10.0,
+    )
+    snapshot.vwce_listing_id = "listing:xetra"
+    snapshot.benchmark_reference_currency = "EUR"
+    snapshot.benchmark_reference_horizon_years = 1.0
+    snapshot.benchmark_reference_start_date = "2024-02-01"
+    snapshot.benchmark_reference_end_date = "2025-02-01"
+    snapshot.benchmark_reference_decision_time = "2024-02-02T00:00:00Z"
+    candidate = _candidate(snapshot)
+
+    direct = analyse_portfolio_candidate(snapshot, candidate)
+    saved = save_portfolio_candidate(
+        snapshot, name="Reference persisted", analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.6, "LYP6": 0.3}, cash_weight=0.1,
+        expected_revision=0, root=tmp_path,
+    )
+    loaded = load_portfolio_candidate(snapshot, "Reference persisted", root=tmp_path)
+
+    assert direct.service_evidence["profile_relative"]["profile_relative_claims_allowed"] is True
+    assert saved.result_payload is not None
+    assert loaded.result_payload is not None
+    assert saved.result_payload["service_evidence"]["profile_relative"] == loaded.result_payload["service_evidence"]["profile_relative"]
+    assert loaded.result_payload["service_evidence"]["profile_relative"]["execution_allowed"] is False
+
+
 def test_candidate_overlap_excludes_evidence_known_after_snapshot_as_of(monkeypatch) -> None:
     evidence = pd.DataFrame(
         [

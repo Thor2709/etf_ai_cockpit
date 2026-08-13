@@ -132,6 +132,18 @@ def analyse_portfolio_candidate(
     vwce_listing_id: str | None = None,
     vwce_conversion_evidence: Mapping[str, object] | None = None,
 ) -> PortfolioAnalysis:
+    reference_registry = reference_registry or getattr(snapshot, "benchmark_reference_registry", None)
+    reference_instrument = reference_instrument or getattr(snapshot, "benchmark_reference_instrument", None)
+    reference_currency = reference_currency or getattr(snapshot, "benchmark_reference_currency", None)
+    reference_horizon_years = reference_horizon_years if reference_horizon_years is not None else getattr(snapshot, "benchmark_reference_horizon_years", None)
+    reference_start_date = reference_start_date or getattr(snapshot, "benchmark_reference_start_date", None)
+    reference_end_date = reference_end_date or getattr(snapshot, "benchmark_reference_end_date", None)
+    reference_decision_time = reference_decision_time or getattr(snapshot, "benchmark_reference_decision_time", None)
+    if not reference_portfolio_ids:
+        reference_portfolio_ids = tuple(getattr(snapshot, "benchmark_reference_portfolio_ids", ()))
+    vwce_anchor = vwce_anchor or getattr(snapshot, "vwce_anchor_evidence", None)
+    vwce_listing_id = vwce_listing_id or getattr(snapshot, "vwce_listing_id", None)
+    vwce_conversion_evidence = vwce_conversion_evidence or getattr(snapshot, "vwce_conversion_evidence", None)
     holdings = select_holdings_view(getattr(snapshot, "holdings"), holdings_view)
     binding = portfolio_snapshot_binding(
         snapshot,
@@ -218,6 +230,8 @@ def analyse_portfolio_candidate(
         services["profile_relative"] = project_profile_relative_analysis(
             {"analysis_id": candidate.candidate_id, "analysis_status": "available"},
             anchor_resolution,
+            anchor=vwce_anchor,
+            conversion_evidence=vwce_conversion_evidence,
         )
     return replace(analysis, snapshot_binding=binding, service_evidence=services)
 

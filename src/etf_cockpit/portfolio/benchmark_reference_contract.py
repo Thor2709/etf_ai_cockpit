@@ -566,8 +566,9 @@ class VwceAnchorEvidence:
             raise BenchmarkReferenceError("tracking evidence is required")
         if not isinstance(self.product_risk_indicator, Mapping) or not self.product_risk_indicator:
             raise BenchmarkReferenceError("product risk indicator evidence is required")
-        if not _text(str(self.product_risk_indicator.get("version") or ""), "risk indicator version"):
-            raise BenchmarkReferenceError("risk indicator must be a versioned fact")
+        risk_version = self.product_risk_indicator.get("version")
+        if not isinstance(risk_version, str) or not risk_version.strip():
+            raise BenchmarkReferenceError("risk indicator must be a versioned string fact")
         if not re.fullmatch(r"[A-Z]{3}", self.currency):
             raise BenchmarkReferenceError("VWCE currency must be an ISO-4217 code")
         object.__setattr__(self, "source_hashes", _hashes(self.source_hashes, "source_hashes"))
@@ -819,6 +820,12 @@ class VwceAnchorResolution:
     anchor_digest: str | None = None
     conversion_digest: str | None = None
     execution_allowed: Literal[False] = False
+
+    def __post_init__(self) -> None:
+        if self.status not in {"available", "unavailable", "ambiguous"}:
+            raise BenchmarkReferenceError("anchor resolution status is unsupported")
+        if self.execution_allowed is not False:
+            raise BenchmarkReferenceError("anchor resolution cannot grant execution authority")
 
 
 class CanonicalBenchmarkRegistry:
@@ -1289,7 +1296,6 @@ def resolve_vwce_anchor(
     matches = [
         item for item in anchor.listing_observations
         if item.listing_id == listing_id
-        and item.status == "available"
         and _timestamp(item.effective_at, "effective_at") <= effective_cutoff_time
         and _timestamp(item.known_at, "known_at") <= cutoff
     ]
@@ -1299,6 +1305,8 @@ def resolve_vwce_anchor(
     matches = [item for item in matches if _timestamp(item.effective_at, "effective_at") == latest_effective]
     latest_known = max(_timestamp(item.known_at, "known_at") for item in matches)
     matches = [item for item in matches if _timestamp(item.known_at, "known_at") == latest_known]
+    if any(item.status != "available" for item in matches):
+        return unavailable("listing_stale_or_unavailable")
     identities = {(item.ticker, item.venue, item.currency) for item in matches}
     if len(identities) > 1:
         return VwceAnchorResolution(
@@ -1364,10 +1372,17 @@ def _conversion_is_available(
 def project_profile_relative_analysis(
     raw_analysis: Mapping[str, object],
     anchor_resolution: VwceAnchorResolution,
+    *,
+    anchor: VwceAnchorEvidence | None = None,
+    conversion_evidence: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Block only profile-relative claims when the VWCE anchor is unavailable."""
 
-    complete_available = _complete_available_anchor_resolution(anchor_resolution)
+    complete_available = _complete_available_anchor_resolution(
+        anchor_resolution,
+        anchor=anchor,
+        conversion_evidence=conversion_evidence,
+    )
     projected_status = "available" if complete_available else "unavailable"
     projected_reason = anchor_resolution.reason if anchor_resolution.reason else (
         None if complete_available else "anchor_resolution_incomplete"
@@ -1399,8 +1414,20 @@ def project_profile_relative_analysis(
     return result
 
 
-def _complete_available_anchor_resolution(resolution: VwceAnchorResolution) -> bool:
-    if resolution.status != "available" or resolution.reason is not None:
+def _complete_available_anchor_resolution(
+    resolution: VwceAnchorResolution,
+    *,
+    anchor: VwceAnchorEvidence | None,
+    conversion_evidence: Mapping[str, object] | None,
+) -> bool:
+    if (
+        resolution.status != "available"
+        or resolution.reason is not None
+        or resolution.execution_allowed is not False
+        or anchor is None
+        or resolution.anchor_digest != anchor.digest()
+        or resolution.canonical_share_class_id != anchor.canonical_share_class_id
+    ):
         return False
     if (
         resolution.canonical_share_class_id != VWCE_CANONICAL_SHARE_CLASS
@@ -1420,9 +1447,13 @@ def _complete_available_anchor_resolution(resolution: VwceAnchorResolution) -> b
         return False
     if effective > known or horizon is None or horizon <= 0:
         return False
-    return resolution.conversion_digest is None or (
+    if resolution.conversion_digest is None:
+        return conversion_evidence is None
+    return (
         isinstance(resolution.conversion_digest, str)
         and _SHA256.fullmatch(resolution.conversion_digest.lower()) is not None
+        and isinstance(conversion_evidence, Mapping)
+        and resolution.conversion_digest == _content_hash(conversion_evidence)
     )
 
 

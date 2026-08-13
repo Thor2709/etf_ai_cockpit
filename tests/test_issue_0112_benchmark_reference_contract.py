@@ -339,6 +339,21 @@ def test_vwce_direct_construction_rejects_nested_execution_authority() -> None:
         _vwce(fees={"execution_allowed": True})
 
 
+@pytest.mark.parametrize("version", [True, 1, ""])
+def test_vwce_risk_indicator_version_requires_nonempty_string(version: object) -> None:
+    with pytest.raises(BenchmarkReferenceError, match="versioned string"):
+        _vwce(product_risk_indicator={"version": version})
+
+
+def test_anchor_resolution_rejects_execution_authority_directly() -> None:
+    with pytest.raises(BenchmarkReferenceError, match="cannot grant execution"):
+        contract.VwceAnchorResolution(
+            "available", VWCE_CANONICAL_SHARE_CLASS, "listing:xetra", None,
+            "2020-01-01T00:00:00Z", "2024-01-02T00:00:00Z", "EUR", 1.0,
+            HASH_A, None, True,
+        )
+
+
 @pytest.mark.parametrize("value", [True, "1", float("nan"), float("inf")])
 def test_vwce_requested_horizon_rejects_boolean_string_and_non_finite_values(value: object) -> None:
     result = resolve_vwce_anchor(
@@ -476,6 +491,25 @@ def test_vwce_listing_observations_replay_historical_and_latest_versions() -> No
     assert replay.observation_effective_at == "2020-01-01T00:00:00Z"
     assert current.observation_effective_at == "2023-01-01T00:00:00Z"
     assert anchor.digest() == replace(anchor, listing_observations=(historical, latest)).digest()
+
+
+@pytest.mark.parametrize("status", ["stale", "unavailable"])
+def test_latest_pit_listing_status_never_falls_back_to_obsolete_available_observation(status: str) -> None:
+    historical = VwceListingObservation(
+        "listing:xetra", "VWCE", "XETR", "EUR",
+        "2020-01-01T00:00:00Z", "2020-01-02T00:00:00Z", HASH_A,
+    )
+    latest = replace(
+        historical, effective_at="2023-01-01T00:00:00Z",
+        known_at="2023-01-02T00:00:00Z", source_hash=HASH_B, status=status,
+    )
+    resolution = resolve_vwce_anchor(
+        _vwce(listing_observations=(historical, latest)),
+        listing_id="listing:xetra", effective_date="2024-02-01",
+        decision_time="2024-02-02T00:00:00Z", currency="EUR", horizon_years=1.0,
+    )
+    assert resolution.status == "unavailable"
+    assert resolution.reason == "listing_stale_or_unavailable"
 
 
 def test_vwce_true_latest_tie_is_ambiguous_and_invalid_identity_fails_closed() -> None:
