@@ -4047,3 +4047,15 @@ reproduced exactly one omission: the declared peer-set identity was not bound to
 the selected available peer or `None` for unavailable peer evidence. Add only
 that invariant and available/unavailable forged-readback regressions, then freeze
 one replacement exact head for final paired review and fresh H-tier validation.
+
+`CORRECTED` head `4374015cdfc814a30d43c9cc9465f3cfbc3fc49d` received one
+approval and one demonstrated acceptance rejection; run `31697195555` is
+cancelled/stale. The generic no-trade contract is present, but the production
+snapshot requests only equal-weight and maximum-diversification, omitting the
+required current-portfolio/no-trade baseline from real analysis and readback.
+The bounded correction derives that baseline from exact holdings plus implied
+cash, binds it to checksum and PIT evidence, projects weights/provenance through
+UI and save-load, and fails closed on malformed inputs. All 170 affected, 152
+adjacent financial/PIT and 11 targeted adversarial tests pass with static,
+programme and diff checks. Freeze one final replacement exact head for paired
+review and fresh H-tier validation.

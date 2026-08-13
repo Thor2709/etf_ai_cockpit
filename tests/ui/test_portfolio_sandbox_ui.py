@@ -198,6 +198,7 @@ def test_portfolio_ui_renders_available_canonical_identities_versions_and_digest
     assert "peer=peers:global-equity@1.0.0 digest:" in result_text
     assert "reference:equal_weight@1.0.0 digest:" in result_text
     assert "reference:maximum_diversification@1.0.0 digest:" in result_text
+    assert "reference:no_trade@1.0.0 digest:" in result_text
     assert "provenance=registry_hash:" in result_text
     assert f"canonical_share_class_id:{VWCE_CANONICAL_SHARE_CLASS}" in result_text
     assert "listing_id:listing:xetra" in result_text

@@ -1165,6 +1165,11 @@ class CanonicalBenchmarkRegistry:
                     "version": reference.version,
                     "method": reference.method,
                     "content_hash": reference.digest(),
+                    "constituent_instrument_ids": list(reference.constituent_instrument_ids),
+                    "current_weights": None if reference.current_weights is None else _thaw(reference.current_weights),
+                    "effective_at": _timestamp(reference.effective_at, "effective_at").isoformat(),
+                    "known_at": _timestamp(reference.known_at, "known_at").isoformat(),
+                    "source_hashes": list(reference.source_hashes),
                 }
                 for reference in resolution.references
             ],
@@ -1356,7 +1361,8 @@ class CanonicalBenchmarkRegistry:
             item
             for item in self.reference_portfolios
             if item.portfolio_id == reference_id
-            and _timestamp(item.effective_at, "effective_at") <= effective_cutoff
+            and _timestamp(item.effective_at, "effective_at")
+            <= (cutoff_time if item.method == "no_trade" else effective_cutoff)
             and _timestamp(item.known_at, "known_at") <= cutoff_time
         ]
         if not matches:

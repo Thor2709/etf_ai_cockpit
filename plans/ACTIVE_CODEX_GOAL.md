@@ -161,6 +161,18 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   Run `31696193800` is cancelled/stale. Add only that invariant and its available,
   unavailable and forged UI-readback regressions, then freeze one replacement
   head for both final reviews and fresh H-tier evidence.
+- Review of `4374015cdfc814a30d43c9cc9465f3cfbc3fc49d` produced one
+  approval and one newly demonstrated acceptance blocker; run `31697195555` is
+  cancelled/stale. The generic contract supports no-trade, but the real snapshot
+  requests only equal-weight and maximum-diversification and therefore omits the
+  canonical current-portfolio/no-trade baseline from analysis, UI and persistence.
+  The bounded correction derives a deterministic, checksum/PIT-bound no-trade
+  reference from exact holdings plus implied cash, projects its weights and
+  provenance through UI/save-load readback, and fails closed on malformed dates,
+  identifiers, weights, totals and source values. The 170 affected tests, 152
+  adjacent financial/PIT tests and 11 targeted adversarial tests pass with Ruff,
+  targeted mypy, compile, byte-clean generation and diff hygiene. Freeze one
+  final replacement head for paired review and fresh H-tier validation.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

@@ -479,7 +479,7 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
     monkeypatch.setattr(services, "_current_universe_revision", lambda: "production-reference-1")
     monkeypatch.setattr(services, "DataService", FakeDataService)
     monkeypatch.setattr(services, "load_holdings", lambda: pd.DataFrame([
-        {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0},
+        {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18"},
     ]))
     monkeypatch.setattr(services, "model_availability", lambda config: {"timesfm": False, "toto": False})
     monkeypatch.setattr(services, "model_diagnostics", lambda config: [])
@@ -501,8 +501,16 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
     assert snapshot.benchmark_reference_currency == "EUR"
     assert snapshot.benchmark_reference_horizon_years == 1.0
     assert snapshot.benchmark_reference_portfolio_ids == (
-        "reference:equal_weight", "reference:maximum_diversification",
+        "reference:equal_weight", "reference:maximum_diversification", "reference:no_trade",
     )
+    no_trade = next(
+        item
+        for item in snapshot.benchmark_reference_registry.reference_portfolios
+        if item.portfolio_id == "reference:no_trade"
+    )
+    assert no_trade.current_weights == {"VWCE": 0.4, "cash:EUR": 0.6}
+    assert len(no_trade.source_hashes) == 1
+    assert no_trade.effective_at == "2026-07-18T00:00:00+00:00"
     analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
     assert analysis.service_evidence["benchmark_reference"]["status"] == "available"
     assert analysis.service_evidence["benchmark_reference"]["benchmark"]["id"] == "benchmark:global-equity"
@@ -522,6 +530,21 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
     loaded = load_portfolio_candidate(rebuilt, "Production reference restart", root=tmp_path)
     assert loaded.result_payload == saved.result_payload
     assert loaded.result_payload["service_evidence"]["benchmark_reference"]["status"] == "available"
+    saved_no_trade = next(
+        item
+        for item in saved.result_payload["service_evidence"]["benchmark_reference"]["references"]
+        if item["id"] == "reference:no_trade"
+    )
+    loaded_no_trade = next(
+        item
+        for item in loaded.result_payload["service_evidence"]["benchmark_reference"]["references"]
+        if item["id"] == "reference:no_trade"
+    )
+    assert saved_no_trade["current_weights"] == {"VWCE": 0.4, "cash:EUR": 0.6}
+    assert loaded_no_trade == saved_no_trade
+    assert saved_no_trade["content_hash"] == no_trade.digest()
+    assert saved_no_trade["known_at"] == "2026-07-18T23:59:59+00:00"
+    assert saved_no_trade["source_hashes"] == list(no_trade.source_hashes)
     assert loaded.result_payload["service_evidence"]["profile_relative"]["execution_allowed"] is False
 
 
@@ -537,6 +560,35 @@ def test_snapshot_reference_inputs_fail_closed_when_local_registry_is_missing(
     assert evidence["instrument"] is None
     assert evidence["anchor"] is None
     assert evidence["reference_ids"] == ()
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    (
+        lambda frame: frame.drop(columns=["current_weight"]),
+        lambda frame: frame.assign(as_of_date="2026-07-17"),
+        lambda frame: frame.assign(current_weight=[0.8, 0.3]),
+        lambda frame: frame.assign(current_weight=[-0.1, 0.2]),
+        lambda frame: frame.assign(current_weight=[float("nan"), 0.2]),
+        lambda frame: frame.assign(current_weight=[float("inf"), 0.2]),
+        lambda frame: frame.assign(current_weight=[True, 0.2]),
+        lambda frame: frame.assign(market_value_eur=[float("nan"), 20_000.0]),
+        lambda frame: frame.assign(etf_id=["UNKNOWN", "LYP6"]),
+        lambda frame: pd.concat([frame, frame.iloc[[0]]], ignore_index=True),
+    ),
+)
+def test_snapshot_no_trade_reference_fails_closed_for_invalid_current_holdings(mutate) -> None:
+    holdings = pd.DataFrame(
+        [
+            {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18"},
+            {"etf_id": "LYP6", "current_weight": 0.2, "market_value_eur": 20_000.0, "as_of_date": "2026-07-18"},
+        ]
+    )
+    evidence = services._benchmark_reference_snapshot_inputs(
+        load_config(), "2026-07-18", mutate(holdings),
+    )
+    assert "reference:no_trade" in evidence["reference_ids"]
+    assert all(item.portfolio_id != "reference:no_trade" for item in evidence["registry"].reference_portfolios)
 
 
 def test_packaged_identity_only_registry_remains_explicitly_unavailable() -> None:

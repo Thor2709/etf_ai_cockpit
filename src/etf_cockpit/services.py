@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from collections import Counter
 from collections.abc import Callable, Mapping
 from datetime import date
+import math
 import json
 from pathlib import Path
 
@@ -78,12 +79,14 @@ from etf_cockpit.portfolio.risk import target_policy_issues
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkReferenceError,
     CanonicalBenchmarkRegistry,
+    ReferencePortfolioDefinition,
     VWCE_CANONICAL_ISIN,
     VWCE_CANONICAL_SHARE_CLASS,
     VwceAnchorEvidence,
     load_canonical_benchmark_registry,
     resolve_vwce_anchor,
 )
+from etf_cockpit.portfolio.sandbox import holdings_checksum
 from etf_cockpit.signals.signal_pipeline import generate_signals
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION
 
@@ -92,6 +95,7 @@ BENCHMARK_REFERENCE_REGISTRY_PATH: Path | None = None
 _CANONICAL_REFERENCE_IDS = (
     "reference:equal_weight",
     "reference:maximum_diversification",
+    "reference:no_trade",
 )
 
 
@@ -1277,6 +1281,7 @@ def build_snapshot(
 def _benchmark_reference_snapshot_inputs(
     config: AppConfig,
     as_of: object,
+    holdings: pd.DataFrame | None = None,
 ) -> dict[str, object]:
     unavailable: dict[str, object] = {
         "registry": CanonicalBenchmarkRegistry(),
@@ -1292,18 +1297,46 @@ def _benchmark_reference_snapshot_inputs(
     }
     try:
         registry = load_canonical_benchmark_registry(BENCHMARK_REFERENCE_REGISTRY_PATH)
+        unavailable["reference_ids"] = _CANONICAL_REFERENCE_IDS
         as_of_timestamp = pd.Timestamp(as_of)
         if pd.isna(as_of_timestamp):
             return unavailable
         end_date = as_of_timestamp.date()
         start_date = (as_of_timestamp - pd.DateOffset(years=1)).date()
         base_currency = config.targets.base_currency.strip().upper()
+        decision_time = (
+            pd.Timestamp(end_date, tz="UTC")
+            + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        ).isoformat()
+        no_trade = _current_portfolio_reference(
+            config,
+            holdings,
+            as_of_date=end_date,
+            start_date=start_date,
+            decision_time=decision_time,
+            currency=base_currency,
+        )
+        if no_trade is not None:
+            registry = CanonicalBenchmarkRegistry(
+                benchmarks=registry.benchmarks,
+                cash_proxies=registry.cash_proxies,
+                peer_sets=registry.peer_sets,
+                reference_portfolios=(
+                    tuple(
+                        item
+                        for item in registry.reference_portfolios
+                        if item.portfolio_id != no_trade.portfolio_id
+                    )
+                    + (no_trade,)
+                ),
+                vwce_anchors=registry.vwce_anchors,
+            )
         configured = [
             item for item in config.universe.etfs
             if item.id == "VWCE" and item.isin == VWCE_CANONICAL_ISIN
         ]
         effective_cutoff = pd.Timestamp(start_date, tz="UTC")
-        knowledge_cutoff = pd.Timestamp(end_date, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        knowledge_cutoff = pd.Timestamp(decision_time)
         anchors = [
             item for item in registry.vwce_anchors
             if item.canonical_isin == VWCE_CANONICAL_ISIN
@@ -1369,6 +1402,76 @@ def _benchmark_reference_snapshot_inputs(
         }
     except (BenchmarkReferenceError, OSError, TypeError, ValueError, AttributeError):
         return unavailable
+
+
+def _current_portfolio_reference(
+    config: AppConfig,
+    holdings: pd.DataFrame | None,
+    *,
+    as_of_date: date,
+    start_date: date,
+    decision_time: str,
+    currency: str,
+) -> ReferencePortfolioDefinition | None:
+    """Build a point-in-time no-trade reference from exact holdings evidence."""
+
+    if not isinstance(holdings, pd.DataFrame) or holdings.empty:
+        return None
+    instrument_column = "etf_id" if "etf_id" in holdings.columns else "instrument_id"
+    required = {instrument_column, "current_weight", "market_value_eur", "as_of_date"}
+    if not required.issubset(holdings.columns):
+        return None
+    try:
+        dates = pd.to_datetime(holdings["as_of_date"], errors="coerce")
+        if dates.isna().any() or set(dates.dt.date) != {as_of_date}:
+            return None
+        ids = [str(value).strip() for value in holdings[instrument_column].tolist()]
+        if any(not value for value in ids) or len(ids) != len(set(ids)):
+            return None
+        configured_ids = set(config.universe.configured_enabled_ids)
+        if any(value not in configured_ids for value in ids):
+            return None
+        raw_weights = holdings["current_weight"].tolist()
+        if any(isinstance(value, bool) for value in raw_weights):
+            return None
+        weights = pd.to_numeric(holdings["current_weight"], errors="coerce").tolist()
+        if any(
+            not math.isfinite(float(value))
+            or float(value) < 0
+            or float(value) > 1
+            for value in weights
+        ):
+            return None
+        total = math.fsum(float(value) for value in weights)
+        if not math.isfinite(total) or total > 1.0:
+            return None
+        cash_id = f"cash:{currency}"
+        if cash_id in ids:
+            return None
+        current_weights = {
+            instrument_id: float(weight)
+            for instrument_id, weight in sorted(zip(ids, weights), key=lambda item: item[0])
+        }
+        current_weights[cash_id] = float(1.0 - total)
+        source_hash = holdings_checksum(holdings)
+        return ReferencePortfolioDefinition(
+            portfolio_id="reference:no_trade",
+            version="1.0.0",
+            method="no_trade",
+            constituent_instrument_ids=tuple(current_weights),
+            methodology="Hold the exact current positions and implied base-currency cash with zero proposed turnover.",
+            effective_at=f"{as_of_date.isoformat()}T00:00:00+00:00",
+            known_at=decision_time,
+            current_weights=current_weights,
+            currency=currency,
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=50.0,
+            start_date=start_date.isoformat(),
+            end_date=as_of_date.isoformat(),
+            source_hashes=(source_hash,),
+        )
+    except (ArithmeticError, TypeError, ValueError, KeyError):
+        return None
 
 
 def _build_snapshot(
@@ -1440,7 +1543,11 @@ def _build_snapshot(
     etf_fund_total_return = load_total_return_evidence(ETF_FUND_TOTAL_RETURN_PATH)
     etf_benchmark_total_return = load_total_return_evidence(ETF_BENCHMARK_TOTAL_RETURN_PATH)
     etf_closure_policy = load_closure_proxy_policy()
-    benchmark_reference = _benchmark_reference_snapshot_inputs(config, data_report.as_of_date)
+    benchmark_reference = _benchmark_reference_snapshot_inputs(
+        config,
+        data_report.as_of_date,
+        holdings,
+    )
     return CockpitSnapshot(
         config=config,
         prices=prices,
