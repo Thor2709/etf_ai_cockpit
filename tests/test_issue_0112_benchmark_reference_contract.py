@@ -791,6 +791,10 @@ def test_vwce_metadata_only_nested_evidence_cannot_enable_profile_claims(field: 
             "version": "metadata-only-1.0",
             "execution_allowed": False,
             "source_hashes": [HASH_A],
+            "authority": "official",
+            "source": "metadata-only",
+            "published_at": "2024-01-02T00:00:00Z",
+            "timestamp": "2024-01-02T00:00:00Z",
         }
     })
     resolution = resolve_vwce_anchor(

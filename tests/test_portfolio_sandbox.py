@@ -228,6 +228,12 @@ def test_analysis_facade_projects_reference_contract_unavailable_without_corrupt
     )
     assert projected.allocations == baseline.allocations
     assert projected.service_evidence["benchmark_reference"]["status"] == "unavailable"
+    assert projected.service_evidence["benchmark_reference"]["benchmark"] == {
+        "id": None, "version": None, "status": "unavailable", "display": "N/A",
+    }
+    assert projected.service_evidence["benchmark_reference"]["cash"] == {
+        "id": None, "version": None, "status": "unavailable", "display": "N/A",
+    }
     assert projected.service_evidence["benchmark_reference"]["execution_allowed"] is False
     assert projected.execution_allowed is False
 

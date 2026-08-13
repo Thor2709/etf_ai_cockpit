@@ -298,6 +298,8 @@ def _resolve_reference_evidence(
                 "contract": "benchmark-reference-contract.v1",
                 "status": "unavailable",
                 "blockers": [blocker],
+                "benchmark": {"id": None, "version": None, "status": "unavailable", "display": "N/A"},
+                "cash": {"id": None, "version": None, "status": "unavailable", "display": "N/A"},
                 "registry_hash": registry_hash,
                 "provenance": {
                     "registry_hash": registry_hash,

@@ -208,6 +208,11 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   Authority/status/version-only nested VWCE mappings counted as financial facts.
   The correction excludes metadata keys and requires substantive fees, tracking
   and risk facts; 200 affected tests and Ruff pass. Freeze one replacement head.
+- Both reviews of `035494598fab594f3cbde7babccc76444c5c3008` rejected two
+  final declaration paths; run `31707789636` is cancelled/stale. Metadata aliases
+  still counted as VWCE facts and invalid-input fallback omitted explicit benchmark
+  and cash declarations. The correction closes both with 200 affected tests plus
+  Ruff, targeted mypy, programme freshness and diff hygiene green.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

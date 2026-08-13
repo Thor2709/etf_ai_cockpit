@@ -4082,6 +4082,12 @@ programme checks, and the actual pinned-frontend isolated wheel build/install/
 load proof. Freeze one replacement exact head for paired final review and fresh
 H-tier evidence.
 
+`CORRECTED` head `035494598fab594f3cbde7babccc76444c5c3008` is rejected and
+run `31707789636` is cancelled/stale. Remaining source/authority/publication/time
+metadata aliases counted as VWCE facts and invalid-input fallback omitted explicit
+N/A benchmark/cash declarations. Both paths are closed; 200 affected tests and
+static/programme/diff checks pass. Freeze one replacement review/gate head.
+
 `CORRECTED` head `1bd954ecbe4381a43089cef551ae52c0163983f2` is rejected by
 both reviews and run `31704018549` is cancelled/stale. No-trade weights were not
 reconciled to market values, timezone-naive knowledge was silently interpreted
