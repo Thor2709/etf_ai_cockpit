@@ -60,6 +60,15 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   conversion and anchor evidence now produce a canonical resolution digest and
   all unavailable combinations fail closed. Freeze one final replacement head
   for both exact-head reviews and fresh H-tier Linux/Windows/terminal evidence.
+- Final review of `80226ff2737c2963b9f9efb65fda90117e0d43f9` rejected
+  one newly demonstrated authoritative-selection defect plus two strict typing/
+  provenance boundaries; run `31681320326` is cancelled/stale. Commit
+  `c247b4698c5773b707f41a142ca344d1af7c6f99` selects the newest PIT-authoritative
+  benchmark, cash and peer before status evaluation, strictly types opportunity
+  anchors, and refuses profile claims from incomplete manually constructed
+  resolutions. All 246 focused/adjacent tests pass with Ruff, contract mypy,
+  compile and diff hygiene. Freeze one replacement head for paired exact-head
+  review and fresh H-tier evidence; no adjacent contract or authority changed.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

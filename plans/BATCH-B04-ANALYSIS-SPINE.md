@@ -3936,3 +3936,12 @@ All 241 focused and adjacent tests pass with Ruff, contract mypy, compile and
 diff hygiene. Freeze one final replacement head for paired exact-head review and
 fresh H-tier Linux/Windows/terminal validation; preserve all lifecycle,
 provider/broker/release and `execution_allowed=false` boundaries.
+
+`CORRECTED` head `80226ff2737c2963b9f9efb65fda90117e0d43f9` is rejected
+and run `31681320326` is cancelled/stale. Commit
+`c247b4698c5773b707f41a142ca344d1af7c6f99` prevents a newer stale PIT
+definition from silently falling back to an older available version, strictly
+types opportunity-anchor flags, and requires complete canonical provenance
+before profile-relative claims. All 246 affected tests pass with Ruff, contract
+mypy, compile and diff hygiene. Freeze one replacement head for paired final
+review and fresh H-tier Linux/Windows/terminal evidence.
