@@ -662,30 +662,61 @@ def build_simple_instrument_scores(
     *,
     universe_revision: str | None = None,
     cash_comparison_lookup: Mapping[str, Mapping[str, object]] | None = None,
+    benchmark_data_id: str | None = None,
+    benchmark_reference: Mapping[str, object] | None = None,
+    reference_identity: Mapping[str, object] | None = None,
 ) -> list[SimpleInstrumentScore]:
     if universe_revision is None:
         universe_revision = load_universe().revision
-    forecasts = filter_forecasts_for_universe(forecasts, universe_revision)
+    if reference_identity is None:
+        # Relative score consumers must not accept a legacy forecast frame.
+        forecasts = forecasts.iloc[0:0].copy() if "source_file" in forecasts.columns else forecasts
+    else:
+        forecasts = filter_forecasts_for_universe(
+            forecasts,
+            universe_revision,
+            reference_identity=reference_identity,
+        )
     candidate_report, _candidate_report_path = load_latest_candidate_report()
-    candidate_forecasts = load_latest_forecasts(
-        "yfinance_candidate_forecasts_*.csv",
-        FORECASTS_DIR,
-        universe_revision=universe_revision,
+    candidate_forecasts = (
+        load_latest_forecasts(
+            "yfinance_candidate_forecasts_*.csv",
+            FORECASTS_DIR,
+            universe_revision=universe_revision,
+            reference_identity=reference_identity,
+        )
+        if reference_identity is not None
+        else pd.DataFrame()
     )
     forecast_history = load_forecast_history()
     calibration = evaluate_forecast_calibration(forecast_history, prices)
     calibration_by_id = calibration_lookup(calibration)
-    regime = build_market_regime(prices, candidate_report)
-    portfolio_fit = build_portfolio_fit_lookup(prices)
-    benchmark_id = config.universe.enabled_ids[0] if config.universe.enabled_ids else None
+    regime = build_market_regime(
+        prices,
+        candidate_report,
+        benchmark_id=benchmark_data_id,
+        benchmark_reference=benchmark_reference,
+    )
+    portfolio_fit = build_portfolio_fit_lookup(
+        prices,
+        benchmark_id=benchmark_data_id,
+        benchmark_reference=benchmark_reference,
+    )
     metadata = {
         etf.id: {"sector": etf.sector, "theme": etf.theme}
         for etf in config.universe.etfs
         if etf.id in config.universe.enabled_ids
     }
-    benchmark_attribution = build_benchmark_attribution_lookup(prices, benchmark_id=benchmark_id, metadata=metadata)
-    if cash_comparison_lookup is None:
-        cash_comparison_lookup = _build_local_cash_comparison_lookup(config, prices)
+    benchmark_attribution = build_benchmark_attribution_lookup(
+        prices,
+        benchmark_id=benchmark_data_id,
+        metadata=metadata,
+        benchmark_reference=benchmark_reference,
+    )
+    # Cash comparisons are valid only when the application has resolved and
+    # supplied the canonical cash evidence.  Never synthesize a local proxy
+    # here from an independently selected mapping.
+    cash_comparison_lookup = cash_comparison_lookup or {}
     crowding = build_correlation_clusters(prices, metadata)
     backtest_trust = _backtest_trust_lookup(universe_revision=universe_revision)
     universe_scores = build_universe_simple_scores(

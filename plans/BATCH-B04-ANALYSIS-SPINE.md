@@ -4115,3 +4115,17 @@ affected 232-test collection, architecture boundaries, Ruff, targeted mypy,
 compile, imports, byte-clean programme generation and diff hygiene pass. Freeze
 one replacement exact head for paired review and fresh H-tier Linux, Windows,
 terminal and packaged evidence; preserve `execution_allowed=false`.
+
+`CORRECTED` head `0880f0cfc3d7cc1d8ad62886bdf579e3ea65e77f` is rejected by
+both reviewers and run `31713061927` is cancelled/stale. The complete verdict
+reproduced first-column benchmark use in backtest/regime/score paths, Training
+Centre context loss, mutable forged declarations, inconsistent N/A schemas,
+unbound forecast/backtest/feature cache reuse and optional forecasts labelling
+raw returns as excess. One consolidated production integration correction now
+uses the canonical mapped series or explicit N/A everywhere, reconstructs and
+recursively validates projections, binds cache writes and all relative-output
+readers to exact canonical identity, routes snapshot and UI callers, and
+uniformly derives or nulls every model's benchmark-relative fields. Freeze one
+replacement head after the affected tests, static/programme/package checks pass,
+then repeat paired review and fresh H-tier evidence; no adjacent architecture or
+authority work is included and `execution_allowed=false` remains unchanged.

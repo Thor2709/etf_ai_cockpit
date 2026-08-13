@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
@@ -13,7 +15,17 @@ PRIMARY_MODEL_HORIZON_DAYS = 60
 FALLBACK_MODEL_HORIZONS_DAYS = (120, 20, 5, 180)
 
 
-def _forecast_cache_matches(path: Path, universe_revision: str, settings_revision: str | None = None) -> bool:
+def _reference_identity_hash(identity: Mapping[str, object]) -> str:
+    encoded = json.dumps(dict(identity), sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _forecast_cache_matches(
+    path: Path,
+    universe_revision: str | None,
+    settings_revision: str | None = None,
+    reference_identity: Mapping[str, object] | None = None,
+) -> bool:
     metadata_path = Path(f"{path}.meta.json")
     if not metadata_path.exists():
         return False
@@ -21,11 +33,18 @@ def _forecast_cache_matches(path: Path, universe_revision: str, settings_revisio
         payload = json.loads(metadata_path.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
         return False
-    expected_settings = settings_revision or current_settings_revision()
+    matches = isinstance(payload, dict)
+    if universe_revision is not None:
+        expected_settings = settings_revision or current_settings_revision()
+        matches = matches and str(payload.get("universe_revision") or "") == universe_revision
+        matches = matches and str(payload.get("settings_revision") or "") == expected_settings
+    elif settings_revision is not None:
+        matches = matches and str(payload.get("settings_revision") or "") == settings_revision
+    if not matches or reference_identity is None:
+        return matches
     return (
-        isinstance(payload, dict)
-        and str(payload.get("universe_revision") or "") == universe_revision
-        and str(payload.get("settings_revision") or "") == expected_settings
+        payload.get("reference_identity") == dict(reference_identity)
+        and str(payload.get("reference_identity_hash") or "") == _reference_identity_hash(reference_identity)
     )
 
 
@@ -35,11 +54,18 @@ def latest_forecast_file(
     *,
     universe_revision: str | None = None,
     settings_revision: str | None = None,
+    reference_identity: Mapping[str, object] | None = None,
 ) -> Path | None:
     files = sorted(directory.glob(pattern), key=lambda path: path.stat().st_mtime, reverse=True)
-    if universe_revision is not None:
-        expected_settings = settings_revision or current_settings_revision()
-        files = [path for path in files if _forecast_cache_matches(path, universe_revision, expected_settings)]
+    if universe_revision is not None or reference_identity is not None:
+        expected_settings = settings_revision
+        if universe_revision is not None and expected_settings is None:
+            expected_settings = current_settings_revision()
+        files = [
+            path
+            for path in files
+            if _forecast_cache_matches(path, universe_revision, expected_settings, reference_identity)
+        ]
     return files[0] if files else None
 
 
@@ -49,12 +75,14 @@ def load_latest_forecasts(
     *,
     universe_revision: str | None = None,
     settings_revision: str | None = None,
+    reference_identity: Mapping[str, object] | None = None,
 ) -> pd.DataFrame:
     path = latest_forecast_file(
         pattern,
         directory,
         universe_revision=universe_revision,
         settings_revision=settings_revision,
+        reference_identity=reference_identity,
     )
     if path is None:
         return pd.DataFrame()
@@ -67,14 +95,19 @@ def filter_forecasts_for_universe(
     forecasts: pd.DataFrame,
     universe_revision: str | None,
     settings_revision: str | None = None,
+    reference_identity: Mapping[str, object] | None = None,
 ) -> pd.DataFrame:
     """Drop configured forecast rows whose source cache is not for this universe revision."""
 
-    if forecasts.empty or not universe_revision or "source_file" not in forecasts.columns:
+    if forecasts.empty or (not universe_revision and reference_identity is None) or "source_file" not in forecasts.columns:
         return forecasts
-    expected_settings = settings_revision or current_settings_revision()
+    expected_settings = settings_revision
+    if universe_revision and expected_settings is None:
+        expected_settings = current_settings_revision()
     valid = forecasts["source_file"].map(
-        lambda value: _forecast_cache_matches(Path(str(value)), universe_revision, expected_settings)
+        lambda value: _forecast_cache_matches(
+            Path(str(value)), universe_revision, expected_settings, reference_identity
+        )
     )
     return forecasts.loc[valid].copy()
 
@@ -234,7 +267,7 @@ def _choose_horizon_row_for(group: pd.DataFrame, primary_horizon: int) -> pd.Ser
 
 def _finite_or_none(value: object) -> float | None:
     try:
-        number = float(value)
+        number = float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
     return number if np.isfinite(number) else None

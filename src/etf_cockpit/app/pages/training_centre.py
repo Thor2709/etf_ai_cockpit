@@ -7,6 +7,7 @@ from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.core.job_scheduler import DurableJobScheduler
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.application.validation import build_validation_preview, load_optimisation_evidence, load_training_evidence, record_validation_preview
+from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.features.synthetic_scenarios import SyntheticScenarioGenerator, SyntheticScenarioSpec
 
 
@@ -54,6 +55,15 @@ def training_centre_page(page: ft.Page, state: object) -> ft.Control:
                 snapshot.get("validation.trial", ()),
                 snapshot.get("validation.researcher_decision", ()),
                 snapshot.get("validation.promotion_result", ()),
+                reference_context=(
+                    context_from_snapshot(
+                        state.snapshot,
+                        purpose="validation",
+                        analysis_id=f"training-validation:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
+                    )
+                    if getattr(state, "snapshot", None) is not None
+                    else None
+                ),
             ),
             _runs_panel(runs),
             ft.Row([_metrics_panel(metrics), _models_panel(models)], spacing=14, vertical_alignment=ft.CrossAxisAlignment.START),
@@ -68,6 +78,7 @@ def training_centre_page(page: ft.Page, state: object) -> ft.Control:
 def _validation_panel(
     page: ft.Page | None,
     prices: object,
+    reference_context: object | None = None,
     retained_reports: tuple[dict[str, object], ...] = (),
     retained_trials: tuple[dict[str, object], ...] = (),
     retained_decisions: tuple[dict[str, object], ...] = (),
@@ -75,7 +86,7 @@ def _validation_panel(
 ) -> ft.Container:
     """Show split and promotion evidence without executing a model."""
 
-    report = build_validation_preview(prices)
+    report = build_validation_preview(prices, reference_context=reference_context)
     if report is None:
         controls: list[ft.Control] = [
             section_header("Validation Designer", "Purged/embargoed walk-forward reports remain unavailable until sufficient adjusted-price history exists."),
@@ -115,7 +126,11 @@ def _validation_panel(
 
     def record_evidence(_event: ft.ControlEvent) -> None:
         try:
-            result = record_validation_preview(ROOT, prices if hasattr(prices, "columns") else None)
+            result = record_validation_preview(
+                ROOT,
+                prices if hasattr(prices, "columns") else None,
+                reference_context=reference_context,
+            )
             if result is None:
                 evidence_status.value = "Trial evidence unavailable: local adjusted-price history is insufficient."
             else:

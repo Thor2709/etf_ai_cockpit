@@ -13,6 +13,7 @@ from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, 
 from etf_cockpit.app.components.simple_scores import score_colour, simple_score_grouped_sections, simple_score_legend
 from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.state import ActivityUnavailableError, AppState, activity_result_error
+from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.core.paths import FORECASTS_DIR
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.application.alerts import (
@@ -72,6 +73,11 @@ def _restore_cancelled_result(state: AppState, action_id: str, *controls: ft.Con
 
 def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
     narrow = float(getattr(page, "width", 0) or state.snapshot.config.ui.window_width) < 760
+    reference_context = context_from_snapshot(
+        state.snapshot,
+        purpose="comparison",
+        analysis_id=f"dashboard:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
+    )
     scores = build_simple_instrument_scores(
         state.snapshot.config,
         state.snapshot.signals,
@@ -81,6 +87,9 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
             getattr(state.snapshot, "universe_revision", "")
             or getattr(state, "universe_cache_revision", "")
         ),
+        benchmark_data_id=reference_context.benchmark_data_id,
+        benchmark_reference=reference_context.projection,
+        reference_identity=reference_context.identity,
     )
     best = scores[0] if scores else None
     configured_count = sum(1 for score in scores if score.source_group == "Primary tier")
@@ -909,12 +918,22 @@ def _valid_model_pairs(state: AppState) -> int:
         getattr(state.snapshot, "universe_revision", "")
         or getattr(state, "universe_cache_revision", "")
     )
+    reference_context = context_from_snapshot(
+        state.snapshot,
+        purpose="comparison",
+        analysis_id=f"dashboard-model-pairs:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
+    )
     candidate_forecasts = load_latest_forecasts(
         "yfinance_candidate_forecasts_*.csv",
         FORECASTS_DIR,
         universe_revision=universe_revision,
+        reference_identity=reference_context.identity,
     )
-    configured_forecasts = filter_forecasts_for_universe(state.snapshot.forecasts, universe_revision)
+    configured_forecasts = filter_forecasts_for_universe(
+        state.snapshot.forecasts,
+        universe_revision,
+        reference_identity=reference_context.identity,
+    )
     forecasts = pd.concat([configured_forecasts, candidate_forecasts], ignore_index=True)
     if forecasts.empty or not {"status", "model_allowed_in_score", "model_name", "etf_id"}.issubset(forecasts.columns):
         return 0

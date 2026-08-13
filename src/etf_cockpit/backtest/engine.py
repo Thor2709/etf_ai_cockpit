@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from collections.abc import Mapping
 import hashlib
 import json
 from itertools import combinations
@@ -20,6 +21,10 @@ from etf_cockpit.data.provenance import sha256_dataframe
 from etf_cockpit.data.etf_structure import structure_confidence_caps, structure_input_checksum
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.portfolio.costs import COST_MODEL_ID, estimate_rebalance_cost
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    unavailable_reference_projection,
+    validate_execution_disabled,
+)
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION, build_quality_momentum_frame, quality_momentum_weights
 from etf_cockpit.signals.signal_pipeline import generate_signals
 
@@ -193,6 +198,9 @@ def run_backtest(
     structure_report_records: object = None,
     structure_supplemental_rows: object = None,
     structure_holdings: object = None,
+    benchmark_data_id: str | None = None,
+    benchmark_reference: Mapping[str, object] | None = None,
+    reference_identity: Mapping[str, object] | None = None,
 ) -> BacktestReport:
     pivot_raw = _price_pivot(prices)
     columns = [column for column in config.universe.enabled_ids if column in pivot_raw.columns]
@@ -210,9 +218,27 @@ def run_backtest(
     open_pivot = _optional_price_pivot(prices, "open", columns)
     high_pivot = _optional_price_pivot(prices, "high", columns)
     low_pivot = _optional_price_pivot(prices, "low", columns)
+    canonical_benchmark_id = (
+        str(benchmark_data_id).strip()
+        if benchmark_data_id and str(benchmark_data_id).strip() in pivot.columns
+        else None
+    )
+    validate_execution_disabled(benchmark_reference or unavailable_reference_projection())
+    canonical_reference = dict(benchmark_reference or unavailable_reference_projection())
     metadata: dict[str, object] = {
         "strategy": "signal_strategy",
-        "benchmark_strategy": "buy_and_hold",
+        "benchmark_strategy": "canonical_price_series" if canonical_benchmark_id else "unavailable",
+        "benchmark_data_id": canonical_benchmark_id,
+        "benchmark_reference": canonical_reference,
+        "reference_identity": dict(reference_identity or {
+            "schema": "benchmark-reference-cache.v1",
+            "status": "unavailable",
+            "registry_hash": canonical_reference.get("registry_hash", "unavailable"),
+            "benchmark_data_id": canonical_benchmark_id,
+            "selected_records": canonical_reference.get("selected_records", {}),
+            "calculation_schema": "canonical-benchmark-cash.v1",
+            "execution_allowed": False,
+        }),
         "price_field": "adjusted_close",
         "raw_price_rows": int(len(selected_raw)),
         "complete_price_rows": int(len(pivot)),
@@ -330,7 +356,7 @@ def run_backtest(
                 metadata["quality_momentum_evidence"] = "unavailable"
             # The signal strategy uses the same live signal pipeline, then tilts around targets.
             truncated_prices = prices[pd.to_datetime(prices["date"]) <= dt].copy()
-            features = compute_features(truncated_prices, benchmark_etf_id=columns[0])
+            features = compute_features(truncated_prices, benchmark_etf_id=canonical_benchmark_id)
             latest = latest_features(features, as_of_date=dt.date())
             holdings = _holdings_from_weights(weights["signal_strategy"], pivot.iloc[i], equity["signal_strategy"][-1], dt.date())
             report = validate_prices(truncated_prices, as_of_date=dt.date(), min_history_days=180)
@@ -444,7 +470,11 @@ def run_backtest(
                     )
 
     equity_curves = pd.DataFrame({name: values for name, values in equity.items()}, index=index_values)
-    benchmark = equity_curves["buy_and_hold"]
+    benchmark = (
+        pivot.loc[equity_curves.index, canonical_benchmark_id]
+        if canonical_benchmark_id is not None
+        else None
+    )
     pbo_probability = _pbo_probability_proxy(equity_curves, strategies)
     parameter_sensitivity = _parameter_sensitivity_status(equity_curves, trade_rows, strategies)
     result_rows = []
@@ -461,6 +491,10 @@ def run_backtest(
     metadata["quality_momentum_evidence_checksum"] = quality_momentum_evidence_checksum(quality_evidence_frame)
     for name in strategies:
         metrics = performance_metrics(equity_curves[name], benchmark=benchmark, turnover=turnover[name], cost_drag=cost_drag[name])
+        metrics["benchmark_id"] = canonical_benchmark_id
+        metrics["benchmark_status"] = "available" if canonical_benchmark_id else "unavailable"
+        if canonical_benchmark_id is None:
+            metrics["information_ratio"] = None
         strategy_trades = [row for row in trade_rows if row["strategy"] == name]
         returns_252d = equity_curves[name].pct_change(252)
         metrics["n_walk_forward_periods"] = rebalance_count

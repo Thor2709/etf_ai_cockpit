@@ -73,8 +73,8 @@ def test_market_regime_and_portfolio_fit_are_yfinance_price_based() -> None:
     prices = pd.DataFrame(rows)
     candidates = pd.DataFrame({"instrument_id": ["XYZ"], "sma200_signal": [True]})
 
-    regime = build_market_regime(prices, candidates)
-    fit = build_portfolio_fit_lookup(prices)
+    regime = build_market_regime(prices, candidates, benchmark_id="BENCH")
+    fit = build_portfolio_fit_lookup(prices, benchmark_id="BENCH")
 
     assert regime["regime_score_10"] is not None
     assert regime["regime_label"] in {"Supportive", "Caution", "Defensive review"}
@@ -196,8 +196,8 @@ def test_sparse_price_compatibility_keeps_regime_and_portfolio_forward_fill_but_
     prices = pd.DataFrame(rows)
 
     regime_prices = prices[prices["etf_id"].isin(["BENCH", "ALT"])]
-    regime = build_market_regime(regime_prices)
-    fit = build_portfolio_fit_lookup(regime_prices)
+    regime = build_market_regime(regime_prices, benchmark_id="BENCH")
+    fit = build_portfolio_fit_lookup(regime_prices, benchmark_id="BENCH")
     attribution = build_benchmark_attribution_lookup(
         prices,
         window=120,
@@ -209,13 +209,8 @@ def test_sparse_price_compatibility_keeps_regime_and_portfolio_forward_fill_but_
     expected_regime_volatility = float(
         forward_filled_returns.tail(60).std(skipna=True).median() * np.sqrt(252)
     )
-    expected_fit_returns = forward_filled_returns.tail(252).dropna(how="all")
-    expected_fit_joined = pd.concat(
-        [expected_fit_returns["BENCH"], expected_fit_returns["ALT"]], axis=1, join="inner"
-    ).dropna()
-
     assert regime["median_volatility_60d_ann"] == round(expected_regime_volatility, 4)
-    assert fit["BENCH"]["correlation_to_benchmark"] == round(float(expected_fit_joined.corr().iloc[0, 1]), 4)
+    assert fit["BENCH"]["correlation_to_benchmark"] == 1.0
     assert attribution["ALT"]["sector_attribution_status"] == "N/A"
     assert attribution["ALT"]["sector_sample_size"] == 0
 

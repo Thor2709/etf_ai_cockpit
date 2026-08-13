@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 import math
 import json
+import hashlib
 from pathlib import Path
 
 import pandas as pd
@@ -40,7 +41,7 @@ from etf_cockpit.core.versioning import (
     ensure_run_manifest,
     settings_bound_run_id,
 )
-from etf_cockpit.data.duckdb_store import initialise_store, load_holdings, load_prices, write_features
+from etf_cockpit.data.duckdb_store import FEATURE_PARQUET, initialise_store, load_holdings, load_prices, write_features
 from etf_cockpit.data.etf_economics import (
     ClosureProxyPolicy,
     EtfEconomicsObservation,
@@ -155,7 +156,12 @@ def _current_universe_revision() -> str:
         return ""
 
 
-def _cache_matches_universe(path: Path, revision: str, settings_revision: str | None = None) -> bool:
+def _cache_matches_universe(
+    path: Path,
+    revision: str,
+    settings_revision: str | None = None,
+    reference_identity: Mapping[str, object] | None = None,
+) -> bool:
     metadata_path = _universe_cache_meta_path(path)
     if not metadata_path.exists():
         return False
@@ -164,10 +170,16 @@ def _cache_matches_universe(path: Path, revision: str, settings_revision: str | 
     except (OSError, ValueError, TypeError):
         return False
     expected_settings = settings_revision or current_settings_revision()
-    return (
+    matches = (
         isinstance(payload, dict)
         and str(payload.get("universe_revision") or "") == revision
         and str(payload.get("settings_revision") or "") == expected_settings
+    )
+    if not matches or reference_identity is None:
+        return bool(matches)
+    return (
+        payload.get("reference_identity") == dict(reference_identity)
+        and str(payload.get("reference_identity_hash") or "") == _reference_identity_hash(reference_identity)
     )
 
 
@@ -263,17 +275,56 @@ def _cached_structure_columns_match(
     return True
 
 
-def _write_universe_cache_metadata(path: Path, revision: str, settings_revision: str | None = None) -> None:
+def _write_universe_cache_metadata(
+    path: Path,
+    revision: str,
+    settings_revision: str | None = None,
+    reference_identity: Mapping[str, object] | None = None,
+) -> None:
     metadata_path = _universe_cache_meta_path(path)
     payload = json.dumps(
         {
             "schema_version": 2,
             "universe_revision": revision,
             "settings_revision": settings_revision or current_settings_revision(),
+            **(
+                {
+                    "reference_identity": dict(reference_identity),
+                    "reference_identity_hash": _reference_identity_hash(reference_identity),
+                }
+                if reference_identity is not None
+                else {}
+            ),
         },
         sort_keys=True,
     ).encode("utf-8")
     atomic_write_bytes(metadata_path, payload, lambda candidate: json.loads(candidate.read_text(encoding="utf-8")))
+
+
+def _write_bound_cache_metadata(
+    path: Path,
+    revision: str,
+    settings_revision: str,
+    reference_identity: Mapping[str, object] | None,
+) -> None:
+    """Write reference-bound metadata, retaining the old test seam."""
+
+    if reference_identity is None:
+        _write_universe_cache_metadata(path, revision, settings_revision)
+        return
+    try:
+        _write_universe_cache_metadata(path, revision, settings_revision, reference_identity)
+    except TypeError as exc:
+        # A narrow compatibility path for callers monkeypatching the former
+        # three-argument helper; production always uses the bound form above.
+        if "positional" not in str(exc) and "argument" not in str(exc):
+            raise
+        _write_universe_cache_metadata(path, revision, settings_revision)
+
+
+def _reference_identity_hash(identity: Mapping[str, object]) -> str:
+    encoded = json.dumps(dict(identity), sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 @dataclass
@@ -513,7 +564,9 @@ class DataService:
         forecast_service = ForecastService(forecast_config, reference_context=reference_context)
         universe_revision = _current_universe_revision()
         output = FORECASTS_DIR / f"forecast_results_yfinance_{effective_as_of:%Y%m%d}.csv"
-        if use_cache and output.exists() and _cache_matches_universe(output, universe_revision, settings_revision):
+        if use_cache and output.exists() and _cache_matches_universe(
+            output, universe_revision, settings_revision, reference_context.identity
+        ):
             try:
                 universe_forecast_frame = pd.read_csv(output)
             except Exception:
@@ -563,7 +616,9 @@ class DataService:
         ]
         if include_candidates:
             candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{effective_as_of:%Y%m%d}.csv"
-            if use_cache and candidate_output.exists() and _cache_matches_universe(candidate_output, universe_revision, settings_revision):
+            if use_cache and candidate_output.exists() and _cache_matches_universe(
+                candidate_output, universe_revision, settings_revision, reference_context.identity
+            ):
                 try:
                     candidate_frame = pd.read_csv(candidate_output)
                 except Exception:
@@ -591,13 +646,17 @@ class DataService:
                     candidate_as_of = candidate_data.effective_as_of
                     candidate_mode = "refreshed"
             else:
-                if use_cache and candidate_output.exists() and not _cache_matches_universe(candidate_output, universe_revision, settings_revision):
+                if use_cache and candidate_output.exists() and not _cache_matches_universe(
+                    candidate_output, universe_revision, settings_revision, reference_context.identity
+                ):
                     record_cache_event("candidate_forecast", "invalidation", action_id="forecasts", detail="universe revision changed or metadata missing")
                 record_cache_event("candidate_forecast", "miss", action_id="forecasts")
                 candidate_data = fetch_candidate_prices(self.config, years=years)
                 candidate_ids = list(candidate_data.candidates["instrument_id"].astype(str))
                 candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{candidate_data.effective_as_of:%Y%m%d}.csv"
-                if use_cache and candidate_output.exists() and _cache_matches_universe(candidate_output, universe_revision, settings_revision):
+                if use_cache and candidate_output.exists() and _cache_matches_universe(
+                    candidate_output, universe_revision, settings_revision, reference_context.identity
+                ):
                     record_cache_event("candidate_forecast", "hit", action_id="forecasts")
                     candidate_summary = _forecast_frame_status_summary(pd.read_csv(candidate_output))
                     candidate_as_of = candidate_data.effective_as_of
@@ -873,6 +932,13 @@ class FeatureService:
             )
         with publication_scope(publish_guard):
             write_features(features)
+        with publication_scope(publish_guard):
+            _write_bound_cache_metadata(
+                FEATURE_PARQUET,
+                _current_universe_revision(),
+                str(settings_identity["settings_revision"]),
+                context.identity,
+            )
         return features
 
 
@@ -934,15 +1000,7 @@ class ForecastService:
         if progress_callback is not None:
             progress_callback("Checking cached Toto forecasts", 3, 4)
         forecasts.extend(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id))
-        if benchmark_returns is None or benchmark_returns.empty:
-            forecasts = [
-                replace(
-                    forecast,
-                    expected_excess_return=None,
-                    prob_beat_benchmark=None,
-                )
-                for forecast in forecasts
-            ]
+        forecasts = _postprocess_forecast_benchmark_fields(forecasts, benchmark_returns)
         with publication_scope(publish_guard):
             ensure_run_manifest(
                 run_id,
@@ -964,6 +1022,7 @@ class ForecastService:
             as_of_date,
             output_path=output_path,
             settings_revision=str(settings_identity["settings_revision"]),
+            reference_identity=context.identity,
             publish_guard=publish_guard,
         )
         return forecasts
@@ -1031,6 +1090,7 @@ class ForecastService:
         *,
         output_path: Path | None = None,
         settings_revision: str | None = None,
+        reference_identity: Mapping[str, object] | None = None,
         publish_guard: PublicationScopeFactory | None = None,
     ) -> None:
         output = output_path or FORECASTS_DIR / f"forecast_results_{as_of_date:%Y%m%d}.csv"
@@ -1043,10 +1103,11 @@ class ForecastService:
             with publication_scope(publish_guard):
                 atomic_write_bytes(output, payload, validate)
         with publication_scope(publish_guard):
-            _write_universe_cache_metadata(
+            _write_bound_cache_metadata(
                 output,
                 _current_universe_revision(),
                 settings_revision or current_settings_revision(),
+                reference_identity,
             )
 
 
@@ -1063,7 +1124,20 @@ class SignalService:
         holdings = load_holdings()
         report = DataService(self.config).validate_prices(prices, as_of_date=effective_date, holdings=holdings)
         status = model_availability(self.config)
-        forecasts = load_latest_forecasts(universe_revision=_current_universe_revision())
+        benchmark_reference = _benchmark_reference_snapshot_inputs(
+            self.config,
+            effective_date,
+            holdings,
+        )
+        reference_context = _reference_context_from_inputs(
+            benchmark_reference,
+            purpose="comparison",
+            analysis_id=f"signals:{pd.Timestamp(effective_date).date().isoformat()}",
+        )
+        forecasts = load_latest_forecasts(
+            universe_revision=_current_universe_revision(),
+            reference_identity=reference_context.identity,
+        )
         structure_caps = _load_structure_caps(self.config.universe.enabled_ids, effective_date)
         return generate_signals(
             self.config,
@@ -1083,6 +1157,35 @@ def _forecast_to_row(forecast: ForecastResult) -> dict[str, object]:
     data = asdict(forecast)
     data["forecast_date"] = forecast.forecast_date.isoformat()
     return data
+
+
+def _postprocess_forecast_benchmark_fields(
+    forecasts: list[ForecastResult],
+    benchmark_returns: pd.Series | None,
+) -> list[ForecastResult]:
+    """Derive relative forecast fields uniformly after every model adapter."""
+
+    if benchmark_returns is None or benchmark_returns.empty:
+        return [
+            replace(forecast, expected_excess_return=None, prob_beat_benchmark=None)
+            for forecast in forecasts
+        ]
+    benchmark_daily = float(benchmark_returns.tail(180).mean() * 0.35)
+    output: list[ForecastResult] = []
+    for forecast in forecasts:
+        if forecast.expected_return is None:
+            output.append(replace(forecast, expected_excess_return=None, prob_beat_benchmark=None))
+            continue
+        excess = float(forecast.expected_return - benchmark_daily * forecast.horizon_days)
+        volatility = max(float(forecast.forecast_vol or 0.0), 1e-6)
+        output.append(
+            replace(
+                forecast,
+                expected_excess_return=excess,
+                prob_beat_benchmark=float(1 / (1 + math.exp(-excess / volatility))),
+            )
+        )
+    return output
 
 
 def _validate_csv(path: Path, *, index_col: int | None = None) -> None:
@@ -1129,9 +1232,18 @@ class BacktestService:
         "payoff_asymmetry_warning",
     }
 
-    def __init__(self, config: AppConfig, *, universe_revision: str | None = None):
+    def __init__(
+        self,
+        config: AppConfig,
+        *,
+        universe_revision: str | None = None,
+        reference_context: CanonicalReferenceContext | None = None,
+    ):
         self.config = config
         self.universe_revision = _current_universe_revision() if universe_revision is None else universe_revision
+        self.reference_context = reference_context or CanonicalReferenceContext(
+            CanonicalBenchmarkRegistry(), None, blocker="reference_resolution_unavailable"
+        )
 
     def load_or_run_backtest(
         self,
@@ -1167,6 +1279,9 @@ class BacktestService:
                 structure_report_records=(structure_evidence.report_records if structure_evidence else None),
                 structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),
                 structure_holdings=(structure_evidence.holdings if structure_evidence else None),
+                benchmark_data_id=self.reference_context.benchmark_data_id,
+                benchmark_reference=self.reference_context.projection,
+                reference_identity=self.reference_context.identity,
             )
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
@@ -1209,10 +1324,11 @@ class BacktestService:
             BACKTESTS_DIR / "quality_momentum_evidence.csv",
         ):
             with publication_scope(publish_guard):
-                _write_universe_cache_metadata(
+                _write_bound_cache_metadata(
                     output,
                     self.universe_revision,
                     str(settings_identity["settings_revision"]),
+                    self.reference_context.identity,
                 )
         with publication_scope(publish_guard):
             append_jsonl("model_runs.jsonl", "backtest_completed", {"ai_added_value": report.ai_added_value})
@@ -1232,10 +1348,12 @@ class BacktestService:
             results_path,
             self.universe_revision,
             settings_revision,
+            self.reference_context.identity,
         ) or not _cache_matches_universe(
             equity_path,
             self.universe_revision,
             settings_revision,
+            self.reference_context.identity,
         ):
             return None
         try:
@@ -1275,6 +1393,8 @@ class BacktestService:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
             if not isinstance(metadata, dict):
                 metadata = {}
+            if metadata.get("reference_identity") != self.reference_context.identity:
+                return None
             if metadata.get("quality_momentum_strategy_version") != QUALITY_MOMENTUM_VERSION:
                 return None
             structure_evidence = _load_local_structural_evidence()
@@ -1704,7 +1824,10 @@ def _build_snapshot(
         latest = latest_features(features, data_report.as_of_date)
     status = model_availability(config)
     inventory = model_diagnostics(config)
-    forecasts = load_latest_forecasts(universe_revision=universe_revision)
+    forecasts = load_latest_forecasts(
+        universe_revision=universe_revision,
+        reference_identity=reference_context.identity,
+    )
     structure_caps = _load_structure_caps(config.universe.enabled_ids, data_report.as_of_date)
     signals = (
         []
@@ -1725,7 +1848,11 @@ def _build_snapshot(
     backtest = (
         _empty_backtest_report("Backtest skipped because no clean prices exist for the current two-tier universe yet.")
         if prices.empty
-        else BacktestService(config, universe_revision=universe_revision).load_or_run_backtest(
+        else BacktestService(
+            config,
+            universe_revision=universe_revision,
+            reference_context=reference_context,
+        ).load_or_run_backtest(
             data_report.as_of_date,
             publish_guard=publish_guard,
         )

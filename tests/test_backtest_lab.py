@@ -56,7 +56,8 @@ def test_backtest_report_makes_data_and_execution_assumptions_explicit() -> None
     assert report.metadata["missing_observation_rows"] >= 1
     assert report.metadata["lookahead_protection"] == "history_truncated_at_signal_date"
     assert report.metadata["execution_delay_sessions"] == 1
-    assert report.metadata["benchmark_strategy"] == "buy_and_hold"
+    assert report.metadata["benchmark_strategy"] == "unavailable"
+    assert report.metadata["benchmark_data_id"] is None
     assert report.metadata["data_status"] == "warning"
     required_trade_fields = {
         "signal_date",

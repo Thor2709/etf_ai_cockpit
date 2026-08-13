@@ -9,16 +9,25 @@ from etf_cockpit.app.components.cards import metric_card, panel, section_header
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections, simple_score_legend
 from etf_cockpit.app.components.governance_badges import build_gate_summary
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.application.ui_facade import build_simple_instrument_scores
 
 
 def signals_page(_page: ft.Page, state: AppState) -> ft.Control:
     narrow = float(getattr(_page, "width", 0) or state.snapshot.config.ui.window_width) < 760
+    reference_context = context_from_snapshot(
+        state.snapshot,
+        purpose="comparison",
+        analysis_id=f"signals:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
+    )
     scores = build_simple_instrument_scores(
         state.snapshot.config,
         state.snapshot.signals,
         state.snapshot.forecasts,
         state.snapshot.prices,
+        benchmark_data_id=reference_context.benchmark_data_id,
+        benchmark_reference=reference_context.projection,
+        reference_identity=reference_context.identity,
     )
     strong = sum(1 for score in scores if score.final_label == "strong_evidence_candidate")
     positive = sum(1 for score in scores if score.final_label == "positive_evidence_candidate")

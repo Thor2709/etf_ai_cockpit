@@ -8,16 +8,25 @@ from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.formatting import format_currency, format_date, format_number, format_percent
 from etf_cockpit.app.state import AppState
 from etf_cockpit.app.workspaces import save_workspace
+from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.application.ui_facade import build_simple_instrument_scores
 
 
 def comparison_page(page: ft.Page, state: AppState) -> ft.Control:
+    reference_context = context_from_snapshot(
+        state.snapshot,
+        purpose="comparison",
+        analysis_id=f"comparison:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
+    )
     scores = build_simple_instrument_scores(
         state.snapshot.config,
         state.snapshot.signals,
         state.snapshot.forecasts,
         state.snapshot.prices,
         universe_revision=str(getattr(state.snapshot, "universe_revision", "") or state.universe_cache_revision),
+        benchmark_data_id=reference_context.benchmark_data_id,
+        benchmark_reference=reference_context.projection,
+        reference_identity=reference_context.identity,
     )
     if not scores:
         return ft.Column(

@@ -2883,3 +2883,16 @@ next action and whether the requested outcome is actually complete.
   generation, imports and diff hygiene pass; `execution_allowed=false` remains
   unchanged. Freeze one replacement exact head for paired review and fresh
   Linux, Windows, terminal and packaged H-tier evidence.
+- Replacement head `0880f0cfc3d7cc1d8ad62886bdf579e3ea65e77f` is rejected by
+  both exact-head reviewers and run `31713061927` is cancelled/stale. Their
+  complete reproduced set showed remaining first-column benchmark use in
+  backtest/regime/score paths, Training Centre context loss, mutable forged
+  projections, schema-divergent N/A evidence, stale forecast/backtest/feature
+  cache acceptance and optional-model raw returns labelled as excess. One
+  consolidated caller/provenance correction removes every demonstrated
+  fallback, reconstructs and seals declarations, binds production cache write
+  and readback to canonical reference identity, routes all snapshot/UI callers,
+  and post-processes every model's relative fields from the same canonical
+  series or N/A. Freeze only after the complete affected tests, static checks,
+  byte-clean generation and package proof pass; no workflow, authority or
+  execution boundary changes.

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import json
 
 import duckdb
 import pandas as pd
@@ -72,9 +74,27 @@ def write_features(features: pd.DataFrame, path: Path = FEATURE_PARQUET) -> None
     frame.to_parquet(path, index=False)
 
 
-def load_features(path: Path = FEATURE_PARQUET) -> pd.DataFrame:
+def load_features(
+    path: Path = FEATURE_PARQUET,
+    *,
+    reference_identity: dict[str, object] | None = None,
+) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
+    if reference_identity is not None:
+        metadata_path = Path(f"{path}.meta.json")
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            encoded = json.dumps(reference_identity, sort_keys=True, separators=(",", ":"), allow_nan=False)
+            identity_hash = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        except (OSError, TypeError, ValueError):
+            return pd.DataFrame()
+        if (
+            not isinstance(metadata, dict)
+            or metadata.get("reference_identity") != reference_identity
+            or metadata.get("reference_identity_hash") != identity_hash
+        ):
+            return pd.DataFrame()
     frame = pd.read_parquet(path)
     frame["date"] = pd.to_datetime(frame["date"]).dt.date
     return frame

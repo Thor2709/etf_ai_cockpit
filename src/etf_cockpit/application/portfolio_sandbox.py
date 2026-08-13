@@ -38,6 +38,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     CanonicalBenchmarkRegistry,
     VwceAnchorEvidence,
     VwceAnchorResolution,
+    unavailable_reference_projection,
     project_profile_relative_analysis,
     resolve_vwce_anchor,
 )
@@ -295,18 +296,12 @@ def _resolve_reference_evidence(
     def unavailable(blocker: str) -> tuple[dict[str, object], AnalysisResolution | None]:
         return (
             {
-                "contract": "benchmark-reference-contract.v1",
-                "status": "unavailable",
-                "blockers": [blocker],
-                "benchmark": {"id": None, "version": None, "status": "unavailable", "display": "N/A"},
-                "cash": {"id": None, "version": None, "status": "unavailable", "display": "N/A"},
-                "registry_hash": registry_hash,
+                **unavailable_reference_projection(registry_hash=registry_hash, blocker=blocker),
                 "provenance": {
                     "registry_hash": registry_hash,
                     "selected_records": selected_records,
                     "selected_vwce_anchor_digest": selected_vwce_anchor_digest,
                 },
-                "execution_allowed": False,
             },
             None,
         )
@@ -343,7 +338,29 @@ def _resolve_reference_evidence(
     except BenchmarkReferenceError as exc:
         return unavailable(f"reference_projection_invalid:{type(exc).__name__}")
     projection["status"] = "available" if not resolution.blockers else "unavailable"
+    projection["benchmark_data_id"] = _benchmark_data_id(registry, resolution)
     return projection, resolution
+
+
+def _benchmark_data_id(
+    registry: CanonicalBenchmarkRegistry,
+    resolution: AnalysisResolution,
+) -> str | None:
+    if resolution.benchmark.status != "available" or resolution.cash.status != "available":
+        return None
+    selected = resolution.benchmark
+    matches = [
+        item for item in registry.benchmarks
+        if item.benchmark_id == selected.selected_id
+        and item.version == selected.version
+        and item.digest() == selected.content_hash
+    ]
+    if len(matches) != 1:
+        return None
+    constituents = tuple(matches[0].constituents)
+    if selected.selected_id in constituents:
+        return selected.selected_id
+    return constituents[0] if len(constituents) == 1 else None
 
 
 def _resolve_profile_anchor(

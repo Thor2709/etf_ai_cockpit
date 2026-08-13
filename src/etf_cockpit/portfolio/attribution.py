@@ -14,6 +14,11 @@ import math
 import numpy as np
 import pandas as pd
 
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    BenchmarkReferenceError,
+    unavailable_reference_projection,
+)
+
 ATTRIBUTION_MODEL_VERSION = "portfolio-attribution.v1"
 
 
@@ -134,21 +139,23 @@ def build_performance_attribution(
 
 
 def _reference_projection(reference_context: object) -> dict[str, object]:
-    projection = getattr(reference_context, "projection", None)
-    if isinstance(projection, Mapping):
-        return dict(projection)
+    registry = getattr(reference_context, "registry", None)
+    resolution = getattr(reference_context, "resolution", None)
+    if callable(getattr(registry, "ui_projection", None)) and resolution is not None:
+        try:
+            projection = dict(registry.ui_projection(resolution))  # type: ignore[union-attr]
+            projection["status"] = "available" if not resolution.blockers else "unavailable"
+            benchmark_data_id = getattr(reference_context, "benchmark_data_id", None)
+            projection["benchmark_data_id"] = benchmark_data_id if isinstance(benchmark_data_id, str) else None
+            _assert_execution_disabled(projection)
+            return projection
+        except (BenchmarkReferenceError, TypeError, ValueError, KeyError):
+            pass
     return _unavailable_reference_projection()
 
 
 def _unavailable_reference_projection() -> dict[str, object]:
-    return {
-        "contract": "benchmark-reference-contract.v1",
-        "status": "unavailable",
-        "benchmark": {"id": None, "version": None, "status": "unavailable", "display": "N/A"},
-        "cash": {"id": None, "version": None, "status": "unavailable", "display": "N/A"},
-        "blockers": ["reference_resolution_unavailable"],
-        "execution_allowed": False,
-    }
+    return unavailable_reference_projection()
 
 
 def _canonical_benchmark_returns(
@@ -180,6 +187,17 @@ def _canonical_benchmark_returns(
         "benchmark": benchmark_id,
         "return": series.to_numpy(float),
     })
+
+
+def _assert_execution_disabled(value: object) -> None:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if key == "execution_allowed" and item is not False:
+                raise BenchmarkReferenceError("serialized evidence cannot grant execution authority")
+            _assert_execution_disabled(item)
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        for item in value:
+            _assert_execution_disabled(item)
 
 
 def _empty_report(reference_projection: dict[str, object] | None = None) -> dict[str, object]:

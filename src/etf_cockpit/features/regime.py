@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 import json
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pandas as pd
 
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.features.benchmark_attribution import build_benchmark_attribution
+from etf_cockpit.portfolio.benchmark_reference_contract import unavailable_reference_projection
 
 
 def build_market_regime(
@@ -15,16 +17,25 @@ def build_market_regime(
     candidate_report: pd.DataFrame | None = None,
     *,
     max_forward_fill: int | None = None,
+    benchmark_id: str | None = None,
+    benchmark_reference: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     if prices.empty or not {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
-        return _empty_regime("No clean yfinance price panel is available.")
+        return _empty_regime("No clean yfinance price panel is available.", benchmark_reference=benchmark_reference)
     frame = prices.copy()
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     pivot = frame.dropna(subset=["date"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
     pivot = pivot.dropna(how="all")
     if len(pivot) < 220:
-        return _empty_regime("Less than 220 trading days are available for regime scoring.")
+        return _empty_regime("Less than 220 trading days are available for regime scoring.", benchmark_reference=benchmark_reference)
+
+    benchmark_id = str(benchmark_id).strip() if benchmark_id else None
+    if benchmark_id is None or benchmark_id not in pivot.columns:
+        return _empty_regime(
+            "Canonical benchmark/cash resolution is unavailable; regime comparison is N/A.",
+            benchmark_reference=benchmark_reference,
+        )
 
     filled = pivot.ffill(limit=max_forward_fill)
     latest = filled.iloc[-1]
@@ -32,7 +43,6 @@ def build_market_regime(
     valid = latest.notna() & sma200.notna()
     above = (latest[valid] > sma200[valid]).dropna()
     configured_pct_above = float(above.mean()) if not above.empty else 0.0
-    benchmark_id = str(pivot.columns[0])
     benchmark = pivot[benchmark_id].dropna()
     benchmark_above_sma200 = bool(latest.get(benchmark_id, np.nan) > sma200.get(benchmark_id, np.nan))
     benchmark_return_60d = _horizon_return(benchmark, 60)
@@ -68,6 +78,7 @@ def build_market_regime(
         "benchmark_above_sma200": benchmark_above_sma200,
         "benchmark_return_60d": benchmark_return_60d,
         "benchmark_return_120d": benchmark_return_120d,
+        "benchmark_reference": dict(benchmark_reference or _unavailable_reference()),
         "configured_pct_above_sma200": round(configured_pct_above, 4),
         "candidate_pct_above_sma200": None if candidate_pct_above is None else round(candidate_pct_above, 4),
         "combined_pct_above_sma200": round(combined_pct_above, 4),
@@ -78,7 +89,12 @@ def build_market_regime(
     }
 
 
-def build_portfolio_fit_lookup(prices: pd.DataFrame) -> dict[str, dict[str, object]]:
+def build_portfolio_fit_lookup(
+    prices: pd.DataFrame,
+    *,
+    benchmark_id: str | None = None,
+    benchmark_reference: Mapping[str, object] | None = None,
+) -> dict[str, dict[str, object]]:
     if prices.empty or not {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
         return {}
     frame = prices.copy()
@@ -86,8 +102,18 @@ def build_portfolio_fit_lookup(prices: pd.DataFrame) -> dict[str, dict[str, obje
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     pivot = frame.dropna(subset=["date", "adjusted_close"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index().ffill()
     if pivot.shape[1] < 2:
-        return {}
-    benchmark_id = str(pivot.columns[0])
+        return {
+            str(item): _unavailable_fit("not enough clean instruments", benchmark_reference)
+            for item in pivot.columns
+        }
+    benchmark_id = str(benchmark_id).strip() if benchmark_id else None
+    if benchmark_id is None or benchmark_id not in pivot.columns:
+        return {
+            str(item): _unavailable_fit(
+                "canonical benchmark/cash resolution is unavailable", benchmark_reference
+            )
+            for item in pivot.columns
+        }
     returns = pivot.pct_change(fill_method=None).tail(252).dropna(how="all")
     benchmark = returns[benchmark_id].dropna()
     output: dict[str, dict[str, object]] = {}
@@ -116,6 +142,7 @@ def build_benchmark_attribution_lookup(
     window: int = 120,
     benchmark_id: str | None = None,
     metadata: dict[str, object] | None = None,
+    benchmark_reference: Mapping[str, object] | None = None,
 ) -> dict[str, dict[str, object]]:
     if prices.empty or not {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
         return {}
@@ -124,8 +151,20 @@ def build_benchmark_attribution_lookup(
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     pivot = frame.dropna(subset=["date", "adjusted_close"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
     if pivot.shape[1] < 2:
-        return {}
-    benchmark_id = str(benchmark_id) if benchmark_id and benchmark_id in pivot.columns else str(pivot.columns[0])
+        return {
+            str(item): _unavailable_attribution(
+                str(item), window, "not enough clean instruments", benchmark_reference
+            )
+            for item in pivot.columns
+        }
+    benchmark_id = str(benchmark_id).strip() if benchmark_id else None
+    if benchmark_id is None or benchmark_id not in pivot.columns:
+        return {
+            str(item): _unavailable_attribution(
+                str(item), window, "canonical benchmark/cash resolution is unavailable", benchmark_reference
+            )
+            for item in pivot.columns
+        }
     returns = pivot.pct_change(fill_method=None).dropna(how="all")
     benchmark_returns = returns[benchmark_id].dropna()
     output: dict[str, dict[str, object]] = {}
@@ -215,11 +254,83 @@ def write_market_regime(regime: dict[str, object], directory: Path = DERIVED_DIR
     return json_path, csv_path
 
 
-def _empty_regime(reason: str) -> dict[str, object]:
+def _empty_regime(
+    reason: str,
+    *,
+    benchmark_reference: Mapping[str, object] | None = None,
+) -> dict[str, object]:
     return {
         "regime_score_10": None,
         "regime_label": "Regime unavailable",
+        "benchmark_id": None,
+        "benchmark_above_sma200": None,
+        "benchmark_return_60d": None,
+        "benchmark_return_120d": None,
+        "configured_pct_above_sma200": None,
+        "candidate_pct_above_sma200": None,
+        "combined_pct_above_sma200": None,
+        "median_volatility_60d_ann": None,
+        "median_current_drawdown": None,
+        "average_correlation_60d": None,
+        "benchmark_reference": dict(benchmark_reference or _unavailable_reference()),
+        "execution_allowed": False,
         "summary": reason,
+    }
+
+
+def _unavailable_reference() -> dict[str, object]:
+    return unavailable_reference_projection()
+
+
+def _unavailable_fit(
+    reason: str,
+    benchmark_reference: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "score": None,
+        "label": f"Portfolio fit unavailable: {reason}.",
+        "status": "N/A",
+        "benchmark_reference": dict(benchmark_reference or _unavailable_reference()),
+        "execution_allowed": False,
+    }
+
+
+def _unavailable_attribution(
+    instrument_id: str,
+    window: int,
+    reason: str,
+    benchmark_reference: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "benchmark_id": None,
+        "period_days": window,
+        "label": f"Benchmark attribution unavailable: {reason}.",
+        "instrument_return": None,
+        "benchmark_return": None,
+        "beta_to_benchmark": None,
+        "correlation_to_benchmark": None,
+        "alpha_proxy": None,
+        "alpha_t_stat": None,
+        "sector_return": None,
+        "sector_relative_return": None,
+        "sector_beta": None,
+        "sector_correlation": None,
+        "sector_alpha_proxy": None,
+        "sector_attribution_status": "N/A",
+        "sector_sample_size": 0,
+        "theme_return": None,
+        "theme_relative_return": None,
+        "theme_beta": None,
+        "theme_correlation": None,
+        "theme_alpha_proxy": None,
+        "theme_attribution_status": "N/A",
+        "theme_sample_size": 0,
+        "sample_size": 0,
+        "as_of": None,
+        "source_dataset": "adjusted_price_returns",
+        "instrument_id": instrument_id,
+        "benchmark_reference": dict(benchmark_reference or _unavailable_reference()),
+        "execution_allowed": False,
     }
 
 

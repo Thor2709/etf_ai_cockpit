@@ -4,21 +4,95 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
+import hashlib
+import json
 
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     AnalysisResolution,
     BenchmarkReferenceError,
     CanonicalBenchmarkRegistry,
+    unavailable_reference_projection as contract_unavailable_reference_projection,
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class CanonicalReferenceContext:
     """Resolved benchmark/cash evidence shared by production entry paths."""
 
     registry: CanonicalBenchmarkRegistry
     resolution: AnalysisResolution | None
-    projection: dict[str, object]
+    blocker: str = "reference_resolution_unavailable"
+
+    def __init__(
+        self,
+        registry: CanonicalBenchmarkRegistry,
+        resolution: AnalysisResolution | None = None,
+        legacy_projection: Mapping[str, object] | None = None,
+        *,
+        blocker: str | None = None,
+    ) -> None:
+        """Store canonical state only; never retain a caller projection.
+
+        ``legacy_projection`` remains an ignored compatibility argument for
+        older internal constructors.  Its authority fields are checked, but
+        no value from it is used to build a persisted result.
+        """
+
+        if not isinstance(registry, CanonicalBenchmarkRegistry):
+            raise BenchmarkReferenceError("canonical reference registry is invalid")
+        if legacy_projection is not None:
+            _assert_execution_disabled(legacy_projection)
+        resolved_blocker = blocker or _projection_blocker(legacy_projection)
+        object.__setattr__(self, "registry", registry)
+        object.__setattr__(self, "resolution", resolution)
+        object.__setattr__(self, "blocker", resolved_blocker)
+
+    @property
+    def projection(self) -> dict[str, object]:
+        """Reconstruct a fresh JSON-safe projection from bound registry state."""
+
+        if self.resolution is None:
+            return unavailable_reference_projection(self.registry, blocker=self.blocker)
+        try:
+            projection = self.registry.ui_projection(self.resolution)
+            projection["status"] = "available" if not self.resolution.blockers else "unavailable"
+            projection["benchmark_data_id"] = self.benchmark_data_id
+            _assert_execution_disabled(projection)
+            return json.loads(json.dumps(projection, sort_keys=True, default=str))
+        except (BenchmarkReferenceError, TypeError, ValueError, KeyError):
+            return unavailable_reference_projection(
+                self.registry,
+                blocker="reference_projection_invalid",
+            )
+
+    @property
+    def identity(self) -> dict[str, object]:
+        """Return the deterministic cache/readback identity for this context."""
+
+        projection = self.projection
+        declaration = self.resolution.declaration if self.resolution is not None else None
+        return {
+            "schema": "benchmark-reference-cache.v1",
+            "status": projection.get("status", "unavailable"),
+            "registry_hash": projection.get("registry_hash", "unavailable"),
+            "benchmark_data_id": self.benchmark_data_id,
+            "selected_records": projection.get("selected_records", {}),
+            "calculation_schema": "canonical-benchmark-cash.v1",
+            "analysis": None if declaration is None else {
+                "instrument_id": declaration.instrument_id,
+                "currency": declaration.currency,
+                "horizon_years": declaration.horizon_years,
+                "start_date": declaration.start_date,
+                "end_date": declaration.end_date,
+                "decision_time": declaration.decision_time,
+            },
+            "execution_allowed": False,
+        }
+
+    @property
+    def identity_hash(self) -> str:
+        payload = json.dumps(self.identity, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     @property
     def benchmark_data_id(self) -> str | None:
@@ -64,18 +138,7 @@ def unavailable_reference_projection(
             registry_hash = str(registry.as_payload()["registry_hash"])
         except (BenchmarkReferenceError, TypeError, ValueError, KeyError):
             registry_hash = "unavailable"
-    return {
-        "contract": "benchmark-reference-contract.v1",
-        "status": "unavailable",
-        "benchmark": {"id": None, "version": None, "status": "unavailable", "display": "N/A"},
-        "cash": {"id": None, "version": None, "status": "unavailable", "display": "N/A"},
-        "peer_set": {"id": None, "version": None, "status": "unavailable", "display": "N/A"},
-        "references": [],
-        "blockers": [blocker],
-        "registry_hash": registry_hash,
-        "provenance": {"registry_hash": registry_hash, "selected_records": {}},
-        "execution_allowed": False,
-    }
+    return contract_unavailable_reference_projection(registry_hash=registry_hash, blocker=blocker)
 
 
 def resolve_canonical_reference(
@@ -104,7 +167,7 @@ def resolve_canonical_reference(
         or decision_time is None
     ):
         unavailable["blockers"] = ["reference_resolution_inputs_unavailable"]
-        return CanonicalReferenceContext(registry, None, unavailable)
+        return CanonicalReferenceContext(registry, None, blocker="reference_resolution_inputs_unavailable")
     try:
         resolution = registry.resolve_analysis(
             analysis_id=analysis_id,
@@ -118,12 +181,11 @@ def resolve_canonical_reference(
             decision_time=decision_time,
             reference_portfolio_ids=reference_portfolio_ids,
         )
-        projection = registry.ui_projection(resolution)
+        registry.ui_projection(resolution)
     except (BenchmarkReferenceError, TypeError, ValueError, KeyError) as exc:
         unavailable["blockers"] = [f"reference_resolution_invalid:{type(exc).__name__}"]
-        return CanonicalReferenceContext(registry, None, unavailable)
-    projection["status"] = "available" if not resolution.blockers else "unavailable"
-    return CanonicalReferenceContext(registry, resolution, projection)
+        return CanonicalReferenceContext(registry, None, blocker=f"reference_resolution_invalid:{type(exc).__name__}")
+    return CanonicalReferenceContext(registry, resolution)
 
 
 def context_from_snapshot(
@@ -167,3 +229,25 @@ __all__ = [
     "resolve_canonical_reference",
     "unavailable_reference_projection",
 ]
+
+
+def _projection_blocker(projection: Mapping[str, object] | None) -> str:
+    if not isinstance(projection, Mapping):
+        return "reference_resolution_unavailable"
+    blockers = projection.get("blockers")
+    if isinstance(blockers, Sequence) and not isinstance(blockers, (str, bytes)):
+        first = next((item for item in blockers if isinstance(item, str) and item), None)
+        if first:
+            return first
+    return "reference_resolution_unavailable"
+
+
+def _assert_execution_disabled(value: object) -> None:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if key == "execution_allowed" and item is not False:
+                raise BenchmarkReferenceError("serialized evidence cannot grant execution authority")
+            _assert_execution_disabled(item)
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        for item in value:
+            _assert_execution_disabled(item)

@@ -49,6 +49,38 @@ _SEMVER = re.compile(
 )
 
 
+def unavailable_reference_projection(
+    *,
+    registry_hash: str = "unavailable",
+    blocker: str = "reference_resolution_unavailable",
+) -> dict[str, object]:
+    """Return the one canonical, execution-disabled unavailable shape.
+
+    Keeping this shape at the financial contract boundary prevents application
+    and portfolio adapters from inventing subtly different N/A projections.
+    """
+
+    return {
+        "contract": CONTRACT,
+        "status": "unavailable",
+        "benchmark": {"id": None, "version": None, "status": "unavailable", "display": "N/A"},
+        "cash": {"id": None, "version": None, "status": "unavailable", "display": "N/A"},
+        "peer_set": {"id": None, "version": None, "status": "unavailable", "display": "N/A"},
+        "references": [],
+        "blockers": [blocker],
+        "registry_hash": registry_hash,
+        "provenance": {"registry_hash": registry_hash, "selected_records": {}},
+        "execution_allowed": False,
+        "benchmark_data_id": None,
+    }
+
+
+def validate_execution_disabled(value: object) -> None:
+    """Reject serialized evidence that tries to grant execution authority."""
+
+    _assert_no_execution(value)
+
+
 @dataclass(frozen=True, order=True)
 class _SemVer:
     major: int
