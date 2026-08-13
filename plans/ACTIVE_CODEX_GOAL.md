@@ -48,6 +48,18 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   and programme check mode pass. Existing application-facade mypy output remains
   at its unchanged five-error baseline. Freeze one replacement exact head for
   paired re-review and fresh H-tier Linux, Windows and terminal evidence.
+- Replacement head `df974a6a5f16ddeeae4e7e1db63c130aed78693c` is rejected and
+  run `31679353881` is cancelled/stale after paired re-review demonstrated the
+  final bounded gaps: contradictory registry/anchor availability, invalid
+  listing status, missing conversion and resolution provenance, non-finite
+  horizons, non-deterministic SemVer precedence, listing/anchor chronology,
+  direct nested execution evidence and duplicate requested references.
+  Consolidated commit `cb3e513d34dfdaf441905ee905f0dc768d4cc11c`
+  closes those exact paths without wider architecture. The complete 241-test
+  focused/adjacent set passes with Ruff, contract mypy, compile and diff hygiene;
+  conversion and anchor evidence now produce a canonical resolution digest and
+  all unavailable combinations fail closed. Freeze one final replacement head
+  for both exact-head reviews and fresh H-tier Linux/Windows/terminal evidence.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

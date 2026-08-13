@@ -3924,3 +3924,15 @@ contract mypy, compile, programme byte-clean and diff hygiene evidence. Freeze
 one documented replacement head for both independent reviews and fresh H-tier
 Linux/Windows/terminal validation; no canonical lifecycle, provider/broker,
 release or execution authority changed.
+
+`CORRECTED` replacement head `df974a6a5f16ddeeae4e7e1db63c130aed78693c`
+is rejected and run `31679353881` is cancelled/stale. The complete final verdict
+identified contradictory registry/anchor availability, invalid listing status,
+missing conversion/resolution provenance, invalid horizons, SemVer ordering,
+listing/anchor chronology, nested execution evidence and duplicate reference
+requests. Consolidated commit `cb3e513d34dfdaf441905ee905f0dc768d4cc11c`
+closes exactly those defects and adds canonical digest-bound profile evidence.
+All 241 focused and adjacent tests pass with Ruff, contract mypy, compile and
+diff hygiene. Freeze one final replacement head for paired exact-head review and
+fresh H-tier Linux/Windows/terminal validation; preserve all lifecycle,
+provider/broker/release and `execution_allowed=false` boundaries.
