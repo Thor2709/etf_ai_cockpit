@@ -2611,3 +2611,23 @@ next action and whether the requested outcome is actually complete.
   both to product PR #682 and the same review/evidence tuple, use one aggregate
   proposal and receipt, and require full generic reconciliation plus zero-action
   readback. Do not change product code or dependency edges.
+
+## ISSUE-0051 convergence and ISSUE-0059 integration
+
+- ISSUE-0051 completion PR #685 merged exact independently approved head
+  `381c7d013c4e8e326eb3ee68ac5f39adef60bcc3` as
+  `e5c70f7f08665f5b041e4a20614061ee9f8a85b8`. Cadence-required run
+  `31652457420` attempt 2 passed Linux, Windows and terminal validation after
+  the one documented transient retry; status guard, preflight and supply chain
+  also passed. Writer run `31666997864` applied the ordered aggregate replay
+  with one proposal and receipt, two transport writes, full authority
+  reconciliation, `zero_action_readback=true` and `execution_allowed=false`.
+- Clean branch `codex/issue0059-integration-20260813` starts from exact main
+  `e5c70f7f08665f5b041e4a20614061ee9f8a85b8`. Record only ISSUE-0059
+  `implemented_initially -> integrated`, bound to product PR #574 exact head
+  `37ef3fc9e18c682408ecc079fc65e85426ccee7e`, merge
+  `80c63200e733fada6ae2d76ac67feb776f281c38`, release run `30338519123`,
+  status guard `30338519047` and supply-chain run `30338519237`. Preserve all
+  dependency edges and product code, prepare the one-update authority, and
+  require exact-head review, focused E-tier guards, ordered writer and generic
+  zero-action readback before resolving ISSUE-0112 dependency evidence.

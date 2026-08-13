@@ -12383,7 +12383,19 @@
       "write_conflict_group": "programme-governance"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #574 merged exact reviewed head 37ef3fc9e18c682408ecc079fc65e85426ccee7e as 80c63200e733fada6ae2d76ac67feb776f281c38",
+            "Release run 30338519123 passed authoritative Linux and Windows package gates; status guard run 30338519047 and supply-chain run 30338519237 also passed",
+            "Acceptance evidence verifies point-in-time chronology start_at < end_at <= effective_at <= known_at, common measurement currency, factor/sector/country/currency/residual attribution and reconciliation while execution_allowed=false"
+          ],
+          "review_reference": "PR #574 exact-head review and H-tier validation",
+          "reviewed_date": "2026-08-13",
+          "reviewer": "Codex independent whole-diff reviewer and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0059",
@@ -12411,7 +12423,7 @@
       "package_status": "Implementation complete; closure pending",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P1/P2",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -12436,8 +12448,8 @@
       "source_record_id": "ISSUE-0059",
       "source_title": "Benchmark-relative sector/theme attribution beyond single benchmark beta",
       "title": "Benchmark-relative sector/theme attribution beyond single benchmark beta",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "37ef3fc9e18c682408ecc079fc65e85426ccee7e",
+      "verified_date": "2026-08-13",
       "why": "Apparent alpha may be compensation for sector, currency or style exposure.",
       "write_conflict_group": "analysis-and-validation"
     },
@@ -27953,7 +27965,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "d79e8c76f24a9bef6d169277ac6bf4c6047bc0b65c7b34e3b4c166178d0aa889",
+    "programme_control_state_sha256": "f47d675e509786796848452ef3ae7284b194ccd0f23beae4aee44a120bc7b55a",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

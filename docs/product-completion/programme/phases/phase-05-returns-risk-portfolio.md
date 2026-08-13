@@ -53,7 +53,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0046` | `P1/P2` | `planned` | `analysis-and-validation` | - | - | - | `ISSUE-0108`, `ISSUE-0112`, `ISSUE-0115`, `ISSUE-0130` |
 | `ISSUE-0051` | `P1/P2` | `integrated` | `analysis-and-validation` | - | - | `ISSUE-0112` | `ISSUE-0088`, `ISSUE-0112` |
 | `ISSUE-0052` | `P1` | `implemented_initially` | `analysis-and-validation` | - | - | `ISSUE-0110` | `ISSUE-0105`, `ISSUE-0110`, `ISSUE-0113`, `ISSUE-0115` |
-| `ISSUE-0059` | `P1/P2` | `implemented_initially` | `analysis-and-validation` | - | - | `ISSUE-0110`, `ISSUE-0112`, `ISSUE-0116` | `ISSUE-0105`, `ISSUE-0110`, `ISSUE-0116` |
+| `ISSUE-0059` | `P1/P2` | `integrated` | `analysis-and-validation` | - | - | `ISSUE-0110`, `ISSUE-0112`, `ISSUE-0116` | `ISSUE-0105`, `ISSUE-0110`, `ISSUE-0116` |
 | `ISSUE-0060` | `P1` | `implemented_initially` | `analysis-and-validation` | - | - | `ISSUE-0070` | `ISSUE-0008`, `ISSUE-0070`, `ISSUE-0132`, `ISSUE-0133` |
 | `ISSUE-0064` | `P1` | `integrated` | `analysis-and-validation` | - | - | `ISSUE-0128` | `ISSUE-0108`, `ISSUE-0128` |
 | `ISSUE-0065` | `P2` | `implemented_initially` | `analysis-and-validation` | - | - | - | `ISSUE-0049`, `ISSUE-0111`, `ISSUE-0125` |
