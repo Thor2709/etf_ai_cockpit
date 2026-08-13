@@ -1,0 +1,210 @@
+{
+  "contract": "benchmark-reference-contract.v1",
+  "execution_allowed": false,
+  "records": [
+    {
+      "content_hash": "fd0a045e000962ad6f70738f6e719fe99095e268c46e87aa76ce9edd0a9d1c69",
+      "kind": "benchmark",
+      "payload": {
+        "benchmark_id": "benchmark:ftse-all-world",
+        "canonical_identity": "FTSE All-World",
+        "constituents": [
+          "VWCE"
+        ],
+        "currency": "EUR",
+        "effective_at": "2020-01-01T00:00:00+00:00",
+        "end_date": "2100-12-31",
+        "execution_allowed": false,
+        "hierarchy": "asset",
+        "known_at": "2020-01-02T00:00:00+00:00",
+        "maximum_horizon_years": 50.0,
+        "methodology": "Broad global-equity benchmark identity for canonical portfolio comparison; no return series is embedded.",
+        "minimum_horizon_years": 0.1,
+        "opportunity_anchor": false,
+        "selector": {
+          "asset_class": "equity"
+        },
+        "source_hashes": [
+          "305ebe8678557637c982933490b09f81ffa8b1dc3711fcfacf4f5f27733e9352"
+        ],
+        "start_date": "2020-01-01",
+        "status": "available",
+        "version": "1.0.0"
+      }
+    },
+    {
+      "content_hash": "1254fdd17ea72450ccced9251d95cd08d818b55eaaa0a23affaa5ecc6f2e28c4",
+      "kind": "cash",
+      "payload": {
+        "currency": "EUR",
+        "effective_at": "2020-01-01T00:00:00+00:00",
+        "end_date": "2100-12-31",
+        "execution_allowed": false,
+        "known_at": "2020-01-02T00:00:00+00:00",
+        "maximum_horizon_years": 50.0,
+        "methodology": "EUR cash comparison identity; no rate or return series is embedded.",
+        "minimum_horizon_years": 0.1,
+        "proxy_id": "cash:EUR",
+        "selector": {
+          "asset_class": "equity"
+        },
+        "source_hashes": [
+          "9816309a5b2a7547d2ff716fdb5e039bebe9f06922c3645b8e79f3eba7582a17"
+        ],
+        "start_date": "2020-01-01",
+        "status": "available",
+        "version": "1.0.0"
+      }
+    },
+    {
+      "content_hash": "a868c8ec7148d718f5dba4c8bc03248539f709772a8deb3bdc3323f4f2d57e31",
+      "kind": "peer",
+      "payload": {
+        "effective_at": "2020-01-01T00:00:00+00:00",
+        "execution_allowed": false,
+        "hierarchy": "asset",
+        "known_at": "2020-01-02T00:00:00+00:00",
+        "member_instrument_ids": [
+          "VWCE"
+        ],
+        "methodology": "Configured broad global-equity ETF identity set; no market values are embedded.",
+        "peer_set_id": "peers:global-equity",
+        "selector": {
+          "asset_class": "equity"
+        },
+        "source_hashes": [
+          "9fc11e7f54928e49a89584b42d526a70be3015e662940915ba604f3800dabbf0"
+        ],
+        "status": "available",
+        "version": "1.0.0"
+      }
+    },
+    {
+      "content_hash": "510f670dbd0df43c7c1fc126fcdc26b7c9a53223f241844966d5bfbc44269865",
+      "kind": "reference",
+      "payload": {
+        "constituent_instrument_ids": [
+          "VWCE"
+        ],
+        "currency": "EUR",
+        "current_weights": null,
+        "effective_at": "2020-01-01T00:00:00+00:00",
+        "end_date": "2100-12-31",
+        "execution_allowed": false,
+        "known_at": "2020-01-02T00:00:00+00:00",
+        "maximum_horizon_years": 50.0,
+        "method": "equal_weight",
+        "methodology": "PortfolioOptimiser equal_weight over canonical constituents.",
+        "minimum_horizon_years": 0.1,
+        "portfolio_id": "reference:equal_weight",
+        "source_hashes": [
+          "487e0f4a06379bcec80ecdea7b718a0629dee12f361afeafdb7e4c773e57f7dd"
+        ],
+        "start_date": "2020-01-01",
+        "version": "1.0.0"
+      }
+    },
+    {
+      "content_hash": "5725880a03335f2910473d24a42b21573681c3004e28bb8c1ac938411c28f785",
+      "kind": "reference",
+      "payload": {
+        "constituent_instrument_ids": [
+          "VWCE"
+        ],
+        "currency": "EUR",
+        "current_weights": null,
+        "effective_at": "2020-01-01T00:00:00+00:00",
+        "end_date": "2100-12-31",
+        "execution_allowed": false,
+        "known_at": "2020-01-02T00:00:00+00:00",
+        "maximum_horizon_years": 50.0,
+        "method": "maximum_diversification",
+        "methodology": "PortfolioOptimiser maximum_diversification over canonical adjusted-return covariance.",
+        "minimum_horizon_years": 0.1,
+        "portfolio_id": "reference:maximum_diversification",
+        "source_hashes": [
+          "487e0f4a06379bcec80ecdea7b718a0629dee12f361afeafdb7e4c773e57f7dd"
+        ],
+        "start_date": "2020-01-01",
+        "version": "1.0.0"
+      }
+    },
+    {
+      "content_hash": "0dff04f1246eaa10bdf14864c45ae205ef97b3fdabfae58737a3cf9564a21809",
+      "kind": "reference",
+      "payload": {
+        "constituent_instrument_ids": [
+          "VWCE"
+        ],
+        "currency": "EUR",
+        "current_weights": {
+          "VWCE": 1.0
+        },
+        "effective_at": "2020-01-01T00:00:00+00:00",
+        "end_date": "2100-12-31",
+        "execution_allowed": false,
+        "known_at": "2020-01-02T00:00:00+00:00",
+        "maximum_horizon_years": 50.0,
+        "method": "no_trade",
+        "methodology": "Current positions and cash are held with zero proposed turnover.",
+        "minimum_horizon_years": 0.1,
+        "portfolio_id": "reference:no_trade",
+        "source_hashes": [
+          "487e0f4a06379bcec80ecdea7b718a0629dee12f361afeafdb7e4c773e57f7dd"
+        ],
+        "start_date": "2020-01-01",
+        "version": "1.0.0"
+      }
+    },
+    {
+      "content_hash": "f6126623a2ad80195a70965b4f3b40ad186e408a74af3d84980d3453b5ea1952",
+      "kind": "vwce_anchor",
+      "payload": {
+        "benchmark_as_of": "2020-01-01",
+        "benchmark_name": "FTSE All-World",
+        "canonical_isin": "IE00BK5BQT80",
+        "canonical_share_class_id": "vanguard-ftse-all-world-ucits-etf-usd-accumulating",
+        "currency": "USD",
+        "effective_at": "2020-01-01T00:00:00+00:00",
+        "execution_allowed": false,
+        "fees": {
+          "evidence_type": "official_factsheet_definition"
+        },
+        "fees_as_of": "2020-01-01",
+        "known_at": "2020-01-02T00:00:00+00:00",
+        "listing_observations": [
+          {
+            "currency": "EUR",
+            "effective_at": "2020-01-01T00:00:00+00:00",
+            "known_at": "2020-01-02T00:00:00+00:00",
+            "listing_id": "listing:vwce:xetra",
+            "source_hash": "8a89396f2a4b98a6d9013f3c1c509dd689e99237d7fcd880ed2e300f8c2716c7",
+            "status": "available",
+            "ticker": "VWCE",
+            "venue": "XETR"
+          }
+        ],
+        "maximum_horizon_years": 50.0,
+        "minimum_horizon_years": 0.1,
+        "official_facts_as_of": "2020-01-01",
+        "product_risk_indicator": {
+          "evidence_type": "document_identity_definition",
+          "version": "priips-definition-v1"
+        },
+        "risk_indicator_as_of": "2020-01-01",
+        "source_hashes": [
+          "8a89396f2a4b98a6d9013f3c1c509dd689e99237d7fcd880ed2e300f8c2716c7",
+          "8b08b26b7c170a35744f904db688fa1418e67a238ba6644d8fd328b2d70c4168"
+        ],
+        "status": "available",
+        "tracking": {
+          "evidence_type": "benchmark_identity_definition"
+        },
+        "tracking_as_of": "2020-01-01"
+      }
+    }
+  ],
+  "registry_hash": "efec4eb6e17cd31bb2f7ae75a876461abf042dfc4b80ca3ee9135e64c9f82db7",
+  "schema_version": "1.0"
+}
+

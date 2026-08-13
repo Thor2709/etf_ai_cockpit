@@ -15,6 +15,7 @@ from datetime import date, datetime, timezone
 import hashlib
 import json
 import math
+from pathlib import Path
 import re
 from types import MappingProxyType
 from typing import Literal, Protocol, TypeVar
@@ -435,6 +436,7 @@ class ReferencePortfolioDefinition:
     maximum_horizon_years: float | None = None
     start_date: str | None = None
     end_date: str | None = None
+    source_hashes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _text(self.portfolio_id, "portfolio_id")
@@ -461,6 +463,8 @@ class ReferencePortfolioDefinition:
         if self.start_date is not None or self.end_date is not None:
             if self.start_date is None or self.end_date is None or _date(self.start_date, "start_date") > _date(self.end_date, "end_date"):
                 raise BenchmarkReferenceError("reference portfolio date coverage is invalid")
+        if self.source_hashes:
+            object.__setattr__(self, "source_hashes", _hashes(self.source_hashes, "source_hashes"))
         if self.method == "no_trade" and self.current_weights is None:
             raise BenchmarkReferenceError("no_trade reference requires current weights")
         if self.current_weights is not None:
@@ -501,6 +505,7 @@ class ReferencePortfolioDefinition:
             "maximum_horizon_years": self.maximum_horizon_years,
             "start_date": self.start_date,
             "end_date": self.end_date,
+            "source_hashes": list(self.source_hashes),
             "execution_allowed": False,
         }
 
@@ -791,6 +796,7 @@ def _typed_payload(kind: object, content: dict[str, object]) -> _CanonicalRecord
             "portfolio_id", "version", "method", "constituent_instrument_ids", "methodology",
             "effective_at", "known_at", "current_weights", "currency", "minimum_horizon_years",
             "maximum_horizon_years", "start_date", "end_date", "execution_allowed",
+            "source_hashes",
         }),
         "vwce_anchor": frozenset({
             "canonical_isin", "canonical_share_class_id", "official_facts_as_of", "benchmark_name",
@@ -1179,6 +1185,45 @@ class CanonicalBenchmarkRegistry:
             raise BenchmarkReferenceError("registry payload is not canonical")
         return dict(payload)
 
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, object]) -> CanonicalBenchmarkRegistry:
+        """Validate and semantically reconstruct one canonical registry envelope."""
+
+        validated = cls.validate_payload(payload)
+        records = validated["records"]
+        if not isinstance(records, list):
+            raise BenchmarkReferenceError("registry records are invalid")
+        typed_records: list[tuple[str, _CanonicalRecord]] = []
+        for record in records:
+            if not isinstance(record, dict):
+                raise BenchmarkReferenceError("registry record envelope is invalid")
+            kind = record.get("kind")
+            content = record.get("payload")
+            if not isinstance(kind, str) or not isinstance(content, dict):
+                raise BenchmarkReferenceError("registry record payload is invalid")
+            typed_records.append((kind, _typed_payload(kind, content)))
+        return cls(
+            benchmarks=tuple(
+                item for kind, item in typed_records
+                if kind == "benchmark" and isinstance(item, BenchmarkDefinition)
+            ),
+            cash_proxies=tuple(
+                item for kind, item in typed_records
+                if kind == "cash" and isinstance(item, CashProxyDefinition)
+            ),
+            peer_sets=tuple(
+                item for kind, item in typed_records
+                if kind == "peer" and isinstance(item, PeerSetDefinition)
+            ),
+            reference_portfolios=tuple(
+                item for kind, item in typed_records
+                if kind == "reference" and isinstance(item, ReferencePortfolioDefinition)
+            ),
+            vwce_anchors=tuple(
+                item for kind, item in typed_records
+                if kind == "vwce_anchor" and isinstance(item, VwceAnchorEvidence)
+            ),
+        )
     def _select_benchmark(self, instrument: Mapping[str, object], currency: str, horizon: float, start: str, end: str, cutoff: str, version: str | None) -> Selection:
         candidates = [item for item in self.benchmarks if _selector_matches(item.selector, instrument) and (version is None or item.version == version)]
         candidates = [item for item in candidates if _pit(item.effective_at, item.known_at, start, cutoff)]
@@ -1277,6 +1322,33 @@ class CanonicalBenchmarkRegistry:
         return authoritative
 
 
+def load_canonical_benchmark_registry(path: Path) -> CanonicalBenchmarkRegistry:
+    """Load one durable local registry, rejecting duplicate keys and tampering."""
+
+    def reject_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise BenchmarkReferenceError(f"duplicate JSON key: {key}")
+            result[key] = value
+        return result
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicates)
+    except BenchmarkReferenceError:
+        raise
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as exc:
+        raise BenchmarkReferenceError("canonical registry is unavailable or malformed") from exc
+    if not isinstance(raw, dict):
+        raise BenchmarkReferenceError("canonical registry envelope must be a JSON object")
+    try:
+        return CanonicalBenchmarkRegistry.from_payload(raw)
+    except BenchmarkReferenceError:
+        raise
+    except (TypeError, ValueError, KeyError, AttributeError) as exc:
+        raise BenchmarkReferenceError("canonical registry is malformed or tampered") from exc
+
+
 def _validate_period(currency: str, horizon: float, start: str, end: str, cutoff: str) -> None:
     if not re.fullmatch(r"[A-Z]{3}", currency) or currency != currency.upper():
         raise BenchmarkReferenceError("analysis currency must be an ISO-4217 code")
@@ -1342,6 +1414,7 @@ def declare_reference_portfolios(
     maximum_horizon_years: float | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
+    source_hashes: tuple[str, ...] = (),
 ) -> tuple[ReferencePortfolioDefinition, ...]:
     """Declare the three comparison baselines used by rebalance evaluation."""
 
@@ -1365,6 +1438,7 @@ def declare_reference_portfolios(
             maximum_horizon_years=maximum_horizon_years,
             start_date=start_date,
             end_date=end_date,
+            source_hashes=source_hashes,
         )
         for method in REFERENCE_METHODS
     )
@@ -1667,6 +1741,7 @@ __all__ = [
     "VwceAnchorResolution",
     "VwceListingObservation",
     "declare_reference_portfolios",
+    "load_canonical_benchmark_registry",
     "project_profile_relative_analysis",
     "resolve_vwce_anchor",
 ]

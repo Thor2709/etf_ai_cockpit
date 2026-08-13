@@ -508,6 +508,20 @@ def _analysis_view(analysis: PortfolioAnalysis) -> ft.Control:
     benchmark_registry_hash = benchmark.get("registry_hash")
     if isinstance(benchmark_provenance, dict):
         benchmark_registry_hash = benchmark_provenance.get("registry_hash", benchmark_registry_hash)
+    selected_identity_parts: list[str] = []
+    for label, key in (("benchmark", "benchmark"), ("cash", "cash"), ("peer", "peer_set")):
+        selected = benchmark.get(key, {})
+        if isinstance(selected, dict) and selected.get("status") == "available":
+            selected_identity_parts.append(
+                f"{label}={selected.get('id')}@{selected.get('version')} digest:{selected.get('content_hash')}"
+            )
+    reference_identity_parts = [
+        f"{item.get('id')}@{item.get('version')} digest:{item.get('content_hash')}"
+        for item in benchmark.get("references", ())
+        if isinstance(item, dict)
+    ]
+    selected_identities = " | ".join(selected_identity_parts) or "unavailable"
+    reference_identities = " | ".join(reference_identity_parts) or "unavailable"
     anchor_resolution = profile.get("anchor_resolution", {})
     anchor_resolution = anchor_resolution if isinstance(anchor_resolution, dict) else {}
     reference_evidence = panel(
@@ -520,6 +534,7 @@ def _analysis_view(analysis: PortfolioAnalysis) -> ft.Control:
                 ft.Text(
                     "benchmark_reference: "
                     f"status={benchmark.get('status', 'unavailable')} | blockers={benchmark_blockers} | "
+                    f"selected={selected_identities} | references={reference_identities} | "
                     f"provenance=registry_hash:{benchmark_registry_hash or 'unavailable'}",
                     color=theme.MUTED,
                     selectable=True,

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 from copy import deepcopy
+import json
+from pathlib import Path
 
 import pytest
 
@@ -19,6 +21,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     VwceListingObservation,
     VWCE_CANONICAL_SHARE_CLASS,
     declare_reference_portfolios,
+    load_canonical_benchmark_registry,
     project_profile_relative_analysis,
     resolve_vwce_anchor,
 )
@@ -27,7 +30,48 @@ import etf_cockpit.portfolio.benchmark_reference_contract as contract
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
+REGISTRY_PATH = Path("configs/benchmark_reference_registry.json")
 INSTRUMENT = {"asset_class": "equity", "exposure": "broad", "country_region": "global", "currency": "AUD"}
+
+
+def test_durable_local_registry_fixture_is_canonical_and_semantically_reconstructed() -> None:
+    registry = load_canonical_benchmark_registry(REGISTRY_PATH)
+    assert registry.as_payload() == CanonicalBenchmarkRegistry.validate_payload(
+        json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+    )
+    assert [item.benchmark_id for item in registry.benchmarks] == ["benchmark:ftse-all-world"]
+    assert [item.proxy_id for item in registry.cash_proxies] == ["cash:EUR"]
+    assert [item.peer_set_id for item in registry.peer_sets] == ["peers:global-equity"]
+    assert {item.portfolio_id for item in registry.reference_portfolios} == {
+        "reference:equal_weight", "reference:maximum_diversification", "reference:no_trade",
+    }
+    assert all(item.source_hashes for item in registry.reference_portfolios)
+    assert registry.vwce_anchors[0].listing_observations[0].listing_id == "listing:vwce:xetra"
+    assert registry.as_payload()["execution_allowed"] is False
+
+
+def test_durable_local_registry_loader_fails_closed_on_missing_malformed_duplicate_and_tampered(
+    tmp_path,
+) -> None:
+    with pytest.raises(BenchmarkReferenceError, match="unavailable or malformed"):
+        load_canonical_benchmark_registry(tmp_path / "missing.json")
+
+    malformed = tmp_path / "malformed.json"
+    malformed.write_text("{", encoding="utf-8")
+    with pytest.raises(BenchmarkReferenceError, match="unavailable or malformed"):
+        load_canonical_benchmark_registry(malformed)
+
+    duplicate = tmp_path / "duplicate.json"
+    duplicate.write_text('{"contract":"first","contract":"second"}', encoding="utf-8")
+    with pytest.raises(BenchmarkReferenceError, match="duplicate JSON key"):
+        load_canonical_benchmark_registry(duplicate)
+
+    tampered_payload = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+    tampered_payload["records"][0]["payload"]["methodology"] = "tampered"
+    tampered = tmp_path / "tampered.json"
+    tampered.write_text(json.dumps(tampered_payload), encoding="utf-8")
+    with pytest.raises(BenchmarkReferenceError, match="registry hash mismatch"):
+        load_canonical_benchmark_registry(tampered)
 
 
 def _benchmark(**updates: object) -> BenchmarkDefinition:

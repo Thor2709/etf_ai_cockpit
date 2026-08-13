@@ -24,6 +24,7 @@ from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, a
 from etf_cockpit.core.logging import append_jsonl, configure_logging
 from etf_cockpit.core.paths import (
     BACKTESTS_DIR,
+    CONFIG_DIR,
     ETF_BENCHMARK_TOTAL_RETURN_PATH,
     ETF_FUND_TOTAL_RETURN_PATH,
     FORECASTS_DIR,
@@ -75,9 +76,24 @@ from etf_cockpit.models.forecast_scores import forecast_component_maps, forecast
 from etf_cockpit.models.local_weights import LocalModelStatus
 from etf_cockpit.models.registry import model_availability, model_diagnostics
 from etf_cockpit.portfolio.risk import target_policy_issues
-from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry, VwceAnchorEvidence
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    BenchmarkReferenceError,
+    CanonicalBenchmarkRegistry,
+    VWCE_CANONICAL_ISIN,
+    VWCE_CANONICAL_SHARE_CLASS,
+    VwceAnchorEvidence,
+    load_canonical_benchmark_registry,
+)
 from etf_cockpit.signals.signal_pipeline import generate_signals
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION
+
+
+BENCHMARK_REFERENCE_REGISTRY_PATH = CONFIG_DIR / "benchmark_reference_registry.json"
+_CANONICAL_REFERENCE_IDS = (
+    "reference:equal_weight",
+    "reference:maximum_diversification",
+    "reference:no_trade",
+)
 
 
 def _universe_cache_meta_path(path: Path) -> Path:
@@ -1259,6 +1275,72 @@ def build_snapshot(
         return _build_snapshot(force_sample=force_sample, publish_guard=publish_guard)
 
 
+def _benchmark_reference_snapshot_inputs(
+    config: AppConfig,
+    as_of: object,
+) -> dict[str, object]:
+    unavailable: dict[str, object] = {
+        "registry": CanonicalBenchmarkRegistry(),
+        "instrument": None,
+        "currency": None,
+        "horizon_years": None,
+        "start_date": None,
+        "end_date": None,
+        "decision_time": None,
+        "reference_ids": (),
+        "anchor": None,
+        "listing_id": None,
+    }
+    try:
+        registry = load_canonical_benchmark_registry(BENCHMARK_REFERENCE_REGISTRY_PATH)
+        as_of_timestamp = pd.Timestamp(as_of)
+        if pd.isna(as_of_timestamp):
+            return unavailable
+        end_date = as_of_timestamp.date()
+        start_date = (as_of_timestamp - pd.DateOffset(years=1)).date()
+        base_currency = config.targets.base_currency.strip().upper()
+        configured = [
+            item for item in config.universe.etfs
+            if item.id == "VWCE" and item.isin == VWCE_CANONICAL_ISIN
+        ]
+        anchors = [
+            item for item in registry.vwce_anchors
+            if item.canonical_isin == VWCE_CANONICAL_ISIN
+            and item.canonical_share_class_id == VWCE_CANONICAL_SHARE_CLASS
+        ]
+        if len(configured) != 1 or len(anchors) != 1:
+            return {**unavailable, "registry": registry}
+        vwce = configured[0]
+        anchor = anchors[0]
+        ticker = vwce.ticker.split(".", maxsplit=1)[0].upper()
+        listings = [
+            item for item in anchor.listing_observations
+            if item.ticker == ticker and item.currency == base_currency
+        ]
+        if len(listings) != 1 or start_date >= end_date:
+            return {**unavailable, "registry": registry}
+        instrument = {
+            "asset_class": vwce.asset_class,
+            "country_region": vwce.region or "",
+            "sector": vwce.sector or "",
+            "currency": vwce.currency,
+        }
+        return {
+            "registry": registry,
+            "instrument": instrument,
+            "currency": base_currency,
+            "horizon_years": 1.0,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "decision_time": f"{end_date.isoformat()}T23:59:59+00:00",
+            "reference_ids": _CANONICAL_REFERENCE_IDS,
+            "anchor": anchor,
+            "listing_id": listings[0].listing_id,
+        }
+    except (BenchmarkReferenceError, OSError, TypeError, ValueError, AttributeError):
+        return unavailable
+
+
 def _build_snapshot(
     force_sample: bool = False,
     *,
@@ -1328,6 +1410,7 @@ def _build_snapshot(
     etf_fund_total_return = load_total_return_evidence(ETF_FUND_TOTAL_RETURN_PATH)
     etf_benchmark_total_return = load_total_return_evidence(ETF_BENCHMARK_TOTAL_RETURN_PATH)
     etf_closure_policy = load_closure_proxy_policy()
+    benchmark_reference = _benchmark_reference_snapshot_inputs(config, data_report.as_of_date)
     return CockpitSnapshot(
         config=config,
         prices=prices,
@@ -1345,16 +1428,16 @@ def _build_snapshot(
         etf_fund_total_return=etf_fund_total_return,
         etf_benchmark_total_return=etf_benchmark_total_return,
         etf_closure_policy=etf_closure_policy,
-        benchmark_reference_registry=CanonicalBenchmarkRegistry(),
-        benchmark_reference_instrument=None,
-        benchmark_reference_currency=None,
-        benchmark_reference_horizon_years=None,
-        benchmark_reference_start_date=None,
-        benchmark_reference_end_date=None,
-        benchmark_reference_decision_time=None,
-        benchmark_reference_portfolio_ids=(),
-        vwce_anchor_evidence=None,
-        vwce_listing_id=None,
+        benchmark_reference_registry=benchmark_reference["registry"],  # type: ignore[arg-type]
+        benchmark_reference_instrument=benchmark_reference["instrument"],  # type: ignore[arg-type]
+        benchmark_reference_currency=benchmark_reference["currency"],  # type: ignore[arg-type]
+        benchmark_reference_horizon_years=benchmark_reference["horizon_years"],  # type: ignore[arg-type]
+        benchmark_reference_start_date=benchmark_reference["start_date"],  # type: ignore[arg-type]
+        benchmark_reference_end_date=benchmark_reference["end_date"],  # type: ignore[arg-type]
+        benchmark_reference_decision_time=benchmark_reference["decision_time"],  # type: ignore[arg-type]
+        benchmark_reference_portfolio_ids=benchmark_reference["reference_ids"],  # type: ignore[arg-type]
+        vwce_anchor_evidence=benchmark_reference["anchor"],  # type: ignore[arg-type]
+        vwce_listing_id=benchmark_reference["listing_id"],  # type: ignore[arg-type]
         vwce_conversion_evidence=None,
     )
 

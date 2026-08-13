@@ -455,7 +455,10 @@ def test_explicit_empty_reference_arguments_never_reuse_snapshot_evidence() -> N
     assert "benchmark:no_point_in_time_mapping" in empty_instrument["blockers"]
 
 
-def test_build_snapshot_wires_explicit_reference_evidence_into_real_production_path(monkeypatch) -> None:
+def test_build_snapshot_wires_available_reference_evidence_through_restart_and_save_load(
+    monkeypatch,
+    tmp_path,
+) -> None:
     class FakeDataService:
         def __init__(self, config):
             self.config = config
@@ -488,12 +491,46 @@ def test_build_snapshot_wires_explicit_reference_evidence_into_real_production_p
     snapshot = services._build_snapshot(force_sample=True)
     assert isinstance(snapshot.benchmark_reference_registry, CanonicalBenchmarkRegistry)
     assert snapshot.benchmark_reference_registry.as_payload()["registry_hash"]
-    assert snapshot.vwce_anchor_evidence is None
+    assert snapshot.vwce_anchor_evidence is not None
+    assert snapshot.benchmark_reference_currency == "EUR"
+    assert snapshot.benchmark_reference_horizon_years == 1.0
+    assert snapshot.benchmark_reference_portfolio_ids == (
+        "reference:equal_weight", "reference:maximum_diversification", "reference:no_trade",
+    )
     analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
-    assert analysis.service_evidence["benchmark_reference"]["status"] == "unavailable"
-    assert analysis.service_evidence["benchmark_reference"]["registry_hash"]
-    assert analysis.service_evidence["profile_relative"]["profile_relative_status"] == "unavailable"
+    assert analysis.service_evidence["benchmark_reference"]["status"] == "available"
+    assert analysis.service_evidence["benchmark_reference"]["benchmark"]["id"] == "benchmark:ftse-all-world"
+    assert analysis.service_evidence["profile_relative"]["profile_relative_status"] == "available"
     assert analysis.execution_allowed is False
+
+    saved = save_portfolio_candidate(
+        snapshot,
+        name="Production reference restart",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.6, "LYP6": 0.3},
+        cash_weight=0.1,
+        expected_revision=0,
+        root=tmp_path,
+    )
+    rebuilt = services._build_snapshot(force_sample=True)
+    loaded = load_portfolio_candidate(rebuilt, "Production reference restart", root=tmp_path)
+    assert loaded.result_payload == saved.result_payload
+    assert loaded.result_payload["service_evidence"]["benchmark_reference"]["status"] == "available"
+    assert loaded.result_payload["service_evidence"]["profile_relative"]["execution_allowed"] is False
+
+
+def test_snapshot_reference_inputs_fail_closed_when_local_registry_is_missing(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(
+        services, "BENCHMARK_REFERENCE_REGISTRY_PATH", tmp_path / "missing-registry.json",
+    )
+    evidence = services._benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
+    assert evidence["registry"].as_payload()["records"] == []
+    assert evidence["instrument"] is None
+    assert evidence["anchor"] is None
+    assert evidence["reference_ids"] == ()
 
 
 def test_changed_registry_source_hash_rejects_persisted_result_on_load(tmp_path) -> None:

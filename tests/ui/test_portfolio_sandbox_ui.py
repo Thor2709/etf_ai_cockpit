@@ -7,6 +7,7 @@ import pandas as pd
 
 from etf_cockpit.app.pages import portfolio
 from etf_cockpit.app.router import PAGES
+from etf_cockpit import services
 from etf_cockpit.application import portfolio_sandbox
 from etf_cockpit.core.config import load_config
 
@@ -99,6 +100,37 @@ def test_portfolio_sandbox_validation_and_analysis_are_readable() -> None:
     overlap_text = _text(_by_key(root, "portfolio.etf-overlap"))
     assert "coverage_status=missing" in overlap_text
     assert "No holdings evidence is available" in overlap_text
+
+
+def test_portfolio_ui_renders_available_canonical_identities_versions_and_digests() -> None:
+    state = _state()
+    evidence = services._benchmark_reference_snapshot_inputs(
+        state.snapshot.config, state.snapshot.data_report.as_of_date,
+    )
+    state.snapshot.benchmark_reference_registry = evidence["registry"]
+    state.snapshot.benchmark_reference_instrument = evidence["instrument"]
+    state.snapshot.benchmark_reference_currency = evidence["currency"]
+    state.snapshot.benchmark_reference_horizon_years = evidence["horizon_years"]
+    state.snapshot.benchmark_reference_start_date = evidence["start_date"]
+    state.snapshot.benchmark_reference_end_date = evidence["end_date"]
+    state.snapshot.benchmark_reference_decision_time = evidence["decision_time"]
+    state.snapshot.benchmark_reference_portfolio_ids = evidence["reference_ids"]
+    state.snapshot.vwce_anchor_evidence = evidence["anchor"]
+    state.snapshot.vwce_listing_id = evidence["listing_id"]
+    state.snapshot.vwce_conversion_evidence = None
+
+    root = portfolio.portfolio_page(None, state)
+    _set_candidate(root)
+    _by_key(root, "portfolio.analyse").on_click(None)
+    result_text = _text(_by_key(root, "portfolio.results"))
+    assert "benchmark_reference: status=available" in result_text
+    assert "benchmark=benchmark:ftse-all-world@1.0.0 digest:" in result_text
+    assert "cash=cash:EUR@1.0.0 digest:" in result_text
+    assert "peer=peers:global-equity@1.0.0 digest:" in result_text
+    assert "reference:equal_weight@1.0.0 digest:" in result_text
+    assert "reference:maximum_diversification@1.0.0 digest:" in result_text
+    assert "reference:no_trade@1.0.0 digest:" in result_text
+    assert "provenance=registry_hash:" in result_text
 
 
 def test_snapshot_selector_cannot_relabel_the_supplied_snapshot() -> None:

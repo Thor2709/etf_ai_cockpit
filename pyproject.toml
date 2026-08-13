@@ -58,7 +58,7 @@ models = [
 where = ["src"]
 
 [tool.setuptools.data-files]
-"configs" = ["configs/ui_acceptance.yaml"]
+"configs" = ["configs/ui_acceptance.yaml", "configs/benchmark_reference_registry.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
