@@ -4743,20 +4743,28 @@
       "acceptance_evidence": [],
       "dependency_edge_evidence": {
         "ISSUE-0051": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "phase-05/ISSUE-0051/currency-horizon-cash-comparison-v1",
+          "evidence_references": [
+            "ISSUE-0051 product PR #682 merged exact approved head 83c2843632e2e88a39fe3fcefa21858b436aada4 as 6b9a79d86e4d17656619c1f969b5f44a2d47c4d9; release run 31638791406 passed Linux, Windows and terminal validation.",
+            "ISSUE-0051 lifecycle PR #685 merged exact reviewed head 381c7d013c4e8e326eb3ee68ac5f39adef60bcc3 as e5c70f7f08665f5b041e4a20614061ee9f8a85b8; writer run 31666997864 applied the two ordered hops with zero-action readback.",
+            "The accepted ISSUE-0051 contract supplies point-in-time currency- and horizon-matched cash/risk-free comparisons with explicit unavailable states while execution_allowed=false."
+          ],
+          "reviewed_date": "2026-08-13",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         },
         "ISSUE-0059": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "phase-05/ISSUE-0059/benchmark-relative-attribution-v1",
+          "evidence_references": [
+            "ISSUE-0059 product PR #574 merged exact reviewed head 37ef3fc9e18c682408ecc079fc65e85426ccee7e as 80c63200e733fada6ae2d76ac67feb776f281c38; release run 30338519123 passed authoritative Linux and Windows package gates.",
+            "ISSUE-0059 integration PR #686 merged exact independently approved head 560e68511eb228d831f9c31e0babdafa26c0a57e as 87b05852121ff6ecdd1c9b1b8ae5ed423875523c; writer run 31672396480 applied one update with zero-action readback.",
+            "The accepted ISSUE-0059 contract supplies point-in-time, currency-consistent factor/sector/country/currency/residual benchmark attribution and reconciliation while execution_allowed=false."
+          ],
+          "reviewed_date": "2026-08-13",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
@@ -4766,8 +4774,64 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "planned"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0051",
+            "evidence": {
+              "contract_reference": "phase-05/ISSUE-0051/currency-horizon-cash-comparison-v1",
+              "evidence_references": [
+                "ISSUE-0051 product PR #682 merged exact approved head 83c2843632e2e88a39fe3fcefa21858b436aada4 as 6b9a79d86e4d17656619c1f969b5f44a2d47c4d9; release run 31638791406 passed Linux, Windows and terminal validation.",
+                "ISSUE-0051 lifecycle PR #685 merged exact reviewed head 381c7d013c4e8e326eb3ee68ac5f39adef60bcc3 as e5c70f7f08665f5b041e4a20614061ee9f8a85b8; writer run 31666997864 applied the two ordered hops with zero-action readback.",
+                "The accepted ISSUE-0051 contract supplies point-in-time currency- and horizon-matched cash/risk-free comparisons with explicit unavailable states while execution_allowed=false."
+              ],
+              "reviewed_date": "2026-08-13",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "ISSUE-0051 product PR #682 merged exact approved head 83c2843632e2e88a39fe3fcefa21858b436aada4 as 6b9a79d86e4d17656619c1f969b5f44a2d47c4d9; release run 31638791406 passed Linux, Windows and terminal validation.",
+            "ISSUE-0051 lifecycle PR #685 merged exact reviewed head 381c7d013c4e8e326eb3ee68ac5f39adef60bcc3 as e5c70f7f08665f5b041e4a20614061ee9f8a85b8; writer run 31666997864 applied the two ordered hops with zero-action readback.",
+            "The accepted ISSUE-0051 contract supplies point-in-time currency- and horizon-matched cash/risk-free comparisons with explicit unavailable states while execution_allowed=false."
+          ],
+          "review_reference": "ISSUE-0112 cash-reference dependency review",
+          "reviewed_date": "2026-08-13",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "87b05852121ff6ecdd1c9b1b8ae5ed423875523c"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0059",
+            "evidence": {
+              "contract_reference": "phase-05/ISSUE-0059/benchmark-relative-attribution-v1",
+              "evidence_references": [
+                "ISSUE-0059 product PR #574 merged exact reviewed head 37ef3fc9e18c682408ecc079fc65e85426ccee7e as 80c63200e733fada6ae2d76ac67feb776f281c38; release run 30338519123 passed authoritative Linux and Windows package gates.",
+                "ISSUE-0059 integration PR #686 merged exact independently approved head 560e68511eb228d831f9c31e0babdafa26c0a57e as 87b05852121ff6ecdd1c9b1b8ae5ed423875523c; writer run 31672396480 applied one update with zero-action readback.",
+                "The accepted ISSUE-0059 contract supplies point-in-time, currency-consistent factor/sector/country/currency/residual benchmark attribution and reconciliation while execution_allowed=false."
+              ],
+              "reviewed_date": "2026-08-13",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "ISSUE-0059 product PR #574 merged exact reviewed head 37ef3fc9e18c682408ecc079fc65e85426ccee7e as 80c63200e733fada6ae2d76ac67feb776f281c38; release run 30338519123 passed authoritative Linux and Windows package gates.",
+            "ISSUE-0059 integration PR #686 merged exact independently approved head 560e68511eb228d831f9c31e0babdafa26c0a57e as 87b05852121ff6ecdd1c9b1b8ae5ed423875523c; writer run 31672396480 applied one update with zero-action readback.",
+            "The accepted ISSUE-0059 contract supplies point-in-time, currency-consistent factor/sector/country/currency/residual benchmark attribution and reconciliation while execution_allowed=false."
+          ],
+          "review_reference": "ISSUE-0112 benchmark-attribution dependency review",
+          "reviewed_date": "2026-08-13",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "87b05852121ff6ecdd1c9b1b8ae5ed423875523c"
+        }
+      ],
+      "verified_commit": "87b05852121ff6ecdd1c9b1b8ae5ed423875523c",
+      "verified_date": "2026-08-13"
     },
     "ISSUE-0113": {
       "acceptance_evidence": [],

@@ -2631,3 +2631,20 @@ next action and whether the requested outcome is actually complete.
   dependency edges and product code, prepare the one-update authority, and
   require exact-head review, focused E-tier guards, ordered writer and generic
   zero-action readback before resolving ISSUE-0112 dependency evidence.
+
+## ISSUE-0059 convergence and ISSUE-0112 dependency readiness
+
+- ISSUE-0059 integration PR #686 merged exact independently approved head
+  `560e68511eb228d831f9c31e0babdafa26c0a57e` as
+  `87b05852121ff6ecdd1c9b1b8ae5ed423875523c`. Cadence run `31668262647`
+  passed Linux and, after the one documented 1,800-second timeout retry,
+  Windows and terminal validation. Writer run `31672396480` applied one
+  proposal and receipt with two transport writes, full reconciliation,
+  `zero_action_readback=true` and `execution_allowed=false`.
+- Clean branch `codex/issue0112-dependencies-20260813` starts from exact main
+  `87b05852121ff6ecdd1c9b1b8ae5ed423875523c`. Record only the two independent
+  ISSUE-0112 dependency edges to the integrated ISSUE-0051 cash-comparison and
+  ISSUE-0059 benchmark-attribution contracts in one atomic same-consumer batch.
+  Preserve ISSUE-0112 at `planned`, change no product code or execution
+  authority, generate projections mechanically, and require focused E-tier
+  guards and exact-head review before product implementation.
