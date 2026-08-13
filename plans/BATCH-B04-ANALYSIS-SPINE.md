@@ -3955,3 +3955,17 @@ evidence through ordinary portfolio analysis, save/load and existing UI service
 evidence. All 269 affected tests pass with Ruff, contract mypy, compile and diff
 hygiene. Freeze one final replacement head for paired review and fresh H-tier
 Linux/Windows/terminal validation; preserve `execution_allowed=false`.
+
+`CORRECTED` head `19a19d170edb1df2057e4be1a31b6d4eb076a863` is rejected
+and run `31683739150` is cancelled/stale. The complete paired verdict reproduced
+four remaining product-delivery defects: no explicit canonical evidence on real
+snapshots, no benchmark/profile UI surface, projections not bound to registry
+and selected-record digests, and no deterministic replay of available VWCE
+resolutions against the actual listing, horizon, conversion and point-in-time
+cutoffs. Consolidated commit `db39adbed19a76dca23c0a3764fcd4ddf6a46977`
+closes exactly those paths with real production wiring, explicit unavailable
+evidence, visible provenance, stale-load rejection and forged-resolution
+regressions. The 278 affected contract, sandbox, UI, cash, attribution, peer and
+optimiser tests plus Ruff, targeted contract mypy, compile, programme freshness
+and diff hygiene pass. Freeze one replacement head for paired final review and
+fresh H-tier Linux/Windows/terminal evidence; preserve `execution_allowed=false`.

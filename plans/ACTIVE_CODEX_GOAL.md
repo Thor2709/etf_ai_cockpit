@@ -80,6 +80,19 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   contract, sandbox, UI, cash, attribution, peer and optimiser tests pass with
   Ruff, contract mypy, compile and diff hygiene. Freeze one final exact head for
   paired review and fresh H-tier evidence; `execution_allowed=false` remains.
+- Paired review of `19a19d170edb1df2057e4be1a31b6d4eb076a863`
+  rejected four remaining demonstrated delivery boundaries, and exact-head run
+  `31683739150` is cancelled/stale: the real `CockpitSnapshot` path omitted the
+  registry and VWCE evidence, Portfolio UI omitted both projections, selected
+  registry records lacked content-digest provenance, and manually constructed
+  available anchor resolutions were not replayed against the actual listing,
+  horizon, conversion and point-in-time cutoffs. Consolidated product commit
+  `db39adbed19a76dca23c0a3764fcd4ddf6a46977` closes only those paths. The
+  affected 278-test contract, sandbox, UI, cash, attribution, peer and optimiser
+  suite passes with Ruff, targeted contract mypy, compile, programme byte-clean
+  and diff-hygiene evidence. Freeze one replacement exact head for paired final
+  review and fresh H-tier Linux/Windows/terminal validation; preserve all
+  lifecycle, provider/broker/release and `execution_allowed=false` boundaries.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid
