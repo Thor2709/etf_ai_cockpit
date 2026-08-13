@@ -3872,3 +3872,19 @@ from release run `30338519123`, status guard `30338519047` and supply-chain run
 `30338519237`. Do not change product code or dependency edges. Require focused
 E-tier validation, exact-head review, ordered writer and generic zero-action
 readback before the separate ISSUE-0112 dependency-edge transaction.
+
+`INTEGRATED` ISSUE-0059 integration PR #686 merged exact reviewed head
+`560e68511eb228d831f9c31e0babdafa26c0a57e` as
+`87b05852121ff6ecdd1c9b1b8ae5ed423875523c`. Cadence run `31668262647`
+passed Linux, the single documented Windows timeout retry and terminal
+validation. Writer run `31672396480` applied the one authorized status event
+with one proposal and receipt, two writes and zero-action readback;
+`execution_allowed=false` remains unchanged.
+
+`IN_PROGRESS` clean branch `codex/issue0112-dependencies-20260813` starts from
+exact main `87b05852121ff6ecdd1c9b1b8ae5ed423875523c`. Record only the two
+independent ISSUE-0112 dependency edges to integrated ISSUE-0051 and
+ISSUE-0059 in the existing atomic same-consumer edge transaction. Do not
+change ISSUE-0112 lifecycle status or product code. Require generated
+projections, focused E-tier guards and exact-head review before the separate
+ISSUE-0112 product lane.
