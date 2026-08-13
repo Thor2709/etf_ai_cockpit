@@ -10,6 +10,16 @@ from etf_cockpit.app.router import PAGES
 from etf_cockpit import services
 from etf_cockpit.application import portfolio_sandbox
 from etf_cockpit.core.config import load_config
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    BenchmarkDefinition,
+    CanonicalBenchmarkRegistry,
+    CashProxyDefinition,
+    PeerSetDefinition,
+    VWCE_CANONICAL_SHARE_CLASS,
+    VwceAnchorEvidence,
+    VwceListingObservation,
+    declare_reference_portfolios,
+)
 
 
 def _state():
@@ -58,6 +68,59 @@ def _set_candidate(root) -> None:
     _by_key(root, "portfolio.cash-weight").value = "10"
 
 
+def _available_registry() -> CanonicalBenchmarkRegistry:
+    common = {
+        "effective_at": "2024-01-01T00:00:00Z",
+        "known_at": "2024-01-02T00:00:00Z",
+    }
+    anchor = VwceAnchorEvidence(
+        canonical_isin="IE00BK5BQT80",
+        canonical_share_class_id=VWCE_CANONICAL_SHARE_CLASS,
+        official_facts_as_of="2024-01-01",
+        benchmark_name="source-backed fixture",
+        benchmark_as_of="2024-01-01",
+        fees={"ongoing_charges": "source-backed fixture"},
+        fees_as_of="2024-01-01",
+        tracking={"tracking_difference": "source-backed fixture"},
+        tracking_as_of="2024-01-01",
+        product_risk_indicator={"version": "source-backed-fixture-v1"},
+        risk_indicator_as_of="2024-01-01",
+        currency="USD",
+        source_hashes=("a" * 64,),
+        listing_observations=(VwceListingObservation(
+            "listing:xetra", "VWCE", "XETR", "EUR",
+            "2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z", "a" * 64,
+        ),),
+        minimum_horizon_years=0.1,
+        maximum_horizon_years=10.0,
+        **common,
+    )
+    return CanonicalBenchmarkRegistry(
+        benchmarks=(BenchmarkDefinition(
+            "benchmark:global-equity", "1.0.0", "asset", {"asset_class": "equity"},
+            "EUR", 0.1, 10.0, start_date="2020-01-01", end_date="2030-01-01",
+            methodology="source-backed fixture", constituents=("VWCE",),
+            source_hashes=("a" * 64,), **common,
+        ),),
+        cash_proxies=(CashProxyDefinition(
+            "cash:EUR", "1.0.0", {"asset_class": "equity"}, "EUR", 0.1, 10.0,
+            start_date="2020-01-01", end_date="2030-01-01",
+            methodology="source-backed fixture", source_hashes=("a" * 64,), **common,
+        ),),
+        peer_sets=(PeerSetDefinition(
+            "peers:global-equity", "1.0.0", "asset", {"asset_class": "equity"},
+            ("VWCE",), methodology="source-backed fixture", source_hashes=("a" * 64,),
+            **common,
+        ),),
+        reference_portfolios=declare_reference_portfolios(
+            ("VWCE",), current_weights={"VWCE": 1.0}, currency="EUR",
+            minimum_horizon_years=0.1, maximum_horizon_years=10.0,
+            start_date="2020-01-01", end_date="2030-01-01", **common,
+        ),
+        vwce_anchors=(anchor,),
+    )
+
+
 def test_portfolio_sandbox_exposes_non_executable_controls_and_results() -> None:
     root = portfolio.portfolio_page(None, _state())
     keys = {str(control.key) for control in _walk(root) if getattr(control, "key", None)}
@@ -97,13 +160,19 @@ def test_portfolio_sandbox_validation_and_analysis_are_readable() -> None:
     assert "profile_relative: status=unavailable" in result_text
     assert "provenance=registry_hash:" in result_text
     assert "provenance=anchor_digest:" in result_text
+    assert "canonical_share_class_id:unavailable" in result_text
+    assert "listing_id:unavailable" in result_text
+    assert "effective_date:unavailable" in result_text
+    assert "knowledge_cutoff:unavailable" in result_text
     overlap_text = _text(_by_key(root, "portfolio.etf-overlap"))
     assert "coverage_status=missing" in overlap_text
     assert "No holdings evidence is available" in overlap_text
 
 
-def test_portfolio_ui_renders_available_canonical_identities_versions_and_digests() -> None:
+def test_portfolio_ui_renders_available_canonical_identities_versions_and_digests(monkeypatch) -> None:
     state = _state()
+    registry = _available_registry()
+    monkeypatch.setattr(services, "load_canonical_benchmark_registry", lambda path: registry)
     evidence = services._benchmark_reference_snapshot_inputs(
         state.snapshot.config, state.snapshot.data_report.as_of_date,
     )
@@ -124,13 +193,16 @@ def test_portfolio_ui_renders_available_canonical_identities_versions_and_digest
     _by_key(root, "portfolio.analyse").on_click(None)
     result_text = _text(_by_key(root, "portfolio.results"))
     assert "benchmark_reference: status=available" in result_text
-    assert "benchmark=benchmark:ftse-all-world@1.0.0 digest:" in result_text
+    assert "benchmark=benchmark:global-equity@1.0.0 digest:" in result_text
     assert "cash=cash:EUR@1.0.0 digest:" in result_text
     assert "peer=peers:global-equity@1.0.0 digest:" in result_text
     assert "reference:equal_weight@1.0.0 digest:" in result_text
     assert "reference:maximum_diversification@1.0.0 digest:" in result_text
-    assert "reference:no_trade@1.0.0 digest:" in result_text
     assert "provenance=registry_hash:" in result_text
+    assert f"canonical_share_class_id:{VWCE_CANONICAL_SHARE_CLASS}" in result_text
+    assert "listing_id:listing:xetra" in result_text
+    assert "effective_date:2025-07-18" in result_text
+    assert "knowledge_cutoff:2026-07-18T23:59:59+00:00" in result_text
 
 
 def test_snapshot_selector_cannot_relabel_the_supplied_snapshot() -> None:

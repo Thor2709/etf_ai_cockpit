@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from types import SimpleNamespace
 
@@ -487,6 +488,11 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
     monkeypatch.setattr(services, "load_etf_economics_records", lambda: ())
     monkeypatch.setattr(services, "load_total_return_evidence", lambda path: None)
     monkeypatch.setattr(services, "load_closure_proxy_policy", lambda: None)
+    source_backed_anchor = _vwce_anchor()
+    source_backed_registry = _canonical_reference_registry(source_backed_anchor)
+    monkeypatch.setattr(
+        services, "load_canonical_benchmark_registry", lambda path: source_backed_registry,
+    )
 
     snapshot = services._build_snapshot(force_sample=True)
     assert isinstance(snapshot.benchmark_reference_registry, CanonicalBenchmarkRegistry)
@@ -495,11 +501,11 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
     assert snapshot.benchmark_reference_currency == "EUR"
     assert snapshot.benchmark_reference_horizon_years == 1.0
     assert snapshot.benchmark_reference_portfolio_ids == (
-        "reference:equal_weight", "reference:maximum_diversification", "reference:no_trade",
+        "reference:equal_weight", "reference:maximum_diversification",
     )
     analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
     assert analysis.service_evidence["benchmark_reference"]["status"] == "available"
-    assert analysis.service_evidence["benchmark_reference"]["benchmark"]["id"] == "benchmark:ftse-all-world"
+    assert analysis.service_evidence["benchmark_reference"]["benchmark"]["id"] == "benchmark:global-equity"
     assert analysis.service_evidence["profile_relative"]["profile_relative_status"] == "available"
     assert analysis.execution_allowed is False
 
@@ -531,6 +537,86 @@ def test_snapshot_reference_inputs_fail_closed_when_local_registry_is_missing(
     assert evidence["instrument"] is None
     assert evidence["anchor"] is None
     assert evidence["reference_ids"] == ()
+
+
+def test_packaged_identity_only_registry_remains_explicitly_unavailable() -> None:
+    evidence = services._benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
+    snapshot = _snapshot()
+    snapshot.benchmark_reference_registry = evidence["registry"]
+    snapshot.benchmark_reference_instrument = evidence["instrument"]
+    snapshot.benchmark_reference_currency = evidence["currency"]
+    snapshot.benchmark_reference_horizon_years = evidence["horizon_years"]
+    snapshot.benchmark_reference_start_date = evidence["start_date"]
+    snapshot.benchmark_reference_end_date = evidence["end_date"]
+    snapshot.benchmark_reference_decision_time = evidence["decision_time"]
+    snapshot.benchmark_reference_portfolio_ids = evidence["reference_ids"]
+    snapshot.vwce_anchor_evidence = evidence["anchor"]
+    snapshot.vwce_listing_id = evidence["listing_id"]
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+    assert analysis.service_evidence["benchmark_reference"]["status"] == "unavailable"
+    assert analysis.service_evidence["profile_relative"]["profile_relative_status"] == "unavailable"
+    assert analysis.service_evidence["profile_relative"]["profile_relative_claims_allowed"] is False
+
+
+def test_snapshot_inputs_select_newest_pit_anchor_and_replay_listing_history(monkeypatch) -> None:
+    historical = _vwce_anchor()
+    revised_listing = VwceListingObservation(
+        "listing:xetra", "VWCE", "XETR", "EUR",
+        "2025-06-01T00:00:00Z", "2025-06-02T00:00:00Z", "b" * 64,
+    )
+    initial_listing = replace(
+        revised_listing,
+        effective_at="2025-01-01T00:00:00Z",
+        known_at="2025-01-02T00:00:00Z",
+    )
+    revised = _vwce_anchor(
+        official_facts_as_of="2025-01-01",
+        benchmark_as_of="2025-01-01",
+        fees_as_of="2025-01-01",
+        tracking_as_of="2025-01-01",
+        risk_indicator_as_of="2025-01-01",
+        source_hashes=("b" * 64,),
+        listing_observations=(initial_listing, revised_listing),
+        effective_at="2025-01-01T00:00:00Z",
+        known_at="2025-06-02T00:00:00Z",
+    )
+    base = _canonical_reference_registry(historical)
+    registry = CanonicalBenchmarkRegistry(
+        benchmarks=base.benchmarks,
+        cash_proxies=base.cash_proxies,
+        peer_sets=base.peer_sets,
+        reference_portfolios=base.reference_portfolios,
+        vwce_anchors=(historical, revised),
+    )
+    monkeypatch.setattr(services, "load_canonical_benchmark_registry", lambda path: registry)
+
+    old = services._benchmark_reference_snapshot_inputs(load_config(), "2024-07-18")
+    current = services._benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
+    assert old["anchor"].digest() == historical.digest()
+    assert current["anchor"].digest() == revised.digest()
+    replay = services.resolve_vwce_anchor(
+        current["anchor"],
+        listing_id=current["listing_id"],
+        effective_date=current["start_date"],
+        decision_time=current["decision_time"],
+        currency=current["currency"],
+        horizon_years=current["horizon_years"],
+    )
+    assert replay.status == "available"
+    assert replay.observation_effective_at == revised_listing.effective_at
+
+
+def test_snapshot_inputs_fail_closed_only_on_true_latest_anchor_tie(monkeypatch) -> None:
+    anchor = _vwce_anchor()
+    registry = _canonical_reference_registry(anchor)
+    tied = replace(anchor, benchmark_name="Different source-backed revision")
+    object.__setattr__(registry, "vwce_anchors", (anchor, tied))
+    monkeypatch.setattr(services, "load_canonical_benchmark_registry", lambda path: registry)
+
+    evidence = services._benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
+    assert evidence["anchor"] is None
+    assert evidence["listing_id"] is None
+    assert evidence["registry"] is registry
 
 
 def test_changed_registry_source_hash_rejects_persisted_result_on_load(tmp_path) -> None:
@@ -1198,6 +1284,14 @@ def test_result_payload_rejects_a_caller_supplied_unbound_candidate_checksum() -
 
     with pytest.raises(ValueError, match="checksum does not match candidate"):
         portfolio_analysis_payload(analysis, candidate_payload_checksum="0" * 64)
+
+
+def test_result_payload_rejects_nested_execution_authority_in_mutable_service_evidence() -> None:
+    analysis = analyse_portfolio_candidate(_snapshot(), _candidate())
+    analysis.service_evidence["forged"] = {"nested": [{"execution_allowed": True}]}
+
+    with pytest.raises(ValueError, match="contains execution authority"):
+        portfolio_analysis_payload(analysis)
 
 
 @pytest.mark.parametrize("mutation", ["execution", "identity", "candidate_revision", "candidate_checksum"])

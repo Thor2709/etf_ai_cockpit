@@ -610,6 +610,7 @@ def portfolio_analysis_payload(
     expected_candidate_checksum = str(candidate_payload_checksum or canonical_candidate_checksum)
     if len(expected_candidate_checksum) != 64 or expected_candidate_checksum != canonical_candidate_checksum:
         raise ValueError("candidate payload checksum does not match candidate")
+    _assert_no_execution(analysis.service_evidence)
     body: dict[str, object] = {
         "schema_version": "portfolio_sandbox_result.v1",
         "candidate_id": analysis.candidate.candidate_id,

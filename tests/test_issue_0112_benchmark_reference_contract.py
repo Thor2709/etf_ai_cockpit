@@ -43,9 +43,17 @@ def test_durable_local_registry_fixture_is_canonical_and_semantically_reconstruc
     assert [item.proxy_id for item in registry.cash_proxies] == ["cash:EUR"]
     assert [item.peer_set_id for item in registry.peer_sets] == ["peers:global-equity"]
     assert {item.portfolio_id for item in registry.reference_portfolios} == {
-        "reference:equal_weight", "reference:maximum_diversification", "reference:no_trade",
+        "reference:equal_weight", "reference:maximum_diversification",
     }
-    assert all(item.source_hashes for item in registry.reference_portfolios)
+    assert registry.benchmarks[0].status == "unavailable"
+    assert registry.cash_proxies[0].status == "unavailable"
+    assert registry.peer_sets[0].status == "unavailable"
+    assert registry.vwce_anchors[0].status == "unavailable"
+    assert registry.benchmarks[0].source_hashes == ()
+    assert registry.cash_proxies[0].source_hashes == ()
+    assert registry.peer_sets[0].source_hashes == ()
+    assert registry.vwce_anchors[0].source_hashes == ()
+    assert all(not item.source_hashes for item in registry.reference_portfolios)
     assert registry.vwce_anchors[0].listing_observations[0].listing_id == "listing:vwce:xetra"
     assert registry.as_payload()["execution_allowed"] is False
 

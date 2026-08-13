@@ -140,11 +140,11 @@ def _text(value: object, field: str) -> str:
     return value.strip()
 
 
-def _hashes(values: Sequence[str], field: str) -> tuple[str, ...]:
+def _hashes(values: Sequence[str], field: str, *, allow_empty: bool = False) -> tuple[str, ...]:
     if any(not isinstance(item, str) for item in values):
         raise BenchmarkReferenceError(f"{field} must contain SHA-256 hashes")
     result = tuple(sorted(item.lower() for item in values))
-    if not result or any(_SHA256.fullmatch(item) is None for item in result):
+    if (not result and not allow_empty) or any(_SHA256.fullmatch(item) is None for item in result):
         raise BenchmarkReferenceError(f"{field} must contain SHA-256 hashes")
     return result
 
@@ -275,9 +275,12 @@ class BenchmarkDefinition:
         _validate_window(self.effective_at, self.known_at, self.start_date, self.end_date)
         _text(self.methodology, "methodology")
         object.__setattr__(self, "constituents", _normalise_ids(self.constituents, "constituents"))
-        object.__setattr__(self, "source_hashes", _hashes(self.source_hashes, "source_hashes"))
         if self.status not in {"available", "stale", "unavailable"}:
             raise BenchmarkReferenceError("benchmark status is unsupported")
+        object.__setattr__(
+            self, "source_hashes",
+            _hashes(self.source_hashes, "source_hashes", allow_empty=self.status == "unavailable"),
+        )
         if type(self.opportunity_anchor) is not bool:
             raise BenchmarkReferenceError("opportunity_anchor must be a boolean")
         if self.canonical_identity is not None:
@@ -341,9 +344,12 @@ class CashProxyDefinition:
             raise BenchmarkReferenceError("cash horizon bounds are invalid")
         _validate_window(self.effective_at, self.known_at, self.start_date, self.end_date)
         _text(self.methodology, "methodology")
-        object.__setattr__(self, "source_hashes", _hashes(self.source_hashes, "source_hashes"))
         if self.status not in {"available", "stale", "unavailable"}:
             raise BenchmarkReferenceError("cash status is unsupported")
+        object.__setattr__(
+            self, "source_hashes",
+            _hashes(self.source_hashes, "source_hashes", allow_empty=self.status == "unavailable"),
+        )
         if self.execution_allowed is not False:
             raise BenchmarkReferenceError("cash contract cannot grant execution authority")
 
@@ -394,9 +400,12 @@ class PeerSetDefinition:
         if _timestamp(self.effective_at, "effective_at") > _timestamp(self.known_at, "known_at"):
             raise BenchmarkReferenceError("effective_at cannot be after known_at")
         _text(self.methodology, "methodology")
-        object.__setattr__(self, "source_hashes", _hashes(self.source_hashes, "source_hashes"))
         if self.status not in {"available", "stale", "unavailable"}:
             raise BenchmarkReferenceError("peer set status is unsupported")
+        object.__setattr__(
+            self, "source_hashes",
+            _hashes(self.source_hashes, "source_hashes", allow_empty=self.status == "unavailable"),
+        )
         if self.execution_allowed is not False:
             raise BenchmarkReferenceError("peer contract cannot grant execution authority")
 
@@ -532,7 +541,10 @@ class VwceListingObservation:
             raise BenchmarkReferenceError("listing currency must be an ISO-4217 code")
         if _timestamp(self.effective_at, "effective_at") > _timestamp(self.known_at, "known_at"):
             raise BenchmarkReferenceError("listing effective_at cannot be after known_at")
-        if not isinstance(self.source_hash, str) or _SHA256.fullmatch(self.source_hash.lower()) is None:
+        if not isinstance(self.source_hash, str) or (
+            not (self.status == "unavailable" and self.source_hash == "")
+            and _SHA256.fullmatch(self.source_hash.lower()) is None
+        ):
             raise BenchmarkReferenceError("listing source_hash must be SHA-256")
         if self.status not in {"available", "stale", "unavailable"}:
             raise BenchmarkReferenceError("listing status is unsupported")
@@ -587,7 +599,12 @@ class VwceAnchorEvidence:
             raise BenchmarkReferenceError("risk indicator must be a versioned string fact")
         if not re.fullmatch(r"[A-Z]{3}", self.currency):
             raise BenchmarkReferenceError("VWCE currency must be an ISO-4217 code")
-        object.__setattr__(self, "source_hashes", _hashes(self.source_hashes, "source_hashes"))
+        if self.status not in {"available", "stale", "unavailable"}:
+            raise BenchmarkReferenceError("VWCE status is unsupported")
+        object.__setattr__(
+            self, "source_hashes",
+            _hashes(self.source_hashes, "source_hashes", allow_empty=self.status == "unavailable"),
+        )
         if not self.listing_observations:
             raise BenchmarkReferenceError("at least one VWCE listing observation is required")
         object.__setattr__(self, "listing_observations", tuple(self.listing_observations))
@@ -624,8 +641,6 @@ class VwceAnchorEvidence:
         _assert_no_execution(self.fees)
         _assert_no_execution(self.tracking)
         _assert_no_execution(self.product_risk_indicator)
-        if self.status not in {"available", "stale", "unavailable"}:
-            raise BenchmarkReferenceError("VWCE status is unsupported")
         if self.execution_allowed is not False:
             raise BenchmarkReferenceError("VWCE evidence cannot grant execution authority")
 

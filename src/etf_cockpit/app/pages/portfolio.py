@@ -543,6 +543,10 @@ def _analysis_view(analysis: PortfolioAnalysis) -> ft.Control:
                 ft.Text(
                     "profile_relative: "
                     f"status={profile.get('profile_relative_status', profile.get('status', 'unavailable'))} | blockers={profile_blockers} | "
+                    f"canonical_share_class_id:{anchor_resolution.get('canonical_share_class_id') or 'unavailable'} "
+                    f"listing_id:{anchor_resolution.get('listing_id') or 'unavailable'} "
+                    f"effective_date:{anchor_resolution.get('effective_date') or 'unavailable'} "
+                    f"knowledge_cutoff:{anchor_resolution.get('knowledge_cutoff') or 'unavailable'} | "
                     f"provenance=anchor_digest:{anchor_resolution.get('anchor_digest') or 'unavailable'} "
                     f"conversion_digest:{anchor_resolution.get('conversion_digest') or 'unavailable'} "
                     f"resolution_digest:{anchor_resolution.get('resolution_digest') or 'unavailable'}",

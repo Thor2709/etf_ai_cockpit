@@ -83,6 +83,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     VWCE_CANONICAL_SHARE_CLASS,
     VwceAnchorEvidence,
     load_canonical_benchmark_registry,
+    resolve_vwce_anchor,
 )
 from etf_cockpit.signals.signal_pipeline import generate_signals
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION
@@ -92,7 +93,6 @@ BENCHMARK_REFERENCE_REGISTRY_PATH = CONFIG_DIR / "benchmark_reference_registry.j
 _CANONICAL_REFERENCE_IDS = (
     "reference:equal_weight",
     "reference:maximum_diversification",
-    "reference:no_trade",
 )
 
 
@@ -1303,22 +1303,53 @@ def _benchmark_reference_snapshot_inputs(
             item for item in config.universe.etfs
             if item.id == "VWCE" and item.isin == VWCE_CANONICAL_ISIN
         ]
+        effective_cutoff = pd.Timestamp(start_date, tz="UTC")
+        knowledge_cutoff = pd.Timestamp(end_date, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
         anchors = [
             item for item in registry.vwce_anchors
             if item.canonical_isin == VWCE_CANONICAL_ISIN
             and item.canonical_share_class_id == VWCE_CANONICAL_SHARE_CLASS
+            and pd.Timestamp(item.effective_at) <= effective_cutoff
+            and pd.Timestamp(item.known_at) <= knowledge_cutoff
         ]
-        if len(configured) != 1 or len(anchors) != 1:
+        if len(configured) != 1 or not anchors:
             return {**unavailable, "registry": registry}
         vwce = configured[0]
+        latest_effective = max(pd.Timestamp(item.effective_at) for item in anchors)
+        anchors = [item for item in anchors if pd.Timestamp(item.effective_at) == latest_effective]
+        latest_known = max(pd.Timestamp(item.known_at) for item in anchors)
+        anchors = [item for item in anchors if pd.Timestamp(item.known_at) == latest_known]
+        if len(anchors) != 1:
+            return {**unavailable, "registry": registry}
         anchor = anchors[0]
         ticker = vwce.ticker.split(".", maxsplit=1)[0].upper()
-        listings = [
-            item for item in anchor.listing_observations
+        listing_ids = sorted({
+            item.listing_id for item in anchor.listing_observations
             if item.ticker == ticker and item.currency == base_currency
-        ]
-        if len(listings) != 1 or start_date >= end_date:
+        })
+        if not listing_ids or start_date >= end_date:
             return {**unavailable, "registry": registry}
+        resolutions = {
+            listing_id: resolve_vwce_anchor(
+                anchor,
+                listing_id=listing_id,
+                effective_date=start_date.isoformat(),
+                decision_time=knowledge_cutoff.isoformat(),
+                currency=base_currency,
+                horizon_years=1.0,
+            )
+            for listing_id in listing_ids
+        }
+        available_listing_ids = [
+            listing_id for listing_id, resolution in resolutions.items()
+            if resolution.status == "available"
+        ]
+        if len(available_listing_ids) == 1:
+            listing_id = available_listing_ids[0]
+        elif len(available_listing_ids) > 1 or len(listing_ids) != 1:
+            return {**unavailable, "registry": registry}
+        else:
+            listing_id = listing_ids[0]
         instrument = {
             "asset_class": vwce.asset_class,
             "country_region": vwce.region or "",
@@ -1332,10 +1363,10 @@ def _benchmark_reference_snapshot_inputs(
             "horizon_years": 1.0,
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
-            "decision_time": f"{end_date.isoformat()}T23:59:59+00:00",
+            "decision_time": knowledge_cutoff.isoformat(),
             "reference_ids": _CANONICAL_REFERENCE_IDS,
             "anchor": anchor,
-            "listing_id": listings[0].listing_id,
+            "listing_id": listing_id,
         }
     except (BenchmarkReferenceError, OSError, TypeError, ValueError, AttributeError):
         return unavailable
