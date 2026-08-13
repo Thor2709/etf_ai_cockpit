@@ -131,6 +131,18 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   available readback. All 320 affected tests plus Ruff, targeted mypy, compile,
   packaging assertion, programme freshness and diff hygiene pass. Freeze one
   replacement exact head for paired final review and fresh H-tier evidence.
+- Paired review of `ccc64e372ed0034a548dd68a4383493cb7874083`
+  rejected placeholder availability, raw-count PIT selection, nested export
+  authority, hidden VWCE identity, hard-coded no-trade holdings and JSON EOF
+  hygiene; run `31692775935` completed but is stale. Commit
+  `9dccd8d11802eabce3f36dfac59bd22feb370d3c` marks packaged identity-only
+  records unavailable without fabricated hashes, selects dated anchor/listing
+  histories at effective/knowledge cutoffs, rejects nested execution on export,
+  removes hard-coded no-trade and renders selected VWCE identity/cutoffs. The
+  source-backed injected available path remains proven through rebuild/save/load.
+  All 324 affected tests plus Ruff, targeted mypy, compile, programme freshness
+  and diff hygiene pass. Freeze one replacement head for paired final review and
+  fresh H-tier Linux/Windows/terminal evidence.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

@@ -3958,6 +3958,19 @@ targeted mypy, compile, packaging assertion, programme freshness and diff hygien
 pass. Freeze one replacement exact head for paired final review and fresh H-tier
 Linux/Windows/terminal evidence; no network, provider or execution path changed.
 
+`CORRECTED` head `ccc64e372ed0034a548dd68a4383493cb7874083` is rejected;
+run `31692775935` completed but is stale. Paired review reproduced false
+placeholder availability, raw-count PIT history rejection, nested execution
+export, hidden selected VWCE identity, hard-coded no-trade holdings and JSON EOF
+hygiene. Commit `9dccd8d11802eabce3f36dfac59bd22feb370d3c` makes packaged
+identity-only records explicitly unavailable with no fabricated hashes, selects
+anchor/listing histories by effective and knowledge cutoffs, rejects nested
+execution at export, removes hard-coded no-trade and renders selected VWCE
+identity/cutoffs. The source-backed available rebuild/save/load path remains
+covered. All 324 affected tests plus Ruff, targeted mypy, compile, programme
+freshness and diff hygiene pass. Freeze one replacement exact head for paired
+final review and fresh H-tier Linux/Windows/terminal evidence.
+
 `CORRECTED` head `4bb842a53d181abcfb309e50740ec22a25648279` is rejected
 and run `31682292726` is cancelled/stale. Commit
 `2b1cd0d9a9fa422b2fdba002f1cc65b54d8efcfd` makes the newest PIT VWCE
