@@ -120,6 +120,17 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   affected tests plus Ruff, targeted contract mypy, compile, programme freshness
   and diff hygiene pass. Freeze one replacement head for final paired review and
   fresh H-tier Linux/Windows/terminal evidence.
+- Final paired review of `f269c592c28b60f79205f4bbec1a1c2da996d6ff`
+  produced one approval and one demonstrated delivery blocker; run `31690695124`
+  is cancelled/stale. The real builder only emitted unavailable evidence and the
+  UI omitted available selected identities. Commit
+  `82371502a356ef62231ee39647d2c88da9a57cf8` adds the existing-envelope,
+  duplicate-key-safe local registry input, packages it, derives deterministic
+  snapshot PIT inputs from current config/as-of state, renders all selected
+  identities/versions/digests, and proves builder -> save/load -> rebuilt-snapshot
+  available readback. All 320 affected tests plus Ruff, targeted mypy, compile,
+  packaging assertion, programme freshness and diff hygiene pass. Freeze one
+  replacement exact head for paired final review and fresh H-tier evidence.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

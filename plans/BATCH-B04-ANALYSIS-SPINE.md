@@ -3946,6 +3946,18 @@ before profile-relative claims. All 246 affected tests pass with Ruff, contract
 mypy, compile and diff hygiene. Freeze one replacement head for paired final
 review and fresh H-tier Linux/Windows/terminal evidence.
 
+`CORRECTED` head `f269c592c28b60f79205f4bbec1a1c2da996d6ff` received one
+approval, while risk review reproduced that the shipped builder was
+unavailable-only and available selected identities were absent from UI. Run
+`31690695124` is cancelled/stale. Commit
+`82371502a356ef62231ee39647d2c88da9a57cf8` adds a packaged, validated,
+duplicate-key-safe local registry through the existing contract, derives
+deterministic real-snapshot PIT inputs, renders selected IDs/versions/digests and
+proves rebuilt-snapshot save/load readback. All 320 affected tests plus Ruff,
+targeted mypy, compile, packaging assertion, programme freshness and diff hygiene
+pass. Freeze one replacement exact head for paired final review and fresh H-tier
+Linux/Windows/terminal evidence; no network, provider or execution path changed.
+
 `CORRECTED` head `4bb842a53d181abcfb309e50740ec22a25648279` is rejected
 and run `31682292726` is cancelled/stale. Commit
 `2b1cd0d9a9fa422b2fdba002f1cc65b54d8efcfd` makes the newest PIT VWCE
