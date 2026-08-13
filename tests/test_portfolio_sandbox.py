@@ -27,7 +27,9 @@ from etf_cockpit.portfolio.sandbox import holdings_checksum
 from etf_cockpit.portfolio.sandbox import select_holdings_view
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkDefinition,
+    CashProxyDefinition,
     CanonicalBenchmarkRegistry,
+    PeerSetDefinition,
     VWCE_CANONICAL_ISIN,
     VWCE_CANONICAL_SHARE_CLASS,
     VwceAnchorEvidence,
@@ -68,6 +70,68 @@ def _benchmark_registry(source_hash: str) -> CanonicalBenchmarkRegistry:
     )
 
 
+def _canonical_reference_registry(
+    anchor: VwceAnchorEvidence,
+    *,
+    currency: str = "EUR",
+) -> CanonicalBenchmarkRegistry:
+    return CanonicalBenchmarkRegistry(
+        benchmarks=(BenchmarkDefinition(
+            benchmark_id="benchmark:global-equity",
+            version="1.0.0",
+            hierarchy="asset",
+            selector={"asset_class": "equity"},
+            currency=currency,
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=10.0,
+            effective_at="2024-01-01T00:00:00Z",
+            known_at="2024-01-02T00:00:00Z",
+            start_date="2020-01-01",
+            end_date="2030-01-01",
+            methodology="fixture",
+            constituents=("VWCE",),
+            source_hashes=("a" * 64,),
+        ),),
+        cash_proxies=(CashProxyDefinition(
+            proxy_id="cash:EUR",
+            version="1.0.0",
+            selector={"asset_class": "equity"},
+            currency=currency,
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=10.0,
+            effective_at="2024-01-01T00:00:00Z",
+            known_at="2024-01-02T00:00:00Z",
+            start_date="2020-01-01",
+            end_date="2030-01-01",
+            methodology="fixture",
+            source_hashes=("a" * 64,),
+        ),),
+        peer_sets=(PeerSetDefinition(
+            peer_set_id="peers:global-equity",
+            version="1.0.0",
+            hierarchy="asset",
+            selector={"asset_class": "equity"},
+            member_instrument_ids=("VWCE",),
+            effective_at="2024-01-01T00:00:00Z",
+            known_at="2024-01-02T00:00:00Z",
+            methodology="fixture",
+            source_hashes=("a" * 64,),
+        ),),
+        reference_portfolios=declare_reference_portfolios(
+            ("VWCE",),
+            current_weights={"VWCE": 1.0},
+            effective_at="2024-01-01T00:00:00Z",
+            known_at="2024-01-02T00:00:00Z",
+            currency=currency,
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=10.0,
+            start_date="2020-01-01",
+            end_date="2030-01-01",
+        ),
+        vwce_anchors=(anchor,),
+    )
+
+
 def _snapshot(*, revision: str = "universe-1", vwce_weight: float = 0.4):
     return SimpleNamespace(
         config=load_config(),
@@ -80,6 +144,34 @@ def _snapshot(*, revision: str = "universe-1", vwce_weight: float = 0.4):
         universe_revision=revision,
         data_report=SimpleNamespace(as_of_date="2026-07-18"),
     )
+
+
+def _vwce_anchor(**updates: object) -> VwceAnchorEvidence:
+    values: dict[str, object] = {
+        "canonical_isin": VWCE_CANONICAL_ISIN,
+        "canonical_share_class_id": VWCE_CANONICAL_SHARE_CLASS,
+        "official_facts_as_of": "2024-01-01",
+        "benchmark_name": "FTSE All-World",
+        "benchmark_as_of": "2024-01-01",
+        "fees": {"ongoing_charges": "fixture"},
+        "fees_as_of": "2024-01-01",
+        "tracking": {"tracking_difference": "fixture"},
+        "tracking_as_of": "2024-01-01",
+        "product_risk_indicator": {"version": "priips-2.0"},
+        "risk_indicator_as_of": "2024-01-01",
+        "currency": "USD",
+        "source_hashes": ("a" * 64,),
+        "listing_observations": (VwceListingObservation(
+            "listing:xetra", "VWCE", "XETR", "EUR",
+            "2020-01-01T00:00:00Z", "2024-01-02T00:00:00Z", "a" * 64,
+        ),),
+        "effective_at": "2020-01-01T00:00:00Z",
+        "known_at": "2024-01-02T00:00:00Z",
+        "minimum_horizon_years": 0.1,
+        "maximum_horizon_years": 10.0,
+    }
+    values.update(updates)
+    return VwceAnchorEvidence(**values)  # type: ignore[arg-type]
 
 
 def _candidate(snapshot=None):
@@ -209,7 +301,7 @@ def test_analysis_facade_applies_vwce_profile_alignment_without_changing_raw_ana
     assert misaligned.service_evidence["profile_relative"]["profile_relative_claims_allowed"] is False
     profile = converted.service_evidence["profile_relative"]
     assert profile["profile_relative_claims_allowed"] is False
-    assert profile["anchor_reason"] == "reference_resolution_incomplete"
+    assert profile["anchor_reason"] == "registry_anchor_membership_unavailable"
     assert profile["anchor_resolution"]["status"] == "unavailable"
     assert profile["anchor_resolution"]["canonical_share_class_id"] == VWCE_CANONICAL_SHARE_CLASS
     assert profile["anchor_resolution"]["anchor_digest"] == anchor.digest()
@@ -261,6 +353,99 @@ def test_default_production_and_persistence_paths_consume_snapshot_reference_evi
     assert loaded.result_payload is not None
     assert saved.result_payload["service_evidence"]["profile_relative"] == loaded.result_payload["service_evidence"]["profile_relative"]
     assert loaded.result_payload["service_evidence"]["profile_relative"]["execution_allowed"] is False
+
+
+def test_registry_anchor_membership_is_exact_and_bound_into_reference_provenance() -> None:
+    snapshot = _snapshot()
+    anchor = _vwce_anchor()
+    candidate = _candidate(snapshot)
+    arguments = {
+        "reference_instrument": {"asset_class": "equity"},
+        "reference_currency": "EUR",
+        "reference_horizon_years": 1.0,
+        "reference_start_date": "2024-02-01",
+        "reference_end_date": "2025-02-01",
+        "reference_decision_time": "2024-02-02T00:00:00Z",
+        "reference_portfolio_ids": ("reference:equal_weight",),
+        "vwce_anchor": anchor,
+        "vwce_listing_id": "listing:xetra",
+    }
+
+    matched = analyse_portfolio_candidate(
+        snapshot, candidate, reference_registry=_canonical_reference_registry(anchor), **arguments,
+    )
+    provenance = matched.service_evidence["benchmark_reference"]["provenance"]
+    assert matched.service_evidence["profile_relative"]["profile_relative_claims_allowed"] is True
+    assert provenance["selected_vwce_anchor_digest"] == anchor.digest()
+    assert provenance["selected_records"]["vwce_anchor"] == anchor.digest()
+
+    missing = _canonical_reference_registry(anchor)
+    object.__setattr__(missing, "vwce_anchors", ())
+    mismatched = _canonical_reference_registry(_vwce_anchor(tracking={"tracking_difference": "changed"}))
+    duplicated = _canonical_reference_registry(anchor)
+    object.__setattr__(duplicated, "vwce_anchors", (anchor, anchor))
+    for registry in (missing, mismatched, duplicated):
+        blocked = analyse_portfolio_candidate(
+            snapshot, candidate, reference_registry=registry, **arguments,
+        )
+        reference = blocked.service_evidence["benchmark_reference"]
+        profile = blocked.service_evidence["profile_relative"]
+        assert reference["status"] == "unavailable"
+        assert "vwce_anchor:registry_membership_unavailable" in reference["blockers"]
+        assert reference["provenance"]["selected_vwce_anchor_digest"] == anchor.digest()
+        assert profile["profile_relative_claims_allowed"] is False
+        assert profile["anchor_reason"] == "registry_anchor_membership_unavailable"
+
+
+def test_explicit_empty_reference_arguments_never_reuse_snapshot_evidence() -> None:
+    snapshot = _snapshot()
+    anchor = _vwce_anchor()
+    snapshot.benchmark_reference_registry = _canonical_reference_registry(anchor, currency="AUD")
+    snapshot.benchmark_reference_instrument = {"asset_class": "equity"}
+    snapshot.benchmark_reference_currency = "AUD"
+    snapshot.benchmark_reference_horizon_years = 1.0
+    snapshot.benchmark_reference_start_date = "2024-02-01"
+    snapshot.benchmark_reference_end_date = "2025-02-01"
+    snapshot.benchmark_reference_decision_time = "2024-02-02T00:00:00Z"
+    snapshot.benchmark_reference_portfolio_ids = ("reference:equal_weight",)
+    snapshot.vwce_anchor_evidence = anchor
+    snapshot.vwce_listing_id = "listing:xetra"
+    snapshot.vwce_conversion_evidence = {
+        "from_currency": "EUR",
+        "to_currency": "AUD",
+        "effective_at": "2024-01-01T00:00:00Z",
+        "known_at": "2024-01-02T00:00:00Z",
+        "source_hash": "a" * 64,
+    }
+    candidate = _candidate(snapshot)
+
+    assert analyse_portfolio_candidate(snapshot, candidate).service_evidence["profile_relative"]["profile_relative_claims_allowed"] is True
+    cases = (
+        ({"reference_currency": ""}, "reference_resolution_incomplete"),
+        ({"reference_start_date": ""}, "reference_resolution_incomplete"),
+        ({"reference_end_date": ""}, "reference_resolution_incomplete"),
+        ({"reference_decision_time": ""}, "reference_resolution_incomplete"),
+        ({"vwce_listing_id": ""}, "listing_unavailable_at_cutoff"),
+        ({"vwce_conversion_evidence": {}}, "currency_alignment_unavailable"),
+    )
+    for updates, reason in cases:
+        profile = analyse_portfolio_candidate(
+            snapshot, candidate, **updates,
+        ).service_evidence["profile_relative"]
+        assert profile["profile_relative_claims_allowed"] is False
+        assert profile["anchor_reason"] == reason
+
+    empty_ids = analyse_portfolio_candidate(
+        snapshot, candidate, reference_portfolio_ids=(),
+    ).service_evidence["benchmark_reference"]
+    assert empty_ids["status"] == "unavailable"
+    assert empty_ids["blockers"] == ["reference_resolution_invalid:BenchmarkReferenceError"]
+
+    empty_instrument = analyse_portfolio_candidate(
+        snapshot, candidate, reference_instrument={},
+    ).service_evidence["benchmark_reference"]
+    assert empty_instrument["status"] == "unavailable"
+    assert "benchmark:no_point_in_time_mapping" in empty_instrument["blockers"]
 
 
 def test_build_snapshot_wires_explicit_reference_evidence_into_real_production_path(monkeypatch) -> None:

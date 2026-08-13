@@ -127,26 +127,26 @@ def analyse_portfolio_candidate(
     reference_start_date: str | None = None,
     reference_end_date: str | None = None,
     reference_decision_time: str | None = None,
-    reference_portfolio_ids: tuple[str, ...] = (),
+    reference_portfolio_ids: tuple[str, ...] | None = None,
     vwce_anchor: VwceAnchorEvidence | None = None,
     vwce_listing_id: str | None = None,
     vwce_conversion_evidence: Mapping[str, object] | None = None,
 ) -> PortfolioAnalysis:
-    reference_registry = reference_registry or getattr(snapshot, "benchmark_reference_registry", None)
+    reference_registry = reference_registry if reference_registry is not None else getattr(snapshot, "benchmark_reference_registry", None)
     reference_registry_supplied = reference_registry is not None
     if reference_registry is None:
         reference_registry = CanonicalBenchmarkRegistry()
-    reference_instrument = reference_instrument or getattr(snapshot, "benchmark_reference_instrument", None)
-    reference_currency = reference_currency or getattr(snapshot, "benchmark_reference_currency", None)
+    reference_instrument = reference_instrument if reference_instrument is not None else getattr(snapshot, "benchmark_reference_instrument", None)
+    reference_currency = reference_currency if reference_currency is not None else getattr(snapshot, "benchmark_reference_currency", None)
     reference_horizon_years = reference_horizon_years if reference_horizon_years is not None else getattr(snapshot, "benchmark_reference_horizon_years", None)
-    reference_start_date = reference_start_date or getattr(snapshot, "benchmark_reference_start_date", None)
-    reference_end_date = reference_end_date or getattr(snapshot, "benchmark_reference_end_date", None)
-    reference_decision_time = reference_decision_time or getattr(snapshot, "benchmark_reference_decision_time", None)
-    if not reference_portfolio_ids:
+    reference_start_date = reference_start_date if reference_start_date is not None else getattr(snapshot, "benchmark_reference_start_date", None)
+    reference_end_date = reference_end_date if reference_end_date is not None else getattr(snapshot, "benchmark_reference_end_date", None)
+    reference_decision_time = reference_decision_time if reference_decision_time is not None else getattr(snapshot, "benchmark_reference_decision_time", None)
+    if reference_portfolio_ids is None:
         reference_portfolio_ids = tuple(getattr(snapshot, "benchmark_reference_portfolio_ids", ()))
-    vwce_anchor = vwce_anchor or getattr(snapshot, "vwce_anchor_evidence", None)
-    vwce_listing_id = vwce_listing_id or getattr(snapshot, "vwce_listing_id", None)
-    vwce_conversion_evidence = vwce_conversion_evidence or getattr(snapshot, "vwce_conversion_evidence", None)
+    vwce_anchor = vwce_anchor if vwce_anchor is not None else getattr(snapshot, "vwce_anchor_evidence", None)
+    vwce_listing_id = vwce_listing_id if vwce_listing_id is not None else getattr(snapshot, "vwce_listing_id", None)
+    vwce_conversion_evidence = vwce_conversion_evidence if vwce_conversion_evidence is not None else getattr(snapshot, "vwce_conversion_evidence", None)
     holdings = select_holdings_view(getattr(snapshot, "holdings"), holdings_view)
     binding = portfolio_snapshot_binding(
         snapshot,
@@ -203,6 +203,7 @@ def analyse_portfolio_candidate(
     services = _service_evidence(snapshot, analysis)
     services["capability_matrix"] = _capability_matrix_evidence(governed_holdings, target_capabilities)
     reference_resolution: AnalysisResolution | None = None
+    selected_vwce_anchor_digest = None if vwce_anchor is None else vwce_anchor.digest()
     if reference_registry is not None:
         services["benchmark_reference"], reference_resolution = _resolve_reference_evidence(
             reference_registry,
@@ -215,8 +216,20 @@ def analyse_portfolio_candidate(
             end_date=reference_end_date,
             decision_time=reference_decision_time,
             reference_portfolio_ids=reference_portfolio_ids,
+            selected_vwce_anchor_digest=selected_vwce_anchor_digest,
         )
     if vwce_anchor is not None:
+        anchor_digest = vwce_anchor.digest()
+        benchmark_reference = services["benchmark_reference"]
+        registry_anchor_matches = sum(
+            item.digest() == anchor_digest for item in reference_registry.vwce_anchors
+        )
+        registry_anchor_bound = not reference_registry_supplied or registry_anchor_matches == 1
+        if reference_registry_supplied and not registry_anchor_bound and isinstance(benchmark_reference, dict):
+            blockers = list(benchmark_reference.get("blockers", ()))
+            blockers.append("vwce_anchor:registry_membership_unavailable")
+            benchmark_reference["blockers"] = list(dict.fromkeys(blockers))
+            benchmark_reference["status"] = "unavailable"
         anchor_resolution = _resolve_profile_anchor(
             vwce_anchor,
             listing_id=vwce_listing_id,
@@ -227,9 +240,16 @@ def analyse_portfolio_candidate(
             conversion_evidence=vwce_conversion_evidence,
         )
         if reference_registry_supplied and (
-            reference_resolution is None or reference_resolution.blockers
+            reference_resolution is None
+            or reference_resolution.blockers
+            or not registry_anchor_bound
         ):
-            anchor_resolution = replace(anchor_resolution, status="unavailable", reason="reference_resolution_incomplete")
+            reason = (
+                "registry_anchor_membership_unavailable"
+                if not registry_anchor_bound
+                else "reference_resolution_incomplete"
+            )
+            anchor_resolution = replace(anchor_resolution, status="unavailable", reason=reason)
         services["profile_relative"] = project_profile_relative_analysis(
             {"analysis_id": candidate.candidate_id, "analysis_status": "available"},
             anchor_resolution,
@@ -263,8 +283,14 @@ def _resolve_reference_evidence(
     end_date: str | None,
     decision_time: str | None,
     reference_portfolio_ids: tuple[str, ...],
+    selected_vwce_anchor_digest: str | None,
 ) -> tuple[dict[str, object], AnalysisResolution | None]:
     registry_hash = str(registry.as_payload()["registry_hash"])
+    selected_records = (
+        {}
+        if selected_vwce_anchor_digest is None
+        else {"vwce_anchor": selected_vwce_anchor_digest}
+    )
 
     def unavailable(blocker: str) -> tuple[dict[str, object], AnalysisResolution | None]:
         return (
@@ -273,7 +299,11 @@ def _resolve_reference_evidence(
                 "status": "unavailable",
                 "blockers": [blocker],
                 "registry_hash": registry_hash,
-                "provenance": {"registry_hash": registry_hash, "selected_records": {}},
+                "provenance": {
+                    "registry_hash": registry_hash,
+                    "selected_records": selected_records,
+                    "selected_vwce_anchor_digest": selected_vwce_anchor_digest,
+                },
                 "execution_allowed": False,
             },
             None,
@@ -303,7 +333,10 @@ def _resolve_reference_evidence(
         )
     except (BenchmarkReferenceError, TypeError, ValueError) as exc:
         return unavailable(f"reference_resolution_invalid:{type(exc).__name__}")
-    projection = registry.ui_projection(resolution)
+    projection = registry.ui_projection(
+        resolution,
+        selected_vwce_anchor_digest=selected_vwce_anchor_digest,
+    )
     projection["status"] = "available" if not resolution.blockers else "unavailable"
     return projection, resolution
 

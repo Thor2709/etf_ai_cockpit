@@ -140,7 +140,9 @@ def _text(value: object, field: str) -> str:
 
 
 def _hashes(values: Sequence[str], field: str) -> tuple[str, ...]:
-    result = tuple(sorted(str(item).lower() for item in values))
+    if any(not isinstance(item, str) for item in values):
+        raise BenchmarkReferenceError(f"{field} must contain SHA-256 hashes")
+    result = tuple(sorted(item.lower() for item in values))
     if not result or any(_SHA256.fullmatch(item) is None for item in result):
         raise BenchmarkReferenceError(f"{field} must contain SHA-256 hashes")
     return result
@@ -204,6 +206,13 @@ def _normalise_ids(values: Sequence[str], field: str) -> tuple[str, ...]:
     if not result:
         raise BenchmarkReferenceError(f"{field} must not be empty")
     return result
+
+
+def _reference_ids(values: Sequence[str]) -> tuple[str, ...]:
+    normalized = tuple(_text(value, "reference_portfolio_ids") for value in values)
+    if len(normalized) != len(set(normalized)):
+        raise BenchmarkReferenceError("reference_portfolio_ids must not contain duplicates")
+    return _normalise_ids(normalized, "reference_portfolio_ids")
 
 
 def _horizon(value: object, field: str, *, allow_none: bool = False) -> float | None:
@@ -713,7 +722,7 @@ class AnalysisDeclaration:
             raise BenchmarkReferenceError("every analysis must declare a benchmark, including unavailable")
         if self.cash_proxy_id is None:
             raise BenchmarkReferenceError("every analysis must declare a cash alternative, including unavailable")
-        object.__setattr__(self, "reference_portfolio_ids", _normalise_ids(self.reference_portfolio_ids, "reference_portfolio_ids"))
+        object.__setattr__(self, "reference_portfolio_ids", _reference_ids(self.reference_portfolio_ids))
         if self.execution_allowed is not False:
             raise BenchmarkReferenceError("analysis cannot grant execution authority")
 
@@ -945,7 +954,7 @@ class CanonicalBenchmarkRegistry:
             cash_version=cash_version,
             peer_version=peer_version,
         )
-        normalized_reference_ids = _normalise_ids(reference_portfolio_ids, "reference_portfolio_ids")
+        normalized_reference_ids = _reference_ids(reference_portfolio_ids)
         declaration = AnalysisDeclaration(
             analysis_id=analysis_id,
             purpose=purpose,
@@ -979,7 +988,12 @@ class CanonicalBenchmarkRegistry:
         blockers = tuple(sorted({f"{selection.kind}:{selection.reason}" for selection in (benchmark, cash, peer) if selection.status != "available" and selection.reason} | reference_blockers))
         return AnalysisResolution(declaration, benchmark, cash, peer, tuple(references), blockers)
 
-    def ui_projection(self, resolution: AnalysisResolution) -> dict[str, object]:
+    def ui_projection(
+        self,
+        resolution: AnalysisResolution,
+        *,
+        selected_vwce_anchor_digest: str | None = None,
+    ) -> dict[str, object]:
         """Return a read-only comparison projection with explicit blockers."""
 
         registry_hash = str(self.as_payload()["registry_hash"])
@@ -1019,6 +1033,8 @@ class CanonicalBenchmarkRegistry:
                 for reference in resolution.references
             },
         }
+        if selected_vwce_anchor_digest is not None:
+            selected_records["vwce_anchor"] = selected_vwce_anchor_digest
 
         return {
             "contract": CONTRACT,
@@ -1042,6 +1058,7 @@ class CanonicalBenchmarkRegistry:
             "provenance": {
                 "registry_hash": registry_hash,
                 "selected_records": selected_records,
+                "selected_vwce_anchor_digest": selected_vwce_anchor_digest,
             },
             "execution_allowed": False,
         }
@@ -1347,6 +1364,8 @@ def resolve_vwce_anchor(
     matches = [item for item in matches if _timestamp(item.effective_at, "effective_at") == latest_effective]
     latest_known = max(_timestamp(item.known_at, "known_at") for item in matches)
     matches = [item for item in matches if _timestamp(item.known_at, "known_at") == latest_known]
+    if any(item.source_hash not in anchor.source_hashes for item in matches):
+        return unavailable("listing_provenance_unavailable")
     if any(item.status != "available" for item in matches):
         return unavailable("listing_stale_or_unavailable")
     identities = {(item.ticker, item.venue, item.currency) for item in matches}
@@ -1359,8 +1378,6 @@ def resolve_vwce_anchor(
             anchor_digest=anchor_digest,
         )
     selected = min(matches, key=lambda item: (item.ticker, item.venue, item.currency, item.source_hash))
-    if selected.source_hash not in anchor.source_hashes:
-        return unavailable("listing_provenance_unavailable")
     conversion_digest: str | None = None
     if selected.currency != currency:
         if not _conversion_is_available(

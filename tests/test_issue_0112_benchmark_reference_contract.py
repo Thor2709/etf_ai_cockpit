@@ -145,11 +145,15 @@ def test_ui_projection_binds_selected_records_and_full_registry_to_content_diges
         "decision_time": "2024-02-02T00:00:00Z",
         "reference_portfolio_ids": ("reference:equal_weight",),
     }
-    first_projection = first.ui_projection(first.resolve_analysis(**arguments))
+    first_projection = first.ui_projection(
+        first.resolve_analysis(**arguments), selected_vwce_anchor_digest=HASH_A,
+    )
     second_projection = second.ui_projection(second.resolve_analysis(**arguments))
     assert first_projection["registry_hash"] != second_projection["registry_hash"]
     assert first_projection["benchmark"]["content_hash"] != second_projection["benchmark"]["content_hash"]
     assert first_projection["provenance"]["registry_hash"] == first_projection["registry_hash"]
+    assert first_projection["provenance"]["selected_vwce_anchor_digest"] == HASH_A
+    assert first_projection["selected_records"]["vwce_anchor"] == HASH_A
 
 
 def test_specificity_is_deterministic_and_ties_are_ambiguous() -> None:
@@ -292,6 +296,29 @@ def test_registry_hash_is_order_independent_and_tamper_evident() -> None:
     with pytest.raises(BenchmarkReferenceError, match="hash mismatch"):
         CanonicalBenchmarkRegistry.validate_payload(tampered)
     assert _benchmark().digest() == _benchmark(constituents=("AAA", "BBB")).digest()
+
+
+@pytest.mark.parametrize("value", (int("1" * 64), True, b"a" * 64, None))
+def test_source_hash_collections_reject_non_string_coercion(value: object) -> None:
+    with pytest.raises(BenchmarkReferenceError, match="SHA-256 hashes"):
+        _benchmark(source_hashes=(value,))
+
+
+def test_duplicate_requested_reference_ids_are_rejected_before_normalization() -> None:
+    registry = _registry()
+    with pytest.raises(BenchmarkReferenceError, match="must not contain duplicates"):
+        registry.resolve_analysis(
+            analysis_id="duplicate-references",
+            purpose="comparison",
+            instrument_id="ETF-1",
+            instrument=INSTRUMENT,
+            currency="AUD",
+            horizon_years=1.0,
+            start_date="2024-02-01",
+            end_date="2025-02-01",
+            decision_time="2024-02-02T00:00:00Z",
+            reference_portfolio_ids=("reference:equal_weight", " reference:equal_weight "),
+        )
 
 
 def test_semver_precedence_and_build_ties_are_deterministic() -> None:
@@ -591,6 +618,21 @@ def test_vwce_listing_source_hash_must_belong_to_anchor_provenance() -> None:
     forged_listing = replace(_vwce().listing_observations[0], source_hash=HASH_B)
     resolution = resolve_vwce_anchor(
         _vwce(source_hashes=(HASH_A,), listing_observations=(forged_listing,)),
+        listing_id="listing:xetra",
+        effective_date="2024-02-01",
+        decision_time="2024-02-02T00:00:00Z",
+        currency="EUR",
+        horizon_years=1.0,
+    )
+    assert resolution.status == "unavailable"
+    assert resolution.reason == "listing_provenance_unavailable"
+
+
+def test_every_authoritative_tied_listing_source_must_belong_to_anchor_provenance() -> None:
+    bound = _vwce().listing_observations[0]
+    unbound = replace(bound, source_hash=HASH_B)
+    resolution = resolve_vwce_anchor(
+        _vwce(source_hashes=(HASH_A,), listing_observations=(bound, unbound)),
         listing_id="listing:xetra",
         effective_date="2024-02-01",
         decision_time="2024-02-02T00:00:00Z",
