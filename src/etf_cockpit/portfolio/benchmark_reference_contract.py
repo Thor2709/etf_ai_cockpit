@@ -200,6 +200,55 @@ def _assert_no_execution(value: object) -> None:
             _assert_no_execution(item)
 
 
+def _nested_fact_is_available(value: object) -> bool:
+    if isinstance(value, Mapping):
+        if not value:
+            return False
+        facts = [
+            item for key, item in value.items()
+            if key not in {"status", "reason"}
+        ]
+        return bool(facts) and all(_nested_fact_is_available(item) for item in facts)
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return bool(value) and all(_nested_fact_is_available(item) for item in value)
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, (int, float)):
+        return math.isfinite(float(value))
+    return True
+
+
+def _nested_statuses_are_available(value: object) -> bool:
+    if isinstance(value, Mapping):
+        if "status" in value:
+            status = value["status"]
+            if not isinstance(status, str) or status != "available":
+                return False
+        return all(
+            _nested_statuses_are_available(item)
+            for key, item in value.items()
+            if key != "status"
+        )
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return all(_nested_statuses_are_available(item) for item in value)
+    return True
+
+
+def _nested_evidence_is_available(value: object) -> bool:
+    """Return whether nested product evidence contains available facts."""
+
+    return (
+        isinstance(value, Mapping)
+        and bool(value)
+        and _nested_statuses_are_available(value)
+        and _nested_fact_is_available(value)
+    )
+
+
 def _content_hash(payload: Mapping[str, object]) -> str:
     encoded = json.dumps(_canonical(payload), sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -1554,6 +1603,11 @@ def resolve_vwce_anchor(
         return unavailable("horizon_alignment_unavailable")
     if anchor.status != "available" or _timestamp(anchor.known_at, "known_at") > cutoff:
         return unavailable("anchor_stale_or_unavailable")
+    if not all(
+        _nested_evidence_is_available(value)
+        for value in (anchor.fees, anchor.tracking, anchor.product_risk_indicator)
+    ):
+        return unavailable("vwce_nested_evidence_unavailable")
     effective_cutoff_time = datetime.combine(effective_cutoff, datetime.min.time(), tzinfo=timezone.utc)
     if _timestamp(anchor.effective_at, "effective_at") > effective_cutoff_time:
         return unavailable("anchor_not_yet_effective")

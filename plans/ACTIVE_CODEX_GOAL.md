@@ -194,6 +194,15 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   sandbox/UI tests, Ruff, targeted mypy, compile, programme freshness, diff
   hygiene and a real pinned-frontend isolated wheel build/install/load. Freeze
   one replacement exact head for final paired review and fresh H-tier evidence.
+- Both reviews of `1bd954ecbe4381a43089cef551ae52c0163983f2`
+  rejected three exact input-truth paths; run `31704018549` is cancelled/stale.
+  No-trade weights were not reconciled to market values, timezone-naive knowledge
+  was silently interpreted as UTC, and an available VWCE anchor could carry
+  nested fees/tracking/risk facts marked unavailable. Correct only those three
+  fail-closed validations and add their focused regressions. The consolidated
+  correction passes 199 affected contract/sandbox/UI tests, the pinned-frontend
+  isolated wheel proof, Ruff, targeted mypy, compile, programme freshness and
+  diff hygiene. Freeze one replacement exact head for paired final review and H.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

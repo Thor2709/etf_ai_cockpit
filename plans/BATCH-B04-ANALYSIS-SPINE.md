@@ -4081,3 +4081,12 @@ consolidated correction passes 180 focused contract/sandbox/UI tests, static and
 programme checks, and the actual pinned-frontend isolated wheel build/install/
 load proof. Freeze one replacement exact head for paired final review and fresh
 H-tier evidence.
+
+`CORRECTED` head `1bd954ecbe4381a43089cef551ae52c0163983f2` is rejected by
+both reviews and run `31704018549` is cancelled/stale. No-trade weights were not
+reconciled to market values, timezone-naive knowledge was silently interpreted
+as UTC, and an outer available VWCE anchor could carry unavailable nested fees,
+tracking or risk facts. Correct exactly those three fail-closed validations and
+add focused regressions. All 199 affected contract/sandbox/UI tests plus the
+pinned-frontend isolated wheel proof, Ruff, targeted mypy, compile, programme
+freshness and diff hygiene pass. Freeze one replacement review/gate head.

@@ -97,6 +97,46 @@ _CANONICAL_REFERENCE_IDS = (
     "reference:maximum_diversification",
     "reference:no_trade",
 )
+# Holdings-derived portfolio totals are compared in EUR with a deliberately
+# tight tolerance: one micro-euro absolute or one part per billion relative.
+_NO_TRADE_TOTAL_REL_TOL = 1e-9
+_NO_TRADE_TOTAL_ABS_TOL_EUR = 1e-6
+
+
+def _holdings_imply_consistent_portfolio_total(
+    weights: list[float], market_values: list[float],
+) -> bool:
+    """Require every positive-weight holding to imply one portfolio total."""
+
+    implied_totals: list[float] = []
+    for weight, market_value in zip(weights, market_values):
+        if weight == 0.0:
+            if market_value != 0.0:
+                return False
+            continue
+        implied_total = market_value / weight
+        if not math.isfinite(implied_total):
+            return False
+        implied_totals.append(implied_total)
+    if not implied_totals:
+        return True
+    portfolio_total = implied_totals[0]
+    if math.isclose(
+        portfolio_total,
+        0.0,
+        rel_tol=0.0,
+        abs_tol=_NO_TRADE_TOTAL_ABS_TOL_EUR,
+    ):
+        return False
+    return all(
+        math.isclose(
+            implied_total,
+            portfolio_total,
+            rel_tol=_NO_TRADE_TOTAL_REL_TOL,
+            abs_tol=_NO_TRADE_TOTAL_ABS_TOL_EUR,
+        )
+        for implied_total in implied_totals[1:]
+    )
 
 
 def _universe_cache_meta_path(path: Path) -> Path:
@@ -1462,6 +1502,11 @@ def _current_portfolio_reference(
         total = math.fsum(float(value) for value in weights)
         if not math.isfinite(total) or total > 1.0:
             return None
+        if not _holdings_imply_consistent_portfolio_total(
+            [float(value) for value in weights],
+            [float(value) for value in market_values],
+        ):
+            return None
         knowledge_columns = tuple(
             column
             for column in ("known_at", "imported_at", "available_at")
@@ -1478,10 +1523,13 @@ def _current_portfolio_reference(
                 raw_value = row[column]
                 if raw_value is None or pd.isna(raw_value):
                     continue
-                parsed = pd.to_datetime(raw_value, errors="coerce", utc=True)
-                if pd.isna(parsed):
+                parsed = pd.to_datetime(raw_value, errors="coerce")
+                if pd.isna(parsed) or getattr(parsed, "tzinfo", None) is None:
                     return None
-                row_knowledge_times.append(pd.Timestamp(parsed))
+                parsed_utc = pd.to_datetime(parsed, errors="coerce", utc=True)
+                if pd.isna(parsed_utc):
+                    return None
+                row_knowledge_times.append(pd.Timestamp(parsed_utc))
             if not row_knowledge_times:
                 return None
             row_knowledge_time = max(row_knowledge_times)

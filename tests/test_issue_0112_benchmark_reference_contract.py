@@ -741,6 +741,48 @@ def test_vwce_listings_resolve_to_one_share_class_and_stale_anchor_blocks_only_r
     assert projection["execution_allowed"] is False
 
 
+@pytest.mark.parametrize("field", ["fees", "tracking", "product_risk_indicator"])
+@pytest.mark.parametrize(
+    "nested_evidence",
+    [
+        {"status": "unavailable", "reason": "fixture"},
+        {"status": "stale", "reason": "fixture"},
+        {"status": "invalid", "reason": "fixture"},
+        {"status": "available"},
+    ],
+    ids=["unavailable", "stale", "malformed-status", "missing-fact"],
+)
+def test_vwce_nested_evidence_must_be_semantically_available_for_resolution_and_profile_claims(
+    field: str,
+    nested_evidence: dict[str, str],
+) -> None:
+    nested = dict(nested_evidence)
+    if field == "product_risk_indicator":
+        nested["version"] = "priips-2.0"
+        if nested_evidence == {"status": "available"}:
+            nested["malformed_fact"] = {}
+    anchor = _vwce(**{field: nested})
+    resolution = resolve_vwce_anchor(
+        anchor,
+        listing_id="listing:xetra",
+        effective_date="2024-02-01",
+        decision_time="2024-02-02T00:00:00Z",
+        currency="EUR",
+        horizon_years=1.0,
+    )
+    assert resolution.status == "unavailable"
+    assert resolution.reason == "vwce_nested_evidence_unavailable"
+
+    projection = project_profile_relative_analysis(
+        {"return": 0.12},
+        resolution,
+        anchor=anchor,
+        registry=CanonicalBenchmarkRegistry(vwce_anchors=(anchor,)),
+    )
+    assert projection["profile_relative_status"] == "unavailable"
+    assert projection["profile_relative_claims_allowed"] is False
+
+
 def test_profile_projection_rejects_incomplete_manual_available_resolution() -> None:
     projection = project_profile_relative_analysis(
         {"return": 0.12},
