@@ -155,6 +155,12 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   PIT tests pass with Ruff, targeted mypy, compile, programme byte-clean, diff
   hygiene and byte-identical relocation evidence. Commit and freeze one new exact
   head for paired final review and fresh H-tier Linux/Windows/terminal evidence.
+- Both reviews of `7d0ca499a43fd63b43ced5c6de97a1ffaf24b16e`
+  reproduced the same single missing declaration invariant: `peer_set_id` was
+  not bound to the selected available peer or `None` for an unavailable peer.
+  Run `31696193800` is cancelled/stale. Add only that invariant and its available,
+  unavailable and forged UI-readback regressions, then freeze one replacement
+  head for both final reviews and fresh H-tier evidence.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

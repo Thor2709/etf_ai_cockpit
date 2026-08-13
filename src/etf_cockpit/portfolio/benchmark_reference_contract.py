@@ -801,10 +801,13 @@ class AnalysisResolution:
             if self.cash.status == "available"
             else "unavailable:cash"
         )
+        expected_peer_id = self.peer_set.selected_id if self.peer_set.status == "available" else None
         if self.declaration.benchmark_id != expected_benchmark_id:
             raise BenchmarkReferenceError("analysis declaration benchmark does not match resolution")
         if self.declaration.cash_proxy_id != expected_cash_id:
             raise BenchmarkReferenceError("analysis declaration cash proxy does not match resolution")
+        if self.declaration.peer_set_id != expected_peer_id:
+            raise BenchmarkReferenceError("analysis declaration peer set does not match resolution")
         resolved_ids = tuple(item.portfolio_id for item in self.references)
         unavailable_ids = tuple(
             blocker.removeprefix("reference:unavailable:")

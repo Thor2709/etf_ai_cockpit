@@ -4040,3 +4040,10 @@ tests pass with Ruff, targeted mypy, compile, programme freshness, diff hygiene
 and byte-identical relocation evidence. Freeze one replacement exact head for
 paired final review and fresh H-tier Linux/Windows/terminal validation; preserve
 all lifecycle, provider/broker/release and `execution_allowed=false` boundaries.
+
+`CORRECTED` head `7d0ca499a43fd63b43ced5c6de97a1ffaf24b16e` is rejected by
+both independent reviews and run `31696193800` is cancelled/stale. Both reviews
+reproduced exactly one omission: the declared peer-set identity was not bound to
+the selected available peer or `None` for unavailable peer evidence. Add only
+that invariant and available/unavailable forged-readback regressions, then freeze
+one replacement exact head for final paired review and fresh H-tier validation.

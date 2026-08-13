@@ -254,6 +254,7 @@ def test_analysis_resolution_rejects_swapped_or_wrong_selection_slots() -> None:
     (
         ("benchmark_id", "benchmark:forged", "benchmark does not match"),
         ("cash_proxy_id", "cash:forged", "cash proxy does not match"),
+        ("peer_set_id", "peers:forged", "peer set does not match"),
         ("reference_portfolio_ids", ("reference:maximum_diversification",), "references do not match"),
     ),
 )
@@ -311,6 +312,30 @@ def test_ui_projection_revalidates_mutated_resolution_and_preserves_valid_unavai
     )
     projection = registry.ui_projection(unavailable)
     assert projection["blockers"] == ["reference:unavailable:reference:missing"]
+
+    stale_peer_registry = CanonicalBenchmarkRegistry(
+        benchmarks=registry.benchmarks,
+        cash_proxies=registry.cash_proxies,
+        peer_sets=(replace(registry.peer_sets[0], status="stale"),),
+        reference_portfolios=registry.reference_portfolios,
+    )
+    unavailable_peer = stale_peer_registry.resolve_analysis(
+        analysis_id="unavailable-peer",
+        purpose="comparison",
+        instrument_id="ETF-1",
+        instrument=INSTRUMENT,
+        currency="AUD",
+        horizon_years=1.0,
+        start_date="2024-02-01",
+        end_date="2025-02-01",
+        decision_time="2024-02-02T00:00:00Z",
+        reference_portfolio_ids=("reference:equal_weight",),
+    )
+    assert unavailable_peer.declaration.peer_set_id is None
+    stale_peer_registry.ui_projection(unavailable_peer)
+    object.__setattr__(unavailable_peer.declaration, "peer_set_id", "peers:forged")
+    with pytest.raises(BenchmarkReferenceError, match="peer set does not match"):
+        stale_peer_registry.ui_projection(unavailable_peer)
 
 
 @pytest.mark.parametrize("field", ("benchmark", "cash", "peer_set"))
