@@ -1297,6 +1297,18 @@ def _benchmark_reference_snapshot_inputs(
     }
     try:
         registry = load_canonical_benchmark_registry(BENCHMARK_REFERENCE_REGISTRY_PATH)
+        if any(item.portfolio_id == "reference:no_trade" for item in registry.reference_portfolios):
+            registry = CanonicalBenchmarkRegistry(
+                benchmarks=registry.benchmarks,
+                cash_proxies=registry.cash_proxies,
+                peer_sets=registry.peer_sets,
+                reference_portfolios=tuple(
+                    item
+                    for item in registry.reference_portfolios
+                    if item.portfolio_id != "reference:no_trade"
+                ),
+                vwce_anchors=registry.vwce_anchors,
+            )
         unavailable["reference_ids"] = _CANONICAL_REFERENCE_IDS
         as_of_timestamp = pd.Timestamp(as_of)
         if pd.isna(as_of_timestamp):
@@ -1322,12 +1334,7 @@ def _benchmark_reference_snapshot_inputs(
                 cash_proxies=registry.cash_proxies,
                 peer_sets=registry.peer_sets,
                 reference_portfolios=(
-                    tuple(
-                        item
-                        for item in registry.reference_portfolios
-                        if item.portfolio_id != no_trade.portfolio_id
-                    )
-                    + (no_trade,)
+                    registry.reference_portfolios + (no_trade,)
                 ),
                 vwce_anchors=registry.vwce_anchors,
             )
@@ -1455,6 +1462,32 @@ def _current_portfolio_reference(
         total = math.fsum(float(value) for value in weights)
         if not math.isfinite(total) or total > 1.0:
             return None
+        knowledge_columns = tuple(
+            column
+            for column in ("known_at", "imported_at", "available_at")
+            if column in holdings.columns
+        )
+        if not knowledge_columns:
+            return None
+        effective_time = pd.Timestamp(as_of_date, tz="UTC")
+        cutoff_time = pd.Timestamp(decision_time)
+        source_knowledge_times: list[pd.Timestamp] = []
+        for _, row in holdings.iterrows():
+            row_knowledge_times: list[pd.Timestamp] = []
+            for column in knowledge_columns:
+                raw_value = row[column]
+                if raw_value is None or pd.isna(raw_value):
+                    continue
+                parsed = pd.to_datetime(raw_value, errors="coerce", utc=True)
+                if pd.isna(parsed):
+                    return None
+                row_knowledge_times.append(pd.Timestamp(parsed))
+            if not row_knowledge_times:
+                return None
+            row_knowledge_time = max(row_knowledge_times)
+            if row_knowledge_time < effective_time or row_knowledge_time > cutoff_time:
+                return None
+            source_knowledge_times.append(row_knowledge_time)
         cash_id = f"cash:{currency}"
         if cash_id in ids:
             return None
@@ -1464,6 +1497,7 @@ def _current_portfolio_reference(
         }
         current_weights[cash_id] = float(1.0 - total)
         source_hash = holdings_checksum(holdings)
+        source_knowledge_time = max(source_knowledge_times).isoformat()
         return ReferencePortfolioDefinition(
             portfolio_id="reference:no_trade",
             version="1.0.0",
@@ -1471,7 +1505,7 @@ def _current_portfolio_reference(
             constituent_instrument_ids=tuple(current_weights),
             methodology="Hold the exact current positions and implied base-currency cash with zero proposed turnover.",
             effective_at=f"{as_of_date.isoformat()}T00:00:00+00:00",
-            known_at=decision_time,
+            known_at=source_knowledge_time,
             current_weights=current_weights,
             currency=currency,
             minimum_horizon_years=0.1,

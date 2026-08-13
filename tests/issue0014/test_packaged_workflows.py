@@ -64,8 +64,11 @@ def test_installed_wheel_loads_packaged_canonical_benchmark_registry(tmp_path: P
     build = subprocess.run(
         [
             sys.executable,
-            "-c",
-            "from setuptools.build_meta import build_wheel; build_wheel('dist')",
+            "-m",
+            "build",
+            "--wheel",
+            "--outdir",
+            "dist",
         ],
         cwd=package_source,
         capture_output=True,

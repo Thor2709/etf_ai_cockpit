@@ -479,7 +479,7 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
     monkeypatch.setattr(services, "_current_universe_revision", lambda: "production-reference-1")
     monkeypatch.setattr(services, "DataService", FakeDataService)
     monkeypatch.setattr(services, "load_holdings", lambda: pd.DataFrame([
-        {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18"},
+        {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
     ]))
     monkeypatch.setattr(services, "model_availability", lambda config: {"timesfm": False, "toto": False})
     monkeypatch.setattr(services, "model_diagnostics", lambda config: [])
@@ -543,7 +543,7 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
     assert saved_no_trade["current_weights"] == {"VWCE": 0.4, "cash:EUR": 0.6}
     assert loaded_no_trade == saved_no_trade
     assert saved_no_trade["content_hash"] == no_trade.digest()
-    assert saved_no_trade["known_at"] == "2026-07-18T23:59:59+00:00"
+    assert saved_no_trade["known_at"] == "2026-07-18T12:00:00+00:00"
     assert saved_no_trade["source_hashes"] == list(no_trade.source_hashes)
     assert loaded.result_payload["service_evidence"]["profile_relative"]["execution_allowed"] is False
 
@@ -568,8 +568,8 @@ def test_build_snapshot_no_trade_rejects_excluded_holdings_in_source_frame(monke
     monkeypatch.setattr(services, "_current_universe_revision", lambda: "production-reference-1")
     monkeypatch.setattr(services, "DataService", FakeDataService)
     monkeypatch.setattr(services, "load_holdings", lambda: pd.DataFrame([
-        {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18"},
-        {"etf_id": "OUTSIDE", "current_weight": 0.3, "market_value_eur": 30_000.0, "as_of_date": "2026-07-18"},
+        {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
+        {"etf_id": "OUTSIDE", "current_weight": 0.3, "market_value_eur": 30_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
     ]))
     monkeypatch.setattr(services, "model_availability", lambda config: {"timesfm": False, "toto": False})
     monkeypatch.setattr(services, "model_diagnostics", lambda config: [])
@@ -624,6 +624,10 @@ def test_snapshot_reference_inputs_fail_closed_when_local_registry_is_missing(
     "mutate",
     (
         lambda frame: frame.drop(columns=["current_weight"]),
+        lambda frame: frame.drop(columns=["known_at"]),
+        lambda frame: frame.assign(known_at="not-a-timestamp"),
+        lambda frame: frame.assign(known_at="2026-07-17T23:59:59Z"),
+        lambda frame: frame.assign(known_at="2026-07-19T00:00:00Z"),
         lambda frame: frame.assign(as_of_date="2026-07-17"),
         lambda frame: frame.assign(current_weight=[0.8, 0.3]),
         lambda frame: frame.assign(current_weight=[-0.1, 0.2]),
@@ -639,8 +643,8 @@ def test_snapshot_reference_inputs_fail_closed_when_local_registry_is_missing(
 def test_snapshot_no_trade_reference_fails_closed_for_invalid_current_holdings(mutate) -> None:
     holdings = pd.DataFrame(
         [
-            {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18"},
-            {"etf_id": "LYP6", "current_weight": 0.2, "market_value_eur": 20_000.0, "as_of_date": "2026-07-18"},
+            {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
+            {"etf_id": "LYP6", "current_weight": 0.2, "market_value_eur": 20_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
         ]
     )
     evidence = services._benchmark_reference_snapshot_inputs(
@@ -648,6 +652,27 @@ def test_snapshot_no_trade_reference_fails_closed_for_invalid_current_holdings(m
     )
     assert "reference:no_trade" in evidence["reference_ids"]
     assert all(item.portfolio_id != "reference:no_trade" for item in evidence["registry"].reference_portfolios)
+
+
+def test_snapshot_no_trade_strips_stale_registry_record_when_holdings_are_missing(monkeypatch) -> None:
+    registry = _canonical_reference_registry(_vwce_anchor())
+    monkeypatch.setattr(services, "load_canonical_benchmark_registry", lambda path: registry)
+
+    evidence = services._benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
+
+    assert "reference:no_trade" in evidence["reference_ids"]
+    assert all(item.portfolio_id != "reference:no_trade" for item in evidence["registry"].reference_portfolios)
+
+
+def test_holdings_checksum_binds_source_knowledge_provenance() -> None:
+    holdings = pd.DataFrame([
+        {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "known_at": "2026-07-18T12:00:00Z"},
+    ])
+
+    for column in ("known_at", "imported_at", "available_at"):
+        changed = holdings.copy()
+        changed[column] = "2026-07-18T13:00:00Z"
+        assert holdings_checksum(holdings) != holdings_checksum(changed)
 
 
 def test_packaged_identity_only_registry_remains_explicitly_unavailable() -> None:
@@ -727,7 +752,10 @@ def test_snapshot_inputs_fail_closed_only_on_true_latest_anchor_tie(monkeypatch)
     evidence = services._benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
     assert evidence["anchor"] is None
     assert evidence["listing_id"] is None
-    assert evidence["registry"] is registry
+    assert all(
+        item.portfolio_id != "reference:no_trade"
+        for item in evidence["registry"].reference_portfolios
+    )
 
 
 def test_changed_registry_source_hash_rejects_persisted_result_on_load(tmp_path) -> None:

@@ -4069,3 +4069,15 @@ source for derivation/checksum, rejects excluded holdings and negative/non-finit
 values, and proves the production path directly. All 176 affected tests plus
 Ruff, targeted mypy, compile, programme freshness, package and diff checks pass.
 Freeze one replacement exact head for paired review and fresh H-tier validation.
+
+`CORRECTED` head `5907e23ff1d57a9d6646e0d768b2eea4b10b84f5` is rejected and
+run `31702055238` failed preflight with downstream gates skipped. Invalid current
+holdings could retain a stale registry no-trade record; source knowledge time was
+synthesized and omitted from the holdings checksum; and the isolated-wheel test
+called an unavailable backend directly. Always strip stale no-trade, require and
+checksum actual non-future knowledge provenance, persist its timestamp, and use
+the pinned build frontend without weakening isolated install/load proof. The
+consolidated correction passes 180 focused contract/sandbox/UI tests, static and
+programme checks, and the actual pinned-frontend isolated wheel build/install/
+load proof. Freeze one replacement exact head for paired final review and fresh
+H-tier evidence.

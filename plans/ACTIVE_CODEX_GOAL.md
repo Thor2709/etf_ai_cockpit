@@ -183,6 +183,17 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   reproduction and complete 176-test affected suite pass with Ruff, targeted
   mypy, compile, programme freshness, package proof and diff hygiene. Freeze one
   replacement exact head for paired review and fresh H-tier validation.
+- Reviews of `5907e23ff1d57a9d6646e0d768b2eea4b10b84f5` rejected two
+  final PIT paths and run `31702055238` failed preflight/cancelled downstream.
+  Invalid current holdings could retain a stale registry no-trade record; source
+  knowledge time was synthesized and omitted from the holdings checksum; and the
+  isolated-wheel test invoked an unavailable backend directly. Always strip stale
+  no-trade, require and checksum non-future source knowledge provenance, preserve
+  its actual timestamp, and use the pinned build frontend for the unchanged wheel
+  install/load proof. The consolidated correction passes 180 focused contract/
+  sandbox/UI tests, Ruff, targeted mypy, compile, programme freshness, diff
+  hygiene and a real pinned-frontend isolated wheel build/install/load. Freeze
+  one replacement exact head for final paired review and fresh H-tier evidence.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

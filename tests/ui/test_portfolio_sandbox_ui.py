@@ -27,8 +27,8 @@ def _state():
         config=load_config(),
         holdings=pd.DataFrame(
             [
-                {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0},
-                {"etf_id": "LYP6", "current_weight": 0.2, "market_value_eur": 20_000.0},
+                {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
+                {"etf_id": "LYP6", "current_weight": 0.2, "market_value_eur": 20_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
             ]
         ),
         universe_revision="universe-ui-1",
@@ -175,6 +175,7 @@ def test_portfolio_ui_renders_available_canonical_identities_versions_and_digest
     monkeypatch.setattr(services, "load_canonical_benchmark_registry", lambda path: registry)
     evidence = services._benchmark_reference_snapshot_inputs(
         state.snapshot.config, state.snapshot.data_report.as_of_date,
+        state.snapshot.holdings,
     )
     state.snapshot.benchmark_reference_registry = evidence["registry"]
     state.snapshot.benchmark_reference_instrument = evidence["instrument"]
