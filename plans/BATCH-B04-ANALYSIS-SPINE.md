@@ -4059,3 +4059,13 @@ UI and save-load, and fails closed on malformed inputs. All 170 affected, 152
 adjacent financial/PIT and 11 targeted adversarial tests pass with static,
 programme and diff checks. Freeze one final replacement exact head for paired
 review and fresh H-tier validation.
+
+`CORRECTED` head `97597ab5af3c830ad9e31d2b2d386f01a1f2ce84` is rejected by
+both reviews and run `31700680310` is cancelled/stale. The production builder
+filtered holdings before no-trade derivation, allowing excluded exposure to be
+relabelled as cash and checksum-bound as truth; negative market values were also
+accepted. The consolidated correction preserves the complete pre-filter holdings
+source for derivation/checksum, rejects excluded holdings and negative/non-finite
+values, and proves the production path directly. All 176 affected tests plus
+Ruff, targeted mypy, compile, programme freshness, package and diff checks pass.
+Freeze one replacement exact head for paired review and fresh H-tier validation.

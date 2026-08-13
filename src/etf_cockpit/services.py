@@ -1442,6 +1442,16 @@ def _current_portfolio_reference(
             for value in weights
         ):
             return None
+        raw_market_values = holdings["market_value_eur"].tolist()
+        if any(isinstance(value, bool) for value in raw_market_values):
+            return None
+        market_values = pd.to_numeric(holdings["market_value_eur"], errors="coerce").tolist()
+        if any(
+            not math.isfinite(float(value))
+            or float(value) < 0
+            for value in market_values
+        ):
+            return None
         total = math.fsum(float(value) for value in weights)
         if not math.isfinite(total) or total > 1.0:
             return None
@@ -1494,7 +1504,8 @@ def _build_snapshot(
     prices = data_service.load_prices()
     if not prices.empty and "etf_id" in prices:
         prices = prices[prices["etf_id"].astype(str).isin(current_ids)].copy()
-    holdings = load_holdings()
+    holdings_source = load_holdings()
+    holdings = holdings_source
     if not holdings.empty and "etf_id" in holdings:
         configured_ids = set(config.universe.configured_enabled_ids)
         holdings = holdings[holdings["etf_id"].astype(str).isin(configured_ids)].copy()
@@ -1546,7 +1557,7 @@ def _build_snapshot(
     benchmark_reference = _benchmark_reference_snapshot_inputs(
         config,
         data_report.as_of_date,
-        holdings,
+        holdings_source,
     )
     return CockpitSnapshot(
         config=config,

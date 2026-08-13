@@ -173,6 +173,16 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   adjacent financial/PIT tests and 11 targeted adversarial tests pass with Ruff,
   targeted mypy, compile, byte-clean generation and diff hygiene. Freeze one
   final replacement head for paired review and fresh H-tier validation.
+- Both reviews of `97597ab5af3c830ad9e31d2b2d386f01a1f2ce84`
+  rejected the no-trade source boundary; run `31700680310` is cancelled/stale.
+  The production builder filtered holdings before derivation, allowing excluded
+  exposure to be relabelled as cash and checksum-bound as truth, while negative
+  market values remained accepted. The consolidated correction preserves the
+  complete pre-filter source for no-trade derivation/checksum and fails closed on
+  excluded holdings and negative/non-finite values. Its production-builder
+  reproduction and complete 176-test affected suite pass with Ruff, targeted
+  mypy, compile, programme freshness, package proof and diff hygiene. Freeze one
+  replacement exact head for paired review and fresh H-tier validation.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

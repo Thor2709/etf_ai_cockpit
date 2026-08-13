@@ -548,6 +548,64 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
     assert loaded.result_payload["service_evidence"]["profile_relative"]["execution_allowed"] is False
 
 
+def test_build_snapshot_no_trade_rejects_excluded_holdings_in_source_frame(monkeypatch) -> None:
+    class FakeDataService:
+        def __init__(self, config):
+            self.config = config
+
+        def update_prices(self, **kwargs):
+            return None
+
+        def load_prices(self):
+            return pd.DataFrame()
+
+        def validate_prices(self, prices, *, holdings=None):
+            return SimpleNamespace(as_of_date="2026-07-18")
+
+    monkeypatch.setattr(services, "configure_logging", lambda: None)
+    monkeypatch.setattr(services, "ensure_project_dirs", lambda: None)
+    monkeypatch.setattr(services, "load_config", load_config)
+    monkeypatch.setattr(services, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(services, "DataService", FakeDataService)
+    monkeypatch.setattr(services, "load_holdings", lambda: pd.DataFrame([
+        {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18"},
+        {"etf_id": "OUTSIDE", "current_weight": 0.3, "market_value_eur": 30_000.0, "as_of_date": "2026-07-18"},
+    ]))
+    monkeypatch.setattr(services, "model_availability", lambda config: {"timesfm": False, "toto": False})
+    monkeypatch.setattr(services, "model_diagnostics", lambda config: [])
+    monkeypatch.setattr(services, "load_latest_forecasts", lambda **kwargs: pd.DataFrame())
+    monkeypatch.setattr(services, "_load_structure_caps", lambda *args: {})
+    monkeypatch.setattr(services, "load_etf_economics_records", lambda: ())
+    monkeypatch.setattr(services, "load_total_return_evidence", lambda path: None)
+    monkeypatch.setattr(services, "load_closure_proxy_policy", lambda: None)
+    source_backed_anchor = _vwce_anchor()
+    source_backed_registry = _canonical_reference_registry(source_backed_anchor)
+    source_backed_registry = CanonicalBenchmarkRegistry(
+        benchmarks=source_backed_registry.benchmarks,
+        cash_proxies=source_backed_registry.cash_proxies,
+        peer_sets=source_backed_registry.peer_sets,
+        reference_portfolios=tuple(
+            item
+            for item in source_backed_registry.reference_portfolios
+            if item.portfolio_id != "reference:no_trade"
+        ),
+        vwce_anchors=source_backed_registry.vwce_anchors,
+    )
+    monkeypatch.setattr(
+        services,
+        "load_canonical_benchmark_registry",
+        lambda path: source_backed_registry,
+    )
+
+    snapshot = services._build_snapshot(force_sample=True)
+
+    assert snapshot.holdings["etf_id"].tolist() == ["VWCE"]
+    assert all(
+        item.portfolio_id != "reference:no_trade"
+        for item in snapshot.benchmark_reference_registry.reference_portfolios
+    )
+
+
 def test_snapshot_reference_inputs_fail_closed_when_local_registry_is_missing(
     monkeypatch,
     tmp_path,
@@ -573,6 +631,7 @@ def test_snapshot_reference_inputs_fail_closed_when_local_registry_is_missing(
         lambda frame: frame.assign(current_weight=[float("inf"), 0.2]),
         lambda frame: frame.assign(current_weight=[True, 0.2]),
         lambda frame: frame.assign(market_value_eur=[float("nan"), 20_000.0]),
+        lambda frame: frame.assign(market_value_eur=[-1.0, 20_000.0]),
         lambda frame: frame.assign(etf_id=["UNKNOWN", "LYP6"]),
         lambda frame: pd.concat([frame, frame.iloc[[0]]], ignore_index=True),
     ),
