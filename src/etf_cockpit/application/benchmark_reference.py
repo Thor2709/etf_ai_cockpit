@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 import hashlib
 import json
+from types import MappingProxyType
 
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     AnalysisResolution,
@@ -48,7 +49,7 @@ class CanonicalReferenceContext:
         object.__setattr__(self, "registry", registry)
         object.__setattr__(self, "resolution", resolution)
         object.__setattr__(self, "blocker", resolved_blocker)
-        object.__setattr__(self, "instrument", None if instrument is None else dict(instrument))
+        object.__setattr__(self, "instrument", None if instrument is None else _freeze_mapping(instrument))
 
     @property
     def projection(self) -> dict[str, object]:
@@ -170,6 +171,54 @@ def unavailable_reference_projection(
     return contract_unavailable_reference_projection(registry_hash=registry_hash, blocker=blocker)
 
 
+def validate_benchmark_reference(
+    reference: Mapping[str, object] | None,
+    benchmark_data_id: str | None,
+) -> str | None:
+    """Validate one shared, execution-disabled benchmark/cash projection.
+
+    Relative consumers must agree on the selected benchmark data id and on the
+    exact selected-record digests emitted by the canonical registry.  A
+    malformed or incomplete projection is unavailable; an attempted execution
+    authority escalation remains an explicit contract error.
+    """
+
+    if not isinstance(reference, Mapping):
+        return None
+    _assert_execution_disabled(reference)
+    if reference.get("status") != "available":
+        return None
+    if not isinstance(benchmark_data_id, str) or not benchmark_data_id.strip():
+        return None
+    benchmark = reference.get("benchmark")
+    cash = reference.get("cash")
+    selected_records = reference.get("selected_records")
+    if (
+        not isinstance(benchmark, Mapping)
+        or not isinstance(cash, Mapping)
+        or not isinstance(selected_records, Mapping)
+        or benchmark.get("status") != "available"
+        or cash.get("status") != "available"
+        or reference.get("benchmark_data_id") != benchmark_data_id
+        or not isinstance(reference.get("registry_hash"), str)
+        or reference.get("registry_hash") in ("", "unavailable")
+    ):
+        return None
+    benchmark_digest = benchmark.get("content_hash")
+    cash_digest = cash.get("content_hash")
+    if (
+        not isinstance(benchmark_digest, str)
+        or not isinstance(cash_digest, str)
+        or selected_records.get("benchmark") != benchmark_digest
+        or selected_records.get("cash") != cash_digest
+    ):
+        return None
+    peer = reference.get("peer_set")
+    if isinstance(peer, Mapping) and selected_records.get("peer_set") != peer.get("content_hash"):
+        return None
+    return benchmark_data_id
+
+
 def resolve_canonical_reference(
     registry: CanonicalBenchmarkRegistry,
     *,
@@ -257,6 +306,7 @@ __all__ = [
     "context_from_snapshot",
     "resolve_canonical_reference",
     "unavailable_reference_projection",
+    "validate_benchmark_reference",
 ]
 
 
@@ -280,3 +330,21 @@ def _assert_execution_disabled(value: object) -> None:
     elif isinstance(value, (list, tuple, set, frozenset)):
         for item in value:
             _assert_execution_disabled(item)
+
+
+def _freeze_mapping(value: Mapping[str, object]) -> Mapping[str, object]:
+    """Detach nested caller-owned instrument evidence before retaining it."""
+
+    def freeze(item: object) -> object:
+        if isinstance(item, Mapping):
+            return MappingProxyType({key: freeze(child) for key, child in item.items()})
+        if isinstance(item, (list, tuple)):
+            return tuple(freeze(child) for child in item)
+        if isinstance(item, (set, frozenset)):
+            return frozenset(freeze(child) for child in item)
+        return item
+
+    frozen = freeze(value)
+    if not isinstance(frozen, Mapping):
+        raise BenchmarkReferenceError("instrument mapping is invalid")
+    return frozen

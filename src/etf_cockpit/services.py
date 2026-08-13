@@ -1147,8 +1147,10 @@ class SignalService:
             and features.attrs.get("reference_identity") == reference_context.identity
             and features.attrs.get("reference_identity_hash") == _reference_identity_hash(reference_context.identity)
         )
-        if supplied_matches:
-            feature_frame = features
+        if supplied_matches and features is not None:
+            feature_frame = features.copy()
+            if reference_context.benchmark_data_id is None:
+                _sanitize_unavailable_relative_features(feature_frame)
         elif not cached_features.empty:
             feature_frame = cached_features
         else:
@@ -1177,6 +1179,14 @@ class SignalService:
             forecast_distributions=forecast_return_distributions(forecasts),
             structure_confidence_caps=structure_caps,
         )
+
+
+def _sanitize_unavailable_relative_features(features: pd.DataFrame) -> None:
+    """Drop relative fields from an in-memory frame without canonical evidence."""
+
+    for column in ("relative_strength_60d", "relative_strength_120d"):
+        if column in features.columns:
+            features[column] = float("nan")
 
 
 def _forecast_to_row(forecast: ForecastResult) -> dict[str, object]:
@@ -1718,14 +1728,19 @@ def _backtest_calculation_context(
         pivot = pivot.loc[pivot.notna().all(axis=1)]
         if pivot.empty:
             return base_context
+        cutoff_date = pd.Timestamp(resolution.declaration.decision_time).date()
+        pivot = pivot.loc[pivot.index.date <= cutoff_date]
+        if pivot.empty:
+            return base_context
         start = pivot.index.min().date()
         end = pivot.index.max().date()
         if start >= end:
             return base_context
         horizon_years = max(0.1, (end - start).days / 365.25)
         base_cutoff = pd.Timestamp(resolution.declaration.decision_time)
-        end_cutoff = pd.Timestamp(end, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
-        decision_time = max(base_cutoff, end_cutoff).isoformat()
+        # The original decision-time cutoff is authoritative.  Extending it to
+        # cover a complete backtest panel would make later evidence visible.
+        decision_time = base_cutoff.isoformat()
         return resolve_canonical_reference(
             base_context.registry,
             analysis_id=f"backtest:{start.isoformat()}:{end.isoformat()}",

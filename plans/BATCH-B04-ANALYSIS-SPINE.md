@@ -4142,3 +4142,16 @@ five packaged workflow tests, Ruff, targeted mypy, compile, byte-clean programme
 generation and diff hygiene pass. Freeze one replacement exact head for paired
 review and fresh H-tier Linux, Windows and terminal validation; do not reopen
 adjacent convergence or infrastructure work and preserve `execution_allowed=false`.
+
+`CORRECTED` head `713c2a837fc7244cc01e07947fb3e80629446bd7` is rejected by
+both exact-head reviewers; run `31722219785` failed the attributable changed-test
+preflight and skipped the downstream H gates. The consolidated reproductions are
+strict decision-time calculation windows across validation/backtest/attribution,
+canonical benchmark/cash and peer binding for every relative path, minimum sample
+overlap, immutable retained instrument inputs, supplied-feature sanitisation,
+complete N/A schemas, macro routing and the SignalService fixture that triggered
+publication without registered prices. One bounded correction closes exactly
+these paths. The complete affected suite and exact hosted changed-test command,
+including all five packaged workflows, pass with Ruff, targeted mypy, compile,
+byte-clean generation and diff hygiene. Freeze one replacement head for paired
+review and fresh H-tier Linux, Windows, terminal and parallel-pilot evidence.

@@ -75,7 +75,7 @@ def _service_reference_context():
         horizon_years=1.0,
         start_date="2024-02-01",
         end_date="2025-02-01",
-        decision_time="2024-02-02T00:00:00Z",
+        decision_time="2025-02-02T00:00:00Z",
         reference_portfolio_ids=("reference:equal_weight",),
     )
 

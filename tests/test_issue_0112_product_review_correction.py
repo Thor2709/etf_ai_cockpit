@@ -10,12 +10,17 @@ import pytest
 from etf_cockpit.application.benchmark_reference import (
     CanonicalReferenceContext,
     unavailable_reference_projection,
+    validate_benchmark_reference,
 )
+from etf_cockpit.application.validation import _clip_to_reference_window
+from etf_cockpit.backtest.engine import BacktestDataUnavailableError, _declared_calculation_window
 from etf_cockpit.features.regime import (
+    _average_correlation,
     build_benchmark_attribution_lookup,
     build_market_regime,
     build_portfolio_fit_lookup,
 )
+from etf_cockpit.features.macro import build_macro_context
 from etf_cockpit.services import (
     _cache_matches_universe,
     _reference_identity_hash,
@@ -52,6 +57,33 @@ def _prices() -> pd.DataFrame:
     )
 
 
+def _available_reference(*, peer: bool = False) -> dict[str, object]:
+    peer_record = {
+        "status": "available" if peer else "unavailable",
+        "content_hash": "p" * 64 if peer else None,
+        "member_instrument_ids": ["PEER"] if peer else [],
+    }
+    return {
+        "status": "available",
+        "registry_hash": "r" * 64,
+        "benchmark_data_id": "BENCH",
+        "benchmark": {"status": "available", "content_hash": "b" * 64},
+        "cash": {"status": "available", "content_hash": "c" * 64},
+        "peer_set": peer_record,
+        "selected_records": {
+            "benchmark": "b" * 64,
+            "cash": "c" * 64,
+            "peer_set": "p" * 64 if peer else None,
+        },
+        "analysis": {
+            "start_date": "2025-01-01",
+            "end_date": "2025-12-31",
+            "decision_time": "2025-12-31T23:59:59Z",
+        },
+        "execution_allowed": False,
+    }
+
+
 def test_relative_consumers_require_explicit_canonical_benchmark_and_cash_resolution() -> None:
     prices = _prices()
     assert build_market_regime(prices)["regime_score_10"] is None
@@ -59,8 +91,13 @@ def test_relative_consumers_require_explicit_canonical_benchmark_and_cash_resolu
     assert all(row["benchmark_return"] is None for row in build_benchmark_attribution_lookup(prices).values())
 
     reordered = prices.sort_values(["date", "etf_id"], ascending=[True, False])
-    first = build_benchmark_attribution_lookup(reordered, benchmark_id="BENCH")
-    second = build_benchmark_attribution_lookup(prices, benchmark_id="BENCH")
+    reference = _available_reference()
+    first = build_benchmark_attribution_lookup(
+        reordered, benchmark_id="BENCH", benchmark_reference=reference
+    )
+    second = build_benchmark_attribution_lookup(
+        prices, benchmark_id="BENCH", benchmark_reference=reference
+    )
     assert first["ALT"]["benchmark_id"] == second["ALT"]["benchmark_id"] == "BENCH"
     assert first["ALT"]["benchmark_return"] == second["ALT"]["benchmark_return"]
 
@@ -218,7 +255,11 @@ def test_attribution_clips_observations_to_declared_calculation_window() -> None
     )
     context = SimpleNamespace(
         resolution=SimpleNamespace(
-            declaration=SimpleNamespace(start_date="2025-01-02", end_date="2025-01-04")
+            declaration=SimpleNamespace(
+                start_date="2025-01-02",
+                end_date="2025-01-04",
+                decision_time="2025-01-04T23:59:59Z",
+            )
         )
     )
     report = build_performance_attribution(
@@ -250,15 +291,30 @@ def test_signal_service_binds_forecast_read_to_current_reference_identity(monkey
     monkeypatch.setattr(services_module, "model_availability", lambda config: {"toto": False, "timesfm": False})
     monkeypatch.setattr(services_module, "_load_structure_caps", lambda *args, **kwargs: {})
     monkeypatch.setattr(services_module, "generate_signals", lambda *args, **kwargs: [])
+    identity = {
+        "schema": "benchmark-reference-cache.v1",
+        "status": "unavailable",
+        "analysis": None,
+        "execution_allowed": False,
+    }
+    monkeypatch.setattr(
+        services_module,
+        "_reference_context_from_inputs",
+        lambda *args, **kwargs: SimpleNamespace(identity=identity, benchmark_data_id=None),
+    )
+    monkeypatch.setattr(services_module, "load_features", lambda *args, **kwargs: pd.DataFrame())
 
     def capture_forecasts(*args, **kwargs):
         captured.update(kwargs)
         return pd.DataFrame()
 
     monkeypatch.setattr(services_module, "load_latest_forecasts", capture_forecasts)
+    supplied_features = pd.DataFrame(columns=["date", "etf_id"])
+    supplied_features.attrs["reference_identity"] = identity
+    supplied_features.attrs["reference_identity_hash"] = _reference_identity_hash(identity)
     SignalService(load_config()).generate_signals(
         as_of_date=date(2025, 1, 2),
-        features=pd.DataFrame(columns=["date", "etf_id"]),
+        features=supplied_features,
     )
     assert isinstance(captured.get("reference_identity"), dict)
     assert captured["reference_identity"]["schema"] == "benchmark-reference-cache.v1"
@@ -306,3 +362,94 @@ def test_optional_forecast_relative_fields_are_derived_uniformly_or_n_a() -> Non
     assert unavailable.expected_return == 0.10
     assert unavailable.expected_excess_return is None
     assert unavailable.prob_beat_benchmark is None
+
+
+def test_shared_reference_validation_rejects_digest_mismatch_for_all_relative_consumers() -> None:
+    prices = _prices()
+    forged = _available_reference()
+    forged["cash"] = {"status": "available", "content_hash": "x" * 64}
+
+    assert validate_benchmark_reference(forged, "BENCH") is None
+    assert build_market_regime(
+        prices, benchmark_id="BENCH", benchmark_reference=forged
+    )["regime_score_10"] is None
+    assert all(
+        row["score"] is None
+        for row in build_portfolio_fit_lookup(
+            prices, benchmark_id="BENCH", benchmark_reference=forged
+        ).values()
+    )
+    assert all(
+        row["benchmark_return"] is None
+        for row in build_benchmark_attribution_lookup(
+            prices, benchmark_id="BENCH", benchmark_reference=forged
+        ).values()
+    )
+    assert build_macro_context(
+        prices, benchmark_data_id="BENCH", benchmark_reference=forged
+    )["status"] == "unavailable"
+
+
+def test_peer_attribution_uses_digest_bound_members_not_caller_supplied_members() -> None:
+    prices = pd.DataFrame(
+        [
+            {"date": dt, "etf_id": instrument, "adjusted_close": 100.0 + index * slope}
+            for index, dt in enumerate(pd.bdate_range("2025-01-01", periods=90))
+            for instrument, slope in (("BENCH", 0.2), ("ALT", 0.3), ("PEER", 0.25))
+        ]
+    )
+    attribution = build_benchmark_attribution_lookup(
+        prices,
+        benchmark_id="BENCH",
+        benchmark_reference=_available_reference(peer=True),
+        peer_member_ids=("FORGED",),
+    )
+    assert attribution["ALT"]["sector_sample_size"] > 0
+
+
+def test_context_detaches_nested_instrument_evidence_and_windows_fail_closed() -> None:
+    instrument = {"nested": {"labels": ["canonical"]}}
+    context = CanonicalReferenceContext(CanonicalBenchmarkRegistry(), instrument=instrument)
+    instrument["nested"]["labels"].append("forged")
+    assert context.instrument["nested"]["labels"] == ("canonical",)
+
+    with pytest.raises(BacktestDataUnavailableError, match="outside decision time"):
+        _declared_calculation_window(
+            {
+                "status": "available",
+                "analysis": {
+                    "start_date": "2025-01-01",
+                    "end_date": "2025-01-03",
+                    "decision_time": "2025-01-02T23:59:59Z",
+                },
+            }
+        )
+    with pytest.raises(BacktestDataUnavailableError, match="calculation window is malformed"):
+        _declared_calculation_window({"status": "available", "analysis": {}})
+
+
+def test_validation_window_excludes_rows_after_decision_cutoff() -> None:
+    prices = pd.DataFrame(
+        {
+            "date": pd.date_range("2025-01-01", periods=4),
+            "etf_id": "ALT",
+            "adjusted_close": [100.0, 101.0, 102.0, 103.0],
+        }
+    )
+    context = SimpleNamespace(
+        resolution=SimpleNamespace(
+            declaration=SimpleNamespace(
+                start_date="2025-01-01",
+                end_date="2025-01-02",
+                decision_time="2025-01-02T23:59:59Z",
+            )
+        )
+    )
+    scoped = _clip_to_reference_window(prices, context)
+    assert scoped is not None
+    assert scoped["date"].tolist() == [pd.Timestamp("2025-01-01"), pd.Timestamp("2025-01-02")]
+
+
+def test_two_observations_do_not_create_regime_correlation() -> None:
+    returns = pd.DataFrame({"A": [0.01, 0.02], "B": [0.01, 0.03]})
+    assert _average_correlation(returns) is None

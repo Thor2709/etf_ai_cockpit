@@ -319,11 +319,17 @@ def _validate_window(
     known_at: str,
     start_date: str,
     end_date: str,
+    *,
+    decision_time: str | None = None,
 ) -> None:
     if _timestamp(effective_at, "effective_at") > _timestamp(known_at, "known_at"):
         raise BenchmarkReferenceError("effective_at cannot be after known_at")
-    if _date(start_date, "start_date") > _date(end_date, "end_date"):
+    start = _date(start_date, "start_date")
+    end = _date(end_date, "end_date")
+    if start > end:
         raise BenchmarkReferenceError("start_date cannot be after end_date")
+    if decision_time is not None and end > _timestamp(decision_time, "decision_time").date():
+        raise BenchmarkReferenceError("end_date cannot be after decision_time")
 
 
 @dataclass(frozen=True)
@@ -839,7 +845,13 @@ class AnalysisDeclaration:
         horizon = _horizon(self.horizon_years, "analysis horizon_years")
         if horizon is None or horizon <= 0:
             raise BenchmarkReferenceError("analysis horizon must be positive")
-        _validate_window(self.decision_time, self.decision_time, self.start_date, self.end_date)
+        _validate_window(
+            self.decision_time,
+            self.decision_time,
+            self.start_date,
+            self.end_date,
+            decision_time=self.decision_time,
+        )
         if _date(self.start_date, "start_date") >= _date(self.end_date, "end_date"):
             raise BenchmarkReferenceError("analysis period must be positive")
         if self.benchmark_id is None:
@@ -1204,7 +1216,7 @@ class CanonicalBenchmarkRegistry:
 
         def item(selection: Selection) -> dict[str, object]:
             selected = definition(selection)
-            return {
+            result: dict[str, object] = {
                 "status": selection.status,
                 "display": selection.display_name,
                 "id": selection.selected_id,
@@ -1213,6 +1225,11 @@ class CanonicalBenchmarkRegistry:
                 "specificity": selection.specificity,
                 "content_hash": None if selected is None else selected.digest(),
             }
+            if selection.kind == "peer" and selected is not None:
+                result["member_instrument_ids"] = list(
+                    getattr(selected, "member_instrument_ids", ())
+                )
+            return result
 
         for reference in resolution.references:
             matches = [
@@ -1516,11 +1533,9 @@ def _validate_period(currency: str, horizon: float, start: str, end: str, cutoff
     validated_horizon = _horizon(horizon, "analysis horizon_years")
     if validated_horizon is None or validated_horizon <= 0:
         raise BenchmarkReferenceError("analysis horizon must be positive")
-    _date(start, "start_date")
-    _date(end, "end_date")
+    _validate_window(cutoff, cutoff, start, end, decision_time=cutoff)
     if _date(start, "start_date") >= _date(end, "end_date"):
         raise BenchmarkReferenceError("analysis period must be positive")
-    _timestamp(cutoff, "decision_time")
 
 
 def _selector_matches(selector: Mapping[str, str], instrument: Mapping[str, object]) -> bool:

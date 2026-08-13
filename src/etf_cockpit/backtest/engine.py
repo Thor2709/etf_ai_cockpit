@@ -113,17 +113,35 @@ def _price_pivot(prices: pd.DataFrame) -> pd.DataFrame:
 def _declared_calculation_window(
     reference_identity: Mapping[str, object] | None,
 ) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    if reference_identity is None:
+        return None
     analysis = reference_identity.get("analysis") if isinstance(reference_identity, Mapping) else None
+    if analysis is None and reference_identity.get("status") == "unavailable":
+        return None
     if not isinstance(analysis, Mapping):
-        return None
+        raise BacktestDataUnavailableError("invalid_reference_window: calculation window is missing")
     try:
-        start = pd.Timestamp(str(analysis["start_date"]))
-        end = pd.Timestamp(str(analysis["end_date"]))
+        start = _naive_utc_timestamp(analysis["start_date"])
+        end = _naive_utc_timestamp(analysis["end_date"])
+        decision_time = _naive_utc_timestamp(analysis["decision_time"])
     except (KeyError, TypeError, ValueError):
-        return None
-    if pd.isna(start) or pd.isna(end) or start > end:
-        return None
+        raise BacktestDataUnavailableError("invalid_reference_window: calculation window is malformed")
+    if (
+        pd.isna(start)
+        or pd.isna(end)
+        or pd.isna(decision_time)
+        or start > end
+        or end.normalize() > decision_time.normalize()
+    ):
+        raise BacktestDataUnavailableError("invalid_reference_window: calculation window is outside decision time")
     return start.normalize(), end.normalize()
+
+
+def _naive_utc_timestamp(value: object) -> pd.Timestamp:
+    parsed = pd.Timestamp(str(value))
+    if parsed.tzinfo is not None:
+        parsed = parsed.tz_convert("UTC").tz_localize(None)
+    return parsed
 
 
 def _validated_benchmark_data_id(

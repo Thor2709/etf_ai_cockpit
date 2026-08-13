@@ -271,7 +271,7 @@ def test_analysis_facade_applies_vwce_profile_alignment_without_changing_raw_ana
         "reference_horizon_years": 1.0,
         "reference_start_date": "2024-02-01",
         "reference_end_date": "2025-02-01",
-        "reference_decision_time": "2024-02-02T00:00:00Z",
+        "reference_decision_time": "2025-02-02T00:00:00Z",
         "reference_portfolio_ids": ("reference:equal_weight",),
         "vwce_anchor": anchor,
         "vwce_listing_id": "listing:xetra",
@@ -350,7 +350,7 @@ def test_default_production_and_persistence_paths_consume_snapshot_reference_evi
     snapshot.benchmark_reference_horizon_years = 1.0
     snapshot.benchmark_reference_start_date = "2024-02-01"
     snapshot.benchmark_reference_end_date = "2025-02-01"
-    snapshot.benchmark_reference_decision_time = "2024-02-02T00:00:00Z"
+    snapshot.benchmark_reference_decision_time = "2025-02-02T00:00:00Z"
     snapshot.benchmark_reference_portfolio_ids = ("reference:equal_weight",)
     candidate = _candidate(snapshot)
 
@@ -379,7 +379,7 @@ def test_registry_anchor_membership_is_exact_and_bound_into_reference_provenance
         "reference_horizon_years": 1.0,
         "reference_start_date": "2024-02-01",
         "reference_end_date": "2025-02-01",
-        "reference_decision_time": "2024-02-02T00:00:00Z",
+        "reference_decision_time": "2025-02-02T00:00:00Z",
         "reference_portfolio_ids": ("reference:equal_weight",),
         "vwce_anchor": anchor,
         "vwce_listing_id": "listing:xetra",
@@ -420,7 +420,7 @@ def test_explicit_empty_reference_arguments_never_reuse_snapshot_evidence() -> N
     snapshot.benchmark_reference_horizon_years = 1.0
     snapshot.benchmark_reference_start_date = "2024-02-01"
     snapshot.benchmark_reference_end_date = "2025-02-01"
-    snapshot.benchmark_reference_decision_time = "2024-02-02T00:00:00Z"
+    snapshot.benchmark_reference_decision_time = "2025-02-02T00:00:00Z"
     snapshot.benchmark_reference_portfolio_ids = ("reference:equal_weight",)
     snapshot.vwce_anchor_evidence = anchor
     snapshot.vwce_listing_id = "listing:xetra"
@@ -777,7 +777,7 @@ def test_changed_registry_source_hash_rejects_persisted_result_on_load(tmp_path)
     snapshot.benchmark_reference_horizon_years = 1.0
     snapshot.benchmark_reference_start_date = "2024-02-01"
     snapshot.benchmark_reference_end_date = "2025-02-01"
-    snapshot.benchmark_reference_decision_time = "2024-02-02T00:00:00Z"
+    snapshot.benchmark_reference_decision_time = "2025-02-02T00:00:00Z"
     snapshot.benchmark_reference_portfolio_ids = ("reference:equal_weight",)
     save_portfolio_candidate(
         snapshot,

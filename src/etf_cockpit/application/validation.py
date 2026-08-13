@@ -35,7 +35,8 @@ def build_validation_preview(
     false until a caller supplies real, separately versioned trial scores.
     """
 
-    values, definition, regimes, subgroups = _preview_inputs(prices, spec)
+    scoped_prices = _clip_to_reference_window(prices, reference_context)
+    values, definition, regimes, subgroups = _preview_inputs(scoped_prices, spec)
     if values is None:
         return None
     reference_projection = (
@@ -67,7 +68,8 @@ def record_validation_preview(
 ) -> dict[str, object] | None:
     """Persist the complete local preview search, including discarded trials."""
 
-    values, definition, _, _ = _preview_inputs(prices, None)
+    scoped_prices = _clip_to_reference_window(prices, reference_context)
+    values, definition, _, _ = _preview_inputs(scoped_prices, None)
     report = (
         build_validation_preview(prices, spec=definition, reference_context=reference_context)
         if values is not None
@@ -75,7 +77,7 @@ def record_validation_preview(
     )
     if report is None or values is None:
         return None
-    frame = prices if isinstance(prices, pd.DataFrame) else pd.DataFrame()
+    frame = scoped_prices if isinstance(scoped_prices, pd.DataFrame) else pd.DataFrame()
     data_hash = _sha256(frame.to_json(orient="split", date_format="iso").encode("utf-8"))
     feature_hash = _sha256(json.dumps({"source": "adjusted_close", "window": 0}, sort_keys=True).encode("utf-8"))
     code_hash = _validation_code_hash()
@@ -173,6 +175,40 @@ def _preview_inputs(prices: pd.DataFrame | None, spec: ValidationSpec | None) ->
     regime_threshold = float(pd.Series(values).abs().median())
     regimes = ["stress" if abs(value) >= regime_threshold else "calm" for value in values]
     return values, definition, regimes, ["local_adjusted_price" for _ in values]
+
+
+def _clip_to_reference_window(
+    prices: pd.DataFrame | None,
+    reference_context: CanonicalReferenceContext | None,
+) -> pd.DataFrame | None:
+    if reference_context is None:
+        return prices
+    resolution = getattr(reference_context, "resolution", None)
+    declaration = getattr(resolution, "declaration", None)
+    start = getattr(declaration, "start_date", None)
+    end = getattr(declaration, "end_date", None)
+    decision_time = getattr(declaration, "decision_time", None)
+    if (
+        not isinstance(prices, pd.DataFrame)
+        or not isinstance(start, str)
+        or not isinstance(end, str)
+        or not isinstance(decision_time, str)
+        or "date" not in prices.columns
+    ):
+        return None
+    try:
+        start_ts = pd.Timestamp(start, tz="UTC")
+        end_date_ts = pd.Timestamp(end, tz="UTC")
+        end_ts = end_date_ts + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+        decision_ts = pd.Timestamp(decision_time)
+        if decision_ts.tzinfo is None:
+            decision_ts = decision_ts.tz_localize("UTC")
+        if start_ts > end_date_ts or end_date_ts > decision_ts.tz_convert("UTC"):
+            return None
+        dates = pd.to_datetime(prices["date"], errors="coerce", utc=True)
+    except (TypeError, ValueError):
+        return None
+    return prices.loc[(dates >= start_ts) & (dates <= end_ts)].copy()
 
 
 def _sha256(value: bytes) -> str:

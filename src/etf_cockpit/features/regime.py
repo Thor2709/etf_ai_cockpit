@@ -13,6 +13,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     unavailable_reference_projection,
     validate_execution_disabled,
 )
+from etf_cockpit.application.benchmark_reference import validate_benchmark_reference
 
 
 def build_market_regime(
@@ -26,9 +27,12 @@ def build_market_regime(
 ) -> dict[str, object]:
     validate_execution_disabled(benchmark_reference or _unavailable_reference())
     reference = dict(benchmark_reference or _unavailable_reference())
+    canonical_benchmark_id = validate_benchmark_reference(benchmark_reference, benchmark_id)
     if prices.empty or not {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
         return _empty_regime("No clean yfinance price panel is available.", benchmark_reference=reference)
-    frame = prices.copy()
+    frame = _clip_to_reference_window(prices, reference)
+    if frame.empty:
+        return _empty_regime("The declared benchmark calculation window is unavailable.", benchmark_reference=reference)
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     pivot = frame.dropna(subset=["date"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
@@ -36,7 +40,7 @@ def build_market_regime(
     if len(pivot) < 220:
         return _empty_regime("Less than 220 trading days are available for regime scoring.", benchmark_reference=reference)
 
-    benchmark_id = str(benchmark_id).strip() if benchmark_id else None
+    benchmark_id = canonical_benchmark_id
     if benchmark_id is None or benchmark_id not in pivot.columns:
         return _empty_regime(
             "Canonical benchmark/cash resolution is unavailable; regime comparison is N/A.",
@@ -107,7 +111,9 @@ def build_portfolio_fit_lookup(
     reference = dict(benchmark_reference or _unavailable_reference())
     if prices.empty or not {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
         return {}
-    frame = prices.copy()
+    frame = _clip_to_reference_window(prices, reference)
+    if frame.empty:
+        return {}
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     pivot = frame.dropna(subset=["date", "adjusted_close"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index().ffill()
@@ -116,7 +122,7 @@ def build_portfolio_fit_lookup(
             str(item): _unavailable_fit("not enough clean instruments", reference)
             for item in pivot.columns
         }
-    benchmark_id = str(benchmark_id).strip() if benchmark_id else None
+    benchmark_id = validate_benchmark_reference(benchmark_reference, benchmark_id)
     if benchmark_id is None or benchmark_id not in pivot.columns:
         return {
             str(item): _unavailable_fit(
@@ -164,7 +170,9 @@ def build_benchmark_attribution_lookup(
     peer_member_ids = _canonical_peer_member_ids(reference, peer_member_ids)
     if prices.empty or not {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
         return {}
-    frame = prices.copy()
+    frame = _clip_to_reference_window(prices, reference)
+    if frame.empty:
+        return {}
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     pivot = frame.dropna(subset=["date", "adjusted_close"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
@@ -175,7 +183,7 @@ def build_benchmark_attribution_lookup(
             )
             for item in pivot.columns
         }
-    benchmark_id = str(benchmark_id).strip() if benchmark_id else None
+    benchmark_id = validate_benchmark_reference(benchmark_reference, benchmark_id)
     if benchmark_id is None or benchmark_id not in pivot.columns:
         return {
             str(item): _unavailable_attribution(
@@ -195,6 +203,8 @@ def build_benchmark_attribution_lookup(
         sample = joined.tail(window)
         if len(sample) < max(60, window // 2):
             output[instrument] = {
+                "status": "N/A",
+                "instrument_id": instrument,
                 "benchmark_id": benchmark_id,
                 "period_days": window,
                 "label": "Benchmark attribution pending: not enough overlapping yfinance returns.",
@@ -235,6 +245,8 @@ def build_benchmark_attribution_lookup(
         sector_result = _sector_attribution_result(returns, str(instrument_id), peer_member_ids, window)
         theme_result = _peer_attribution_result(returns, str(instrument_id), peer_member_ids, "theme", window)
         output[instrument] = {
+            "status": "available",
+            "instrument_id": instrument,
             "benchmark_id": benchmark_id,
             "period_days": len(sample),
             "label": _benchmark_attribution_label(benchmark_id, instrument_return, benchmark_return, beta, corr, alpha_proxy, alpha_t_stat),
@@ -314,6 +326,8 @@ def _unavailable_fit(
         "score": None,
         "label": f"{label_prefix}: {reason}.",
         "status": "N/A",
+        "correlation_to_benchmark": None,
+        "beta_to_benchmark": None,
         "benchmark_reference": dict(benchmark_reference or _unavailable_reference()),
         "execution_allowed": False,
     }
@@ -326,6 +340,8 @@ def _unavailable_attribution(
     benchmark_reference: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     return {
+        "status": "N/A",
+        "instrument_id": instrument_id,
         "benchmark_id": None,
         "period_days": window,
         "label": f"Benchmark attribution unavailable: {reason}.",
@@ -352,7 +368,6 @@ def _unavailable_attribution(
         "sample_size": 0,
         "as_of": None,
         "source_dataset": "adjusted_price_returns",
-        "instrument_id": instrument_id,
         "benchmark_reference": dict(benchmark_reference or _unavailable_reference()),
         "execution_allowed": False,
     }
@@ -381,10 +396,16 @@ def _horizon_return(series: pd.Series, days: int) -> float | None:
 def _average_correlation(returns: pd.DataFrame) -> float | None:
     if returns.shape[1] < 2:
         return None
-    corr = returns.corr()
-    mask = np.triu(np.ones(corr.shape), k=1).astype(bool)
-    values = corr.where(mask).stack().dropna()
-    return float(values.mean()) if not values.empty else None
+    values: list[float] = []
+    for left_index, left in enumerate(returns.columns):
+        for right in returns.columns[left_index + 1:]:
+            joined = returns[[left, right]].dropna()
+            if len(joined) < 3:
+                continue
+            correlation = joined.iloc[:, 0].corr(joined.iloc[:, 1])
+            if correlation is not None and np.isfinite(correlation):
+                values.append(float(correlation))
+    return float(np.mean(values)) if values else None
 
 
 def _portfolio_fit_score(correlation: float, beta: float | None) -> float:
@@ -438,7 +459,7 @@ def _peer_attribution_result(
     peer_returns = returns[peers].mean(axis=1, skipna=False).rename(prefix)
     instrument = returns[instrument_id].rename("instrument")
     joined = pd.concat([instrument, peer_returns], axis=1, join="inner").dropna().tail(window)
-    if len(joined) < 2:
+    if len(joined) < 3:
         return {f"{prefix}_attribution_status": "N/A", f"{prefix}_sample_size": len(joined)}
     result = build_benchmark_attribution(joined["instrument"], joined[prefix])
     relative_return = None
@@ -467,11 +488,44 @@ def _canonical_peer_member_ids(
         or peer.get("status") != "available"
         or not isinstance(selected_records, Mapping)
         or selected_records.get("peer_set") != peer.get("content_hash")
-        or not peer_member_ids
-        or any(not isinstance(item, str) or not item.strip() for item in peer_member_ids)
+        or not isinstance(peer.get("member_instrument_ids"), Sequence)
     ):
         return None
-    return tuple(dict.fromkeys(item.strip() for item in peer_member_ids))
+    members = peer.get("member_instrument_ids")
+    if not isinstance(members, Sequence) or isinstance(members, (str, bytes)):
+        return None
+    if any(not isinstance(item, str) or not item.strip() for item in members):
+        return None
+    return tuple(dict.fromkeys(item.strip() for item in members))
+
+
+def _clip_to_reference_window(
+    prices: pd.DataFrame,
+    reference: Mapping[str, object],
+) -> pd.DataFrame:
+    analysis = reference.get("analysis")
+    if reference.get("status") != "available":
+        return prices
+    if not isinstance(analysis, Mapping):
+        return pd.DataFrame()
+    start = analysis.get("start_date")
+    end = analysis.get("end_date")
+    decision_time = analysis.get("decision_time")
+    if not all(isinstance(value, str) and value for value in (start, end, decision_time)):
+        return pd.DataFrame()
+    try:
+        dates = pd.to_datetime(prices.get("date"), errors="coerce", utc=True)
+        start_ts = pd.Timestamp(start, tz="UTC")
+        end_date_ts = pd.Timestamp(end, tz="UTC")
+        end_ts = end_date_ts + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+        decision_ts = pd.Timestamp(decision_time)
+        if decision_ts.tzinfo is None:
+            decision_ts = decision_ts.tz_localize("UTC")
+        if start_ts > end_date_ts or end_date_ts > decision_ts.tz_convert("UTC"):
+            return pd.DataFrame()
+    except (TypeError, ValueError):
+        return pd.DataFrame()
+    return prices.loc[(dates >= start_ts) & (dates <= end_ts)].copy()
 
 
 def _weighted_available(values: list[tuple[float | None, float]]) -> float:

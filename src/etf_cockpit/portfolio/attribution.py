@@ -18,6 +18,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkReferenceError,
     unavailable_reference_projection,
 )
+from etf_cockpit.application.benchmark_reference import validate_benchmark_reference
 
 ATTRIBUTION_MODEL_VERSION = "portfolio-attribution.v1"
 
@@ -186,7 +187,11 @@ def _canonical_benchmark_returns(
     ):
         return None
     benchmark_id = getattr(reference_context, "benchmark_data_id", None)
-    if not isinstance(benchmark_id, str) or benchmark_id not in returns.columns:
+    try:
+        projection = _reference_projection(reference_context)
+    except (BenchmarkReferenceError, TypeError, ValueError, KeyError):
+        return None
+    if validate_benchmark_reference(projection, benchmark_id) is None or benchmark_id not in returns.columns:
         return None
     series = returns[benchmark_id].dropna()
     if series.empty:
@@ -210,10 +215,27 @@ def _clip_to_declared_window(
     declaration = getattr(resolution, "declaration", None)
     start = getattr(declaration, "start_date", None)
     end = getattr(declaration, "end_date", None)
-    if not isinstance(start, str) or not isinstance(end, str) or "date" not in prices.columns:
-        return prices
-    dates = pd.to_datetime(prices["date"], errors="coerce")
-    return prices.loc[(dates >= pd.Timestamp(start)) & (dates <= pd.Timestamp(end))].copy()
+    decision_time = getattr(declaration, "decision_time", None)
+    if (
+        not isinstance(start, str)
+        or not isinstance(end, str)
+        or not isinstance(decision_time, str)
+        or "date" not in prices.columns
+    ):
+        return pd.DataFrame()
+    try:
+        start_ts = pd.Timestamp(start, tz="UTC")
+        end_date_ts = pd.Timestamp(end, tz="UTC")
+        end_ts = end_date_ts + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+        decision_ts = pd.Timestamp(decision_time)
+        if decision_ts.tzinfo is None:
+            decision_ts = decision_ts.tz_localize("UTC")
+        if start_ts > end_date_ts or end_date_ts > decision_ts.tz_convert("UTC"):
+            return pd.DataFrame()
+        dates = pd.to_datetime(prices["date"], errors="coerce", utc=True)
+    except (TypeError, ValueError):
+        return pd.DataFrame()
+    return prices.loc[(dates >= start_ts) & (dates <= end_ts)].copy()
 
 
 def _assert_execution_disabled(value: object) -> None:

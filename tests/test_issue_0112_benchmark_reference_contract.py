@@ -172,7 +172,7 @@ def test_mapping_is_shared_by_attribution_and_validation_and_exposes_read_only_u
         "horizon_years": 1.0,
         "start_date": "2024-02-01",
         "end_date": "2025-02-01",
-        "decision_time": "2024-02-02T00:00:00Z",
+        "decision_time": "2025-02-02T00:00:00Z",
         "reference_portfolio_ids": ("reference:equal_weight", "reference:maximum_diversification", "reference:no_trade"),
     }
     attribution = registry.resolve_analysis(purpose="attribution", **arguments)
@@ -209,7 +209,7 @@ def test_ui_projection_binds_selected_records_and_full_registry_to_content_diges
         "horizon_years": 1.0,
         "start_date": "2024-02-01",
         "end_date": "2025-02-01",
-        "decision_time": "2024-02-02T00:00:00Z",
+        "decision_time": "2025-02-02T00:00:00Z",
         "reference_portfolio_ids": ("reference:equal_weight",),
     }
     first_projection = first.ui_projection(
@@ -239,7 +239,7 @@ def _resolved_registry() -> tuple[CanonicalBenchmarkRegistry, AnalysisResolution
         horizon_years=1.0,
         start_date="2024-02-01",
         end_date="2025-02-01",
-        decision_time="2024-02-02T00:00:00Z",
+        decision_time="2025-02-02T00:00:00Z",
         reference_portfolio_ids=("reference:equal_weight",),
     )
     return registry, resolution
@@ -311,7 +311,7 @@ def test_ui_projection_revalidates_mutated_resolution_and_preserves_valid_unavai
         horizon_years=1.0,
         start_date="2024-02-01",
         end_date="2025-02-01",
-        decision_time="2024-02-02T00:00:00Z",
+        decision_time="2025-02-02T00:00:00Z",
         reference_portfolio_ids=("reference:missing",),
     )
     projection = registry.ui_projection(unavailable)
@@ -332,7 +332,7 @@ def test_ui_projection_revalidates_mutated_resolution_and_preserves_valid_unavai
         horizon_years=1.0,
         start_date="2024-02-01",
         end_date="2025-02-01",
-        decision_time="2024-02-02T00:00:00Z",
+        decision_time="2025-02-02T00:00:00Z",
         reference_portfolio_ids=("reference:equal_weight",),
     )
     assert unavailable_peer.declaration.peer_set_id is None
@@ -391,7 +391,7 @@ def test_specificity_is_deterministic_and_ties_are_ambiguous() -> None:
     )
     selected, _, _ = registry.map_instrument(
         {**INSTRUMENT, "sector": "technology"}, currency="AUD", horizon_years=1.0,
-        start_date="2024-02-01", end_date="2025-02-01", decision_time="2024-02-02T00:00:00Z",
+        start_date="2024-02-01", end_date="2025-02-01", decision_time="2025-02-02T00:00:00Z",
     )
     assert selected.selected_id == "benchmark:global-equity-sector"
 
@@ -403,7 +403,7 @@ def test_specificity_is_deterministic_and_ties_are_ambiguous() -> None:
     )
     selection, _, _ = registry.map_instrument(
         INSTRUMENT, currency="AUD", horizon_years=1.0,
-        start_date="2024-02-01", end_date="2025-02-01", decision_time="2024-02-02T00:00:00Z",
+        start_date="2024-02-01", end_date="2025-02-01", decision_time="2025-02-02T00:00:00Z",
     )
     assert selection.status == "ambiguous"
     assert selection.reason == "ambiguous_mapping"
@@ -417,7 +417,7 @@ def test_alignment_never_hides_fx_or_horizon_substitution(currency: str, horizon
     registry = _registry()
     benchmark, cash, _ = registry.map_instrument(
         INSTRUMENT, currency=currency, horizon_years=horizon_years,
-        start_date="2024-02-01", end_date="2025-02-01", decision_time="2024-02-02T00:00:00Z",
+        start_date="2024-02-01", end_date="2025-02-01", decision_time="2025-02-02T00:00:00Z",
     )
     assert benchmark.status == cash.status == "unavailable"
     assert benchmark.reason == cash.reason == expected
@@ -428,14 +428,14 @@ def test_pit_version_replay_rejects_future_unknown_and_stale_evidence() -> None:
     old = _benchmark(version="1.0.0", effective_at="2023-01-01T00:00:00Z", known_at="2023-01-02T00:00:00Z")
     new = _benchmark(version="2.0.0", effective_at="2025-01-01T00:00:00Z", known_at="2025-01-02T00:00:00Z")
     registry = CanonicalBenchmarkRegistry(benchmarks=(new, old), cash_proxies=(_cash(),), peer_sets=(_peer(),), reference_portfolios=_registry().reference_portfolios)
-    selected, _, _ = registry.map_instrument(INSTRUMENT, currency="AUD", horizon_years=1.0, start_date="2024-02-01", end_date="2025-02-01", decision_time="2024-02-02T00:00:00Z")
+    selected, _, _ = registry.map_instrument(INSTRUMENT, currency="AUD", horizon_years=1.0, start_date="2024-02-01", end_date="2025-02-01", decision_time="2025-02-02T00:00:00Z")
     assert selected.version == "1.0.0"
-    future, _, _ = registry.map_instrument(INSTRUMENT, currency="AUD", horizon_years=1.0, start_date="2025-02-01", end_date="2026-02-01", decision_time="2025-01-01T00:00:00Z", benchmark_version="2.0.0")
+    future, _, _ = registry.map_instrument(INSTRUMENT, currency="AUD", horizon_years=1.0, start_date="2024-02-01", end_date="2025-02-01", decision_time="2025-02-02T00:00:00Z", benchmark_version="2.0.0")
     assert future.status == "unavailable"
-    replay, _, _ = registry.map_instrument(INSTRUMENT, currency="AUD", horizon_years=1.0, start_date="2025-02-01", end_date="2026-02-01", decision_time="2025-02-02T00:00:00Z", benchmark_version="1.0.0")
+    replay, _, _ = registry.map_instrument(INSTRUMENT, currency="AUD", horizon_years=1.0, start_date="2024-02-01", end_date="2025-02-01", decision_time="2025-02-02T00:00:00Z", benchmark_version="1.0.0")
     assert replay.status == "available"
     assert replay.version == "1.0.0"
-    stale, _, _ = _registry(benchmark=replace(old, status="stale")).map_instrument(INSTRUMENT, currency="AUD", horizon_years=1.0, start_date="2024-02-01", end_date="2025-02-01", decision_time="2024-02-02T00:00:00Z")
+    stale, _, _ = _registry(benchmark=replace(old, status="stale")).map_instrument(INSTRUMENT, currency="AUD", horizon_years=1.0, start_date="2024-02-01", end_date="2025-02-01", decision_time="2025-02-02T00:00:00Z")
     assert stale.reason == "benchmark_stale_or_unavailable"
 
 
@@ -454,7 +454,7 @@ def test_authoritative_stale_version_never_falls_back_to_older_available_definit
     benchmark, cash, peer = registry.map_instrument(
         INSTRUMENT, currency="AUD", horizon_years=1.0,
         start_date="2024-02-01", end_date="2025-02-01",
-        decision_time="2024-02-02T00:00:00Z",
+        decision_time="2025-02-02T00:00:00Z",
     )
     assert benchmark.reason == "benchmark_stale_or_unavailable"
     assert cash.reason == "cash_stale_or_unavailable"
@@ -498,7 +498,7 @@ def test_reference_portfolio_requires_effective_and_known_cutoffs() -> None:
         horizon_years=1.0,
         start_date="2024-02-01",
         end_date="2025-02-01",
-        decision_time="2025-01-01T00:00:00Z",
+        decision_time="2025-03-01T00:00:00Z",
         reference_portfolio_ids=("reference:future",),
     )
     assert resolution.references == ()
@@ -537,7 +537,7 @@ def test_duplicate_requested_reference_ids_are_rejected_before_normalization() -
             horizon_years=1.0,
             start_date="2024-02-01",
             end_date="2025-02-01",
-            decision_time="2024-02-02T00:00:00Z",
+            decision_time="2025-03-01T00:00:00Z",
             reference_portfolio_ids=("reference:equal_weight", " reference:equal_weight "),
         )
 
@@ -713,7 +713,7 @@ def test_canonical_hash_rejects_nested_non_string_key_collision_and_cannot_autho
         registered,
         listing_id="listing:xetra",
         effective_date="2024-02-01",
-        decision_time="2024-02-02T00:00:00Z",
+        decision_time="2025-02-02T00:00:00Z",
         currency="EUR",
         horizon_years=1.0,
     )
@@ -770,7 +770,7 @@ def test_vwce_nested_evidence_must_be_semantically_available_for_resolution_and_
         anchor,
         listing_id="listing:xetra",
         effective_date="2024-02-01",
-        decision_time="2024-02-02T00:00:00Z",
+        decision_time="2025-02-02T00:00:00Z",
         currency="EUR",
         horizon_years=1.0,
     )
@@ -836,7 +836,7 @@ def test_production_reference_consumers_share_one_explicit_benchmark_cash_reques
         "horizon_years": 1.0,
         "start_date": "2024-02-01",
         "end_date": "2025-02-01",
-        "decision_time": "2024-02-02T00:00:00Z",
+        "decision_time": "2025-02-02T00:00:00Z",
         "reference_portfolio_ids": ("reference:equal_weight",),
     }
     attribution_context = resolve_canonical_reference(
@@ -893,7 +893,7 @@ def test_attribution_cannot_bypass_unavailable_reference_or_forge_available_benc
         horizon_years=1.0,
         start_date="2024-02-01",
         end_date="2025-02-01",
-        decision_time="2024-02-02T00:00:00Z",
+        decision_time="2025-02-02T00:00:00Z",
         reference_portfolio_ids=("reference:equal_weight",),
     )
     available = build_performance_attribution(
@@ -924,7 +924,7 @@ def test_selection_and_analysis_resolution_reject_execution_authority() -> None:
 
     declaration = AnalysisDeclaration(
         "analysis", "comparison", "ETF-1", "AUD", 1.0,
-        "2024-02-01", "2025-02-01", "2024-02-02T00:00:00Z",
+        "2024-02-01", "2025-02-01", "2025-02-02T00:00:00Z",
         "benchmark:x", "cash:x", None, ("reference:x",),
     )
     available = Selection("benchmark", "available", "benchmark:x", "1.0.0", None)
@@ -936,6 +936,24 @@ def test_selection_and_analysis_resolution_reject_execution_authority() -> None:
     object.__setattr__(available, "execution_allowed", True)
     with pytest.raises(BenchmarkReferenceError, match="contains execution authority"):
         AnalysisResolution(declaration, available, cash, peer, (), ())
+
+
+def test_analysis_declaration_rejects_calculation_end_after_decision_time() -> None:
+    with pytest.raises(BenchmarkReferenceError, match="end_date cannot be after decision_time"):
+        AnalysisDeclaration(
+            "analysis",
+            "comparison",
+            "ETF-1",
+            "AUD",
+            1.0,
+            "2024-02-01",
+            "2025-02-02",
+            "2025-02-01T23:59:59Z",
+            "benchmark:x",
+            "cash:x",
+            None,
+            (),
+        )
 
 
 def test_profile_projection_rejects_nested_raw_execution_authority_and_keeps_safe_projection_recursive() -> None:
@@ -1244,7 +1262,7 @@ def test_reference_selection_requires_currency_horizon_and_date_coverage() -> No
         analysis_id="reference-alignment", purpose="comparison", instrument_id="ETF-1",
         instrument=INSTRUMENT, currency="AUD", horizon_years=1.0,
         start_date="2024-02-01", end_date="2025-02-01",
-        decision_time="2024-02-02T00:00:00Z", reference_portfolio_ids=(reference.portfolio_id,),
+        decision_time="2025-02-02T00:00:00Z", reference_portfolio_ids=(reference.portfolio_id,),
     )
     assert resolution.references == ()
     assert resolution.blockers == (f"reference:unavailable:{reference.portfolio_id}",)
@@ -1262,7 +1280,7 @@ def test_reference_selection_requires_currency_horizon_and_date_coverage() -> No
         analysis_id="reference-effective-cutoff", purpose="comparison", instrument_id="ETF-1",
         instrument=INSTRUMENT, currency="AUD", horizon_years=1.0,
         start_date="2024-02-01", end_date="2025-02-01",
-        decision_time="2025-01-01T00:00:00Z", reference_portfolio_ids=(reference.portfolio_id,),
+        decision_time="2025-02-02T00:00:00Z", reference_portfolio_ids=(reference.portfolio_id,),
     )
     assert late.references == ()
     assert late.blockers == (f"reference:unavailable:{reference.portfolio_id}",)
@@ -1306,7 +1324,7 @@ def test_newest_pit_reference_version_blocks_without_falling_back_to_aligned_old
         horizon_years=1.0,
         start_date="2024-02-01",
         end_date="2025-02-01",
-        decision_time="2024-02-02T00:00:00Z",
+        decision_time="2025-02-02T00:00:00Z",
         reference_portfolio_ids=("reference:equal_weight",),
     )
     assert resolution.references == ()

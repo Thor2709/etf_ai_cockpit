@@ -245,6 +245,19 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   checkpoint update, then freeze one replacement exact head for paired review
   and fresh H-tier Linux, Windows and terminal evidence.
 
+- Frozen replacement head `713c2a837fc7244cc01e07947fb3e80629446bd7`
+  is rejected by both independent reviews; hosted run `31722219785` failed the
+  attributable changed-test preflight and skipped H-tier package/pilot gates.
+  The complete consolidated set is strict decision-time calculation windows,
+  canonical benchmark/cash and peer binding, minimum overlap, immutable retained
+  instrument evidence, supplied-feature sanitisation, complete N/A row schemas,
+  macro binding and the exact SignalService CI fixture. One bounded correction
+  closes those paths without workflow or authority changes. The complete affected
+  product/UI/macro suite and exact hosted changed-test selection pass locally,
+  including all five packaged workflows; Ruff, targeted mypy, compile, byte-clean
+  programme generation and diff hygiene pass. Freeze one new exact head for both
+  final reviews and a fresh H-tier run with Linux, Windows, terminal and pilots.
+
 ## Historical ISSUE-0017 product checkpoint
 
 - ISSUE-0016 PR #671 merged exact reviewed head
