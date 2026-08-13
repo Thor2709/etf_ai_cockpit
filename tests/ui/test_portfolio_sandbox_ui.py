@@ -83,7 +83,7 @@ def _available_registry() -> CanonicalBenchmarkRegistry:
         fees_as_of="2024-01-01",
         tracking={"tracking_difference": "source-backed fixture"},
         tracking_as_of="2024-01-01",
-        product_risk_indicator={"version": "source-backed-fixture-v1"},
+        product_risk_indicator={"version": "source-backed-fixture-v1", "value": "fixture"},
         risk_indicator_as_of="2024-01-01",
         currency="USD",
         source_hashes=("a" * 64,),

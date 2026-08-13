@@ -203,6 +203,11 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   correction passes 199 affected contract/sandbox/UI tests, the pinned-frontend
   isolated wheel proof, Ruff, targeted mypy, compile, programme freshness and
   diff hygiene. Freeze one replacement exact head for paired final review and H.
+- Risk review of `008ee66f0e161da1d66532a5893731c5c9d8a5ea`
+  reproduced one metadata predicate defect; run `31706356179` is cancelled/stale.
+  Authority/status/version-only nested VWCE mappings counted as financial facts.
+  The correction excludes metadata keys and requires substantive fees, tracking
+  and risk facts; 200 affected tests and Ruff pass. Freeze one replacement head.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

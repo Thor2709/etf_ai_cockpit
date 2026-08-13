@@ -783,6 +783,28 @@ def test_vwce_nested_evidence_must_be_semantically_available_for_resolution_and_
     assert projection["profile_relative_claims_allowed"] is False
 
 
+@pytest.mark.parametrize("field", ["fees", "tracking", "product_risk_indicator"])
+def test_vwce_metadata_only_nested_evidence_cannot_enable_profile_claims(field: str) -> None:
+    anchor = _vwce(**{
+        field: {
+            "status": "available",
+            "version": "metadata-only-1.0",
+            "execution_allowed": False,
+            "source_hashes": [HASH_A],
+        }
+    })
+    resolution = resolve_vwce_anchor(
+        anchor, listing_id="listing:xetra", effective_date="2024-02-01",
+        decision_time="2024-02-02T00:00:00Z", currency="EUR", horizon_years=1.0,
+    )
+    assert resolution.status == "unavailable"
+    projection = project_profile_relative_analysis(
+        {"return": 0.12}, resolution, anchor=anchor,
+        registry=CanonicalBenchmarkRegistry(vwce_anchors=(anchor,)),
+    )
+    assert projection["profile_relative_claims_allowed"] is False
+
+
 def test_profile_projection_rejects_incomplete_manual_available_resolution() -> None:
     projection = project_profile_relative_analysis(
         {"return": 0.12},

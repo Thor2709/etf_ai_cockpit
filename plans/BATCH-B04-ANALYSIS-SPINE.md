@@ -4090,3 +4090,9 @@ tracking or risk facts. Correct exactly those three fail-closed validations and
 add focused regressions. All 199 affected contract/sandbox/UI tests plus the
 pinned-frontend isolated wheel proof, Ruff, targeted mypy, compile, programme
 freshness and diff hygiene pass. Freeze one replacement review/gate head.
+
+`CORRECTED` head `008ee66f0e161da1d66532a5893731c5c9d8a5ea` is rejected and
+run `31706356179` is cancelled/stale. Authority/status/version-only nested VWCE
+mappings counted as financial facts. The correction excludes metadata keys and
+requires substantive fees, tracking and risk evidence; 200 affected tests and
+Ruff pass. Freeze one replacement exact head for paired review and H evidence.

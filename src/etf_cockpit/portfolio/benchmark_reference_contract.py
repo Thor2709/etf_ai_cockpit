@@ -204,9 +204,13 @@ def _nested_fact_is_available(value: object) -> bool:
     if isinstance(value, Mapping):
         if not value:
             return False
+        metadata_keys = {
+            "status", "reason", "version", "execution_allowed",
+            "source_hash", "source_hashes", "effective_at", "known_at", "as_of",
+        }
         facts = [
             item for key, item in value.items()
-            if key not in {"status", "reason"}
+            if key not in metadata_keys
         ]
         return bool(facts) and all(_nested_fact_is_available(item) for item in facts)
     if isinstance(value, (list, tuple, set, frozenset)):
