@@ -7,6 +7,7 @@ from datetime import date
 import math
 import json
 import hashlib
+import inspect
 from pathlib import Path
 
 import pandas as pd
@@ -190,6 +191,19 @@ def _load_local_structural_evidence():
         factsheet_path=ETF_METADATA_CLEAN_PATH,
         holdings_path=FUND_HOLDINGS_PATH,
     )
+
+
+def _run_backtest_compatibly(config: AppConfig, prices: pd.DataFrame, **kwargs: object) -> BacktestReport:
+    """Keep the service seam compatible with older focused test runners.
+
+    Signature filtering is explicit compatibility, not exception handling:
+    TypeError raised by the runner itself must remain visible to the caller.
+    """
+
+    parameters = inspect.signature(run_backtest).parameters
+    accepts_kwargs = any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
+    supported = kwargs if accepts_kwargs else {key: value for key, value in kwargs.items() if key in parameters}
+    return run_backtest(config, prices, **supported)
 
 
 def _load_structure_caps(instrument_ids: object, decision_time: object) -> dict[str, float]:
@@ -1308,7 +1322,7 @@ class BacktestService:
         except Exception:
             structure_evidence = None
         try:
-            report = run_backtest(
+            report = _run_backtest_compatibly(
                 self.config,
                 prices,
                 fundamentals=fundamentals,
@@ -1320,6 +1334,11 @@ class BacktestService:
                 benchmark_reference=reference_context.projection,
                 reference_identity=reference_context.identity,
             )
+            if "reference_identity" not in report.metadata:
+                # Older local runners do not know the added keyword seam; the
+                # service still binds their output to the resolved readback
+                # identity before publishing it.
+                report.metadata["reference_identity"] = reference_context.identity
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
         run_id = settings_bound_run_id("backtest", settings_identity=settings_identity)
@@ -1382,6 +1401,10 @@ class BacktestService:
         quality_evidence_path = BACKTESTS_DIR / "quality_momentum_evidence.csv"
         if not results_path.exists() or not equity_path.exists():
             return None
+        try:
+            structure_evidence = _load_local_structural_evidence()
+        except Exception:
+            return None
         if not _cache_matches_universe(
             results_path,
             self.universe_revision,
@@ -1435,7 +1458,6 @@ class BacktestService:
                 return None
             if metadata.get("quality_momentum_strategy_version") != QUALITY_MOMENTUM_VERSION:
                 return None
-            structure_evidence = _load_local_structural_evidence()
             if not _cached_structure_columns_match(
                 signal_log,
                 structural_caps,

@@ -19,6 +19,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     unavailable_reference_projection,
 )
 from etf_cockpit.application.benchmark_reference import validate_benchmark_reference
+from etf_cockpit.application.benchmark_reference import clip_to_decision_window
 
 ATTRIBUTION_MODEL_VERSION = "portfolio-attribution.v1"
 
@@ -81,6 +82,7 @@ def build_performance_attribution(
         total_return,
         _canonical_benchmark_returns(returns, reference_context),
         daily.index,
+        portfolio_returns=daily.get("portfolio_return"),
     )
     money_weighted, money_status = _money_weighted_return(wealth, daily.index, cashflows)
     decision_attribution = _decision_attribution(decisions, observed, portfolio_weights)
@@ -223,19 +225,12 @@ def _clip_to_declared_window(
         or "date" not in prices.columns
     ):
         return pd.DataFrame()
-    try:
-        start_ts = pd.Timestamp(start, tz="UTC")
-        end_date_ts = pd.Timestamp(end, tz="UTC")
-        end_ts = end_date_ts + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
-        decision_ts = pd.Timestamp(decision_time)
-        if decision_ts.tzinfo is None:
-            decision_ts = decision_ts.tz_localize("UTC")
-        if start_ts > end_date_ts or end_date_ts > decision_ts.tz_convert("UTC"):
-            return pd.DataFrame()
-        dates = pd.to_datetime(prices["date"], errors="coerce", utc=True)
-    except (TypeError, ValueError):
-        return pd.DataFrame()
-    return prices.loc[(dates >= start_ts) & (dates <= end_ts)].copy()
+    return clip_to_decision_window(
+        prices,
+        start_date=start,
+        end_date=end,
+        decision_time=decision_time,
+    )
 
 
 def _assert_execution_disabled(value: object) -> None:
@@ -404,7 +399,13 @@ def _cost_attribution(costs: pd.DataFrame | None) -> tuple[pd.DataFrame, float, 
     return result[columns], float(result["amount"].sum()), tax_total
 
 
-def _benchmark_attribution(total_return: float | None, benchmark: pd.DataFrame | None, dates: Iterable[object]) -> pd.DataFrame:
+def _benchmark_attribution(
+    total_return: float | None,
+    benchmark: pd.DataFrame | None,
+    dates: Iterable[object],
+    *,
+    portfolio_returns: pd.Series | None = None,
+) -> pd.DataFrame:
     columns = ["benchmark", "return", "active_return", "observations", "status"]
     if benchmark is None or benchmark.empty:
         return pd.DataFrame(columns=columns)
@@ -413,13 +414,40 @@ def _benchmark_attribution(total_return: float | None, benchmark: pd.DataFrame |
     value = next((column for column in ("return", "benchmark_return") if column in frame.columns), None)
     if value is None:
         return pd.DataFrame(columns=columns)
-    frame["date"] = pd.to_datetime(frame["date"], errors="coerce") if "date" in frame.columns else pd.NaT
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce", utc=True) if "date" in frame.columns else pd.NaT
     frame[value] = pd.to_numeric(frame[value], errors="coerce")
+    if portfolio_returns is not None:
+        portfolio = pd.to_numeric(portfolio_returns, errors="coerce")
+        portfolio.index = pd.to_datetime(portfolio.index, errors="coerce", utc=True)
+        portfolio = portfolio.rename("portfolio_return").dropna()
+    else:
+        portfolio = pd.Series(dtype=float, name="portfolio_return")
     result_rows: list[dict[str, object]] = []
     for label, group in frame.assign(_label=frame[name].fillna("benchmark") if name else "benchmark").groupby("_label", sort=True):
-        values = group[value].dropna()
-        benchmark_return = float((1.0 + values).prod() - 1.0) if not values.empty else None
-        result_rows.append({"benchmark": str(label), "return": benchmark_return, "active_return": None if total_return is None or benchmark_return is None else float(total_return - benchmark_return), "observations": int(len(values)), "status": "available" if len(values) >= 2 else "partial"})
+        benchmark_frame = group.set_index("date")[[value]].rename(columns={value: "benchmark_return"})
+        joined = pd.concat([portfolio, benchmark_frame], axis=1, join="inner").dropna()
+        if len(joined) < 2:
+            result_rows.append(
+                {
+                    "benchmark": str(label),
+                    "return": None,
+                    "active_return": None,
+                    "observations": int(len(joined)),
+                    "status": "N/A",
+                }
+            )
+            continue
+        portfolio_window_return = float((1.0 + joined["portfolio_return"]).prod() - 1.0)
+        benchmark_return = float((1.0 + joined["benchmark_return"]).prod() - 1.0)
+        result_rows.append(
+            {
+                "benchmark": str(label),
+                "return": benchmark_return,
+                "active_return": float(portfolio_window_return - benchmark_return),
+                "observations": int(len(joined)),
+                "status": "available",
+            }
+        )
     return pd.DataFrame(result_rows, columns=columns)
 
 

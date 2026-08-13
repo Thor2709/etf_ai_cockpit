@@ -9,6 +9,7 @@ import pytest
 
 from etf_cockpit.application.benchmark_reference import (
     CanonicalReferenceContext,
+    clip_to_decision_window,
     unavailable_reference_projection,
     validate_benchmark_reference,
 )
@@ -16,6 +17,7 @@ from etf_cockpit.application.validation import _clip_to_reference_window
 from etf_cockpit.backtest.engine import BacktestDataUnavailableError, _declared_calculation_window
 from etf_cockpit.features.regime import (
     _average_correlation,
+    _candidate_pct_above_sma200,
     build_benchmark_attribution_lookup,
     build_market_regime,
     build_portfolio_fit_lookup,
@@ -43,7 +45,11 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     CanonicalBenchmarkRegistry,
     unavailable_reference_projection as contract_unavailable_reference_projection,
 )
-from etf_cockpit.portfolio.attribution import _unavailable_reference_projection as attribution_unavailable_reference_projection
+from etf_cockpit.portfolio.attribution import (
+    _benchmark_attribution,
+    _unavailable_reference_projection as attribution_unavailable_reference_projection,
+    build_performance_attribution,
+)
 
 
 def _prices() -> pd.DataFrame:
@@ -245,8 +251,6 @@ def test_feature_reader_requires_universe_settings_and_reference_sidecar(tmp_pat
 
 
 def test_attribution_clips_observations_to_declared_calculation_window() -> None:
-    from etf_cockpit.portfolio.attribution import build_performance_attribution
-
     prices = pd.DataFrame(
         [
             {"date": f"2025-01-0{day}", "etf_id": "ALT", "adjusted_close": 100.0 + day}
@@ -270,6 +274,74 @@ def test_attribution_clips_observations_to_declared_calculation_window() -> None
     assert report["coverage"]["return_observations"] == 2
     assert report["daily"]["date"].min() >= pd.Timestamp("2025-01-02")
     assert report["daily"]["date"].max() <= pd.Timestamp("2025-01-04")
+
+
+def test_portfolio_benchmark_comparison_uses_joined_dates_only() -> None:
+    benchmark = pd.DataFrame(
+        {
+            "date": pd.date_range("2025-02-01", periods=3),
+            "benchmark": "BENCH",
+            "return": [0.01, 0.02, 0.03],
+        }
+    )
+    comparison = _benchmark_attribution(
+        0.0,
+        benchmark,
+        pd.date_range("2025-01-01", periods=4),
+        portfolio_returns=pd.Series(
+            [0.01, 0.02, 0.03],
+            index=pd.date_range("2025-01-01", periods=3),
+        ),
+    )
+    assert comparison.iloc[0]["status"] == "N/A"
+    assert comparison.iloc[0]["observations"] == 0
+    assert comparison.iloc[0]["return"] is None
+    assert comparison.iloc[0]["active_return"] is None
+
+
+def test_candidate_breadth_excludes_future_and_unproven_rows() -> None:
+    report = pd.DataFrame(
+        [
+            {
+                "sma200_signal": True,
+                "latest_date": "2025-02-01",
+                "provenance": "yfinance_adjusted_close",
+            },
+            {
+                "sma200_signal": False,
+                "latest_date": "2025-01-01",
+                "provenance": "yfinance_adjusted_close",
+            },
+            {"sma200_signal": True, "latest_date": "2025-01-01"},
+        ]
+    )
+    assert _candidate_pct_above_sma200(
+        report,
+        decision_time="2025-01-15T12:00:00Z",
+    ) == 0.0
+
+
+def test_shared_window_clip_caps_intraday_authority_and_date_only_rows() -> None:
+    prices = pd.DataFrame(
+        {
+            "date": ["2025-01-01", "2025-01-02 12:00:00Z", "2025-01-02 20:00:00Z"],
+            "adjusted_close": [100.0, 101.0, 102.0],
+        }
+    )
+    clipped = clip_to_decision_window(
+        prices,
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        decision_time="2025-01-02T12:00:00Z",
+    )
+    assert clipped["date"].tolist() == ["2025-01-01", "2025-01-02 12:00:00Z"]
+    date_only = clip_to_decision_window(
+        pd.DataFrame({"date": ["2025-01-02"], "adjusted_close": [101.0]}),
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        decision_time="2025-01-02T12:00:00Z",
+    )
+    assert date_only.empty
 
 
 def test_regime_rejects_nested_forged_benchmark_authority() -> None:

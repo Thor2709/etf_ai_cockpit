@@ -13,6 +13,7 @@ import pandas as pd
 from etf_cockpit.features.training_centre import LocalTrainingRegistry
 from etf_cockpit.application.benchmark_reference import (
     CanonicalReferenceContext,
+    clip_to_decision_window,
     unavailable_reference_projection,
 )
 from etf_cockpit.portfolio import optimiser as optimiser_module
@@ -188,27 +189,15 @@ def _clip_to_reference_window(
     start = getattr(declaration, "start_date", None)
     end = getattr(declaration, "end_date", None)
     decision_time = getattr(declaration, "decision_time", None)
-    if (
-        not isinstance(prices, pd.DataFrame)
-        or not isinstance(start, str)
-        or not isinstance(end, str)
-        or not isinstance(decision_time, str)
-        or "date" not in prices.columns
-    ):
+    if not isinstance(prices, pd.DataFrame):
         return None
-    try:
-        start_ts = pd.Timestamp(start, tz="UTC")
-        end_date_ts = pd.Timestamp(end, tz="UTC")
-        end_ts = end_date_ts + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
-        decision_ts = pd.Timestamp(decision_time)
-        if decision_ts.tzinfo is None:
-            decision_ts = decision_ts.tz_localize("UTC")
-        if start_ts > end_date_ts or end_date_ts > decision_ts.tz_convert("UTC"):
-            return None
-        dates = pd.to_datetime(prices["date"], errors="coerce", utc=True)
-    except (TypeError, ValueError):
-        return None
-    return prices.loc[(dates >= start_ts) & (dates <= end_ts)].copy()
+    clipped = clip_to_decision_window(
+        prices,
+        start_date=start,
+        end_date=end,
+        decision_time=decision_time,
+    )
+    return clipped if not clipped.empty else None
 
 
 def _sha256(value: bytes) -> str:

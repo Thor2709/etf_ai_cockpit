@@ -14,6 +14,7 @@ import pandas as pd
 
 from etf_cockpit.features.regime import build_market_regime
 from etf_cockpit.application.benchmark_reference import (
+    clip_to_decision_window,
     unavailable_reference_projection,
     validate_benchmark_reference,
 )
@@ -283,19 +284,12 @@ def _clip_to_reference_window(
     decision_time = analysis.get("decision_time")
     if not all(isinstance(value, str) and value for value in (start, end, decision_time)):
         return pd.DataFrame()
-    try:
-        start_ts = pd.Timestamp(start, tz="UTC")
-        end_date_ts = pd.Timestamp(end, tz="UTC")
-        end_ts = end_date_ts + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
-        decision_ts = pd.Timestamp(decision_time)
-        if decision_ts.tzinfo is None:
-            decision_ts = decision_ts.tz_localize("UTC")
-        if start_ts > end_date_ts or end_date_ts > decision_ts.tz_convert("UTC"):
-            return pd.DataFrame()
-    except (TypeError, ValueError):
-        return pd.DataFrame()
-    dates = pd.to_datetime(frame["date"], errors="coerce", utc=True)
-    return frame.loc[(dates >= start_ts) & (dates <= end_ts)].copy()
+    return clip_to_decision_window(
+        frame,
+        start_date=start,
+        end_date=end,
+        decision_time=decision_time,
+    )
 
 
 def _dashboard_label(score: object) -> str:

@@ -8,6 +8,8 @@ import hashlib
 import json
 from types import MappingProxyType
 
+import pandas as pd
+
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     AnalysisResolution,
     BenchmarkReferenceError,
@@ -219,6 +221,56 @@ def validate_benchmark_reference(
     return benchmark_data_id
 
 
+def clip_to_decision_window(
+    frame: pd.DataFrame,
+    *,
+    start_date: object,
+    end_date: object,
+    decision_time: object,
+) -> pd.DataFrame:
+    """Clip dated evidence to the declared window and exact authority cutoff.
+
+    Date-only observations on the cutoff date are treated as end-of-day
+    observations.  They therefore cannot widen an intraday decision cutoff,
+    while the existing end-of-day behaviour remains available for a cutoff at
+    the end of the declared date.
+    """
+
+    if not isinstance(frame, pd.DataFrame) or "date" not in frame.columns:
+        return pd.DataFrame()
+    if not all(isinstance(value, str) and value for value in (start_date, end_date, decision_time)):
+        return pd.DataFrame()
+    try:
+        start = pd.Timestamp(start_date, tz="UTC")
+        end_date_ts = pd.Timestamp(end_date, tz="UTC")
+        end_of_day = end_date_ts + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+        decision = pd.Timestamp(decision_time)
+        if decision.tzinfo is None:
+            decision = decision.tz_localize("UTC")
+        decision = decision.tz_convert("UTC")
+        upper = min(end_of_day, decision)
+        if start > end_date_ts or upper < start:
+            return pd.DataFrame()
+        raw_dates = frame["date"]
+        dates = pd.to_datetime(raw_dates, errors="coerce", utc=True, format="mixed")
+        date_only = raw_dates.map(_is_date_only_observation)
+        effective_dates = dates.copy()
+        end_date_only = date_only & dates.dt.normalize().eq(end_date_ts)
+        effective_dates.loc[end_date_only] = end_date_ts + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+    except (TypeError, ValueError, OverflowError):
+        return pd.DataFrame()
+    return frame.loc[(dates >= start) & (effective_dates <= upper)].copy()
+
+
+def _is_date_only_observation(value: object) -> bool:
+    if isinstance(value, (pd.Timestamp,)):
+        return value.tzinfo is None and value == value.normalize()
+    if hasattr(value, "hour") and hasattr(value, "minute"):
+        return getattr(value, "hour", 0) == 0 and getattr(value, "minute", 0) == 0 and getattr(value, "second", 0) == 0 and getattr(value, "microsecond", 0) == 0
+    text = str(value).strip()
+    return bool(pd.notna(value)) and len(text) == 10 and text[4] == "-" and text[7] == "-"
+
+
 def resolve_canonical_reference(
     registry: CanonicalBenchmarkRegistry,
     *,
@@ -303,6 +355,7 @@ def context_from_snapshot(
 
 __all__ = [
     "CanonicalReferenceContext",
+    "clip_to_decision_window",
     "context_from_snapshot",
     "resolve_canonical_reference",
     "unavailable_reference_projection",

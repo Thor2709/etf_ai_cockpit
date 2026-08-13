@@ -717,10 +717,12 @@ def build_simple_instrument_scores(
         benchmark_reference=benchmark_reference,
         peer_member_ids=peer_member_ids,
     )
-    # Cash comparisons are valid only when the application has resolved and
-    # supplied the canonical cash evidence.  Never synthesize a local proxy
-    # here from an independently selected mapping.
-    cash_comparison_lookup = cash_comparison_lookup or {}
+    # The ordinary score path resolves the official local curve evidence once;
+    # callers may still inject a previously resolved lookup for replay/tests.
+    if cash_comparison_lookup is None:
+        cash_comparison_lookup = _build_local_cash_comparison_lookup(config, prices)
+    else:
+        cash_comparison_lookup = dict(cash_comparison_lookup)
     crowding = build_correlation_clusters(prices, metadata)
     backtest_trust = _backtest_trust_lookup(universe_revision=universe_revision)
     universe_scores = build_universe_simple_scores(

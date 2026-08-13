@@ -14,6 +14,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     validate_execution_disabled,
 )
 from etf_cockpit.application.benchmark_reference import validate_benchmark_reference
+from etf_cockpit.application.benchmark_reference import clip_to_decision_window
 
 
 def build_market_regime(
@@ -61,7 +62,10 @@ def build_market_regime(
     median_vol_60d = float(returns.tail(60).std(skipna=True).median() * np.sqrt(252)) if len(returns) >= 60 else None
     drawdowns = filled / filled.cummax() - 1.0
     median_drawdown = float(drawdowns.iloc[-1].median(skipna=True))
-    candidate_pct_above = _candidate_pct_above_sma200(candidate_report)
+    candidate_pct_above = _candidate_pct_above_sma200(
+        candidate_report,
+        decision_time=_reference_decision_time(reference),
+    )
     combined_pct_above = _weighted_available(
         [
             (configured_pct_above, 0.75),
@@ -373,13 +377,80 @@ def _unavailable_attribution(
     }
 
 
-def _candidate_pct_above_sma200(candidate_report: pd.DataFrame | None) -> float | None:
+def _candidate_pct_above_sma200(
+    candidate_report: pd.DataFrame | None,
+    *,
+    decision_time: object | None,
+) -> float | None:
     if candidate_report is None or candidate_report.empty or "sma200_signal" not in candidate_report:
         return None
-    values = candidate_report["sma200_signal"].map(_bool_like).dropna()
-    if values.empty:
+    frame = candidate_report.copy()
+    decision = _parse_authority_timestamp(decision_time)
+    if decision is None:
         return None
-    return float(values.mean())
+    values: list[bool] = []
+    for _, row in frame.iterrows():
+        signal = _bool_like(row.get("sma200_signal"))
+        observation = _candidate_observation_timestamp(row)
+        provenance = _candidate_provenance(row)
+        known_at = _candidate_timestamp(row, ("known_at", "available_at", "retrieved_at"))
+        if signal is None or observation is None or provenance is None:
+            continue
+        if observation > decision or (known_at is not None and known_at > decision):
+            continue
+        values.append(signal)
+    if not values:
+        return None
+    return float(sum(values) / len(values))
+
+
+def _reference_decision_time(reference: Mapping[str, object]) -> object | None:
+    analysis = reference.get("analysis")
+    return analysis.get("decision_time") if isinstance(analysis, Mapping) else None
+
+
+def _parse_authority_timestamp(value: object) -> pd.Timestamp | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = pd.Timestamp(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.tz_localize("UTC")
+        return parsed.tz_convert("UTC")
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _candidate_timestamp(row: pd.Series, fields: tuple[str, ...]) -> pd.Timestamp | None:
+    for field in fields:
+        if field not in row or pd.isna(row.get(field)):
+            continue
+        parsed = _parse_authority_timestamp(str(row.get(field)))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _candidate_observation_timestamp(row: pd.Series) -> pd.Timestamp | None:
+    for field in ("effective_at", "as_of", "as_of_date", "latest_date", "date"):
+        if field not in row or pd.isna(row.get(field)):
+            continue
+        raw = row.get(field)
+        parsed = _parse_authority_timestamp(str(raw))
+        if parsed is None:
+            continue
+        text = str(raw).strip()
+        if len(text) == 10 and text[4] == "-" and text[7] == "-":
+            parsed = parsed.normalize() + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+        return parsed
+    return None
+
+
+def _candidate_provenance(row: pd.Series) -> str | None:
+    for field in ("provenance", "source_dataset", "source_id", "source", "data_policy"):
+        if field in row and not pd.isna(row.get(field)) and str(row.get(field)).strip():
+            return str(row.get(field)).strip()
+    return None
 
 
 def _horizon_return(series: pd.Series, days: int) -> float | None:
@@ -513,19 +584,12 @@ def _clip_to_reference_window(
     decision_time = analysis.get("decision_time")
     if not all(isinstance(value, str) and value for value in (start, end, decision_time)):
         return pd.DataFrame()
-    try:
-        dates = pd.to_datetime(prices.get("date"), errors="coerce", utc=True)
-        start_ts = pd.Timestamp(start, tz="UTC")
-        end_date_ts = pd.Timestamp(end, tz="UTC")
-        end_ts = end_date_ts + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
-        decision_ts = pd.Timestamp(decision_time)
-        if decision_ts.tzinfo is None:
-            decision_ts = decision_ts.tz_localize("UTC")
-        if start_ts > end_date_ts or end_date_ts > decision_ts.tz_convert("UTC"):
-            return pd.DataFrame()
-    except (TypeError, ValueError):
-        return pd.DataFrame()
-    return prices.loc[(dates >= start_ts) & (dates <= end_ts)].copy()
+    return clip_to_decision_window(
+        prices,
+        start_date=start,
+        end_date=end,
+        decision_time=decision_time,
+    )
 
 
 def _weighted_available(values: list[tuple[float | None, float]]) -> float:
