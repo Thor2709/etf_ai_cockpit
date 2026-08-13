@@ -69,6 +69,17 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   resolutions. All 246 focused/adjacent tests pass with Ruff, contract mypy,
   compile and diff hygiene. Freeze one replacement head for paired exact-head
   review and fresh H-tier evidence; no adjacent contract or authority changed.
+- Paired review of `4bb842a53d181abcfb309e50740ec22a25648279`
+  rejected the final analogous VWCE boundaries and production-delivery gap;
+  run `31682292726` is cancelled/stale. Commit
+  `2b1cd0d9a9fa422b2fdba002f1cc65b54d8efcfd` makes the newest PIT listing
+  authoritative before status evaluation, strictly types risk-indicator and
+  resolution authority, binds claims to the actual anchor/conversion evidence,
+  and carries snapshot-attached canonical evidence through ordinary analysis,
+  save, load and existing service-evidence UI projection. All 269 affected
+  contract, sandbox, UI, cash, attribution, peer and optimiser tests pass with
+  Ruff, contract mypy, compile and diff hygiene. Freeze one final exact head for
+  paired review and fresh H-tier evidence; `execution_allowed=false` remains.
 - A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
   prepared read-only, then rejected before publication by the existing guard:
   the reviewed product commit is not an ancestor of the PR base. The invalid

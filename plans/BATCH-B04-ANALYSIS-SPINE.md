@@ -3945,3 +3945,13 @@ types opportunity-anchor flags, and requires complete canonical provenance
 before profile-relative claims. All 246 affected tests pass with Ruff, contract
 mypy, compile and diff hygiene. Freeze one replacement head for paired final
 review and fresh H-tier Linux/Windows/terminal evidence.
+
+`CORRECTED` head `4bb842a53d181abcfb309e50740ec22a25648279` is rejected
+and run `31682292726` is cancelled/stale. Commit
+`2b1cd0d9a9fa422b2fdba002f1cc65b54d8efcfd` makes the newest PIT VWCE
+listing authoritative, rejects coercive risk/resolution authority, binds claims
+to exact anchor and conversion evidence, and routes snapshot-attached canonical
+evidence through ordinary portfolio analysis, save/load and existing UI service
+evidence. All 269 affected tests pass with Ruff, contract mypy, compile and diff
+hygiene. Freeze one final replacement head for paired review and fresh H-tier
+Linux/Windows/terminal validation; preserve `execution_allowed=false`.
