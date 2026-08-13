@@ -2864,3 +2864,22 @@ next action and whether the requested outcome is actually complete.
   Preserve ISSUE-0112 at `planned`, change no product code or execution
   authority, generate projections mechanically, and require focused E-tier
   guards and exact-head review before product implementation.
+
+## ISSUE-0112 product final production-path correction
+
+- PR #688 head `25677bcbf96ec4f111ce47e9c732401a3df8cf6f` is rejected and
+  hosted run `31709228880` is cancelled/stale. The complete paired verdict
+  reproduced two bounded acceptance defects: `content_hash` could count as a
+  substantive nested VWCE fact, and production attribution, validation,
+  feature and forecast paths could omit canonical benchmark/cash declarations
+  or select the first enabled instrument.
+- One consolidated working-tree correction now treats `content_hash` as
+  metadata, shares one fail-closed canonical reference adapter across the real
+  production callers, derives benchmark attribution/features/forecasts only
+  from the resolved canonical data identity, and preserves explicit N/A when
+  resolution is absent. Caller-supplied raw benchmark returns cannot bypass the
+  canonical declaration. The affected 232-test collection, architecture
+  boundaries, Ruff, attributable targeted mypy, compile, byte-clean programme
+  generation, imports and diff hygiene pass; `execution_allowed=false` remains
+  unchanged. Freeze one replacement exact head for paired review and fresh
+  Linux, Windows, terminal and packaged H-tier evidence.

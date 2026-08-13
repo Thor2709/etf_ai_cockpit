@@ -11,6 +11,10 @@ from pathlib import Path
 import pandas as pd
 
 from etf_cockpit.features.training_centre import LocalTrainingRegistry
+from etf_cockpit.application.benchmark_reference import (
+    CanonicalReferenceContext,
+    unavailable_reference_projection,
+)
 from etf_cockpit.portfolio import optimiser as optimiser_module
 from etf_cockpit.portfolio.optimiser import returns_from_adjusted_prices
 from etf_cockpit.validation import protocol as validation_protocol
@@ -18,7 +22,12 @@ from etf_cockpit.validation.protocol import ValidationReport, ValidationSpec, ev
 from etf_cockpit.validation.optimisation import OptimisationLedger
 
 
-def build_validation_preview(prices: pd.DataFrame | None, *, spec: ValidationSpec | None = None) -> ValidationReport | None:
+def build_validation_preview(
+    prices: pd.DataFrame | None,
+    *,
+    spec: ValidationSpec | None = None,
+    reference_context: CanonicalReferenceContext | None = None,
+) -> ValidationReport | None:
     """Build a transparent protocol report from local adjusted-price returns.
 
     The preview deliberately does not train or promote a model.  It proves the
@@ -29,20 +38,41 @@ def build_validation_preview(prices: pd.DataFrame | None, *, spec: ValidationSpe
     values, definition, regimes, subgroups = _preview_inputs(prices, spec)
     if values is None:
         return None
+    reference_projection = (
+        unavailable_reference_projection()
+        if reference_context is None
+        else reference_context.projection
+    )
+    trial_parameters = {
+        "benchmark_reference": reference_projection,
+    }
     return evaluate_trials(
         {"baseline": values, "current_pipeline": values},
         spec=definition,
-        parameters={"baseline": {"kind": "naive"}, "current_pipeline": {"kind": "preview_only"}},
+        parameters={
+            "baseline": {"kind": "naive", **trial_parameters},
+            "current_pipeline": {"kind": "preview_only", **trial_parameters},
+        },
         regime_labels=regimes,
         subgroup_labels=subgroups,
     )
 
 
-def record_validation_preview(root, prices: pd.DataFrame | None, *, researcher_decision: str = "pending") -> dict[str, object] | None:
+def record_validation_preview(
+    root,
+    prices: pd.DataFrame | None,
+    *,
+    researcher_decision: str = "pending",
+    reference_context: CanonicalReferenceContext | None = None,
+) -> dict[str, object] | None:
     """Persist the complete local preview search, including discarded trials."""
 
     values, definition, _, _ = _preview_inputs(prices, None)
-    report = build_validation_preview(prices, spec=definition) if values is not None else None
+    report = (
+        build_validation_preview(prices, spec=definition, reference_context=reference_context)
+        if values is not None
+        else None
+    )
     if report is None or values is None:
         return None
     frame = prices if isinstance(prices, pd.DataFrame) else pd.DataFrame()
@@ -50,6 +80,11 @@ def record_validation_preview(root, prices: pd.DataFrame | None, *, researcher_d
     feature_hash = _sha256(json.dumps({"source": "adjusted_close", "window": 0}, sort_keys=True).encode("utf-8"))
     code_hash = _validation_code_hash()
     environment_hash = _sha256(b"local-validation-preview")
+    reference_projection = (
+        unavailable_reference_projection()
+        if reference_context is None
+        else reference_context.projection
+    )
     registry = LocalTrainingRegistry(root)
     experiment = registry.create_experiment("local-validation-preview", experiment_id="exp-validation-preview")
     report_hash = report_fingerprint(report)
@@ -57,7 +92,11 @@ def record_validation_preview(root, prices: pd.DataFrame | None, *, researcher_d
     run = registry.create_run(
         str(experiment["experiment_id"]),
         run_id=f"validation_{execution_id}_{report_hash[:8]}",
-        parameters={"protocol_version": report.protocol_version, "spec_fingerprint": definition.fingerprint},
+        parameters={
+            "protocol_version": report.protocol_version,
+            "spec_fingerprint": definition.fingerprint,
+            "benchmark_reference": reference_projection,
+        },
         dataset_hash=data_hash,
         feature_hash=feature_hash,
         code_hash=code_hash,
@@ -70,7 +109,11 @@ def record_validation_preview(root, prices: pd.DataFrame | None, *, researcher_d
             trial_returns={"baseline": values.tolist(), "current_pipeline": values.tolist()},
             data_hash=data_hash,
             code_hash=code_hash,
-            features={"source": "adjusted_close", "window": 0},
+            features={
+                "source": "adjusted_close",
+                "window": 0,
+                "benchmark_reference": reference_projection,
+            },
             thresholds={"regime_abs_median": float(pd.Series(values).abs().median())},
             variants={"baseline": "naive", "current_pipeline": "preview_only"},
             selection_method="highest development-fold mean with final test held out",
@@ -98,7 +141,11 @@ def record_validation_preview(root, prices: pd.DataFrame | None, *, researcher_d
         except Exception:
             pass
         raise
-    return {"report": stored, "promotion": promotion}
+    return {
+        "report": stored,
+        "promotion": promotion,
+        "benchmark_reference": reference_projection,
+    }
 
 
 def load_training_evidence(root) -> dict[str, tuple[dict[str, object], ...]]:

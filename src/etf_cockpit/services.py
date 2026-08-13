@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from collections import Counter
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 import math
 import json
@@ -85,6 +85,11 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     VwceAnchorEvidence,
     load_canonical_benchmark_registry,
     resolve_vwce_anchor,
+)
+from etf_cockpit.application.benchmark_reference import (
+    CanonicalReferenceContext,
+    resolve_canonical_reference,
+    unavailable_reference_projection,
 )
 from etf_cockpit.portfolio.sandbox import holdings_checksum
 from etf_cockpit.signals.signal_pipeline import generate_signals
@@ -494,8 +499,18 @@ class DataService:
         prices = prices.copy()
         prices["date"] = pd.to_datetime(prices["date"], errors="coerce")
         effective_as_of = prices["date"].max().date()
+        reference_inputs = _benchmark_reference_snapshot_inputs(
+            self.config,
+            effective_as_of,
+            load_holdings(),
+        )
+        reference_context = _reference_context_from_inputs(
+            reference_inputs,
+            purpose="comparison",
+            analysis_id=f"forecast:{effective_as_of.isoformat()}",
+        )
         forecast_config = self.config if live_optional_models else _config_with_optional_models_disabled(self.config)
-        forecast_service = ForecastService(forecast_config)
+        forecast_service = ForecastService(forecast_config, reference_context=reference_context)
         universe_revision = _current_universe_revision()
         output = FORECASTS_DIR / f"forecast_results_yfinance_{effective_as_of:%Y%m%d}.csv"
         if use_cache and output.exists() and _cache_matches_universe(output, universe_revision, settings_revision):
@@ -811,8 +826,13 @@ class DataService:
 
 
 class FeatureService:
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: AppConfig, *, reference_context: CanonicalReferenceContext | None = None):
         self.config = config
+        self.reference_context = reference_context or CanonicalReferenceContext(
+            CanonicalBenchmarkRegistry(),
+            None,
+            unavailable_reference_projection(),
+        )
 
     def compute_features(
         self,
@@ -820,13 +840,27 @@ class FeatureService:
         prices: pd.DataFrame | None = None,
         *,
         publish_guard: PublicationScopeFactory | None = None,
+        reference_context: CanonicalReferenceContext | None = None,
     ) -> pd.DataFrame:
         settings_identity = current_settings_identity()
         frame = prices if prices is not None else load_prices()
         if as_of_date:
             frame = frame[pd.to_datetime(frame["date"]).dt.date <= as_of_date]
-        benchmark = self.config.universe.enabled_ids[0] if self.config.universe.enabled_ids else None
+        context = reference_context if reference_context is not None else self.reference_context
+        benchmark = context.benchmark_data_id if context is not None else None
+        available_ids = set(frame["etf_id"].astype(str)) if "etf_id" in frame.columns else set()
+        if benchmark is None or benchmark not in available_ids:
+            benchmark = None
         features = compute_features(frame, benchmark_etf_id=benchmark)
+        if benchmark is None:
+            for column in ("relative_strength_60d", "relative_strength_120d"):
+                if column in features.columns:
+                    features[column] = float("nan")
+        features.attrs["benchmark_reference"] = (
+            unavailable_reference_projection()
+            if context is None
+            else context.projection
+        )
         run_id = settings_bound_run_id(
             f"features_{as_of_date.isoformat() if as_of_date else 'latest'}",
             settings_identity=settings_identity,
@@ -843,8 +877,13 @@ class FeatureService:
 
 
 class ForecastService:
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: AppConfig, *, reference_context: CanonicalReferenceContext | None = None):
         self.config = config
+        self.reference_context = reference_context or CanonicalReferenceContext(
+            CanonicalBenchmarkRegistry(),
+            None,
+            unavailable_reference_projection(),
+        )
 
     def run_forecasts(
         self,
@@ -856,6 +895,7 @@ class ForecastService:
         horizons: list[int] | None = None,
         progress_callback: Callable[[str, int, int], None] | None = None,
         publish_guard: PublicationScopeFactory | None = None,
+        reference_context: CanonicalReferenceContext | None = None,
     ) -> list[ForecastResult]:
         settings_identity = current_settings_identity()
         price_frame = prices if prices is not None else load_prices()
@@ -864,7 +904,8 @@ class ForecastService:
         price_frame = price_frame[pd.to_datetime(price_frame["date"]).dt.date <= as_of_date]
         horizons = horizons or self.config.models.forecast_horizons_trading_days
         pivot = price_frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
-        benchmark_id = self.config.universe.enabled_ids[0] if self.config.universe.enabled_ids else None
+        context = reference_context if reference_context is not None else self.reference_context
+        benchmark_id = context.benchmark_data_id if context is not None else None
         benchmark_returns = pivot[benchmark_id].pct_change(fill_method=None).dropna() if benchmark_id in pivot else None
         forecasts: list[ForecastResult] = []
         run_id = settings_bound_run_id(
@@ -893,6 +934,15 @@ class ForecastService:
         if progress_callback is not None:
             progress_callback("Checking cached Toto forecasts", 3, 4)
         forecasts.extend(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id))
+        if benchmark_returns is None or benchmark_returns.empty:
+            forecasts = [
+                replace(
+                    forecast,
+                    expected_excess_return=None,
+                    prob_beat_benchmark=None,
+                )
+                for forecast in forecasts
+            ]
         with publication_scope(publish_guard):
             ensure_run_manifest(
                 run_id,
@@ -1451,6 +1501,44 @@ def _benchmark_reference_snapshot_inputs(
         return unavailable
 
 
+def _reference_context_from_inputs(
+    inputs: Mapping[str, object],
+    *,
+    purpose: str,
+    analysis_id: str,
+) -> CanonicalReferenceContext:
+    registry = inputs.get("registry")
+    if not isinstance(registry, CanonicalBenchmarkRegistry):
+        registry = CanonicalBenchmarkRegistry()
+    instrument_value = inputs.get("instrument")
+    currency_value = inputs.get("currency")
+    horizon_value = inputs.get("horizon_years")
+    start_value = inputs.get("start_date")
+    end_value = inputs.get("end_date")
+    decision_value = inputs.get("decision_time")
+    reference_ids_value = inputs.get("reference_ids", ())
+    reference_ids: tuple[str, ...] = (
+        tuple(reference_ids_value)
+        if isinstance(reference_ids_value, Sequence)
+        and not isinstance(reference_ids_value, (str, bytes))
+        and all(isinstance(item, str) for item in reference_ids_value)
+        else ()
+    )
+    return resolve_canonical_reference(
+        registry,
+        analysis_id=analysis_id,
+        purpose=purpose,
+        instrument_id="VWCE",
+        instrument=instrument_value if isinstance(instrument_value, Mapping) else None,
+        currency=currency_value if isinstance(currency_value, str) else None,
+        horizon_years=horizon_value if isinstance(horizon_value, (int, float)) else None,
+        start_date=start_value if isinstance(start_value, str) else None,
+        end_date=end_value if isinstance(end_value, str) else None,
+        decision_time=decision_value if isinstance(decision_value, str) else None,
+        reference_portfolio_ids=reference_ids,
+    )
+
+
 def _current_portfolio_reference(
     config: AppConfig,
     holdings: pd.DataFrame | None,
@@ -1593,7 +1681,17 @@ def _build_snapshot(
         holdings = holdings[holdings["etf_id"].astype(str).isin(configured_ids)].copy()
     holdings_for_validation = holdings if not holdings.empty else None
     data_report = data_service.validate_prices(prices, holdings=holdings_for_validation)
-    feature_service = FeatureService(config)
+    benchmark_reference = _benchmark_reference_snapshot_inputs(
+        config,
+        data_report.as_of_date,
+        holdings_source,
+    )
+    reference_context = _reference_context_from_inputs(
+        benchmark_reference,
+        purpose="comparison",
+        analysis_id=f"snapshot:{pd.Timestamp(data_report.as_of_date).date().isoformat()}",
+    )
+    feature_service = FeatureService(config, reference_context=reference_context)
     if prices.empty:
         features = pd.DataFrame(columns=["date", "etf_id"])
         latest = pd.DataFrame(columns=["date", "etf_id"])
@@ -1636,11 +1734,6 @@ def _build_snapshot(
     etf_fund_total_return = load_total_return_evidence(ETF_FUND_TOTAL_RETURN_PATH)
     etf_benchmark_total_return = load_total_return_evidence(ETF_BENCHMARK_TOTAL_RETURN_PATH)
     etf_closure_policy = load_closure_proxy_policy()
-    benchmark_reference = _benchmark_reference_snapshot_inputs(
-        config,
-        data_report.as_of_date,
-        holdings_source,
-    )
     return CockpitSnapshot(
         config=config,
         prices=prices,

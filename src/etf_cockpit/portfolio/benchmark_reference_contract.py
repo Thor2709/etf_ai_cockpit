@@ -208,6 +208,7 @@ def _nested_fact_is_available(value: object) -> bool:
             "status", "reason", "version", "execution_allowed",
             "source_hash", "source_hashes", "effective_at", "known_at", "as_of",
             "authority", "source", "published_at", "publication_date", "timestamp",
+            "content_hash",
         }
         facts = [
             item for key, item in value.items()

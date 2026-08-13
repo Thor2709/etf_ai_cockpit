@@ -8,12 +8,11 @@ execution authority.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 import math
 
 import numpy as np
 import pandas as pd
-
 
 ATTRIBUTION_MODEL_VERSION = "portfolio-attribution.v1"
 
@@ -28,6 +27,7 @@ def build_performance_attribution(
     cashflows: pd.DataFrame | None = None,
     costs: pd.DataFrame | None = None,
     decisions: pd.DataFrame | None = None,
+    reference_context: object | None = None,
 ) -> dict[str, object]:
     """Build gross/net, factor, currency and decision attribution evidence.
 
@@ -39,7 +39,11 @@ def build_performance_attribution(
     reconciles to the gross time-weighted return.
     """
 
-    empty = _empty_report()
+    empty = _empty_report(
+        _unavailable_reference_projection()
+        if reference_context is None
+        else _reference_projection(reference_context),
+    )
     returns = _return_matrix(prices)
     weights = _weights(allocation)
     if returns.empty or weights.empty:
@@ -67,10 +71,21 @@ def build_performance_attribution(
     factor_attribution = _factor_attribution(daily, wealth, factor_returns, factor_exposures)
     currency_attribution = _currency_attribution(asset_summary, allocation)
     cost_attribution, cost_total, tax_total = _cost_attribution(costs)
-    benchmark = _benchmark_attribution(total_return, benchmark_returns, daily.index)
+    benchmark = _benchmark_attribution(
+        total_return,
+        _canonical_benchmark_returns(returns, reference_context),
+        daily.index,
+    )
     money_weighted, money_status = _money_weighted_return(wealth, daily.index, cashflows)
     decision_attribution = _decision_attribution(decisions, observed, portfolio_weights)
     warnings = _warnings(observed, allocation, factor_attribution, currency_attribution, costs, cashflows, decisions)
+    reference_projection = (
+        _unavailable_reference_projection()
+        if reference_context is None
+        else _reference_projection(reference_context)
+    )
+    if reference_projection.get("status") != "available":
+        warnings.append("canonical_benchmark_cash_resolution_unavailable")
     net_return = None if total_return is None else float(total_return - cost_total - tax_total)
 
     return {
@@ -92,6 +107,7 @@ def build_performance_attribution(
         "cost_attribution": cost_attribution,
         "decision_attribution": decision_attribution,
         "benchmark_attribution": benchmark,
+        "benchmark_reference": reference_projection,
         "coverage": {
             "status": "partial" if warnings else "available",
             "return_observations": int(len(observed)),
@@ -104,6 +120,7 @@ def build_performance_attribution(
             "tax_status": "available" if costs is not None and "tax" in costs.columns else "unavailable",
             "decision_status": _frame_status(decision_attribution),
             "benchmark_status": _frame_status(benchmark),
+            "benchmark_reference_status": str(reference_projection.get("status", "unavailable")),
         },
         "diagnostics": {
             "gross_identity": "portfolio_return = asset_contributions + cash_contribution",
@@ -116,7 +133,56 @@ def build_performance_attribution(
     }
 
 
-def _empty_report() -> dict[str, object]:
+def _reference_projection(reference_context: object) -> dict[str, object]:
+    projection = getattr(reference_context, "projection", None)
+    if isinstance(projection, Mapping):
+        return dict(projection)
+    return _unavailable_reference_projection()
+
+
+def _unavailable_reference_projection() -> dict[str, object]:
+    return {
+        "contract": "benchmark-reference-contract.v1",
+        "status": "unavailable",
+        "benchmark": {"id": None, "version": None, "status": "unavailable", "display": "N/A"},
+        "cash": {"id": None, "version": None, "status": "unavailable", "display": "N/A"},
+        "blockers": ["reference_resolution_unavailable"],
+        "execution_allowed": False,
+    }
+
+
+def _canonical_benchmark_returns(
+    returns: pd.DataFrame,
+    reference_context: object | None,
+) -> pd.DataFrame | None:
+    """Derive benchmark returns only from a resolved canonical data identity."""
+
+    if reference_context is None:
+        return None
+    resolution = getattr(reference_context, "resolution", None)
+    benchmark_selection = getattr(resolution, "benchmark", None)
+    cash_selection = getattr(resolution, "cash", None)
+    if (
+        benchmark_selection is None
+        or cash_selection is None
+        or getattr(benchmark_selection, "status", None) != "available"
+        or getattr(cash_selection, "status", None) != "available"
+    ):
+        return None
+    benchmark_id = getattr(reference_context, "benchmark_data_id", None)
+    if not isinstance(benchmark_id, str) or benchmark_id not in returns.columns:
+        return None
+    series = returns[benchmark_id].dropna()
+    if series.empty:
+        return None
+    return pd.DataFrame({
+        "date": series.index,
+        "benchmark": benchmark_id,
+        "return": series.to_numpy(float),
+    })
+
+
+def _empty_report(reference_projection: dict[str, object] | None = None) -> dict[str, object]:
     empty_frame = pd.DataFrame()
     return {
         "status": "unavailable",
@@ -137,6 +203,7 @@ def _empty_report() -> dict[str, object]:
         "cost_attribution": empty_frame,
         "decision_attribution": empty_frame,
         "benchmark_attribution": empty_frame,
+        "benchmark_reference": reference_projection or _unavailable_reference_projection(),
         "coverage": {"status": "unavailable"},
         "diagnostics": {},
         "warnings": ["attribution_inputs_unavailable"],
@@ -387,7 +454,7 @@ def _frame_status(frame: pd.DataFrame) -> str:
 
 def _finite(value: object) -> float | None:
     try:
-        number = float(value)
+        number = float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None

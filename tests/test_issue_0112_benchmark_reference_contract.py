@@ -5,6 +5,7 @@ from copy import deepcopy
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from etf_cockpit.portfolio.benchmark_reference_contract import (
@@ -26,6 +27,9 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     resolve_vwce_anchor,
 )
 import etf_cockpit.portfolio.benchmark_reference_contract as contract
+from etf_cockpit.application.benchmark_reference import resolve_canonical_reference
+from etf_cockpit.application.validation import build_validation_preview
+from etf_cockpit.portfolio.attribution import build_performance_attribution
 
 
 HASH_A = "a" * 64
@@ -807,6 +811,101 @@ def test_vwce_metadata_only_nested_evidence_cannot_enable_profile_claims(field: 
         registry=CanonicalBenchmarkRegistry(vwce_anchors=(anchor,)),
     )
     assert projection["profile_relative_claims_allowed"] is False
+
+
+@pytest.mark.parametrize("field", ["fees", "tracking", "product_risk_indicator"])
+def test_vwce_content_hash_only_nested_evidence_cannot_enable_profile_claims(field: str) -> None:
+    nested = {"status": "available", "content_hash": HASH_A}
+    if field == "product_risk_indicator":
+        nested["version"] = "priips-2.0"
+    anchor = _vwce(**{field: nested})
+    resolution = resolve_vwce_anchor(
+        anchor, listing_id="listing:xetra", effective_date="2024-02-01",
+        decision_time="2024-02-02T00:00:00Z", currency="EUR", horizon_years=1.0,
+    )
+    assert resolution.status == "unavailable"
+    assert resolution.reason == "vwce_nested_evidence_unavailable"
+
+
+def test_production_reference_consumers_share_one_explicit_benchmark_cash_request() -> None:
+    registry = _registry()
+    request = {
+        "instrument_id": "ETF-1",
+        "instrument": INSTRUMENT,
+        "currency": "AUD",
+        "horizon_years": 1.0,
+        "start_date": "2024-02-01",
+        "end_date": "2025-02-01",
+        "decision_time": "2024-02-02T00:00:00Z",
+        "reference_portfolio_ids": ("reference:equal_weight",),
+    }
+    attribution_context = resolve_canonical_reference(
+        registry, analysis_id="attribution:fixture", purpose="attribution", **request,
+    )
+    validation_context = resolve_canonical_reference(
+        registry, analysis_id="validation:fixture", purpose="validation", **request,
+    )
+
+    assert attribution_context.projection["benchmark"] == validation_context.projection["benchmark"]
+    assert attribution_context.projection["cash"] == validation_context.projection["cash"]
+
+    dates = pd.bdate_range("2024-02-01", periods=80)
+    prices = pd.DataFrame({
+        "date": dates.tolist(),
+        "etf_id": "ETF-1",
+        "adjusted_close": [100.0 + index for index in range(80)],
+    })
+    allocation = pd.DataFrame({"etf_id": ["ETF-1"], "current_weight": [0.8]})
+    attribution = build_performance_attribution(prices, allocation, reference_context=attribution_context)
+    validation = build_validation_preview(prices, reference_context=validation_context)
+    assert attribution["benchmark_reference"]["benchmark"] == validation.trials[0].parameters["benchmark_reference"]["benchmark"]
+    assert attribution["benchmark_reference"]["cash"] == validation.trials[0].parameters["benchmark_reference"]["cash"]
+
+
+def test_attribution_cannot_bypass_unavailable_reference_or_forge_available_benchmark_returns() -> None:
+    dates = pd.bdate_range("2024-02-01", periods=5)
+    prices = pd.DataFrame({
+        "date": dates.tolist(),
+        "etf_id": "ETF-1",
+        "adjusted_close": [100.0, 101.0, 102.0, 103.0, 104.0],
+    })
+    allocation = pd.DataFrame({"etf_id": ["ETF-1"], "current_weight": [0.8]})
+    forged_returns = pd.DataFrame({
+        "date": dates[1:].tolist(),
+        "benchmark": "forged-benchmark",
+        "return": [0.9, 0.9, 0.9, 0.9],
+    })
+
+    unavailable = build_performance_attribution(
+        prices, allocation, benchmark_returns=forged_returns,
+    )
+    assert unavailable["benchmark_attribution"].empty
+    assert unavailable["coverage"]["benchmark_status"] == "unavailable"
+
+    registry = _registry(benchmark=_benchmark(constituents=("ETF-1",)))
+    context = resolve_canonical_reference(
+        registry,
+        analysis_id="attribution:canonical-series",
+        purpose="attribution",
+        instrument_id="ETF-1",
+        instrument=INSTRUMENT,
+        currency="AUD",
+        horizon_years=1.0,
+        start_date="2024-02-01",
+        end_date="2025-02-01",
+        decision_time="2024-02-02T00:00:00Z",
+        reference_portfolio_ids=("reference:equal_weight",),
+    )
+    available = build_performance_attribution(
+        prices,
+        allocation,
+        benchmark_returns=forged_returns,
+        reference_context=context,
+    )
+    row = available["benchmark_attribution"].iloc[0]
+    assert row["benchmark"] == "ETF-1"
+    assert row["return"] == pytest.approx(0.04)
+    assert row["return"] != pytest.approx(0.9)
 
 
 def test_profile_projection_rejects_incomplete_manual_available_resolution() -> None:

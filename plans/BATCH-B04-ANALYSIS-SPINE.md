@@ -4102,3 +4102,16 @@ run `31706356179` is cancelled/stale. Authority/status/version-only nested VWCE
 mappings counted as financial facts. The correction excludes metadata keys and
 requires substantive fees, tracking and risk evidence; 200 affected tests and
 Ruff pass. Freeze one replacement exact head for paired review and H evidence.
+
+`CORRECTED` head `25677bcbf96ec4f111ce47e9c732401a3df8cf6f` is rejected and
+run `31709228880` is cancelled/stale. The final paired verdict reproduced that
+`content_hash` still counted as a nested financial fact and that production
+attribution, validation, feature and forecast callers could omit the canonical
+benchmark/cash declaration or use the first enabled instrument. One consolidated
+correction adds the exact metadata regression and a shared fail-closed application
+adapter, derives relative outputs only from the canonical mapped price identity,
+blocks raw benchmark-return bypass and retains explicit N/A otherwise. The
+affected 232-test collection, architecture boundaries, Ruff, targeted mypy,
+compile, imports, byte-clean programme generation and diff hygiene pass. Freeze
+one replacement exact head for paired review and fresh H-tier Linux, Windows,
+terminal and packaged evidence; preserve `execution_allowed=false`.
