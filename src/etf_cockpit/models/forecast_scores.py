@@ -83,7 +83,7 @@ def latest_forecast_file(
     reference_identity: Mapping[str, object] | None = None,
 ) -> Path | None:
     files = sorted(directory.glob(pattern), key=lambda path: path.stat().st_mtime, reverse=True)
-    if universe_revision is not None or reference_identity is not None:
+    if universe_revision is not None or settings_revision is not None or reference_identity is not None:
         expected_settings = settings_revision
         if universe_revision is not None and expected_settings is None:
             expected_settings = current_settings_revision()

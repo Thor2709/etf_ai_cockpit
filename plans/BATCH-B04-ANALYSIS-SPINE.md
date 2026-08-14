@@ -4215,3 +4215,12 @@ the final snapshot must match the requested universe, settings, reference identi
 identity hash and payload checksum. Add the deterministic identity-A to identity-B
 interleaving regression and make no adjacent cache, persistence, workflow,
 authority or execution change.
+
+`SETTINGS SELECTOR CORRECTION` head `69cdce6e47d3c3883daab2859fd5b3f32f195ac1`
+passed risk review but is rejected by whole-diff review; run `31774945960` is
+stale. Filter forecast candidates whenever universe, settings or reference
+identity is requested so a newer settings-stale file cannot mask the older valid
+cache; add the exact regression. Make the directly changed backtest rollback test
+self-contained by stubbing unrelated run-manifest reservation after hosted
+preflight exposed its order dependency. Do not change production backtest,
+workflow, authority or execution behavior.

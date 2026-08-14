@@ -2989,3 +2989,13 @@ next action and whether the requested outcome is actually complete.
   the requested universe, settings, reference identity, identity hash and payload
   checksum on that second snapshot. A deterministic A-to-B interleaving regression
   now fails closed; no adjacent cache or persistence behavior changes.
+- Head `69cdce6e47d3c3883daab2859fd5b3f32f195ac1` passed risk review but
+  is rejected by whole-diff review; run `31774945960` is stale. A settings-only
+  request filtered no forecast candidates, so a newer cache from another settings
+  revision could mask an older valid file. Candidate selection now applies the
+  same snapshot validator whenever universe, settings or reference identity is
+  requested, with a deterministic newer-stale/older-valid regression. The stale
+  run also exposed an unrelated-order dependency in the directly changed backtest
+  rollback test; that test now stubs manifest reservation so it proves only its
+  atomic-output boundary and is self-contained. No production backtest behavior
+  or validation machinery changes.

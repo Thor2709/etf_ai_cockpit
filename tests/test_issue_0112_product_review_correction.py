@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
 from datetime import date
 from types import SimpleNamespace
@@ -506,6 +507,32 @@ def test_forecast_reader_rejects_cross_identity_publish_between_selection_and_re
         settings_revision="s1",
         reference_identity=identity_a,
     ).empty
+
+
+def test_forecast_selection_skips_newer_cache_from_other_settings_revision(tmp_path) -> None:
+    matching = tmp_path / "forecast_results_20250101.csv"
+    stale = tmp_path / "forecast_results_20250102.csv"
+    _write_bound_cache_group(
+        matching,
+        b"etf_id,expected_return\nMATCH,0.01\n",
+        lambda candidate: pd.read_csv(candidate),
+        "u1",
+        "s1",
+        None,
+    )
+    _write_bound_cache_group(
+        stale,
+        b"etf_id,expected_return\nSTALE,0.99\n",
+        lambda candidate: pd.read_csv(candidate),
+        "u1",
+        "s2",
+        None,
+    )
+    os.utime(matching, (1, 1))
+    os.utime(stale, (2, 2))
+
+    assert latest_forecast_file(directory=tmp_path, settings_revision="s1") == matching
+    assert load_latest_forecasts(directory=tmp_path, settings_revision="s1")["etf_id"].tolist() == ["MATCH"]
 
 
 def test_attribution_clips_observations_to_declared_calculation_window() -> None:
