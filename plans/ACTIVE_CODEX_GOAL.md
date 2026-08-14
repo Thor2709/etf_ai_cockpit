@@ -3008,3 +3008,12 @@ next action and whether the requested outcome is actually complete.
   equal both its claim and the requested identity hash. Direct regressions cover
   feature, forecast, service-match and guarded-payload readers; no generic JSON,
   atomic-I/O, financial, authority or execution behavior changes.
+- Head `8b4ef8d722a84e246489d2eb1cc5eed50f807f96` is rejected and run
+  `31778851004` is cancelled/stale. Review found three remaining consumers of
+  the same demonstrated contracts: supplied feature attrs and cached backtest
+  metadata still used type-insensitive mapping equality, and forecast row
+  filtering ignored a settings-only request. Both identities now use the shared
+  recomputed-hash verifier; backtest publication persists the identity hash; and
+  row filtering activates for universe, settings or reference requests. Direct
+  signal, backtest-tamper and mixed-source settings regressions cover those exact
+  paths. No adjacent service, financial, persistence or authority change.

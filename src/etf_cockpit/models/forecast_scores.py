@@ -162,7 +162,11 @@ def filter_forecasts_for_universe(
 ) -> pd.DataFrame:
     """Drop configured forecast rows whose source cache is not for this universe revision."""
 
-    if forecasts.empty or (not universe_revision and reference_identity is None):
+    if forecasts.empty or (
+        not universe_revision
+        and settings_revision is None
+        and reference_identity is None
+    ):
         return forecasts
     if "source_file" not in forecasts.columns:
         return forecasts.iloc[0:0].copy()

@@ -534,6 +534,13 @@ def test_forecast_selection_skips_newer_cache_from_other_settings_revision(tmp_p
 
     assert latest_forecast_file(directory=tmp_path, settings_revision="s1") == matching
     assert load_latest_forecasts(directory=tmp_path, settings_revision="s1")["etf_id"].tolist() == ["MATCH"]
+    rows = pd.DataFrame(
+        [
+            {"source_file": str(matching), "etf_id": "MATCH"},
+            {"source_file": str(stale), "etf_id": "STALE"},
+        ]
+    )
+    assert filter_forecasts_for_universe(rows, None, settings_revision="s1")["etf_id"].tolist() == ["MATCH"]
 
 
 def test_bound_cache_readers_reject_type_forged_reference_identity(tmp_path) -> None:
@@ -745,7 +752,7 @@ def test_regime_rejects_nested_forged_benchmark_authority() -> None:
         )
 
 
-def test_signal_service_binds_forecast_read_to_current_reference_identity(monkeypatch) -> None:
+def test_signal_service_recomputes_type_forged_features_and_binds_forecast_identity(monkeypatch) -> None:
     import etf_cockpit.services as services_module
 
     captured: dict[str, object] = {}
@@ -768,6 +775,20 @@ def test_signal_service_binds_forecast_read_to_current_reference_identity(monkey
         lambda *args, **kwargs: SimpleNamespace(identity=identity, benchmark_data_id=None),
     )
     monkeypatch.setattr(services_module, "load_features", lambda *args, **kwargs: pd.DataFrame())
+    recomputed = pd.DataFrame(
+        [{"date": date(2025, 1, 2), "etf_id": "RECOMPUTED"}]
+    )
+    monkeypatch.setattr(
+        services_module.FeatureService,
+        "compute_features",
+        lambda *_args, **_kwargs: recomputed,
+    )
+
+    def capture_latest(frame, *_args, **_kwargs):
+        captured["feature_ids"] = frame["etf_id"].tolist()
+        return frame
+
+    monkeypatch.setattr(services_module, "latest_features", capture_latest)
 
     def capture_forecasts(*args, **kwargs):
         captured.update(kwargs)
@@ -775,7 +796,10 @@ def test_signal_service_binds_forecast_read_to_current_reference_identity(monkey
 
     monkeypatch.setattr(services_module, "load_latest_forecasts", capture_forecasts)
     supplied_features = pd.DataFrame(columns=["date", "etf_id"])
-    supplied_features.attrs["reference_identity"] = identity
+    supplied_features.attrs["reference_identity"] = {
+        **identity,
+        "execution_allowed": 0,
+    }
     supplied_features.attrs["reference_identity_hash"] = _reference_identity_hash(identity)
     SignalService(load_config()).generate_signals(
         as_of_date=date(2025, 1, 2),
@@ -783,6 +807,7 @@ def test_signal_service_binds_forecast_read_to_current_reference_identity(monkey
     )
     assert isinstance(captured.get("reference_identity"), dict)
     assert captured["reference_identity"]["schema"] == "benchmark-reference-cache.v1"
+    assert captured["feature_ids"] == ["RECOMPUTED"]
 
 
 def test_simple_score_candidate_loader_passes_reference_identity(monkeypatch) -> None:

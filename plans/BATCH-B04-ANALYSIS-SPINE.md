@@ -4232,3 +4232,11 @@ stored identity's canonical hash and require it to match both the claimed and
 requested hashes at every bound feature/forecast/service reader; add direct
 regressions. Do not alter generic JSON, atomic I/O, financial calculations,
 authority or execution behavior.
+
+`REMAINING CONSUMER CORRECTION` head `8b4ef8d722a84e246489d2eb1cc5eed50f807f96`
+is rejected and run `31778851004` is cancelled/stale. Route supplied feature
+attrs and cached backtest metadata through the same recomputed identity-hash
+verification, persist the backtest identity hash, and activate forecast row
+filtering for settings-only requests. Add the exact signal, backtest-tamper and
+mixed-source regressions; change no adjacent financial, persistence, workflow,
+authority or execution behavior.

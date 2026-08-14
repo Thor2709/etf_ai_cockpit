@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 
 import pandas as pd
 import pytest
@@ -177,3 +178,8 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     assert cached.metadata["quality_momentum_evidence_checksum"] == generated.metadata[
         "quality_momentum_evidence_checksum"
     ]
+    metadata_path = tmp_path / "backtest_metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["reference_identity"]["execution_allowed"] = 0
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    assert service._load_cached_backtest() is None

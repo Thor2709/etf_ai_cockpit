@@ -1292,8 +1292,11 @@ class SignalService:
         )
         supplied_matches = (
             features is not None
-            and features.attrs.get("reference_identity") == reference_context.identity
-            and features.attrs.get("reference_identity_hash") == _reference_identity_hash(reference_context.identity)
+            and _reference_identity_matches(
+                features.attrs.get("reference_identity"),
+                features.attrs.get("reference_identity_hash"),
+                reference_context.identity,
+            )
         )
         if supplied_matches and features is not None:
             feature_frame = features.copy()
@@ -1468,11 +1471,12 @@ class BacktestService:
                 benchmark_reference=reference_context.projection,
                 reference_identity=reference_context.identity,
             )
-            if "reference_identity" not in report.metadata:
-                # Older local runners do not know the added keyword seam; the
-                # service still binds their output to the resolved readback
-                # identity before publishing it.
-                report.metadata["reference_identity"] = reference_context.identity
+            # Bind every runner result to the resolved readback identity before
+            # publication, including older local runner seams.
+            report.metadata["reference_identity"] = reference_context.identity
+            report.metadata["reference_identity_hash"] = _reference_identity_hash(
+                reference_context.identity
+            )
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
         run_id = settings_bound_run_id("backtest", settings_identity=settings_identity)
@@ -1588,7 +1592,11 @@ class BacktestService:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
             if not isinstance(metadata, dict):
                 metadata = {}
-            if metadata.get("reference_identity") != reference_context.identity:
+            if not _reference_identity_matches(
+                metadata.get("reference_identity"),
+                metadata.get("reference_identity_hash"),
+                reference_context.identity,
+            ):
                 return None
             if metadata.get("quality_momentum_strategy_version") != QUALITY_MOMENTUM_VERSION:
                 return None
