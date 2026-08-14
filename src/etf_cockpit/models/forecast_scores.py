@@ -34,7 +34,7 @@ def _forecast_cache_matches(
     try:
         payload_bytes, metadata_bytes = read_atomic_group((path, metadata_path))
         payload = json.loads(metadata_bytes.decode("utf-8"))
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, RecursionError):
         return False
     return _forecast_cache_snapshot_matches(
         payload_bytes,
@@ -68,10 +68,28 @@ def _forecast_cache_snapshot_matches(
         return checksum is None or checksum == hashlib.sha256(payload_bytes).hexdigest()
     if metadata.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
         return False
-    return (
-        metadata.get("reference_identity") == dict(reference_identity)
-        and str(metadata.get("reference_identity_hash") or "") == _reference_identity_hash(reference_identity)
+    return _reference_identity_matches(
+        metadata.get("reference_identity"),
+        metadata.get("reference_identity_hash"),
+        reference_identity,
     )
+
+
+def _reference_identity_matches(
+    stored: object,
+    claimed_hash: object,
+    expected: Mapping[str, object],
+) -> bool:
+    if not isinstance(stored, Mapping):
+        return False
+    try:
+        expected_hash = _reference_identity_hash(expected)
+        return (
+            str(claimed_hash or "") == expected_hash
+            and _reference_identity_hash(stored) == expected_hash
+        )
+    except (TypeError, ValueError, RecursionError):
+        return False
 
 
 def latest_forecast_file(
@@ -130,7 +148,7 @@ def load_latest_forecasts(
                 return pd.DataFrame()
             payload_bytes = path.read_bytes()
         frame = pd.read_csv(BytesIO(payload_bytes))
-    except (OSError, TypeError, ValueError):
+    except (OSError, TypeError, ValueError, RecursionError):
         return pd.DataFrame()
     frame["source_file"] = str(path)
     return frame

@@ -31,6 +31,7 @@ from etf_cockpit.features.regime import (
 from etf_cockpit.features.macro import build_macro_context
 from etf_cockpit.services import (
     _cache_matches_universe,
+    _read_bound_cache_payload,
     _reference_identity_hash,
     _postprocess_forecast_benchmark_fields,
     _write_bound_cache_group,
@@ -533,6 +534,93 @@ def test_forecast_selection_skips_newer_cache_from_other_settings_revision(tmp_p
 
     assert latest_forecast_file(directory=tmp_path, settings_revision="s1") == matching
     assert load_latest_forecasts(directory=tmp_path, settings_revision="s1")["etf_id"].tolist() == ["MATCH"]
+
+
+def test_bound_cache_readers_reject_type_forged_reference_identity(tmp_path) -> None:
+    identity = _cache_identity()
+    forged = {**identity, "execution_allowed": 0}
+
+    feature_path = tmp_path / "features.parquet"
+    write_features(
+        pd.DataFrame([{"date": "2025-01-01", "etf_id": "FORGED", "value": 99.0}]),
+        feature_path,
+        cache_metadata={
+            "universe_revision": "u1",
+            "settings_revision": "s1",
+            "reference_identity": identity,
+        },
+    )
+    feature_metadata_path = feature_path.with_name(f"{feature_path.name}.meta.json")
+    feature_metadata = json.loads(feature_metadata_path.read_text(encoding="utf-8"))
+    feature_metadata["reference_identity"] = forged
+    feature_metadata_path.write_text(json.dumps(feature_metadata), encoding="utf-8")
+    assert load_features(
+        feature_path,
+        universe_revision="u1",
+        settings_revision="s1",
+        reference_identity=identity,
+    ).empty
+
+    forecast_path = tmp_path / "forecast_results_20250101.csv"
+    _write_bound_cache_group(
+        forecast_path,
+        b"etf_id,expected_return\nFORGED,0.99\n",
+        lambda candidate: pd.read_csv(candidate),
+        "u1",
+        "s1",
+        identity,
+    )
+    forecast_metadata_path = forecast_path.with_name(f"{forecast_path.name}.meta.json")
+    forecast_metadata = json.loads(forecast_metadata_path.read_text(encoding="utf-8"))
+    forecast_metadata["reference_identity"] = forged
+    forecast_metadata_path.write_text(json.dumps(forecast_metadata), encoding="utf-8")
+    assert latest_forecast_file(
+        directory=tmp_path,
+        universe_revision="u1",
+        settings_revision="s1",
+        reference_identity=identity,
+    ) is None
+    assert not _cache_matches_universe(forecast_path, "u1", "s1", identity)
+    assert _read_bound_cache_payload(forecast_path, "u1", "s1", identity) is None
+
+
+def test_cache_readers_fail_closed_on_recursively_nested_sidecars(tmp_path) -> None:
+    nested_json = '{"nested":' + "[" * 10_000 + "0" + "]" * 10_000 + "}"
+    identity = _cache_identity()
+
+    feature_path = tmp_path / "features.parquet"
+    pd.DataFrame([{"date": "2025-01-01", "etf_id": "ETF", "value": 1.0}]).to_parquet(
+        feature_path, index=False
+    )
+    feature_path.with_name(f"{feature_path.name}.meta.json").write_text(
+        nested_json, encoding="utf-8"
+    )
+    assert load_features(
+        feature_path,
+        universe_revision="u1",
+        settings_revision="s1",
+        reference_identity=identity,
+    ).empty
+
+    forecast_path = tmp_path / "forecast_results_20250101.csv"
+    forecast_path.write_text("etf_id,expected_return\nETF,0.01\n", encoding="utf-8")
+    forecast_path.with_name(f"{forecast_path.name}.meta.json").write_text(
+        nested_json, encoding="utf-8"
+    )
+    assert latest_forecast_file(
+        directory=tmp_path,
+        universe_revision="u1",
+        settings_revision="s1",
+        reference_identity=identity,
+    ) is None
+    assert load_latest_forecasts(
+        directory=tmp_path,
+        universe_revision="u1",
+        settings_revision="s1",
+        reference_identity=identity,
+    ).empty
+    assert not _cache_matches_universe(forecast_path, "u1", "s1", identity)
+    assert _read_bound_cache_payload(forecast_path, "u1", "s1", identity) is None
 
 
 def test_attribution_clips_observations_to_declared_calculation_window() -> None:

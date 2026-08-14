@@ -4224,3 +4224,11 @@ cache; add the exact regression. Make the directly changed backtest rollback tes
 self-contained by stubbing unrelated run-manifest reservation after hosted
 preflight exposed its order dependency. Do not change production backtest,
 workflow, authority or execution behavior.
+
+`MALFORMED SIDECAR CORRECTION` head `20d619fb996038970f81e655697adfcf5c15cc73`
+is rejected and run `31777912307` is stale. Fail closed on the demonstrated
+recursive JSON decode and type-forged `false`/`0` identity cases. Recompute the
+stored identity's canonical hash and require it to match both the claimed and
+requested hashes at every bound feature/forecast/service reader; add direct
+regressions. Do not alter generic JSON, atomic I/O, financial calculations,
+authority or execution behavior.

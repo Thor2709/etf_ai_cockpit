@@ -138,15 +138,18 @@ def load_features(
             if (universe_revision is not None or settings_revision is not None) and str(metadata.get("settings_revision") or "") != expected_settings:
                 return pd.DataFrame()
             if reference_identity is not None and (
-                metadata.get("reference_identity") != reference_identity
-                or metadata.get("reference_identity_hash") != _reference_identity_hash(reference_identity)
+                not _reference_identity_matches(
+                    metadata.get("reference_identity"),
+                    metadata.get("reference_identity_hash"),
+                    reference_identity,
+                )
                 or metadata.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest()
             ):
                 return pd.DataFrame()
             if metadata.get("payload_sha256") is not None and metadata["payload_sha256"] != hashlib.sha256(payload_bytes).hexdigest():
                 return pd.DataFrame()
         frame = pd.read_parquet(BytesIO(payload_bytes))
-    except (OSError, TypeError, ValueError, KeyError):
+    except (OSError, TypeError, ValueError, KeyError, RecursionError):
         return pd.DataFrame()
     frame["date"] = pd.to_datetime(frame["date"]).dt.date
     return frame
@@ -155,6 +158,23 @@ def load_features(
 def _reference_identity_hash(identity: Mapping[str, object]) -> str:
     encoded = json.dumps(dict(identity), sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _reference_identity_matches(
+    stored: object,
+    claimed_hash: object,
+    expected: Mapping[str, object],
+) -> bool:
+    if not isinstance(stored, Mapping):
+        return False
+    try:
+        expected_hash = _reference_identity_hash(expected)
+        return (
+            str(claimed_hash or "") == expected_hash
+            and _reference_identity_hash(stored) == expected_hash
+        )
+    except (TypeError, ValueError, RecursionError):
+        return False
 
 
 def query_parquet(sql: str) -> pd.DataFrame:

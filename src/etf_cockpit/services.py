@@ -175,7 +175,7 @@ def _cache_matches_universe(
     try:
         payload_bytes, metadata_bytes = read_atomic_group((path, metadata_path))
         payload = json.loads(metadata_bytes.decode("utf-8"))
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, RecursionError):
         return False
     expected_settings = settings_revision or current_settings_revision()
     matches = (
@@ -190,9 +190,10 @@ def _cache_matches_universe(
         return checksum is None or checksum == hashlib.sha256(payload_bytes).hexdigest()
     if payload.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
         return False
-    return (
-        payload.get("reference_identity") == dict(reference_identity)
-        and str(payload.get("reference_identity_hash") or "") == _reference_identity_hash(reference_identity)
+    return _reference_identity_matches(
+        payload.get("reference_identity"),
+        payload.get("reference_identity_hash"),
+        reference_identity,
     )
 
 
@@ -206,7 +207,7 @@ def _read_bound_cache_payload(
     try:
         payload_bytes, metadata_bytes = read_atomic_group((path, metadata_path))
         payload = json.loads(metadata_bytes.decode("utf-8"))
-    except (OSError, TypeError, ValueError):
+    except (OSError, TypeError, ValueError, RecursionError):
         return None
     if not isinstance(payload, dict):
         return None
@@ -214,9 +215,11 @@ def _read_bound_cache_payload(
         return None
     if str(payload.get("settings_revision") or "") != settings_revision:
         return None
-    if payload.get("reference_identity") != dict(reference_identity):
-        return None
-    if str(payload.get("reference_identity_hash") or "") != _reference_identity_hash(reference_identity):
+    if not _reference_identity_matches(
+        payload.get("reference_identity"),
+        payload.get("reference_identity_hash"),
+        reference_identity,
+    ):
         return None
     if payload.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
         return None
@@ -426,6 +429,23 @@ def _write_bound_cache_group(
 def _reference_identity_hash(identity: Mapping[str, object]) -> str:
     encoded = json.dumps(dict(identity), sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _reference_identity_matches(
+    stored: object,
+    claimed_hash: object,
+    expected: Mapping[str, object],
+) -> bool:
+    if not isinstance(stored, Mapping):
+        return False
+    try:
+        expected_hash = _reference_identity_hash(expected)
+        return (
+            str(claimed_hash or "") == expected_hash
+            and _reference_identity_hash(stored) == expected_hash
+        )
+    except (TypeError, ValueError, RecursionError):
+        return False
 
 
 @dataclass

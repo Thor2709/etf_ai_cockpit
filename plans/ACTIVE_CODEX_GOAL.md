@@ -2999,3 +2999,12 @@ next action and whether the requested outcome is actually complete.
   rollback test; that test now stubs manifest reservation so it proves only its
   atomic-output boundary and is self-contained. No production backtest behavior
   or validation machinery changes.
+- Head `20d619fb996038970f81e655697adfcf5c15cc73` is rejected and run
+  `31777912307` is stale. The paired reviews reproduced two malformed-sidecar
+  escapes: recursive valid JSON raised `RecursionError`, and Python mapping
+  equality admitted `execution_allowed: 0` as equal to `false` when the claimed
+  hash was copied. Existing read boundaries now treat recursive decode/hash as
+  unavailable and require the stored identity's recomputed canonical hash to
+  equal both its claim and the requested identity hash. Direct regressions cover
+  feature, forecast, service-match and guarded-payload readers; no generic JSON,
+  atomic-I/O, financial, authority or execution behavior changes.
