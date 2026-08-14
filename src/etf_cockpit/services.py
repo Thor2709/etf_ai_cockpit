@@ -172,6 +172,7 @@ def _cache_matches_universe(
     settings_revision: str | None = None,
     reference_identity: Mapping[str, object] | None = None,
     price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
 ) -> bool:
     metadata_path = _universe_cache_meta_path(path)
     if not path.is_file() or not metadata_path.is_file():
@@ -194,10 +195,16 @@ def _cache_matches_universe(
         return (
             (checksum is None or checksum == hashlib.sha256(payload_bytes).hexdigest())
             and (price_binding is None or _price_binding_matches(payload, price_binding))
+            and (
+                forecast_request_identity is None
+                or _forecast_request_matches(payload, forecast_request_identity)
+            )
         )
     if payload.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
         return False
     if price_binding is not None and not _price_binding_matches(payload, price_binding):
+        return False
+    if forecast_request_identity is not None and not _forecast_request_matches(payload, forecast_request_identity):
         return False
     return _reference_identity_matches(
         payload.get("reference_identity"),
@@ -212,6 +219,7 @@ def _read_bound_cache_payload(
     settings_revision: str,
     reference_identity: Mapping[str, object],
     price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
 ) -> bytes | None:
     metadata_path = _universe_cache_meta_path(path)
     try:
@@ -232,6 +240,8 @@ def _read_bound_cache_payload(
     ):
         return None
     if price_binding is not None and not _price_binding_matches(payload, price_binding):
+        return None
+    if forecast_request_identity is not None and not _forecast_request_matches(payload, forecast_request_identity):
         return None
     if payload.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
         return None
@@ -349,6 +359,7 @@ def _write_universe_cache_metadata(
     settings_revision: str | None = None,
     reference_identity: Mapping[str, object] | None = None,
     price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
 ) -> None:
     metadata_path = _universe_cache_meta_path(path)
     payload_sha256 = (
@@ -371,6 +382,14 @@ def _write_universe_cache_metadata(
                 else {}
             ),
             **(dict(price_binding) if price_binding is not None else {}),
+            **(
+                {
+                    "forecast_request_identity": dict(forecast_request_identity),
+                    "forecast_request_identity_hash": _reference_identity_hash(forecast_request_identity),
+                }
+                if forecast_request_identity is not None
+                else {}
+            ),
         },
         sort_keys=True,
     ).encode("utf-8")
@@ -405,6 +424,7 @@ def _bound_cache_metadata_payload(
     reference_identity: Mapping[str, object] | None,
     payload: bytes,
     price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
 ) -> bytes:
     record: dict[str, object] = {
         "schema_version": 3,
@@ -417,6 +437,9 @@ def _bound_cache_metadata_payload(
         record["reference_identity_hash"] = _reference_identity_hash(reference_identity)
     if price_binding is not None:
         record.update(dict(price_binding))
+    if forecast_request_identity is not None:
+        record["forecast_request_identity"] = dict(forecast_request_identity)
+        record["forecast_request_identity_hash"] = _reference_identity_hash(forecast_request_identity)
     return json.dumps(record, sort_keys=True).encode("utf-8")
 
 
@@ -428,10 +451,16 @@ def _write_bound_cache_group(
     settings_revision: str,
     reference_identity: Mapping[str, object] | None,
     price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
 ) -> None:
     metadata_path = _universe_cache_meta_path(path)
     metadata_payload = _bound_cache_metadata_payload(
-        revision, settings_revision, reference_identity, payload, price_binding
+        revision,
+        settings_revision,
+        reference_identity,
+        payload,
+        price_binding,
+        forecast_request_identity,
     )
     atomic_write_group(
         (
@@ -545,6 +574,33 @@ def _price_binding_matches(metadata: Mapping[str, object], expected: Mapping[str
         and all(isinstance(window.get(key), str) and window.get(key) for key in ("start_date", "end_date"))
     )
     return valid and all(metadata.get(key) == value for key, value in expected.items())
+
+
+def _forecast_request_identity(
+    config: AppConfig,
+    horizons: list[int] | None,
+    *,
+    live_optional_models: bool,
+) -> dict[str, object]:
+    requested = horizons if horizons is not None else config.models.forecast_horizons_trading_days
+    if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in requested):
+        raise ValueError("forecast horizons must be positive integers")
+    normalized = sorted(set(requested))
+    if not normalized:
+        raise ValueError("at least one forecast horizon is required")
+    return {
+        "schema": "forecast-cache-request.v1",
+        "requested_horizons": normalized,
+        "live_optional_models": live_optional_models is True,
+    }
+
+
+def _forecast_request_matches(metadata: Mapping[str, object], expected: Mapping[str, object]) -> bool:
+    return _reference_identity_matches(
+        metadata.get("forecast_request_identity"),
+        metadata.get("forecast_request_identity_hash"),
+        expected,
+    )
 
 
 def _reference_binding(reference_context: CanonicalReferenceContext) -> dict[str, object]:
@@ -850,12 +906,20 @@ class DataService:
         price_binding = _price_snapshot_binding(prices, calculation_window=calculation_window)
         if price_binding is None:
             return "Forecast calculation skipped because the adjusted-price snapshot identity is unavailable."
+        try:
+            request_identity = _forecast_request_identity(
+                self.config,
+                horizons,
+                live_optional_models=live_optional_models,
+            )
+        except ValueError as exc:
+            return f"Forecast calculation skipped because the request identity is invalid: {exc}."
         forecast_config = self.config if live_optional_models else _config_with_optional_models_disabled(self.config)
         forecast_service = ForecastService(forecast_config, reference_context=reference_context)
         universe_revision = _current_universe_revision()
         output = FORECASTS_DIR / f"forecast_results_yfinance_{effective_as_of:%Y%m%d}.csv"
         if use_cache and output.exists() and _cache_matches_universe(
-            output, universe_revision, settings_revision, reference_context.identity, price_binding
+            output, universe_revision, settings_revision, reference_context.identity, price_binding, request_identity
         ):
             try:
                 cached_payload = _read_bound_cache_payload(
@@ -864,6 +928,7 @@ class DataService:
                     settings_revision,
                     reference_context.identity,
                     price_binding,
+                    request_identity,
                 )
                 if cached_payload is None:
                     raise ValueError("forecast cache pair changed during read")
@@ -889,6 +954,7 @@ class DataService:
                     horizons=horizons,
                     progress_callback=progress_callback,
                     publish_guard=publish_guard,
+                    cache_request_identity=request_identity,
                 )
                 universe_summary = _forecast_status_summary(universe_forecasts)
                 universe_mode = "refreshed"
@@ -904,6 +970,7 @@ class DataService:
                 horizons=horizons,
                 progress_callback=progress_callback,
                 publish_guard=publish_guard,
+                cache_request_identity=request_identity,
             )
             universe_summary = _forecast_status_summary(universe_forecasts)
             universe_mode = "refreshed"
@@ -933,7 +1000,12 @@ class DataService:
                 self.last_operation_succeeded = True
                 return "\n".join(messages)
             if use_cache and candidate_output.exists() and _cache_matches_universe(
-                candidate_output, universe_revision, settings_revision, reference_context.identity, candidate_binding
+                candidate_output,
+                universe_revision,
+                settings_revision,
+                reference_context.identity,
+                candidate_binding,
+                request_identity,
             ):
                 try:
                     cached_payload = _read_bound_cache_payload(
@@ -942,6 +1014,7 @@ class DataService:
                         settings_revision,
                         reference_context.identity,
                         candidate_binding,
+                        request_identity,
                     )
                     if cached_payload is None:
                         raise ValueError("candidate forecast cache pair changed during read")
@@ -962,13 +1035,19 @@ class DataService:
                         output_path=candidate_output,
                         horizons=horizons,
                         publish_guard=publish_guard,
+                        cache_request_identity=request_identity,
                     )
                     candidate_summary = _forecast_status_summary(candidate_forecasts)
                     candidate_as_of = candidate_data.effective_as_of
                     candidate_mode = "refreshed"
             else:
                 if use_cache and candidate_output.exists() and not _cache_matches_universe(
-                    candidate_output, universe_revision, settings_revision, reference_context.identity, candidate_binding
+                    candidate_output,
+                    universe_revision,
+                    settings_revision,
+                    reference_context.identity,
+                    candidate_binding,
+                    request_identity,
                 ):
                     record_cache_event("candidate_forecast", "invalidation", action_id="forecasts", detail="universe revision changed or metadata missing")
                 record_cache_event("candidate_forecast", "miss", action_id="forecasts")
@@ -979,6 +1058,7 @@ class DataService:
                     output_path=candidate_output,
                     horizons=horizons,
                     publish_guard=publish_guard,
+                    cache_request_identity=request_identity,
                 )
                 candidate_summary = _forecast_status_summary(candidate_forecasts)
                 candidate_as_of = candidate_data.effective_as_of
@@ -1216,16 +1296,21 @@ class FeatureService:
         if "volume" not in frame.columns:
             frame["volume"] = float("nan")
         context = reference_context if reference_context is not None else self.reference_context
-        calculation_window = None
-        price_binding = None
-        if as_of_date is not None:
-            calculation_window = _calculation_window(context, as_of_date, frame)
-            if calculation_window is None:
+        effective_as_of = as_of_date
+        if effective_as_of is None:
+            if "date" not in frame.columns:
                 raise ValueError("canonical feature calculation window is unavailable")
-            frame = clip_to_decision_window(frame, **calculation_window)
-            price_binding = _price_snapshot_binding(frame, calculation_window=calculation_window)
-            if price_binding is None:
-                raise ValueError("adjusted-price snapshot identity is unavailable")
+            valid_dates = pd.to_datetime(frame["date"], errors="coerce", utc=True).dropna()
+            if valid_dates.empty:
+                raise ValueError("canonical feature calculation window is unavailable")
+            effective_as_of = valid_dates.max().date()
+        calculation_window = _calculation_window(context, effective_as_of, frame)
+        if calculation_window is None:
+            raise ValueError("canonical feature calculation window is unavailable")
+        frame = clip_to_decision_window(frame, **calculation_window)
+        price_binding = _price_snapshot_binding(frame, calculation_window=calculation_window)
+        if price_binding is None:
+            raise ValueError("adjusted-price snapshot identity is unavailable")
         benchmark = context.benchmark_data_id if context is not None else None
         available_ids = set(frame["etf_id"].astype(str)) if "etf_id" in frame.columns else set()
         if benchmark is None or benchmark not in available_ids:
@@ -1242,8 +1327,9 @@ class FeatureService:
         )
         features.attrs["reference_identity"] = context.identity
         features.attrs["reference_identity_hash"] = _reference_identity_hash(context.identity)
+        features.attrs["price_binding"] = dict(price_binding)
         run_id = settings_bound_run_id(
-            f"features_{as_of_date.isoformat() if as_of_date else 'latest'}",
+            f"features_{effective_as_of.isoformat()}",
             settings_identity=settings_identity,
         )
         with publication_scope(publish_guard):
@@ -1259,7 +1345,7 @@ class FeatureService:
                     "universe_revision": _current_universe_revision(),
                     "settings_revision": str(settings_identity["settings_revision"]),
                     "reference_identity": context.identity,
-                    **(price_binding or {}),
+                    **price_binding,
                 },
             )
         return features
@@ -1285,6 +1371,7 @@ class ForecastService:
         progress_callback: Callable[[str, int, int], None] | None = None,
         publish_guard: PublicationScopeFactory | None = None,
         reference_context: CanonicalReferenceContext | None = None,
+        cache_request_identity: Mapping[str, object] | None = None,
     ) -> list[ForecastResult]:
         settings_identity = current_settings_identity()
         price_frame = prices if prices is not None else load_prices()
@@ -1353,6 +1440,7 @@ class ForecastService:
             settings_revision=str(settings_identity["settings_revision"]),
             reference_identity=context.identity,
             price_binding=price_binding,
+            cache_request_identity=cache_request_identity,
             publish_guard=publish_guard,
         )
         return forecasts
@@ -1422,6 +1510,7 @@ class ForecastService:
         settings_revision: str | None = None,
         reference_identity: Mapping[str, object] | None = None,
         price_binding: Mapping[str, object] | None = None,
+        cache_request_identity: Mapping[str, object] | None = None,
         publish_guard: PublicationScopeFactory | None = None,
     ) -> None:
         output = output_path or FORECASTS_DIR / f"forecast_results_{as_of_date:%Y%m%d}.csv"
@@ -1440,6 +1529,7 @@ class ForecastService:
                     settings_revision or current_settings_revision(),
                     reference_identity,
                     price_binding,
+                    cache_request_identity,
                 )
 
 
@@ -1483,11 +1573,14 @@ class SignalService:
         )
         supplied_matches = (
             features is not None
+            and price_binding is not None
             and _reference_identity_matches(
                 features.attrs.get("reference_identity"),
                 features.attrs.get("reference_identity_hash"),
                 reference_context.identity,
             )
+            and isinstance(features.attrs.get("price_binding"), Mapping)
+            and _price_binding_matches(features.attrs["price_binding"], price_binding)
         )
         if supplied_matches and features is not None:
             feature_frame = features.copy()

@@ -724,7 +724,18 @@ def build_simple_instrument_scores(
     # The ordinary score path resolves the official local curve evidence once;
     # callers may still inject a previously resolved lookup for replay/tests.
     if cash_comparison_lookup is None:
-        cash_comparison_lookup = _build_local_cash_comparison_lookup(config, prices)
+        cash_request = _canonical_cash_request(benchmark_reference, reference_identity)
+        if cash_request is None:
+            cash_comparison_lookup = _unavailable_cash_lookup(
+                config,
+                "Canonical cash reference is unavailable for the declared calculation window.",
+            )
+        else:
+            cash_comparison_lookup = _build_local_cash_comparison_lookup(
+                config,
+                prices,
+                canonical_cash_request=cash_request,
+            )
     else:
         cash_comparison_lookup = dict(cash_comparison_lookup)
     crowding = build_correlation_clusters(prices, metadata)
@@ -2573,6 +2584,7 @@ def _build_local_cash_comparison_lookup(
     prices: pd.DataFrame,
     *,
     as_of: object | None = None,
+    canonical_cash_request: Mapping[str, object] | None = None,
 ) -> dict[str, Mapping[str, object]]:
     mappings = load_risk_free_proxy_mappings()
     if not mappings:
@@ -2593,8 +2605,13 @@ def _build_local_cash_comparison_lookup(
     warehouse = MacroWarehouse()
     output: dict[str, Mapping[str, object]] = {}
     frame = prices.loc[:, ["etf_id", "date", "adjusted_close"]].copy()
+    canonical_start = canonical_cash_request.get("start_date") if canonical_cash_request is not None else None
+    canonical_end = canonical_cash_request.get("end_date") if canonical_cash_request is not None else None
+    canonical_decision = canonical_cash_request.get("decision_time") if canonical_cash_request is not None else None
+    canonical_cash_id = canonical_cash_request.get("cash_id") if canonical_cash_request is not None else None
     try:
-        decision = pd.Timestamp.now(tz="UTC") if as_of is None else pd.Timestamp(as_of)
+        decision_source = canonical_decision if canonical_decision is not None else as_of
+        decision = pd.Timestamp.now(tz="UTC") if decision_source is None else pd.Timestamp(decision_source)
     except (TypeError, ValueError, OverflowError):
         return {}
     if pd.isna(decision) or decision.tzinfo is None:
@@ -2624,21 +2641,97 @@ def _build_local_cash_comparison_lookup(
         ]
         if identity is None or len(rows) < 2:
             continue
-        comparison_rows = rows.tail(_CASH_COMPARISON_RETURN_WINDOW + 1)
-        start_date = comparison_rows.iloc[0]["date"].date().isoformat()
-        end_date = comparison_rows.iloc[-1]["date"].date().isoformat()
+        if canonical_start is not None and canonical_end is not None:
+            comparison_rows = rows.loc[
+                rows["date"].dt.date.between(
+                    date.fromisoformat(str(canonical_start)),
+                    date.fromisoformat(str(canonical_end)),
+                )
+            ]
+        else:
+            comparison_rows = rows.tail(_CASH_COMPARISON_RETURN_WINDOW + 1)
+        if len(comparison_rows) < 2:
+            output[instrument_id] = {
+                "status": "unavailable",
+                "reason": "Canonical cash comparison price endpoints are unavailable.",
+                "instrument_id": instrument_id,
+                "execution_allowed": False,
+            }
+            continue
+        start_date = str(canonical_start or comparison_rows.iloc[0]["date"].date().isoformat())
+        end_date = str(canonical_end or comparison_rows.iloc[-1]["date"].date().isoformat())
         adjusted_prices = comparison_rows.loc[:, ["date", "adjusted_close"]]
-        output[instrument_id] = warehouse.cash_comparison(
+        result = warehouse.cash_comparison(
             root=CASH_MACRO_ROOT,
             mappings=mappings,
             instrument_id=instrument_id,
             currency=identity.currency,
             start_date=start_date,
             end_date=end_date,
-            decision_time=adjusted_endpoint_available_at(end_date),
+            decision_time=str(canonical_decision or adjusted_endpoint_available_at(end_date)),
             adjusted_prices=adjusted_prices,
         )
+        if canonical_cash_request is not None and (
+            result.get("status") != "available"
+            or result.get("curve_id") != canonical_cash_id
+            or result.get("start_date") != canonical_start
+            or result.get("end_date") != canonical_end
+            or result.get("decision_time") != canonical_decision
+            or result.get("currency") != canonical_cash_request.get("currency")
+        ):
+            result = {
+                "status": "unavailable",
+                "reason": "Local cash evidence does not match the canonical cash identity and window.",
+                "instrument_id": instrument_id,
+                "execution_allowed": False,
+            }
+        output[instrument_id] = result
     return output
+
+
+def _canonical_cash_request(
+    benchmark_reference: Mapping[str, object] | None,
+    reference_identity: Mapping[str, object] | None,
+) -> dict[str, object] | None:
+    if not isinstance(benchmark_reference, Mapping) or not isinstance(reference_identity, Mapping):
+        return None
+    cash = benchmark_reference.get("cash")
+    projection_records = benchmark_reference.get("selected_records")
+    identity_records = reference_identity.get("selected_records")
+    analysis = reference_identity.get("analysis")
+    if not all(isinstance(value, Mapping) for value in (cash, projection_records, identity_records, analysis)):
+        return None
+    cash_id = cash.get("id")
+    cash_hash = cash.get("content_hash")
+    if (
+        cash.get("status") != "available"
+        or not isinstance(cash_id, str)
+        or not cash_id.strip()
+        or not isinstance(cash_hash, str)
+        or not cash_hash
+        or projection_records.get("cash") != cash_hash
+        or identity_records.get("cash") != cash_hash
+    ):
+        return None
+    required = ("currency", "start_date", "end_date", "decision_time")
+    if not all(isinstance(analysis.get(key), str) and analysis.get(key) for key in required):
+        return None
+    return {
+        "cash_id": cash_id.strip(),
+        **{key: str(analysis[key]) for key in required},
+    }
+
+
+def _unavailable_cash_lookup(config: AppConfig, reason: str) -> dict[str, Mapping[str, object]]:
+    return {
+        instrument_id: {
+            "status": "unavailable",
+            "reason": reason,
+            "instrument_id": instrument_id,
+            "execution_allowed": False,
+        }
+        for instrument_id in config.universe.enabled_ids
+    }
 
 
 def _crowding_info(lookup: dict[str, object], instrument_id: str) -> dict[str, object]:

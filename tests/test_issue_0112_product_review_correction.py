@@ -36,6 +36,7 @@ from etf_cockpit.features.macro import build_macro_context
 from etf_cockpit.services import (
     _cache_matches_universe,
     _cached_backtest_binding_matches,
+    _forecast_request_identity,
     _read_bound_cache_payload,
     _reference_binding,
     _reference_identity_hash,
@@ -58,6 +59,7 @@ from etf_cockpit.core.types import ForecastResult
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkReferenceError,
     CanonicalBenchmarkRegistry,
+    load_canonical_benchmark_registry,
     unavailable_reference_projection as contract_unavailable_reference_projection,
 )
 from etf_cockpit.portfolio.attribution import (
@@ -1002,7 +1004,10 @@ def test_regime_rejects_nested_forged_benchmark_authority() -> None:
         )
 
 
-def test_signal_service_recomputes_type_forged_features_and_binds_forecast_identity(monkeypatch) -> None:
+@pytest.mark.parametrize("binding_mode", ["missing", "stale"])
+def test_signal_service_recomputes_supplied_features_without_current_price_binding(
+    monkeypatch, binding_mode: str
+) -> None:
     import etf_cockpit.services as services_module
 
     captured: dict[str, object] = {}
@@ -1046,11 +1051,19 @@ def test_signal_service_recomputes_type_forged_features_and_binds_forecast_ident
 
     monkeypatch.setattr(services_module, "load_latest_forecasts", capture_forecasts)
     supplied_features = pd.DataFrame(columns=["date", "etf_id"])
-    supplied_features.attrs["reference_identity"] = {
-        **identity,
-        "execution_allowed": 0,
-    }
+    supplied_features.attrs["reference_identity"] = dict(identity)
     supplied_features.attrs["reference_identity_hash"] = _reference_identity_hash(identity)
+    if binding_mode == "stale":
+        supplied_features.attrs["price_binding"] = {
+            "price_snapshot_checksum": "b" * 64,
+            "price_snapshot_revision": "b" * 64,
+            "effective_cutoff": "2025-01-02T23:59:59+00:00",
+            "calculation_window": {
+                "start_date": "2025-01-02",
+                "end_date": "2025-01-02",
+                "decision_time": "2025-01-02T23:59:59+00:00",
+            },
+        }
     SignalService(load_config()).generate_signals(
         as_of_date=date(2025, 1, 2),
         features=supplied_features,
@@ -1058,6 +1071,152 @@ def test_signal_service_recomputes_type_forged_features_and_binds_forecast_ident
     assert isinstance(captured.get("reference_identity"), dict)
     assert captured["reference_identity"]["schema"] == "benchmark-reference-cache.v1"
     assert captured["feature_ids"] == ["RECOMPUTED"]
+
+
+def test_feature_service_without_as_of_derives_bound_window_before_publication(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    prices = pd.DataFrame([
+        {"date": "2025-01-01", "etf_id": "ETF", "adjusted_close": 100.0},
+        {"date": "2025-01-02", "etf_id": "ETF", "adjusted_close": 101.0},
+    ])
+    monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        services_module,
+        "compute_features",
+        lambda frame, **_kwargs: pd.DataFrame({"date": frame["date"], "etf_id": frame["etf_id"]}),
+    )
+
+    def capture_write(frame, *, cache_metadata):
+        captured["metadata"] = cache_metadata
+        captured["attrs"] = dict(frame.attrs)
+
+    monkeypatch.setattr(services_module, "write_features", capture_write)
+    services_module.FeatureService(load_config()).compute_features(prices=prices)
+
+    metadata = captured["metadata"]
+    assert metadata["calculation_window"] == {
+        "start_date": "2025-01-01",
+        "end_date": "2025-01-02",
+        "decision_time": "2025-01-02T23:59:59+00:00",
+    }
+    assert metadata["price_snapshot_checksum"] == captured["attrs"]["price_binding"]["price_snapshot_checksum"]
+
+
+def test_attribution_excludes_future_commission_from_declared_window() -> None:
+    context = SimpleNamespace(
+        resolution=SimpleNamespace(
+            declaration=SimpleNamespace(
+                start_date="2025-01-01",
+                end_date="2025-01-02",
+                decision_time="2025-01-02T23:59:59Z",
+            )
+        )
+    )
+    report = build_performance_attribution(
+        pd.DataFrame([
+            {"date": "2025-01-01", "etf_id": "ETF", "adjusted_close": 100.0},
+            {"date": "2025-01-02", "etf_id": "ETF", "adjusted_close": 101.0},
+        ]),
+        pd.DataFrame([{"etf_id": "ETF", "current_weight": 1.0}]),
+        costs=pd.DataFrame([{
+            "date": "2025-02-01",
+            "known_at": "2025-02-01T12:00:00Z",
+            "category": "commission",
+            "amount": 0.005,
+        }]),
+        reference_context=context,
+    )
+    assert report["cost_attribution"].empty
+    assert report["net_return_after_explicit_costs"] == report["time_weighted_return"]
+    assert "explicit_costs_outside_canonical_window_excluded" in report["warnings"]
+
+
+@pytest.mark.parametrize(
+    "chronology",
+    [
+        {"date": "not-a-date"},
+        {"date": "2025-01-01", "effective_at": "2025-01-02T12:00:00Z"},
+    ],
+)
+def test_attribution_marks_malformed_or_contradictory_cost_chronology_unavailable(chronology) -> None:
+    context = SimpleNamespace(
+        resolution=SimpleNamespace(
+            declaration=SimpleNamespace(
+                start_date="2025-01-01",
+                end_date="2025-01-02",
+                decision_time="2025-01-02T23:59:59Z",
+            )
+        )
+    )
+    report = build_performance_attribution(
+        pd.DataFrame([
+            {"date": "2025-01-01", "etf_id": "ETF", "adjusted_close": 100.0},
+            {"date": "2025-01-02", "etf_id": "ETF", "adjusted_close": 101.0},
+        ]),
+        pd.DataFrame([{"etf_id": "ETF", "current_weight": 1.0}]),
+        costs=pd.DataFrame([{"category": "commission", "amount": 0.005, **chronology}]),
+        reference_context=context,
+    )
+    assert report["net_return_after_explicit_costs"] is None
+    assert report["coverage"]["cost_status"] == "invalid"
+    assert "explicit_costs_invalid_for_canonical_window" in report["warnings"]
+
+
+def test_main_and_candidate_forecast_caches_bind_horizons_and_optional_mode(tmp_path) -> None:
+    identity = _cache_identity()
+    price_binding = {
+        "price_snapshot_checksum": "a" * 64,
+        "price_snapshot_revision": "a" * 64,
+        "effective_cutoff": "2025-01-02T23:59:59Z",
+        "calculation_window": {
+            "start_date": "2025-01-01",
+            "end_date": "2025-01-02",
+            "decision_time": "2025-01-02T23:59:59Z",
+        },
+    }
+    written_request = _forecast_request_identity(load_config(), [1, 1], live_optional_models=False)
+    requested = _forecast_request_identity(load_config(), [60], live_optional_models=True)
+    for name in ("forecast_results_yfinance_20250102.csv", "yfinance_candidate_forecasts_20250102.csv"):
+        path = tmp_path / name
+        _write_bound_cache_group(
+            path,
+            b"etf_id,status\nETF,ok\n",
+            lambda candidate: pd.read_csv(candidate),
+            "u1",
+            "s1",
+            identity,
+            price_binding,
+            written_request,
+        )
+        assert not _cache_matches_universe(
+            path, "u1", "s1", identity, price_binding, requested
+        )
+        assert _read_bound_cache_payload(
+            path, "u1", "s1", identity, price_binding, requested
+        ) is None
+    assert written_request["requested_horizons"] == [1]
+
+
+def test_packaged_registry_unavailable_cash_blocks_local_curve_lookup(monkeypatch) -> None:
+    context = CanonicalReferenceContext(load_canonical_benchmark_registry())
+    monkeypatch.setattr(
+        simple_scores_module,
+        "_build_local_cash_comparison_lookup",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("local curve evidence bypassed unavailable canonical cash")
+        ),
+    )
+    scores = build_simple_instrument_scores(
+        load_config(),
+        [],
+        pd.DataFrame(),
+        pd.DataFrame(),
+        benchmark_reference=context.projection,
+        reference_identity=context.identity,
+    )
+    assert scores
+    assert all(score.cash_comparison_status == "unavailable" for score in scores)
+    assert all(score.cash_return is None for score in scores)
 
 
 def test_simple_score_candidate_loader_passes_reference_identity(monkeypatch) -> None:

@@ -20,6 +20,14 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
 )
 
 
+def _bound_feature_prices() -> pd.DataFrame:
+    return pd.DataFrame({
+        "date": ["2025-01-01"],
+        "etf_id": ["VWCE"],
+        "adjusted_close": [100.0],
+    })
+
+
 def _service_reference_context():
     source_hash = "a" * 64
     registry = CanonicalBenchmarkRegistry(
@@ -89,9 +97,9 @@ def test_feature_output_is_published_only_after_settings_bound_manifest_reservat
     monkeypatch.setattr(services, "compute_features", lambda _frame, benchmark_etf_id=None: pd.DataFrame({"value": [1]}))
     monkeypatch.setattr(services, "write_features", lambda _frame, **_kwargs: events.append(("output", "features")))
 
-    services.FeatureService(load_config()).compute_features(prices=pd.DataFrame())
+    services.FeatureService(load_config()).compute_features(prices=_bound_feature_prices())
 
-    assert events == [("manifest", "features_latest__saaaaaaaa:aaaaaaaa"), ("output", "features")]
+    assert events == [("manifest", "features_2025-01-01__saaaaaaaa:aaaaaaaa"), ("output", "features")]
 
 
 def test_feature_service_does_not_use_first_enabled_instrument_as_benchmark(monkeypatch) -> None:
@@ -102,7 +110,7 @@ def test_feature_service_does_not_use_first_enabled_instrument_as_benchmark(monk
     monkeypatch.setattr(services, "compute_features", lambda _frame, benchmark_etf_id=None: captured.append(benchmark_etf_id) or pd.DataFrame({"value": [1]}))
     monkeypatch.setattr(services, "write_features", lambda _frame, **_kwargs: None)
 
-    services.FeatureService(load_config()).compute_features(prices=pd.DataFrame())
+    services.FeatureService(load_config()).compute_features(prices=_bound_feature_prices())
 
     assert captured == [None]
 
@@ -245,7 +253,7 @@ def test_feature_run_threads_one_identity_when_settings_change_between_id_and_ma
     monkeypatch.setattr(services, "compute_features", lambda _frame, benchmark_etf_id=None: pd.DataFrame({"value": [1]}))
     monkeypatch.setattr(services, "write_features", lambda _frame, **_kwargs: None)
 
-    services.FeatureService(load_config()).compute_features(prices=pd.DataFrame())
+    services.FeatureService(load_config()).compute_features(prices=_bound_feature_prices())
 
     assert seen[0] is seen[1] is captured
     assert seen[1]["settings_revision"] == "d" * 64

@@ -1422,8 +1422,33 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
         root=tmp_path,
     )
 
+    cash_hash = "c" * 64
+    canonical_reference = {
+        "cash": {
+            "status": "available",
+            "id": "eur-official-local-spot",
+            "content_hash": cash_hash,
+        },
+        "selected_records": {"cash": cash_hash},
+        "execution_allowed": False,
+    }
+    canonical_identity = {
+        "selected_records": {"cash": cash_hash},
+        "analysis": {
+            "currency": "EUR",
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+            "decision_time": adjusted_endpoint_available_at(end),
+        },
+        "execution_allowed": False,
+    }
     scores = build_simple_instrument_scores(
-        snapshot.config, snapshot.signals, snapshot.forecasts, snapshot.prices
+        snapshot.config,
+        snapshot.signals,
+        snapshot.forecasts,
+        snapshot.prices,
+        benchmark_reference=canonical_reference,
+        reference_identity=canonical_identity,
     )
     available_score = {score.display_id: score for score in scores}[instrument_id]
     assert available_score.cash_comparison_status == "available"

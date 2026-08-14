@@ -317,6 +317,21 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   fresh complete H-tier run; `execution_allowed=false` and authority boundaries
   remain unchanged.
 
+- Replacement head `b3f36a28bee58f79a4c27e912e5215d5095016c8` is rejected by
+  both final reviewers; H-tier run `31788494031` passed classifier,
+  supply-chain and exact changed-test preflight, then was cancelled as stale.
+  The complete newly demonstrated set is caller-supplied feature binding,
+  future or malformed cost chronology in attribution, forecast horizon/model
+  request identity and canonical cash-selection gating. One bounded correction
+  requires current price/window attrs on supplied features, derives or rejects
+  unbound feature publication, clips and validates every dated cost row, binds
+  main and candidate forecast caches to normalized request identity, and keeps
+  cash comparison unavailable unless local curve evidence matches an available
+  canonical cash identity and window. Focused ISSUE-0112, publication,
+  attribution, scoring, cash and recovery suites pass with Ruff, compile and
+  diff hygiene clean. Freeze one replacement exact head for paired review and
+  fresh complete H-tier evidence; preserve `execution_allowed=false`.
+
 ## Historical ISSUE-0017 product checkpoint
 
 - ISSUE-0016 PR #671 merged exact reviewed head

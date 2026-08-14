@@ -77,7 +77,8 @@ def build_performance_attribution(
 
     factor_attribution = _factor_attribution(daily, wealth, factor_returns, factor_exposures)
     currency_attribution = _currency_attribution(asset_summary, allocation)
-    cost_attribution, cost_total, tax_total = _cost_attribution(costs)
+    bounded_costs, cost_evidence_status = _costs_in_declared_window(costs, reference_context)
+    cost_attribution, cost_total, tax_total = _cost_attribution(bounded_costs)
     benchmark = _benchmark_attribution(
         total_return,
         _canonical_benchmark_returns(returns, reference_context),
@@ -86,7 +87,19 @@ def build_performance_attribution(
     )
     money_weighted, money_status = _money_weighted_return(wealth, daily.index, cashflows)
     decision_attribution = _decision_attribution(decisions, observed, portfolio_weights)
-    warnings = _warnings(observed, allocation, factor_attribution, currency_attribution, costs, cashflows, decisions)
+    warnings = _warnings(
+        observed,
+        allocation,
+        factor_attribution,
+        currency_attribution,
+        bounded_costs,
+        cashflows,
+        decisions,
+    )
+    if cost_evidence_status == "invalid":
+        warnings.append("explicit_costs_invalid_for_canonical_window")
+    elif cost_evidence_status == "excluded_outside_window":
+        warnings.append("explicit_costs_outside_canonical_window_excluded")
     reference_projection = (
         _unavailable_reference_projection()
         if reference_context is None
@@ -94,7 +107,11 @@ def build_performance_attribution(
     )
     if reference_projection.get("status") != "available":
         warnings.append("canonical_benchmark_cash_resolution_unavailable")
-    net_return = None if total_return is None else float(total_return - cost_total - tax_total)
+    net_return = (
+        None
+        if total_return is None or cost_evidence_status == "invalid"
+        else float(total_return - cost_total - tax_total)
+    )
 
     return {
         "status": "available" if not warnings else "partial",
@@ -124,8 +141,8 @@ def build_performance_attribution(
             "allocation_is_dated": bool(allocation is not None and "date" in allocation.columns),
             "factor_status": _frame_status(factor_attribution),
             "currency_status": _frame_status(currency_attribution),
-            "cost_status": "available" if costs is not None and not costs.empty else "unavailable",
-            "tax_status": "available" if costs is not None and "tax" in costs.columns else "unavailable",
+            "cost_status": cost_evidence_status,
+            "tax_status": "available" if bounded_costs is not None and "tax" in bounded_costs.columns else "unavailable",
             "decision_status": _frame_status(decision_attribution),
             "benchmark_status": _frame_status(benchmark),
             "benchmark_reference_status": str(reference_projection.get("status", "unavailable")),
@@ -397,6 +414,86 @@ def _cost_attribution(costs: pd.DataFrame | None) -> tuple[pd.DataFrame, float, 
     result["status"] = "explicit"
     tax_total = float(result.loc[result["category"].str.casefold().str.contains("tax"), "amount"].sum())
     return result[columns], float(result["amount"].sum()), tax_total
+
+
+def _costs_in_declared_window(
+    costs: pd.DataFrame | None,
+    reference_context: object | None,
+) -> tuple[pd.DataFrame | None, str]:
+    """Validate every populated cost chronology field against one canonical window."""
+
+    if costs is None or costs.empty:
+        return costs, "unavailable"
+    resolution = getattr(reference_context, "resolution", None)
+    declaration = getattr(resolution, "declaration", None)
+    if declaration is None:
+        return costs, "available"
+    try:
+        start = pd.Timestamp(declaration.start_date, tz="UTC")
+        end = pd.Timestamp(declaration.end_date, tz="UTC") + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+        decision = pd.Timestamp(declaration.decision_time)
+        if decision.tzinfo is None:
+            return None, "invalid"
+        decision = decision.tz_convert("UTC")
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return None, "invalid"
+    if start > end or decision < start:
+        return None, "invalid"
+
+    effective_fields = ("effective_at", "date", "as_of", "as_of_date", "trade_date", "transaction_date")
+    knowledge_fields = ("known_at", "available_at", "retrieved_at", "imported_at", "published_at")
+    selected: list[object] = []
+    for index, row in costs.iterrows():
+        effective, effective_valid = _cost_chronology(row, effective_fields, aliases_must_match=True)
+        known_at, knowledge_valid = _cost_chronology(row, knowledge_fields)
+        if effective is None or not effective_valid or not knowledge_valid:
+            return None, "invalid"
+        if effective < start or effective > end or effective > decision:
+            continue
+        if known_at is not None and known_at > decision:
+            continue
+        selected.append(index)
+    if not selected:
+        return costs.iloc[0:0].copy(), "excluded_outside_window"
+    return costs.loc[selected].copy(), "available"
+
+
+def _cost_chronology(
+    row: pd.Series,
+    fields: tuple[str, ...],
+    *,
+    aliases_must_match: bool = False,
+) -> tuple[pd.Timestamp | None, bool]:
+    populated: list[object] = []
+    for field in fields:
+        if field not in row or pd.isna(row.get(field)):
+            continue
+        value = row.get(field)
+        if isinstance(value, str) and not value.strip():
+            continue
+        populated.append(value)
+    if not populated:
+        return None, True
+    parsed_values: list[pd.Timestamp] = []
+    for value in populated:
+        if isinstance(value, (bool, int, float, np.number)):
+            return None, False
+        text = str(value).strip()
+        try:
+            parsed = pd.Timestamp(value)
+            if pd.isna(parsed):
+                return None, False
+            if parsed.tzinfo is None:
+                parsed = parsed.tz_localize("UTC")
+            parsed = parsed.tz_convert("UTC")
+            if len(text) == 10 and text[4] == "-" and text[7] == "-":
+                parsed = parsed.normalize() + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+        except (TypeError, ValueError, OverflowError):
+            return None, False
+        parsed_values.append(parsed)
+    if aliases_must_match and len(set(parsed_values)) != 1:
+        return None, False
+    return max(parsed_values), True
 
 
 def _benchmark_attribution(

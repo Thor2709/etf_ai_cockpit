@@ -4272,3 +4272,17 @@ evidence without fallback. Direct focused tests, changed validation, Ruff,
 compile, byte-clean programme generation and diff hygiene pass. Freeze one
 replacement head for both final reviews and fresh Linux, Windows, terminal,
 package and pilot H-tier evidence; preserve `execution_allowed=false`.
+
+`FINAL CONSUMER IDENTITY CORRECTION` head
+`b3f36a28bee58f79a4c27e912e5215d5095016c8` is rejected by both reviewers and
+run `31788494031` is cancelled/stale after passing preflight. Caller-supplied
+features could omit current source-price binding, future costs could affect an
+earlier declared attribution window, forecast cache identity omitted horizons
+and optional-model mode, and local cash evidence could override a canonically
+unavailable cash selection. One bounded pass closes exactly those four paths
+with direct regressions: current feature attrs are mandatory, all cost
+chronology is window-validated, forecast request identity is sidecar-bound and
+cash evidence must match the available canonical cash record and analysis
+window. Focused and broad affected tests plus Ruff, compile and diff hygiene
+pass. Freeze one replacement head for paired review and fresh full H-tier
+evidence; preserve authority and `execution_allowed=false`.
