@@ -1590,7 +1590,9 @@ def _validate_period(currency: str, horizon: float, start: str, end: str, cutoff
         raise BenchmarkReferenceError("analysis period must be positive")
 
 
-def _selector_matches(selector: Mapping[str, str], instrument: Mapping[str, object]) -> bool:
+def _selector_matches(selector: Mapping[str, str], instrument: object) -> bool:
+    if not isinstance(instrument, Mapping):
+        return False
     return all(str(instrument.get(key, "")) == value for key, value in selector.items())
 
 

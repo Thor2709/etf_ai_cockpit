@@ -4299,3 +4299,22 @@ out-of-window cashflows or nonnumeric/nonfinite cost evidence. Direct and broad
 affected tests plus Ruff, compile and diff hygiene pass. Freeze one replacement
 head for paired review and fresh Linux, Windows, terminal, package and pilot
 evidence; preserve `execution_allowed=false`.
+
+`FINAL WRITER IDENTITY AND MALFORMED INPUT CORRECTION` head
+`cf0edc22aab8be16cb5c22c000929ebf6646bc72` is rejected by both final
+reviewers and run `31794764667` is stale. Align the real UI writer with the
+explicit configured/candidate request identity without weakening cache
+matching; fail closed for malformed canonical instrument objects and
+list-valued cost/cashflow chronology; and add only the demonstrated end-to-end
+and malformed-input regressions. Freeze one replacement head for paired review
+and fresh full H-tier evidence. Do not alter workflow, persistence architecture,
+financial formulas, authority or `execution_allowed=false`.
+
+The consolidated correction is locally complete: the actual UI forecast action
+and both production readback classes share one explicit request identity;
+non-mapping canonical instruments and non-scalar cost/cashflow chronology fail
+closed; and direct regressions cover the writer-to-snapshot configured/candidate
+round trip and both malformed inputs. The affected collection, changed validator,
+offline smoke, Ruff, compile, registry, byte-clean programme and diff checks pass.
+Freeze one clean replacement exact head for paired review and fresh Linux,
+Windows, terminal, package and pilot evidence.

@@ -3084,3 +3084,23 @@ next action and whether the requested outcome is actually complete.
   recursive paths use existing fail-closed results, and both value objects reject
   the demonstrated types. Direct regressions cover only those cases; no adjacent
   financial formula, persistence, workflow, authority or execution change.
+- Head `cf0edc22aab8be16cb5c22c000929ebf6646bc72` is rejected by both
+  exact-head reviewers and run `31794764667` is stale. The consolidated
+  demonstrated set is limited to three paths: the UI forecast writer used a
+  different request identity from configured and candidate readers, malformed
+  canonical instrument objects escaped the unavailable boundary, and
+  list-valued cost or cashflow chronology raised instead of failing closed.
+  Apply one bounded correction with an actual writer-to-snapshot readback
+  regression and direct malformed-input regressions, then freeze one new head
+  for paired review and fresh Linux, Windows, terminal, package and pilot
+  H-tier evidence. Preserve exact identity validation, all existing authority
+  boundaries and `execution_allowed=false`.
+- The single consolidated working-tree correction now derives the interactive
+  writer arguments from the same canonical `[60]`/optional-models-disabled
+  identity used by configured and candidate readers, rejects non-mapping
+  instrument evidence at both resolution boundaries, and classifies non-scalar
+  cost/cashflow chronology as invalid before pandas evaluation. The complete
+  affected focused collection, 64-test changed validation with offline smoke,
+  Ruff, compile, registry validation, byte-clean programme generation and diff
+  hygiene pass. Freeze and publish one replacement exact head for paired final
+  review and fresh full H-tier evidence.

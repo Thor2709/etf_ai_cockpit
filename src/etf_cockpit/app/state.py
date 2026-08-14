@@ -39,6 +39,7 @@ from etf_cockpit.parsers.sec_facts import parse_companyfacts, statement_facts_fr
 from etf_cockpit.features.regime import build_market_regime, write_market_regime
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.models.calibration import evaluate_forecast_calibration, load_forecast_history, write_forecast_calibration
+from etf_cockpit.models.forecast_scores import configured_forecast_request_identity
 from etf_cockpit.operations.event_store import current_activity_view, load_events_with_tail_recovery
 from etf_cockpit.portfolio.review_reports import create_portfolio_review_report
 from etf_cockpit.services import ChatGPTBridge, CockpitSnapshot, DataService, build_snapshot
@@ -819,9 +820,10 @@ class AppState:
         action_id = self.current_activity.action_id if self.current_activity else "forecasts"
         with timed_step(action_id, "forecast_models"):
             service = DataService(self.snapshot.config)
+            request_identity = configured_forecast_request_identity(self.snapshot.config)
             message = service.run_yfinance_forecasts(
-                horizons=[60],
-                live_optional_models=False,
+                horizons=list(request_identity["requested_horizons"]),
+                live_optional_models=bool(request_identity["live_optional_models"]),
                 progress_callback=lambda stage, completed, total: self.update_activity(
                     stage,
                     completed_units=completed,

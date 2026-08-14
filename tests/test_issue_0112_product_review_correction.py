@@ -11,7 +11,9 @@ import pandas as pd
 import pytest
 import etf_cockpit.models.forecast_scores as forecast_scores
 import etf_cockpit.services as services_module
+from etf_cockpit.app import state as app_state_module
 from etf_cockpit.app.pages import dashboard as dashboard_module
+from etf_cockpit.app.state import AppState
 
 from etf_cockpit.application.benchmark_reference import (
     CanonicalReferenceContext,
@@ -50,6 +52,7 @@ from etf_cockpit.data.trade_candidate_analysis import (
     write_candidate_price_snapshot,
 )
 from etf_cockpit.models.forecast_scores import (
+    configured_forecast_request_identity,
     filter_forecasts_for_universe,
     latest_forecast_file,
     load_latest_forecasts,
@@ -816,6 +819,43 @@ def test_application_reference_resolution_maps_deep_instrument_recursion_to_unav
     assert context.blocker.startswith("reference_resolution_invalid:")
 
 
+def test_application_reference_resolution_maps_non_mapping_instrument_to_unavailable() -> None:
+    registry = load_canonical_benchmark_registry()
+    direct = registry.resolve_analysis(
+        analysis_id="malformed-instrument-direct",
+        purpose="comparison",
+        instrument_id="VWCE",
+        instrument=object(),  # type: ignore[arg-type]
+        currency="EUR",
+        horizon_years=1.0,
+        start_date="2025-01-01",
+        end_date="2025-12-31",
+        decision_time="2025-12-31T23:59:59Z",
+        reference_portfolio_ids=(registry.reference_portfolios[0].portfolio_id,),
+    )
+    assert all(
+        selection.status == "unavailable"
+        for selection in (direct.benchmark, direct.cash, direct.peer_set)
+    )
+
+    context = resolve_canonical_reference(
+        registry,
+        analysis_id="malformed-instrument",
+        purpose="comparison",
+        instrument_id="VWCE",
+        instrument=object(),  # type: ignore[arg-type]
+        currency="EUR",
+        horizon_years=1.0,
+        start_date="2025-01-01",
+        end_date="2025-12-31",
+        decision_time="2025-12-31T23:59:59Z",
+        reference_portfolio_ids=(),
+    )
+    assert context.resolution is None
+    assert context.blocker == "reference_resolution_inputs_unavailable"
+    assert context.projection["status"] == "unavailable"
+
+
 def test_backtest_engine_keeps_relative_features_unavailable_without_benchmark(monkeypatch) -> None:
     from etf_cockpit.backtest import engine
 
@@ -1166,6 +1206,7 @@ def test_attribution_excludes_future_commission_from_declared_window() -> None:
     "chronology",
     [
         {"date": "not-a-date"},
+        {"date": ["2025-01-01"]},
         {"date": "2025-01-01", "effective_at": "2025-01-02T12:00:00Z"},
     ],
 )
@@ -1225,6 +1266,7 @@ def test_attribution_future_cashflow_cannot_publish_money_weighted_return() -> N
     "chronology",
     [
         {"date": "not-a-date"},
+        {"date": ["2025-01-01"]},
         {"date": "2025-01-01", "effective_at": "2025-01-02T12:00:00Z"},
         {
             "date": "2025-01-01",
@@ -1348,6 +1390,103 @@ def test_main_and_candidate_forecast_caches_bind_horizons_and_optional_mode(tmp_
     assert written_request["requested_horizons"] == [1]
 
 
+def test_ui_forecast_action_rebuild_reads_configured_and_candidate_caches_with_one_request(
+    tmp_path, monkeypatch
+) -> None:
+    config = load_config()
+    expected_request = configured_forecast_request_identity(config)
+    identity = {
+        **_cache_identity(),
+        "analysis": {
+            "start_date": "2025-01-01",
+            "end_date": "2025-01-02",
+            "decision_time": "2025-01-02T23:59:59Z",
+        },
+    }
+    main_binding = {
+        "price_snapshot_checksum": "a" * 64,
+        "price_snapshot_revision": "a" * 64,
+        "effective_cutoff": "2025-01-02T23:59:59Z",
+        "calculation_window": dict(identity["analysis"]),
+    }
+    candidate_binding = {
+        **main_binding,
+        "price_snapshot_checksum": "b" * 64,
+        "price_snapshot_revision": "b" * 64,
+    }
+    main_path = tmp_path / "forecast_results_yfinance_20250102.csv"
+    candidate_path = tmp_path / "yfinance_candidate_forecasts_20250102.csv"
+    readback: dict[str, pd.DataFrame] = {}
+
+    class PublishingDataService:
+        last_operation_succeeded = True
+
+        def __init__(self, supplied_config) -> None:
+            self.config = supplied_config
+
+        def run_yfinance_forecasts(self, **kwargs) -> str:
+            writer_request = _forecast_request_identity(
+                self.config,
+                kwargs["horizons"],
+                live_optional_models=kwargs["live_optional_models"],
+            )
+            assert writer_request == expected_request
+            for path, instrument_id, binding in (
+                (main_path, "MAIN", main_binding),
+                (candidate_path, "CANDIDATE", candidate_binding),
+            ):
+                _write_bound_cache_group(
+                    path,
+                    f"etf_id,status\n{instrument_id},ok\n".encode(),
+                    lambda candidate: pd.read_csv(candidate),
+                    "u1",
+                    "s1",
+                    identity,
+                    binding,
+                    writer_request,
+                )
+            return "Configured and candidate forecasts published."
+
+    snapshot = SimpleNamespace(config=config)
+
+    def rebuild_snapshot(*_args, **_kwargs):
+        snapshot_request = configured_forecast_request_identity(config)
+        readback["configured"] = load_latest_forecasts(
+            "forecast_results_yfinance_*.csv",
+            tmp_path,
+            universe_revision="u1",
+            settings_revision="s1",
+            reference_identity=identity,
+            price_binding=main_binding,
+            forecast_request_identity=snapshot_request,
+        )
+        readback["candidate"] = load_latest_forecasts(
+            "yfinance_candidate_forecasts_*.csv",
+            tmp_path,
+            universe_revision="u1",
+            settings_revision="s1",
+            reference_identity=identity,
+            price_binding=candidate_binding,
+            forecast_request_identity=snapshot_request,
+        )
+        return snapshot
+
+    monkeypatch.setattr(app_state_module, "DataService", PublishingDataService)
+    monkeypatch.setattr(app_state_module, "build_snapshot", rebuild_snapshot)
+    state = AppState(snapshot=snapshot, selected_etf="MAIN")
+    monkeypatch.setattr(state, "_write_current_scoreboard", lambda: SimpleNamespace(name="scores.parquet"))
+
+    state.run_forecasting_models()
+
+    assert expected_request == {
+        "schema": "forecast-cache-request.v1",
+        "requested_horizons": [60],
+        "live_optional_models": False,
+    }
+    assert readback["configured"]["etf_id"].tolist() == ["MAIN"]
+    assert readback["candidate"]["etf_id"].tolist() == ["CANDIDATE"]
+
+
 def test_packaged_registry_unavailable_cash_blocks_local_curve_lookup(monkeypatch) -> None:
     context = CanonicalReferenceContext(load_canonical_benchmark_registry())
     monkeypatch.setattr(
@@ -1413,9 +1552,7 @@ def test_simple_score_candidate_loader_passes_reference_identity(monkeypatch) ->
     )
     assert captured["reference_identity"] == identity
     assert captured["price_binding"] == candidate_binding
-    assert captured["forecast_request_identity"] == _forecast_request_identity(
-        load_config(), None, live_optional_models=True
-    )
+    assert captured["forecast_request_identity"] == configured_forecast_request_identity(load_config())
 
 
 def test_candidate_price_binding_replays_exact_retained_source_and_rejects_substitution(tmp_path) -> None:

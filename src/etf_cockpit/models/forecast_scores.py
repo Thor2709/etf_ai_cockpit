@@ -38,13 +38,12 @@ def forecast_request_identity(
 
 
 def configured_forecast_request_identity(config: AppConfig) -> dict[str, object]:
-    live_optional_models = any(
-        config.models.runtime(name).enabled and config.models.runtime(name).mode == "live"
-        for name in ("timesfm", "toto")
-    )
+    """Return the one canonical request published by the interactive scoring workflow."""
+
     return forecast_request_identity(
         config,
-        live_optional_models=live_optional_models,
+        [PRIMARY_MODEL_HORIZON_DAYS],
+        live_optional_models=False,
     )
 
 

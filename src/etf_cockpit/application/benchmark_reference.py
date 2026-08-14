@@ -359,7 +359,7 @@ def resolve_canonical_reference(
 
     unavailable = unavailable_reference_projection(registry)
     if (
-        instrument is None
+        not isinstance(instrument, Mapping)
         or currency is None
         or horizon_years is None
         or start_date is None

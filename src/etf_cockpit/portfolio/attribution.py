@@ -532,9 +532,17 @@ def _cost_chronology(
 ) -> tuple[pd.Timestamp | None, bool]:
     populated: list[object] = []
     for field in fields:
-        if field not in row or pd.isna(row.get(field)):
+        if field not in row:
             continue
         value = row.get(field)
+        try:
+            missing = pd.isna(value)
+        except (TypeError, ValueError):
+            return None, False
+        if not isinstance(missing, (bool, np.bool_)):
+            return None, False
+        if bool(missing):
+            continue
         if isinstance(value, str) and not value.strip():
             continue
         populated.append(value)
