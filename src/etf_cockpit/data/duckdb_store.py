@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from io import BytesIO
 from pathlib import Path
 import hashlib
 import json
@@ -7,7 +9,7 @@ import json
 import duckdb
 import pandas as pd
 
-from etf_cockpit.core.atomic_io import wait_for_atomic_group
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, read_atomic_group, wait_for_atomic_group
 from etf_cockpit.core.config import AppConfig, load_config
 from etf_cockpit.core.paths import FEATURES_DIR, PORTFOLIOS_DIR, VALIDATED_DIR
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
@@ -68,11 +70,44 @@ def load_holdings(path: Path = HOLDINGS_CSV) -> pd.DataFrame:
     return frame
 
 
-def write_features(features: pd.DataFrame, path: Path = FEATURE_PARQUET) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def _features_payload(features: pd.DataFrame) -> bytes:
     frame = features.copy()
     frame["date"] = pd.to_datetime(frame["date"])
-    frame.to_parquet(path, index=False)
+    buffer = BytesIO()
+    frame.to_parquet(buffer, index=False)
+    return buffer.getvalue()
+
+
+def write_features(
+    features: pd.DataFrame,
+    path: Path = FEATURE_PARQUET,
+    *,
+    cache_metadata: Mapping[str, object] | None = None,
+) -> None:
+    payload = _features_payload(features)
+    requests = [
+        AtomicWriteRequest(
+            path,
+            payload,
+            lambda candidate: pd.read_parquet(candidate),
+        )
+    ]
+    if cache_metadata is not None:
+        metadata = dict(cache_metadata)
+        metadata["schema_version"] = 3
+        metadata["payload_sha256"] = hashlib.sha256(payload).hexdigest()
+        reference_identity = metadata.get("reference_identity")
+        if isinstance(reference_identity, Mapping) and "reference_identity_hash" not in metadata:
+            metadata["reference_identity_hash"] = _reference_identity_hash(reference_identity)
+        metadata_path = Path(f"{path}.meta.json")
+        requests.append(
+            AtomicWriteRequest(
+                metadata_path,
+                json.dumps(metadata, sort_keys=True).encode("utf-8"),
+                lambda candidate: json.loads(candidate.read_text(encoding="utf-8")),
+            )
+        )
+    atomic_write_group(tuple(requests))
 
 
 def load_features(
@@ -84,29 +119,42 @@ def load_features(
 ) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
-    if universe_revision is not None or settings_revision is not None or reference_identity is not None:
-        metadata_path = Path(f"{path}.meta.json")
-        try:
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            encoded = json.dumps(reference_identity, sort_keys=True, separators=(",", ":"), allow_nan=False) if reference_identity is not None else None
-            identity_hash = hashlib.sha256(encoded.encode("utf-8")).hexdigest() if encoded is not None else None
-        except (OSError, TypeError, ValueError):
-            return pd.DataFrame()
-        if not isinstance(metadata, dict):
-            return pd.DataFrame()
-        expected_settings = settings_revision or current_settings_revision()
-        if universe_revision is not None and str(metadata.get("universe_revision") or "") != universe_revision:
-            return pd.DataFrame()
-        if (universe_revision is not None or settings_revision is not None) and str(metadata.get("settings_revision") or "") != expected_settings:
-            return pd.DataFrame()
-        if reference_identity is not None and (
-            metadata.get("reference_identity") != reference_identity
-            or metadata.get("reference_identity_hash") != identity_hash
-        ):
-            return pd.DataFrame()
-    frame = pd.read_parquet(path)
+    metadata_path = Path(f"{path}.meta.json")
+    try:
+        if metadata_path.exists():
+            payload_bytes, metadata_bytes = read_atomic_group((path, metadata_path))
+            metadata = json.loads(metadata_bytes.decode("utf-8"))
+        else:
+            if universe_revision is not None or settings_revision is not None or reference_identity is not None:
+                return pd.DataFrame()
+            payload_bytes = path.read_bytes()
+            metadata = None
+        if metadata is not None:
+            if not isinstance(metadata, dict):
+                return pd.DataFrame()
+            expected_settings = settings_revision or current_settings_revision()
+            if universe_revision is not None and str(metadata.get("universe_revision") or "") != universe_revision:
+                return pd.DataFrame()
+            if (universe_revision is not None or settings_revision is not None) and str(metadata.get("settings_revision") or "") != expected_settings:
+                return pd.DataFrame()
+            if reference_identity is not None and (
+                metadata.get("reference_identity") != reference_identity
+                or metadata.get("reference_identity_hash") != _reference_identity_hash(reference_identity)
+                or metadata.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest()
+            ):
+                return pd.DataFrame()
+            if metadata.get("payload_sha256") is not None and metadata["payload_sha256"] != hashlib.sha256(payload_bytes).hexdigest():
+                return pd.DataFrame()
+        frame = pd.read_parquet(BytesIO(payload_bytes))
+    except (OSError, TypeError, ValueError, KeyError):
+        return pd.DataFrame()
     frame["date"] = pd.to_datetime(frame["date"]).dt.date
     return frame
+
+
+def _reference_identity_hash(identity: Mapping[str, object]) -> str:
+    encoded = json.dumps(dict(identity), sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def query_parquet(sql: str) -> pd.DataFrame:

@@ -111,7 +111,7 @@ def test_forecast_atomic_write_preserves_previous_output_on_failure(tmp_path: Pa
     def fail_write(*_args, **_kwargs):
         raise PermissionError("locked forecast output")
 
-    monkeypatch.setattr("etf_cockpit.services.atomic_write_bytes", fail_write)
+    monkeypatch.setattr("etf_cockpit.services.atomic_write_group", fail_write)
     with pytest.raises(PermissionError):
         ForecastService(load_config())._write_forecasts([forecast], date(2026, 7, 12), output_path=destination)
     assert destination.read_text(encoding="utf-8") == "old,clean\n1,yes\n"

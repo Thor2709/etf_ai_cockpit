@@ -4194,3 +4194,15 @@ multiline fields and reject malformed quoting or inconsistent widths. The full
 parsed-disclosure rollback/concurrency suite and Ruff pass. Freeze one replacement
 head for paired review and fresh H-tier evidence; do not alter workflows, pins,
 atomic I/O, canonical financial behavior, authority or `execution_allowed=false`.
+
+`CACHE BINDING CORRECTION` head `2f67ca378feb2d148c92ff686728ab460dfa7df1`
+is rejected and run `31770710533` is cancelled/stale. Whole-diff review approved;
+risk review reproduced feature and forecast payload substitution beneath a valid
+reference sidecar. Publish only those two payload/identity pairs through the
+existing recoverable atomic group, include and verify the payload SHA-256, and
+read each pair under one guard. Bound malformed, substituted, interrupted or
+interleaved pairs fail closed while valid and explicitly unbound legacy reads
+retain compatibility. Fifty-eight focused and adjacent tests plus Ruff, compile
+and diff hygiene pass. Freeze one replacement head for paired review and fresh
+H-tier evidence; do not alter generic atomic I/O, workflows, product calculations,
+authority or `execution_allowed=false`.

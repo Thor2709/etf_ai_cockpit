@@ -87,7 +87,7 @@ def test_feature_output_is_published_only_after_settings_bound_manifest_reservat
     monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
     monkeypatch.setattr(services, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
     monkeypatch.setattr(services, "compute_features", lambda _frame, benchmark_etf_id=None: pd.DataFrame({"value": [1]}))
-    monkeypatch.setattr(services, "write_features", lambda _frame: events.append(("output", "features")))
+    monkeypatch.setattr(services, "write_features", lambda _frame, **_kwargs: events.append(("output", "features")))
 
     services.FeatureService(load_config()).compute_features(prices=pd.DataFrame())
 
@@ -100,7 +100,7 @@ def test_feature_service_does_not_use_first_enabled_instrument_as_benchmark(monk
     monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(services, "compute_features", lambda _frame, benchmark_etf_id=None: captured.append(benchmark_etf_id) or pd.DataFrame({"value": [1]}))
-    monkeypatch.setattr(services, "write_features", lambda _frame: None)
+    monkeypatch.setattr(services, "write_features", lambda _frame, **_kwargs: None)
 
     services.FeatureService(load_config()).compute_features(prices=pd.DataFrame())
 
@@ -113,7 +113,7 @@ def test_feature_service_uses_explicit_canonical_benchmark_data_id(monkeypatch) 
     monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(services, "compute_features", lambda _frame, benchmark_etf_id=None: captured.append(benchmark_etf_id) or pd.DataFrame({"value": [1]}))
-    monkeypatch.setattr(services, "write_features", lambda _frame: None)
+    monkeypatch.setattr(services, "write_features", lambda _frame, **_kwargs: None)
     prices = pd.DataFrame({
         "date": ["2024-02-01"],
         "etf_id": ["ETF-1"],
@@ -234,7 +234,7 @@ def test_feature_run_threads_one_identity_when_settings_change_between_id_and_ma
     monkeypatch.setattr(services, "settings_bound_run_id", allocate)
     monkeypatch.setattr(services, "ensure_run_manifest", reserve)
     monkeypatch.setattr(services, "compute_features", lambda _frame, benchmark_etf_id=None: pd.DataFrame({"value": [1]}))
-    monkeypatch.setattr(services, "write_features", lambda _frame: None)
+    monkeypatch.setattr(services, "write_features", lambda _frame, **_kwargs: None)
 
     services.FeatureService(load_config()).compute_features(prices=pd.DataFrame())
 

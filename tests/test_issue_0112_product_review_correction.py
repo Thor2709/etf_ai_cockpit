@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import threading
 from datetime import date
 from types import SimpleNamespace
 
@@ -15,6 +17,8 @@ from etf_cockpit.application.benchmark_reference import (
 )
 from etf_cockpit.application.validation import _clip_to_reference_window
 from etf_cockpit.backtest.engine import BacktestDataUnavailableError, _declared_calculation_window, run_backtest
+from etf_cockpit.core import atomic_io
+from etf_cockpit.operations.recovery import recover_incomplete_transactions
 from etf_cockpit.features.regime import (
     _average_correlation,
     _candidate_pct_above_sma200,
@@ -27,9 +31,10 @@ from etf_cockpit.services import (
     _cache_matches_universe,
     _reference_identity_hash,
     _postprocess_forecast_benchmark_fields,
+    _write_bound_cache_group,
     _write_universe_cache_metadata,
 )
-from etf_cockpit.data.duckdb_store import load_features
+from etf_cockpit.data.duckdb_store import load_features, write_features
 from etf_cockpit.models.forecast_scores import (
     filter_forecasts_for_universe,
     latest_forecast_file,
@@ -177,6 +182,7 @@ def test_forecast_readers_require_matching_reference_identity(tmp_path) -> None:
         "settings_revision": "settings",
         "reference_identity": identity,
         "reference_identity_hash": _reference_identity_hash(identity),
+        "payload_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
     }
     path.with_name(f"{path.name}.meta.json").write_text(json.dumps(metadata), encoding="utf-8")
     exact = {"source_file": str(path), "etf_id": "BENCH"}
@@ -243,12 +249,220 @@ def test_feature_reader_requires_universe_settings_and_reference_sidecar(tmp_pat
         "settings_revision": "s1",
         "reference_identity": identity,
         "reference_identity_hash": _reference_identity_hash(identity),
+        "payload_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
     }
     path.with_name(f"{path.name}.meta.json").write_text(json.dumps(metadata), encoding="utf-8")
     assert load_features(path, universe_revision="u2", settings_revision="s1", reference_identity=identity).empty
     assert load_features(path, universe_revision="u1", settings_revision="s2", reference_identity=identity).empty
     loaded = load_features(path, universe_revision="u1", settings_revision="s1", reference_identity=identity)
     assert len(loaded) == 1
+
+
+def _cache_identity() -> dict[str, object]:
+    return {
+        "schema": "benchmark-reference-cache.v1",
+        "status": "unavailable",
+        "registry_hash": "unavailable",
+        "benchmark_data_id": None,
+        "selected_records": {},
+        "calculation_schema": "canonical-benchmark-cash.v1",
+        "execution_allowed": False,
+    }
+
+
+def test_feature_and_forecast_pair_round_trip_rejects_payload_substitution(tmp_path) -> None:
+    identity = _cache_identity()
+    feature_path = tmp_path / "features.parquet"
+    features = pd.DataFrame([{"date": "2025-01-01", "etf_id": "BENCH", "value": 1.0}])
+    write_features(
+        features,
+        feature_path,
+        cache_metadata={
+            "universe_revision": "u1",
+            "settings_revision": "s1",
+            "reference_identity": identity,
+            "reference_identity_hash": _reference_identity_hash(identity),
+        },
+    )
+    assert len(load_features(feature_path, universe_revision="u1", settings_revision="s1", reference_identity=identity)) == 1
+    replacement = pd.DataFrame([{"date": "2025-01-01", "etf_id": "FORGED", "value": 99.0}])
+    replacement.to_parquet(feature_path, index=False)
+    assert load_features(feature_path, universe_revision="u1", settings_revision="s1", reference_identity=identity).empty
+
+    forecast_path = tmp_path / "forecast_results_20250101.csv"
+    payload = b"etf_id,expected_return\nBENCH,0.01\n"
+    _write_bound_cache_group(
+        forecast_path,
+        payload,
+        lambda candidate: pd.read_csv(candidate),
+        "u1",
+        "s1",
+        identity,
+    )
+    assert latest_forecast_file(
+        directory=tmp_path,
+        universe_revision="u1",
+        settings_revision="s1",
+        reference_identity=identity,
+    ) == forecast_path
+    forecast_path.write_bytes(b"etf_id,expected_return\nFORGED,0.99\n")
+    assert latest_forecast_file(
+        directory=tmp_path,
+        universe_revision="u1",
+        settings_revision="s1",
+        reference_identity=identity,
+    ) is None
+
+
+def test_legacy_unbound_feature_read_remains_available_without_binding_request(tmp_path) -> None:
+    feature_path = tmp_path / "features.parquet"
+    pd.DataFrame([{"date": "2025-01-01", "etf_id": "LEGACY", "value": 1.0}]).to_parquet(
+        feature_path, index=False
+    )
+
+    assert load_features(feature_path)["etf_id"].tolist() == ["LEGACY"]
+    assert load_features(feature_path, universe_revision="u1").empty
+
+    forecast_path = tmp_path / "forecast_results_20250101.csv"
+    forecast_path.write_text("etf_id,expected_return\nLEGACY,0.01\n", encoding="utf-8")
+    assert load_latest_forecasts(directory=tmp_path)["etf_id"].tolist() == ["LEGACY"]
+    assert load_latest_forecasts(directory=tmp_path, universe_revision="u1").empty
+
+
+def test_feature_pair_crash_rolls_back_without_exposing_intermediate_state(tmp_path, monkeypatch) -> None:
+    identity = _cache_identity()
+    path = tmp_path / "features.parquet"
+    old = pd.DataFrame([{"date": "2025-01-01", "etf_id": "OLD", "value": 1.0}])
+    new = pd.DataFrame([{"date": "2025-01-01", "etf_id": "NEW", "value": 2.0}])
+    binding = {"universe_revision": "u1", "settings_revision": "s1", "reference_identity": identity}
+    write_features(old, path, cache_metadata=binding)
+
+    real_group = atomic_io.atomic_write_group
+
+    def interrupted(requests):
+        return real_group(requests, lifecycle_hook=lambda state, _journal: (_ for _ in ()).throw(atomic_io.AtomicWriteInterrupted(state)) if state == "committing" else None)
+
+    monkeypatch.setattr("etf_cockpit.data.duckdb_store.atomic_write_group", interrupted)
+    with pytest.raises(atomic_io.AtomicWriteInterrupted):
+        write_features(new, path, cache_metadata=binding)
+    assert recover_incomplete_transactions(tmp_path, event_path=tmp_path / "events.json")[0].state == "rolled_back"
+    loaded = load_features(path, universe_revision="u1", settings_revision="s1", reference_identity=identity)
+    assert loaded["etf_id"].tolist() == ["OLD"]
+
+
+def test_forecast_pair_crash_rolls_back_without_exposing_intermediate_state(tmp_path, monkeypatch) -> None:
+    identity = _cache_identity()
+    path = tmp_path / "forecast_results_20250101.csv"
+    old = b"etf_id,expected_return\nOLD,0.01\n"
+    new = b"etf_id,expected_return\nNEW,0.02\n"
+    _write_bound_cache_group(path, old, lambda candidate: pd.read_csv(candidate), "u1", "s1", identity)
+    real_group = atomic_io.atomic_write_group
+
+    def interrupted(requests):
+        def hook(state, _journal):
+            if state == "committing":
+                raise atomic_io.AtomicWriteInterrupted(state)
+
+        return real_group(requests, lifecycle_hook=hook)
+
+    monkeypatch.setattr("etf_cockpit.services.atomic_write_group", interrupted)
+    with pytest.raises(atomic_io.AtomicWriteInterrupted):
+        _write_bound_cache_group(path, new, lambda candidate: pd.read_csv(candidate), "u1", "s1", identity)
+    assert recover_incomplete_transactions(tmp_path, event_path=tmp_path / "events.json")[0].state == "rolled_back"
+    loaded = load_latest_forecasts(
+        directory=tmp_path,
+        universe_revision="u1",
+        settings_revision="s1",
+        reference_identity=identity,
+    )
+    assert loaded["etf_id"].tolist() == ["OLD"]
+
+
+def test_feature_pair_reader_waits_for_interleaved_publish(tmp_path, monkeypatch) -> None:
+    identity = _cache_identity()
+    path = tmp_path / "features.parquet"
+    old = pd.DataFrame([{"date": "2025-01-01", "etf_id": "OLD", "value": 1.0}])
+    new = pd.DataFrame([{"date": "2025-01-01", "etf_id": "NEW", "value": 2.0}])
+    binding = {"universe_revision": "u1", "settings_revision": "s1", "reference_identity": identity}
+    write_features(old, path, cache_metadata=binding)
+    real_group = atomic_io.atomic_write_group
+    started = threading.Event()
+    release = threading.Event()
+
+    def interleaved(requests):
+        def hook(state, _journal):
+            if state == "committing":
+                started.set()
+                if not release.wait(5):
+                    raise TimeoutError("interleaving test release timed out")
+
+        return real_group(requests, lifecycle_hook=hook)
+
+    monkeypatch.setattr("etf_cockpit.data.duckdb_store.atomic_write_group", interleaved)
+    writer = threading.Thread(target=lambda: write_features(new, path, cache_metadata=binding))
+    writer.start()
+    assert started.wait(5)
+    observed: dict[str, pd.DataFrame] = {}
+    reader = threading.Thread(
+        target=lambda: observed.setdefault(
+            "frame",
+            load_features(path, universe_revision="u1", settings_revision="s1", reference_identity=identity),
+        )
+    )
+    reader.start()
+    assert reader.is_alive()
+    release.set()
+    writer.join(5)
+    reader.join(5)
+    assert not writer.is_alive() and not reader.is_alive()
+    assert observed["frame"]["etf_id"].tolist() in (["OLD"], ["NEW"])
+
+
+def test_forecast_pair_crash_and_reader_interleaving_are_fail_closed(tmp_path, monkeypatch) -> None:
+    identity = _cache_identity()
+    path = tmp_path / "forecast_results_20250101.csv"
+    old = b"etf_id,expected_return\nOLD,0.01\n"
+    new = b"etf_id,expected_return\nNEW,0.02\n"
+    _write_bound_cache_group(path, old, lambda candidate: pd.read_csv(candidate), "u1", "s1", identity)
+
+    real_group = atomic_io.atomic_write_group
+    started = threading.Event()
+    release = threading.Event()
+
+    def interleaved(requests):
+        def hook(state, _journal):
+            if state == "committing":
+                started.set()
+                if not release.wait(5):
+                    raise TimeoutError("interleaving test release timed out")
+
+        return real_group(requests, lifecycle_hook=hook)
+
+    monkeypatch.setattr("etf_cockpit.services.atomic_write_group", interleaved)
+    writer = threading.Thread(
+        target=lambda: _write_bound_cache_group(path, new, lambda candidate: pd.read_csv(candidate), "u1", "s1", identity)
+    )
+    writer.start()
+    assert started.wait(5)
+    observed: dict[str, pd.DataFrame] = {}
+    reader = threading.Thread(
+        target=lambda: observed.setdefault(
+            "frame",
+            load_latest_forecasts(
+                directory=tmp_path,
+                universe_revision="u1",
+                settings_revision="s1",
+                reference_identity=identity,
+            ),
+        )
+    )
+    reader.start()
+    assert reader.is_alive()
+    release.set()
+    writer.join(5)
+    reader.join(5)
+    assert not writer.is_alive() and not reader.is_alive()
+    assert observed["frame"]["etf_id"].tolist() in (["OLD"], ["NEW"])
 
 
 def test_attribution_clips_observations_to_declared_calculation_window() -> None:

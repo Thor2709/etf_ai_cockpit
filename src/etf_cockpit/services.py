@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field, replace
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date
+from io import BytesIO
 import math
 import json
 import hashlib
@@ -23,7 +24,12 @@ from etf_cockpit.chatgpt_bridge.export_pack import export_review_pack
 from etf_cockpit.chatgpt_bridge.import_audit import import_audit_json
 from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit, ChatGPTAuditV2
 from etf_cockpit.core.config import AppConfig, load_config
-from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group
+from etf_cockpit.core.atomic_io import (
+    AtomicWriteRequest,
+    atomic_write_bytes,
+    atomic_write_group,
+    read_atomic_group,
+)
 from etf_cockpit.core.logging import append_jsonl, configure_logging
 from etf_cockpit.core.paths import (
     BACKTESTS_DIR,
@@ -164,10 +170,11 @@ def _cache_matches_universe(
     reference_identity: Mapping[str, object] | None = None,
 ) -> bool:
     metadata_path = _universe_cache_meta_path(path)
-    if not metadata_path.exists():
+    if not path.is_file() or not metadata_path.is_file():
         return False
     try:
-        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+        payload_bytes, metadata_bytes = read_atomic_group((path, metadata_path))
+        payload = json.loads(metadata_bytes.decode("utf-8"))
     except (OSError, ValueError, TypeError):
         return False
     expected_settings = settings_revision or current_settings_revision()
@@ -177,11 +184,43 @@ def _cache_matches_universe(
         and str(payload.get("settings_revision") or "") == expected_settings
     )
     if not matches or reference_identity is None:
-        return bool(matches)
+        if not matches:
+            return False
+        checksum = payload.get("payload_sha256") if isinstance(payload, dict) else None
+        return checksum is None or checksum == hashlib.sha256(payload_bytes).hexdigest()
+    if payload.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
+        return False
     return (
         payload.get("reference_identity") == dict(reference_identity)
         and str(payload.get("reference_identity_hash") or "") == _reference_identity_hash(reference_identity)
     )
+
+
+def _read_bound_cache_payload(
+    path: Path,
+    revision: str,
+    settings_revision: str,
+    reference_identity: Mapping[str, object],
+) -> bytes | None:
+    metadata_path = _universe_cache_meta_path(path)
+    try:
+        payload_bytes, metadata_bytes = read_atomic_group((path, metadata_path))
+        payload = json.loads(metadata_bytes.decode("utf-8"))
+    except (OSError, TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if str(payload.get("universe_revision") or "") != revision:
+        return None
+    if str(payload.get("settings_revision") or "") != settings_revision:
+        return None
+    if payload.get("reference_identity") != dict(reference_identity):
+        return None
+    if str(payload.get("reference_identity_hash") or "") != _reference_identity_hash(reference_identity):
+        return None
+    if payload.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
+        return None
+    return payload_bytes
 
 
 def _load_local_structural_evidence():
@@ -296,11 +335,17 @@ def _write_universe_cache_metadata(
     reference_identity: Mapping[str, object] | None = None,
 ) -> None:
     metadata_path = _universe_cache_meta_path(path)
+    payload_sha256 = (
+        hashlib.sha256(path.read_bytes()).hexdigest()
+        if reference_identity is not None and path.is_file()
+        else None
+    )
     payload = json.dumps(
         {
             "schema_version": 2,
             "universe_revision": revision,
             "settings_revision": settings_revision or current_settings_revision(),
+            **({"payload_sha256": payload_sha256} if payload_sha256 is not None else {}),
             **(
                 {
                     "reference_identity": dict(reference_identity),
@@ -334,6 +379,48 @@ def _write_bound_cache_metadata(
         if "positional" not in str(exc) and "argument" not in str(exc):
             raise
         _write_universe_cache_metadata(path, revision, settings_revision)
+
+
+def _bound_cache_metadata_payload(
+    revision: str,
+    settings_revision: str,
+    reference_identity: Mapping[str, object] | None,
+    payload: bytes,
+) -> bytes:
+    record: dict[str, object] = {
+        "schema_version": 3,
+        "universe_revision": revision,
+        "settings_revision": settings_revision,
+        "payload_sha256": hashlib.sha256(payload).hexdigest(),
+    }
+    if reference_identity is not None:
+        record["reference_identity"] = dict(reference_identity)
+        record["reference_identity_hash"] = _reference_identity_hash(reference_identity)
+    return json.dumps(record, sort_keys=True).encode("utf-8")
+
+
+def _write_bound_cache_group(
+    path: Path,
+    payload: bytes,
+    validator: Callable[[Path], None],
+    revision: str,
+    settings_revision: str,
+    reference_identity: Mapping[str, object] | None,
+) -> None:
+    metadata_path = _universe_cache_meta_path(path)
+    metadata_payload = _bound_cache_metadata_payload(
+        revision, settings_revision, reference_identity, payload
+    )
+    atomic_write_group(
+        (
+            AtomicWriteRequest(path, payload, validator),
+            AtomicWriteRequest(
+                metadata_path,
+                metadata_payload,
+                lambda candidate: json.loads(candidate.read_text(encoding="utf-8")),
+            ),
+        )
+    )
 
 
 def _reference_identity_hash(identity: Mapping[str, object]) -> str:
@@ -582,7 +669,12 @@ class DataService:
             output, universe_revision, settings_revision, reference_context.identity
         ):
             try:
-                universe_forecast_frame = pd.read_csv(output)
+                cached_payload = _read_bound_cache_payload(
+                    output, universe_revision, settings_revision, reference_context.identity
+                )
+                if cached_payload is None:
+                    raise ValueError("forecast cache pair changed during read")
+                universe_forecast_frame = pd.read_csv(BytesIO(cached_payload))
             except Exception:
                 record_cache_event("forecast", "invalidation", action_id="forecasts", detail="unreadable output")
                 universe_forecast_frame = None
@@ -634,7 +726,12 @@ class DataService:
                 candidate_output, universe_revision, settings_revision, reference_context.identity
             ):
                 try:
-                    candidate_frame = pd.read_csv(candidate_output)
+                    cached_payload = _read_bound_cache_payload(
+                        candidate_output, universe_revision, settings_revision, reference_context.identity
+                    )
+                    if cached_payload is None:
+                        raise ValueError("candidate forecast cache pair changed during read")
+                    candidate_frame = pd.read_csv(BytesIO(cached_payload))
                 except Exception:
                     record_cache_event("candidate_forecast", "invalidation", action_id="forecasts", detail="unreadable output")
                     candidate_frame = None
@@ -671,10 +768,27 @@ class DataService:
                 if use_cache and candidate_output.exists() and _cache_matches_universe(
                     candidate_output, universe_revision, settings_revision, reference_context.identity
                 ):
-                    record_cache_event("candidate_forecast", "hit", action_id="forecasts")
-                    candidate_summary = _forecast_frame_status_summary(pd.read_csv(candidate_output))
-                    candidate_as_of = candidate_data.effective_as_of
-                    candidate_mode = "reused from cache"
+                    cached_payload = _read_bound_cache_payload(
+                        candidate_output, universe_revision, settings_revision, reference_context.identity
+                    )
+                    if cached_payload is not None:
+                        record_cache_event("candidate_forecast", "hit", action_id="forecasts")
+                        candidate_summary = _forecast_frame_status_summary(pd.read_csv(BytesIO(cached_payload)))
+                        candidate_as_of = candidate_data.effective_as_of
+                        candidate_mode = "reused from cache"
+                    else:
+                        record_cache_event("candidate_forecast", "invalidation", action_id="forecasts", detail="cache pair changed during read")
+                        candidate_forecasts = forecast_service.run_forecasts(
+                            candidate_data.effective_as_of,
+                            candidate_ids,
+                            candidate_data.prices,
+                            output_path=candidate_output,
+                            horizons=horizons,
+                            publish_guard=publish_guard,
+                        )
+                        candidate_summary = _forecast_status_summary(candidate_forecasts)
+                        candidate_as_of = candidate_data.effective_as_of
+                        candidate_mode = "refreshed"
                 else:
                     candidate_forecasts = forecast_service.run_forecasts(
                         candidate_data.effective_as_of,
@@ -949,13 +1063,13 @@ class FeatureService:
                 settings_identity=settings_identity,
             )
         with publication_scope(publish_guard):
-            write_features(features)
-        with publication_scope(publish_guard):
-            _write_bound_cache_metadata(
-                FEATURE_PARQUET,
-                _current_universe_revision(),
-                str(settings_identity["settings_revision"]),
-                context.identity,
+            write_features(
+                features,
+                cache_metadata={
+                    "universe_revision": _current_universe_revision(),
+                    "settings_revision": str(settings_identity["settings_revision"]),
+                    "reference_identity": context.identity,
+                },
             )
         return features
 
@@ -1119,14 +1233,14 @@ class ForecastService:
 
         with timed_step("forecasts", "write_output"):
             with publication_scope(publish_guard):
-                atomic_write_bytes(output, payload, validate)
-        with publication_scope(publish_guard):
-            _write_bound_cache_metadata(
-                output,
-                _current_universe_revision(),
-                settings_revision or current_settings_revision(),
-                reference_identity,
-            )
+                _write_bound_cache_group(
+                    output,
+                    payload,
+                    validate,
+                    _current_universe_revision(),
+                    settings_revision or current_settings_revision(),
+                    reference_identity,
+                )
 
 
 class SignalService:

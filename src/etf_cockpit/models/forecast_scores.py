@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from io import BytesIO
 import json
 from collections.abc import Mapping
 from pathlib import Path
@@ -9,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.paths import FORECASTS_DIR
+from etf_cockpit.core.atomic_io import read_atomic_group
 from etf_cockpit.core.versioning import current_settings_revision
 
 PRIMARY_MODEL_HORIZON_DAYS = 60
@@ -27,10 +29,11 @@ def _forecast_cache_matches(
     reference_identity: Mapping[str, object] | None = None,
 ) -> bool:
     metadata_path = Path(f"{path}.meta.json")
-    if not metadata_path.exists():
+    if not path.is_file() or not metadata_path.is_file():
         return False
     try:
-        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+        payload_bytes, metadata_bytes = read_atomic_group((path, metadata_path))
+        payload = json.loads(metadata_bytes.decode("utf-8"))
     except (OSError, ValueError, TypeError):
         return False
     matches = isinstance(payload, dict)
@@ -41,7 +44,12 @@ def _forecast_cache_matches(
     elif settings_revision is not None:
         matches = matches and str(payload.get("settings_revision") or "") == settings_revision
     if not matches or reference_identity is None:
-        return matches
+        if not matches:
+            return False
+        checksum = payload.get("payload_sha256") if isinstance(payload, dict) else None
+        return checksum is None or checksum == hashlib.sha256(payload_bytes).hexdigest()
+    if payload.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
+        return False
     return (
         payload.get("reference_identity") == dict(reference_identity)
         and str(payload.get("reference_identity_hash") or "") == _reference_identity_hash(reference_identity)
@@ -86,7 +94,25 @@ def load_latest_forecasts(
     )
     if path is None:
         return pd.DataFrame()
-    frame = pd.read_csv(path)
+    metadata_path = Path(f"{path}.meta.json")
+    try:
+        if metadata_path.exists():
+            payload_bytes, metadata_bytes = read_atomic_group((path, metadata_path))
+            metadata = json.loads(metadata_bytes.decode("utf-8"))
+            if not isinstance(metadata, dict):
+                return pd.DataFrame()
+            checksum = metadata.get("payload_sha256")
+            if checksum is not None and checksum != hashlib.sha256(payload_bytes).hexdigest():
+                return pd.DataFrame()
+            if reference_identity is not None and checksum != hashlib.sha256(payload_bytes).hexdigest():
+                return pd.DataFrame()
+        else:
+            if universe_revision is not None or settings_revision is not None or reference_identity is not None:
+                return pd.DataFrame()
+            payload_bytes = path.read_bytes()
+        frame = pd.read_csv(BytesIO(payload_bytes))
+    except (OSError, TypeError, ValueError):
+        return pd.DataFrame()
     frame["source_file"] = str(path)
     return frame
 

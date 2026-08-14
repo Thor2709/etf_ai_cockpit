@@ -2968,3 +2968,15 @@ next action and whether the requested outcome is actually complete.
   series or N/A. Freeze only after the complete affected tests, static checks,
   byte-clean generation and package proof pass; no workflow, authority or
   execution boundary changes.
+- Head `2f67ca378feb2d148c92ff686728ab460dfa7df1` is rejected and run
+  `31770710533` is cancelled/stale. Whole-diff review approved, but risk review
+  reproduced feature and forecast payload substitution under a valid reference
+  sidecar. One consolidated correction now publishes each payload and identity
+  record through the existing recoverable atomic group, binds the pair by
+  SHA-256, and re-verifies one guarded snapshot before use. Valid and legacy
+  unbound reads retain their established behavior when no binding is requested;
+  bound legacy, malformed, substituted, interrupted or interleaved pairs fail
+  closed. Fifty-eight focused cache, recovery, settings and adjacent tests plus
+  Ruff, compile and diff hygiene pass. Freeze one replacement exact head for
+  paired review and fresh H-tier evidence; no generic atomic-I/O, workflow,
+  financial, authority or `execution_allowed=false` changes.
