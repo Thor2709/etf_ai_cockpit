@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+import etf_cockpit.models.forecast_scores as forecast_scores
 
 from etf_cockpit.application.benchmark_reference import (
     CanonicalReferenceContext,
@@ -463,6 +464,48 @@ def test_forecast_pair_crash_and_reader_interleaving_are_fail_closed(tmp_path, m
     reader.join(5)
     assert not writer.is_alive() and not reader.is_alive()
     assert observed["frame"]["etf_id"].tolist() in (["OLD"], ["NEW"])
+
+
+def test_forecast_reader_rejects_cross_identity_publish_between_selection_and_read(
+    tmp_path, monkeypatch
+) -> None:
+    path = tmp_path / "forecast_results_20250101.csv"
+    identity_a = {**_cache_identity(), "registry_hash": "a" * 64}
+    identity_b = {**_cache_identity(), "registry_hash": "b" * 64}
+    _write_bound_cache_group(
+        path,
+        b"etf_id,expected_return\nA,0.01\n",
+        lambda candidate: pd.read_csv(candidate),
+        "u1",
+        "s1",
+        identity_a,
+    )
+    real_read = forecast_scores.read_atomic_group
+    reads = 0
+
+    def interleaved_read(paths, *, timeout_seconds=5.0):
+        nonlocal reads
+        snapshot = real_read(paths, timeout_seconds=timeout_seconds)
+        reads += 1
+        if reads == 1:
+            _write_bound_cache_group(
+                path,
+                b"etf_id,expected_return\nB,0.99\n",
+                lambda candidate: pd.read_csv(candidate),
+                "u2",
+                "s2",
+                identity_b,
+            )
+        return snapshot
+
+    monkeypatch.setattr(forecast_scores, "read_atomic_group", interleaved_read)
+
+    assert load_latest_forecasts(
+        directory=tmp_path,
+        universe_revision="u1",
+        settings_revision="s1",
+        reference_identity=identity_a,
+    ).empty
 
 
 def test_attribution_clips_observations_to_declared_calculation_window() -> None:

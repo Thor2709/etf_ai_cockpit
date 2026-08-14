@@ -2980,3 +2980,12 @@ next action and whether the requested outcome is actually complete.
   Ruff, compile and diff hygiene pass. Freeze one replacement exact head for
   paired review and fresh H-tier evidence; no generic atomic-I/O, workflow,
   financial, authority or `execution_allowed=false` changes.
+- Head `59caeac64d422e39e06ec57b8032eaebcd00eb72` is rejected by both
+  final reviewers and run `31774026353` is cancelled/stale. Both reproduced the
+  same cross-identity TOCTOU: forecast selection validated identity A, then a
+  second guarded read could accept an atomically published identity-B pair
+  because it rechecked only the checksum. The one newly demonstrated correction
+  shares complete snapshot validation across selection and final read, requiring
+  the requested universe, settings, reference identity, identity hash and payload
+  checksum on that second snapshot. A deterministic A-to-B interleaving regression
+  now fails closed; no adjacent cache or persistence behavior changes.

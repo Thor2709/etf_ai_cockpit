@@ -4206,3 +4206,12 @@ retain compatibility. Fifty-eight focused and adjacent tests plus Ruff, compile
 and diff hygiene pass. Freeze one replacement head for paired review and fresh
 H-tier evidence; do not alter generic atomic I/O, workflows, product calculations,
 authority or `execution_allowed=false`.
+
+`FORECAST TOCTOU CORRECTION` head `59caeac64d422e39e06ec57b8032eaebcd00eb72`
+is rejected by both final reviewers and run `31774026353` is cancelled/stale.
+They reproduced the same cross-identity race between forecast selection and its
+second guarded read. Reuse one complete snapshot validator at both boundaries so
+the final snapshot must match the requested universe, settings, reference identity,
+identity hash and payload checksum. Add the deterministic identity-A to identity-B
+interleaving regression and make no adjacent cache, persistence, workflow,
+authority or execution change.

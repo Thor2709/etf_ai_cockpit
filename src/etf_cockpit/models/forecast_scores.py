@@ -36,23 +36,41 @@ def _forecast_cache_matches(
         payload = json.loads(metadata_bytes.decode("utf-8"))
     except (OSError, ValueError, TypeError):
         return False
-    matches = isinstance(payload, dict)
+    return _forecast_cache_snapshot_matches(
+        payload_bytes,
+        payload,
+        universe_revision,
+        settings_revision,
+        reference_identity,
+    )
+
+
+def _forecast_cache_snapshot_matches(
+    payload_bytes: bytes,
+    metadata: object,
+    universe_revision: str | None,
+    settings_revision: str | None,
+    reference_identity: Mapping[str, object] | None,
+) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    matches = True
     if universe_revision is not None:
         expected_settings = settings_revision or current_settings_revision()
-        matches = matches and str(payload.get("universe_revision") or "") == universe_revision
-        matches = matches and str(payload.get("settings_revision") or "") == expected_settings
+        matches = str(metadata.get("universe_revision") or "") == universe_revision
+        matches = matches and str(metadata.get("settings_revision") or "") == expected_settings
     elif settings_revision is not None:
-        matches = matches and str(payload.get("settings_revision") or "") == settings_revision
+        matches = str(metadata.get("settings_revision") or "") == settings_revision
     if not matches or reference_identity is None:
         if not matches:
             return False
-        checksum = payload.get("payload_sha256") if isinstance(payload, dict) else None
+        checksum = metadata.get("payload_sha256")
         return checksum is None or checksum == hashlib.sha256(payload_bytes).hexdigest()
-    if payload.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
+    if metadata.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
         return False
     return (
-        payload.get("reference_identity") == dict(reference_identity)
-        and str(payload.get("reference_identity_hash") or "") == _reference_identity_hash(reference_identity)
+        metadata.get("reference_identity") == dict(reference_identity)
+        and str(metadata.get("reference_identity_hash") or "") == _reference_identity_hash(reference_identity)
     )
 
 
@@ -99,12 +117,13 @@ def load_latest_forecasts(
         if metadata_path.exists():
             payload_bytes, metadata_bytes = read_atomic_group((path, metadata_path))
             metadata = json.loads(metadata_bytes.decode("utf-8"))
-            if not isinstance(metadata, dict):
-                return pd.DataFrame()
-            checksum = metadata.get("payload_sha256")
-            if checksum is not None and checksum != hashlib.sha256(payload_bytes).hexdigest():
-                return pd.DataFrame()
-            if reference_identity is not None and checksum != hashlib.sha256(payload_bytes).hexdigest():
+            if not _forecast_cache_snapshot_matches(
+                payload_bytes,
+                metadata,
+                universe_revision,
+                settings_revision,
+                reference_identity,
+            ):
                 return pd.DataFrame()
         else:
             if universe_revision is not None or settings_revision is not None or reference_identity is not None:
