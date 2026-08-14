@@ -19,6 +19,7 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RAW_DIR, REPORTS_DIR, ROOT
 from etf_cockpit.core.types import SignalResult
 from etf_cockpit.data.classification import classification_score_state
+from etf_cockpit.data.trade_candidate_analysis import load_candidate_price_binding
 from etf_cockpit.data.macro_warehouse import MacroWarehouse, load_risk_free_proxy_mappings
 from etf_cockpit.data.score_history import project_classification_score_frame
 from etf_cockpit.governance.gate_policy import resolve_authority
@@ -36,6 +37,7 @@ from etf_cockpit.features.cash_comparison import (
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
 from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast_calibration, load_forecast_history
 from etf_cockpit.models.forecast_scores import (
+    configured_forecast_request_identity,
     filter_forecasts_for_universe,
     forecast_component_maps,
     forecast_return_distributions,
@@ -671,6 +673,7 @@ def build_simple_instrument_scores(
     if universe_revision is None:
         universe_revision = load_universe().revision
     price_binding = adjusted_price_binding_for_reference(prices, reference_identity)
+    request_identity = configured_forecast_request_identity(config)
     if reference_identity is None:
         # Relative score consumers must not accept a legacy forecast frame.
         forecasts = forecasts.iloc[0:0].copy() if "source_file" in forecasts.columns else forecasts
@@ -680,17 +683,20 @@ def build_simple_instrument_scores(
             universe_revision,
             reference_identity=reference_identity,
             price_binding=price_binding,
+            forecast_request_identity=request_identity,
         )
     candidate_report, _candidate_report_path = load_latest_candidate_report()
+    candidate_price_binding = load_candidate_price_binding()
     candidate_forecasts = (
         load_latest_forecasts(
             "yfinance_candidate_forecasts_*.csv",
             FORECASTS_DIR,
             universe_revision=universe_revision,
             reference_identity=reference_identity,
-            price_binding=price_binding,
+            price_binding=candidate_price_binding,
+            forecast_request_identity=request_identity,
         )
-        if reference_identity is not None and price_binding is not None
+        if reference_identity is not None and candidate_price_binding is not None
         else pd.DataFrame()
     )
     forecast_history = load_forecast_history()

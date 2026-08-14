@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Callable
 
 import flet as ft
@@ -16,6 +17,8 @@ from etf_cockpit.app.state import ActivityUnavailableError, AppState, activity_r
 from etf_cockpit.application.benchmark_reference import adjusted_price_binding_for_reference, context_from_snapshot
 from etf_cockpit.core.paths import FORECASTS_DIR
 from etf_cockpit.core.paths import ROOT
+from etf_cockpit.data.trade_candidate_analysis import load_candidate_price_binding
+from etf_cockpit.models.forecast_scores import configured_forecast_request_identity
 from etf_cockpit.application.alerts import (
     AlertReadback,
     AlertRecord,
@@ -928,15 +931,23 @@ def _valid_model_pairs(state: AppState) -> int:
         getattr(state.snapshot, "prices", pd.DataFrame()),
         reference_context.identity,
     )
+    request_identity = configured_forecast_request_identity(state.snapshot.config)
+    retained_candidate_binding = getattr(state.snapshot, "candidate_price_binding", None)
+    candidate_price_binding = (
+        retained_candidate_binding
+        if isinstance(retained_candidate_binding, Mapping)
+        else load_candidate_price_binding()
+    )
     candidate_forecasts = (
         load_latest_forecasts(
             "yfinance_candidate_forecasts_*.csv",
             FORECASTS_DIR,
             universe_revision=universe_revision,
             reference_identity=reference_context.identity,
-            price_binding=price_binding,
+            price_binding=candidate_price_binding,
+            forecast_request_identity=request_identity,
         )
-        if price_binding is not None
+        if candidate_price_binding is not None
         else pd.DataFrame()
     )
     configured_forecasts = filter_forecasts_for_universe(
@@ -944,6 +955,7 @@ def _valid_model_pairs(state: AppState) -> int:
         universe_revision,
         reference_identity=reference_context.identity,
         price_binding=price_binding,
+        forecast_request_identity=request_identity,
     )
     forecasts = pd.concat([configured_forecasts, candidate_forecasts], ignore_index=True)
     if forecasts.empty or not {"status", "model_allowed_in_score", "model_name", "etf_id"}.issubset(forecasts.columns):

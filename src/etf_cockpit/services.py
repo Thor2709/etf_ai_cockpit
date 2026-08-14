@@ -74,13 +74,24 @@ from etf_cockpit.data.reference_data import (
     validate_reference_dataset,
 )
 from etf_cockpit.data.sample_data import ensure_sample_files
-from etf_cockpit.data.trade_candidate_analysis import fetch_candidate_prices, refresh_candidate_analysis
+from etf_cockpit.data.trade_candidate_analysis import (
+    fetch_candidate_prices,
+    load_candidate_price_binding,
+    refresh_candidate_analysis,
+    write_candidate_price_snapshot,
+)
 from etf_cockpit.data.validation import validate_holdings, validate_prices
 from etf_cockpit.data.yfinance_provider import YFinanceProvider
 from etf_cockpit.data.universe_store import load_universe
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.models.baseline_models import baseline_forecast
-from etf_cockpit.models.forecast_scores import forecast_component_maps, forecast_return_distributions, load_latest_forecasts
+from etf_cockpit.models.forecast_scores import (
+    configured_forecast_request_identity,
+    forecast_component_maps,
+    forecast_request_identity,
+    forecast_return_distributions,
+    load_latest_forecasts,
+)
 from etf_cockpit.models.local_weights import LocalModelStatus
 from etf_cockpit.models.registry import model_availability, model_diagnostics
 from etf_cockpit.portfolio.risk import target_policy_issues
@@ -582,17 +593,18 @@ def _forecast_request_identity(
     *,
     live_optional_models: bool,
 ) -> dict[str, object]:
-    requested = horizons if horizons is not None else config.models.forecast_horizons_trading_days
-    if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in requested):
-        raise ValueError("forecast horizons must be positive integers")
-    normalized = sorted(set(requested))
-    if not normalized:
-        raise ValueError("at least one forecast horizon is required")
-    return {
-        "schema": "forecast-cache-request.v1",
-        "requested_horizons": normalized,
-        "live_optional_models": live_optional_models is True,
-    }
+    return forecast_request_identity(
+        config,
+        horizons,
+        live_optional_models=live_optional_models,
+    )
+
+
+def _live_optional_models_from_config(config: AppConfig) -> bool:
+    return any(
+        config.models.runtime(name).enabled and config.models.runtime(name).mode == "live"
+        for name in ("timesfm", "toto")
+    )
 
 
 def _forecast_request_matches(metadata: Mapping[str, object], expected: Mapping[str, object]) -> bool:
@@ -680,6 +692,7 @@ class CockpitSnapshot:
     backtest: BacktestReport
     model_status: dict[str, bool]
     model_inventory: list[LocalModelStatus]
+    candidate_price_binding: Mapping[str, object] | None = None
     # Revision of the canonical universe used to build cached derived data.
     universe_revision: str = ""
     etf_economics_records: tuple[EtfEconomicsObservation, ...] = ()
@@ -955,6 +968,7 @@ class DataService:
                     progress_callback=progress_callback,
                     publish_guard=publish_guard,
                     cache_request_identity=request_identity,
+                    live_optional_models=live_optional_models,
                 )
                 universe_summary = _forecast_status_summary(universe_forecasts)
                 universe_mode = "refreshed"
@@ -971,6 +985,7 @@ class DataService:
                 progress_callback=progress_callback,
                 publish_guard=publish_guard,
                 cache_request_identity=request_identity,
+                live_optional_models=live_optional_models,
             )
             universe_summary = _forecast_status_summary(universe_forecasts)
             universe_mode = "refreshed"
@@ -999,6 +1014,11 @@ class DataService:
                 )
                 self.last_operation_succeeded = True
                 return "\n".join(messages)
+            write_candidate_price_snapshot(
+                candidate_data.prices,
+                candidate_binding,
+                publish_guard=publish_guard,
+            )
             if use_cache and candidate_output.exists() and _cache_matches_universe(
                 candidate_output,
                 universe_revision,
@@ -1036,6 +1056,7 @@ class DataService:
                         horizons=horizons,
                         publish_guard=publish_guard,
                         cache_request_identity=request_identity,
+                        live_optional_models=live_optional_models,
                     )
                     candidate_summary = _forecast_status_summary(candidate_forecasts)
                     candidate_as_of = candidate_data.effective_as_of
@@ -1059,6 +1080,7 @@ class DataService:
                     horizons=horizons,
                     publish_guard=publish_guard,
                     cache_request_identity=request_identity,
+                    live_optional_models=live_optional_models,
                 )
                 candidate_summary = _forecast_status_summary(candidate_forecasts)
                 candidate_as_of = candidate_data.effective_as_of
@@ -1372,6 +1394,7 @@ class ForecastService:
         publish_guard: PublicationScopeFactory | None = None,
         reference_context: CanonicalReferenceContext | None = None,
         cache_request_identity: Mapping[str, object] | None = None,
+        live_optional_models: bool | None = None,
     ) -> list[ForecastResult]:
         settings_identity = current_settings_identity()
         price_frame = prices if prices is not None else load_prices()
@@ -1386,6 +1409,18 @@ class ForecastService:
         if price_binding is None:
             raise ValueError("adjusted-price snapshot identity is unavailable")
         horizons = horizons or self.config.models.forecast_horizons_trading_days
+        resolved_live_optional_models = (
+            _live_optional_models_from_config(self.config)
+            if live_optional_models is None
+            else live_optional_models
+        )
+        derived_request_identity = forecast_request_identity(
+            self.config,
+            horizons,
+            live_optional_models=resolved_live_optional_models,
+        )
+        if cache_request_identity is not None and dict(cache_request_identity) != derived_request_identity:
+            raise ValueError("forecast cache request identity does not match the calculation request")
         pivot = price_frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
         benchmark_id = context.benchmark_data_id if context is not None else None
         benchmark_returns = pivot[benchmark_id].pct_change(fill_method=None).dropna() if benchmark_id in pivot else None
@@ -1440,7 +1475,8 @@ class ForecastService:
             settings_revision=str(settings_identity["settings_revision"]),
             reference_identity=context.identity,
             price_binding=price_binding,
-            cache_request_identity=cache_request_identity,
+            cache_request_identity=derived_request_identity,
+            live_optional_models=resolved_live_optional_models,
             publish_guard=publish_guard,
         )
         return forecasts
@@ -1511,9 +1547,33 @@ class ForecastService:
         reference_identity: Mapping[str, object] | None = None,
         price_binding: Mapping[str, object] | None = None,
         cache_request_identity: Mapping[str, object] | None = None,
+        live_optional_models: bool | None = None,
         publish_guard: PublicationScopeFactory | None = None,
     ) -> None:
         output = output_path or FORECASTS_DIR / f"forecast_results_{as_of_date:%Y%m%d}.csv"
+        if cache_request_identity is None:
+            cache_request_identity = forecast_request_identity(
+                self.config,
+                sorted({forecast.horizon_days for forecast in forecasts}) or None,
+                live_optional_models=(
+                    _live_optional_models_from_config(self.config)
+                    if live_optional_models is None
+                    else live_optional_models
+                ),
+            )
+        else:
+            requested_horizons = cache_request_identity.get("requested_horizons")
+            requested_mode = cache_request_identity.get("live_optional_models")
+            if not isinstance(requested_horizons, list) or type(requested_mode) is not bool:
+                raise ValueError("forecast cache request identity is malformed")
+            validated_identity = forecast_request_identity(
+                self.config,
+                requested_horizons,
+                live_optional_models=requested_mode,
+            )
+            output_horizons = {forecast.horizon_days for forecast in forecasts}
+            if dict(cache_request_identity) != validated_identity or not output_horizons.issubset(requested_horizons):
+                raise ValueError("forecast cache request identity does not match forecast output")
         payload = pd.DataFrame([_forecast_to_row(forecast) for forecast in forecasts]).to_csv(index=False).encode("utf-8")
 
         def validate(path: Path) -> None:
@@ -1560,6 +1620,7 @@ class SignalService:
         )
         universe_revision = _current_universe_revision()
         settings_revision = current_settings_revision()
+        request_identity = configured_forecast_request_identity(self.config)
         cached_features = (
             load_features(
                 FEATURE_PARQUET,
@@ -1602,6 +1663,7 @@ class SignalService:
                 universe_revision=universe_revision,
                 reference_identity=reference_context.identity,
                 price_binding=price_binding,
+                forecast_request_identity=request_identity,
             )
             if price_binding is not None
             else pd.DataFrame()
@@ -2414,11 +2476,13 @@ def _build_snapshot(
         latest = latest_features(features, data_report.as_of_date)
     status = model_availability(config)
     inventory = model_diagnostics(config)
+    request_identity = configured_forecast_request_identity(config)
     forecasts = (
         load_latest_forecasts(
             universe_revision=universe_revision,
             reference_identity=reference_context.identity,
             price_binding=price_binding,
+            forecast_request_identity=request_identity,
         )
         if price_binding is not None
         else pd.DataFrame()
@@ -2468,6 +2532,7 @@ def _build_snapshot(
         backtest=backtest,
         model_status=status,
         model_inventory=inventory,
+        candidate_price_binding=load_candidate_price_binding(),
         universe_revision=universe_revision,
         etf_economics_records=etf_economics_records,
         etf_fund_total_return=etf_fund_total_return,

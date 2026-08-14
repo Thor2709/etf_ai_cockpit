@@ -79,13 +79,19 @@ def build_performance_attribution(
     currency_attribution = _currency_attribution(asset_summary, allocation)
     bounded_costs, cost_evidence_status = _costs_in_declared_window(costs, reference_context)
     cost_attribution, cost_total, tax_total = _cost_attribution(bounded_costs)
+    if bounded_costs is not None and not bounded_costs.empty and (cost_total is None or tax_total is None):
+        cost_evidence_status = "invalid"
     benchmark = _benchmark_attribution(
         total_return,
         _canonical_benchmark_returns(returns, reference_context),
         daily.index,
         portfolio_returns=daily.get("portfolio_return"),
     )
-    money_weighted, money_status = _money_weighted_return(wealth, daily.index, cashflows)
+    bounded_cashflows, cashflow_evidence_status = _cashflows_in_declared_window(cashflows, reference_context)
+    if cashflow_evidence_status in {"invalid", "excluded_outside_window"}:
+        money_weighted, money_status = None, "unavailable_invalid_or_outside_canonical_window"
+    else:
+        money_weighted, money_status = _money_weighted_return(wealth, daily.index, bounded_cashflows)
     decision_attribution = _decision_attribution(decisions, observed, portfolio_weights)
     warnings = _warnings(
         observed,
@@ -93,13 +99,17 @@ def build_performance_attribution(
         factor_attribution,
         currency_attribution,
         bounded_costs,
-        cashflows,
+        bounded_cashflows,
         decisions,
     )
     if cost_evidence_status == "invalid":
         warnings.append("explicit_costs_invalid_for_canonical_window")
     elif cost_evidence_status == "excluded_outside_window":
         warnings.append("explicit_costs_outside_canonical_window_excluded")
+    if cashflow_evidence_status == "invalid":
+        warnings.append("external_cashflows_invalid_for_canonical_window")
+    elif cashflow_evidence_status == "excluded_outside_window":
+        warnings.append("external_cashflows_outside_canonical_window_excluded")
     reference_projection = (
         _unavailable_reference_projection()
         if reference_context is None
@@ -109,7 +119,7 @@ def build_performance_attribution(
         warnings.append("canonical_benchmark_cash_resolution_unavailable")
     net_return = (
         None
-        if total_return is None or cost_evidence_status == "invalid"
+        if total_return is None or cost_evidence_status == "invalid" or cost_total is None or tax_total is None
         else float(total_return - cost_total - tax_total)
     )
 
@@ -399,7 +409,7 @@ def _currency_attribution(asset_summary: pd.DataFrame, allocation: pd.DataFrame 
     return result[columns]
 
 
-def _cost_attribution(costs: pd.DataFrame | None) -> tuple[pd.DataFrame, float, float]:
+def _cost_attribution(costs: pd.DataFrame | None) -> tuple[pd.DataFrame, float | None, float | None]:
     columns = ["category", "amount", "status"]
     if costs is None or costs.empty:
         return pd.DataFrame(columns=columns), 0.0, 0.0
@@ -407,9 +417,15 @@ def _cost_attribution(costs: pd.DataFrame | None) -> tuple[pd.DataFrame, float, 
     category = next((name for name in ("category", "cost_type", "type") if name in frame.columns), None)
     amount = next((name for name in ("amount", "cost", "cost_eur") if name in frame.columns), None)
     if category is None or amount is None:
-        return pd.DataFrame(columns=columns), 0.0, 0.0
+        return pd.DataFrame(columns=columns), None, None
     frame["category"] = frame[category].fillna("unclassified").astype(str).str.strip().replace("", "unclassified")
-    frame["amount"] = pd.to_numeric(frame[amount], errors="coerce").fillna(0.0).abs()
+    raw_amounts = frame[amount]
+    if raw_amounts.map(lambda value: isinstance(value, (bool, np.bool_))).any():
+        return pd.DataFrame(columns=columns), None, None
+    numeric_amounts = pd.to_numeric(raw_amounts, errors="coerce")
+    if numeric_amounts.isna().any() or not np.isfinite(numeric_amounts).all():
+        return pd.DataFrame(columns=columns), None, None
+    frame["amount"] = numeric_amounts.abs()
     result = frame.groupby("category", sort=True, as_index=False)["amount"].sum()
     result["status"] = "explicit"
     tax_total = float(result.loc[result["category"].str.casefold().str.contains("tax"), "amount"].sum())
@@ -445,7 +461,11 @@ def _costs_in_declared_window(
     selected: list[object] = []
     for index, row in costs.iterrows():
         effective, effective_valid = _cost_chronology(row, effective_fields, aliases_must_match=True)
-        known_at, knowledge_valid = _cost_chronology(row, knowledge_fields)
+        known_at, knowledge_valid = _cost_chronology(
+            row,
+            knowledge_fields,
+            aliases_must_match=True,
+        )
         if effective is None or not effective_valid or not knowledge_valid:
             return None, "invalid"
         if effective < start or effective > end or effective > decision:
@@ -456,6 +476,52 @@ def _costs_in_declared_window(
     if not selected:
         return costs.iloc[0:0].copy(), "excluded_outside_window"
     return costs.loc[selected].copy(), "available"
+
+
+def _cashflows_in_declared_window(
+    cashflows: pd.DataFrame | None,
+    reference_context: object | None,
+) -> tuple[pd.DataFrame | None, str]:
+    """Validate every populated cashflow chronology field against the canonical window."""
+
+    if cashflows is None or cashflows.empty:
+        return cashflows, "unavailable"
+    resolution = getattr(reference_context, "resolution", None)
+    declaration = getattr(resolution, "declaration", None)
+    if declaration is None:
+        return cashflows, "available"
+    try:
+        start = pd.Timestamp(declaration.start_date, tz="UTC")
+        end = pd.Timestamp(declaration.end_date, tz="UTC") + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+        decision = pd.Timestamp(declaration.decision_time)
+        if decision.tzinfo is None:
+            return None, "invalid"
+        decision = decision.tz_convert("UTC")
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return None, "invalid"
+    if start > end or decision < start:
+        return None, "invalid"
+
+    effective_fields = ("effective_at", "date", "as_of", "as_of_date", "trade_date", "transaction_date")
+    knowledge_fields = ("known_at", "available_at", "retrieved_at", "imported_at", "published_at")
+    selected: list[object] = []
+    excluded = False
+    for index, row in cashflows.iterrows():
+        effective, effective_valid = _cost_chronology(row, effective_fields, aliases_must_match=True)
+        known_at, knowledge_valid = _cost_chronology(
+            row,
+            knowledge_fields,
+            aliases_must_match=True,
+        )
+        if effective is None or not effective_valid or not knowledge_valid:
+            return None, "invalid"
+        if effective < start or effective > end or effective > decision or (known_at is not None and known_at > decision):
+            excluded = True
+            continue
+        selected.append(index)
+    if excluded:
+        return cashflows.loc[selected].copy(), "excluded_outside_window"
+    return cashflows.loc[selected].copy(), "available"
 
 
 def _cost_chronology(
@@ -554,13 +620,16 @@ def _money_weighted_return(wealth: pd.Series, dates: Iterable[object], cashflows
     flow = cashflows.copy()
     if "date" not in flow.columns:
         return None, "unavailable_without_dated_cashflows"
-    flow["date"] = pd.to_datetime(flow["date"], errors="coerce")
+    if flow["amount"].map(lambda value: isinstance(value, (bool, np.bool_))).any():
+        return None, "unavailable_without_valid_cashflows"
+    flow["date"] = pd.to_datetime(flow["date"], errors="coerce", utc=True)
     flow["amount"] = pd.to_numeric(flow["amount"], errors="coerce")
-    flow = flow.dropna(subset=["date", "amount"])
-    if flow.empty:
+    if flow[["date", "amount"]].isna().any().any() or not np.isfinite(flow["amount"]).all():
         return None, "unavailable_without_valid_cashflows"
     start = pd.Timestamp(next(iter(dates)))
     end = pd.Timestamp(wealth.index[-1])
+    start = start.tz_localize("UTC") if start.tzinfo is None else start.tz_convert("UTC")
+    end = end.tz_localize("UTC") if end.tzinfo is None else end.tz_convert("UTC")
     dated = [(start, 0.0)] + [(pd.Timestamp(row.date), -float(row.amount)) for row in flow.itertuples()] + [(end, float(wealth.iloc[-1]))]
     dated = sorted(dated, key=lambda row: row[0])
     return _xirr(dated), "available" if len(dated) >= 3 else "partial"

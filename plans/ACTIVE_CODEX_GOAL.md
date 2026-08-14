@@ -332,6 +332,20 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   diff hygiene clean. Freeze one replacement exact head for paired review and
   fresh complete H-tier evidence; preserve `execution_allowed=false`.
 
+- Replacement head `c86e225ab66e70ee39fbb97a6489fd73fe239ba6` is rejected by
+  both final reviewers; run `31791678297` was cancelled as stale. The complete
+  unique set is forecast request identity at shared readers, the candidate
+  price snapshot used by candidate readers, and fail-closed attribution for
+  future cashflows and malformed cost values. One bounded correction threads
+  normalized horizon/model-mode identity through every forecast read and
+  write, atomically retains and replay-validates the local candidate price
+  snapshot, and applies canonical chronology plus strict numeric validation to
+  cashflow and cost evidence. Direct forecast consumer, candidate score/UI and
+  attribution regressions pass with the broader affected suite, Ruff, compile
+  and diff hygiene. Freeze one replacement exact head for paired review and a
+  fresh complete H-tier run; no hidden provider I/O or authority change is
+  introduced and `execution_allowed=false` remains.
+
 ## Historical ISSUE-0017 product checkpoint
 
 - ISSUE-0016 PR #671 merged exact reviewed head

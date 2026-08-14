@@ -4286,3 +4286,16 @@ cash evidence must match the available canonical cash record and analysis
 window. Focused and broad affected tests plus Ruff, compile and diff hygiene
 pass. Freeze one replacement head for paired review and fresh full H-tier
 evidence; preserve authority and `execution_allowed=false`.
+
+`FORECAST READBACK AND CASHFLOW CORRECTION` head
+`c86e225ab66e70ee39fbb97a6489fd73fe239ba6` is rejected by both reviewers and
+run `31791678297` is cancelled/stale. Shared forecast readers did not enforce
+the persisted horizon/model-mode identity, candidate readers compared their
+cache to unrelated universe prices, and attribution still admitted future
+cashflows or zero-filled malformed costs. One bounded correction requires the
+exact request identity at every reader/writer, atomically retains and validates
+the local candidate price snapshot for score/UI readback, and fails closed on
+out-of-window cashflows or nonnumeric/nonfinite cost evidence. Direct and broad
+affected tests plus Ruff, compile and diff hygiene pass. Freeze one replacement
+head for paired review and fresh Linux, Windows, terminal, package and pilot
+evidence; preserve `execution_allowed=false`.

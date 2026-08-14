@@ -11,10 +11,53 @@ import pandas as pd
 
 from etf_cockpit.core.paths import FORECASTS_DIR
 from etf_cockpit.core.atomic_io import read_atomic_group
+from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.versioning import current_settings_revision
 
 PRIMARY_MODEL_HORIZON_DAYS = 60
 FALLBACK_MODEL_HORIZONS_DAYS = (120, 20, 5, 180)
+
+
+def forecast_request_identity(
+    config: AppConfig,
+    horizons: list[int] | None = None,
+    *,
+    live_optional_models: bool = True,
+) -> dict[str, object]:
+    requested = horizons if horizons is not None else config.models.forecast_horizons_trading_days
+    if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in requested):
+        raise ValueError("forecast horizons must be positive integers")
+    normalized = sorted(set(requested))
+    if not normalized:
+        raise ValueError("at least one forecast horizon is required")
+    return {
+        "schema": "forecast-cache-request.v1",
+        "requested_horizons": normalized,
+        "live_optional_models": live_optional_models is True,
+    }
+
+
+def configured_forecast_request_identity(config: AppConfig) -> dict[str, object]:
+    live_optional_models = any(
+        config.models.runtime(name).enabled and config.models.runtime(name).mode == "live"
+        for name in ("timesfm", "toto")
+    )
+    return forecast_request_identity(
+        config,
+        live_optional_models=live_optional_models,
+    )
+
+
+def _valid_forecast_request_identity(identity: Mapping[str, object]) -> bool:
+    horizons = identity.get("requested_horizons")
+    return (
+        identity.get("schema") == "forecast-cache-request.v1"
+        and isinstance(horizons, list)
+        and bool(horizons)
+        and all(isinstance(value, int) and not isinstance(value, bool) and value > 0 for value in horizons)
+        and horizons == sorted(set(horizons))
+        and type(identity.get("live_optional_models")) is bool
+    )
 
 
 def _canonical_price_binding_required(reference_identity: Mapping[str, object] | None) -> bool:
@@ -54,6 +97,7 @@ def _forecast_cache_matches(
     settings_revision: str | None = None,
     reference_identity: Mapping[str, object] | None = None,
     price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
 ) -> bool:
     metadata_path = Path(f"{path}.meta.json")
     if not path.is_file() or not metadata_path.is_file():
@@ -70,6 +114,7 @@ def _forecast_cache_matches(
         settings_revision,
         reference_identity,
         price_binding,
+        forecast_request_identity,
     )
 
 
@@ -80,6 +125,7 @@ def _forecast_cache_snapshot_matches(
     settings_revision: str | None,
     reference_identity: Mapping[str, object] | None,
     price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
 ) -> bool:
     if not isinstance(metadata, dict):
         return False
@@ -97,10 +143,16 @@ def _forecast_cache_snapshot_matches(
         return (
             (checksum is None or checksum == hashlib.sha256(payload_bytes).hexdigest())
             and (price_binding is None or _cache_binding_matches(metadata, price_binding))
+            and (
+                forecast_request_identity is None
+                or _forecast_request_matches(metadata, forecast_request_identity)
+            )
         )
     if metadata.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
         return False
     if price_binding is not None and not _cache_binding_matches(metadata, price_binding):
+        return False
+    if forecast_request_identity is not None and not _forecast_request_matches(metadata, forecast_request_identity):
         return False
     return _reference_identity_matches(
         metadata.get("reference_identity"),
@@ -126,6 +178,14 @@ def _reference_identity_matches(
         return False
 
 
+def _forecast_request_matches(metadata: Mapping[str, object], expected: Mapping[str, object]) -> bool:
+    return _valid_forecast_request_identity(expected) and _reference_identity_matches(
+        metadata.get("forecast_request_identity"),
+        metadata.get("forecast_request_identity_hash"),
+        expected,
+    )
+
+
 def latest_forecast_file(
     pattern: str = "forecast_results_*.csv",
     directory: Path = FORECASTS_DIR,
@@ -134,8 +194,13 @@ def latest_forecast_file(
     settings_revision: str | None = None,
     reference_identity: Mapping[str, object] | None = None,
     price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
 ) -> Path | None:
     if _canonical_price_binding_required(reference_identity) and price_binding is None:
+        return None
+    if reference_identity is not None and (
+        forecast_request_identity is None or not _valid_forecast_request_identity(forecast_request_identity)
+    ):
         return None
     files = sorted(directory.glob(pattern), key=lambda path: path.stat().st_mtime, reverse=True)
     if (
@@ -143,6 +208,7 @@ def latest_forecast_file(
         or settings_revision is not None
         or reference_identity is not None
         or price_binding is not None
+        or forecast_request_identity is not None
     ):
         expected_settings = settings_revision
         if universe_revision is not None and expected_settings is None:
@@ -150,7 +216,14 @@ def latest_forecast_file(
         files = [
             path
             for path in files
-            if _forecast_cache_matches(path, universe_revision, expected_settings, reference_identity, price_binding)
+            if _forecast_cache_matches(
+                path,
+                universe_revision,
+                expected_settings,
+                reference_identity,
+                price_binding,
+                forecast_request_identity,
+            )
         ]
     return files[0] if files else None
 
@@ -163,6 +236,7 @@ def load_latest_forecasts(
     settings_revision: str | None = None,
     reference_identity: Mapping[str, object] | None = None,
     price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
 ) -> pd.DataFrame:
     path = latest_forecast_file(
         pattern,
@@ -171,6 +245,7 @@ def load_latest_forecasts(
         settings_revision=settings_revision,
         reference_identity=reference_identity,
         price_binding=price_binding,
+        forecast_request_identity=forecast_request_identity,
     )
     if path is None:
         return pd.DataFrame()
@@ -186,6 +261,7 @@ def load_latest_forecasts(
                 settings_revision,
                 reference_identity,
                 price_binding,
+                forecast_request_identity,
             ):
                 return pd.DataFrame()
         else:
@@ -194,6 +270,7 @@ def load_latest_forecasts(
                 or settings_revision is not None
                 or reference_identity is not None
                 or price_binding is not None
+                or forecast_request_identity is not None
             ):
                 return pd.DataFrame()
             payload_bytes = path.read_bytes()
@@ -210,16 +287,22 @@ def filter_forecasts_for_universe(
     settings_revision: str | None = None,
     reference_identity: Mapping[str, object] | None = None,
     price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
 ) -> pd.DataFrame:
     """Drop configured forecast rows whose source cache is not for this universe revision."""
 
     if _canonical_price_binding_required(reference_identity) and price_binding is None:
+        return forecasts.iloc[0:0].copy()
+    if reference_identity is not None and (
+        forecast_request_identity is None or not _valid_forecast_request_identity(forecast_request_identity)
+    ):
         return forecasts.iloc[0:0].copy()
     if forecasts.empty or (
         not universe_revision
         and settings_revision is None
         and reference_identity is None
         and price_binding is None
+        and forecast_request_identity is None
     ):
         return forecasts
     if "source_file" not in forecasts.columns:
@@ -229,7 +312,12 @@ def filter_forecasts_for_universe(
         expected_settings = current_settings_revision()
     valid = forecasts["source_file"].map(
         lambda value: _forecast_cache_matches(
-            Path(str(value)), universe_revision, expected_settings, reference_identity, price_binding
+            Path(str(value)),
+            universe_revision,
+            expected_settings,
+            reference_identity,
+            price_binding,
+            forecast_request_identity,
         )
     )
     return forecasts.loc[valid].copy()
