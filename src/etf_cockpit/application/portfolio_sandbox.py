@@ -373,8 +373,9 @@ def _resolve_profile_anchor(
     decision_time: str | None,
     conversion_evidence: Mapping[str, object] | None,
 ) -> VwceAnchorResolution:
+    normalized_listing_id = listing_id.strip() if isinstance(listing_id, str) and listing_id.strip() else None
     if (
-        listing_id is None
+        normalized_listing_id is None
         or currency is None
         or horizon_years is None
         or effective_date is None
@@ -384,8 +385,8 @@ def _resolve_profile_anchor(
             VwceAnchorResolution(
                 "unavailable",
                 anchor.canonical_share_class_id,
-                listing_id,
-                "profile_alignment_inputs_unavailable",
+                normalized_listing_id,
+                "listing_unavailable_at_cutoff" if normalized_listing_id is None else "profile_alignment_inputs_unavailable",
                 anchor_digest=anchor.digest(),
             ),
             output_currency=currency,
@@ -394,7 +395,7 @@ def _resolve_profile_anchor(
     try:
         return resolve_vwce_anchor(
             anchor,
-            listing_id=listing_id,
+            listing_id=normalized_listing_id,
             effective_date=effective_date,
             decision_time=decision_time,
             currency=currency,
@@ -405,7 +406,7 @@ def _resolve_profile_anchor(
         return VwceAnchorResolution(
             "unavailable",
             anchor.canonical_share_class_id,
-            listing_id,
+            normalized_listing_id,
             "profile_anchor_invalid",
             anchor_digest=anchor.digest(),
         )

@@ -4257,3 +4257,18 @@ retain N/A benchmark-relative fields when the benchmark is absent; fail closed
 on the two reproduced recursive reference inputs; and strictly type the two
 demonstrated value objects. Add only direct regressions. Do not alter adjacent
 financial formulas, persistence, workflows, authority or execution behavior.
+
+`SOURCE PRICE AND WINDOW CORRECTION` head
+`7ebff7c3dbfe054a96d574eea8aa7f2596d5a7b9` is rejected by both reviewers and
+run `31784447898` failed the attributable blank-listing regression before its
+platform gates. The same complete verdict also reproduces stale feature and
+forecast caches after adjusted-price revisions, calculations labelled with a
+narrower window than their inputs, and breadth evidence that ignores later or
+contradictory chronology aliases. One consolidated pass binds all production
+cache readers/writers to the exact adjusted-price snapshot and cutoff, clips
+financial inputs to the declaration, validates every chronology field with
+conservative date-only semantics and maps blank listings to explicit unavailable
+evidence without fallback. Direct focused tests, changed validation, Ruff,
+compile, byte-clean programme generation and diff hygiene pass. Freeze one
+replacement head for both final reviews and fresh Linux, Windows, terminal,
+package and pilot H-tier evidence; preserve `execution_allowed=false`.

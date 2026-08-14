@@ -301,6 +301,22 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   pass; freeze one replacement head for paired exact review and fresh H-tier
   evidence, with no adjacent CI or persistence redesign.
 
+- Exact head `7ebff7c3dbfe054a96d574eea8aa7f2596d5a7b9` is rejected by
+  both independent reviews and H-tier run `31784447898`; the run stopped in
+  changed-test preflight before Linux, Windows and pilot gates. The complete
+  demonstrated set is source-price revision binding for feature/forecast
+  caches, enforcement of the declared calculation window, validation of every
+  populated candidate chronology alias, and blank VWCE listing IDs mapping to
+  explicit unavailable evidence. One consolidated correction binds every
+  production cache read to the adjusted-price snapshot and cutoff, refuses
+  unbound cache publication/reuse, clips feature/forecast calculations to the
+  canonical window, applies conservative date-only chronology and preserves
+  explicit-empty no-fallback semantics. Direct regressions pass 45 focused
+  tests; changed validation, Ruff, compile, byte-clean programme generation and
+  diff hygiene pass. Freeze one replacement exact head for paired review and a
+  fresh complete H-tier run; `execution_allowed=false` and authority boundaries
+  remain unchanged.
+
 ## Historical ISSUE-0017 product checkpoint
 
 - ISSUE-0016 PR #671 merged exact reviewed head

@@ -17,9 +17,35 @@ PRIMARY_MODEL_HORIZON_DAYS = 60
 FALLBACK_MODEL_HORIZONS_DAYS = (120, 20, 5, 180)
 
 
+def _canonical_price_binding_required(reference_identity: Mapping[str, object] | None) -> bool:
+    return isinstance(reference_identity, Mapping) and "analysis" in reference_identity
+
+
 def _reference_identity_hash(identity: Mapping[str, object]) -> str:
     encoded = json.dumps(dict(identity), sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _cache_binding_matches(metadata: Mapping[str, object], expected: Mapping[str, object]) -> bool:
+    return _valid_price_binding(expected) and all(metadata.get(key) == value for key, value in expected.items())
+
+
+def _valid_price_binding(binding: Mapping[str, object]) -> bool:
+    checksum = binding.get("price_snapshot_checksum")
+    revision = binding.get("price_snapshot_revision")
+    cutoff = binding.get("effective_cutoff")
+    window = binding.get("calculation_window")
+    return (
+        isinstance(checksum, str)
+        and len(checksum) == 64
+        and all(character in "0123456789abcdef" for character in checksum)
+        and revision == checksum
+        and isinstance(cutoff, str)
+        and bool(cutoff)
+        and isinstance(window, Mapping)
+        and window.get("decision_time") == cutoff
+        and all(isinstance(window.get(key), str) and window.get(key) for key in ("start_date", "end_date"))
+    )
 
 
 def _forecast_cache_matches(
@@ -27,6 +53,7 @@ def _forecast_cache_matches(
     universe_revision: str | None,
     settings_revision: str | None = None,
     reference_identity: Mapping[str, object] | None = None,
+    price_binding: Mapping[str, object] | None = None,
 ) -> bool:
     metadata_path = Path(f"{path}.meta.json")
     if not path.is_file() or not metadata_path.is_file():
@@ -42,6 +69,7 @@ def _forecast_cache_matches(
         universe_revision,
         settings_revision,
         reference_identity,
+        price_binding,
     )
 
 
@@ -51,6 +79,7 @@ def _forecast_cache_snapshot_matches(
     universe_revision: str | None,
     settings_revision: str | None,
     reference_identity: Mapping[str, object] | None,
+    price_binding: Mapping[str, object] | None = None,
 ) -> bool:
     if not isinstance(metadata, dict):
         return False
@@ -65,8 +94,13 @@ def _forecast_cache_snapshot_matches(
         if not matches:
             return False
         checksum = metadata.get("payload_sha256")
-        return checksum is None or checksum == hashlib.sha256(payload_bytes).hexdigest()
+        return (
+            (checksum is None or checksum == hashlib.sha256(payload_bytes).hexdigest())
+            and (price_binding is None or _cache_binding_matches(metadata, price_binding))
+        )
     if metadata.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
+        return False
+    if price_binding is not None and not _cache_binding_matches(metadata, price_binding):
         return False
     return _reference_identity_matches(
         metadata.get("reference_identity"),
@@ -99,16 +133,24 @@ def latest_forecast_file(
     universe_revision: str | None = None,
     settings_revision: str | None = None,
     reference_identity: Mapping[str, object] | None = None,
+    price_binding: Mapping[str, object] | None = None,
 ) -> Path | None:
+    if _canonical_price_binding_required(reference_identity) and price_binding is None:
+        return None
     files = sorted(directory.glob(pattern), key=lambda path: path.stat().st_mtime, reverse=True)
-    if universe_revision is not None or settings_revision is not None or reference_identity is not None:
+    if (
+        universe_revision is not None
+        or settings_revision is not None
+        or reference_identity is not None
+        or price_binding is not None
+    ):
         expected_settings = settings_revision
         if universe_revision is not None and expected_settings is None:
             expected_settings = current_settings_revision()
         files = [
             path
             for path in files
-            if _forecast_cache_matches(path, universe_revision, expected_settings, reference_identity)
+            if _forecast_cache_matches(path, universe_revision, expected_settings, reference_identity, price_binding)
         ]
     return files[0] if files else None
 
@@ -120,6 +162,7 @@ def load_latest_forecasts(
     universe_revision: str | None = None,
     settings_revision: str | None = None,
     reference_identity: Mapping[str, object] | None = None,
+    price_binding: Mapping[str, object] | None = None,
 ) -> pd.DataFrame:
     path = latest_forecast_file(
         pattern,
@@ -127,6 +170,7 @@ def load_latest_forecasts(
         universe_revision=universe_revision,
         settings_revision=settings_revision,
         reference_identity=reference_identity,
+        price_binding=price_binding,
     )
     if path is None:
         return pd.DataFrame()
@@ -141,10 +185,16 @@ def load_latest_forecasts(
                 universe_revision,
                 settings_revision,
                 reference_identity,
+                price_binding,
             ):
                 return pd.DataFrame()
         else:
-            if universe_revision is not None or settings_revision is not None or reference_identity is not None:
+            if (
+                universe_revision is not None
+                or settings_revision is not None
+                or reference_identity is not None
+                or price_binding is not None
+            ):
                 return pd.DataFrame()
             payload_bytes = path.read_bytes()
         frame = pd.read_csv(BytesIO(payload_bytes))
@@ -159,13 +209,17 @@ def filter_forecasts_for_universe(
     universe_revision: str | None,
     settings_revision: str | None = None,
     reference_identity: Mapping[str, object] | None = None,
+    price_binding: Mapping[str, object] | None = None,
 ) -> pd.DataFrame:
     """Drop configured forecast rows whose source cache is not for this universe revision."""
 
+    if _canonical_price_binding_required(reference_identity) and price_binding is None:
+        return forecasts.iloc[0:0].copy()
     if forecasts.empty or (
         not universe_revision
         and settings_revision is None
         and reference_identity is None
+        and price_binding is None
     ):
         return forecasts
     if "source_file" not in forecasts.columns:
@@ -175,7 +229,7 @@ def filter_forecasts_for_universe(
         expected_settings = current_settings_revision()
     valid = forecasts["source_file"].map(
         lambda value: _forecast_cache_matches(
-            Path(str(value)), universe_revision, expected_settings, reference_identity
+            Path(str(value)), universe_revision, expected_settings, reference_identity, price_binding
         )
     )
     return forecasts.loc[valid].copy()

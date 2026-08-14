@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 import hashlib
 import json
+import math
 from types import MappingProxyType
 
 import pandas as pd
@@ -272,6 +273,65 @@ def clip_to_decision_window(
     return frame.loc[(dates >= start) & (effective_dates <= upper)].copy()
 
 
+def adjusted_price_snapshot_binding(
+    prices: pd.DataFrame,
+    *,
+    calculation_window: Mapping[str, object],
+) -> dict[str, object] | None:
+    """Return the deterministic adjusted-price identity for one exact window."""
+
+    required_window = ("start_date", "end_date", "decision_time")
+    if not all(isinstance(calculation_window.get(key), str) and calculation_window.get(key) for key in required_window):
+        return None
+    if not isinstance(prices, pd.DataFrame) or not {"date", "etf_id", "adjusted_close"}.issubset(prices.columns):
+        return None
+    window = {key: str(calculation_window[key]) for key in required_window}
+    clipped = clip_to_decision_window(prices, **window)
+    if clipped.empty:
+        return None
+    frame = clipped[["date", "etf_id", "adjusted_close"]].copy()
+    frame["etf_id"] = frame["etf_id"].map(lambda value: str(value).strip())
+    frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
+    dates = pd.to_datetime(frame["date"], errors="coerce", utc=True, format="mixed")
+    if dates.isna().any() or frame["etf_id"].eq("").any() or frame["adjusted_close"].isna().any():
+        return None
+    if not frame["adjusted_close"].map(math.isfinite).all() or (frame["adjusted_close"] <= 0).any():
+        return None
+    frame["date"] = dates.map(pd.Timestamp.isoformat)
+    duplicate_values = frame.groupby(["etf_id", "date"], sort=True)["adjusted_close"].nunique(dropna=False)
+    if duplicate_values.gt(1).any():
+        return None
+    frame = frame.sort_values(["etf_id", "date"], kind="stable").drop_duplicates(["etf_id", "date"])
+    payload = json.dumps(
+        frame.to_dict(orient="records"),
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+        default=str,
+    ).encode("utf-8")
+    checksum = hashlib.sha256(payload).hexdigest()
+    return {
+        "price_snapshot_checksum": checksum,
+        "price_snapshot_revision": checksum,
+        "effective_cutoff": window["decision_time"],
+        "calculation_window": window,
+    }
+
+
+def adjusted_price_binding_for_reference(
+    prices: pd.DataFrame,
+    reference_identity: Mapping[str, object] | None,
+) -> dict[str, object] | None:
+    """Resolve a price binding only from a populated canonical analysis identity."""
+
+    if not isinstance(reference_identity, Mapping):
+        return None
+    analysis = reference_identity.get("analysis")
+    if not isinstance(analysis, Mapping):
+        return None
+    return adjusted_price_snapshot_binding(prices, calculation_window=analysis)
+
+
 def _is_date_only_observation(value: object) -> bool:
     if isinstance(value, (pd.Timestamp,)):
         return value.tzinfo is None and value == value.normalize()
@@ -365,6 +425,8 @@ def context_from_snapshot(
 
 __all__ = [
     "CanonicalReferenceContext",
+    "adjusted_price_binding_for_reference",
+    "adjusted_price_snapshot_binding",
     "clip_to_decision_window",
     "context_from_snapshot",
     "resolve_canonical_reference",

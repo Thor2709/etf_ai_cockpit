@@ -11,9 +11,11 @@ import pandas as pd
 import pytest
 import etf_cockpit.models.forecast_scores as forecast_scores
 import etf_cockpit.services as services_module
+from etf_cockpit.app.pages import dashboard as dashboard_module
 
 from etf_cockpit.application.benchmark_reference import (
     CanonicalReferenceContext,
+    adjusted_price_binding_for_reference,
     clip_to_decision_window,
     resolve_canonical_reference,
     unavailable_reference_projection,
@@ -168,6 +170,109 @@ def test_cache_metadata_requires_matching_canonical_reference_identity(tmp_path)
     legacy.write_text("etf_id\nBENCH\n", encoding="utf-8")
     _write_universe_cache_metadata(legacy, "universe", "settings")
     assert not _cache_matches_universe(legacy, "universe", "settings", identity)
+
+
+def test_derived_caches_invalidate_after_adjusted_price_revision(tmp_path) -> None:
+    identity = _cache_identity()
+    prices = pd.DataFrame(
+        [
+            {"date": "2025-01-01", "etf_id": "ETF", "adjusted_close": 100.0},
+            {"date": "2025-01-02", "etf_id": "ETF", "adjusted_close": 101.0},
+        ]
+    )
+    window = {
+        "start_date": "2025-01-01",
+        "end_date": "2025-01-02",
+        "decision_time": "2025-01-02T23:59:59Z",
+    }
+    binding = services_module._price_snapshot_binding(prices, calculation_window=window)
+    assert binding is not None
+    forecast_path = tmp_path / "forecast_results_20250102.csv"
+    _write_bound_cache_group(
+        forecast_path,
+        b"etf_id,expected_return\nETF,0.01\n",
+        lambda candidate: pd.read_csv(candidate),
+        "u1",
+        "s1",
+        identity,
+        binding,
+    )
+    metadata = json.loads(forecast_path.with_name(f"{forecast_path.name}.meta.json").read_text(encoding="utf-8"))
+    assert metadata["price_snapshot_checksum"] == binding["price_snapshot_checksum"]
+    assert metadata["price_snapshot_revision"] == binding["price_snapshot_revision"]
+    assert metadata["effective_cutoff"] == window["decision_time"]
+    assert _cache_matches_universe(forecast_path, "u1", "s1", identity, binding)
+    revised = prices.assign(adjusted_close=[100.0, 102.0])
+    revised_binding = services_module._price_snapshot_binding(revised, calculation_window=window)
+    assert revised_binding is not None
+    assert revised_binding["price_snapshot_revision"] != binding["price_snapshot_revision"]
+    assert not _cache_matches_universe(forecast_path, "u1", "s1", identity, revised_binding)
+    assert _read_bound_cache_payload(forecast_path, "u1", "s1", identity, revised_binding) is None
+
+    feature_path = tmp_path / "features.parquet"
+    write_features(
+        pd.DataFrame([{"date": "2025-01-02", "etf_id": "ETF", "value": 1.0}]),
+        feature_path,
+        cache_metadata={
+            "universe_revision": "u1",
+            "settings_revision": "s1",
+            "reference_identity": identity,
+            **binding,
+        },
+    )
+    assert load_features(
+        feature_path,
+        universe_revision="u1",
+        settings_revision="s1",
+        reference_identity=identity,
+        price_binding=revised_binding,
+    ).empty
+
+
+def test_feature_and_forecast_services_clip_to_exact_declared_window(monkeypatch, tmp_path) -> None:
+    declaration = SimpleNamespace(
+        start_date="2025-01-01",
+        end_date="2025-01-02",
+        decision_time="2025-01-02T12:00:00Z",
+    )
+    context = SimpleNamespace(
+        resolution=SimpleNamespace(declaration=declaration),
+        benchmark_data_id=None,
+        identity=_cache_identity(),
+        projection={},
+    )
+    prices = pd.DataFrame(
+        [
+            {"date": "2025-01-01", "etf_id": "ETF", "adjusted_close": 100.0},
+            {"date": "2025-01-02 12:00:00Z", "etf_id": "ETF", "adjusted_close": 101.0},
+            {"date": "2025-01-02 20:00:00Z", "etf_id": "ETF", "adjusted_close": 102.0},
+        ]
+    )
+    monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    captured_features: list[pd.DataFrame] = []
+    monkeypatch.setattr(
+        services_module,
+        "compute_features",
+        lambda frame, benchmark_etf_id=None: captured_features.append(frame.copy()) or frame,
+    )
+    monkeypatch.setattr(services_module, "write_features", lambda *_args, **_kwargs: None)
+    services_module.FeatureService(load_config(), reference_context=context).compute_features(
+        date(2025, 1, 2), prices, reference_context=context,
+    )
+    assert captured_features[0]["date"].astype(str).tolist() == ["2025-01-01", "2025-01-02 12:00:00Z"]
+
+    captured_forecast_dates: list[list[str]] = []
+    monkeypatch.setattr(
+        services_module,
+        "baseline_forecast",
+        lambda _etf_id, series, *_args, **_kwargs: captured_forecast_dates.append([str(value) for value in series.index]) or [],
+    )
+    service = services_module.ForecastService(load_config(), reference_context=context)
+    monkeypatch.setattr(service, "_run_timesfm_forecasts", lambda *_args: [])
+    monkeypatch.setattr(service, "_run_toto_forecasts", lambda *_args: [])
+    monkeypatch.setattr(service, "_write_forecasts", lambda *_args, **_kwargs: None)
+    service.run_forecasts(date(2025, 1, 2), ["ETF"], prices, horizons=[1])
+    assert captured_forecast_dates == [["2025-01-01 00:00:00+00:00", "2025-01-02 12:00:00+00:00"]]
 
 
 def test_forecast_readers_require_matching_reference_identity(tmp_path) -> None:
@@ -805,6 +910,47 @@ def test_candidate_breadth_excludes_future_and_unproven_rows() -> None:
     ) == 0.0
 
 
+def test_candidate_breadth_rejects_malformed_aliases_and_date_only_knowledge_at_intraday_cutoff() -> None:
+    malformed = pd.DataFrame(
+        [{
+            "sma200_signal": True,
+            "effective_at": "2025-01-10",
+            "latest_date": "not-a-date",
+            "provenance": "yfinance_adjusted_close",
+        }]
+    )
+    date_only_knowledge = pd.DataFrame(
+        [{
+            "sma200_signal": True,
+            "effective_at": "2025-01-01",
+            "known_at": "2025-01-15",
+            "provenance": "yfinance_adjusted_close",
+        }]
+    )
+    assert _candidate_pct_above_sma200(malformed, decision_time="2025-01-15T12:00:00Z") is None
+    assert _candidate_pct_above_sma200(date_only_knowledge, decision_time="2025-01-15T12:00:00Z") is None
+
+
+def test_candidate_breadth_rejects_future_contradictory_populated_aliases() -> None:
+    future_knowledge_alias = pd.DataFrame([{
+        "sma200_signal": True,
+        "effective_at": "2025-01-10T12:00:00Z",
+        "known_at": "2025-01-10T12:00:00Z",
+        "available_at": "2025-01-16T12:00:00Z",
+        "provenance": "yfinance_adjusted_close",
+    }])
+    future_observation_alias = pd.DataFrame([{
+        "sma200_signal": True,
+        "effective_at": "2025-01-10T12:00:00Z",
+        "as_of_date": "2025-01-16",
+        "known_at": "2025-01-10T12:00:00Z",
+        "provenance": "yfinance_adjusted_close",
+    }])
+    cutoff = "2025-01-15T12:00:00Z"
+    assert _candidate_pct_above_sma200(future_knowledge_alias, decision_time=cutoff) is None
+    assert _candidate_pct_above_sma200(future_observation_alias, decision_time=cutoff) is None
+
+
 def test_shared_window_clip_caps_intraday_authority_and_date_only_rows() -> None:
     prices = pd.DataFrame(
         {
@@ -924,15 +1070,178 @@ def test_simple_score_candidate_loader_passes_reference_identity(monkeypatch) ->
         return pd.DataFrame()
 
     monkeypatch.setattr(simple_scores_module, "load_latest_forecasts", capture_forecasts)
-    identity = {"schema": "benchmark-reference-cache.v1", "execution_allowed": False}
+    identity = {
+        "schema": "benchmark-reference-cache.v1",
+        "analysis": {
+            "start_date": "2025-01-01",
+            "end_date": "2025-01-02",
+            "decision_time": "2025-01-02T23:59:59Z",
+        },
+        "execution_allowed": False,
+    }
+    prices = pd.DataFrame([
+        {"date": "2025-01-01", "etf_id": "ETF", "adjusted_close": 100.0},
+        {"date": "2025-01-02", "etf_id": "ETF", "adjusted_close": 101.0},
+    ])
+    build_simple_instrument_scores(
+        load_config(),
+        [],
+        pd.DataFrame(),
+        prices,
+        reference_identity=identity,
+    )
+    assert captured["reference_identity"] == identity
+    assert captured["price_binding"] == adjusted_price_binding_for_reference(prices, identity)
+
+
+def test_malformed_price_identity_cannot_reuse_cache_or_reach_simple_score_disk_reader(
+    tmp_path, monkeypatch
+) -> None:
+    identity = {
+        **_cache_identity(),
+        "analysis": {
+            "start_date": "2025-01-01",
+            "end_date": "2025-01-01",
+            "decision_time": "2025-01-01T23:59:59Z",
+        },
+    }
+    unavailable_binding = {
+        "price_snapshot_checksum": "unavailable",
+        "price_snapshot_revision": "unavailable",
+        "effective_cutoff": "2025-01-01T23:59:59Z",
+        "calculation_window": dict(identity["analysis"]),
+    }
+    feature_path = tmp_path / "features.parquet"
+    write_features(
+        pd.DataFrame([{"date": "2025-01-01", "etf_id": "ETF"}]),
+        feature_path,
+        cache_metadata={
+            "universe_revision": "u1",
+            "settings_revision": "s1",
+            "reference_identity": identity,
+            **unavailable_binding,
+        },
+    )
+    forecast_path = tmp_path / "forecast_results_20250101.csv"
+    _write_bound_cache_group(
+        forecast_path,
+        b"etf_id,expected_return\nETF,0.01\n",
+        lambda candidate: pd.read_csv(candidate),
+        "u1",
+        "s1",
+        identity,
+        unavailable_binding,
+    )
+    assert load_features(
+        feature_path,
+        universe_revision="u1",
+        settings_revision="s1",
+        reference_identity=identity,
+        price_binding=unavailable_binding,
+    ).empty
+    assert load_latest_forecasts(
+        directory=tmp_path,
+        universe_revision="u1",
+        settings_revision="s1",
+        reference_identity=identity,
+        price_binding=unavailable_binding,
+    ).empty
+
+    monkeypatch.setattr(simple_scores_module, "load_latest_candidate_report", lambda: (pd.DataFrame(), None))
+    monkeypatch.setattr(simple_scores_module, "load_forecast_history", lambda: pd.DataFrame())
+
+    def forbidden_disk_read(*_args, **_kwargs):
+        raise AssertionError("malformed current prices must not reach the forecast disk reader")
+
+    monkeypatch.setattr(simple_scores_module, "load_latest_forecasts", forbidden_disk_read)
     build_simple_instrument_scores(
         load_config(),
         [],
         pd.DataFrame(),
         pd.DataFrame(),
+        universe_revision="u1",
         reference_identity=identity,
     )
-    assert captured["reference_identity"] == identity
+
+
+def test_canonical_feature_and_forecast_writes_reject_unbound_prices(tmp_path) -> None:
+    malformed = pd.DataFrame([
+        {"date": "2025-01-01", "etf_id": "ETF", "adjusted_close": -1.0},
+    ])
+    context = CanonicalReferenceContext(CanonicalBenchmarkRegistry())
+    with pytest.raises(ValueError, match="snapshot identity is unavailable"):
+        services_module.FeatureService(load_config(), reference_context=context).compute_features(
+            date(2025, 1, 1), malformed
+        )
+    output = tmp_path / "forecast_results_20250101.csv"
+    with pytest.raises(ValueError, match="snapshot identity is unavailable"):
+        services_module.ForecastService(load_config(), reference_context=context).run_forecasts(
+            date(2025, 1, 1), ["ETF"], malformed, output_path=output
+        )
+    assert not output.exists()
+
+
+def test_dashboard_model_pair_disk_reader_requires_current_price_binding(monkeypatch) -> None:
+    identity = {
+        "schema": "benchmark-reference-cache.v1",
+        "analysis": {
+            "start_date": "2025-01-01",
+            "end_date": "2025-01-02",
+            "decision_time": "2025-01-02T23:59:59Z",
+        },
+        "execution_allowed": False,
+    }
+    binding = {
+        "price_snapshot_checksum": "a" * 64,
+        "price_snapshot_revision": "a" * 64,
+        "effective_cutoff": "2025-01-02T23:59:59Z",
+        "calculation_window": dict(identity["analysis"]),
+    }
+    captured: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        dashboard_module,
+        "context_from_snapshot",
+        lambda *_args, **_kwargs: SimpleNamespace(identity=identity),
+    )
+    monkeypatch.setattr(
+        dashboard_module,
+        "adjusted_price_binding_for_reference",
+        lambda *_args, **_kwargs: binding,
+    )
+
+    def capture_load(*_args, **kwargs):
+        captured.append(kwargs)
+        return pd.DataFrame()
+
+    def capture_filter(frame, *_args, **kwargs):
+        captured.append(kwargs)
+        return frame.iloc[0:0].copy()
+
+    monkeypatch.setattr(dashboard_module, "load_latest_forecasts", capture_load)
+    monkeypatch.setattr(dashboard_module, "filter_forecasts_for_universe", capture_filter)
+    state = SimpleNamespace(
+        snapshot=SimpleNamespace(
+            universe_revision="u1",
+            prices=pd.DataFrame(),
+            forecasts=pd.DataFrame(),
+        ),
+        universe_cache_revision="u1",
+    )
+    assert dashboard_module._valid_model_pairs(state) == 0
+    assert len(captured) == 2
+    assert all(call["price_binding"] == binding for call in captured)
+
+    monkeypatch.setattr(
+        dashboard_module,
+        "adjusted_price_binding_for_reference",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        dashboard_module,
+        "load_latest_forecasts",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("disk read bypassed binding")),
+    )
+    assert dashboard_module._valid_model_pairs(state) == 0
 
 
 def test_optional_forecast_relative_fields_are_derived_uniformly_or_n_a() -> None:

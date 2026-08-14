@@ -97,6 +97,8 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
 )
 from etf_cockpit.application.benchmark_reference import (
     CanonicalReferenceContext,
+    adjusted_price_snapshot_binding,
+    clip_to_decision_window,
     resolve_canonical_reference,
     unavailable_reference_projection,
 )
@@ -169,6 +171,7 @@ def _cache_matches_universe(
     revision: str,
     settings_revision: str | None = None,
     reference_identity: Mapping[str, object] | None = None,
+    price_binding: Mapping[str, object] | None = None,
 ) -> bool:
     metadata_path = _universe_cache_meta_path(path)
     if not path.is_file() or not metadata_path.is_file():
@@ -188,8 +191,13 @@ def _cache_matches_universe(
         if not matches:
             return False
         checksum = payload.get("payload_sha256") if isinstance(payload, dict) else None
-        return checksum is None or checksum == hashlib.sha256(payload_bytes).hexdigest()
+        return (
+            (checksum is None or checksum == hashlib.sha256(payload_bytes).hexdigest())
+            and (price_binding is None or _price_binding_matches(payload, price_binding))
+        )
     if payload.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
+        return False
+    if price_binding is not None and not _price_binding_matches(payload, price_binding):
         return False
     return _reference_identity_matches(
         payload.get("reference_identity"),
@@ -203,6 +211,7 @@ def _read_bound_cache_payload(
     revision: str,
     settings_revision: str,
     reference_identity: Mapping[str, object],
+    price_binding: Mapping[str, object] | None = None,
 ) -> bytes | None:
     metadata_path = _universe_cache_meta_path(path)
     try:
@@ -221,6 +230,8 @@ def _read_bound_cache_payload(
         payload.get("reference_identity_hash"),
         reference_identity,
     ):
+        return None
+    if price_binding is not None and not _price_binding_matches(payload, price_binding):
         return None
     if payload.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
         return None
@@ -337,6 +348,7 @@ def _write_universe_cache_metadata(
     revision: str,
     settings_revision: str | None = None,
     reference_identity: Mapping[str, object] | None = None,
+    price_binding: Mapping[str, object] | None = None,
 ) -> None:
     metadata_path = _universe_cache_meta_path(path)
     payload_sha256 = (
@@ -358,6 +370,7 @@ def _write_universe_cache_metadata(
                 if reference_identity is not None
                 else {}
             ),
+            **(dict(price_binding) if price_binding is not None else {}),
         },
         sort_keys=True,
     ).encode("utf-8")
@@ -369,20 +382,21 @@ def _write_bound_cache_metadata(
     revision: str,
     settings_revision: str,
     reference_identity: Mapping[str, object] | None,
+    price_binding: Mapping[str, object] | None = None,
 ) -> None:
     """Write reference-bound metadata, retaining the old test seam."""
 
     if reference_identity is None:
-        _write_universe_cache_metadata(path, revision, settings_revision)
+        _write_universe_cache_metadata(path, revision, settings_revision, price_binding=price_binding)
         return
     try:
-        _write_universe_cache_metadata(path, revision, settings_revision, reference_identity)
+        _write_universe_cache_metadata(path, revision, settings_revision, reference_identity, price_binding)
     except TypeError as exc:
         # A narrow compatibility path for callers monkeypatching the former
         # three-argument helper; production always uses the bound form above.
         if "positional" not in str(exc) and "argument" not in str(exc):
             raise
-        _write_universe_cache_metadata(path, revision, settings_revision)
+        _write_universe_cache_metadata(path, revision, settings_revision, price_binding=price_binding)
 
 
 def _bound_cache_metadata_payload(
@@ -390,6 +404,7 @@ def _bound_cache_metadata_payload(
     settings_revision: str,
     reference_identity: Mapping[str, object] | None,
     payload: bytes,
+    price_binding: Mapping[str, object] | None = None,
 ) -> bytes:
     record: dict[str, object] = {
         "schema_version": 3,
@@ -400,6 +415,8 @@ def _bound_cache_metadata_payload(
     if reference_identity is not None:
         record["reference_identity"] = dict(reference_identity)
         record["reference_identity_hash"] = _reference_identity_hash(reference_identity)
+    if price_binding is not None:
+        record.update(dict(price_binding))
     return json.dumps(record, sort_keys=True).encode("utf-8")
 
 
@@ -410,10 +427,11 @@ def _write_bound_cache_group(
     revision: str,
     settings_revision: str,
     reference_identity: Mapping[str, object] | None,
+    price_binding: Mapping[str, object] | None = None,
 ) -> None:
     metadata_path = _universe_cache_meta_path(path)
     metadata_payload = _bound_cache_metadata_payload(
-        revision, settings_revision, reference_identity, payload
+        revision, settings_revision, reference_identity, payload, price_binding
     )
     atomic_write_group(
         (
@@ -453,6 +471,80 @@ def _canonical_json_value(value: object) -> object:
             raise ValueError("canonical JSON numbers must be finite")
         return value
     raise TypeError("canonical JSON contains an unsupported primitive")
+
+
+def _calculation_window(
+    context: CanonicalReferenceContext,
+    as_of_date: date,
+    prices: pd.DataFrame,
+) -> dict[str, str] | None:
+    """Return the exact canonical window, with a deterministic local fallback."""
+
+    try:
+        requested_as_of = pd.Timestamp(as_of_date).date()
+    except (TypeError, ValueError):
+        return None
+    resolution = getattr(context, "resolution", None)
+    if resolution is not None:
+        declaration = resolution.declaration
+        try:
+            end_date = date.fromisoformat(declaration.end_date)
+        except (TypeError, ValueError):
+            return None
+        if requested_as_of > end_date:
+            return None
+        if requested_as_of < end_date:
+            return {
+                "start_date": declaration.start_date,
+                "end_date": requested_as_of.isoformat(),
+                "decision_time": f"{requested_as_of.isoformat()}T23:59:59+00:00",
+            }
+        return {
+            "start_date": declaration.start_date,
+            "end_date": declaration.end_date,
+            "decision_time": declaration.decision_time,
+        }
+
+    if not isinstance(prices, pd.DataFrame) or "date" not in prices.columns:
+        start_date = requested_as_of
+    else:
+        dates = pd.to_datetime(prices["date"], errors="coerce", utc=True)
+        valid = dates.dropna()
+        start_date = valid.min().date() if not valid.empty else requested_as_of
+    return {
+        "start_date": start_date.isoformat(),
+        "end_date": requested_as_of.isoformat(),
+        "decision_time": f"{requested_as_of.isoformat()}T23:59:59+00:00",
+    }
+
+
+def _price_snapshot_binding(
+    prices: pd.DataFrame,
+    *,
+    calculation_window: Mapping[str, str],
+) -> dict[str, object] | None:
+    """Build the adjusted-price identity used by derived-cache sidecars."""
+
+    return adjusted_price_snapshot_binding(prices, calculation_window=calculation_window)
+
+
+def _price_binding_matches(metadata: Mapping[str, object], expected: Mapping[str, object]) -> bool:
+    checksum = expected.get("price_snapshot_checksum")
+    revision = expected.get("price_snapshot_revision")
+    cutoff = expected.get("effective_cutoff")
+    window = expected.get("calculation_window")
+    valid = (
+        isinstance(checksum, str)
+        and len(checksum) == 64
+        and all(character in "0123456789abcdef" for character in checksum)
+        and revision == checksum
+        and isinstance(cutoff, str)
+        and bool(cutoff)
+        and isinstance(window, Mapping)
+        and window.get("decision_time") == cutoff
+        and all(isinstance(window.get(key), str) and window.get(key) for key in ("start_date", "end_date"))
+    )
+    return valid and all(metadata.get(key) == value for key, value in expected.items())
 
 
 def _reference_binding(reference_context: CanonicalReferenceContext) -> dict[str, object]:
@@ -752,16 +844,26 @@ class DataService:
             purpose="comparison",
             analysis_id=f"forecast:{effective_as_of.isoformat()}",
         )
+        calculation_window = _calculation_window(reference_context, effective_as_of, prices)
+        if calculation_window is None:
+            return "Forecast calculation skipped because the canonical calculation window is unavailable."
+        price_binding = _price_snapshot_binding(prices, calculation_window=calculation_window)
+        if price_binding is None:
+            return "Forecast calculation skipped because the adjusted-price snapshot identity is unavailable."
         forecast_config = self.config if live_optional_models else _config_with_optional_models_disabled(self.config)
         forecast_service = ForecastService(forecast_config, reference_context=reference_context)
         universe_revision = _current_universe_revision()
         output = FORECASTS_DIR / f"forecast_results_yfinance_{effective_as_of:%Y%m%d}.csv"
         if use_cache and output.exists() and _cache_matches_universe(
-            output, universe_revision, settings_revision, reference_context.identity
+            output, universe_revision, settings_revision, reference_context.identity, price_binding
         ):
             try:
                 cached_payload = _read_bound_cache_payload(
-                    output, universe_revision, settings_revision, reference_context.identity
+                    output,
+                    universe_revision,
+                    settings_revision,
+                    reference_context.identity,
+                    price_binding,
                 )
                 if cached_payload is None:
                     raise ValueError("forecast cache pair changed during read")
@@ -812,13 +914,34 @@ class DataService:
             )
         ]
         if include_candidates:
-            candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{effective_as_of:%Y%m%d}.csv"
+            candidate_data = fetch_candidate_prices(self.config, years=years)
+            candidate_ids = list(candidate_data.candidates["instrument_id"].astype(str))
+            candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{candidate_data.effective_as_of:%Y%m%d}.csv"
+            candidate_window = _calculation_window(
+                reference_context, candidate_data.effective_as_of, candidate_data.prices
+            )
+            candidate_binding = (
+                None
+                if candidate_window is None
+                else _price_snapshot_binding(candidate_data.prices, calculation_window=candidate_window)
+            )
+            if candidate_binding is None:
+                messages.append(
+                    "Candidate forecasts unavailable because the adjusted-price snapshot identity is unavailable; "
+                    "no disk cache was accepted or published."
+                )
+                self.last_operation_succeeded = True
+                return "\n".join(messages)
             if use_cache and candidate_output.exists() and _cache_matches_universe(
-                candidate_output, universe_revision, settings_revision, reference_context.identity
+                candidate_output, universe_revision, settings_revision, reference_context.identity, candidate_binding
             ):
                 try:
                     cached_payload = _read_bound_cache_payload(
-                        candidate_output, universe_revision, settings_revision, reference_context.identity
+                        candidate_output,
+                        universe_revision,
+                        settings_revision,
+                        reference_context.identity,
+                        candidate_binding,
                     )
                     if cached_payload is None:
                         raise ValueError("candidate forecast cache pair changed during read")
@@ -829,13 +952,9 @@ class DataService:
                 if candidate_frame is not None:
                     record_cache_event("candidate_forecast", "hit", action_id="forecasts")
                     candidate_summary = _forecast_frame_status_summary(candidate_frame)
-                    candidate_as_of = effective_as_of
+                    candidate_as_of = candidate_data.effective_as_of
                     candidate_mode = "reused from cache"
                 else:
-                    record_cache_event("candidate_forecast", "miss", action_id="forecasts")
-                    candidate_data = fetch_candidate_prices(self.config, years=years)
-                    candidate_ids = list(candidate_data.candidates["instrument_id"].astype(str))
-                    candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{candidate_data.effective_as_of:%Y%m%d}.csv"
                     candidate_forecasts = forecast_service.run_forecasts(
                         candidate_data.effective_as_of,
                         candidate_ids,
@@ -849,49 +968,21 @@ class DataService:
                     candidate_mode = "refreshed"
             else:
                 if use_cache and candidate_output.exists() and not _cache_matches_universe(
-                    candidate_output, universe_revision, settings_revision, reference_context.identity
+                    candidate_output, universe_revision, settings_revision, reference_context.identity, candidate_binding
                 ):
                     record_cache_event("candidate_forecast", "invalidation", action_id="forecasts", detail="universe revision changed or metadata missing")
                 record_cache_event("candidate_forecast", "miss", action_id="forecasts")
-                candidate_data = fetch_candidate_prices(self.config, years=years)
-                candidate_ids = list(candidate_data.candidates["instrument_id"].astype(str))
-                candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{candidate_data.effective_as_of:%Y%m%d}.csv"
-                if use_cache and candidate_output.exists() and _cache_matches_universe(
-                    candidate_output, universe_revision, settings_revision, reference_context.identity
-                ):
-                    cached_payload = _read_bound_cache_payload(
-                        candidate_output, universe_revision, settings_revision, reference_context.identity
-                    )
-                    if cached_payload is not None:
-                        record_cache_event("candidate_forecast", "hit", action_id="forecasts")
-                        candidate_summary = _forecast_frame_status_summary(pd.read_csv(BytesIO(cached_payload)))
-                        candidate_as_of = candidate_data.effective_as_of
-                        candidate_mode = "reused from cache"
-                    else:
-                        record_cache_event("candidate_forecast", "invalidation", action_id="forecasts", detail="cache pair changed during read")
-                        candidate_forecasts = forecast_service.run_forecasts(
-                            candidate_data.effective_as_of,
-                            candidate_ids,
-                            candidate_data.prices,
-                            output_path=candidate_output,
-                            horizons=horizons,
-                            publish_guard=publish_guard,
-                        )
-                        candidate_summary = _forecast_status_summary(candidate_forecasts)
-                        candidate_as_of = candidate_data.effective_as_of
-                        candidate_mode = "refreshed"
-                else:
-                    candidate_forecasts = forecast_service.run_forecasts(
-                        candidate_data.effective_as_of,
-                        candidate_ids,
-                        candidate_data.prices,
-                        output_path=candidate_output,
-                        horizons=horizons,
-                        publish_guard=publish_guard,
-                    )
-                    candidate_summary = _forecast_status_summary(candidate_forecasts)
-                    candidate_as_of = candidate_data.effective_as_of
-                    candidate_mode = "refreshed"
+                candidate_forecasts = forecast_service.run_forecasts(
+                    candidate_data.effective_as_of,
+                    candidate_ids,
+                    candidate_data.prices,
+                    output_path=candidate_output,
+                    horizons=horizons,
+                    publish_guard=publish_guard,
+                )
+                candidate_summary = _forecast_status_summary(candidate_forecasts)
+                candidate_as_of = candidate_data.effective_as_of
+                candidate_mode = "refreshed"
             messages.append(
                 (
                     f"Candidate forecasts {candidate_mode} as of {candidate_as_of}: "
@@ -1124,9 +1215,17 @@ class FeatureService:
         frame = (prices if prices is not None else load_prices()).copy()
         if "volume" not in frame.columns:
             frame["volume"] = float("nan")
-        if as_of_date:
-            frame = frame[pd.to_datetime(frame["date"]).dt.date <= as_of_date]
         context = reference_context if reference_context is not None else self.reference_context
+        calculation_window = None
+        price_binding = None
+        if as_of_date is not None:
+            calculation_window = _calculation_window(context, as_of_date, frame)
+            if calculation_window is None:
+                raise ValueError("canonical feature calculation window is unavailable")
+            frame = clip_to_decision_window(frame, **calculation_window)
+            price_binding = _price_snapshot_binding(frame, calculation_window=calculation_window)
+            if price_binding is None:
+                raise ValueError("adjusted-price snapshot identity is unavailable")
         benchmark = context.benchmark_data_id if context is not None else None
         available_ids = set(frame["etf_id"].astype(str)) if "etf_id" in frame.columns else set()
         if benchmark is None or benchmark not in available_ids:
@@ -1160,6 +1259,7 @@ class FeatureService:
                     "universe_revision": _current_universe_revision(),
                     "settings_revision": str(settings_identity["settings_revision"]),
                     "reference_identity": context.identity,
+                    **(price_binding or {}),
                 },
             )
         return features
@@ -1189,11 +1289,17 @@ class ForecastService:
         settings_identity = current_settings_identity()
         price_frame = prices if prices is not None else load_prices()
         price_frame = price_frame.copy()
-        price_frame["date"] = pd.to_datetime(price_frame["date"])
-        price_frame = price_frame[pd.to_datetime(price_frame["date"]).dt.date <= as_of_date]
+        price_frame["date"] = pd.to_datetime(price_frame["date"], errors="coerce", utc=True, format="mixed")
+        context = reference_context if reference_context is not None else self.reference_context
+        calculation_window = _calculation_window(context, as_of_date, price_frame)
+        if calculation_window is None:
+            raise ValueError("canonical forecast calculation window is unavailable")
+        price_frame = clip_to_decision_window(price_frame, **calculation_window)
+        price_binding = _price_snapshot_binding(price_frame, calculation_window=calculation_window)
+        if price_binding is None:
+            raise ValueError("adjusted-price snapshot identity is unavailable")
         horizons = horizons or self.config.models.forecast_horizons_trading_days
         pivot = price_frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
-        context = reference_context if reference_context is not None else self.reference_context
         benchmark_id = context.benchmark_data_id if context is not None else None
         benchmark_returns = pivot[benchmark_id].pct_change(fill_method=None).dropna() if benchmark_id in pivot else None
         forecasts: list[ForecastResult] = []
@@ -1246,6 +1352,7 @@ class ForecastService:
             output_path=output_path,
             settings_revision=str(settings_identity["settings_revision"]),
             reference_identity=context.identity,
+            price_binding=price_binding,
             publish_guard=publish_guard,
         )
         return forecasts
@@ -1314,6 +1421,7 @@ class ForecastService:
         output_path: Path | None = None,
         settings_revision: str | None = None,
         reference_identity: Mapping[str, object] | None = None,
+        price_binding: Mapping[str, object] | None = None,
         publish_guard: PublicationScopeFactory | None = None,
     ) -> None:
         output = output_path or FORECASTS_DIR / f"forecast_results_{as_of_date:%Y%m%d}.csv"
@@ -1331,6 +1439,7 @@ class ForecastService:
                     _current_universe_revision(),
                     settings_revision or current_settings_revision(),
                     reference_identity,
+                    price_binding,
                 )
 
 
@@ -1353,13 +1462,24 @@ class SignalService:
             purpose="comparison",
             analysis_id=f"signals:{pd.Timestamp(effective_date).date().isoformat()}",
         )
+        calculation_window = _calculation_window(reference_context, effective_date, prices)
+        price_binding = (
+            None
+            if calculation_window is None
+            else _price_snapshot_binding(prices, calculation_window=calculation_window)
+        )
         universe_revision = _current_universe_revision()
         settings_revision = current_settings_revision()
-        cached_features = load_features(
-            FEATURE_PARQUET,
-            universe_revision=universe_revision,
-            settings_revision=settings_revision,
-            reference_identity=reference_context.identity,
+        cached_features = (
+            load_features(
+                FEATURE_PARQUET,
+                universe_revision=universe_revision,
+                settings_revision=settings_revision,
+                reference_identity=reference_context.identity,
+                price_binding=price_binding,
+            )
+            if price_binding is not None
+            else pd.DataFrame()
         )
         supplied_matches = (
             features is not None
@@ -1384,9 +1504,14 @@ class SignalService:
         latest = latest_features(feature_frame, effective_date)
         report = DataService(self.config).validate_prices(prices, as_of_date=effective_date, holdings=holdings)
         status = model_availability(self.config)
-        forecasts = load_latest_forecasts(
-            universe_revision=universe_revision,
-            reference_identity=reference_context.identity,
+        forecasts = (
+            load_latest_forecasts(
+                universe_revision=universe_revision,
+                reference_identity=reference_context.identity,
+                price_binding=price_binding,
+            )
+            if price_binding is not None
+            else pd.DataFrame()
         )
         structure_caps = _load_structure_caps(self.config.universe.enabled_ids, effective_date)
         return generate_signals(
@@ -2177,6 +2302,12 @@ def _build_snapshot(
         purpose="comparison",
         analysis_id=f"snapshot:{pd.Timestamp(data_report.as_of_date).date().isoformat()}",
     )
+    calculation_window = _calculation_window(reference_context, data_report.as_of_date, prices)
+    price_binding = (
+        None
+        if calculation_window is None
+        else _price_snapshot_binding(prices, calculation_window=calculation_window)
+    )
     feature_service = FeatureService(config, reference_context=reference_context)
     if prices.empty:
         features = pd.DataFrame(columns=["date", "etf_id"])
@@ -2190,9 +2321,14 @@ def _build_snapshot(
         latest = latest_features(features, data_report.as_of_date)
     status = model_availability(config)
     inventory = model_diagnostics(config)
-    forecasts = load_latest_forecasts(
-        universe_revision=universe_revision,
-        reference_identity=reference_context.identity,
+    forecasts = (
+        load_latest_forecasts(
+            universe_revision=universe_revision,
+            reference_identity=reference_context.identity,
+            price_binding=price_binding,
+        )
+        if price_binding is not None
+        else pd.DataFrame()
     )
     structure_caps = _load_structure_caps(config.universe.enabled_ids, data_report.as_of_date)
     signals = (

@@ -1686,15 +1686,19 @@ def resolve_vwce_anchor(
 
     anchor_digest = anchor.digest()
     canonical_share_class_id = anchor.canonical_share_class_id
+    normalized_listing_id = listing_id.strip() if isinstance(listing_id, str) and listing_id.strip() else None
 
     def unavailable(reason: str) -> VwceAnchorResolution:
         return VwceAnchorResolution(
             "unavailable",
             canonical_share_class_id,
-            listing_id,
+            normalized_listing_id,
             reason,
             anchor_digest=anchor_digest,
         )
+
+    if normalized_listing_id is None:
+        return unavailable("listing_unavailable_at_cutoff")
 
     effective_cutoff = _date(effective_date, "effective_date")
     cutoff = _timestamp(decision_time, "decision_time")
@@ -1729,7 +1733,7 @@ def resolve_vwce_anchor(
         return unavailable("horizon_alignment_unavailable")
     matches = [
         item for item in anchor.listing_observations
-        if item.listing_id == listing_id
+        if item.listing_id == normalized_listing_id
         and _timestamp(item.effective_at, "effective_at") <= effective_cutoff_time
         and _timestamp(item.known_at, "known_at") <= cutoff
     ]
@@ -1748,7 +1752,7 @@ def resolve_vwce_anchor(
         return VwceAnchorResolution(
             "ambiguous",
             canonical_share_class_id,
-            listing_id,
+            normalized_listing_id,
             "ambiguous_listing_observation",
             anchor_digest=anchor_digest,
         )
@@ -1766,7 +1770,7 @@ def resolve_vwce_anchor(
         conversion_digest = _content_hash(conversion_evidence) if isinstance(conversion_evidence, Mapping) else None
     replay_fields = {
         "anchor_digest": anchor_digest,
-        "listing_id": listing_id,
+        "listing_id": normalized_listing_id,
         "effective_date": effective_date,
         "decision_time": decision_time,
         "output_currency": currency,
@@ -1776,7 +1780,7 @@ def resolve_vwce_anchor(
     return VwceAnchorResolution(
         "available",
         canonical_share_class_id,
-        listing_id,
+        normalized_listing_id,
         None,
         selected.effective_at,
         selected.known_at,

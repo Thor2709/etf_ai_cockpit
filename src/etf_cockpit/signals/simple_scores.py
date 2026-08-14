@@ -13,6 +13,7 @@ from typing import Iterable, Literal
 
 import pandas as pd
 
+from etf_cockpit.application.benchmark_reference import adjusted_price_binding_for_reference
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RAW_DIR, REPORTS_DIR, ROOT
@@ -669,6 +670,7 @@ def build_simple_instrument_scores(
 ) -> list[SimpleInstrumentScore]:
     if universe_revision is None:
         universe_revision = load_universe().revision
+    price_binding = adjusted_price_binding_for_reference(prices, reference_identity)
     if reference_identity is None:
         # Relative score consumers must not accept a legacy forecast frame.
         forecasts = forecasts.iloc[0:0].copy() if "source_file" in forecasts.columns else forecasts
@@ -677,6 +679,7 @@ def build_simple_instrument_scores(
             forecasts,
             universe_revision,
             reference_identity=reference_identity,
+            price_binding=price_binding,
         )
     candidate_report, _candidate_report_path = load_latest_candidate_report()
     candidate_forecasts = (
@@ -685,8 +688,9 @@ def build_simple_instrument_scores(
             FORECASTS_DIR,
             universe_revision=universe_revision,
             reference_identity=reference_identity,
+            price_binding=price_binding,
         )
-        if reference_identity is not None
+        if reference_identity is not None and price_binding is not None
         else pd.DataFrame()
     )
     forecast_history = load_forecast_history()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import date, datetime
 import json
 from pathlib import Path
 
@@ -391,10 +392,24 @@ def _candidate_pct_above_sma200(
     values: list[bool] = []
     for _, row in frame.iterrows():
         signal = _bool_like(row.get("sma200_signal"))
-        observation = _candidate_observation_timestamp(row)
+        observation, observation_valid = _candidate_chronology(
+            row,
+            ("effective_at", "as_of", "as_of_date", "latest_date", "date"),
+            date_only_end_of_day=True,
+        )
         provenance = _candidate_provenance(row)
-        known_at = _candidate_timestamp(row, ("known_at", "available_at", "retrieved_at"))
-        if signal is None or observation is None or provenance is None:
+        known_at, knowledge_valid = _candidate_chronology(
+            row,
+            ("known_at", "available_at", "retrieved_at", "imported_at", "published_at"),
+            date_only_end_of_day=True,
+        )
+        if (
+            signal is None
+            or observation is None
+            or not observation_valid
+            or not knowledge_valid
+            or provenance is None
+        ):
             continue
         if observation > decision or (known_at is not None and known_at > decision):
             continue
@@ -409,41 +424,66 @@ def _reference_decision_time(reference: Mapping[str, object]) -> object | None:
     return analysis.get("decision_time") if isinstance(analysis, Mapping) else None
 
 
-def _parse_authority_timestamp(value: object) -> pd.Timestamp | None:
-    if not isinstance(value, str) or not value.strip():
+def _parse_authority_timestamp(
+    value: object,
+    *,
+    date_only_end_of_day: bool = False,
+) -> pd.Timestamp | None:
+    if isinstance(value, (bool, int, float, np.number)) or value is None:
+        return None
+    text = value.strip() if isinstance(value, str) else str(value).strip()
+    if not text:
         return None
     try:
         parsed = pd.Timestamp(value)
         if parsed.tzinfo is None:
             parsed = parsed.tz_localize("UTC")
-        return parsed.tz_convert("UTC")
+        parsed = parsed.tz_convert("UTC")
+        date_only = isinstance(value, date) and not isinstance(value, datetime)
+        if date_only_end_of_day and (date_only or (len(text) == 10 and text[4] == "-" and text[7] == "-")):
+            parsed = parsed.normalize() + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+        return parsed
     except (TypeError, ValueError, OverflowError):
         return None
 
 
-def _candidate_timestamp(row: pd.Series, fields: tuple[str, ...]) -> pd.Timestamp | None:
+def _candidate_chronology(
+    row: pd.Series,
+    fields: tuple[str, ...],
+    *,
+    date_only_end_of_day: bool = False,
+) -> tuple[pd.Timestamp | None, bool]:
+    populated: list[object] = []
     for field in fields:
         if field not in row or pd.isna(row.get(field)):
             continue
-        parsed = _parse_authority_timestamp(str(row.get(field)))
-        if parsed is not None:
-            return parsed
-    return None
+        value = row.get(field)
+        if isinstance(value, str) and not value.strip():
+            continue
+        populated.append(value)
+    if not populated:
+        return None, True
+    parsed_values: list[pd.Timestamp] = []
+    for value in populated:
+        parsed = _parse_authority_timestamp(value, date_only_end_of_day=date_only_end_of_day)
+        if parsed is None:
+            return None, False
+        parsed_values.append(parsed)
+    return max(parsed_values), True
+
+
+def _candidate_timestamp(row: pd.Series, fields: tuple[str, ...]) -> pd.Timestamp | None:
+    value, valid = _candidate_chronology(row, fields, date_only_end_of_day=True)
+    return value if valid else None
 
 
 def _candidate_observation_timestamp(row: pd.Series) -> pd.Timestamp | None:
-    for field in ("effective_at", "as_of", "as_of_date", "latest_date", "date"):
-        if field not in row or pd.isna(row.get(field)):
-            continue
-        raw = row.get(field)
-        parsed = _parse_authority_timestamp(str(raw))
-        if parsed is None:
-            continue
-        text = str(raw).strip()
-        if len(text) == 10 and text[4] == "-" and text[7] == "-":
-            parsed = parsed.normalize() + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-        return parsed
-    return None
+    value, valid = _candidate_chronology(
+        row,
+        ("effective_at", "as_of", "as_of_date", "latest_date", "date"),
+        date_only_end_of_day=True,
+    )
+    return value if valid else None
 
 
 def _candidate_provenance(row: pd.Series) -> str | None:

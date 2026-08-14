@@ -116,7 +116,10 @@ def load_features(
     universe_revision: str | None = None,
     settings_revision: str | None = None,
     reference_identity: dict[str, object] | None = None,
+    price_binding: Mapping[str, object] | None = None,
 ) -> pd.DataFrame:
+    if isinstance(reference_identity, Mapping) and "analysis" in reference_identity and price_binding is None:
+        return pd.DataFrame()
     if not path.exists():
         return pd.DataFrame()
     metadata_path = Path(f"{path}.meta.json")
@@ -125,7 +128,12 @@ def load_features(
             payload_bytes, metadata_bytes = read_atomic_group((path, metadata_path))
             metadata = json.loads(metadata_bytes.decode("utf-8"))
         else:
-            if universe_revision is not None or settings_revision is not None or reference_identity is not None:
+            if (
+                universe_revision is not None
+                or settings_revision is not None
+                or reference_identity is not None
+                or price_binding is not None
+            ):
                 return pd.DataFrame()
             payload_bytes = path.read_bytes()
             metadata = None
@@ -146,6 +154,8 @@ def load_features(
                 or metadata.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest()
             ):
                 return pd.DataFrame()
+            if price_binding is not None and not _cache_binding_matches(metadata, price_binding):
+                return pd.DataFrame()
             if metadata.get("payload_sha256") is not None and metadata["payload_sha256"] != hashlib.sha256(payload_bytes).hexdigest():
                 return pd.DataFrame()
         frame = pd.read_parquet(BytesIO(payload_bytes))
@@ -155,6 +165,25 @@ def load_features(
     except (OSError, TypeError, ValueError, KeyError, RecursionError):
         return pd.DataFrame()
     return frame
+
+
+def _cache_binding_matches(metadata: Mapping[str, object], expected: Mapping[str, object]) -> bool:
+    checksum = expected.get("price_snapshot_checksum")
+    revision = expected.get("price_snapshot_revision")
+    cutoff = expected.get("effective_cutoff")
+    window = expected.get("calculation_window")
+    valid = (
+        isinstance(checksum, str)
+        and len(checksum) == 64
+        and all(character in "0123456789abcdef" for character in checksum)
+        and revision == checksum
+        and isinstance(cutoff, str)
+        and bool(cutoff)
+        and isinstance(window, Mapping)
+        and window.get("decision_time") == cutoff
+        and all(isinstance(window.get(key), str) and window.get(key) for key in ("start_date", "end_date"))
+    )
+    return valid and all(metadata.get(key) == value for key, value in expected.items())
 
 
 def _reference_identity_hash(identity: Mapping[str, object]) -> str:

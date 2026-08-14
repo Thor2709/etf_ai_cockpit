@@ -13,7 +13,7 @@ from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, 
 from etf_cockpit.app.components.simple_scores import score_colour, simple_score_grouped_sections, simple_score_legend
 from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.state import ActivityUnavailableError, AppState, activity_result_error
-from etf_cockpit.application.benchmark_reference import context_from_snapshot
+from etf_cockpit.application.benchmark_reference import adjusted_price_binding_for_reference, context_from_snapshot
 from etf_cockpit.core.paths import FORECASTS_DIR
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.application.alerts import (
@@ -924,16 +924,26 @@ def _valid_model_pairs(state: AppState) -> int:
         purpose="comparison",
         analysis_id=f"dashboard-model-pairs:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
     )
-    candidate_forecasts = load_latest_forecasts(
-        "yfinance_candidate_forecasts_*.csv",
-        FORECASTS_DIR,
-        universe_revision=universe_revision,
-        reference_identity=reference_context.identity,
+    price_binding = adjusted_price_binding_for_reference(
+        getattr(state.snapshot, "prices", pd.DataFrame()),
+        reference_context.identity,
+    )
+    candidate_forecasts = (
+        load_latest_forecasts(
+            "yfinance_candidate_forecasts_*.csv",
+            FORECASTS_DIR,
+            universe_revision=universe_revision,
+            reference_identity=reference_context.identity,
+            price_binding=price_binding,
+        )
+        if price_binding is not None
+        else pd.DataFrame()
     )
     configured_forecasts = filter_forecasts_for_universe(
         state.snapshot.forecasts,
         universe_revision,
         reference_identity=reference_context.identity,
+        price_binding=price_binding,
     )
     forecasts = pd.concat([configured_forecasts, candidate_forecasts], ignore_index=True)
     if forecasts.empty or not {"status", "model_allowed_in_score", "model_name", "etf_id"}.issubset(forecasts.columns):
