@@ -149,9 +149,11 @@ def load_features(
             if metadata.get("payload_sha256") is not None and metadata["payload_sha256"] != hashlib.sha256(payload_bytes).hexdigest():
                 return pd.DataFrame()
         frame = pd.read_parquet(BytesIO(payload_bytes))
+        if "date" not in frame.columns:
+            return pd.DataFrame()
+        frame["date"] = pd.to_datetime(frame["date"], errors="raise").dt.date
     except (OSError, TypeError, ValueError, KeyError, RecursionError):
         return pd.DataFrame()
-    frame["date"] = pd.to_datetime(frame["date"]).dt.date
     return frame
 
 

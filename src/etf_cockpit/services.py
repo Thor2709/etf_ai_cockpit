@@ -1496,34 +1496,56 @@ class BacktestService:
             )
         with publication_scope(publish_guard):
             BACKTESTS_DIR.mkdir(parents=True, exist_ok=True)
-        requests = (
-            AtomicWriteRequest(BACKTESTS_DIR / "backtest_results.csv", report.results.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
-            AtomicWriteRequest(BACKTESTS_DIR / "equity_curves.csv", report.equity_curves.to_csv().encode("utf-8"), lambda path: _validate_csv(path, index_col=0)),
-            AtomicWriteRequest(BACKTESTS_DIR / "trade_log.csv", report.trade_log.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
-            AtomicWriteRequest(BACKTESTS_DIR / "signal_log.csv", report.signal_log.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
-            AtomicWriteRequest(BACKTESTS_DIR / "quality_momentum_evidence.csv", report.quality_momentum_evidence.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
+        payloads = {
+            BACKTESTS_DIR / "backtest_results.csv": (
+                report.results.to_csv(index=False).encode("utf-8"),
+                lambda path: _validate_csv(path),
+            ),
+            BACKTESTS_DIR / "equity_curves.csv": (
+                report.equity_curves.to_csv().encode("utf-8"),
+                lambda path: _validate_csv(path, index_col=0),
+            ),
+            BACKTESTS_DIR / "trade_log.csv": (
+                report.trade_log.to_csv(index=False).encode("utf-8"),
+                lambda path: _validate_csv(path),
+            ),
+            BACKTESTS_DIR / "signal_log.csv": (
+                report.signal_log.to_csv(index=False).encode("utf-8"),
+                lambda path: _validate_csv(path),
+            ),
+            BACKTESTS_DIR / "quality_momentum_evidence.csv": (
+                report.quality_momentum_evidence.to_csv(index=False).encode("utf-8"),
+                lambda path: _validate_csv(path),
+            ),
+        }
+        settings_revision = str(settings_identity["settings_revision"])
+        requests = [
+            AtomicWriteRequest(path, payload, validator)
+            for path, (payload, validator) in payloads.items()
+        ]
+        requests.extend(
+            AtomicWriteRequest(
+                _universe_cache_meta_path(path),
+                _bound_cache_metadata_payload(
+                    self.universe_revision,
+                    settings_revision,
+                    reference_context.identity,
+                    payload,
+                ),
+                lambda path: json.loads(path.read_text(encoding="utf-8")),
+            )
+            for path, (payload, _validator) in payloads.items()
+        )
+        requests.append(
             AtomicWriteRequest(
                 BACKTESTS_DIR / "backtest_metadata.json",
                 json.dumps(report.metadata, default=str, sort_keys=True, indent=2).encode("utf-8"),
                 lambda path: json.loads(path.read_text(encoding="utf-8")),
-            ),
+            )
         )
         with timed_step("backtest", "write_outputs"):
             with publication_scope(publish_guard):
                 atomic_write_group(requests)
-        for output in (
-            BACKTESTS_DIR / "backtest_results.csv",
-            BACKTESTS_DIR / "equity_curves.csv",
-            BACKTESTS_DIR / "signal_log.csv",
-            BACKTESTS_DIR / "quality_momentum_evidence.csv",
-        ):
-            with publication_scope(publish_guard):
-                _write_bound_cache_metadata(
-                    output,
-                    self.universe_revision,
-                    str(settings_identity["settings_revision"]),
-                    reference_context.identity,
-                )
         with publication_scope(publish_guard):
             append_jsonl("model_runs.jsonl", "backtest_completed", {"ai_added_value": report.ai_added_value})
         return report
@@ -1537,26 +1559,39 @@ class BacktestService:
         signal_path = BACKTESTS_DIR / "signal_log.csv"
         metadata_path = BACKTESTS_DIR / "backtest_metadata.json"
         quality_evidence_path = BACKTESTS_DIR / "quality_momentum_evidence.csv"
-        if not results_path.exists() or not equity_path.exists():
+        payload_paths = (
+            results_path,
+            equity_path,
+            trade_path,
+            signal_path,
+            quality_evidence_path,
+        )
+        sidecar_paths = tuple(_universe_cache_meta_path(path) for path in payload_paths)
+        snapshot_paths = payload_paths + sidecar_paths + (metadata_path,)
+        if any(not path.is_file() for path in snapshot_paths):
             return None
         try:
             structure_evidence = _load_local_structural_evidence()
         except Exception:
             return None
-        if not _cache_matches_universe(
-            results_path,
-            self.universe_revision,
-            settings_revision,
-            reference_context.identity,
-        ) or not _cache_matches_universe(
-            equity_path,
-            self.universe_revision,
-            settings_revision,
-            reference_context.identity,
-        ):
-            return None
         try:
-            results = pd.read_csv(results_path)
+            snapshot = dict(zip(snapshot_paths, read_atomic_group(snapshot_paths), strict=True))
+            payload_bytes = {path: snapshot[path] for path in payload_paths}
+            for path, sidecar_path in zip(payload_paths, sidecar_paths, strict=True):
+                sidecar = json.loads(snapshot[sidecar_path].decode("utf-8"))
+                if (
+                    not isinstance(sidecar, dict)
+                    or str(sidecar.get("universe_revision") or "") != self.universe_revision
+                    or str(sidecar.get("settings_revision") or "") != settings_revision
+                    or sidecar.get("payload_sha256") != hashlib.sha256(payload_bytes[path]).hexdigest()
+                    or not _reference_identity_matches(
+                        sidecar.get("reference_identity"),
+                        sidecar.get("reference_identity_hash"),
+                        reference_context.identity,
+                    )
+                ):
+                    return None
+            results = pd.read_csv(BytesIO(payload_bytes[results_path]))
             if results.empty:
                 return None
             if not self.REQUIRED_RESULT_COLUMNS.issubset(results.columns):
@@ -1567,11 +1602,9 @@ class BacktestService:
                 end_dates = pd.to_datetime(results["end_date"], errors="coerce").dt.date.dropna()
                 if end_dates.empty or max(end_dates) != as_of_date:
                     return None
-            equity_curves = pd.read_csv(equity_path, index_col=0, parse_dates=True)
-            trade_log = pd.read_csv(trade_path) if trade_path.exists() else pd.DataFrame()
-            if not signal_path.exists():
-                return None
-            signal_log = pd.read_csv(signal_path)
+            equity_curves = pd.read_csv(BytesIO(payload_bytes[equity_path]), index_col=0, parse_dates=True)
+            trade_log = pd.read_csv(BytesIO(payload_bytes[trade_path]))
+            signal_log = pd.read_csv(BytesIO(payload_bytes[signal_path]))
             required_signal_columns = {
                 "date",
                 "etf_id",
@@ -1588,8 +1621,8 @@ class BacktestService:
             structural_hashes = signal_log["structural_provenance_hash"].astype(str).str.strip()
             if structural_hashes.eq("").any() or structural_hashes.str.casefold().isin({"nan", "none"}).any():
                 return None
-            quality_momentum_evidence = pd.read_csv(quality_evidence_path) if quality_evidence_path.exists() else pd.DataFrame()
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+            quality_momentum_evidence = pd.read_csv(BytesIO(payload_bytes[quality_evidence_path]))
+            metadata = json.loads(snapshot[metadata_path].decode("utf-8"))
             if not isinstance(metadata, dict):
                 metadata = {}
             if not _reference_identity_matches(
@@ -1618,13 +1651,11 @@ class BacktestService:
                 structure_holdings=(structure_evidence.holdings if structure_evidence else None),
             ):
                 return None
-            if not quality_evidence_path.exists():
-                return None
             if set(FRAME_COLUMNS) - set(quality_momentum_evidence.columns):
                 return None
             quality_momentum_evidence = quality_momentum_evidence.reindex(columns=FRAME_COLUMNS)
             if metadata.get("quality_momentum_evidence_checksum") != quality_momentum_evidence_checksum(
-                quality_evidence_path.read_bytes()
+                payload_bytes[quality_evidence_path]
             ):
                 return None
             ai_added_value = False

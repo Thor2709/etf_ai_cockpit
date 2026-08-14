@@ -4240,3 +4240,12 @@ verification, persist the backtest identity hash, and activate forecast row
 filtering for settings-only requests. Add the exact signal, backtest-tamper and
 mixed-source regressions; change no adjacent financial, persistence, workflow,
 authority or execution behavior.
+
+`FINAL SNAPSHOT CORRECTION` head `3e7f5677e72de7f2f5ca8a2ebe67e66899afd267`
+is rejected and run `31780004420` is cancelled/stale. Publish all backtest
+payloads, sidecars and metadata in one existing atomic group and parse one
+guarded complete read snapshot; fail closed on a checksum-valid feature parquet
+without `date`; and map recursive malformed canonical registry/application input
+to the existing error contracts. Add only the exact interleaving, missing-schema
+and 10k-depth regressions. Do not change atomic I/O, workflows, financial logic,
+authority or execution behavior.

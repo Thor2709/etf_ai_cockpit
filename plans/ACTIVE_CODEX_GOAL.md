@@ -3017,3 +3017,14 @@ next action and whether the requested outcome is actually complete.
   row filtering activates for universe, settings or reference requests. Direct
   signal, backtest-tamper and mixed-source settings regressions cover those exact
   paths. No adjacent service, financial, persistence or authority change.
+- Head `3e7f5677e72de7f2f5ca8a2ebe67e66899afd267` is rejected and run
+  `31780004420` is cancelled/stale. Final review reproduced backtest payload/
+  sidecar cross-binding between concurrent writers, a checksum-valid feature
+  parquet missing `date` that raised instead of becoming unavailable, and deep
+  recursion escaping the canonical registry/application validators. Backtest
+  payloads, sidecars and metadata now publish in one existing atomic group and
+  cached reuse parses one guarded complete snapshot. Feature schema conversion
+  stays inside its fail-closed boundary, and the two canonical validators map
+  recursive malformed input to their existing unavailable/error contracts.
+  Exact interleaving, missing-schema and 10k-depth regressions cover the set;
+  no atomic-I/O, workflow, financial, authority or execution redesign.

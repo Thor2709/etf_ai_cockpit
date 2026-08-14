@@ -1515,7 +1515,14 @@ def load_canonical_benchmark_registry(path: Path | None = None) -> CanonicalBenc
         raw = json.loads(text, object_pairs_hook=reject_duplicates)
     except BenchmarkReferenceError:
         raise
-    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ModuleNotFoundError) as exc:
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        TypeError,
+        ModuleNotFoundError,
+        RecursionError,
+    ) as exc:
         raise BenchmarkReferenceError("canonical registry is unavailable or malformed") from exc
     if not isinstance(raw, dict):
         raise BenchmarkReferenceError("canonical registry envelope must be a JSON object")
@@ -1523,7 +1530,7 @@ def load_canonical_benchmark_registry(path: Path | None = None) -> CanonicalBenc
         return CanonicalBenchmarkRegistry.from_payload(raw)
     except BenchmarkReferenceError:
         raise
-    except (TypeError, ValueError, KeyError, AttributeError) as exc:
+    except (TypeError, ValueError, KeyError, AttributeError, RecursionError) as exc:
         raise BenchmarkReferenceError("canonical registry is malformed or tampered") from exc
 
 

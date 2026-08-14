@@ -261,6 +261,22 @@ def test_feature_reader_requires_universe_settings_and_reference_sidecar(tmp_pat
     assert len(loaded) == 1
 
 
+def test_bound_feature_reader_rejects_checksum_valid_payload_without_date_schema(tmp_path) -> None:
+    path = tmp_path / "features.parquet"
+    pd.DataFrame([{"etf_id": "BENCH", "value": 1.0}]).to_parquet(path, index=False)
+    identity = _cache_identity()
+    metadata = {
+        "universe_revision": "u1",
+        "settings_revision": "s1",
+        "reference_identity": identity,
+        "reference_identity_hash": _reference_identity_hash(identity),
+        "payload_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+    path.with_name(f"{path.name}.meta.json").write_text(json.dumps(metadata), encoding="utf-8")
+
+    assert load_features(path, universe_revision="u1", settings_revision="s1", reference_identity=identity).empty
+
+
 def _cache_identity() -> dict[str, object]:
     return {
         "schema": "benchmark-reference-cache.v1",
@@ -628,6 +644,13 @@ def test_cache_readers_fail_closed_on_recursively_nested_sidecars(tmp_path) -> N
     ).empty
     assert not _cache_matches_universe(forecast_path, "u1", "s1", identity)
     assert _read_bound_cache_payload(forecast_path, "u1", "s1", identity) is None
+
+
+def test_application_reference_validator_fails_closed_on_deep_recursion() -> None:
+    nested: dict[str, object] = {"execution_allowed": True}
+    for _ in range(10_000):
+        nested = {"nested": nested}
+    assert validate_benchmark_reference(nested, "BENCH") is None
 
 
 def test_attribution_clips_observations_to_declared_calculation_window() -> None:

@@ -190,6 +190,7 @@ def test_forecast_service_uses_explicit_canonical_benchmark_data_id(monkeypatch)
 
 def test_backtest_output_is_published_only_after_settings_bound_manifest_reservation(tmp_path, monkeypatch) -> None:
     events: list[tuple[str, str]] = []
+    published: list[object] = []
     report = SimpleNamespace(
         results=pd.DataFrame({"strategy_name": ["quality_momentum"]}),
         equity_curves=pd.DataFrame({"value": [1.0]}),
@@ -207,14 +208,22 @@ def test_backtest_output_is_published_only_after_settings_bound_manifest_reserva
     monkeypatch.setattr(services, "current_settings_identity", lambda: identity)
     monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
     monkeypatch.setattr(services, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
-    monkeypatch.setattr(services, "atomic_write_group", lambda _requests: events.append(("output", "backtest")))
-    monkeypatch.setattr(services, "_write_universe_cache_metadata", lambda _path, _universe, settings_revision: events.append(("metadata", settings_revision[:8])))
+    def capture_group(requests):
+        published.extend(requests)
+        events.append(("output", "backtest"))
+
+    monkeypatch.setattr(services, "atomic_write_group", capture_group)
     monkeypatch.setattr(services, "append_jsonl", lambda *_args, **_kwargs: None)
 
     services.BacktestService(load_config(), universe_revision="revision").run_backtest()
 
     assert events[:2] == [("manifest", "backtest__scccccccc:cccccccc"), ("output", "backtest")]
-    assert {event for event in events if event[0] == "metadata"} == {("metadata", "cccccccc")}
+    sidecars = [request for request in published if str(request.destination).endswith(".meta.json")]
+    assert len(sidecars) == 5
+    assert {
+        json.loads(request.payload)["settings_revision"][:8]
+        for request in sidecars
+    } == {"cccccccc"}
 
 
 def test_feature_run_threads_one_identity_when_settings_change_between_id_and_manifest(monkeypatch) -> None:

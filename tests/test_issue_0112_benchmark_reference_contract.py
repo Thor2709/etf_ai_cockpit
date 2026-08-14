@@ -86,6 +86,17 @@ def test_durable_local_registry_loader_fails_closed_on_missing_malformed_duplica
         load_canonical_benchmark_registry(tampered)
 
 
+def test_canonical_registry_loader_fails_closed_on_deeply_recursive_json(tmp_path) -> None:
+    nested = "0"
+    for _ in range(10_000):
+        nested = '{"nested":' + nested + "}"
+    path = tmp_path / "recursive.json"
+    path.write_text(nested, encoding="utf-8")
+
+    with pytest.raises(BenchmarkReferenceError, match="canonical registry"):
+        load_canonical_benchmark_registry(path)
+
+
 def _benchmark(**updates: object) -> BenchmarkDefinition:
     value: dict[str, object] = {
         "benchmark_id": "benchmark:global-equity",
