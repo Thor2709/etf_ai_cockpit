@@ -287,6 +287,19 @@ mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
   hosted artifacts to `passed` with no differences. Product semantics and
   `execution_allowed=false` are unchanged. Freeze one corrected head for paired
   exact review and fresh H-tier evidence; no adjacent pilot or CI redesign.
+- Corrected head `3ec216f679bf3ec4d602985e0a9bca0549231c8c` passed both
+  independent reviews. Run `31755008546` proved Windows release, both platform
+  pilots and cross-platform aggregation, but its Linux release subprocess
+  twice segfaulted in pandas' native CSV parser at the same discarded-result
+  atomic post-write validator, in two different previously passing disclosure
+  tests. One bounded persistence correction replaces only the six identical
+  parsed-disclosure CSV validation callbacks with a strict UTF-8 standard-library
+  parser that accepts quoted multiline cells and rejects malformed quoting or
+  inconsistent widths. Atomic I/O, authoritative parquet data, workflows, pins,
+  product calculations, lifecycle authority and `execution_allowed=false` are
+  unchanged. The complete parsed-disclosure rollback/concurrency suite and Ruff
+  pass; freeze one replacement head for paired exact review and fresh H-tier
+  evidence, with no adjacent CI or persistence redesign.
 
 ## Historical ISSUE-0017 product checkpoint
 

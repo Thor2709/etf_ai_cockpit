@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 from dataclasses import dataclass
@@ -71,6 +72,21 @@ METHODOLOGY_COLUMNS = [
     "weighting_rules", "review_frequency", "caps", "confidence", "warnings", "manual_review",
     "score_eligible", "success", "imported_at",
 ]
+
+
+def _validate_csv_file(path: Path) -> None:
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.reader(handle, strict=True)
+            header = next(reader, None)
+            if not header:
+                raise ValueError("CSV mirror is empty")
+            width = len(header)
+            for row in reader:
+                if len(row) != width:
+                    raise ValueError("CSV mirror has inconsistent row widths")
+    except (UnicodeDecodeError, csv.Error) as exc:
+        raise ValueError("CSV mirror is malformed") from exc
 
 
 def persist_priips_kid_result(
@@ -235,9 +251,9 @@ def _persist_with_document(
             inventory = build_document_inventory(ids, [*registry_existing.to_dict("records"), document])
             requests = (
                 AtomicWriteRequest(destination, parquet_payload(combined), validate_parquet_file),
-                AtomicWriteRequest(destination.with_suffix(".csv"), combined.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+                AtomicWriteRequest(destination.with_suffix(".csv"), combined.to_csv(index=False).encode("utf-8"), _validate_csv_file),
                 AtomicWriteRequest(registry_destination, parquet_payload(inventory), validate_parquet_file),
-                AtomicWriteRequest(registry_destination.with_suffix(".csv"), inventory.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+                AtomicWriteRequest(registry_destination.with_suffix(".csv"), inventory.to_csv(index=False).encode("utf-8"), _validate_csv_file),
             )
             with publication_scope(publish_guard):
                 atomic_write_group(requests)
@@ -403,7 +419,7 @@ def _persist_rows(rows: list[dict[str, Any]], destination: Path, columns: list[s
         combined = combined.drop_duplicates(subset=["source_id"], keep="last").sort_values("source_id", kind="stable").reset_index(drop=True)
     requests = (
         AtomicWriteRequest(destination, parquet_payload(combined), validate_parquet_file),
-        AtomicWriteRequest(destination.with_suffix(".csv"), combined.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+        AtomicWriteRequest(destination.with_suffix(".csv"), combined.to_csv(index=False).encode("utf-8"), _validate_csv_file),
     )
     atomic_write_group(requests)
     return destination
@@ -1009,14 +1025,14 @@ def _write_report_group(
 ) -> None:
     requests = [
         AtomicWriteRequest(destination, parquet_payload(frame[REPORT_COLUMNS]), validate_parquet_file),
-        AtomicWriteRequest(destination.with_suffix(".csv"), frame[REPORT_COLUMNS].to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+        AtomicWriteRequest(destination.with_suffix(".csv"), frame[REPORT_COLUMNS].to_csv(index=False).encode("utf-8"), _validate_csv_file),
         AtomicWriteRequest(conflict_destination, parquet_payload(conflicts[REPORT_CONFLICT_COLUMNS]), validate_parquet_file),
-        AtomicWriteRequest(conflict_destination.with_suffix(".csv"), conflicts[REPORT_CONFLICT_COLUMNS].to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+        AtomicWriteRequest(conflict_destination.with_suffix(".csv"), conflicts[REPORT_CONFLICT_COLUMNS].to_csv(index=False).encode("utf-8"), _validate_csv_file),
     ]
     if include_registry:
         requests.extend((
             AtomicWriteRequest(registry_destination, parquet_payload(registry), validate_parquet_file),
-            AtomicWriteRequest(registry_destination.with_suffix(".csv"), registry.to_csv(index=False).encode("utf-8"), lambda path: pd.read_csv(path)),
+            AtomicWriteRequest(registry_destination.with_suffix(".csv"), registry.to_csv(index=False).encode("utf-8"), _validate_csv_file),
         ))
     if snapshot_path is not None:
         if snapshot is None or snapshot_sha256 is None:

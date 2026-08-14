@@ -4183,3 +4183,14 @@ outcome contract and cover their actual lanes. Focused tests and replay of the
 successful hosted pilot artifacts pass with zero differences. Product behavior,
 authority and `execution_allowed=false` remain unchanged; require one corrected
 exact head, paired review and fresh H-tier evidence.
+
+`LINUX GATE REPAIR` corrected head `3ec216f679bf3ec4d602985e0a9bca0549231c8c`
+is independently approved and run `31755008546` proves Windows release, both
+pilots and cross-platform aggregation. Linux release twice terminated in the
+same pandas native CSV parser callback during different parsed-disclosure tests.
+Replace only the six identical discarded-result CSV post-write validators in
+`parsed_disclosures.py` with strict UTF-8 standard-library parsing; retain quoted
+multiline fields and reject malformed quoting or inconsistent widths. The full
+parsed-disclosure rollback/concurrency suite and Ruff pass. Freeze one replacement
+head for paired review and fresh H-tier evidence; do not alter workflows, pins,
+atomic I/O, canonical financial behavior, authority or `execution_allowed=false`.
