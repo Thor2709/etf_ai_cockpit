@@ -3028,3 +3028,14 @@ next action and whether the requested outcome is actually complete.
   recursive malformed input to their existing unavailable/error contracts.
   Exact interleaving, missing-schema and 10k-depth regressions cover the set;
   no atomic-I/O, workflow, financial, authority or execution redesign.
+- Head `a3ae5dbcbe44b21b39677aeb213207ebe7261ac3` is rejected and run
+  `31782031303` is cancelled/stale. Complete review reproduced four bounded
+  contract gaps: cached backtest projection/strategy metadata was not bound to
+  the fresh canonical context; benchmark-absent backtests leaked absolute
+  momentum into relative-strength fields; two remaining recursive malformed
+  reference paths escaped; and `Selection`/`VwceAnchorResolution` accepted wrong
+  primitive types. Publication/readback now hash and validate the complete
+  canonical backtest binding, benchmark-absent relative fields remain N/A, the
+  recursive paths use existing fail-closed results, and both value objects reject
+  the demonstrated types. Direct regressions cover only those cases; no adjacent
+  financial formula, persistence, workflow, authority or execution change.

@@ -19,6 +19,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     ReferencePortfolioDefinition,
     Selection,
     VwceAnchorEvidence,
+    VwceAnchorResolution,
     VwceListingObservation,
     VWCE_CANONICAL_SHARE_CLASS,
     declare_reference_portfolios,
@@ -1001,6 +1002,66 @@ def test_profile_projection_rejects_nested_raw_execution_authority_and_keeps_saf
 
     assert projected["profile_relative_claims_allowed"] is True
     assert_disabled(projected)
+
+
+def test_profile_projection_maps_deep_raw_analysis_to_contract_error() -> None:
+    nested: dict[str, object] = {"value": "malformed"}
+    for _ in range(10_000):
+        nested = {"nested": nested}
+    with pytest.raises(BenchmarkReferenceError, match="raw analysis is malformed"):
+        project_profile_relative_analysis(
+            nested,
+            VwceAnchorResolution("unavailable", None, None, "unavailable"),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("selected_id", 1),
+        ("version", 1),
+        ("reason", 1),
+        ("specificity", 1.5),
+        ("specificity", True),
+    ],
+)
+def test_selection_rejects_malformed_primitive_fields(field: str, value: object) -> None:
+    fields = {
+        "kind": "benchmark",
+        "status": "available",
+        "selected_id": "benchmark:x",
+        "version": "1.0.0",
+        "reason": None,
+        "specificity": None,
+    }
+    fields[field] = value
+    with pytest.raises(BenchmarkReferenceError):
+        Selection(**fields)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("canonical_share_class_id", 1),
+        ("listing_id", 1),
+        ("reason", 1),
+        ("observation_effective_at", 1),
+        ("output_currency", 1),
+        ("horizon_years", True),
+        ("anchor_digest", 1),
+        ("effective_date", 1),
+    ],
+)
+def test_vwce_anchor_resolution_rejects_malformed_primitive_fields(field: str, value: object) -> None:
+    fields = {
+        "status": "unavailable",
+        "canonical_share_class_id": None,
+        "listing_id": None,
+        "reason": "unavailable",
+    }
+    fields[field] = value
+    with pytest.raises(BenchmarkReferenceError):
+        VwceAnchorResolution(**fields)  # type: ignore[arg-type]
 
 
 def test_vwce_listing_observations_replay_historical_and_latest_versions() -> None:

@@ -46,12 +46,19 @@ class CanonicalReferenceContext:
         if not isinstance(registry, CanonicalBenchmarkRegistry):
             raise BenchmarkReferenceError("canonical reference registry is invalid")
         if legacy_projection is not None:
-            _assert_execution_disabled(legacy_projection)
+            try:
+                _assert_execution_disabled(legacy_projection)
+            except RecursionError as exc:
+                raise BenchmarkReferenceError("serialized evidence is malformed") from exc
         resolved_blocker = blocker or _projection_blocker(legacy_projection)
         object.__setattr__(self, "registry", registry)
         object.__setattr__(self, "resolution", resolution)
         object.__setattr__(self, "blocker", resolved_blocker)
-        object.__setattr__(self, "instrument", None if instrument is None else _freeze_mapping(instrument))
+        try:
+            frozen_instrument = None if instrument is None else _freeze_mapping(instrument)
+        except RecursionError as exc:
+            raise BenchmarkReferenceError("instrument evidence is malformed") from exc
+        object.__setattr__(self, "instrument", frozen_instrument)
 
     @property
     def projection(self) -> dict[str, object]:
@@ -300,7 +307,7 @@ def resolve_canonical_reference(
         or decision_time is None
     ):
         unavailable["blockers"] = ["reference_resolution_inputs_unavailable"]
-        return CanonicalReferenceContext(registry, None, blocker="reference_resolution_inputs_unavailable", instrument=instrument)
+        return CanonicalReferenceContext(registry, None, blocker="reference_resolution_inputs_unavailable")
     try:
         resolution = registry.resolve_analysis(
             analysis_id=analysis_id,
@@ -315,9 +322,9 @@ def resolve_canonical_reference(
             reference_portfolio_ids=reference_portfolio_ids,
         )
         registry.ui_projection(resolution)
-    except (BenchmarkReferenceError, TypeError, ValueError, KeyError) as exc:
+    except (BenchmarkReferenceError, TypeError, ValueError, KeyError, RecursionError) as exc:
         unavailable["blockers"] = [f"reference_resolution_invalid:{type(exc).__name__}"]
-        return CanonicalReferenceContext(registry, None, blocker=f"reference_resolution_invalid:{type(exc).__name__}", instrument=instrument)
+        return CanonicalReferenceContext(registry, None, blocker=f"reference_resolution_invalid:{type(exc).__name__}")
     return CanonicalReferenceContext(registry, resolution, instrument=instrument)
 
 

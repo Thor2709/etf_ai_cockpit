@@ -10,10 +10,12 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 import etf_cockpit.models.forecast_scores as forecast_scores
+import etf_cockpit.services as services_module
 
 from etf_cockpit.application.benchmark_reference import (
     CanonicalReferenceContext,
     clip_to_decision_window,
+    resolve_canonical_reference,
     unavailable_reference_projection,
     validate_benchmark_reference,
 )
@@ -31,7 +33,9 @@ from etf_cockpit.features.regime import (
 from etf_cockpit.features.macro import build_macro_context
 from etf_cockpit.services import (
     _cache_matches_universe,
+    _cached_backtest_binding_matches,
     _read_bound_cache_payload,
+    _reference_binding,
     _reference_identity_hash,
     _postprocess_forecast_benchmark_fields,
     _write_bound_cache_group,
@@ -651,6 +655,83 @@ def test_application_reference_validator_fails_closed_on_deep_recursion() -> Non
     for _ in range(10_000):
         nested = {"nested": nested}
     assert validate_benchmark_reference(nested, "BENCH") is None
+
+
+def test_application_reference_resolution_maps_deep_instrument_recursion_to_unavailable() -> None:
+    nested: dict[str, object] = {"fact": "value"}
+    for _ in range(10_000):
+        nested = {"nested": nested}
+    context = resolve_canonical_reference(
+        CanonicalBenchmarkRegistry(),
+        analysis_id="deep",
+        purpose="comparison",
+        instrument_id="VWCE",
+        instrument=nested,
+        currency="AUD",
+        horizon_years=1.0,
+        start_date="2025-01-01",
+        end_date="2025-12-31",
+        decision_time="2025-12-31T23:59:59Z",
+        reference_portfolio_ids=(),
+    )
+    assert context.resolution is None
+    assert context.blocker.startswith("reference_resolution_invalid:")
+
+
+def test_backtest_engine_keeps_relative_features_unavailable_without_benchmark(monkeypatch) -> None:
+    from etf_cockpit.backtest import engine
+
+    config = load_config()
+    prices = generate_sample_prices(config, periods=360, end_date=date(2026, 6, 26))
+    captured: list[pd.DataFrame] = []
+    original_latest_features = engine.latest_features
+
+    def capture(features: pd.DataFrame, *args, **kwargs) -> pd.DataFrame:
+        captured.append(features.copy())
+        return original_latest_features(features, *args, **kwargs)
+
+    monkeypatch.setattr(engine, "latest_features", capture)
+    run_backtest(config, prices)
+
+    assert captured
+    assert all(frame["relative_strength_60d"].isna().all() for frame in captured)
+    assert all(frame["relative_strength_120d"].isna().all() for frame in captured)
+    assert all(frame["return_60d_log"].notna().any() for frame in captured)
+
+
+def test_backtest_metadata_binds_fresh_reference_projection_and_rejects_tamper(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.data.etf_structure import LocalStructuralEvidence
+
+    config = load_config()
+    prices = generate_sample_prices(config, periods=360, end_date=date(2026, 6, 26))
+    monkeypatch.setattr(services_module, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(services_module, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(services_module, "load_fundamental_evidence", pd.DataFrame)
+    monkeypatch.setattr(
+        services_module,
+        "_load_local_structural_evidence",
+        lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
+    )
+    monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    service = services_module.BacktestService(config, universe_revision="test-revision")
+    report = service.run_backtest()
+    metadata_path = tmp_path / "backtest_metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    context = service.reference_context
+    binding = _reference_binding(context)
+    assert metadata["benchmark_reference"] == binding["benchmark_reference"]
+    assert metadata["benchmark_reference_hash"] == _reference_identity_hash(binding["benchmark_reference"])
+    assert metadata["reference_identity_hash"] == _reference_identity_hash(binding["reference_identity"])
+    assert _cached_backtest_binding_matches(metadata, context)
+
+    metadata["benchmark_reference"]["nested"] = {"execution_allowed": True}
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    assert service._load_cached_backtest() is None
+
+    metadata = json.loads(json.dumps(report.metadata, default=str))
+    metadata["benchmark_strategy"] = "forged"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    assert service._load_cached_backtest() is None
 
 
 def test_attribution_clips_observations_to_declared_calculation_window() -> None:

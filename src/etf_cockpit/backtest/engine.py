@@ -452,6 +452,8 @@ def run_backtest(
                     & (truncated_dates <= calculation_window[1])
                 ].copy()
             features = compute_features(truncated_prices, benchmark_etf_id=canonical_benchmark_id)
+            if canonical_benchmark_id is None:
+                features.loc[:, ["relative_strength_60d", "relative_strength_120d"]] = np.nan
             latest = latest_features(features, as_of_date=dt.date())
             holdings = _holdings_from_weights(weights["signal_strategy"], pivot.iloc[i], equity["signal_strategy"][-1], dt.date())
             report = validate_prices(truncated_prices, as_of_date=dt.date(), min_history_days=180)

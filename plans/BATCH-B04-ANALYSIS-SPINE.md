@@ -4249,3 +4249,11 @@ without `date`; and map recursive malformed canonical registry/application input
 to the existing error contracts. Add only the exact interleaving, missing-schema
 and 10k-depth regressions. Do not change atomic I/O, workflows, financial logic,
 authority or execution behavior.
+
+`CANONICAL BACKTEST BINDING CORRECTION` head `a3ae5dbcbe44b21b39677aeb213207ebe7261ac3`
+is rejected and run `31782031303` is cancelled/stale. Bind cached backtest
+projection, strategy and identity metadata to the fresh canonical context;
+retain N/A benchmark-relative fields when the benchmark is absent; fail closed
+on the two reproduced recursive reference inputs; and strictly type the two
+demonstrated value objects. Add only direct regressions. Do not alter adjacent
+financial formulas, persistence, workflows, authority or execution behavior.

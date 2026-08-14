@@ -802,10 +802,21 @@ class Selection:
     content_hash: str | None = None
 
     def __post_init__(self) -> None:
-        if self.kind not in {"benchmark", "cash", "peer"}:
+        if type(self.kind) is not str or self.kind not in {"benchmark", "cash", "peer"}:
             raise BenchmarkReferenceError("selection kind is unsupported")
-        if self.status not in {"available", "unavailable", "ambiguous"}:
+        if type(self.status) is not str or self.status not in {"available", "unavailable", "ambiguous"}:
             raise BenchmarkReferenceError("selection status is unsupported")
+        for value, field in ((self.selected_id, "selection selected_id"), (self.version, "selection version")):
+            if value is not None:
+                _text(value, field)
+        if self.status == "available" and (self.selected_id is None or self.version is None):
+            raise BenchmarkReferenceError("available selection requires an id and version")
+        if self.reason is not None:
+            _text(self.reason, "selection reason")
+        if self.specificity is not None and (
+            type(self.specificity) is not int or self.specificity < 0
+        ):
+            raise BenchmarkReferenceError("selection specificity must be a non-negative integer")
         if self.execution_allowed is not False:
             raise BenchmarkReferenceError("selection cannot grant execution authority")
         if self.content_hash is not None and (
@@ -1021,8 +1032,42 @@ class VwceAnchorResolution:
     replay_digest: str | None = None
 
     def __post_init__(self) -> None:
-        if self.status not in {"available", "unavailable", "ambiguous"}:
+        if type(self.status) is not str or self.status not in {"available", "unavailable", "ambiguous"}:
             raise BenchmarkReferenceError("anchor resolution status is unsupported")
+        for value, field in (
+            (self.canonical_share_class_id, "canonical_share_class_id"),
+            (self.listing_id, "listing_id"),
+            (self.reason, "anchor resolution reason"),
+        ):
+            if value is not None:
+                _text(value, field)
+        for value, field in (
+            (self.observation_effective_at, "observation_effective_at"),
+            (self.observation_known_at, "observation_known_at"),
+            (self.decision_time, "decision_time"),
+        ):
+            if value is not None:
+                _timestamp(value, field)
+        if self.output_currency is not None and (
+            type(self.output_currency) is not str
+            or re.fullmatch(r"[A-Z]{3}", self.output_currency) is None
+        ):
+            raise BenchmarkReferenceError("anchor resolution currency is invalid")
+        if self.horizon_years is not None:
+            horizon = _horizon(self.horizon_years, "anchor resolution horizon_years")
+            if horizon is None or horizon <= 0:
+                raise BenchmarkReferenceError("anchor resolution horizon is invalid")
+        for value, field in (
+            (self.anchor_digest, "anchor_digest"),
+            (self.conversion_digest, "conversion_digest"),
+            (self.replay_digest, "replay_digest"),
+        ):
+            if value is not None and (
+                type(value) is not str or _SHA256.fullmatch(value.lower()) is None
+            ):
+                raise BenchmarkReferenceError(f"{field} must be SHA-256")
+        if self.effective_date is not None:
+            _date(self.effective_date, "effective_date")
         if self.execution_allowed is not False:
             raise BenchmarkReferenceError("anchor resolution cannot grant execution authority")
 
@@ -1783,7 +1828,11 @@ def project_profile_relative_analysis(
 ) -> dict[str, object]:
     """Block only profile-relative claims when the VWCE anchor is unavailable."""
 
-    _assert_no_execution(raw_analysis)
+    try:
+        _assert_no_execution(raw_analysis)
+        raw_analysis_copy = deepcopy(dict(raw_analysis))
+    except RecursionError as exc:
+        raise BenchmarkReferenceError("raw analysis is malformed") from exc
     registry_anchor_bound = (
         anchor is not None
         and registry is not None
@@ -1821,7 +1870,7 @@ def project_profile_relative_analysis(
     anchor_projection["resolution_digest"] = _content_hash(anchor_projection)
     result = {
         "contract": CONTRACT,
-        "raw_analysis": deepcopy(dict(raw_analysis)),
+        "raw_analysis": raw_analysis_copy,
         "profile_relative_status": projected_status,
         "profile_relative_claims_allowed": complete_available,
         "anchor_reason": projected_reason,

@@ -93,6 +93,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     VwceAnchorEvidence,
     load_canonical_benchmark_registry,
     resolve_vwce_anchor,
+    validate_execution_disabled,
 )
 from etf_cockpit.application.benchmark_reference import (
     CanonicalReferenceContext,
@@ -427,8 +428,78 @@ def _write_bound_cache_group(
 
 
 def _reference_identity_hash(identity: Mapping[str, object]) -> str:
-    encoded = json.dumps(dict(identity), sort_keys=True, separators=(",", ":"), allow_nan=False)
+    encoded = json.dumps(
+        _canonical_json_value(identity),
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _canonical_json_value(value: object) -> object:
+    """Return JSON-safe canonical data without coercing primitive types."""
+
+    if isinstance(value, Mapping):
+        if any(type(key) is not str for key in value):
+            raise TypeError("canonical mappings require string keys")
+        return {key: _canonical_json_value(value[key]) for key in sorted(value)}
+    if isinstance(value, (list, tuple)):
+        return [_canonical_json_value(item) for item in value]
+    if value is None or type(value) in {str, bool, int}:
+        return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ValueError("canonical JSON numbers must be finite")
+        return value
+    raise TypeError("canonical JSON contains an unsupported primitive")
+
+
+def _reference_binding(reference_context: CanonicalReferenceContext) -> dict[str, object]:
+    """Build the one cache binding from the freshly resolved context."""
+
+    projection = reference_context.projection
+    identity = reference_context.identity
+    identity_hash = _reference_identity_hash(identity)
+    strategy = "canonical_price_series" if reference_context.benchmark_data_id else "unavailable"
+    strategy_identity = {
+        "strategy": strategy,
+        "benchmark_data_id": reference_context.benchmark_data_id,
+        "reference_identity_hash": identity_hash,
+    }
+    return {
+        "benchmark_reference": projection,
+        "benchmark_reference_hash": _reference_identity_hash(projection),
+        "benchmark_strategy": strategy,
+        "benchmark_strategy_hash": _reference_identity_hash(strategy_identity),
+        "benchmark_strategy_identity": strategy_identity,
+        "reference_identity": identity,
+        "reference_identity_hash": identity_hash,
+    }
+
+
+def _cached_backtest_binding_matches(
+    metadata: Mapping[str, object],
+    reference_context: CanonicalReferenceContext,
+) -> bool:
+    """Require cached benchmark metadata to match canonical context exactly."""
+
+    try:
+        validate_execution_disabled(metadata)
+        expected = _reference_binding(reference_context)
+        return all(
+            metadata.get(field) == value
+            for field, value in expected.items()
+        ) and all(
+            _reference_identity_hash(metadata[field]) == expected[hash_field]
+            for field, hash_field in (
+                ("benchmark_reference", "benchmark_reference_hash"),
+                ("benchmark_strategy_identity", "benchmark_strategy_hash"),
+                ("reference_identity", "reference_identity_hash"),
+            )
+        )
+    except (BenchmarkReferenceError, TypeError, ValueError, KeyError, RecursionError):
+        return False
 
 
 def _reference_identity_matches(
@@ -1471,12 +1542,9 @@ class BacktestService:
                 benchmark_reference=reference_context.projection,
                 reference_identity=reference_context.identity,
             )
-            # Bind every runner result to the resolved readback identity before
-            # publication, including older local runner seams.
-            report.metadata["reference_identity"] = reference_context.identity
-            report.metadata["reference_identity_hash"] = _reference_identity_hash(
-                reference_context.identity
-            )
+            # Bind every runner result to the freshly resolved readback context
+            # before publication, including older local runner seams.
+            report.metadata.update(_reference_binding(reference_context))
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
         run_id = settings_bound_run_id("backtest", settings_identity=settings_identity)
@@ -1623,12 +1691,16 @@ class BacktestService:
                 return None
             quality_momentum_evidence = pd.read_csv(BytesIO(payload_bytes[quality_evidence_path]))
             metadata = json.loads(snapshot[metadata_path].decode("utf-8"))
-            if not isinstance(metadata, dict):
-                metadata = {}
-            if not _reference_identity_matches(
-                metadata.get("reference_identity"),
-                metadata.get("reference_identity_hash"),
-                reference_context.identity,
+            if not isinstance(metadata, dict) or not _cached_backtest_binding_matches(
+                metadata, reference_context
+            ):
+                return None
+            expected_benchmark_strategy = metadata["benchmark_strategy"]
+            if (
+                "benchmark_strategy" not in results.columns
+                or not results["benchmark_strategy"].map(
+                    lambda value: type(value) is str and value == expected_benchmark_strategy
+                ).all()
             ):
                 return None
             if metadata.get("quality_momentum_strategy_version") != QUALITY_MOMENTUM_VERSION:
