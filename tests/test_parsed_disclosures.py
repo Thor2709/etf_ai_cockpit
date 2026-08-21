@@ -54,6 +54,21 @@ def _methodology_result() -> ParseResult[IndexMethodologyRecord]:
     return ParseResult((record,), (), "index_methodology", "2.0", "b" * 64, True)
 
 
+def test_csv_validator_accepts_quoted_newlines_and_rejects_inconsistent_widths(
+    tmp_path: Path,
+) -> None:
+    from etf_cockpit.data.parsed_disclosures import _validate_csv_file
+
+    valid = tmp_path / "valid.csv"
+    valid.write_text('source_id,notes\nsource-1,"line one\nline two"\n', encoding="utf-8")
+    _validate_csv_file(valid)
+
+    malformed = tmp_path / "malformed.csv"
+    malformed.write_text("source_id,notes\nsource-1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="inconsistent row widths"):
+        _validate_csv_file(malformed)
+
+
 def test_parsed_kid_persistence_is_versioned_checksum_keyed_and_idempotent(tmp_path: Path) -> None:
     from etf_cockpit.data.parsed_disclosures import persist_priips_kid_result, read_priips_kid_records
 

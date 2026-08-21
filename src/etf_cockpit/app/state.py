@@ -37,7 +37,9 @@ from etf_cockpit.parsers.contracts import RawDocument, load_fixture_manifest
 from etf_cockpit.parsers.esef_ixbrl import parse_esef_package
 from etf_cockpit.parsers.sec_facts import parse_companyfacts, statement_facts_from_esef, write_statement_evidence
 from etf_cockpit.features.regime import build_market_regime, write_market_regime
+from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.models.calibration import evaluate_forecast_calibration, load_forecast_history, write_forecast_calibration
+from etf_cockpit.models.forecast_scores import configured_forecast_request_identity
 from etf_cockpit.operations.event_store import current_activity_view, load_events_with_tail_recovery
 from etf_cockpit.portfolio.review_reports import create_portfolio_review_report
 from etf_cockpit.services import ChatGPTBridge, CockpitSnapshot, DataService, build_snapshot
@@ -818,9 +820,10 @@ class AppState:
         action_id = self.current_activity.action_id if self.current_activity else "forecasts"
         with timed_step(action_id, "forecast_models"):
             service = DataService(self.snapshot.config)
+            request_identity = configured_forecast_request_identity(self.snapshot.config)
             message = service.run_yfinance_forecasts(
-                horizons=[60],
-                live_optional_models=False,
+                horizons=list(request_identity["requested_horizons"]),
+                live_optional_models=bool(request_identity["live_optional_models"]),
                 progress_callback=lambda stage, completed, total: self.update_activity(
                     stage,
                     completed_units=completed,
@@ -1257,7 +1260,18 @@ class AppState:
     @_tracked_activity("Write scoreboard", "Building scoreboard")
     def _write_current_scoreboard(self) -> Path:
         candidate_report, _ = load_latest_candidate_report()
-        regime = build_market_regime(self.snapshot.prices, candidate_report)
+        reference_context = context_from_snapshot(
+            self.snapshot,
+            purpose="comparison",
+            analysis_id=f"scoreboard:{getattr(self.snapshot, 'universe_revision', 'unknown')}",
+        )
+        regime = build_market_regime(
+            self.snapshot.prices,
+            candidate_report,
+            benchmark_id=reference_context.benchmark_data_id,
+            benchmark_reference=reference_context.projection,
+            benchmark_registry=reference_context.registry,
+        )
         with self.activity_publication():
             write_market_regime(regime)
         calibration = evaluate_forecast_calibration(load_forecast_history(), self.snapshot.prices)
@@ -1268,6 +1282,12 @@ class AppState:
             self.snapshot.signals,
             self.snapshot.forecasts,
             self.snapshot.prices,
+            benchmark_data_id=reference_context.benchmark_data_id,
+            benchmark_reference=reference_context.projection,
+            benchmark_registry=reference_context.registry,
+            reference_identity=reference_context.identity,
+            peer_member_ids=reference_context.peer_member_ids,
+            cash_observation_time=self.snapshot.benchmark_reference_decision_time,
         )
         with self.activity_publication():
             path = write_simple_scoreboard(scores)

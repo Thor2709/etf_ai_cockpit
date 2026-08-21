@@ -33,6 +33,7 @@ from etf_cockpit.application.ui_facade import (
 )
 from etf_cockpit.core.paths import DERIVED_DIR, ROOT
 from etf_cockpit.core.paths import EXPORTS_DIR
+from etf_cockpit.application.benchmark_reference import context_from_snapshot
 
 SCOREBOARD_PATH = DERIVED_DIR / "scoreboard.parquet"
 
@@ -831,11 +832,17 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
         holdings=imported_holdings,
     )
     factor_report = build_factor_risk_report(state.snapshot.prices, allocation, state.snapshot.latest_features, eligible_holdings)
+    reference_context = context_from_snapshot(
+        state.snapshot,
+        purpose="attribution",
+        analysis_id=f"attribution:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
+    )
     attribution_report = build_performance_attribution(
         state.snapshot.prices,
         allocation,
         factor_returns=factor_report.get("factor_returns"),
         factor_exposures=factor_report.get("exposure_matrix"),
+        reference_context=reference_context,
     )
     robust_risk_report = build_robust_risk_report(state.snapshot.prices, allocation, factor_report=factor_report)
     top_contributor = contribution.iloc[0]["etf_id"] if not contribution.empty else "n/a"

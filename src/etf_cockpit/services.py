@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
+from io import BytesIO
+import math
 import json
+import hashlib
+import inspect
 from pathlib import Path
 
 import pandas as pd
@@ -20,7 +24,12 @@ from etf_cockpit.chatgpt_bridge.export_pack import export_review_pack
 from etf_cockpit.chatgpt_bridge.import_audit import import_audit_json
 from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit, ChatGPTAuditV2
 from etf_cockpit.core.config import AppConfig, load_config
-from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group
+from etf_cockpit.core.atomic_io import (
+    AtomicWriteRequest,
+    atomic_write_bytes,
+    atomic_write_group,
+    read_atomic_group,
+)
 from etf_cockpit.core.logging import append_jsonl, configure_logging
 from etf_cockpit.core.paths import (
     BACKTESTS_DIR,
@@ -39,7 +48,7 @@ from etf_cockpit.core.versioning import (
     ensure_run_manifest,
     settings_bound_run_id,
 )
-from etf_cockpit.data.duckdb_store import initialise_store, load_holdings, load_prices, write_features
+from etf_cockpit.data.duckdb_store import FEATURE_PARQUET, initialise_store, load_features, load_holdings, load_prices, write_features
 from etf_cockpit.data.etf_economics import (
     ClosureProxyPolicy,
     EtfEconomicsObservation,
@@ -65,18 +74,97 @@ from etf_cockpit.data.reference_data import (
     validate_reference_dataset,
 )
 from etf_cockpit.data.sample_data import ensure_sample_files
-from etf_cockpit.data.trade_candidate_analysis import fetch_candidate_prices, refresh_candidate_analysis
+from etf_cockpit.data.trade_candidate_analysis import (
+    fetch_candidate_prices,
+    load_candidate_price_binding,
+    refresh_candidate_analysis,
+    write_candidate_price_snapshot,
+)
 from etf_cockpit.data.validation import validate_holdings, validate_prices
 from etf_cockpit.data.yfinance_provider import YFinanceProvider
 from etf_cockpit.data.universe_store import load_universe
+from etf_cockpit.features.cash_comparison import adjusted_endpoint_available_at
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.models.baseline_models import baseline_forecast
-from etf_cockpit.models.forecast_scores import forecast_component_maps, forecast_return_distributions, load_latest_forecasts
+from etf_cockpit.models.forecast_scores import (
+    configured_forecast_request_identity,
+    forecast_component_maps,
+    forecast_request_identity,
+    forecast_return_distributions,
+    load_latest_forecasts,
+)
 from etf_cockpit.models.local_weights import LocalModelStatus
 from etf_cockpit.models.registry import model_availability, model_diagnostics
 from etf_cockpit.portfolio.risk import target_policy_issues
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    BenchmarkReferenceError,
+    CanonicalBenchmarkRegistry,
+    ReferencePortfolioDefinition,
+    VWCE_CANONICAL_ISIN,
+    VWCE_CANONICAL_SHARE_CLASS,
+    VwceAnchorEvidence,
+    load_canonical_benchmark_registry,
+    resolve_vwce_anchor,
+    validate_execution_disabled,
+)
+from etf_cockpit.application.benchmark_reference import (
+    CanonicalReferenceContext,
+    adjusted_price_snapshot_binding,
+    clip_to_decision_window,
+    resolve_canonical_reference,
+    unavailable_reference_projection,
+)
+from etf_cockpit.portfolio.sandbox import holdings_checksum
 from etf_cockpit.signals.signal_pipeline import generate_signals
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION
+
+
+BENCHMARK_REFERENCE_REGISTRY_PATH: Path | None = None
+_CANONICAL_REFERENCE_IDS = (
+    "reference:equal_weight",
+    "reference:maximum_diversification",
+    "reference:no_trade",
+)
+# Holdings-derived portfolio totals are compared in EUR with a deliberately
+# tight tolerance: one micro-euro absolute or one part per billion relative.
+_NO_TRADE_TOTAL_REL_TOL = 1e-9
+_NO_TRADE_TOTAL_ABS_TOL_EUR = 1e-6
+
+
+def _holdings_imply_consistent_portfolio_total(
+    weights: list[float], market_values: list[float],
+) -> bool:
+    """Require every positive-weight holding to imply one portfolio total."""
+
+    implied_totals: list[float] = []
+    for weight, market_value in zip(weights, market_values):
+        if weight == 0.0:
+            if market_value != 0.0:
+                return False
+            continue
+        implied_total = market_value / weight
+        if not math.isfinite(implied_total):
+            return False
+        implied_totals.append(implied_total)
+    if not implied_totals:
+        return True
+    portfolio_total = implied_totals[0]
+    if math.isclose(
+        portfolio_total,
+        0.0,
+        rel_tol=0.0,
+        abs_tol=_NO_TRADE_TOTAL_ABS_TOL_EUR,
+    ):
+        return False
+    return all(
+        math.isclose(
+            implied_total,
+            portfolio_total,
+            rel_tol=_NO_TRADE_TOTAL_REL_TOL,
+            abs_tol=_NO_TRADE_TOTAL_ABS_TOL_EUR,
+        )
+        for implied_total in implied_totals[1:]
+    )
 
 
 def _universe_cache_meta_path(path: Path) -> Path:
@@ -90,20 +178,86 @@ def _current_universe_revision() -> str:
         return ""
 
 
-def _cache_matches_universe(path: Path, revision: str, settings_revision: str | None = None) -> bool:
+def _cache_matches_universe(
+    path: Path,
+    revision: str,
+    settings_revision: str | None = None,
+    reference_identity: Mapping[str, object] | None = None,
+    price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
+) -> bool:
     metadata_path = _universe_cache_meta_path(path)
-    if not metadata_path.exists():
+    if not path.is_file() or not metadata_path.is_file():
         return False
     try:
-        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError):
+        payload_bytes, metadata_bytes = read_atomic_group((path, metadata_path))
+        payload = json.loads(metadata_bytes.decode("utf-8"))
+    except (OSError, ValueError, TypeError, RecursionError):
         return False
     expected_settings = settings_revision or current_settings_revision()
-    return (
+    matches = (
         isinstance(payload, dict)
         and str(payload.get("universe_revision") or "") == revision
         and str(payload.get("settings_revision") or "") == expected_settings
     )
+    if not matches or reference_identity is None:
+        if not matches:
+            return False
+        checksum = payload.get("payload_sha256") if isinstance(payload, dict) else None
+        return (
+            (checksum is None or checksum == hashlib.sha256(payload_bytes).hexdigest())
+            and (price_binding is None or _price_binding_matches(payload, price_binding))
+            and (
+                forecast_request_identity is None
+                or _forecast_request_matches(payload, forecast_request_identity)
+            )
+        )
+    if payload.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
+        return False
+    if price_binding is not None and not _price_binding_matches(payload, price_binding):
+        return False
+    if forecast_request_identity is not None and not _forecast_request_matches(payload, forecast_request_identity):
+        return False
+    return _reference_identity_matches(
+        payload.get("reference_identity"),
+        payload.get("reference_identity_hash"),
+        reference_identity,
+    )
+
+
+def _read_bound_cache_payload(
+    path: Path,
+    revision: str,
+    settings_revision: str,
+    reference_identity: Mapping[str, object],
+    price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
+) -> bytes | None:
+    metadata_path = _universe_cache_meta_path(path)
+    try:
+        payload_bytes, metadata_bytes = read_atomic_group((path, metadata_path))
+        payload = json.loads(metadata_bytes.decode("utf-8"))
+    except (OSError, TypeError, ValueError, RecursionError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if str(payload.get("universe_revision") or "") != revision:
+        return None
+    if str(payload.get("settings_revision") or "") != settings_revision:
+        return None
+    if not _reference_identity_matches(
+        payload.get("reference_identity"),
+        payload.get("reference_identity_hash"),
+        reference_identity,
+    ):
+        return None
+    if price_binding is not None and not _price_binding_matches(payload, price_binding):
+        return None
+    if forecast_request_identity is not None and not _forecast_request_matches(payload, forecast_request_identity):
+        return None
+    if payload.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
+        return None
+    return payload_bytes
 
 
 def _load_local_structural_evidence():
@@ -113,6 +267,19 @@ def _load_local_structural_evidence():
         factsheet_path=ETF_METADATA_CLEAN_PATH,
         holdings_path=FUND_HOLDINGS_PATH,
     )
+
+
+def _run_backtest_compatibly(config: AppConfig, prices: pd.DataFrame, **kwargs: object) -> BacktestReport:
+    """Keep the service seam compatible with older focused test runners.
+
+    Signature filtering is explicit compatibility, not exception handling:
+    TypeError raised by the runner itself must remain visible to the caller.
+    """
+
+    parameters = inspect.signature(run_backtest).parameters
+    accepts_kwargs = any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
+    supported = kwargs if accepts_kwargs else {key: value for key, value in kwargs.items() if key in parameters}
+    return run_backtest(config, prices, **supported)
 
 
 def _load_structure_caps(instrument_ids: object, decision_time: object) -> dict[str, float]:
@@ -198,17 +365,323 @@ def _cached_structure_columns_match(
     return True
 
 
-def _write_universe_cache_metadata(path: Path, revision: str, settings_revision: str | None = None) -> None:
+def _write_universe_cache_metadata(
+    path: Path,
+    revision: str,
+    settings_revision: str | None = None,
+    reference_identity: Mapping[str, object] | None = None,
+    price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
+) -> None:
     metadata_path = _universe_cache_meta_path(path)
+    payload_sha256 = (
+        hashlib.sha256(path.read_bytes()).hexdigest()
+        if reference_identity is not None and path.is_file()
+        else None
+    )
     payload = json.dumps(
         {
             "schema_version": 2,
             "universe_revision": revision,
             "settings_revision": settings_revision or current_settings_revision(),
+            **({"payload_sha256": payload_sha256} if payload_sha256 is not None else {}),
+            **(
+                {
+                    "reference_identity": dict(reference_identity),
+                    "reference_identity_hash": _reference_identity_hash(reference_identity),
+                }
+                if reference_identity is not None
+                else {}
+            ),
+            **(dict(price_binding) if price_binding is not None else {}),
+            **(
+                {
+                    "forecast_request_identity": dict(forecast_request_identity),
+                    "forecast_request_identity_hash": _reference_identity_hash(forecast_request_identity),
+                }
+                if forecast_request_identity is not None
+                else {}
+            ),
         },
         sort_keys=True,
     ).encode("utf-8")
     atomic_write_bytes(metadata_path, payload, lambda candidate: json.loads(candidate.read_text(encoding="utf-8")))
+
+
+def _write_bound_cache_metadata(
+    path: Path,
+    revision: str,
+    settings_revision: str,
+    reference_identity: Mapping[str, object] | None,
+    price_binding: Mapping[str, object] | None = None,
+) -> None:
+    """Write reference-bound metadata, retaining the old test seam."""
+
+    if reference_identity is None:
+        _write_universe_cache_metadata(path, revision, settings_revision, price_binding=price_binding)
+        return
+    try:
+        _write_universe_cache_metadata(path, revision, settings_revision, reference_identity, price_binding)
+    except TypeError as exc:
+        # A narrow compatibility path for callers monkeypatching the former
+        # three-argument helper; production always uses the bound form above.
+        if "positional" not in str(exc) and "argument" not in str(exc):
+            raise
+        _write_universe_cache_metadata(path, revision, settings_revision, price_binding=price_binding)
+
+
+def _bound_cache_metadata_payload(
+    revision: str,
+    settings_revision: str,
+    reference_identity: Mapping[str, object] | None,
+    payload: bytes,
+    price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
+) -> bytes:
+    record: dict[str, object] = {
+        "schema_version": 3,
+        "universe_revision": revision,
+        "settings_revision": settings_revision,
+        "payload_sha256": hashlib.sha256(payload).hexdigest(),
+    }
+    if reference_identity is not None:
+        record["reference_identity"] = dict(reference_identity)
+        record["reference_identity_hash"] = _reference_identity_hash(reference_identity)
+    if price_binding is not None:
+        record.update(dict(price_binding))
+    if forecast_request_identity is not None:
+        record["forecast_request_identity"] = dict(forecast_request_identity)
+        record["forecast_request_identity_hash"] = _reference_identity_hash(forecast_request_identity)
+    return json.dumps(record, sort_keys=True).encode("utf-8")
+
+
+def _write_bound_cache_group(
+    path: Path,
+    payload: bytes,
+    validator: Callable[[Path], None],
+    revision: str,
+    settings_revision: str,
+    reference_identity: Mapping[str, object] | None,
+    price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
+) -> None:
+    metadata_path = _universe_cache_meta_path(path)
+    metadata_payload = _bound_cache_metadata_payload(
+        revision,
+        settings_revision,
+        reference_identity,
+        payload,
+        price_binding,
+        forecast_request_identity,
+    )
+    atomic_write_group(
+        (
+            AtomicWriteRequest(path, payload, validator),
+            AtomicWriteRequest(
+                metadata_path,
+                metadata_payload,
+                lambda candidate: json.loads(candidate.read_text(encoding="utf-8")),
+            ),
+        )
+    )
+
+
+def _reference_identity_hash(identity: Mapping[str, object]) -> str:
+    encoded = json.dumps(
+        _canonical_json_value(identity),
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _canonical_json_value(value: object) -> object:
+    """Return JSON-safe canonical data without coercing primitive types."""
+
+    if isinstance(value, Mapping):
+        if any(type(key) is not str for key in value):
+            raise TypeError("canonical mappings require string keys")
+        return {key: _canonical_json_value(value[key]) for key in sorted(value)}
+    if isinstance(value, (list, tuple)):
+        return [_canonical_json_value(item) for item in value]
+    if value is None or type(value) in {str, bool, int}:
+        return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ValueError("canonical JSON numbers must be finite")
+        return value
+    raise TypeError("canonical JSON contains an unsupported primitive")
+
+
+def _calculation_window(
+    context: CanonicalReferenceContext,
+    as_of_date: date,
+    prices: pd.DataFrame,
+) -> dict[str, str] | None:
+    """Return the exact canonical window, with a deterministic local fallback."""
+
+    try:
+        requested_as_of = pd.Timestamp(as_of_date).date()
+    except (TypeError, ValueError):
+        return None
+    resolution = getattr(context, "resolution", None)
+    if resolution is not None:
+        declaration = resolution.declaration
+        try:
+            end_date = date.fromisoformat(declaration.end_date)
+        except (TypeError, ValueError):
+            return None
+        if requested_as_of > end_date:
+            return None
+        if requested_as_of < end_date:
+            return {
+                "start_date": declaration.start_date,
+                "end_date": requested_as_of.isoformat(),
+                "decision_time": f"{requested_as_of.isoformat()}T23:59:59+00:00",
+            }
+        return {
+            "start_date": declaration.start_date,
+            "end_date": declaration.end_date,
+            "decision_time": declaration.decision_time,
+        }
+
+    if not isinstance(prices, pd.DataFrame) or "date" not in prices.columns:
+        start_date = requested_as_of
+    else:
+        dates = pd.to_datetime(prices["date"], errors="coerce", utc=True)
+        valid = dates.dropna()
+        start_date = valid.min().date() if not valid.empty else requested_as_of
+    return {
+        "start_date": start_date.isoformat(),
+        "end_date": requested_as_of.isoformat(),
+        "decision_time": f"{requested_as_of.isoformat()}T23:59:59+00:00",
+    }
+
+
+def _price_snapshot_binding(
+    prices: pd.DataFrame,
+    *,
+    calculation_window: Mapping[str, str],
+) -> dict[str, object] | None:
+    """Build the adjusted-price identity used by derived-cache sidecars."""
+
+    return adjusted_price_snapshot_binding(prices, calculation_window=calculation_window)
+
+
+def _price_binding_matches(metadata: Mapping[str, object], expected: Mapping[str, object]) -> bool:
+    checksum = expected.get("price_snapshot_checksum")
+    revision = expected.get("price_snapshot_revision")
+    cutoff = expected.get("effective_cutoff")
+    window = expected.get("calculation_window")
+    valid = (
+        isinstance(checksum, str)
+        and len(checksum) == 64
+        and all(character in "0123456789abcdef" for character in checksum)
+        and revision == checksum
+        and isinstance(cutoff, str)
+        and bool(cutoff)
+        and isinstance(window, Mapping)
+        and window.get("decision_time") == cutoff
+        and all(isinstance(window.get(key), str) and window.get(key) for key in ("start_date", "end_date"))
+    )
+    return valid and all(metadata.get(key) == value for key, value in expected.items())
+
+
+def _forecast_request_identity(
+    config: AppConfig,
+    horizons: list[int] | None,
+    *,
+    live_optional_models: bool,
+) -> dict[str, object]:
+    return forecast_request_identity(
+        config,
+        horizons,
+        live_optional_models=live_optional_models,
+    )
+
+
+def _live_optional_models_from_config(config: AppConfig) -> bool:
+    return any(
+        config.models.runtime(name).enabled and config.models.runtime(name).mode == "live"
+        for name in ("timesfm", "toto")
+    )
+
+
+def _forecast_request_matches(metadata: Mapping[str, object], expected: Mapping[str, object]) -> bool:
+    return _reference_identity_matches(
+        metadata.get("forecast_request_identity"),
+        metadata.get("forecast_request_identity_hash"),
+        expected,
+    )
+
+
+def _reference_binding(reference_context: CanonicalReferenceContext) -> dict[str, object]:
+    """Build the one cache binding from the freshly resolved context."""
+
+    projection = reference_context.projection
+    identity = reference_context.identity
+    identity_hash = _reference_identity_hash(identity)
+    strategy = (
+        "canonical_price_series"
+        if projection.get("status") == "available" and reference_context.benchmark_data_id
+        else "unavailable"
+    )
+    strategy_identity = {
+        "strategy": strategy,
+        "benchmark_data_id": reference_context.benchmark_data_id,
+        "reference_identity_hash": identity_hash,
+    }
+    return {
+        "benchmark_reference": projection,
+        "benchmark_reference_hash": _reference_identity_hash(projection),
+        "benchmark_strategy": strategy,
+        "benchmark_strategy_hash": _reference_identity_hash(strategy_identity),
+        "benchmark_strategy_identity": strategy_identity,
+        "reference_identity": identity,
+        "reference_identity_hash": identity_hash,
+    }
+
+
+def _cached_backtest_binding_matches(
+    metadata: Mapping[str, object],
+    reference_context: CanonicalReferenceContext,
+) -> bool:
+    """Require cached benchmark metadata to match canonical context exactly."""
+
+    try:
+        validate_execution_disabled(metadata)
+        expected = _reference_binding(reference_context)
+        return all(
+            metadata.get(field) == value
+            for field, value in expected.items()
+        ) and all(
+            _reference_identity_hash(metadata[field]) == expected[hash_field]
+            for field, hash_field in (
+                ("benchmark_reference", "benchmark_reference_hash"),
+                ("benchmark_strategy_identity", "benchmark_strategy_hash"),
+                ("reference_identity", "reference_identity_hash"),
+            )
+        )
+    except (BenchmarkReferenceError, TypeError, ValueError, KeyError, RecursionError):
+        return False
+
+
+def _reference_identity_matches(
+    stored: object,
+    claimed_hash: object,
+    expected: Mapping[str, object],
+) -> bool:
+    if not isinstance(stored, Mapping):
+        return False
+    try:
+        expected_hash = _reference_identity_hash(expected)
+        return (
+            str(claimed_hash or "") == expected_hash
+            and _reference_identity_hash(stored) == expected_hash
+        )
+    except (TypeError, ValueError, RecursionError):
+        return False
 
 
 @dataclass
@@ -224,12 +697,24 @@ class CockpitSnapshot:
     backtest: BacktestReport
     model_status: dict[str, bool]
     model_inventory: list[LocalModelStatus]
+    candidate_price_binding: Mapping[str, object] | None = None
     # Revision of the canonical universe used to build cached derived data.
     universe_revision: str = ""
     etf_economics_records: tuple[EtfEconomicsObservation, ...] = ()
     etf_fund_total_return: TotalReturnEvidence | None = None
     etf_benchmark_total_return: TotalReturnEvidence | None = None
     etf_closure_policy: ClosureProxyPolicy | None = None
+    benchmark_reference_registry: CanonicalBenchmarkRegistry = field(default_factory=CanonicalBenchmarkRegistry)
+    benchmark_reference_instrument: Mapping[str, object] | None = None
+    benchmark_reference_currency: str | None = None
+    benchmark_reference_horizon_years: float | None = None
+    benchmark_reference_start_date: str | None = None
+    benchmark_reference_end_date: str | None = None
+    benchmark_reference_decision_time: str | None = None
+    benchmark_reference_portfolio_ids: tuple[str, ...] = ()
+    vwce_anchor_evidence: VwceAnchorEvidence | None = None
+    vwce_listing_id: str | None = None
+    vwce_conversion_evidence: Mapping[str, object] | None = None
 
 
 class DataService:
@@ -423,13 +908,49 @@ class DataService:
         prices = prices.copy()
         prices["date"] = pd.to_datetime(prices["date"], errors="coerce")
         effective_as_of = prices["date"].max().date()
+        reference_inputs = _benchmark_reference_snapshot_inputs(
+            self.config,
+            effective_as_of,
+            load_holdings(),
+        )
+        reference_context = _reference_context_from_inputs(
+            reference_inputs,
+            purpose="comparison",
+            analysis_id=f"forecast:{effective_as_of.isoformat()}",
+        )
+        calculation_window = _calculation_window(reference_context, effective_as_of, prices)
+        if calculation_window is None:
+            return "Forecast calculation skipped because the canonical calculation window is unavailable."
+        price_binding = _price_snapshot_binding(prices, calculation_window=calculation_window)
+        if price_binding is None:
+            return "Forecast calculation skipped because the adjusted-price snapshot identity is unavailable."
+        try:
+            request_identity = _forecast_request_identity(
+                self.config,
+                horizons,
+                live_optional_models=live_optional_models,
+            )
+        except ValueError as exc:
+            return f"Forecast calculation skipped because the request identity is invalid: {exc}."
         forecast_config = self.config if live_optional_models else _config_with_optional_models_disabled(self.config)
-        forecast_service = ForecastService(forecast_config)
+        forecast_service = ForecastService(forecast_config, reference_context=reference_context)
         universe_revision = _current_universe_revision()
         output = FORECASTS_DIR / f"forecast_results_yfinance_{effective_as_of:%Y%m%d}.csv"
-        if use_cache and output.exists() and _cache_matches_universe(output, universe_revision, settings_revision):
+        if use_cache and output.exists() and _cache_matches_universe(
+            output, universe_revision, settings_revision, reference_context.identity, price_binding, request_identity
+        ):
             try:
-                universe_forecast_frame = pd.read_csv(output)
+                cached_payload = _read_bound_cache_payload(
+                    output,
+                    universe_revision,
+                    settings_revision,
+                    reference_context.identity,
+                    price_binding,
+                    request_identity,
+                )
+                if cached_payload is None:
+                    raise ValueError("forecast cache pair changed during read")
+                universe_forecast_frame = pd.read_csv(BytesIO(cached_payload))
             except Exception:
                 record_cache_event("forecast", "invalidation", action_id="forecasts", detail="unreadable output")
                 universe_forecast_frame = None
@@ -451,6 +972,8 @@ class DataService:
                     horizons=horizons,
                     progress_callback=progress_callback,
                     publish_guard=publish_guard,
+                    cache_request_identity=request_identity,
+                    live_optional_models=live_optional_models,
                 )
                 universe_summary = _forecast_status_summary(universe_forecasts)
                 universe_mode = "refreshed"
@@ -466,6 +989,8 @@ class DataService:
                 horizons=horizons,
                 progress_callback=progress_callback,
                 publish_guard=publish_guard,
+                cache_request_identity=request_identity,
+                live_optional_models=live_optional_models,
             )
             universe_summary = _forecast_status_summary(universe_forecasts)
             universe_mode = "refreshed"
@@ -476,23 +1001,58 @@ class DataService:
             )
         ]
         if include_candidates:
-            candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{effective_as_of:%Y%m%d}.csv"
-            if use_cache and candidate_output.exists() and _cache_matches_universe(candidate_output, universe_revision, settings_revision):
+            candidate_data = fetch_candidate_prices(self.config, years=years)
+            candidate_ids = list(candidate_data.candidates["instrument_id"].astype(str))
+            candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{candidate_data.effective_as_of:%Y%m%d}.csv"
+            candidate_window = _calculation_window(
+                reference_context, candidate_data.effective_as_of, candidate_data.prices
+            )
+            candidate_binding = (
+                None
+                if candidate_window is None
+                else _price_snapshot_binding(candidate_data.prices, calculation_window=candidate_window)
+            )
+            if candidate_binding is None:
+                messages.append(
+                    "Candidate forecasts unavailable because the adjusted-price snapshot identity is unavailable; "
+                    "no disk cache was accepted or published."
+                )
+                self.last_operation_succeeded = True
+                return "\n".join(messages)
+            write_candidate_price_snapshot(
+                candidate_data.prices,
+                candidate_binding,
+                publish_guard=publish_guard,
+            )
+            if use_cache and candidate_output.exists() and _cache_matches_universe(
+                candidate_output,
+                universe_revision,
+                settings_revision,
+                reference_context.identity,
+                candidate_binding,
+                request_identity,
+            ):
                 try:
-                    candidate_frame = pd.read_csv(candidate_output)
+                    cached_payload = _read_bound_cache_payload(
+                        candidate_output,
+                        universe_revision,
+                        settings_revision,
+                        reference_context.identity,
+                        candidate_binding,
+                        request_identity,
+                    )
+                    if cached_payload is None:
+                        raise ValueError("candidate forecast cache pair changed during read")
+                    candidate_frame = pd.read_csv(BytesIO(cached_payload))
                 except Exception:
                     record_cache_event("candidate_forecast", "invalidation", action_id="forecasts", detail="unreadable output")
                     candidate_frame = None
                 if candidate_frame is not None:
                     record_cache_event("candidate_forecast", "hit", action_id="forecasts")
                     candidate_summary = _forecast_frame_status_summary(candidate_frame)
-                    candidate_as_of = effective_as_of
+                    candidate_as_of = candidate_data.effective_as_of
                     candidate_mode = "reused from cache"
                 else:
-                    record_cache_event("candidate_forecast", "miss", action_id="forecasts")
-                    candidate_data = fetch_candidate_prices(self.config, years=years)
-                    candidate_ids = list(candidate_data.candidates["instrument_id"].astype(str))
-                    candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{candidate_data.effective_as_of:%Y%m%d}.csv"
                     candidate_forecasts = forecast_service.run_forecasts(
                         candidate_data.effective_as_of,
                         candidate_ids,
@@ -500,34 +1060,36 @@ class DataService:
                         output_path=candidate_output,
                         horizons=horizons,
                         publish_guard=publish_guard,
+                        cache_request_identity=request_identity,
+                        live_optional_models=live_optional_models,
                     )
                     candidate_summary = _forecast_status_summary(candidate_forecasts)
                     candidate_as_of = candidate_data.effective_as_of
                     candidate_mode = "refreshed"
             else:
-                if use_cache and candidate_output.exists() and not _cache_matches_universe(candidate_output, universe_revision, settings_revision):
+                if use_cache and candidate_output.exists() and not _cache_matches_universe(
+                    candidate_output,
+                    universe_revision,
+                    settings_revision,
+                    reference_context.identity,
+                    candidate_binding,
+                    request_identity,
+                ):
                     record_cache_event("candidate_forecast", "invalidation", action_id="forecasts", detail="universe revision changed or metadata missing")
                 record_cache_event("candidate_forecast", "miss", action_id="forecasts")
-                candidate_data = fetch_candidate_prices(self.config, years=years)
-                candidate_ids = list(candidate_data.candidates["instrument_id"].astype(str))
-                candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{candidate_data.effective_as_of:%Y%m%d}.csv"
-                if use_cache and candidate_output.exists() and _cache_matches_universe(candidate_output, universe_revision, settings_revision):
-                    record_cache_event("candidate_forecast", "hit", action_id="forecasts")
-                    candidate_summary = _forecast_frame_status_summary(pd.read_csv(candidate_output))
-                    candidate_as_of = candidate_data.effective_as_of
-                    candidate_mode = "reused from cache"
-                else:
-                    candidate_forecasts = forecast_service.run_forecasts(
-                        candidate_data.effective_as_of,
-                        candidate_ids,
-                        candidate_data.prices,
-                        output_path=candidate_output,
-                        horizons=horizons,
-                        publish_guard=publish_guard,
-                    )
-                    candidate_summary = _forecast_status_summary(candidate_forecasts)
-                    candidate_as_of = candidate_data.effective_as_of
-                    candidate_mode = "refreshed"
+                candidate_forecasts = forecast_service.run_forecasts(
+                    candidate_data.effective_as_of,
+                    candidate_ids,
+                    candidate_data.prices,
+                    output_path=candidate_output,
+                    horizons=horizons,
+                    publish_guard=publish_guard,
+                    cache_request_identity=request_identity,
+                    live_optional_models=live_optional_models,
+                )
+                candidate_summary = _forecast_status_summary(candidate_forecasts)
+                candidate_as_of = candidate_data.effective_as_of
+                candidate_mode = "refreshed"
             messages.append(
                 (
                     f"Candidate forecasts {candidate_mode} as of {candidate_as_of}: "
@@ -740,8 +1302,13 @@ class DataService:
 
 
 class FeatureService:
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: AppConfig, *, reference_context: CanonicalReferenceContext | None = None):
         self.config = config
+        self.reference_context = reference_context or CanonicalReferenceContext(
+            CanonicalBenchmarkRegistry(),
+            None,
+            unavailable_reference_projection(),
+        )
 
     def compute_features(
         self,
@@ -749,15 +1316,47 @@ class FeatureService:
         prices: pd.DataFrame | None = None,
         *,
         publish_guard: PublicationScopeFactory | None = None,
+        reference_context: CanonicalReferenceContext | None = None,
     ) -> pd.DataFrame:
         settings_identity = current_settings_identity()
-        frame = prices if prices is not None else load_prices()
-        if as_of_date:
-            frame = frame[pd.to_datetime(frame["date"]).dt.date <= as_of_date]
-        benchmark = self.config.universe.enabled_ids[0] if self.config.universe.enabled_ids else None
+        frame = (prices if prices is not None else load_prices()).copy()
+        if "volume" not in frame.columns:
+            frame["volume"] = float("nan")
+        context = reference_context if reference_context is not None else self.reference_context
+        effective_as_of = as_of_date
+        if effective_as_of is None:
+            if "date" not in frame.columns:
+                raise ValueError("canonical feature calculation window is unavailable")
+            valid_dates = pd.to_datetime(frame["date"], errors="coerce", utc=True).dropna()
+            if valid_dates.empty:
+                raise ValueError("canonical feature calculation window is unavailable")
+            effective_as_of = valid_dates.max().date()
+        calculation_window = _calculation_window(context, effective_as_of, frame)
+        if calculation_window is None:
+            raise ValueError("canonical feature calculation window is unavailable")
+        frame = clip_to_decision_window(frame, **calculation_window)
+        price_binding = _price_snapshot_binding(frame, calculation_window=calculation_window)
+        if price_binding is None:
+            raise ValueError("adjusted-price snapshot identity is unavailable")
+        benchmark = context.benchmark_data_id if context is not None else None
+        available_ids = set(frame["etf_id"].astype(str)) if "etf_id" in frame.columns else set()
+        if benchmark is None or benchmark not in available_ids:
+            benchmark = None
         features = compute_features(frame, benchmark_etf_id=benchmark)
+        if benchmark is None:
+            for column in ("relative_strength_60d", "relative_strength_120d"):
+                if column in features.columns:
+                    features[column] = float("nan")
+        features.attrs["benchmark_reference"] = (
+            unavailable_reference_projection()
+            if context is None
+            else context.projection
+        )
+        features.attrs["reference_identity"] = context.identity
+        features.attrs["reference_identity_hash"] = _reference_identity_hash(context.identity)
+        features.attrs["price_binding"] = dict(price_binding)
         run_id = settings_bound_run_id(
-            f"features_{as_of_date.isoformat() if as_of_date else 'latest'}",
+            f"features_{effective_as_of.isoformat()}",
             settings_identity=settings_identity,
         )
         with publication_scope(publish_guard):
@@ -767,13 +1366,26 @@ class FeatureService:
                 settings_identity=settings_identity,
             )
         with publication_scope(publish_guard):
-            write_features(features)
+            write_features(
+                features,
+                cache_metadata={
+                    "universe_revision": _current_universe_revision(),
+                    "settings_revision": str(settings_identity["settings_revision"]),
+                    "reference_identity": context.identity,
+                    **price_binding,
+                },
+            )
         return features
 
 
 class ForecastService:
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: AppConfig, *, reference_context: CanonicalReferenceContext | None = None):
         self.config = config
+        self.reference_context = reference_context or CanonicalReferenceContext(
+            CanonicalBenchmarkRegistry(),
+            None,
+            unavailable_reference_projection(),
+        )
 
     def run_forecasts(
         self,
@@ -785,15 +1397,37 @@ class ForecastService:
         horizons: list[int] | None = None,
         progress_callback: Callable[[str, int, int], None] | None = None,
         publish_guard: PublicationScopeFactory | None = None,
+        reference_context: CanonicalReferenceContext | None = None,
+        cache_request_identity: Mapping[str, object] | None = None,
+        live_optional_models: bool | None = None,
     ) -> list[ForecastResult]:
         settings_identity = current_settings_identity()
         price_frame = prices if prices is not None else load_prices()
         price_frame = price_frame.copy()
-        price_frame["date"] = pd.to_datetime(price_frame["date"])
-        price_frame = price_frame[pd.to_datetime(price_frame["date"]).dt.date <= as_of_date]
+        price_frame["date"] = pd.to_datetime(price_frame["date"], errors="coerce", utc=True, format="mixed")
+        context = reference_context if reference_context is not None else self.reference_context
+        calculation_window = _calculation_window(context, as_of_date, price_frame)
+        if calculation_window is None:
+            raise ValueError("canonical forecast calculation window is unavailable")
+        price_frame = clip_to_decision_window(price_frame, **calculation_window)
+        price_binding = _price_snapshot_binding(price_frame, calculation_window=calculation_window)
+        if price_binding is None:
+            raise ValueError("adjusted-price snapshot identity is unavailable")
         horizons = horizons or self.config.models.forecast_horizons_trading_days
+        resolved_live_optional_models = (
+            _live_optional_models_from_config(self.config)
+            if live_optional_models is None
+            else live_optional_models
+        )
+        derived_request_identity = forecast_request_identity(
+            self.config,
+            horizons,
+            live_optional_models=resolved_live_optional_models,
+        )
+        if cache_request_identity is not None and dict(cache_request_identity) != derived_request_identity:
+            raise ValueError("forecast cache request identity does not match the calculation request")
         pivot = price_frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
-        benchmark_id = self.config.universe.enabled_ids[0] if self.config.universe.enabled_ids else None
+        benchmark_id = context.benchmark_data_id if context is not None else None
         benchmark_returns = pivot[benchmark_id].pct_change(fill_method=None).dropna() if benchmark_id in pivot else None
         forecasts: list[ForecastResult] = []
         run_id = settings_bound_run_id(
@@ -822,6 +1456,7 @@ class ForecastService:
         if progress_callback is not None:
             progress_callback("Checking cached Toto forecasts", 3, 4)
         forecasts.extend(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id))
+        forecasts = _postprocess_forecast_benchmark_fields(forecasts, benchmark_returns)
         with publication_scope(publish_guard):
             ensure_run_manifest(
                 run_id,
@@ -843,6 +1478,10 @@ class ForecastService:
             as_of_date,
             output_path=output_path,
             settings_revision=str(settings_identity["settings_revision"]),
+            reference_identity=context.identity,
+            price_binding=price_binding,
+            cache_request_identity=derived_request_identity,
+            live_optional_models=resolved_live_optional_models,
             publish_guard=publish_guard,
         )
         return forecasts
@@ -910,9 +1549,36 @@ class ForecastService:
         *,
         output_path: Path | None = None,
         settings_revision: str | None = None,
+        reference_identity: Mapping[str, object] | None = None,
+        price_binding: Mapping[str, object] | None = None,
+        cache_request_identity: Mapping[str, object] | None = None,
+        live_optional_models: bool | None = None,
         publish_guard: PublicationScopeFactory | None = None,
     ) -> None:
         output = output_path or FORECASTS_DIR / f"forecast_results_{as_of_date:%Y%m%d}.csv"
+        if cache_request_identity is None:
+            cache_request_identity = forecast_request_identity(
+                self.config,
+                sorted({forecast.horizon_days for forecast in forecasts}) or None,
+                live_optional_models=(
+                    _live_optional_models_from_config(self.config)
+                    if live_optional_models is None
+                    else live_optional_models
+                ),
+            )
+        else:
+            requested_horizons = cache_request_identity.get("requested_horizons")
+            requested_mode = cache_request_identity.get("live_optional_models")
+            if not isinstance(requested_horizons, list) or type(requested_mode) is not bool:
+                raise ValueError("forecast cache request identity is malformed")
+            validated_identity = forecast_request_identity(
+                self.config,
+                requested_horizons,
+                live_optional_models=requested_mode,
+            )
+            output_horizons = {forecast.horizon_days for forecast in forecasts}
+            if dict(cache_request_identity) != validated_identity or not output_horizons.issubset(requested_horizons):
+                raise ValueError("forecast cache request identity does not match forecast output")
         payload = pd.DataFrame([_forecast_to_row(forecast) for forecast in forecasts]).to_csv(index=False).encode("utf-8")
 
         def validate(path: Path) -> None:
@@ -920,13 +1586,16 @@ class ForecastService:
 
         with timed_step("forecasts", "write_output"):
             with publication_scope(publish_guard):
-                atomic_write_bytes(output, payload, validate)
-        with publication_scope(publish_guard):
-            _write_universe_cache_metadata(
-                output,
-                _current_universe_revision(),
-                settings_revision or current_settings_revision(),
-            )
+                _write_bound_cache_group(
+                    output,
+                    payload,
+                    validate,
+                    _current_universe_revision(),
+                    settings_revision or current_settings_revision(),
+                    reference_identity,
+                    price_binding,
+                    cache_request_identity,
+                )
 
 
 class SignalService:
@@ -937,12 +1606,73 @@ class SignalService:
         prices = load_prices()
         prices["date"] = pd.to_datetime(prices["date"]).dt.date
         effective_date = as_of_date or max(prices["date"])
-        feature_frame = features if features is not None else FeatureService(self.config).compute_features(effective_date, prices)
-        latest = latest_features(feature_frame, effective_date)
         holdings = load_holdings()
+        benchmark_reference = _benchmark_reference_snapshot_inputs(
+            self.config,
+            effective_date,
+            holdings,
+        )
+        reference_context = _reference_context_from_inputs(
+            benchmark_reference,
+            purpose="comparison",
+            analysis_id=f"signals:{pd.Timestamp(effective_date).date().isoformat()}",
+        )
+        calculation_window = _calculation_window(reference_context, effective_date, prices)
+        price_binding = (
+            None
+            if calculation_window is None
+            else _price_snapshot_binding(prices, calculation_window=calculation_window)
+        )
+        universe_revision = _current_universe_revision()
+        settings_revision = current_settings_revision()
+        request_identity = configured_forecast_request_identity(self.config)
+        cached_features = (
+            load_features(
+                FEATURE_PARQUET,
+                universe_revision=universe_revision,
+                settings_revision=settings_revision,
+                reference_identity=reference_context.identity,
+                price_binding=price_binding,
+            )
+            if price_binding is not None
+            else pd.DataFrame()
+        )
+        supplied_matches = (
+            features is not None
+            and price_binding is not None
+            and _reference_identity_matches(
+                features.attrs.get("reference_identity"),
+                features.attrs.get("reference_identity_hash"),
+                reference_context.identity,
+            )
+            and isinstance(features.attrs.get("price_binding"), Mapping)
+            and _price_binding_matches(features.attrs["price_binding"], price_binding)
+        )
+        if supplied_matches and features is not None:
+            feature_frame = features.copy()
+            if reference_context.benchmark_data_id is None:
+                _sanitize_unavailable_relative_features(feature_frame)
+        elif not cached_features.empty:
+            feature_frame = cached_features
+        else:
+            feature_frame = FeatureService(self.config, reference_context=reference_context).compute_features(
+                effective_date,
+                prices,
+                reference_context=reference_context,
+            )
+        latest = latest_features(feature_frame, effective_date)
         report = DataService(self.config).validate_prices(prices, as_of_date=effective_date, holdings=holdings)
         status = model_availability(self.config)
-        forecasts = load_latest_forecasts(universe_revision=_current_universe_revision())
+        forecasts = (
+            load_latest_forecasts(
+                universe_revision=universe_revision,
+                reference_identity=reference_context.identity,
+                price_binding=price_binding,
+                forecast_request_identity=request_identity,
+            )
+            if price_binding is not None
+            else pd.DataFrame()
+        )
         structure_caps = _load_structure_caps(self.config.universe.enabled_ids, effective_date)
         return generate_signals(
             self.config,
@@ -958,10 +1688,47 @@ class SignalService:
         )
 
 
+def _sanitize_unavailable_relative_features(features: pd.DataFrame) -> None:
+    """Drop relative fields from an in-memory frame without canonical evidence."""
+
+    for column in ("relative_strength_60d", "relative_strength_120d"):
+        if column in features.columns:
+            features[column] = float("nan")
+
+
 def _forecast_to_row(forecast: ForecastResult) -> dict[str, object]:
     data = asdict(forecast)
     data["forecast_date"] = forecast.forecast_date.isoformat()
     return data
+
+
+def _postprocess_forecast_benchmark_fields(
+    forecasts: list[ForecastResult],
+    benchmark_returns: pd.Series | None,
+) -> list[ForecastResult]:
+    """Derive relative forecast fields uniformly after every model adapter."""
+
+    if benchmark_returns is None or benchmark_returns.empty:
+        return [
+            replace(forecast, expected_excess_return=None, prob_beat_benchmark=None)
+            for forecast in forecasts
+        ]
+    benchmark_daily = float(benchmark_returns.tail(180).mean() * 0.35)
+    output: list[ForecastResult] = []
+    for forecast in forecasts:
+        if forecast.expected_return is None:
+            output.append(replace(forecast, expected_excess_return=None, prob_beat_benchmark=None))
+            continue
+        excess = float(forecast.expected_return - benchmark_daily * forecast.horizon_days)
+        volatility = max(float(forecast.forecast_vol or 0.0), 1e-6)
+        output.append(
+            replace(
+                forecast,
+                expected_excess_return=excess,
+                prob_beat_benchmark=float(1 / (1 + math.exp(-excess / volatility))),
+            )
+        )
+    return output
 
 
 def _validate_csv(path: Path, *, index_col: int | None = None) -> None:
@@ -1008,9 +1775,18 @@ class BacktestService:
         "payoff_asymmetry_warning",
     }
 
-    def __init__(self, config: AppConfig, *, universe_revision: str | None = None):
+    def __init__(
+        self,
+        config: AppConfig,
+        *,
+        universe_revision: str | None = None,
+        reference_context: CanonicalReferenceContext | None = None,
+    ):
         self.config = config
         self.universe_revision = _current_universe_revision() if universe_revision is None else universe_revision
+        self.reference_context = reference_context or CanonicalReferenceContext(
+            CanonicalBenchmarkRegistry(), None, blocker="reference_resolution_unavailable"
+        )
 
     def load_or_run_backtest(
         self,
@@ -1032,13 +1808,14 @@ class BacktestService:
     def run_backtest(self, *, publish_guard: PublicationScopeFactory | None = None) -> BacktestReport:
         settings_identity = current_settings_identity()
         prices = load_prices()
+        reference_context = _backtest_calculation_context(self.config, self.reference_context, prices)
         fundamentals = load_fundamental_evidence()
         try:
             structure_evidence = _load_local_structural_evidence()
         except Exception:
             structure_evidence = None
         try:
-            report = run_backtest(
+            report = _run_backtest_compatibly(
                 self.config,
                 prices,
                 fundamentals=fundamentals,
@@ -1046,7 +1823,16 @@ class BacktestService:
                 structure_report_records=(structure_evidence.report_records if structure_evidence else None),
                 structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),
                 structure_holdings=(structure_evidence.holdings if structure_evidence else None),
+                benchmark_data_id=reference_context.benchmark_data_id,
+                benchmark_reference=reference_context.projection,
+                reference_identity=reference_context.identity,
+                benchmark_registry=reference_context.registry,
             )
+            # Bind every runner result to the freshly resolved readback context
+            # before publication, including older local runner seams.
+            reference_binding = _reference_binding(reference_context)
+            report.metadata.update(reference_binding)
+            report.results["benchmark_strategy"] = reference_binding["benchmark_strategy"]
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
         run_id = settings_bound_run_id("backtest", settings_identity=settings_identity)
@@ -1066,59 +1852,106 @@ class BacktestService:
             )
         with publication_scope(publish_guard):
             BACKTESTS_DIR.mkdir(parents=True, exist_ok=True)
-        requests = (
-            AtomicWriteRequest(BACKTESTS_DIR / "backtest_results.csv", report.results.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
-            AtomicWriteRequest(BACKTESTS_DIR / "equity_curves.csv", report.equity_curves.to_csv().encode("utf-8"), lambda path: _validate_csv(path, index_col=0)),
-            AtomicWriteRequest(BACKTESTS_DIR / "trade_log.csv", report.trade_log.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
-            AtomicWriteRequest(BACKTESTS_DIR / "signal_log.csv", report.signal_log.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
-            AtomicWriteRequest(BACKTESTS_DIR / "quality_momentum_evidence.csv", report.quality_momentum_evidence.to_csv(index=False).encode("utf-8"), lambda path: _validate_csv(path)),
+        payloads = {
+            BACKTESTS_DIR / "backtest_results.csv": (
+                report.results.to_csv(index=False).encode("utf-8"),
+                lambda path: _validate_csv(path),
+            ),
+            BACKTESTS_DIR / "equity_curves.csv": (
+                report.equity_curves.to_csv().encode("utf-8"),
+                lambda path: _validate_csv(path, index_col=0),
+            ),
+            BACKTESTS_DIR / "trade_log.csv": (
+                report.trade_log.to_csv(index=False).encode("utf-8"),
+                lambda path: _validate_csv(path),
+            ),
+            BACKTESTS_DIR / "signal_log.csv": (
+                report.signal_log.to_csv(index=False).encode("utf-8"),
+                lambda path: _validate_csv(path),
+            ),
+            BACKTESTS_DIR / "quality_momentum_evidence.csv": (
+                report.quality_momentum_evidence.to_csv(index=False).encode("utf-8"),
+                lambda path: _validate_csv(path),
+            ),
+        }
+        settings_revision = str(settings_identity["settings_revision"])
+        requests = [
+            AtomicWriteRequest(path, payload, validator)
+            for path, (payload, validator) in payloads.items()
+        ]
+        requests.extend(
+            AtomicWriteRequest(
+                _universe_cache_meta_path(path),
+                _bound_cache_metadata_payload(
+                    self.universe_revision,
+                    settings_revision,
+                    reference_context.identity,
+                    payload,
+                ),
+                lambda path: json.loads(path.read_text(encoding="utf-8")),
+            )
+            for path, (payload, _validator) in payloads.items()
+        )
+        requests.append(
             AtomicWriteRequest(
                 BACKTESTS_DIR / "backtest_metadata.json",
                 json.dumps(report.metadata, default=str, sort_keys=True, indent=2).encode("utf-8"),
                 lambda path: json.loads(path.read_text(encoding="utf-8")),
-            ),
+            )
         )
         with timed_step("backtest", "write_outputs"):
             with publication_scope(publish_guard):
                 atomic_write_group(requests)
-        for output in (
-            BACKTESTS_DIR / "backtest_results.csv",
-            BACKTESTS_DIR / "equity_curves.csv",
-            BACKTESTS_DIR / "signal_log.csv",
-            BACKTESTS_DIR / "quality_momentum_evidence.csv",
-        ):
-            with publication_scope(publish_guard):
-                _write_universe_cache_metadata(
-                    output,
-                    self.universe_revision,
-                    str(settings_identity["settings_revision"]),
-                )
         with publication_scope(publish_guard):
             append_jsonl("model_runs.jsonl", "backtest_completed", {"ai_added_value": report.ai_added_value})
         return report
 
     def _load_cached_backtest(self, as_of_date: date | None = None) -> BacktestReport | None:
         settings_revision = current_settings_revision()
+        prices = load_prices()
+        reference_context = _backtest_calculation_context(self.config, self.reference_context, prices)
+        checksum_prices = _backtest_prices_for_reference(prices, reference_context)
+        if checksum_prices is None:
+            return None
         results_path = BACKTESTS_DIR / "backtest_results.csv"
         equity_path = BACKTESTS_DIR / "equity_curves.csv"
         trade_path = BACKTESTS_DIR / "trade_log.csv"
         signal_path = BACKTESTS_DIR / "signal_log.csv"
         metadata_path = BACKTESTS_DIR / "backtest_metadata.json"
         quality_evidence_path = BACKTESTS_DIR / "quality_momentum_evidence.csv"
-        if not results_path.exists() or not equity_path.exists():
-            return None
-        if not _cache_matches_universe(
+        payload_paths = (
             results_path,
-            self.universe_revision,
-            settings_revision,
-        ) or not _cache_matches_universe(
             equity_path,
-            self.universe_revision,
-            settings_revision,
-        ):
+            trade_path,
+            signal_path,
+            quality_evidence_path,
+        )
+        sidecar_paths = tuple(_universe_cache_meta_path(path) for path in payload_paths)
+        snapshot_paths = payload_paths + sidecar_paths + (metadata_path,)
+        if any(not path.is_file() for path in snapshot_paths):
             return None
         try:
-            results = pd.read_csv(results_path)
+            structure_evidence = _load_local_structural_evidence()
+        except Exception:
+            return None
+        try:
+            snapshot = dict(zip(snapshot_paths, read_atomic_group(snapshot_paths), strict=True))
+            payload_bytes = {path: snapshot[path] for path in payload_paths}
+            for path, sidecar_path in zip(payload_paths, sidecar_paths, strict=True):
+                sidecar = json.loads(snapshot[sidecar_path].decode("utf-8"))
+                if (
+                    not isinstance(sidecar, dict)
+                    or str(sidecar.get("universe_revision") or "") != self.universe_revision
+                    or str(sidecar.get("settings_revision") or "") != settings_revision
+                    or sidecar.get("payload_sha256") != hashlib.sha256(payload_bytes[path]).hexdigest()
+                    or not _reference_identity_matches(
+                        sidecar.get("reference_identity"),
+                        sidecar.get("reference_identity_hash"),
+                        reference_context.identity,
+                    )
+                ):
+                    return None
+            results = pd.read_csv(BytesIO(payload_bytes[results_path]))
             if results.empty:
                 return None
             if not self.REQUIRED_RESULT_COLUMNS.issubset(results.columns):
@@ -1129,11 +1962,9 @@ class BacktestService:
                 end_dates = pd.to_datetime(results["end_date"], errors="coerce").dt.date.dropna()
                 if end_dates.empty or max(end_dates) != as_of_date:
                     return None
-            equity_curves = pd.read_csv(equity_path, index_col=0, parse_dates=True)
-            trade_log = pd.read_csv(trade_path) if trade_path.exists() else pd.DataFrame()
-            if not signal_path.exists():
-                return None
-            signal_log = pd.read_csv(signal_path)
+            equity_curves = pd.read_csv(BytesIO(payload_bytes[equity_path]), index_col=0, parse_dates=True)
+            trade_log = pd.read_csv(BytesIO(payload_bytes[trade_path]))
+            signal_log = pd.read_csv(BytesIO(payload_bytes[signal_path]))
             required_signal_columns = {
                 "date",
                 "etf_id",
@@ -1150,13 +1981,22 @@ class BacktestService:
             structural_hashes = signal_log["structural_provenance_hash"].astype(str).str.strip()
             if structural_hashes.eq("").any() or structural_hashes.str.casefold().isin({"nan", "none"}).any():
                 return None
-            quality_momentum_evidence = pd.read_csv(quality_evidence_path) if quality_evidence_path.exists() else pd.DataFrame()
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
-            if not isinstance(metadata, dict):
-                metadata = {}
+            quality_momentum_evidence = pd.read_csv(BytesIO(payload_bytes[quality_evidence_path]))
+            metadata = json.loads(snapshot[metadata_path].decode("utf-8"))
+            if not isinstance(metadata, dict) or not _cached_backtest_binding_matches(
+                metadata, reference_context
+            ):
+                return None
+            expected_benchmark_strategy = metadata["benchmark_strategy"]
+            if (
+                "benchmark_strategy" not in results.columns
+                or not results["benchmark_strategy"].map(
+                    lambda value: type(value) is str and value == expected_benchmark_strategy
+                ).all()
+            ):
+                return None
             if metadata.get("quality_momentum_strategy_version") != QUALITY_MOMENTUM_VERSION:
                 return None
-            structure_evidence = _load_local_structural_evidence()
             if not _cached_structure_columns_match(
                 signal_log,
                 structural_caps,
@@ -1167,7 +2007,7 @@ class BacktestService:
                 return None
             if metadata.get("input_checksum") != backtest_input_checksum(
                 self.config,
-                load_prices(),
+                checksum_prices,
                 load_fundamental_evidence(),
                 structure_document_registry=(structure_evidence.document_registry if structure_evidence else None),
                 structure_report_records=(structure_evidence.report_records if structure_evidence else None),
@@ -1175,13 +2015,11 @@ class BacktestService:
                 structure_holdings=(structure_evidence.holdings if structure_evidence else None),
             ):
                 return None
-            if not quality_evidence_path.exists():
-                return None
             if set(FRAME_COLUMNS) - set(quality_momentum_evidence.columns):
                 return None
             quality_momentum_evidence = quality_momentum_evidence.reindex(columns=FRAME_COLUMNS)
             if metadata.get("quality_momentum_evidence_checksum") != quality_momentum_evidence_checksum(
-                quality_evidence_path.read_bytes()
+                payload_bytes[quality_evidence_path]
             ):
                 return None
             ai_added_value = False
@@ -1247,6 +2085,371 @@ def build_snapshot(
         return _build_snapshot(force_sample=force_sample, publish_guard=publish_guard)
 
 
+def _benchmark_reference_snapshot_inputs(
+    config: AppConfig,
+    as_of: object,
+    holdings: pd.DataFrame | None = None,
+) -> dict[str, object]:
+    unavailable: dict[str, object] = {
+        "registry": CanonicalBenchmarkRegistry(),
+        "instrument": None,
+        "currency": None,
+        "horizon_years": None,
+        "start_date": None,
+        "end_date": None,
+        "decision_time": None,
+        "reference_ids": (),
+        "anchor": None,
+        "listing_id": None,
+    }
+    try:
+        registry = load_canonical_benchmark_registry(BENCHMARK_REFERENCE_REGISTRY_PATH)
+        if any(item.portfolio_id == "reference:no_trade" for item in registry.reference_portfolios):
+            registry = CanonicalBenchmarkRegistry(
+                benchmarks=registry.benchmarks,
+                cash_proxies=registry.cash_proxies,
+                peer_sets=registry.peer_sets,
+                reference_portfolios=tuple(
+                    item
+                    for item in registry.reference_portfolios
+                    if item.portfolio_id != "reference:no_trade"
+                ),
+                vwce_anchors=registry.vwce_anchors,
+            )
+        unavailable["reference_ids"] = _CANONICAL_REFERENCE_IDS
+        as_of_timestamp = pd.Timestamp(as_of)
+        if pd.isna(as_of_timestamp):
+            return unavailable
+        end_date = as_of_timestamp.date()
+        start_date = (as_of_timestamp - pd.DateOffset(years=1)).date()
+        base_currency = config.targets.base_currency.strip().upper()
+        decision_time = adjusted_endpoint_available_at(end_date)
+        no_trade = _current_portfolio_reference(
+            config,
+            holdings,
+            as_of_date=end_date,
+            start_date=start_date,
+            decision_time=decision_time,
+            currency=base_currency,
+        )
+        if no_trade is not None:
+            registry = CanonicalBenchmarkRegistry(
+                benchmarks=registry.benchmarks,
+                cash_proxies=registry.cash_proxies,
+                peer_sets=registry.peer_sets,
+                reference_portfolios=(
+                    registry.reference_portfolios + (no_trade,)
+                ),
+                vwce_anchors=registry.vwce_anchors,
+            )
+        configured = [
+            item for item in config.universe.etfs
+            if item.id == "VWCE" and item.isin == VWCE_CANONICAL_ISIN
+        ]
+        effective_cutoff = pd.Timestamp(start_date, tz="UTC")
+        knowledge_cutoff = pd.Timestamp(decision_time)
+        anchors = [
+            item for item in registry.vwce_anchors
+            if item.canonical_isin == VWCE_CANONICAL_ISIN
+            and item.canonical_share_class_id == VWCE_CANONICAL_SHARE_CLASS
+            and pd.Timestamp(item.effective_at) <= effective_cutoff
+            and pd.Timestamp(item.known_at) <= knowledge_cutoff
+        ]
+        if len(configured) != 1 or not anchors:
+            return {**unavailable, "registry": registry}
+        vwce = configured[0]
+        latest_effective = max(pd.Timestamp(item.effective_at) for item in anchors)
+        anchors = [item for item in anchors if pd.Timestamp(item.effective_at) == latest_effective]
+        latest_known = max(pd.Timestamp(item.known_at) for item in anchors)
+        anchors = [item for item in anchors if pd.Timestamp(item.known_at) == latest_known]
+        if len(anchors) != 1:
+            return {**unavailable, "registry": registry}
+        anchor = anchors[0]
+        ticker = vwce.ticker.split(".", maxsplit=1)[0].upper()
+        listing_ids = sorted({
+            item.listing_id for item in anchor.listing_observations
+            if item.ticker == ticker and item.currency == base_currency
+        })
+        if not listing_ids or start_date >= end_date:
+            return {**unavailable, "registry": registry}
+        resolutions = {
+            listing_id: resolve_vwce_anchor(
+                anchor,
+                listing_id=listing_id,
+                effective_date=start_date.isoformat(),
+                decision_time=knowledge_cutoff.isoformat(),
+                currency=base_currency,
+                horizon_years=1.0,
+            )
+            for listing_id in listing_ids
+        }
+        available_listing_ids = [
+            listing_id for listing_id, resolution in resolutions.items()
+            if resolution.status == "available"
+        ]
+        if len(available_listing_ids) == 1:
+            listing_id = available_listing_ids[0]
+        elif len(available_listing_ids) > 1 or len(listing_ids) != 1:
+            return {**unavailable, "registry": registry}
+        else:
+            listing_id = listing_ids[0]
+        instrument = {
+            "asset_class": vwce.asset_class,
+            "country_region": vwce.region or "",
+            "sector": vwce.sector or "",
+            "currency": vwce.currency,
+        }
+        return {
+            "registry": registry,
+            "instrument": instrument,
+            "currency": base_currency,
+            "horizon_years": 1.0,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "decision_time": knowledge_cutoff.isoformat(),
+            "reference_ids": _CANONICAL_REFERENCE_IDS,
+            "anchor": anchor,
+            "listing_id": listing_id,
+        }
+    except (BenchmarkReferenceError, OSError, TypeError, ValueError, AttributeError):
+        return unavailable
+
+
+def _reference_context_from_inputs(
+    inputs: Mapping[str, object],
+    *,
+    purpose: str,
+    analysis_id: str,
+) -> CanonicalReferenceContext:
+    registry = inputs.get("registry")
+    if not isinstance(registry, CanonicalBenchmarkRegistry):
+        registry = CanonicalBenchmarkRegistry()
+    instrument_value = inputs.get("instrument")
+    currency_value = inputs.get("currency")
+    horizon_value = inputs.get("horizon_years")
+    start_value = inputs.get("start_date")
+    end_value = inputs.get("end_date")
+    decision_value = inputs.get("decision_time")
+    reference_ids_value = inputs.get("reference_ids", ())
+    reference_ids: tuple[str, ...] = (
+        tuple(reference_ids_value)
+        if isinstance(reference_ids_value, Sequence)
+        and not isinstance(reference_ids_value, (str, bytes))
+        and all(isinstance(item, str) for item in reference_ids_value)
+        else ()
+    )
+    return resolve_canonical_reference(
+        registry,
+        analysis_id=analysis_id,
+        purpose=purpose,
+        instrument_id="VWCE",
+        instrument=instrument_value if isinstance(instrument_value, Mapping) else None,
+        currency=currency_value if isinstance(currency_value, str) else None,
+        horizon_years=horizon_value if isinstance(horizon_value, (int, float)) else None,
+        start_date=start_value if isinstance(start_value, str) else None,
+        end_date=end_value if isinstance(end_value, str) else None,
+        decision_time=decision_value if isinstance(decision_value, str) else None,
+        reference_portfolio_ids=reference_ids,
+    )
+
+
+def _backtest_calculation_context(
+    config: AppConfig,
+    base_context: CanonicalReferenceContext,
+    prices: pd.DataFrame,
+) -> CanonicalReferenceContext:
+    """Resolve benchmark evidence against the complete backtest panel window."""
+
+    resolution = base_context.resolution
+    if resolution is None or not isinstance(prices, pd.DataFrame) or prices.empty:
+        return base_context
+    if not isinstance(base_context.instrument, Mapping):
+        return CanonicalReferenceContext(
+            base_context.registry,
+            None,
+            blocker="backtest_reference_inputs_unavailable",
+        )
+    required = {"date", "etf_id", "adjusted_close"}
+    if not required.issubset(prices.columns):
+        return base_context
+    try:
+        frame = prices.loc[:, ["date", "etf_id", "adjusted_close"]].copy()
+        frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+        frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
+        columns = [item for item in config.universe.enabled_ids if item in set(frame["etf_id"].astype(str))]
+        pivot = frame[frame["etf_id"].astype(str).isin(columns)].pivot(
+            index="date", columns="etf_id", values="adjusted_close"
+        ).sort_index()
+        pivot = pivot.reindex(columns=columns)
+        pivot = pivot.loc[pivot.notna().all(axis=1)]
+        if pivot.empty:
+            return base_context
+        cutoff_date = pd.Timestamp(resolution.declaration.decision_time).date()
+        pivot = pivot.loc[pivot.index.date <= cutoff_date]
+        if pivot.empty:
+            return base_context
+        start = pivot.index.min().date()
+        end = pivot.index.max().date()
+        if start >= end:
+            return base_context
+        horizon_years = max(0.1, (end - start).days / 365.25)
+        base_cutoff = pd.Timestamp(resolution.declaration.decision_time)
+        # The original decision-time cutoff is authoritative.  Extending it to
+        # cover a complete backtest panel would make later evidence visible.
+        decision_time = base_cutoff.isoformat()
+        return resolve_canonical_reference(
+            base_context.registry,
+            analysis_id=f"backtest:{start.isoformat()}:{end.isoformat()}",
+            purpose=resolution.declaration.purpose,
+            instrument_id=resolution.declaration.instrument_id,
+            instrument=base_context.instrument,
+            currency=resolution.declaration.currency,
+            horizon_years=horizon_years,
+            start_date=start.isoformat(),
+            end_date=end.isoformat(),
+            decision_time=decision_time,
+            reference_portfolio_ids=resolution.declaration.reference_portfolio_ids,
+        )
+    except (BenchmarkReferenceError, OSError, TypeError, ValueError, KeyError, AttributeError):
+        return CanonicalReferenceContext(base_context.registry, None, blocker="backtest_reference_resolution_unavailable")
+
+
+def _backtest_prices_for_reference(
+    prices: pd.DataFrame,
+    reference_context: CanonicalReferenceContext,
+) -> pd.DataFrame | None:
+    """Replay the exact price snapshot consumed by the backtest checksum."""
+
+    identity = reference_context.identity
+    analysis = identity.get("analysis")
+    if analysis is None and identity.get("status") == "unavailable":
+        return prices
+    if not isinstance(analysis, Mapping):
+        return None
+    clipped = clip_to_decision_window(
+        prices,
+        start_date=analysis.get("start_date"),
+        end_date=analysis.get("end_date"),
+        decision_time=analysis.get("decision_time"),
+    )
+    return None if clipped.empty else clipped
+
+
+def _current_portfolio_reference(
+    config: AppConfig,
+    holdings: pd.DataFrame | None,
+    *,
+    as_of_date: date,
+    start_date: date,
+    decision_time: str,
+    currency: str,
+) -> ReferencePortfolioDefinition | None:
+    """Build a point-in-time no-trade reference from exact holdings evidence."""
+
+    if not isinstance(holdings, pd.DataFrame) or holdings.empty:
+        return None
+    instrument_column = "etf_id" if "etf_id" in holdings.columns else "instrument_id"
+    required = {instrument_column, "current_weight", "market_value_eur", "as_of_date"}
+    if not required.issubset(holdings.columns):
+        return None
+    try:
+        dates = pd.to_datetime(holdings["as_of_date"], errors="coerce")
+        if dates.isna().any() or set(dates.dt.date) != {as_of_date}:
+            return None
+        ids = [str(value).strip() for value in holdings[instrument_column].tolist()]
+        if any(not value for value in ids) or len(ids) != len(set(ids)):
+            return None
+        configured_ids = set(config.universe.configured_enabled_ids)
+        if any(value not in configured_ids for value in ids):
+            return None
+        raw_weights = holdings["current_weight"].tolist()
+        if any(isinstance(value, bool) for value in raw_weights):
+            return None
+        weights = pd.to_numeric(holdings["current_weight"], errors="coerce").tolist()
+        if any(
+            not math.isfinite(float(value))
+            or float(value) < 0
+            or float(value) > 1
+            for value in weights
+        ):
+            return None
+        raw_market_values = holdings["market_value_eur"].tolist()
+        if any(isinstance(value, bool) for value in raw_market_values):
+            return None
+        market_values = pd.to_numeric(holdings["market_value_eur"], errors="coerce").tolist()
+        if any(
+            not math.isfinite(float(value))
+            or float(value) < 0
+            for value in market_values
+        ):
+            return None
+        total = math.fsum(float(value) for value in weights)
+        if not math.isfinite(total) or total > 1.0:
+            return None
+        if not _holdings_imply_consistent_portfolio_total(
+            [float(value) for value in weights],
+            [float(value) for value in market_values],
+        ):
+            return None
+        knowledge_columns = tuple(
+            column
+            for column in ("known_at", "imported_at", "available_at")
+            if column in holdings.columns
+        )
+        if not knowledge_columns:
+            return None
+        effective_time = pd.Timestamp(as_of_date, tz="UTC")
+        cutoff_time = pd.Timestamp(decision_time)
+        source_knowledge_times: list[pd.Timestamp] = []
+        for _, row in holdings.iterrows():
+            row_knowledge_times: list[pd.Timestamp] = []
+            for column in knowledge_columns:
+                raw_value = row[column]
+                if raw_value is None or pd.isna(raw_value):
+                    continue
+                parsed = pd.to_datetime(raw_value, errors="coerce")
+                if pd.isna(parsed) or getattr(parsed, "tzinfo", None) is None:
+                    return None
+                parsed_utc = pd.to_datetime(parsed, errors="coerce", utc=True)
+                if pd.isna(parsed_utc):
+                    return None
+                row_knowledge_times.append(pd.Timestamp(parsed_utc))
+            if not row_knowledge_times:
+                return None
+            row_knowledge_time = max(row_knowledge_times)
+            if row_knowledge_time < effective_time or row_knowledge_time > cutoff_time:
+                return None
+            source_knowledge_times.append(row_knowledge_time)
+        cash_id = f"cash:{currency}"
+        if cash_id in ids:
+            return None
+        current_weights = {
+            instrument_id: float(weight)
+            for instrument_id, weight in sorted(zip(ids, weights), key=lambda item: item[0])
+        }
+        current_weights[cash_id] = float(1.0 - total)
+        source_hash = holdings_checksum(holdings)
+        source_knowledge_time = max(source_knowledge_times).isoformat()
+        return ReferencePortfolioDefinition(
+            portfolio_id="reference:no_trade",
+            version="1.0.0",
+            method="no_trade",
+            constituent_instrument_ids=tuple(current_weights),
+            methodology="Hold the exact current positions and implied base-currency cash with zero proposed turnover.",
+            effective_at=f"{as_of_date.isoformat()}T00:00:00+00:00",
+            known_at=source_knowledge_time,
+            current_weights=current_weights,
+            currency=currency,
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=50.0,
+            start_date=start_date.isoformat(),
+            end_date=as_of_date.isoformat(),
+            source_hashes=(source_hash,),
+        )
+    except (ArithmeticError, TypeError, ValueError, KeyError):
+        return None
+
+
 def _build_snapshot(
     force_sample: bool = False,
     *,
@@ -1267,13 +2470,30 @@ def _build_snapshot(
     prices = data_service.load_prices()
     if not prices.empty and "etf_id" in prices:
         prices = prices[prices["etf_id"].astype(str).isin(current_ids)].copy()
-    holdings = load_holdings()
+    holdings_source = load_holdings()
+    holdings = holdings_source
     if not holdings.empty and "etf_id" in holdings:
         configured_ids = set(config.universe.configured_enabled_ids)
         holdings = holdings[holdings["etf_id"].astype(str).isin(configured_ids)].copy()
     holdings_for_validation = holdings if not holdings.empty else None
     data_report = data_service.validate_prices(prices, holdings=holdings_for_validation)
-    feature_service = FeatureService(config)
+    benchmark_reference = _benchmark_reference_snapshot_inputs(
+        config,
+        data_report.as_of_date,
+        holdings_source,
+    )
+    reference_context = _reference_context_from_inputs(
+        benchmark_reference,
+        purpose="comparison",
+        analysis_id=f"snapshot:{pd.Timestamp(data_report.as_of_date).date().isoformat()}",
+    )
+    calculation_window = _calculation_window(reference_context, data_report.as_of_date, prices)
+    price_binding = (
+        None
+        if calculation_window is None
+        else _price_snapshot_binding(prices, calculation_window=calculation_window)
+    )
+    feature_service = FeatureService(config, reference_context=reference_context)
     if prices.empty:
         features = pd.DataFrame(columns=["date", "etf_id"])
         latest = pd.DataFrame(columns=["date", "etf_id"])
@@ -1286,7 +2506,17 @@ def _build_snapshot(
         latest = latest_features(features, data_report.as_of_date)
     status = model_availability(config)
     inventory = model_diagnostics(config)
-    forecasts = load_latest_forecasts(universe_revision=universe_revision)
+    request_identity = configured_forecast_request_identity(config)
+    forecasts = (
+        load_latest_forecasts(
+            universe_revision=universe_revision,
+            reference_identity=reference_context.identity,
+            price_binding=price_binding,
+            forecast_request_identity=request_identity,
+        )
+        if price_binding is not None
+        else pd.DataFrame()
+    )
     structure_caps = _load_structure_caps(config.universe.enabled_ids, data_report.as_of_date)
     signals = (
         []
@@ -1307,7 +2537,11 @@ def _build_snapshot(
     backtest = (
         _empty_backtest_report("Backtest skipped because no clean prices exist for the current two-tier universe yet.")
         if prices.empty
-        else BacktestService(config, universe_revision=universe_revision).load_or_run_backtest(
+        else BacktestService(
+            config,
+            universe_revision=universe_revision,
+            reference_context=reference_context,
+        ).load_or_run_backtest(
             data_report.as_of_date,
             publish_guard=publish_guard,
         )
@@ -1328,11 +2562,23 @@ def _build_snapshot(
         backtest=backtest,
         model_status=status,
         model_inventory=inventory,
+        candidate_price_binding=load_candidate_price_binding(),
         universe_revision=universe_revision,
         etf_economics_records=etf_economics_records,
         etf_fund_total_return=etf_fund_total_return,
         etf_benchmark_total_return=etf_benchmark_total_return,
         etf_closure_policy=etf_closure_policy,
+        benchmark_reference_registry=benchmark_reference["registry"],  # type: ignore[arg-type]
+        benchmark_reference_instrument=benchmark_reference["instrument"],  # type: ignore[arg-type]
+        benchmark_reference_currency=benchmark_reference["currency"],  # type: ignore[arg-type]
+        benchmark_reference_horizon_years=benchmark_reference["horizon_years"],  # type: ignore[arg-type]
+        benchmark_reference_start_date=benchmark_reference["start_date"],  # type: ignore[arg-type]
+        benchmark_reference_end_date=benchmark_reference["end_date"],  # type: ignore[arg-type]
+        benchmark_reference_decision_time=benchmark_reference["decision_time"],  # type: ignore[arg-type]
+        benchmark_reference_portfolio_ids=benchmark_reference["reference_ids"],  # type: ignore[arg-type]
+        vwce_anchor_evidence=benchmark_reference["anchor"],  # type: ignore[arg-type]
+        vwce_listing_id=benchmark_reference["listing_id"],  # type: ignore[arg-type]
+        vwce_conversion_evidence=None,
     )
 
 

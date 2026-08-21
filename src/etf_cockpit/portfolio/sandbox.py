@@ -163,6 +163,9 @@ def holdings_checksum(holdings: pd.DataFrame) -> str:
                 "holdings_source": _checksum_value(values.get("holdings_source")),
                 "source": _checksum_value(values.get("source")),
                 "as_of_date": _checksum_value(values.get("as_of_date")),
+                "known_at": _checksum_value(values.get("known_at")),
+                "imported_at": _checksum_value(values.get("imported_at")),
+                "available_at": _checksum_value(values.get("available_at")),
                 "asset_type": _checksum_value(values.get("asset_type")),
                 "instrument_type": _checksum_value(values.get("instrument_type")),
                 "asset_class": _checksum_value(values.get("asset_class")),
@@ -387,7 +390,7 @@ def analyse_candidate(
         warnings.append("ETF overlap is unavailable because canonical direct holdings evidence is missing.")
     cost = estimate_rebalance_cost(config, candidate.analysis_notional_eur, {row.instrument_id: row.drift for row in rows})
     constraints = _constraint_results(config, rows)
-    why_not = tuple((row.instrument_id, row.why_not) for row in rows if row.why_not)
+    why_not_rows = tuple((row.instrument_id, row.why_not) for row in rows if row.why_not)
     marginal_effects = tuple((row.instrument_id, row.drift) for row in rows)
     before_after = tuple((row.instrument_id, row.current_weight, row.target_weight) for row in rows)
     return PortfolioAnalysis(
@@ -405,7 +408,7 @@ def analyse_candidate(
         holdings=holding_rows,
         constraints=constraints,
         marginal_effects=marginal_effects,
-        why_not=why_not,
+        why_not=why_not_rows,
         before_after=before_after,
     )
 

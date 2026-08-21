@@ -13,6 +13,12 @@ from typing import Iterable, Mapping
 import pandas as pd
 
 from etf_cockpit.features.regime import build_market_regime
+from etf_cockpit.application.benchmark_reference import (
+    clip_to_decision_window,
+    unavailable_reference_projection,
+    validate_benchmark_reference,
+)
+from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry
 
 
 _PROXY_KEYWORDS = {
@@ -32,6 +38,10 @@ def build_macro_context(
     prices: pd.DataFrame,
     instruments: Iterable[object] = (),
     observations: Iterable[object] = (),
+    *,
+    benchmark_data_id: str | None = None,
+    benchmark_reference: Mapping[str, object] | None = None,
+    benchmark_registry: CanonicalBenchmarkRegistry | None = None,
 ) -> dict[str, object]:
     """Build a local macro context snapshot without network access.
 
@@ -43,6 +53,16 @@ def build_macro_context(
     """
 
     required = {"date", "etf_id", "adjusted_close"}
+    reference = dict(benchmark_reference or unavailable_reference_projection())
+    if (benchmark_data_id is not None or benchmark_reference is not None) and validate_benchmark_reference(
+        benchmark_reference,
+        benchmark_data_id,
+        registry=benchmark_registry,
+    ) is None:
+        return _unavailable(
+            "Canonical benchmark/cash resolution is unavailable.",
+            benchmark_reference=reference,
+        )
     if prices is None or prices.empty or not required.issubset(prices.columns):
         return _unavailable("No local adjusted-close price snapshot is available.")
     if "is_adjusted" in prices.columns and not prices["is_adjusted"].fillna(False).astype(bool).all():
@@ -56,6 +76,12 @@ def build_macro_context(
     frame = frame[(frame["etf_id"] != "") & (frame["adjusted_close"] > 0)]
     if frame.empty:
         return _unavailable("The local price snapshot has no usable adjusted-close rows.")
+    frame = _clip_to_reference_window(frame, reference)
+    if frame.empty:
+        return _unavailable(
+            "The declared benchmark calculation window is unavailable.",
+            benchmark_reference=reference,
+        )
 
     pivot = frame.pivot_table(index="date", columns="etf_id", values="adjusted_close", aggfunc="last").sort_index()
     pivot = pivot.reindex(sorted(pivot.columns), axis=1)
@@ -69,7 +95,14 @@ def build_macro_context(
     volatility = _volatility_summary(returns)
     regime_frame = filled.rename_axis("date").stack(future_stack=True).rename("adjusted_close").reset_index()
     regime_frame.columns = ["date", "etf_id", "adjusted_close"]
-    regime = build_market_regime(regime_frame, None, max_forward_fill=5)
+    regime = build_market_regime(
+        regime_frame,
+        None,
+        max_forward_fill=5,
+        benchmark_id=benchmark_data_id,
+        benchmark_reference=benchmark_reference,
+        benchmark_registry=benchmark_registry,
+    )
     freshness_days = max(0, (date.today() - latest_date.date()).days)
     dashboard_label = _dashboard_label(regime.get("regime_score_10"))
 
@@ -107,6 +140,8 @@ def build_macro_context(
             "Vintage-aware macro observations are supplied separately by MacroWarehouse.as_of().",
         ],
         "instrument_count": int(latest_day.dropna().size),
+        "benchmark_data_id": benchmark_data_id,
+        "benchmark_reference": reference,
     }
 
 
@@ -210,7 +245,11 @@ def _rounded(value: object) -> float | None:
         return None
 
 
-def _unavailable(reason: str) -> dict[str, object]:
+def _unavailable(
+    reason: str,
+    *,
+    benchmark_reference: Mapping[str, object] | None = None,
+) -> dict[str, object]:
     return {
         "status": "unavailable",
         "as_of": None,
@@ -222,6 +261,8 @@ def _unavailable(reason: str) -> dict[str, object]:
         "breadth": {"status": "unavailable", "reason": reason, "pct_above_sma200": None, "source": "local adjusted_close price snapshot", "freshness_status": "unavailable"},
         "volatility": {"status": "unavailable", "reason": reason, "median_annualised": None, "source": "local adjusted_close price snapshot", "freshness_status": "unavailable"},
         "regime": {"label": "Regime unavailable", "dashboard_label": "unknown", "score_10": None, "summary": reason},
+        "benchmark_data_id": None,
+        "benchmark_reference": dict(benchmark_reference or unavailable_reference_projection()),
         "optional_fred": {"status": "unavailable", "message": "Optional FRED is probe-only and no network request was made.", "source": "FRED", "freshness_status": "unavailable"},
         "authority": "context_only",
         "context_only": True,
@@ -231,6 +272,28 @@ def _unavailable(reason: str) -> dict[str, object]:
         "limitations": ["No local adjusted-close evidence was available."],
         "instrument_count": 0,
     }
+
+
+def _clip_to_reference_window(
+    frame: pd.DataFrame,
+    reference: Mapping[str, object],
+) -> pd.DataFrame:
+    analysis = reference.get("analysis")
+    if reference.get("status") != "available":
+        return frame
+    if not isinstance(analysis, Mapping):
+        return pd.DataFrame()
+    start = analysis.get("start_date")
+    end = analysis.get("end_date")
+    decision_time = analysis.get("decision_time")
+    if not all(isinstance(value, str) and value for value in (start, end, decision_time)):
+        return pd.DataFrame()
+    return clip_to_decision_window(
+        frame,
+        start_date=start,
+        end_date=end,
+        decision_time=decision_time,
+    )
 
 
 def _dashboard_label(score: object) -> str:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+from io import BytesIO
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from math import log, sqrt
@@ -9,9 +11,14 @@ from pathlib import Path
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig, ProviderSection
-from etf_cockpit.core.paths import RAW_DIR, REPORTS_DIR
+from etf_cockpit.application.benchmark_reference import adjusted_price_snapshot_binding
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, read_atomic_group
+from etf_cockpit.core.paths import FORECASTS_DIR, RAW_DIR, REPORTS_DIR
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.data.yfinance_provider import YFinanceProvider
+
+
+CANDIDATE_PRICE_SNAPSHOT_PATH = FORECASTS_DIR / "yfinance_candidate_prices_current.csv"
 
 
 @dataclass(frozen=True)
@@ -30,6 +37,62 @@ class CandidateAnalysisResult:
     markdown_path: Path
     effective_as_of: date
     source_message: str
+
+
+def write_candidate_price_snapshot(
+    prices: pd.DataFrame,
+    price_binding: dict[str, object],
+    *,
+    path: Path | None = None,
+    publish_guard: PublicationScopeFactory | None = None,
+) -> None:
+    """Atomically retain the exact local candidate prices used by a forecast writer."""
+
+    target = path or CANDIDATE_PRICE_SNAPSHOT_PATH
+    payload = prices.to_csv(index=False).encode("utf-8")
+    metadata_path = Path(f"{target}.meta.json")
+    metadata = {
+        "schema": "candidate-price-snapshot.v1",
+        "payload_sha256": hashlib.sha256(payload).hexdigest(),
+        **dict(price_binding),
+        "execution_allowed": False,
+    }
+    with publication_scope(publish_guard):
+        atomic_write_group((
+            AtomicWriteRequest(target, payload, lambda candidate: pd.read_csv(candidate)),
+            AtomicWriteRequest(
+                metadata_path,
+                json.dumps(metadata, sort_keys=True).encode("utf-8"),
+                lambda candidate: json.loads(candidate.read_text(encoding="utf-8")),
+            ),
+        ))
+
+
+def load_candidate_price_binding(*, path: Path | None = None) -> dict[str, object] | None:
+    """Return a binding only after replaying the retained candidate source snapshot."""
+
+    target = path or CANDIDATE_PRICE_SNAPSHOT_PATH
+    metadata_path = Path(f"{target}.meta.json")
+    try:
+        payload, metadata_bytes = read_atomic_group((target, metadata_path))
+        metadata = json.loads(metadata_bytes.decode("utf-8"))
+        if (
+            not isinstance(metadata, dict)
+            or metadata.get("schema") != "candidate-price-snapshot.v1"
+            or metadata.get("execution_allowed") is not False
+            or metadata.get("payload_sha256") != hashlib.sha256(payload).hexdigest()
+        ):
+            return None
+        window = metadata.get("calculation_window")
+        if not isinstance(window, dict):
+            return None
+        prices = pd.read_csv(BytesIO(payload))
+        replayed = adjusted_price_snapshot_binding(prices, calculation_window=window)
+        if replayed is None or any(metadata.get(key) != value for key, value in replayed.items()):
+            return None
+        return replayed
+    except (OSError, TypeError, ValueError, RecursionError):
+        return None
 
 
 def latest_candidate_input(directory: Path = RAW_DIR / "trade_candidates") -> Path:
@@ -220,6 +283,8 @@ def _analyse_one_candidate(instrument_id: str, meta: dict[str, object], group: p
         "shares": shares,
         "currency": str(meta.get("currency", "EUR")),
         "latest_date": str(pd.to_datetime(group["date"]).max().date()) if rows else "unknown",
+        "source_dataset": "yfinance_adjusted_close",
+        "provenance": "local candidate adjusted-close history",
         "latest_price": latest_price,
         "trade_value_eur": _safe_float(trade_value),
         "rows": rows,
@@ -327,6 +392,8 @@ def _missing_candidate_row(instrument_id: str, meta: dict[str, object], reason: 
         "shares": _safe_float(meta.get("shares")) or 0.0,
         "currency": str(meta.get("currency", "EUR")),
         "latest_date": "unknown",
+        "source_dataset": "yfinance_adjusted_close",
+        "provenance": "local candidate adjusted-close history",
         "latest_price": None,
         "trade_value_eur": None,
         "rows": 0,

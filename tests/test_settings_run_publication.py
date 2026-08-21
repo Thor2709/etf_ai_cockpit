@@ -5,11 +5,87 @@ import json
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from etf_cockpit.models import forecast_scores
 from etf_cockpit.models.forecast_scores import filter_forecasts_for_universe, latest_forecast_file, load_latest_forecasts
 from etf_cockpit.core.config import load_config
 from etf_cockpit import services
+from etf_cockpit.application.benchmark_reference import resolve_canonical_reference
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    BenchmarkDefinition,
+    CanonicalBenchmarkRegistry,
+    CashProxyDefinition,
+    declare_reference_portfolios,
+)
+
+
+def _bound_feature_prices() -> pd.DataFrame:
+    return pd.DataFrame({
+        "date": ["2025-01-01"],
+        "etf_id": ["VWCE"],
+        "adjusted_close": [100.0],
+    })
+
+
+def _service_reference_context():
+    source_hash = "a" * 64
+    registry = CanonicalBenchmarkRegistry(
+        benchmarks=(BenchmarkDefinition(
+            benchmark_id="benchmark:fixture",
+            version="1.0.0",
+            hierarchy="asset",
+            selector={"asset_class": "equity"},
+            currency="AUD",
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=10.0,
+            effective_at="2024-01-01T00:00:00Z",
+            known_at="2024-01-02T00:00:00Z",
+            start_date="2020-01-01",
+            end_date="2030-01-01",
+            methodology="fixture",
+            constituents=("ETF-1",),
+            source_hashes=(source_hash,),
+        ),),
+        cash_proxies=(CashProxyDefinition(
+            proxy_id="cash:AUD",
+            version="1.0.0",
+            selector={"asset_class": "equity"},
+            currency="AUD",
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=10.0,
+            effective_at="2024-01-01T00:00:00Z",
+            known_at="2024-01-02T00:00:00Z",
+            start_date="2020-01-01",
+            end_date="2030-01-01",
+            methodology="fixture",
+            source_hashes=(source_hash,),
+        ),),
+        reference_portfolios=declare_reference_portfolios(
+            ("ETF-1",),
+            current_weights={"ETF-1": 1.0},
+            effective_at="2024-01-01T00:00:00Z",
+            known_at="2024-01-02T00:00:00Z",
+            currency="AUD",
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=10.0,
+            start_date="2020-01-01",
+            end_date="2030-01-01",
+        ),
+    )
+    return resolve_canonical_reference(
+        registry,
+        analysis_id="service:fixture",
+        purpose="comparison",
+        instrument_id="ETF-1",
+        instrument={"asset_class": "equity"},
+        currency="AUD",
+        horizon_years=1.0,
+        start_date="2024-02-01",
+        end_date="2025-02-01",
+        decision_time="2025-02-02T00:00:00Z",
+        reference_portfolio_ids=("reference:equal_weight",),
+    )
 
 
 def test_feature_output_is_published_only_after_settings_bound_manifest_reservation(monkeypatch) -> None:
@@ -19,11 +95,43 @@ def test_feature_output_is_published_only_after_settings_bound_manifest_reservat
     monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
     monkeypatch.setattr(services, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
     monkeypatch.setattr(services, "compute_features", lambda _frame, benchmark_etf_id=None: pd.DataFrame({"value": [1]}))
-    monkeypatch.setattr(services, "write_features", lambda _frame: events.append(("output", "features")))
+    monkeypatch.setattr(services, "write_features", lambda _frame, **_kwargs: events.append(("output", "features")))
 
-    services.FeatureService(load_config()).compute_features(prices=pd.DataFrame())
+    services.FeatureService(load_config()).compute_features(prices=_bound_feature_prices())
 
-    assert events == [("manifest", "features_latest__saaaaaaaa:aaaaaaaa"), ("output", "features")]
+    assert events == [("manifest", "features_2025-01-01__saaaaaaaa:aaaaaaaa"), ("output", "features")]
+
+
+def test_feature_service_does_not_use_first_enabled_instrument_as_benchmark(monkeypatch) -> None:
+    captured: list[object] = []
+    monkeypatch.setattr(services, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
+    monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(services, "compute_features", lambda _frame, benchmark_etf_id=None: captured.append(benchmark_etf_id) or pd.DataFrame({"value": [1]}))
+    monkeypatch.setattr(services, "write_features", lambda _frame, **_kwargs: None)
+
+    services.FeatureService(load_config()).compute_features(prices=_bound_feature_prices())
+
+    assert captured == [None]
+
+
+def test_feature_service_uses_explicit_canonical_benchmark_data_id(monkeypatch) -> None:
+    captured: list[object] = []
+    monkeypatch.setattr(services, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
+    monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(services, "compute_features", lambda _frame, benchmark_etf_id=None: captured.append(benchmark_etf_id) or pd.DataFrame({"value": [1]}))
+    monkeypatch.setattr(services, "write_features", lambda _frame, **_kwargs: None)
+    prices = pd.DataFrame({
+        "date": ["2024-02-01"],
+        "etf_id": ["ETF-1"],
+        "adjusted_close": [100.0],
+    })
+
+    service = services.FeatureService(load_config(), reference_context=_service_reference_context())
+    service.compute_features(prices=prices)
+
+    assert captured == ["ETF-1"]
 
 
 def test_forecast_output_is_published_only_after_settings_bound_manifest_reservation(monkeypatch) -> None:
@@ -44,8 +152,53 @@ def test_forecast_output_is_published_only_after_settings_bound_manifest_reserva
     assert events == [("manifest", "forecast_20260721__sbbbbbbbb:bbbbbbbb"), ("output", "forecasts:bbbbbbbb")]
 
 
+def test_forecast_service_does_not_use_first_enabled_instrument_as_benchmark(monkeypatch) -> None:
+    captured: list[object] = []
+    service = services.ForecastService(load_config())
+    monkeypatch.setattr(services, "current_settings_identity", lambda: {"settings_revision": "b" * 64})
+    monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(services, "baseline_forecast", lambda *_args, **kwargs: captured.append(kwargs["benchmark_returns"]) or [])
+    monkeypatch.setattr(service, "_run_timesfm_forecasts", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(service, "_run_toto_forecasts", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(service, "_write_forecasts", lambda *_args, **_kwargs: None)
+    prices = pd.DataFrame({
+        "date": ["2026-07-20", "2026-07-21"] * 2,
+        "etf_id": ["VWCE", "VWCE", "LYP6", "LYP6"],
+        "adjusted_close": [100.0, 101.0, 200.0, 201.0],
+    })
+
+    service.run_forecasts(date(2026, 7, 21), ["LYP6"], prices=prices, horizons=[1])
+
+    assert captured == [None]
+
+
+def test_forecast_service_uses_explicit_canonical_benchmark_data_id(monkeypatch) -> None:
+    captured: list[object] = []
+    service = services.ForecastService(load_config(), reference_context=_service_reference_context())
+    monkeypatch.setattr(services, "current_settings_identity", lambda: {"settings_revision": "b" * 64})
+    monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(services, "baseline_forecast", lambda *_args, **kwargs: captured.append(kwargs["benchmark_returns"]) or [])
+    monkeypatch.setattr(service, "_run_timesfm_forecasts", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(service, "_run_toto_forecasts", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(service, "_write_forecasts", lambda *_args, **_kwargs: None)
+    prices = pd.DataFrame({
+        "date": ["2024-02-01", "2024-02-02"] * 2,
+        "etf_id": ["ETF-1", "ETF-1", "LYP6", "LYP6"],
+        "adjusted_close": [100.0, 101.0, 200.0, 201.0],
+    })
+
+    service.run_forecasts(date(2024, 2, 2), ["LYP6"], prices=prices, horizons=[1])
+
+    assert len(captured) == 1
+    assert captured[0] is not None
+    assert float(captured[0].iloc[0]) == pytest.approx(0.01)
+
+
 def test_backtest_output_is_published_only_after_settings_bound_manifest_reservation(tmp_path, monkeypatch) -> None:
     events: list[tuple[str, str]] = []
+    published: list[object] = []
     report = SimpleNamespace(
         results=pd.DataFrame({"strategy_name": ["quality_momentum"]}),
         equity_curves=pd.DataFrame({"value": [1.0]}),
@@ -63,14 +216,22 @@ def test_backtest_output_is_published_only_after_settings_bound_manifest_reserva
     monkeypatch.setattr(services, "current_settings_identity", lambda: identity)
     monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
     monkeypatch.setattr(services, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
-    monkeypatch.setattr(services, "atomic_write_group", lambda _requests: events.append(("output", "backtest")))
-    monkeypatch.setattr(services, "_write_universe_cache_metadata", lambda _path, _universe, settings_revision: events.append(("metadata", settings_revision[:8])))
+    def capture_group(requests):
+        published.extend(requests)
+        events.append(("output", "backtest"))
+
+    monkeypatch.setattr(services, "atomic_write_group", capture_group)
     monkeypatch.setattr(services, "append_jsonl", lambda *_args, **_kwargs: None)
 
     services.BacktestService(load_config(), universe_revision="revision").run_backtest()
 
     assert events[:2] == [("manifest", "backtest__scccccccc:cccccccc"), ("output", "backtest")]
-    assert {event for event in events if event[0] == "metadata"} == {("metadata", "cccccccc")}
+    sidecars = [request for request in published if str(request.destination).endswith(".meta.json")]
+    assert len(sidecars) == 5
+    assert {
+        json.loads(request.payload)["settings_revision"][:8]
+        for request in sidecars
+    } == {"cccccccc"}
 
 
 def test_feature_run_threads_one_identity_when_settings_change_between_id_and_manifest(monkeypatch) -> None:
@@ -90,9 +251,9 @@ def test_feature_run_threads_one_identity_when_settings_change_between_id_and_ma
     monkeypatch.setattr(services, "settings_bound_run_id", allocate)
     monkeypatch.setattr(services, "ensure_run_manifest", reserve)
     monkeypatch.setattr(services, "compute_features", lambda _frame, benchmark_etf_id=None: pd.DataFrame({"value": [1]}))
-    monkeypatch.setattr(services, "write_features", lambda _frame: None)
+    monkeypatch.setattr(services, "write_features", lambda _frame, **_kwargs: None)
 
-    services.FeatureService(load_config()).compute_features(prices=pd.DataFrame())
+    services.FeatureService(load_config()).compute_features(prices=_bound_feature_prices())
 
     assert seen[0] is seen[1] is captured
     assert seen[1]["settings_revision"] == "d" * 64

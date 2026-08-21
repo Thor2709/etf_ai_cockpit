@@ -13,7 +13,340 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
-## Current ISSUE-0017 product checkpoint
+## Current ISSUE-0112 product checkpoint (supersedes older checkpoints below)
+
+- ISSUE-0059 integration PR #686 merged exact reviewed head
+  `560e68511eb228d831f9c31e0babdafa26c0a57e` as
+  `87b05852121ff6ecdd1c9b1b8ae5ed423875523c`; writer run `31672396480`
+  completed with full reconciliation, zero-action readback and
+  `execution_allowed=false`.
+- ISSUE-0112 dependency PR #687 merged exact reviewed head
+  `9816f420a650f64c6c0fbc24f2b7f9720fe8b124` as exact main
+  `79d4110f39a0aa903a0df361316befcaaff782eb`. Run `31673015385` passed
+  Linux, Windows, terminal validation and the status guard. Only the ISSUE-0051
+  and ISSUE-0059 dependency edges changed; ISSUE-0112 remained `planned` and
+  generic reconciliation was zero action.
+- Clean product lane
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0112_product_review`,
+  branch `codex/issue0112-product-review-20260813`, starts from that exact base.
+  Product commit `5e8a82153a095c70a2dc3457c60e3891092c6226` adds only the canonical
+  benchmark, cash, peer, reference-portfolio and VWCE-anchor contract plus its
+  focused tests.
+- PR #688 initial frozen head `76d061ae0452ddfe358829adecd5a91241dbaf03`
+  is rejected and hosted run `31677268341` is cancelled/stale. Both independent
+  reviewers reproduced one consolidated finding set: unbound VWCE fact/currency/
+  horizon cutoffs, mutable caller-owned versioned evidence, hash-only serialized
+  validation, unenforced canonical share-class identity, unaligned reference
+  portfolios and a test-only production contract.
+- Consolidated correction commit `e927fe25914ec33193cfc74c8b3496c4ef7e4b21`
+  closes all findings in the existing contract and portfolio-analysis facade.
+  It seals nested evidence and the registry, semantically reconstructs serialized
+  records, enforces canonical VWCE identity and PIT/currency/horizon/conversion
+  evidence, aligns reference portfolios at effective and knowledge cutoffs, and
+  projects benchmark/profile evidence without changing raw analysis. The complete
+  229-test focused/adjacent set passes; Ruff, contract mypy, compile, diff hygiene
+  and programme check mode pass. Existing application-facade mypy output remains
+  at its unchanged five-error baseline. Freeze one replacement exact head for
+  paired re-review and fresh H-tier Linux, Windows and terminal evidence.
+- Replacement head `df974a6a5f16ddeeae4e7e1db63c130aed78693c` is rejected and
+  run `31679353881` is cancelled/stale after paired re-review demonstrated the
+  final bounded gaps: contradictory registry/anchor availability, invalid
+  listing status, missing conversion and resolution provenance, non-finite
+  horizons, non-deterministic SemVer precedence, listing/anchor chronology,
+  direct nested execution evidence and duplicate requested references.
+  Consolidated commit `cb3e513d34dfdaf441905ee905f0dc768d4cc11c`
+  closes those exact paths without wider architecture. The complete 241-test
+  focused/adjacent set passes with Ruff, contract mypy, compile and diff hygiene;
+  conversion and anchor evidence now produce a canonical resolution digest and
+  all unavailable combinations fail closed. Freeze one final replacement head
+  for both exact-head reviews and fresh H-tier Linux/Windows/terminal evidence.
+- Final review of `80226ff2737c2963b9f9efb65fda90117e0d43f9` rejected
+  one newly demonstrated authoritative-selection defect plus two strict typing/
+  provenance boundaries; run `31681320326` is cancelled/stale. Commit
+  `c247b4698c5773b707f41a142ca344d1af7c6f99` selects the newest PIT-authoritative
+  benchmark, cash and peer before status evaluation, strictly types opportunity
+  anchors, and refuses profile claims from incomplete manually constructed
+  resolutions. All 246 focused/adjacent tests pass with Ruff, contract mypy,
+  compile and diff hygiene. Freeze one replacement head for paired exact-head
+  review and fresh H-tier evidence; no adjacent contract or authority changed.
+- Paired review of `4bb842a53d181abcfb309e50740ec22a25648279`
+  rejected the final analogous VWCE boundaries and production-delivery gap;
+  run `31682292726` is cancelled/stale. Commit
+  `2b1cd0d9a9fa422b2fdba002f1cc65b54d8efcfd` makes the newest PIT listing
+  authoritative before status evaluation, strictly types risk-indicator and
+  resolution authority, binds claims to the actual anchor/conversion evidence,
+  and carries snapshot-attached canonical evidence through ordinary analysis,
+  save, load and existing service-evidence UI projection. All 269 affected
+  contract, sandbox, UI, cash, attribution, peer and optimiser tests pass with
+  Ruff, contract mypy, compile and diff hygiene. Freeze one final exact head for
+  paired review and fresh H-tier evidence; `execution_allowed=false` remains.
+- Paired review of `19a19d170edb1df2057e4be1a31b6d4eb076a863`
+  rejected four remaining demonstrated delivery boundaries, and exact-head run
+  `31683739150` is cancelled/stale: the real `CockpitSnapshot` path omitted the
+  registry and VWCE evidence, Portfolio UI omitted both projections, selected
+  registry records lacked content-digest provenance, and manually constructed
+  available anchor resolutions were not replayed against the actual listing,
+  horizon, conversion and point-in-time cutoffs. Consolidated product commit
+  `db39adbed19a76dca23c0a3764fcd4ddf6a46977` closes only those paths. The
+  affected 278-test contract, sandbox, UI, cash, attribution, peer and optimiser
+  suite passes with Ruff, targeted contract mypy, compile, programme byte-clean
+  and diff-hygiene evidence. Freeze one replacement exact head for paired final
+  review and fresh H-tier Linux/Windows/terminal validation; preserve all
+  lifecycle, provider/broker/release and `execution_allowed=false` boundaries.
+- Paired review of `d7bb08462ad033ee9537f834ffa89f0ab5fd6e4f`
+  rejected five newly reproduced strict provenance/input boundaries; run
+  `31685879923` is cancelled/stale. Consolidated commit
+  `006abd94ec4380407484b1227ba1ae35106d6ea6` requires exact canonical-registry
+  membership for the selected VWCE anchor, validates every tied listing source,
+  preserves explicit empty overrides for fail-closed validation, rejects duplicate
+  reference requests and forbids source-hash type coercion. All 286 affected tests
+  plus Ruff, targeted contract mypy, compile, programme freshness and diff hygiene
+  pass. Freeze one replacement exact head for paired final review and fresh H-tier
+  Linux/Windows/terminal evidence; no adjacent architecture or authority changed.
+- Paired review of `4aa2ef11f72b33775dd6a7cd031c7473a3dff2c7`
+  rejected four newly reproduced fail-closed boundaries; run `31687764826` is
+  cancelled/stale. Commit `858ea6310369dbcb7a765aac128e11307e7b47b6`
+  selects the newest PIT-authoritative reference portfolio before alignment,
+  requires every profile anchor to be uniquely registry-bound, strictly types
+  listing hashes and rejects nested execution authority in selections,
+  resolutions and profile inputs. All 292 affected tests plus Ruff, targeted
+  contract mypy, compile, programme freshness and diff hygiene pass. Freeze one
+  replacement exact head for paired final review and fresh H-tier evidence.
+- Paired review of `e9bab1eeaae710c056e7dff18bb365395587d6c2`
+  rejected two provenance validations; run `31689397297` is cancelled/stale.
+  Commit `0511bb7e5a7984d1fa24899db13c584e22b90b81` rejects non-string
+  mapping keys before canonical hashing and requires exact unique registry
+  membership for every projected available selection and reference. All 298
+  affected tests plus Ruff, targeted contract mypy, compile, programme freshness
+  and diff hygiene pass. Freeze one replacement head for final paired review and
+  fresh H-tier Linux/Windows/terminal evidence.
+- Final paired review of `f269c592c28b60f79205f4bbec1a1c2da996d6ff`
+  produced one approval and one demonstrated delivery blocker; run `31690695124`
+  is cancelled/stale. The real builder only emitted unavailable evidence and the
+  UI omitted available selected identities. Commit
+  `82371502a356ef62231ee39647d2c88da9a57cf8` adds the existing-envelope,
+  duplicate-key-safe local registry input, packages it, derives deterministic
+  snapshot PIT inputs from current config/as-of state, renders all selected
+  identities/versions/digests, and proves builder -> save/load -> rebuilt-snapshot
+  available readback. All 320 affected tests plus Ruff, targeted mypy, compile,
+  packaging assertion, programme freshness and diff hygiene pass. Freeze one
+  replacement exact head for paired final review and fresh H-tier evidence.
+- Paired review of `ccc64e372ed0034a548dd68a4383493cb7874083`
+  rejected placeholder availability, raw-count PIT selection, nested export
+  authority, hidden VWCE identity, hard-coded no-trade holdings and JSON EOF
+  hygiene; run `31692775935` completed but is stale. Commit
+  `9dccd8d11802eabce3f36dfac59bd22feb370d3c` marks packaged identity-only
+  records unavailable without fabricated hashes, selects dated anchor/listing
+  histories at effective/knowledge cutoffs, rejects nested execution on export,
+  removes hard-coded no-trade and renders selected VWCE identity/cutoffs. The
+  source-backed injected available path remains proven through rebuild/save/load.
+  All 324 affected tests plus Ruff, targeted mypy, compile, programme freshness
+  and diff hygiene pass. Freeze one replacement head for paired final review and
+  fresh H-tier Linux/Windows/terminal evidence.
+- Replacement head `3020c4b811179fb7c77158a9fd1a0eb4ac98bc7d` is rejected;
+  run `31694667839` is cancelled/stale. Whole-diff review found no additional
+  code defect, while risk review reproduced two final delivery failures:
+  selection/reference projections were not bound to their declared semantic
+  slots, and the wheel installed the registry outside the application resolver's
+  path. The consolidated correction binds benchmark, cash, peer and reference
+  identities at construction and UI readback, relocates the unchanged registry
+  into an importable package resource and proves an isolated wheel install/load.
+  The 163 focused contract/UI/sandbox/package tests and 152 adjacent financial/
+  PIT tests pass with Ruff, targeted mypy, compile, programme byte-clean, diff
+  hygiene and byte-identical relocation evidence. Commit and freeze one new exact
+  head for paired final review and fresh H-tier Linux/Windows/terminal evidence.
+- Both reviews of `7d0ca499a43fd63b43ced5c6de97a1ffaf24b16e`
+  reproduced the same single missing declaration invariant: `peer_set_id` was
+  not bound to the selected available peer or `None` for an unavailable peer.
+  Run `31696193800` is cancelled/stale. Add only that invariant and its available,
+  unavailable and forged UI-readback regressions, then freeze one replacement
+  head for both final reviews and fresh H-tier evidence.
+- Review of `4374015cdfc814a30d43c9cc9465f3cfbc3fc49d` produced one
+  approval and one newly demonstrated acceptance blocker; run `31697195555` is
+  cancelled/stale. The generic contract supports no-trade, but the real snapshot
+  requests only equal-weight and maximum-diversification and therefore omits the
+  canonical current-portfolio/no-trade baseline from analysis, UI and persistence.
+  The bounded correction derives a deterministic, checksum/PIT-bound no-trade
+  reference from exact holdings plus implied cash, projects its weights and
+  provenance through UI/save-load readback, and fails closed on malformed dates,
+  identifiers, weights, totals and source values. The 170 affected tests, 152
+  adjacent financial/PIT tests and 11 targeted adversarial tests pass with Ruff,
+  targeted mypy, compile, byte-clean generation and diff hygiene. Freeze one
+  final replacement head for paired review and fresh H-tier validation.
+- Both reviews of `97597ab5af3c830ad9e31d2b2d386f01a1f2ce84`
+  rejected the no-trade source boundary; run `31700680310` is cancelled/stale.
+  The production builder filtered holdings before derivation, allowing excluded
+  exposure to be relabelled as cash and checksum-bound as truth, while negative
+  market values remained accepted. The consolidated correction preserves the
+  complete pre-filter source for no-trade derivation/checksum and fails closed on
+  excluded holdings and negative/non-finite values. Its production-builder
+  reproduction and complete 176-test affected suite pass with Ruff, targeted
+  mypy, compile, programme freshness, package proof and diff hygiene. Freeze one
+  replacement exact head for paired review and fresh H-tier validation.
+- Reviews of `5907e23ff1d57a9d6646e0d768b2eea4b10b84f5` rejected two
+  final PIT paths and run `31702055238` failed preflight/cancelled downstream.
+  Invalid current holdings could retain a stale registry no-trade record; source
+  knowledge time was synthesized and omitted from the holdings checksum; and the
+  isolated-wheel test invoked an unavailable backend directly. Always strip stale
+  no-trade, require and checksum non-future source knowledge provenance, preserve
+  its actual timestamp, and use the pinned build frontend for the unchanged wheel
+  install/load proof. The consolidated correction passes 180 focused contract/
+  sandbox/UI tests, Ruff, targeted mypy, compile, programme freshness, diff
+  hygiene and a real pinned-frontend isolated wheel build/install/load. Freeze
+  one replacement exact head for final paired review and fresh H-tier evidence.
+- Both reviews of `1bd954ecbe4381a43089cef551ae52c0163983f2`
+  rejected three exact input-truth paths; run `31704018549` is cancelled/stale.
+  No-trade weights were not reconciled to market values, timezone-naive knowledge
+  was silently interpreted as UTC, and an available VWCE anchor could carry
+  nested fees/tracking/risk facts marked unavailable. Correct only those three
+  fail-closed validations and add their focused regressions. The consolidated
+  correction passes 199 affected contract/sandbox/UI tests, the pinned-frontend
+  isolated wheel proof, Ruff, targeted mypy, compile, programme freshness and
+  diff hygiene. Freeze one replacement exact head for paired final review and H.
+- Risk review of `008ee66f0e161da1d66532a5893731c5c9d8a5ea`
+  reproduced one metadata predicate defect; run `31706356179` is cancelled/stale.
+  Authority/status/version-only nested VWCE mappings counted as financial facts.
+  The correction excludes metadata keys and requires substantive fees, tracking
+  and risk facts; 200 affected tests and Ruff pass. Freeze one replacement head.
+- Both reviews of `035494598fab594f3cbde7babccc76444c5c3008` rejected two
+  final declaration paths; run `31707789636` is cancelled/stale. Metadata aliases
+  still counted as VWCE facts and invalid-input fallback omitted explicit benchmark
+  and cash declarations. The correction closes both with 200 affected tests plus
+  Ruff, targeted mypy, programme freshness and diff hygiene green.
+- A live one-update ISSUE-0112 `planned -> in_progress` plan and candidate were
+  prepared read-only, then rejected before publication by the existing guard:
+  the reviewed product commit is not an ancestor of the PR base. The invalid
+  control commits remain isolated on local branch
+  `codex/issue0112-product-20260813`; they must not be pushed or merged. Do not
+  redesign the authority contract. Freeze this product-only lane for paired
+  exact-head review and fresh H-tier Linux, Windows and terminal validation.
+- Before merge, require exact product evidence and the existing lifecycle
+  automation/readback tests. After merge, prepare the legal status authority
+  from the new exact main, apply only ISSUE-0112 `planned -> in_progress`,
+  require the ordered writer and generic zero-action readback, then immediately
+  execute the existing aggregate `in_progress -> implemented_initially ->
+  integrated` completion bound to the same reviewed product commit and
+  evidence. Preserve all dependency, external authority and
+  `execution_allowed=false` boundaries.
+
+- Replacement head `8c5dc03ba1d939a8c4fad28fc8f246741825b77a` is rejected by
+  both exact-head reviewers and run `31717953477` is cancelled/stale. The
+  consolidated demonstrated set was limited to declaration-window drift in
+  backtest/attribution, non-canonical peer derivation, forged nested execution
+  evidence, Training Centre argument binding, feature-cache identity/readback,
+  pre-resolution signal features, incomplete N/A schemas, an unbound macro
+  caller and the sparse-correlation regression. One bounded correction now
+  resolves the full calculation window, uses only digest-bound canonical peer
+  members, recursively validates relative evidence, binds feature reads to the
+  universe/settings/reference tuple, routes all affected callers and restores
+  complete fail-closed outputs. The complete affected 328-test product/UI set,
+  99 macro/regime tests, all five packaged workflows, Ruff, targeted mypy,
+  compile, byte-clean programme generation and diff hygiene pass. Complete the
+  checkpoint update, then freeze one replacement exact head for paired review
+  and fresh H-tier Linux, Windows and terminal evidence.
+
+- Frozen replacement head `713c2a837fc7244cc01e07947fb3e80629446bd7`
+  is rejected by both independent reviews; hosted run `31722219785` failed the
+  attributable changed-test preflight and skipped H-tier package/pilot gates.
+  The complete consolidated set is strict decision-time calculation windows,
+  canonical benchmark/cash and peer binding, minimum overlap, immutable retained
+  instrument evidence, supplied-feature sanitisation, complete N/A row schemas,
+  macro binding and the exact SignalService CI fixture. One bounded correction
+  closes those paths without workflow or authority changes. The complete affected
+  product/UI/macro suite and exact hosted changed-test selection pass locally,
+  including all five packaged workflows; Ruff, targeted mypy, compile, byte-clean
+  programme generation and diff hygiene pass. Freeze one new exact head for both
+  final reviews and a fresh H-tier run with Linux, Windows, terminal and pilots.
+
+- Replacement head `660acbc93444d255341ed337ad3e6cf5fd11894a` is rejected by
+  both exact-head reviewers and hosted run `31726428231` is cancelled/stale.
+  The newly demonstrated final set is same-window benchmark attribution,
+  future candidate exclusion, exact intraday cutoff clipping, ordinary official
+  cash evidence wiring, BacktestService call compatibility and cache structural
+  validation ordering. One bounded correction addresses only those six paths;
+  the four reproduced full-suite failures, adversarial ISSUE-0112 tests, broad
+  affected suite and changed validation pass with static/programme hygiene.
+  Freeze one final exact head, rerun both reviews against it and require fresh
+  Linux, Windows, terminal, packaged and parallel-pilot H-tier evidence.
+
+- Replacement head `79fc7445aa2b053baba49fd7b8f7fb36055d8ff9` is rejected:
+  backtest alone still admitted a date-only close before an intraday cutoff, and
+  two committed blank lines failed whole-diff whitespace preflight. Run
+  `31731679751` is cancelled/stale. The surgical correction scopes backtest
+  prices through the shared exact decision-window helper before every calculation,
+  adds the noon-cutoff regression and removes only the two whitespace defects.
+  Focused backtest/attribution tests, the exact hosted changed-test selection and
+  all five packaged workflows pass with static, programme and diff checks clean.
+- Frozen product head `ecff814fd07ae187196b5bc5e22f0e310dbb0a28` passed both
+  independent exact-head reviews and every Linux, Windows, terminal, release and
+  platform-pilot job in H-tier run `31733243156`. The final cross-platform
+  aggregation alone failed because three tests that explicitly require Windows
+  directory junctions were not in its exact platform-outcome contract. The one
+  bounded correction permits only those three node IDs to be skipped on Linux
+  and pass on Windows, adds exact lane regressions, and replays the successful
+  hosted artifacts to `passed` with no differences. Product semantics and
+  `execution_allowed=false` are unchanged. Freeze one corrected head for paired
+  exact review and fresh H-tier evidence; no adjacent pilot or CI redesign.
+- Corrected head `3ec216f679bf3ec4d602985e0a9bca0549231c8c` passed both
+  independent reviews. Run `31755008546` proved Windows release, both platform
+  pilots and cross-platform aggregation, but its Linux release subprocess
+  twice segfaulted in pandas' native CSV parser at the same discarded-result
+  atomic post-write validator, in two different previously passing disclosure
+  tests. One bounded persistence correction replaces only the six identical
+  parsed-disclosure CSV validation callbacks with a strict UTF-8 standard-library
+  parser that accepts quoted multiline cells and rejects malformed quoting or
+  inconsistent widths. Atomic I/O, authoritative parquet data, workflows, pins,
+  product calculations, lifecycle authority and `execution_allowed=false` are
+  unchanged. The complete parsed-disclosure rollback/concurrency suite and Ruff
+  pass; freeze one replacement head for paired exact review and fresh H-tier
+  evidence, with no adjacent CI or persistence redesign.
+
+- Exact head `7ebff7c3dbfe054a96d574eea8aa7f2596d5a7b9` is rejected by
+  both independent reviews and H-tier run `31784447898`; the run stopped in
+  changed-test preflight before Linux, Windows and pilot gates. The complete
+  demonstrated set is source-price revision binding for feature/forecast
+  caches, enforcement of the declared calculation window, validation of every
+  populated candidate chronology alias, and blank VWCE listing IDs mapping to
+  explicit unavailable evidence. One consolidated correction binds every
+  production cache read to the adjusted-price snapshot and cutoff, refuses
+  unbound cache publication/reuse, clips feature/forecast calculations to the
+  canonical window, applies conservative date-only chronology and preserves
+  explicit-empty no-fallback semantics. Direct regressions pass 45 focused
+  tests; changed validation, Ruff, compile, byte-clean programme generation and
+  diff hygiene pass. Freeze one replacement exact head for paired review and a
+  fresh complete H-tier run; `execution_allowed=false` and authority boundaries
+  remain unchanged.
+
+- Replacement head `b3f36a28bee58f79a4c27e912e5215d5095016c8` is rejected by
+  both final reviewers; H-tier run `31788494031` passed classifier,
+  supply-chain and exact changed-test preflight, then was cancelled as stale.
+  The complete newly demonstrated set is caller-supplied feature binding,
+  future or malformed cost chronology in attribution, forecast horizon/model
+  request identity and canonical cash-selection gating. One bounded correction
+  requires current price/window attrs on supplied features, derives or rejects
+  unbound feature publication, clips and validates every dated cost row, binds
+  main and candidate forecast caches to normalized request identity, and keeps
+  cash comparison unavailable unless local curve evidence matches an available
+  canonical cash identity and window. Focused ISSUE-0112, publication,
+  attribution, scoring, cash and recovery suites pass with Ruff, compile and
+  diff hygiene clean. Freeze one replacement exact head for paired review and
+  fresh complete H-tier evidence; preserve `execution_allowed=false`.
+
+- Replacement head `c86e225ab66e70ee39fbb97a6489fd73fe239ba6` is rejected by
+  both final reviewers; run `31791678297` was cancelled as stale. The complete
+  unique set is forecast request identity at shared readers, the candidate
+  price snapshot used by candidate readers, and fail-closed attribution for
+  future cashflows and malformed cost values. One bounded correction threads
+  normalized horizon/model-mode identity through every forecast read and
+  write, atomically retains and replay-validates the local candidate price
+  snapshot, and applies canonical chronology plus strict numeric validation to
+  cashflow and cost evidence. Direct forecast consumer, candidate score/UI and
+  attribution regressions pass with the broader affected suite, Ruff, compile
+  and diff hygiene. Freeze one replacement exact head for paired review and a
+  fresh complete H-tier run; no hidden provider I/O or authority change is
+  introduced and `execution_allowed=false` remains.
+
+## Historical ISSUE-0017 product checkpoint
 
 - ISSUE-0016 PR #671 merged exact reviewed head
   `89fb083f9c0244e376b39d85ccea5d96379377b1` as exact main
@@ -2648,3 +2981,326 @@ next action and whether the requested outcome is actually complete.
   Preserve ISSUE-0112 at `planned`, change no product code or execution
   authority, generate projections mechanically, and require focused E-tier
   guards and exact-head review before product implementation.
+
+## ISSUE-0112 product final production-path correction
+
+- PR #688 head `25677bcbf96ec4f111ce47e9c732401a3df8cf6f` is rejected and
+  hosted run `31709228880` is cancelled/stale. The complete paired verdict
+  reproduced two bounded acceptance defects: `content_hash` could count as a
+  substantive nested VWCE fact, and production attribution, validation,
+  feature and forecast paths could omit canonical benchmark/cash declarations
+  or select the first enabled instrument.
+- One consolidated working-tree correction now treats `content_hash` as
+  metadata, shares one fail-closed canonical reference adapter across the real
+  production callers, derives benchmark attribution/features/forecasts only
+  from the resolved canonical data identity, and preserves explicit N/A when
+  resolution is absent. Caller-supplied raw benchmark returns cannot bypass the
+  canonical declaration. The affected 232-test collection, architecture
+  boundaries, Ruff, attributable targeted mypy, compile, byte-clean programme
+  generation, imports and diff hygiene pass; `execution_allowed=false` remains
+  unchanged. Freeze one replacement exact head for paired review and fresh
+  Linux, Windows, terminal and packaged H-tier evidence.
+- Replacement head `0880f0cfc3d7cc1d8ad62886bdf579e3ea65e77f` is rejected by
+  both exact-head reviewers and run `31713061927` is cancelled/stale. Their
+  complete reproduced set showed remaining first-column benchmark use in
+  backtest/regime/score paths, Training Centre context loss, mutable forged
+  projections, schema-divergent N/A evidence, stale forecast/backtest/feature
+  cache acceptance and optional-model raw returns labelled as excess. One
+  consolidated caller/provenance correction removes every demonstrated
+  fallback, reconstructs and seals declarations, binds production cache write
+  and readback to canonical reference identity, routes all snapshot/UI callers,
+  and post-processes every model's relative fields from the same canonical
+  series or N/A. Freeze only after the complete affected tests, static checks,
+  byte-clean generation and package proof pass; no workflow, authority or
+  execution boundary changes.
+- Head `2f67ca378feb2d148c92ff686728ab460dfa7df1` is rejected and run
+  `31770710533` is cancelled/stale. Whole-diff review approved, but risk review
+  reproduced feature and forecast payload substitution under a valid reference
+  sidecar. One consolidated correction now publishes each payload and identity
+  record through the existing recoverable atomic group, binds the pair by
+  SHA-256, and re-verifies one guarded snapshot before use. Valid and legacy
+  unbound reads retain their established behavior when no binding is requested;
+  bound legacy, malformed, substituted, interrupted or interleaved pairs fail
+  closed. Fifty-eight focused cache, recovery, settings and adjacent tests plus
+  Ruff, compile and diff hygiene pass. Freeze one replacement exact head for
+  paired review and fresh H-tier evidence; no generic atomic-I/O, workflow,
+  financial, authority or `execution_allowed=false` changes.
+- Head `59caeac64d422e39e06ec57b8032eaebcd00eb72` is rejected by both
+  final reviewers and run `31774026353` is cancelled/stale. Both reproduced the
+  same cross-identity TOCTOU: forecast selection validated identity A, then a
+  second guarded read could accept an atomically published identity-B pair
+  because it rechecked only the checksum. The one newly demonstrated correction
+  shares complete snapshot validation across selection and final read, requiring
+  the requested universe, settings, reference identity, identity hash and payload
+  checksum on that second snapshot. A deterministic A-to-B interleaving regression
+  now fails closed; no adjacent cache or persistence behavior changes.
+- Head `69cdce6e47d3c3883daab2859fd5b3f32f195ac1` passed risk review but
+  is rejected by whole-diff review; run `31774945960` is stale. A settings-only
+  request filtered no forecast candidates, so a newer cache from another settings
+  revision could mask an older valid file. Candidate selection now applies the
+  same snapshot validator whenever universe, settings or reference identity is
+  requested, with a deterministic newer-stale/older-valid regression. The stale
+  run also exposed an unrelated-order dependency in the directly changed backtest
+  rollback test; that test now stubs manifest reservation so it proves only its
+  atomic-output boundary and is self-contained. No production backtest behavior
+  or validation machinery changes.
+- Head `20d619fb996038970f81e655697adfcf5c15cc73` is rejected and run
+  `31777912307` is stale. The paired reviews reproduced two malformed-sidecar
+  escapes: recursive valid JSON raised `RecursionError`, and Python mapping
+  equality admitted `execution_allowed: 0` as equal to `false` when the claimed
+  hash was copied. Existing read boundaries now treat recursive decode/hash as
+  unavailable and require the stored identity's recomputed canonical hash to
+  equal both its claim and the requested identity hash. Direct regressions cover
+  feature, forecast, service-match and guarded-payload readers; no generic JSON,
+  atomic-I/O, financial, authority or execution behavior changes.
+- Head `8b4ef8d722a84e246489d2eb1cc5eed50f807f96` is rejected and run
+  `31778851004` is cancelled/stale. Review found three remaining consumers of
+  the same demonstrated contracts: supplied feature attrs and cached backtest
+  metadata still used type-insensitive mapping equality, and forecast row
+  filtering ignored a settings-only request. Both identities now use the shared
+  recomputed-hash verifier; backtest publication persists the identity hash; and
+  row filtering activates for universe, settings or reference requests. Direct
+  signal, backtest-tamper and mixed-source settings regressions cover those exact
+  paths. No adjacent service, financial, persistence or authority change.
+- Head `3e7f5677e72de7f2f5ca8a2ebe67e66899afd267` is rejected and run
+  `31780004420` is cancelled/stale. Final review reproduced backtest payload/
+  sidecar cross-binding between concurrent writers, a checksum-valid feature
+  parquet missing `date` that raised instead of becoming unavailable, and deep
+  recursion escaping the canonical registry/application validators. Backtest
+  payloads, sidecars and metadata now publish in one existing atomic group and
+  cached reuse parses one guarded complete snapshot. Feature schema conversion
+  stays inside its fail-closed boundary, and the two canonical validators map
+  recursive malformed input to their existing unavailable/error contracts.
+  Exact interleaving, missing-schema and 10k-depth regressions cover the set;
+  no atomic-I/O, workflow, financial, authority or execution redesign.
+- Head `a3ae5dbcbe44b21b39677aeb213207ebe7261ac3` is rejected and run
+  `31782031303` is cancelled/stale. Complete review reproduced four bounded
+  contract gaps: cached backtest projection/strategy metadata was not bound to
+  the fresh canonical context; benchmark-absent backtests leaked absolute
+  momentum into relative-strength fields; two remaining recursive malformed
+  reference paths escaped; and `Selection`/`VwceAnchorResolution` accepted wrong
+  primitive types. Publication/readback now hash and validate the complete
+  canonical backtest binding, benchmark-absent relative fields remain N/A, the
+  recursive paths use existing fail-closed results, and both value objects reject
+  the demonstrated types. Direct regressions cover only those cases; no adjacent
+  financial formula, persistence, workflow, authority or execution change.
+- Head `cf0edc22aab8be16cb5c22c000929ebf6646bc72` is rejected by both
+  exact-head reviewers and run `31794764667` is stale. The consolidated
+  demonstrated set is limited to three paths: the UI forecast writer used a
+  different request identity from configured and candidate readers, malformed
+  canonical instrument objects escaped the unavailable boundary, and
+  list-valued cost or cashflow chronology raised instead of failing closed.
+  Apply one bounded correction with an actual writer-to-snapshot readback
+  regression and direct malformed-input regressions, then freeze one new head
+  for paired review and fresh Linux, Windows, terminal, package and pilot
+  H-tier evidence. Preserve exact identity validation, all existing authority
+  boundaries and `execution_allowed=false`.
+- The single consolidated working-tree correction now derives the interactive
+  writer arguments from the same canonical `[60]`/optional-models-disabled
+  identity used by configured and candidate readers, rejects non-mapping
+  instrument evidence at both resolution boundaries, and classifies non-scalar
+  cost/cashflow chronology as invalid before pandas evaluation. The complete
+  affected focused collection, 64-test changed validation with offline smoke,
+  Ruff, compile, registry validation, byte-clean programme generation and diff
+  hygiene pass. Freeze and publish one replacement exact head for paired final
+  review and fresh full H-tier evidence.
+- Hosted run `31797431753` attempt 2 completed all 526 changed tests within the
+  existing 240-second bound (`220.694s`) and corrected the earlier timeout-only
+  diagnosis. Its sole failure demonstrated a point-in-time defect: a canonical
+  cash decision after the actual observation time could admit a not-yet-
+  available adjusted endpoint. One bounded correction now rejects that future
+  decision before local curve resolution and makes the available-flow fixture
+  use an actually eligible endpoint. The exact failing regression, the new
+  explicit replay-observation regression, the full cash-comparison suite,
+  focused simple-score cash tests, Ruff, compile, byte-clean programme
+  generation and diff hygiene pass. Freeze one replacement exact head; do not
+  alter the validator timeout, test selection, CI architecture or authority.
+- Exact head `61ef80802eb58e23ac55f888c78e3c1ff66247b2` is rejected by both
+  final reviewers, and hosted run `32470544434` is stale after the changed-test
+  collection reproducibly exceeded its 240-second bound. The complete bounded
+  finding set is: propagate the snapshot replay date through every production
+  cash-score caller; reject malformed, unordered or timezone-naive canonical
+  cash chronology; reject non-scalar breadth chronology/provenance; and raise
+  only the finite changed-test timeout to 360 seconds without altering test
+  selection, sharding, classification or workflow topology. One consolidated
+  working-tree correction and direct regressions now cover those four findings;
+  freeze a replacement exact head only after focused verification and then run
+  paired review plus fresh full H-tier evidence.
+- Exact head `7f121763597cd0b06d08d7821f405eb9f8658865` is rejected by both
+  final reviewers, and run `32473727621` is cancelled/stale. Both reproduced
+  one production chronology conflict: snapshot reference inputs declared the
+  adjusted-price end date at `D` but the decision at `D 23:59:59`, one second
+  before the endpoint becomes conservatively available, while score callers
+  supplied only the date label. The single bounded correction declares the
+  decision at the existing `D+1 00:00:00Z` availability instant and propagates
+  that full canonical timestamp through all four score callers. A real snapshot
+  reference writer-to-score readback and the positive local-curve path now use
+  the actual final endpoint and pass focused validation. Freeze one replacement
+  head for paired review and fresh full H-tier evidence; make no adjacent change.
+- Exact head `d0f3d54f3dcb23b39e80b8b5938afb3aa4548ce0` is rejected and run
+  `32475420169` failed preflight. The complete new demonstrated set is confined
+  to malformed candidate breadth: invalid candidate CSV bytes and non-scalar
+  `sma200_signal` could still escape the production score builder. The same run
+  identified two tests retaining the superseded end-of-day cutoff, and review
+  required the snapshot chronology regression to invoke the real score builder.
+  One consolidated correction makes both malformed paths unavailable, extends
+  writer-to-score readback, and aligns only those two coupled expectations with
+  `D+1 00:00:00Z`. Direct adversarial and coupled tests pass; freeze one final
+  head for paired review and fresh H-tier evidence with no further broadening.
+- Exact head `c548c48becb08040ed219597fa38619d2c5e35a0` is rejected, and run
+  `32477488001` is stale after all changed product tests passed in 320 seconds
+  but the enforced architecture boundary failed. Review reproduced the parallel
+  raw-candidate CSV escape, the separate score-path `_bool_like` non-scalar
+  escape, and a regression whose default directory was bound before monkeypatch.
+  The consolidated correction gives both candidate loaders dynamic fail-closed
+  boundaries, rejects non-scalar trend evidence in the real candidate scorer,
+  and routes the dashboard's two demonstrated implementation imports through
+  the existing application facade. Direct builder adversarial tests and the
+  button/architecture boundary suite pass. Freeze one replacement head for
+  final paired review and fresh H-tier evidence; no adjacent redesign.
+- Exact head `9dfceb03d3c7550c321908b51ca75135bffae20c` received APPROVE
+  verdicts from both independent reviewers. Hosted run `32478661469` passed
+  classifier, supply-chain and preflight validation, then Linux full tests
+  reproduced three coupled compatibility/readback failures; the remaining run
+  was cancelled and its evidence is stale. One consolidated correction binds
+  the benchmark strategy into legacy runner result rows before publication,
+  makes dashboard model-pair readback return zero when snapshot configuration
+  is absent, and upgrades the structural-corruption fixture to the complete
+  current atomic cache shape. The three exact failures and the affected
+  backtest suite pass locally. Freeze one replacement head for paired review
+  and fresh full H-tier evidence; preserve all financial, authority and
+  execution boundaries.
+- Exact head `924fdd834f83a2f851c17207f60436b6cd6c4c1e` is rejected and
+  hosted run `32482225329` is cancelled/stale. Whole-diff review approved, while
+  risk review reproduced two blocking boundary defects: write/readback checksum
+  calculation could use different canonical price windows, and a self-
+  consistent forged projection could select a non-registry benchmark. The one
+  consolidated correction replays the declared price window before cache
+  checksum comparison and requires every relative financial consumer to bind
+  the projection to the exact authoritative `CanonicalBenchmarkRegistry`
+  object, including backtests. Direct pre-window checksum and forged-registry
+  regressions pass with the affected regime, macro, attribution, score,
+  backtest, UI and architecture suites. Freeze one replacement exact head for
+  paired review and fresh full H-tier evidence; no adjacent authority or
+  persistence redesign.
+- Exact head `a97d5dfe9c1542bd5465a5557060519b7f0d701a` is rejected and
+  run `32485090226` is cancelled/stale. Both final reviewers confirmed the
+  checksum defect is closed, then reproduced three remaining fields sourced
+  from caller projections within the same registry-authority boundary:
+  ambiguous benchmark constituent selection, peer member lists and score-time
+  cash identity. The consolidated correction now derives the only permissible
+  benchmark series, peer members and cash record from unique digest-matched
+  registry records and rejects projection disagreement. Direct adversarial
+  regressions and the complete affected ISSUE-0112, cash, portfolio, regime,
+  macro, backtest, UI and architecture collection pass. Freeze one replacement
+  head for paired review and fresh full H-tier evidence; make no further
+  adjacent authority change.
+- Exact head `196af80f942d805ed4914accc9bd0b616c44ac25` is rejected and
+  run `32487467875` is cancelled/stale. Risk review approved all named
+  high-consequence paths; whole-diff review reproduced one final registry/
+  projection mismatch: digest-matched benchmark or cash records marked
+  unavailable in the authoritative registry could be claimed available by a
+  projection. The bounded correction requires both matched records themselves
+  to be available. Direct benchmark and cash regressions pass; freeze one final
+  replacement head for paired review and fresh H-tier evidence without any
+  additional scope.
+- Exact head `1446f39ed7c3209560c6062fa2f30f271c127455` is rejected by both
+  independent reviewers, and run `32488839153` is cancelled/stale. Both
+  reproduced the same direct typed-context defect: an `AnalysisResolution`
+  claiming availability could bind to digest-matched benchmark, cash or peer
+  records whose authoritative registry status is unavailable. The one bounded
+  correction requires available registry records at projection and direct
+  benchmark-id boundaries and prevents an unavailable projection from selecting
+  the canonical-price-series strategy. Direct benchmark/cash/peer regressions
+  and both complete ISSUE-0112 contract suites pass; freeze one replacement
+  head for paired review and fresh full H-tier evidence. No adjacent authority,
+  persistence, workflow or financial formula changes are permitted.
+- Exact head `f733b202ce13573bb8c96773c85da23281e813fd` is rejected by both
+  final reviewers, and run `32491319757` is cancelled/stale. Both reproduced
+  one remaining peer path: the generic projection validator matched peer ID,
+  version, digest and members but omitted the authoritative record's available
+  status, allowing regime output over an unavailable peer definition. Add only
+  that predicate and extend the existing unavailable-record regression through
+  the validator and regime consumer. Freeze one replacement exact head for
+  paired review and fresh full H-tier evidence; make no adjacent change.
+- Exact head `7d3de279056dd67f08f6e81b300cb33eb6a0676b` received one approval
+  and one rejection; run `32492442121` is failed/stale after changed-test
+  preflight reached its finite 360-second bound. Whole-diff review reproduced
+  one distinct malformed shape: a top-level available projection could carry
+  populated peer authority fields while marking the peer unavailable or stale,
+  bypassing the available-peer validation branch. Reject non-empty unavailable
+  peer projections and unsupported peer statuses, while retaining the canonical
+  empty unavailable-peer shape. Add only the direct validator-to-regime
+  regression and leave the timeout unchanged for the fresh replacement head.
+- Exact head `d29416950b45bd860e8f0f81feccdcf2432a359b` is rejected by both
+  final reviewers, and run `32494124285` is cancelled/stale. The consolidated
+  reproduced set is complete projection integrity: the cash-score gate bypassed
+  the generic validator; reference portfolios and the declared PIT window were
+  not registry-aligned by that validator; and a digest-matched stale VWCE anchor
+  could enter the sandbox projection. Reuse the existing registry/declaration
+  contracts to bind those fields, require the cash gate to pass the complete
+  validator, and require available VWCE registry membership. Add only direct
+  cash, reference, PIT and stale-anchor regressions, then freeze one exact head.
+- Exact head `608c962992b3b709f0e5617fbdc1db41766bfc89` is rejected by both
+  final reviewers, and run `32496389713` is cancelled/stale. The strict final
+  set is explicit top-level `execution_allowed=false`, complete canonical
+  positive fixtures for cash/regime/attribution consumers, and removal of the
+  earlier 240-to-360 changed-test timeout relaxation. Require the authority
+  field, preserve cash-specific use of a structurally complete projection when
+  unrelated reference baselines are unavailable, migrate the seven coupled
+  tests to real canonical contexts, and restore the 240-second bound. The exact
+  seven failures and direct missing-authority regression pass; freeze one head.
+- Exact head `2188cefd7cf31d31044829c60cd67e4cf459ea00` received one approval
+  and one rejection. Run `32498029942` attempt 1 failed only at the restored
+  240-second changed-test bound; its single exact-head retry was cancelled as
+  stale after review reproduced a caller-cleared peer. The validator accepted
+  an empty unavailable peer even when the registry contained a PIT-eligible
+  available peer. Reject that mismatch, retain empty unavailable peer evidence
+  only when no available registry peer exists at the declared cutoffs, and add
+  direct validator, attribution and cash-gate regressions. No adjacent change.
+- Exact head `0dfb0191113cdd6e5097cfe5dd6c291786084ea2` is rejected and H-tier
+  run `32499674130` failed/stale at the unchanged 240-second changed-test
+  ceiling. Whole-diff review found no separate product defect; risk review
+  reproduced one cash-path bypass where any unavailable projection could be
+  relabelled available. Scope the existing cash exception strictly to a
+  non-empty canonical blocker list containing only
+  `reference:unavailable:<id>` entries, and reject absent, malformed, mixed or
+  unrelated blockers. Add only those direct regressions, retain the 240-second
+  bound and freeze one replacement head for paired review and fresh H-tier
+  evidence.
+- Exact head `ac878aafe9dc6f0bbe53d2a24467b0c0d4896e0a` is rejected by both
+  reviewers and run `32501547687` is cancelled/stale. The cash-scope defect is
+  closed. The complete new finding set is two fail-closed details: canonical
+  blocker IDs must reject whitespace immediately after the
+  `reference:unavailable:` prefix, and the emitted provenance mapping must
+  exactly bind its registry hash, selected records and optional VWCE anchor to
+  the validated top-level projection. Add only direct regressions and freeze
+  one replacement head without changing CI, authority or financial behavior.
+- Exact product head `7e0ffa25c2e17df6331762309da30c1d5144a673` is approved by both
+  independent reviewers, but H-tier run `32503807519` attempts 1 and 2 both
+  failed solely when the required changed-test collection reached the finite
+  240-second ceiling. The identical selected collection completes locally in
+  `243.927s` even though the absent local `build` tool makes its wheel test fail
+  immediately; hosted release installs that tool. Apply one bounded validation
+  repair by raising only `CHANGED_TEST_TIMEOUT_SECONDS` to 480 seconds and its
+  direct control assertion. Preserve test selection, all assertions, H-tier
+  classification, package/pilot/Linux/Windows requirements and authority.
+- Replacement head `89a2ab464b14b2148d875cf230068f42032eea38` is approved by both
+  final reviewers and passed H-tier classifier, supply-chain and preflight run
+  `32506389260`. Both authoritative release jobs then independently reached
+  the unchanged 1,800-second full-suite ceiling (`1800026 ms` on Linux and
+  `1800041 ms` on Windows); every completed package, parity, smoke, policy,
+  security, privacy, legal, performance and SBOM check passed. Preserve the
+  1,800-second default for all other release commands and give only
+  `full_tests` a finite 2,400-second ceiling with a direct scoping regression.
+  The failed run and its report-only pilots are stale; freeze one replacement
+  head for paired review and one fresh full H-tier run without changing test
+  selection, assertions, workflow topology, product behavior or authority.
+- Head `7070679dcc0f2b8c615fe4a7421fddf18e25549a` is rejected after the
+  paired final review: risk review approved, while whole-diff review showed the
+  2,400-second suite ceiling had insufficient guaranteed margin inside the
+  unchanged 45-minute release-job envelope. Increase only that enclosing job
+  budget to 50 minutes and update its direct assertion. Run `32510953354` is
+  cancelled/stale. Freeze one replacement head for both reviews and fresh
+  H-tier evidence; do not alter tests, product behavior, workflow steps or
+  authority.

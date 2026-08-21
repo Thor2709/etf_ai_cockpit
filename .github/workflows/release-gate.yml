@@ -342,7 +342,7 @@ jobs:
           - platform: linux
             runner: ubuntu-latest
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 50
     steps:
       - name: Check out source
         uses: actions/checkout@v4

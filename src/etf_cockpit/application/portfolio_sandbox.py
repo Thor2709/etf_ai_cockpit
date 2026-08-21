@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import sqlite3
 from datetime import datetime
+from types import MappingProxyType
 from typing import Mapping
 
 import pandas as pd
@@ -30,6 +31,16 @@ from etf_cockpit.portfolio.sandbox import (
     create_candidate,
     holdings_checksum,
     select_holdings_view,
+)
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    AnalysisResolution,
+    BenchmarkReferenceError,
+    CanonicalBenchmarkRegistry,
+    VwceAnchorEvidence,
+    VwceAnchorResolution,
+    unavailable_reference_projection,
+    project_profile_relative_analysis,
+    resolve_vwce_anchor,
 )
 from etf_cockpit.application.overlap import build_direct_overlap_view, direct_overlap_payload
 from etf_cockpit.application.portfolio_optimiser import build_portfolio_optimiser
@@ -110,7 +121,32 @@ def analyse_portfolio_candidate(
     portfolio_id: str | None = None,
     snapshot_id: str | None = None,
     holdings_view: str = "combined",
+    reference_registry: CanonicalBenchmarkRegistry | None = None,
+    reference_instrument: Mapping[str, object] | None = None,
+    reference_currency: str | None = None,
+    reference_horizon_years: float | None = None,
+    reference_start_date: str | None = None,
+    reference_end_date: str | None = None,
+    reference_decision_time: str | None = None,
+    reference_portfolio_ids: tuple[str, ...] | None = None,
+    vwce_anchor: VwceAnchorEvidence | None = None,
+    vwce_listing_id: str | None = None,
+    vwce_conversion_evidence: Mapping[str, object] | None = None,
 ) -> PortfolioAnalysis:
+    reference_registry = reference_registry if reference_registry is not None else getattr(snapshot, "benchmark_reference_registry", None)
+    if reference_registry is None:
+        reference_registry = CanonicalBenchmarkRegistry()
+    reference_instrument = reference_instrument if reference_instrument is not None else getattr(snapshot, "benchmark_reference_instrument", None)
+    reference_currency = reference_currency if reference_currency is not None else getattr(snapshot, "benchmark_reference_currency", None)
+    reference_horizon_years = reference_horizon_years if reference_horizon_years is not None else getattr(snapshot, "benchmark_reference_horizon_years", None)
+    reference_start_date = reference_start_date if reference_start_date is not None else getattr(snapshot, "benchmark_reference_start_date", None)
+    reference_end_date = reference_end_date if reference_end_date is not None else getattr(snapshot, "benchmark_reference_end_date", None)
+    reference_decision_time = reference_decision_time if reference_decision_time is not None else getattr(snapshot, "benchmark_reference_decision_time", None)
+    if reference_portfolio_ids is None:
+        reference_portfolio_ids = tuple(getattr(snapshot, "benchmark_reference_portfolio_ids", ()))
+    vwce_anchor = vwce_anchor if vwce_anchor is not None else getattr(snapshot, "vwce_anchor_evidence", None)
+    vwce_listing_id = vwce_listing_id if vwce_listing_id is not None else getattr(snapshot, "vwce_listing_id", None)
+    vwce_conversion_evidence = vwce_conversion_evidence if vwce_conversion_evidence is not None else getattr(snapshot, "vwce_conversion_evidence", None)
     holdings = select_holdings_view(getattr(snapshot, "holdings"), holdings_view)
     binding = portfolio_snapshot_binding(
         snapshot,
@@ -166,7 +202,227 @@ def analyse_portfolio_candidate(
         )
     services = _service_evidence(snapshot, analysis)
     services["capability_matrix"] = _capability_matrix_evidence(governed_holdings, target_capabilities)
+    reference_resolution: AnalysisResolution | None = None
+    selected_vwce_anchor_digest = None if vwce_anchor is None else vwce_anchor.digest()
+    if reference_registry is not None:
+        services["benchmark_reference"], reference_resolution = _resolve_reference_evidence(
+            reference_registry,
+            analysis_id=candidate.candidate_id,
+            instrument_id=candidate.candidate_id,
+            instrument=reference_instrument,
+            currency=reference_currency,
+            horizon_years=reference_horizon_years,
+            start_date=reference_start_date,
+            end_date=reference_end_date,
+            decision_time=reference_decision_time,
+            reference_portfolio_ids=reference_portfolio_ids,
+            selected_vwce_anchor_digest=selected_vwce_anchor_digest,
+        )
+    if vwce_anchor is not None:
+        anchor_digest = vwce_anchor.digest()
+        benchmark_reference = services["benchmark_reference"]
+        registry_anchor_matches = sum(
+            item.digest() == anchor_digest and item.status == "available"
+            for item in reference_registry.vwce_anchors
+        )
+        registry_anchor_bound = registry_anchor_matches == 1
+        if not registry_anchor_bound and isinstance(benchmark_reference, dict):
+            blockers = list(benchmark_reference.get("blockers", ()))
+            blockers.append("vwce_anchor:registry_membership_unavailable")
+            benchmark_reference["blockers"] = list(dict.fromkeys(blockers))
+            benchmark_reference["status"] = "unavailable"
+        anchor_resolution = _resolve_profile_anchor(
+            vwce_anchor,
+            listing_id=vwce_listing_id,
+            currency=reference_currency,
+            horizon_years=reference_horizon_years,
+            effective_date=reference_start_date,
+            decision_time=reference_decision_time,
+            conversion_evidence=vwce_conversion_evidence,
+        )
+        if (
+            reference_resolution is None
+            or reference_resolution.blockers
+            or not registry_anchor_bound
+        ):
+            reason = (
+                "registry_anchor_membership_unavailable"
+                if not registry_anchor_bound
+                else "reference_resolution_incomplete"
+            )
+            anchor_resolution = replace(anchor_resolution, status="unavailable", reason=reason)
+        services["profile_relative"] = project_profile_relative_analysis(
+            {"analysis_id": candidate.candidate_id, "analysis_status": "available"},
+            anchor_resolution,
+            anchor=vwce_anchor,
+            registry=reference_registry,
+            conversion_evidence=vwce_conversion_evidence,
+        )
+    else:
+        services["profile_relative"] = project_profile_relative_analysis(
+            {"analysis_id": candidate.candidate_id, "analysis_status": "available"},
+            VwceAnchorResolution(
+                "unavailable",
+                None,
+                vwce_listing_id,
+                "vwce_anchor_unavailable",
+                output_currency=reference_currency,
+                horizon_years=reference_horizon_years,
+            ),
+        )
     return replace(analysis, snapshot_binding=binding, service_evidence=services)
+
+
+def _resolve_reference_evidence(
+    registry: CanonicalBenchmarkRegistry,
+    *,
+    analysis_id: str,
+    instrument_id: str,
+    instrument: Mapping[str, object] | None,
+    currency: str | None,
+    horizon_years: float | None,
+    start_date: str | None,
+    end_date: str | None,
+    decision_time: str | None,
+    reference_portfolio_ids: tuple[str, ...],
+    selected_vwce_anchor_digest: str | None,
+) -> tuple[dict[str, object], AnalysisResolution | None]:
+    registry_hash = str(registry.as_payload()["registry_hash"])
+    selected_records = (
+        {}
+        if selected_vwce_anchor_digest is None
+        else {"vwce_anchor": selected_vwce_anchor_digest}
+    )
+
+    def unavailable(blocker: str) -> tuple[dict[str, object], AnalysisResolution | None]:
+        return (
+            {
+                **unavailable_reference_projection(registry_hash=registry_hash, blocker=blocker),
+                "provenance": {
+                    "registry_hash": registry_hash,
+                    "selected_records": selected_records,
+                    "selected_vwce_anchor_digest": selected_vwce_anchor_digest,
+                },
+            },
+            None,
+        )
+
+    if (
+        instrument is None
+        or currency is None
+        or horizon_years is None
+        or start_date is None
+        or end_date is None
+        or decision_time is None
+    ):
+        return unavailable("reference_resolution_inputs_unavailable")
+    try:
+        resolution = registry.resolve_analysis(
+            analysis_id=analysis_id,
+            purpose="comparison",
+            instrument_id=instrument_id,
+            instrument=instrument,
+            currency=currency,
+            horizon_years=horizon_years,
+            start_date=start_date,
+            end_date=end_date,
+            decision_time=decision_time,
+            reference_portfolio_ids=reference_portfolio_ids,
+        )
+    except (BenchmarkReferenceError, TypeError, ValueError) as exc:
+        return unavailable(f"reference_resolution_invalid:{type(exc).__name__}")
+    try:
+        projection = registry.ui_projection(
+            resolution,
+            selected_vwce_anchor_digest=selected_vwce_anchor_digest,
+        )
+    except BenchmarkReferenceError as exc:
+        return unavailable(f"reference_projection_invalid:{type(exc).__name__}")
+    projection["status"] = "available" if not resolution.blockers else "unavailable"
+    projection["benchmark_data_id"] = _benchmark_data_id(registry, resolution)
+    return projection, resolution
+
+
+def _benchmark_data_id(
+    registry: CanonicalBenchmarkRegistry,
+    resolution: AnalysisResolution,
+) -> str | None:
+    if resolution.benchmark.status != "available" or resolution.cash.status != "available":
+        return None
+    selected = resolution.benchmark
+    matches = [
+        item for item in registry.benchmarks
+        if item.benchmark_id == selected.selected_id
+        and item.version == selected.version
+        and item.digest() == selected.content_hash
+    ]
+    if len(matches) != 1:
+        return None
+    constituents = tuple(matches[0].constituents)
+    if selected.selected_id in constituents:
+        return selected.selected_id
+    return constituents[0] if len(constituents) == 1 else None
+
+
+def _resolve_profile_anchor(
+    anchor: VwceAnchorEvidence,
+    *,
+    listing_id: str | None,
+    currency: str | None,
+    horizon_years: float | None,
+    effective_date: str | None,
+    decision_time: str | None,
+    conversion_evidence: Mapping[str, object] | None,
+) -> VwceAnchorResolution:
+    normalized_listing_id = listing_id.strip() if isinstance(listing_id, str) and listing_id.strip() else None
+    if (
+        normalized_listing_id is None
+        or currency is None
+        or horizon_years is None
+        or effective_date is None
+        or decision_time is None
+    ):
+        return replace(
+            VwceAnchorResolution(
+                "unavailable",
+                anchor.canonical_share_class_id,
+                normalized_listing_id,
+                "listing_unavailable_at_cutoff" if normalized_listing_id is None else "profile_alignment_inputs_unavailable",
+                anchor_digest=anchor.digest(),
+            ),
+            output_currency=currency,
+            horizon_years=horizon_years,
+        )
+    try:
+        return resolve_vwce_anchor(
+            anchor,
+            listing_id=normalized_listing_id,
+            effective_date=effective_date,
+            decision_time=decision_time,
+            currency=currency,
+            horizon_years=horizon_years,
+            conversion_evidence=None if conversion_evidence is None else _freeze_mapping(conversion_evidence),
+        )
+    except (BenchmarkReferenceError, TypeError, ValueError):
+        return VwceAnchorResolution(
+            "unavailable",
+            anchor.canonical_share_class_id,
+            normalized_listing_id,
+            "profile_anchor_invalid",
+            anchor_digest=anchor.digest(),
+        )
+
+
+def _freeze_mapping(value: object) -> object:
+    """Detach conversion evidence before it crosses the resolver boundary."""
+
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_mapping(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_mapping(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return tuple(_freeze_mapping(item) for item in value)
+    return value
 
 
 def save_portfolio_candidate(
@@ -375,6 +631,7 @@ def portfolio_analysis_payload(
     expected_candidate_checksum = str(candidate_payload_checksum or canonical_candidate_checksum)
     if len(expected_candidate_checksum) != 64 or expected_candidate_checksum != canonical_candidate_checksum:
         raise ValueError("candidate payload checksum does not match candidate")
+    _assert_no_execution(analysis.service_evidence)
     body: dict[str, object] = {
         "schema_version": "portfolio_sandbox_result.v1",
         "candidate_id": analysis.candidate.candidate_id,

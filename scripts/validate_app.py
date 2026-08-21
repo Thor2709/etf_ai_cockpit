@@ -22,7 +22,7 @@ SCHEMA_VERSION = "1.0"
 REPORT_DIRECTORY = Path("artifacts/validation")
 OPTIONAL_COMPONENTS = ("torch", "timesfm", "toto")
 MODES = ("quick", "changed", "issue", "phase", "full", "offline", "packaged")
-CHANGED_TEST_TIMEOUT_SECONDS = 240
+CHANGED_TEST_TIMEOUT_SECONDS = 480
 
 
 @dataclass

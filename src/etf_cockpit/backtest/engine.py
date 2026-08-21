@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from collections.abc import Mapping
 import hashlib
 import json
 from itertools import combinations
@@ -12,6 +13,10 @@ import pandas as pd
 
 from etf_cockpit.backtest.benchmarks import equal_weights, momentum_weights, target_weights, trend_weights
 from etf_cockpit.backtest.metrics import performance_metrics
+from etf_cockpit.application.benchmark_reference import (
+    clip_to_decision_window,
+    validate_benchmark_reference,
+)
 from etf_cockpit.core.constants import TRADING_DAYS_PER_YEAR
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.types import DataQualityReport
@@ -20,6 +25,11 @@ from etf_cockpit.data.provenance import sha256_dataframe
 from etf_cockpit.data.etf_structure import structure_confidence_caps, structure_input_checksum
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.portfolio.costs import COST_MODEL_ID, estimate_rebalance_cost
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    CanonicalBenchmarkRegistry,
+    unavailable_reference_projection,
+    validate_execution_disabled,
+)
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION, build_quality_momentum_frame, quality_momentum_weights
 from etf_cockpit.signals.signal_pipeline import generate_signals
 
@@ -103,6 +113,84 @@ def _price_pivot(prices: pd.DataFrame) -> pd.DataFrame:
     frame["date"] = pd.to_datetime(frame["date"])
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     return frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index().dropna(how="all")
+
+
+def _declared_calculation_window(
+    reference_identity: Mapping[str, object] | None,
+) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    if reference_identity is None:
+        return None
+    analysis = reference_identity.get("analysis") if isinstance(reference_identity, Mapping) else None
+    if analysis is None and reference_identity.get("status") == "unavailable":
+        return None
+    if not isinstance(analysis, Mapping):
+        raise BacktestDataUnavailableError("invalid_reference_window: calculation window is missing")
+    try:
+        start = _naive_utc_timestamp(analysis["start_date"])
+        end = _naive_utc_timestamp(analysis["end_date"])
+        decision_time = _naive_utc_timestamp(analysis["decision_time"])
+    except (KeyError, TypeError, ValueError):
+        raise BacktestDataUnavailableError("invalid_reference_window: calculation window is malformed")
+    if (
+        pd.isna(start)
+        or pd.isna(end)
+        or pd.isna(decision_time)
+        or start > end
+        or end.normalize() > decision_time.normalize()
+    ):
+        raise BacktestDataUnavailableError("invalid_reference_window: calculation window is outside decision time")
+    return start.normalize(), end.normalize()
+
+
+def _naive_utc_timestamp(value: object) -> pd.Timestamp:
+    parsed = pd.Timestamp(str(value))
+    if parsed.tzinfo is not None:
+        parsed = parsed.tz_convert("UTC").tz_localize(None)
+    return parsed
+
+
+def _validated_benchmark_data_id(
+    benchmark_data_id: str | None,
+    benchmark_reference: Mapping[str, object] | None,
+    reference_identity: Mapping[str, object] | None,
+    benchmark_registry: CanonicalBenchmarkRegistry | None,
+    available_columns: pd.Index,
+) -> str | None:
+    """Use a benchmark only when its projection and identity agree exactly."""
+
+    if (
+        benchmark_reference is None
+        or reference_identity is None
+        or validate_benchmark_reference(
+            benchmark_reference,
+            benchmark_data_id,
+            registry=benchmark_registry,
+        )
+        is None
+    ):
+        return None
+    validate_execution_disabled(benchmark_reference)
+    validate_execution_disabled(reference_identity)
+    if benchmark_reference.get("status") != "available" or reference_identity.get("status") != "available":
+        return None
+    benchmark = benchmark_reference.get("benchmark")
+    cash = benchmark_reference.get("cash")
+    if not isinstance(benchmark, Mapping) or not isinstance(cash, Mapping):
+        return None
+    if benchmark.get("status") != "available" or cash.get("status") != "available":
+        return None
+    selected_id = str(benchmark_data_id).strip() if benchmark_data_id is not None else ""
+    if not selected_id or selected_id not in available_columns:
+        return None
+    if benchmark_reference.get("benchmark_data_id") != selected_id:
+        return None
+    if reference_identity.get("benchmark_data_id") != selected_id:
+        return None
+    if reference_identity.get("registry_hash") != benchmark_reference.get("registry_hash"):
+        return None
+    if reference_identity.get("selected_records") != benchmark_reference.get("selected_records"):
+        return None
+    return selected_id
 
 
 def _optional_price_pivot(prices: pd.DataFrame, value: str, columns: list[str]) -> pd.DataFrame:
@@ -193,8 +281,32 @@ def run_backtest(
     structure_report_records: object = None,
     structure_supplemental_rows: object = None,
     structure_holdings: object = None,
+    benchmark_data_id: str | None = None,
+    benchmark_reference: Mapping[str, object] | None = None,
+    reference_identity: Mapping[str, object] | None = None,
+    benchmark_registry: CanonicalBenchmarkRegistry | None = None,
 ) -> BacktestReport:
+    validate_execution_disabled(benchmark_reference or unavailable_reference_projection())
+    validate_execution_disabled(reference_identity or {})
+    calculation_window = _declared_calculation_window(reference_identity)
+    if calculation_window is not None:
+        if not isinstance(reference_identity, Mapping):
+            raise BacktestDataUnavailableError("invalid_reference_window: calculation window is missing")
+        analysis = reference_identity.get("analysis")
+        if not isinstance(analysis, Mapping):
+            raise BacktestDataUnavailableError("invalid_reference_window: calculation window is missing")
+        prices = clip_to_decision_window(
+            prices,
+            start_date=analysis.get("start_date"),
+            end_date=analysis.get("end_date"),
+            decision_time=analysis.get("decision_time"),
+        )
+        if prices.empty:
+            raise BacktestDataUnavailableError("invalid_reference_window: no prices are available at the decision cutoff")
     pivot_raw = _price_pivot(prices)
+    if calculation_window is not None:
+        start, end = calculation_window
+        pivot_raw = pivot_raw.loc[(pivot_raw.index >= start) & (pivot_raw.index <= end)]
     columns = [column for column in config.universe.enabled_ids if column in pivot_raw.columns]
     if not columns:
         raise BacktestDataUnavailableError("not_enough_data: no configured instruments have adjusted-close history")
@@ -210,9 +322,28 @@ def run_backtest(
     open_pivot = _optional_price_pivot(prices, "open", columns)
     high_pivot = _optional_price_pivot(prices, "high", columns)
     low_pivot = _optional_price_pivot(prices, "low", columns)
+    canonical_benchmark_id = _validated_benchmark_data_id(
+        benchmark_data_id,
+        benchmark_reference,
+        reference_identity,
+        benchmark_registry,
+        pivot.columns,
+    )
+    canonical_reference = dict(benchmark_reference or unavailable_reference_projection())
     metadata: dict[str, object] = {
         "strategy": "signal_strategy",
-        "benchmark_strategy": "buy_and_hold",
+        "benchmark_strategy": "canonical_price_series" if canonical_benchmark_id else "unavailable",
+        "benchmark_data_id": canonical_benchmark_id,
+        "benchmark_reference": canonical_reference,
+        "reference_identity": dict(reference_identity or {
+            "schema": "benchmark-reference-cache.v1",
+            "status": "unavailable",
+            "registry_hash": canonical_reference.get("registry_hash", "unavailable"),
+            "benchmark_data_id": canonical_benchmark_id,
+            "selected_records": canonical_reference.get("selected_records", {}),
+            "calculation_schema": "canonical-benchmark-cash.v1",
+            "execution_allowed": False,
+        }),
         "price_field": "adjusted_close",
         "raw_price_rows": int(len(selected_raw)),
         "complete_price_rows": int(len(pivot)),
@@ -330,7 +461,15 @@ def run_backtest(
                 metadata["quality_momentum_evidence"] = "unavailable"
             # The signal strategy uses the same live signal pipeline, then tilts around targets.
             truncated_prices = prices[pd.to_datetime(prices["date"]) <= dt].copy()
-            features = compute_features(truncated_prices, benchmark_etf_id=columns[0])
+            if calculation_window is not None:
+                truncated_dates = pd.to_datetime(truncated_prices["date"])
+                truncated_prices = truncated_prices.loc[
+                    (truncated_dates >= calculation_window[0])
+                    & (truncated_dates <= calculation_window[1])
+                ].copy()
+            features = compute_features(truncated_prices, benchmark_etf_id=canonical_benchmark_id)
+            if canonical_benchmark_id is None:
+                features.loc[:, ["relative_strength_60d", "relative_strength_120d"]] = np.nan
             latest = latest_features(features, as_of_date=dt.date())
             holdings = _holdings_from_weights(weights["signal_strategy"], pivot.iloc[i], equity["signal_strategy"][-1], dt.date())
             report = validate_prices(truncated_prices, as_of_date=dt.date(), min_history_days=180)
@@ -444,7 +583,11 @@ def run_backtest(
                     )
 
     equity_curves = pd.DataFrame({name: values for name, values in equity.items()}, index=index_values)
-    benchmark = equity_curves["buy_and_hold"]
+    benchmark = (
+        pivot.loc[equity_curves.index, canonical_benchmark_id]
+        if canonical_benchmark_id is not None
+        else None
+    )
     pbo_probability = _pbo_probability_proxy(equity_curves, strategies)
     parameter_sensitivity = _parameter_sensitivity_status(equity_curves, trade_rows, strategies)
     result_rows = []
@@ -461,6 +604,10 @@ def run_backtest(
     metadata["quality_momentum_evidence_checksum"] = quality_momentum_evidence_checksum(quality_evidence_frame)
     for name in strategies:
         metrics = performance_metrics(equity_curves[name], benchmark=benchmark, turnover=turnover[name], cost_drag=cost_drag[name])
+        metrics["benchmark_id"] = canonical_benchmark_id
+        metrics["benchmark_status"] = "available" if canonical_benchmark_id else "unavailable"
+        if canonical_benchmark_id is None:
+            metrics["information_ratio"] = None
         strategy_trades = [row for row in trade_rows if row["strategy"] == name]
         returns_252d = equity_curves[name].pct_change(252)
         metrics["n_walk_forward_periods"] = rebalance_count

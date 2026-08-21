@@ -324,4 +324,5 @@ def test_package_configuration_carries_and_smoke_validates_inventory() -> None:
     project = Path("pyproject.toml").read_text(encoding="utf-8")
     smoke = Path("scripts/smoke_app.py").read_text(encoding="utf-8")
     assert '"configs" = ["configs/ui_acceptance.yaml"]' in project
+    assert '"etf_cockpit.resources" = ["benchmark_reference_registry.json"]' in project
     assert "verify_ui_action_inventory()" in smoke

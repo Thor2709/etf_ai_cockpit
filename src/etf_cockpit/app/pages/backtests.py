@@ -8,6 +8,7 @@ from etf_cockpit.app.components.cards import metric_card, panel, section_header
 from etf_cockpit.app.components.charts import equity_drawdown_chart, history_chart
 from etf_cockpit.app.components.tables import accessible_table
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.core.paths import EXPORTS_DIR
 from etf_cockpit.application.ui_facade import NEWS_TIMESTAMP_VALIDATION_PATH, cost_capacity_status, event_engine_status, export_table
 from etf_cockpit.application.validation import build_validation_preview
@@ -27,7 +28,14 @@ def _format_number(value: object, *, percent: bool = False, money: bool = False,
 def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
     report = state.snapshot.backtest
     news_warning = _news_validation_warning()
-    validation_panel = _validation_panel(getattr(state.snapshot, "prices", None))
+    validation_panel = _validation_panel(
+        getattr(state.snapshot, "prices", None),
+        reference_context=context_from_snapshot(
+            state.snapshot,
+            purpose="validation",
+            analysis_id=f"validation:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
+        ),
+    )
     event_panel = _event_replay_panel()
     cost_panel = _cost_capacity_panel(state.snapshot.config)
     if report.results.empty or "strategy_name" not in report.results.columns:
@@ -288,8 +296,8 @@ def _cost_capacity_panel(config: object) -> ft.Control:
     )
 
 
-def _validation_panel(prices: object) -> ft.Control:
-    report = build_validation_preview(prices)
+def _validation_panel(prices: object, *, reference_context=None) -> ft.Control:
+    report = build_validation_preview(prices, reference_context=reference_context)
     if report is None:
         message = "Validation Designer unavailable: local adjusted-price history is insufficient for the configured folds."
     else:

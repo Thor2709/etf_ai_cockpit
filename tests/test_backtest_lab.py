@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import inspect
+import json
+import hashlib
+from io import BytesIO
 
 import pandas as pd
 import pytest
@@ -14,6 +17,7 @@ from etf_cockpit.backtest.engine import (
 )
 from etf_cockpit.backtest.metrics import tail_event_diagnostics
 from etf_cockpit.core.config import load_config
+from etf_cockpit.core.atomic_io import AtomicWriteRequest
 from etf_cockpit.data.sample_data import generate_sample_prices
 from etf_cockpit import services
 
@@ -56,7 +60,8 @@ def test_backtest_report_makes_data_and_execution_assumptions_explicit() -> None
     assert report.metadata["missing_observation_rows"] >= 1
     assert report.metadata["lookahead_protection"] == "history_truncated_at_signal_date"
     assert report.metadata["execution_delay_sessions"] == 1
-    assert report.metadata["benchmark_strategy"] == "buy_and_hold"
+    assert report.metadata["benchmark_strategy"] == "unavailable"
+    assert report.metadata["benchmark_data_id"] is None
     assert report.metadata["data_status"] == "warning"
     required_trade_fields = {
         "signal_date",
@@ -176,3 +181,78 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     assert cached.metadata["quality_momentum_evidence_checksum"] == generated.metadata[
         "quality_momentum_evidence_checksum"
     ]
+    metadata_path = tmp_path / "backtest_metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["reference_identity"]["execution_allowed"] = 0
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    assert service._load_cached_backtest() is None
+
+
+def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
+    tmp_path, monkeypatch
+) -> None:
+    from etf_cockpit.data.etf_structure import LocalStructuralEvidence
+
+    config = load_config()
+    prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
+    monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
+    monkeypatch.setattr(
+        services,
+        "_load_local_structural_evidence",
+        lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
+    )
+    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    service = services.BacktestService(config, universe_revision="test-revision")
+    service.run_backtest()
+
+    real_read = services.read_atomic_group
+    real_write = services.atomic_write_group
+    calls: list[tuple] = []
+    published = False
+
+    def interleaved_read(paths, *, timeout_seconds=5.0):
+        nonlocal published
+        path_tuple = tuple(paths)
+        calls.append(path_tuple)
+        snapshot = real_read(path_tuple, timeout_seconds=timeout_seconds)
+        if not published:
+            published = True
+            by_path = dict(zip(path_tuple, snapshot, strict=True))
+            results_path = next(path for path in path_tuple if path.name == "backtest_results.csv")
+            results = pd.read_csv(BytesIO(by_path[results_path]))
+            results.loc[results["strategy_name"] == "signal_strategy", "calmar"] = 999.0
+            replacement = results.to_csv(index=False).encode("utf-8")
+            sidecar_path = services._universe_cache_meta_path(results_path)
+            sidecar = json.loads(by_path[sidecar_path].decode("utf-8"))
+            sidecar["payload_sha256"] = hashlib.sha256(replacement).hexdigest()
+            by_path[results_path] = replacement
+            by_path[sidecar_path] = json.dumps(sidecar, sort_keys=True).encode("utf-8")
+            real_write(
+                tuple(
+                    AtomicWriteRequest(path, payload, lambda _candidate: None)
+                    for path, payload in by_path.items()
+                )
+            )
+        return snapshot
+
+    monkeypatch.setattr(services, "read_atomic_group", interleaved_read)
+    cached = service._load_cached_backtest()
+
+    assert cached is not None
+    assert len(calls) == 1
+    assert {path.name for path in calls[0]} == {
+        "backtest_results.csv",
+        "backtest_results.csv.meta.json",
+        "equity_curves.csv",
+        "equity_curves.csv.meta.json",
+        "trade_log.csv",
+        "trade_log.csv.meta.json",
+        "signal_log.csv",
+        "signal_log.csv.meta.json",
+        "quality_momentum_evidence.csv",
+        "quality_momentum_evidence.csv.meta.json",
+        "backtest_metadata.json",
+    }
+    assert cached.results.loc[cached.results["strategy_name"] == "signal_strategy", "calmar"].iloc[0] != 999.0

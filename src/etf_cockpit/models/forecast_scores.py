@@ -1,31 +1,187 @@
 from __future__ import annotations
 
+import hashlib
+from io import BytesIO
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.paths import FORECASTS_DIR
+from etf_cockpit.core.atomic_io import read_atomic_group
+from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.versioning import current_settings_revision
 
 PRIMARY_MODEL_HORIZON_DAYS = 60
 FALLBACK_MODEL_HORIZONS_DAYS = (120, 20, 5, 180)
 
 
-def _forecast_cache_matches(path: Path, universe_revision: str, settings_revision: str | None = None) -> bool:
+def forecast_request_identity(
+    config: AppConfig,
+    horizons: list[int] | None = None,
+    *,
+    live_optional_models: bool = True,
+) -> dict[str, object]:
+    requested = horizons if horizons is not None else config.models.forecast_horizons_trading_days
+    if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in requested):
+        raise ValueError("forecast horizons must be positive integers")
+    normalized = sorted(set(requested))
+    if not normalized:
+        raise ValueError("at least one forecast horizon is required")
+    return {
+        "schema": "forecast-cache-request.v1",
+        "requested_horizons": normalized,
+        "live_optional_models": live_optional_models is True,
+    }
+
+
+def configured_forecast_request_identity(config: AppConfig) -> dict[str, object]:
+    """Return the one canonical request published by the interactive scoring workflow."""
+
+    return forecast_request_identity(
+        config,
+        [PRIMARY_MODEL_HORIZON_DAYS],
+        live_optional_models=False,
+    )
+
+
+def _valid_forecast_request_identity(identity: Mapping[str, object]) -> bool:
+    horizons = identity.get("requested_horizons")
+    return (
+        identity.get("schema") == "forecast-cache-request.v1"
+        and isinstance(horizons, list)
+        and bool(horizons)
+        and all(isinstance(value, int) and not isinstance(value, bool) and value > 0 for value in horizons)
+        and horizons == sorted(set(horizons))
+        and type(identity.get("live_optional_models")) is bool
+    )
+
+
+def _canonical_price_binding_required(reference_identity: Mapping[str, object] | None) -> bool:
+    return isinstance(reference_identity, Mapping) and "analysis" in reference_identity
+
+
+def _reference_identity_hash(identity: Mapping[str, object]) -> str:
+    encoded = json.dumps(dict(identity), sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _cache_binding_matches(metadata: Mapping[str, object], expected: Mapping[str, object]) -> bool:
+    return _valid_price_binding(expected) and all(metadata.get(key) == value for key, value in expected.items())
+
+
+def _valid_price_binding(binding: Mapping[str, object]) -> bool:
+    checksum = binding.get("price_snapshot_checksum")
+    revision = binding.get("price_snapshot_revision")
+    cutoff = binding.get("effective_cutoff")
+    window = binding.get("calculation_window")
+    return (
+        isinstance(checksum, str)
+        and len(checksum) == 64
+        and all(character in "0123456789abcdef" for character in checksum)
+        and revision == checksum
+        and isinstance(cutoff, str)
+        and bool(cutoff)
+        and isinstance(window, Mapping)
+        and window.get("decision_time") == cutoff
+        and all(isinstance(window.get(key), str) and window.get(key) for key in ("start_date", "end_date"))
+    )
+
+
+def _forecast_cache_matches(
+    path: Path,
+    universe_revision: str | None,
+    settings_revision: str | None = None,
+    reference_identity: Mapping[str, object] | None = None,
+    price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
+) -> bool:
     metadata_path = Path(f"{path}.meta.json")
-    if not metadata_path.exists():
+    if not path.is_file() or not metadata_path.is_file():
         return False
     try:
-        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError):
+        payload_bytes, metadata_bytes = read_atomic_group((path, metadata_path))
+        payload = json.loads(metadata_bytes.decode("utf-8"))
+    except (OSError, ValueError, TypeError, RecursionError):
         return False
-    expected_settings = settings_revision or current_settings_revision()
-    return (
-        isinstance(payload, dict)
-        and str(payload.get("universe_revision") or "") == universe_revision
-        and str(payload.get("settings_revision") or "") == expected_settings
+    return _forecast_cache_snapshot_matches(
+        payload_bytes,
+        payload,
+        universe_revision,
+        settings_revision,
+        reference_identity,
+        price_binding,
+        forecast_request_identity,
+    )
+
+
+def _forecast_cache_snapshot_matches(
+    payload_bytes: bytes,
+    metadata: object,
+    universe_revision: str | None,
+    settings_revision: str | None,
+    reference_identity: Mapping[str, object] | None,
+    price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
+) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    matches = True
+    if universe_revision is not None:
+        expected_settings = settings_revision or current_settings_revision()
+        matches = str(metadata.get("universe_revision") or "") == universe_revision
+        matches = matches and str(metadata.get("settings_revision") or "") == expected_settings
+    elif settings_revision is not None:
+        matches = str(metadata.get("settings_revision") or "") == settings_revision
+    if not matches or reference_identity is None:
+        if not matches:
+            return False
+        checksum = metadata.get("payload_sha256")
+        return (
+            (checksum is None or checksum == hashlib.sha256(payload_bytes).hexdigest())
+            and (price_binding is None or _cache_binding_matches(metadata, price_binding))
+            and (
+                forecast_request_identity is None
+                or _forecast_request_matches(metadata, forecast_request_identity)
+            )
+        )
+    if metadata.get("payload_sha256") != hashlib.sha256(payload_bytes).hexdigest():
+        return False
+    if price_binding is not None and not _cache_binding_matches(metadata, price_binding):
+        return False
+    if forecast_request_identity is not None and not _forecast_request_matches(metadata, forecast_request_identity):
+        return False
+    return _reference_identity_matches(
+        metadata.get("reference_identity"),
+        metadata.get("reference_identity_hash"),
+        reference_identity,
+    )
+
+
+def _reference_identity_matches(
+    stored: object,
+    claimed_hash: object,
+    expected: Mapping[str, object],
+) -> bool:
+    if not isinstance(stored, Mapping):
+        return False
+    try:
+        expected_hash = _reference_identity_hash(expected)
+        return (
+            str(claimed_hash or "") == expected_hash
+            and _reference_identity_hash(stored) == expected_hash
+        )
+    except (TypeError, ValueError, RecursionError):
+        return False
+
+
+def _forecast_request_matches(metadata: Mapping[str, object], expected: Mapping[str, object]) -> bool:
+    return _valid_forecast_request_identity(expected) and _reference_identity_matches(
+        metadata.get("forecast_request_identity"),
+        metadata.get("forecast_request_identity_hash"),
+        expected,
     )
 
 
@@ -35,11 +191,39 @@ def latest_forecast_file(
     *,
     universe_revision: str | None = None,
     settings_revision: str | None = None,
+    reference_identity: Mapping[str, object] | None = None,
+    price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
 ) -> Path | None:
+    if _canonical_price_binding_required(reference_identity) and price_binding is None:
+        return None
+    if reference_identity is not None and (
+        forecast_request_identity is None or not _valid_forecast_request_identity(forecast_request_identity)
+    ):
+        return None
     files = sorted(directory.glob(pattern), key=lambda path: path.stat().st_mtime, reverse=True)
-    if universe_revision is not None:
-        expected_settings = settings_revision or current_settings_revision()
-        files = [path for path in files if _forecast_cache_matches(path, universe_revision, expected_settings)]
+    if (
+        universe_revision is not None
+        or settings_revision is not None
+        or reference_identity is not None
+        or price_binding is not None
+        or forecast_request_identity is not None
+    ):
+        expected_settings = settings_revision
+        if universe_revision is not None and expected_settings is None:
+            expected_settings = current_settings_revision()
+        files = [
+            path
+            for path in files
+            if _forecast_cache_matches(
+                path,
+                universe_revision,
+                expected_settings,
+                reference_identity,
+                price_binding,
+                forecast_request_identity,
+            )
+        ]
     return files[0] if files else None
 
 
@@ -49,16 +233,49 @@ def load_latest_forecasts(
     *,
     universe_revision: str | None = None,
     settings_revision: str | None = None,
+    reference_identity: Mapping[str, object] | None = None,
+    price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
 ) -> pd.DataFrame:
     path = latest_forecast_file(
         pattern,
         directory,
         universe_revision=universe_revision,
         settings_revision=settings_revision,
+        reference_identity=reference_identity,
+        price_binding=price_binding,
+        forecast_request_identity=forecast_request_identity,
     )
     if path is None:
         return pd.DataFrame()
-    frame = pd.read_csv(path)
+    metadata_path = Path(f"{path}.meta.json")
+    try:
+        if metadata_path.exists():
+            payload_bytes, metadata_bytes = read_atomic_group((path, metadata_path))
+            metadata = json.loads(metadata_bytes.decode("utf-8"))
+            if not _forecast_cache_snapshot_matches(
+                payload_bytes,
+                metadata,
+                universe_revision,
+                settings_revision,
+                reference_identity,
+                price_binding,
+                forecast_request_identity,
+            ):
+                return pd.DataFrame()
+        else:
+            if (
+                universe_revision is not None
+                or settings_revision is not None
+                or reference_identity is not None
+                or price_binding is not None
+                or forecast_request_identity is not None
+            ):
+                return pd.DataFrame()
+            payload_bytes = path.read_bytes()
+        frame = pd.read_csv(BytesIO(payload_bytes))
+    except (OSError, TypeError, ValueError, RecursionError):
+        return pd.DataFrame()
     frame["source_file"] = str(path)
     return frame
 
@@ -67,14 +284,40 @@ def filter_forecasts_for_universe(
     forecasts: pd.DataFrame,
     universe_revision: str | None,
     settings_revision: str | None = None,
+    reference_identity: Mapping[str, object] | None = None,
+    price_binding: Mapping[str, object] | None = None,
+    forecast_request_identity: Mapping[str, object] | None = None,
 ) -> pd.DataFrame:
     """Drop configured forecast rows whose source cache is not for this universe revision."""
 
-    if forecasts.empty or not universe_revision or "source_file" not in forecasts.columns:
+    if _canonical_price_binding_required(reference_identity) and price_binding is None:
+        return forecasts.iloc[0:0].copy()
+    if reference_identity is not None and (
+        forecast_request_identity is None or not _valid_forecast_request_identity(forecast_request_identity)
+    ):
+        return forecasts.iloc[0:0].copy()
+    if forecasts.empty or (
+        not universe_revision
+        and settings_revision is None
+        and reference_identity is None
+        and price_binding is None
+        and forecast_request_identity is None
+    ):
         return forecasts
-    expected_settings = settings_revision or current_settings_revision()
+    if "source_file" not in forecasts.columns:
+        return forecasts.iloc[0:0].copy()
+    expected_settings = settings_revision
+    if universe_revision and expected_settings is None:
+        expected_settings = current_settings_revision()
     valid = forecasts["source_file"].map(
-        lambda value: _forecast_cache_matches(Path(str(value)), universe_revision, expected_settings)
+        lambda value: _forecast_cache_matches(
+            Path(str(value)),
+            universe_revision,
+            expected_settings,
+            reference_identity,
+            price_binding,
+            forecast_request_identity,
+        )
     )
     return forecasts.loc[valid].copy()
 
@@ -234,7 +477,7 @@ def _choose_horizon_row_for(group: pd.DataFrame, primary_horizon: int) -> pd.Ser
 
 def _finite_or_none(value: object) -> float | None:
     try:
-        number = float(value)
+        number = float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
     return number if np.isfinite(number) else None

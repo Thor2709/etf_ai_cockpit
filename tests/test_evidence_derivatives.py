@@ -3,9 +3,84 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from etf_cockpit.application.benchmark_reference import resolve_canonical_reference
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
 from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast_calibration
 from etf_cockpit.signals.strategy_templates import strategy_template_labels, template_description
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    BenchmarkDefinition,
+    CashProxyDefinition,
+    CanonicalBenchmarkRegistry,
+    PeerSetDefinition,
+    declare_reference_portfolios,
+)
+
+
+def _available_reference() -> dict[str, object]:
+    registry = _available_registry()
+    return resolve_canonical_reference(
+        registry,
+        analysis_id="evidence-derivatives",
+        purpose="comparison",
+        instrument_id="ALT",
+        instrument={"asset_class": "equity"},
+        currency="EUR",
+        horizon_years=1.0,
+        start_date="2025-01-01",
+        end_date="2026-12-31",
+        decision_time="2026-12-31T23:59:59Z",
+        reference_portfolio_ids=("reference:equal_weight",),
+    ).projection
+
+
+def _available_registry() -> CanonicalBenchmarkRegistry:
+    common = {
+        "version": "1.0.0",
+        "selector": {"asset_class": "equity"},
+        "effective_at": "2020-01-01T00:00:00Z",
+        "known_at": "2020-01-02T00:00:00Z",
+        "methodology": "test authority",
+        "source_hashes": ("a" * 64,),
+    }
+    return CanonicalBenchmarkRegistry(
+        benchmarks=(BenchmarkDefinition(
+            benchmark_id="benchmark:test",
+            hierarchy="asset",
+            currency="EUR",
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=50.0,
+            start_date="2020-01-01",
+            end_date="2100-12-31",
+            constituents=("BENCH",),
+            **common,
+        ),),
+        cash_proxies=(CashProxyDefinition(
+            proxy_id="cash:test",
+            currency="EUR",
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=50.0,
+            start_date="2020-01-01",
+            end_date="2100-12-31",
+            **common,
+        ),),
+        peer_sets=(PeerSetDefinition(
+            peer_set_id="peers:test",
+            hierarchy="asset",
+            member_instrument_ids=("ALT",),
+            **common,
+        ),),
+        reference_portfolios=declare_reference_portfolios(
+            ("ALT", "BENCH"),
+            current_weights={"ALT": 0.5, "BENCH": 0.5},
+            effective_at="2020-01-01T00:00:00Z",
+            known_at="2020-01-02T00:00:00Z",
+            currency="EUR",
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=50.0,
+            start_date="2020-01-01",
+            end_date="2100-12-31",
+        )[:1],
+    )
 
 
 def test_forecast_calibration_scores_matured_local_forecasts() -> None:
@@ -73,8 +148,15 @@ def test_market_regime_and_portfolio_fit_are_yfinance_price_based() -> None:
     prices = pd.DataFrame(rows)
     candidates = pd.DataFrame({"instrument_id": ["XYZ"], "sma200_signal": [True]})
 
-    regime = build_market_regime(prices, candidates)
-    fit = build_portfolio_fit_lookup(prices)
+    reference = _available_reference()
+    regime = build_market_regime(
+        prices, candidates, benchmark_id="BENCH", benchmark_reference=reference,
+        benchmark_registry=_available_registry(),
+    )
+    fit = build_portfolio_fit_lookup(
+        prices, benchmark_id="BENCH", benchmark_reference=reference,
+        benchmark_registry=_available_registry(),
+    )
 
     assert regime["regime_score_10"] is not None
     assert regime["regime_label"] in {"Supportive", "Caution", "Defensive review"}
@@ -89,7 +171,10 @@ def test_benchmark_attribution_uses_overlapping_yfinance_returns() -> None:
         rows.append({"date": dt, "etf_id": "ALT", "adjusted_close": 100.0 + index * 0.35})
     prices = pd.DataFrame(rows)
 
-    attribution = build_benchmark_attribution_lookup(prices, window=120, benchmark_id="BENCH")
+    attribution = build_benchmark_attribution_lookup(
+        prices, window=120, benchmark_id="BENCH", benchmark_reference=_available_reference(),
+        benchmark_registry=_available_registry(),
+    )
     alt = attribution["ALT"]
 
     assert alt["benchmark_id"] == "BENCH"
@@ -112,7 +197,10 @@ def test_benchmark_attribution_short_history_is_pending() -> None:
         ]
     )
 
-    attribution = build_benchmark_attribution_lookup(prices, window=120, benchmark_id="BENCH")
+    attribution = build_benchmark_attribution_lookup(
+        prices, window=120, benchmark_id="BENCH", benchmark_reference=_available_reference(),
+        benchmark_registry=_available_registry(),
+    )
 
     assert attribution["ALT"]["instrument_return"] is None
     assert "pending" in attribution["ALT"]["label"].lower()
@@ -127,14 +215,17 @@ def test_benchmark_attribution_uses_same_overlapping_horizon_for_instrument_and_
             rows.append({"date": dt, "etf_id": "ALT", "adjusted_close": 200.0 + (index - 40) * 2.0})
     prices = pd.DataFrame(rows)
 
-    attribution = build_benchmark_attribution_lookup(prices, window=120, benchmark_id="BENCH")
+    attribution = build_benchmark_attribution_lookup(
+        prices, window=120, benchmark_id="BENCH", benchmark_reference=_available_reference(),
+        benchmark_registry=_available_registry(),
+    )
     alt = attribution["ALT"]
     # ALT overlaps the benchmark from its first clean date; the displayed
     # return must not use an instrument-only horizon that starts elsewhere.
     assert alt["instrument_return"] == round((398.0 / 200.0) - 1.0, 4)
 
 
-def test_theme_only_metadata_maps_to_configured_theme_peers() -> None:
+def test_metadata_cannot_bypass_canonical_peer_selection() -> None:
     dates = pd.bdate_range("2025-01-01", periods=140)
     rows = []
     for index, dt in enumerate(dates):
@@ -151,15 +242,17 @@ def test_theme_only_metadata_maps_to_configured_theme_peers() -> None:
         prices,
         window=120,
         benchmark_id="BENCH",
+        benchmark_reference=_available_reference(),
+        benchmark_registry=_available_registry(),
         metadata={
             "AI_A": {"theme": "AI"},
             "AI_B": {"theme": "AI"},
         },
     )
 
-    assert attribution["AI_A"]["theme_attribution_status"] == "available"
-    assert attribution["AI_A"]["theme_relative_return"] is not None
-    assert attribution["AI_A"]["theme_alpha_proxy"] is not None
+    assert attribution["AI_A"]["theme_attribution_status"] == "N/A"
+    assert attribution["AI_A"]["theme_relative_return"] is None
+    assert attribution["AI_A"]["theme_alpha_proxy"] is None
     assert attribution["AI_A"]["sector_attribution_status"] == "N/A"
 
 
@@ -177,6 +270,8 @@ def test_peer_attribution_does_not_forward_fill_a_single_peer_observation() -> N
         prices,
         window=120,
         benchmark_id="BENCH",
+        benchmark_reference=_available_reference(),
+        benchmark_registry=_available_registry(),
         metadata={"ALT": {"sector": "Technology"}, "PEER": {"sector": "Technology"}},
     )
 
@@ -196,12 +291,21 @@ def test_sparse_price_compatibility_keeps_regime_and_portfolio_forward_fill_but_
     prices = pd.DataFrame(rows)
 
     regime_prices = prices[prices["etf_id"].isin(["BENCH", "ALT"])]
-    regime = build_market_regime(regime_prices)
-    fit = build_portfolio_fit_lookup(regime_prices)
+    reference = _available_reference()
+    regime = build_market_regime(
+        regime_prices, benchmark_id="BENCH", benchmark_reference=reference,
+        benchmark_registry=_available_registry(),
+    )
+    fit = build_portfolio_fit_lookup(
+        regime_prices, benchmark_id="BENCH", benchmark_reference=reference,
+        benchmark_registry=_available_registry(),
+    )
     attribution = build_benchmark_attribution_lookup(
         prices,
         window=120,
         benchmark_id="BENCH",
+        benchmark_reference=reference,
+        benchmark_registry=_available_registry(),
         metadata={"ALT": {"sector": "Technology"}, "PEER": {"sector": "Technology"}},
     )
     pivot = regime_prices.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
@@ -209,13 +313,26 @@ def test_sparse_price_compatibility_keeps_regime_and_portfolio_forward_fill_but_
     expected_regime_volatility = float(
         forward_filled_returns.tail(60).std(skipna=True).median() * np.sqrt(252)
     )
-    expected_fit_returns = forward_filled_returns.tail(252).dropna(how="all")
-    expected_fit_joined = pd.concat(
-        [expected_fit_returns["BENCH"], expected_fit_returns["ALT"]], axis=1, join="inner"
-    ).dropna()
-
     assert regime["median_volatility_60d_ann"] == round(expected_regime_volatility, 4)
-    assert fit["BENCH"]["correlation_to_benchmark"] == round(float(expected_fit_joined.corr().iloc[0, 1]), 4)
+    expected_alt = float(
+        pd.concat(
+            [
+                forward_filled_returns["ALT"].tail(252),
+                forward_filled_returns["BENCH"].tail(252),
+            ],
+            axis=1,
+        ).dropna().iloc[:, 0].corr(
+            pd.concat(
+                [
+                    forward_filled_returns["ALT"].tail(252),
+                    forward_filled_returns["BENCH"].tail(252),
+                ],
+                axis=1,
+            ).dropna().iloc[:, 1]
+        )
+    )
+    assert fit["ALT"]["correlation_to_benchmark"] == round(expected_alt, 4)
+    assert fit["BENCH"]["correlation_to_benchmark"] == 1.0
     assert attribution["ALT"]["sector_attribution_status"] == "N/A"
     assert attribution["ALT"]["sector_sample_size"] == 0
 

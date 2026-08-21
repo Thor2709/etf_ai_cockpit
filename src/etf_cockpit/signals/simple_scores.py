@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, datetime
 import hashlib
 import json
 from math import isfinite, tanh
@@ -13,11 +13,16 @@ from typing import Iterable, Literal
 
 import pandas as pd
 
+from etf_cockpit.application.benchmark_reference import (
+    adjusted_price_binding_for_reference,
+    validate_benchmark_reference,
+)
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RAW_DIR, REPORTS_DIR, ROOT
 from etf_cockpit.core.types import SignalResult
 from etf_cockpit.data.classification import classification_score_state
+from etf_cockpit.data.trade_candidate_analysis import load_candidate_price_binding
 from etf_cockpit.data.macro_warehouse import MacroWarehouse, load_risk_free_proxy_mappings
 from etf_cockpit.data.score_history import project_classification_score_frame
 from etf_cockpit.governance.gate_policy import resolve_authority
@@ -35,6 +40,7 @@ from etf_cockpit.features.cash_comparison import (
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
 from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast_calibration, load_forecast_history
 from etf_cockpit.models.forecast_scores import (
+    configured_forecast_request_identity,
     filter_forecasts_for_universe,
     forecast_component_maps,
     forecast_return_distributions,
@@ -42,6 +48,10 @@ from etf_cockpit.models.forecast_scores import (
     load_latest_forecasts,
 )
 from etf_cockpit.portfolio.costs import estimate_execution_cost
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    BenchmarkReferenceError,
+    CanonicalBenchmarkRegistry,
+)
 from etf_cockpit.signals.research_states import (
     ALLOWED_EVIDENCE_SOURCE_IDS,
     AnalysisStatus,
@@ -662,30 +672,95 @@ def build_simple_instrument_scores(
     *,
     universe_revision: str | None = None,
     cash_comparison_lookup: Mapping[str, Mapping[str, object]] | None = None,
+    benchmark_data_id: str | None = None,
+    benchmark_reference: Mapping[str, object] | None = None,
+    benchmark_registry: CanonicalBenchmarkRegistry | None = None,
+    reference_identity: Mapping[str, object] | None = None,
+    peer_member_ids: tuple[str, ...] | None = None,
+    cash_observation_time: object | None = None,
 ) -> list[SimpleInstrumentScore]:
     if universe_revision is None:
         universe_revision = load_universe().revision
-    forecasts = filter_forecasts_for_universe(forecasts, universe_revision)
+    price_binding = adjusted_price_binding_for_reference(prices, reference_identity)
+    request_identity = configured_forecast_request_identity(config)
+    if reference_identity is None:
+        # Relative score consumers must not accept a legacy forecast frame.
+        forecasts = forecasts.iloc[0:0].copy() if "source_file" in forecasts.columns else forecasts
+    else:
+        forecasts = filter_forecasts_for_universe(
+            forecasts,
+            universe_revision,
+            reference_identity=reference_identity,
+            price_binding=price_binding,
+            forecast_request_identity=request_identity,
+        )
     candidate_report, _candidate_report_path = load_latest_candidate_report()
-    candidate_forecasts = load_latest_forecasts(
-        "yfinance_candidate_forecasts_*.csv",
-        FORECASTS_DIR,
-        universe_revision=universe_revision,
+    candidate_price_binding = load_candidate_price_binding()
+    candidate_forecasts = (
+        load_latest_forecasts(
+            "yfinance_candidate_forecasts_*.csv",
+            FORECASTS_DIR,
+            universe_revision=universe_revision,
+            reference_identity=reference_identity,
+            price_binding=candidate_price_binding,
+            forecast_request_identity=request_identity,
+        )
+        if reference_identity is not None and candidate_price_binding is not None
+        else pd.DataFrame()
     )
     forecast_history = load_forecast_history()
     calibration = evaluate_forecast_calibration(forecast_history, prices)
     calibration_by_id = calibration_lookup(calibration)
-    regime = build_market_regime(prices, candidate_report)
-    portfolio_fit = build_portfolio_fit_lookup(prices)
-    benchmark_id = config.universe.enabled_ids[0] if config.universe.enabled_ids else None
-    metadata = {
+    regime = build_market_regime(
+        prices,
+        candidate_report,
+        benchmark_id=benchmark_data_id,
+        benchmark_reference=benchmark_reference,
+        benchmark_registry=benchmark_registry,
+        peer_member_ids=peer_member_ids,
+    )
+    portfolio_fit = build_portfolio_fit_lookup(
+        prices,
+        benchmark_id=benchmark_data_id,
+        benchmark_reference=benchmark_reference,
+        benchmark_registry=benchmark_registry,
+        peer_member_ids=peer_member_ids,
+    )
+    metadata: dict[str, object] = {
         etf.id: {"sector": etf.sector, "theme": etf.theme}
         for etf in config.universe.etfs
         if etf.id in config.universe.enabled_ids
     }
-    benchmark_attribution = build_benchmark_attribution_lookup(prices, benchmark_id=benchmark_id, metadata=metadata)
+    benchmark_attribution = build_benchmark_attribution_lookup(
+        prices,
+        benchmark_id=benchmark_data_id,
+        metadata=metadata,
+        benchmark_reference=benchmark_reference,
+        benchmark_registry=benchmark_registry,
+        peer_member_ids=peer_member_ids,
+    )
+    # The ordinary score path resolves the official local curve evidence once;
+    # callers may still inject a previously resolved lookup for replay/tests.
     if cash_comparison_lookup is None:
-        cash_comparison_lookup = _build_local_cash_comparison_lookup(config, prices)
+        cash_request = _canonical_cash_request(
+            benchmark_reference,
+            reference_identity,
+            benchmark_registry=benchmark_registry,
+        )
+        if cash_request is None:
+            cash_comparison_lookup = _unavailable_cash_lookup(
+                config,
+                "Canonical cash reference is unavailable for the declared calculation window.",
+            )
+        else:
+            cash_comparison_lookup = _build_local_cash_comparison_lookup(
+                config,
+                prices,
+                as_of=cash_observation_time,
+                canonical_cash_request=cash_request,
+            )
+    else:
+        cash_comparison_lookup = dict(cash_comparison_lookup)
     crowding = build_correlation_clusters(prices, metadata)
     backtest_trust = _backtest_trust_lookup(universe_revision=universe_revision)
     universe_scores = build_universe_simple_scores(
@@ -1587,19 +1662,53 @@ def build_candidate_simple_scores(
     return [_with_canonical_score(score) for score in output]
 
 
-def load_latest_candidate_report(directory: Path = REPORTS_DIR) -> tuple[pd.DataFrame, Path | None]:
-    files = sorted(directory.glob("yfinance_trade_candidate_analysis_*.csv"), key=lambda path: path.stat().st_mtime, reverse=True)
+def load_latest_candidate_report(directory: Path | None = None) -> tuple[pd.DataFrame, Path | None]:
+    directory = REPORTS_DIR if directory is None else directory
+    try:
+        files = sorted(
+            directory.glob("yfinance_trade_candidate_analysis_*.csv"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return pd.DataFrame(), None
     if not files:
         return pd.DataFrame(), None
     path = files[0]
-    return pd.read_csv(path), path
+    try:
+        return pd.read_csv(path), path
+    except (
+        OSError,
+        UnicodeError,
+        ValueError,
+        pd.errors.EmptyDataError,
+        pd.errors.ParserError,
+    ):
+        return pd.DataFrame(), None
 
 
-def _latest_candidate_input_frame(directory: Path = RAW_DIR / "trade_candidates") -> pd.DataFrame:
-    files = sorted(directory.glob("yahoo_trade_candidates_*.csv"), key=lambda path: path.stat().st_mtime, reverse=True)
+def _latest_candidate_input_frame(directory: Path | None = None) -> pd.DataFrame:
+    directory = RAW_DIR / "trade_candidates" if directory is None else directory
+    try:
+        files = sorted(
+            directory.glob("yahoo_trade_candidates_*.csv"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return pd.DataFrame()
     if not files:
         return pd.DataFrame()
-    frame = pd.read_csv(files[0])
+    try:
+        frame = pd.read_csv(files[0])
+    except (
+        OSError,
+        UnicodeError,
+        ValueError,
+        pd.errors.EmptyDataError,
+        pd.errors.ParserError,
+    ):
+        return pd.DataFrame()
     if "instrument_id" not in frame or "yahoo_symbol" not in frame:
         return pd.DataFrame()
     return frame
@@ -2532,6 +2641,7 @@ def _build_local_cash_comparison_lookup(
     prices: pd.DataFrame,
     *,
     as_of: object | None = None,
+    canonical_cash_request: Mapping[str, object] | None = None,
 ) -> dict[str, Mapping[str, object]]:
     mappings = load_risk_free_proxy_mappings()
     if not mappings:
@@ -2552,13 +2662,52 @@ def _build_local_cash_comparison_lookup(
     warehouse = MacroWarehouse()
     output: dict[str, Mapping[str, object]] = {}
     frame = prices.loc[:, ["etf_id", "date", "adjusted_close"]].copy()
+    canonical_start = canonical_cash_request.get("start_date") if canonical_cash_request is not None else None
+    canonical_end = canonical_cash_request.get("end_date") if canonical_cash_request is not None else None
+    canonical_decision = canonical_cash_request.get("decision_time") if canonical_cash_request is not None else None
+    canonical_cash_id = canonical_cash_request.get("cash_id") if canonical_cash_request is not None else None
     try:
-        decision = pd.Timestamp.now(tz="UTC") if as_of is None else pd.Timestamp(as_of)
+        observation = (
+            pd.Timestamp.now(tz="UTC")
+            if as_of is None
+            else pd.Timestamp(as_of, tz="UTC")
+            if isinstance(as_of, date) and not isinstance(as_of, datetime)
+            else pd.Timestamp(as_of)
+        )
+        decision = (
+            pd.Timestamp(canonical_decision)
+            if canonical_decision is not None
+            else observation
+        )
     except (TypeError, ValueError, OverflowError):
         return {}
-    if pd.isna(decision) or decision.tzinfo is None:
+    if (
+        pd.isna(observation)
+        or observation.tzinfo is None
+        or pd.isna(decision)
+        or decision.tzinfo is None
+    ):
         return {}
+    observation = observation.tz_convert("UTC")
     decision = decision.tz_convert("UTC")
+    if canonical_decision is not None and decision > observation:
+        return {}
+    canonical_start_date: date | None = None
+    canonical_end_date: date | None = None
+    if canonical_start is not None or canonical_end is not None:
+        if not isinstance(canonical_start, str) or not isinstance(canonical_end, str):
+            return {}
+        try:
+            canonical_start_date = date.fromisoformat(canonical_start)
+            canonical_end_date = date.fromisoformat(canonical_end)
+        except ValueError:
+            return {}
+        if (
+            canonical_start != canonical_start_date.isoformat()
+            or canonical_end != canonical_end_date.isoformat()
+            or canonical_start_date >= canonical_end_date
+        ):
+            return {}
     identities = config.universe.by_id()
     for instrument_id in config.universe.enabled_ids:
         identity = identities.get(instrument_id)
@@ -2583,21 +2732,176 @@ def _build_local_cash_comparison_lookup(
         ]
         if identity is None or len(rows) < 2:
             continue
-        comparison_rows = rows.tail(_CASH_COMPARISON_RETURN_WINDOW + 1)
-        start_date = comparison_rows.iloc[0]["date"].date().isoformat()
-        end_date = comparison_rows.iloc[-1]["date"].date().isoformat()
+        if canonical_start_date is not None and canonical_end_date is not None:
+            comparison_rows = rows.loc[
+                rows["date"].dt.date.between(
+                    canonical_start_date,
+                    canonical_end_date,
+                )
+            ]
+        else:
+            comparison_rows = rows.tail(_CASH_COMPARISON_RETURN_WINDOW + 1)
+        if len(comparison_rows) < 2:
+            output[instrument_id] = {
+                "status": "unavailable",
+                "reason": "Canonical cash comparison price endpoints are unavailable.",
+                "instrument_id": instrument_id,
+                "execution_allowed": False,
+            }
+            continue
+        start_date = str(canonical_start or comparison_rows.iloc[0]["date"].date().isoformat())
+        end_date = str(canonical_end or comparison_rows.iloc[-1]["date"].date().isoformat())
         adjusted_prices = comparison_rows.loc[:, ["date", "adjusted_close"]]
-        output[instrument_id] = warehouse.cash_comparison(
+        result = warehouse.cash_comparison(
             root=CASH_MACRO_ROOT,
             mappings=mappings,
             instrument_id=instrument_id,
             currency=identity.currency,
             start_date=start_date,
             end_date=end_date,
-            decision_time=adjusted_endpoint_available_at(end_date),
+            decision_time=str(canonical_decision or adjusted_endpoint_available_at(end_date)),
             adjusted_prices=adjusted_prices,
         )
+        if canonical_cash_request is not None and (
+            result.get("status") != "available"
+            or result.get("curve_id") != canonical_cash_id
+            or result.get("start_date") != canonical_start
+            or result.get("end_date") != canonical_end
+            or result.get("decision_time") != canonical_decision
+            or result.get("currency") != canonical_cash_request.get("currency")
+        ):
+            result = {
+                "status": "unavailable",
+                "reason": "Local cash evidence does not match the canonical cash identity and window.",
+                "instrument_id": instrument_id,
+                "execution_allowed": False,
+            }
+        output[instrument_id] = result
     return output
+
+
+def _canonical_cash_request(
+    benchmark_reference: Mapping[str, object] | None,
+    reference_identity: Mapping[str, object] | None,
+    *,
+    benchmark_registry: CanonicalBenchmarkRegistry | None = None,
+) -> dict[str, object] | None:
+    if not isinstance(benchmark_reference, Mapping) or not isinstance(reference_identity, Mapping):
+        return None
+    cash = benchmark_reference.get("cash")
+    projection_records = benchmark_reference.get("selected_records")
+    identity_records = reference_identity.get("selected_records")
+    analysis = reference_identity.get("analysis")
+    if not all(isinstance(value, Mapping) for value in (cash, projection_records, identity_records, analysis)):
+        return None
+    if not isinstance(benchmark_registry, CanonicalBenchmarkRegistry):
+        return None
+    benchmark_data_id = benchmark_reference.get("benchmark_data_id")
+    reference_status = benchmark_reference.get("status")
+    cash_scoped_reference = dict(benchmark_reference)
+    if reference_status == "unavailable":
+        blockers = benchmark_reference.get("blockers")
+        if (
+            not isinstance(blockers, list)
+            or not blockers
+            or any(
+                not isinstance(blocker, str)
+                or not blocker.startswith("reference:unavailable:")
+                or not blocker.removeprefix("reference:unavailable:").strip()
+                or blocker.removeprefix("reference:unavailable:")
+                != blocker.removeprefix("reference:unavailable:").strip()
+                for blocker in blockers
+            )
+        ):
+            return None
+        cash_scoped_reference["status"] = "available"
+    elif reference_status != "available":
+        return None
+    if (
+        not isinstance(benchmark_data_id, str)
+        or validate_benchmark_reference(
+            cash_scoped_reference,
+            benchmark_data_id,
+            registry=benchmark_registry,
+        ) is None
+        or benchmark_reference.get("analysis") != analysis
+    ):
+        return None
+    try:
+        registry_hash = benchmark_registry.as_payload()["registry_hash"]
+    except (BenchmarkReferenceError, KeyError, RecursionError, TypeError, ValueError):
+        return None
+    if (
+        benchmark_reference.get("registry_hash") != registry_hash
+        or reference_identity.get("registry_hash") != registry_hash
+    ):
+        return None
+    cash_id = cash.get("id")
+    cash_hash = cash.get("content_hash")
+    if (
+        cash.get("status") != "available"
+        or not isinstance(cash_id, str)
+        or not cash_id.strip()
+        or not isinstance(cash_hash, str)
+        or not cash_hash
+        or projection_records.get("cash") != cash_hash
+        or identity_records.get("cash") != cash_hash
+    ):
+        return None
+    matches = [
+        item
+        for item in benchmark_registry.cash_proxies
+        if item.proxy_id == cash.get("id")
+        and item.version == cash.get("version")
+        and item.digest() == cash_hash
+        and item.status == "available"
+    ]
+    if len(matches) != 1:
+        return None
+    cash_record = matches[0]
+    required = ("currency", "start_date", "end_date", "decision_time")
+    if not all(isinstance(analysis.get(key), str) and analysis.get(key) for key in required):
+        return None
+    start_raw = str(analysis["start_date"])
+    end_raw = str(analysis["end_date"])
+    decision_raw = str(analysis["decision_time"])
+    try:
+        start = date.fromisoformat(start_raw)
+        end = date.fromisoformat(end_raw)
+        decision = pd.Timestamp(decision_raw)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if (
+        start_raw != start.isoformat()
+        or end_raw != end.isoformat()
+        or start >= end
+        or pd.isna(decision)
+        or decision.tzinfo is None
+        or analysis.get("currency") != cash_record.currency
+    ):
+        return None
+    decision = decision.tz_convert("UTC")
+    if decision < pd.Timestamp(adjusted_endpoint_available_at(end)):
+        return None
+    return {
+        "cash_id": cash_record.proxy_id,
+        "currency": cash_record.currency,
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+        "decision_time": decision.isoformat(),
+    }
+
+
+def _unavailable_cash_lookup(config: AppConfig, reason: str) -> dict[str, Mapping[str, object]]:
+    return {
+        instrument_id: {
+            "status": "unavailable",
+            "reason": reason,
+            "instrument_id": instrument_id,
+            "execution_allowed": False,
+        }
+        for instrument_id in config.universe.enabled_ids
+    }
 
 
 def _crowding_info(lookup: dict[str, object], instrument_id: str) -> dict[str, object]:
@@ -3160,7 +3464,12 @@ def _fmt_number(value: object) -> str:
 
 
 def _bool_like(value: object) -> bool | None:
-    if value is None or pd.isna(value):
+    if value is None or not pd.api.types.is_scalar(value):
+        return None
+    try:
+        if bool(pd.isna(value)):
+            return None
+    except (TypeError, ValueError):
         return None
     if isinstance(value, bool):
         return value

@@ -35,6 +35,14 @@ from etf_cockpit.signals.simple_scores import (
     simple_scoreboard_frame,
 )
 from etf_cockpit.signals import simple_scores as simple_scores_module
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    BenchmarkDefinition,
+    CashProxyDefinition,
+    CanonicalBenchmarkRegistry,
+    PeerSetDefinition,
+    declare_reference_portfolios,
+)
+from etf_cockpit.application.benchmark_reference import resolve_canonical_reference
 
 
 def _evidence(**updates: object) -> dict[str, object]:
@@ -1367,6 +1375,7 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
     instrument_prices = instrument_prices.sort_values("date").tail(121)
     start = instrument_prices.iloc[0]["date"].date()
     end = instrument_prices.iloc[-1]["date"].date()
+    observation_time = pd.Timestamp(adjusted_endpoint_available_at(end))
     horizon = (end - start).days / 365.0
     available = (pd.Timestamp(start, tz="UTC") - pd.Timedelta(days=2)).isoformat()
 
@@ -1422,8 +1431,85 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
         root=tmp_path,
     )
 
+    cash_record = CashProxyDefinition(
+        proxy_id="eur-official-local-spot",
+        version="1.0.0",
+        selector={"asset_class": "equity"},
+        currency="EUR",
+        minimum_horizon_years=0.0,
+        maximum_horizon_years=10.0,
+        effective_at="2020-01-01T00:00:00Z",
+        known_at="2020-01-02T00:00:00Z",
+        start_date="2020-01-01",
+        end_date="2100-12-31",
+        methodology="Explicit official EUR local proxy mapping v1",
+        source_hashes=("d" * 64,),
+    )
+    benchmark_registry = CanonicalBenchmarkRegistry(
+        benchmarks=(BenchmarkDefinition(
+            benchmark_id="benchmark:test",
+            version="1.0.0",
+            hierarchy="asset",
+            selector={"asset_class": "equity"},
+            currency="EUR",
+            minimum_horizon_years=0.0,
+            maximum_horizon_years=10.0,
+            effective_at="2020-01-01T00:00:00Z",
+            known_at="2020-01-02T00:00:00Z",
+            start_date="2020-01-01",
+            end_date="2100-12-31",
+            methodology="Canonical test benchmark",
+            constituents=(instrument_id,),
+            source_hashes=("d" * 64,),
+        ),),
+        cash_proxies=(cash_record,),
+        peer_sets=(PeerSetDefinition(
+            peer_set_id="peers:test",
+            version="1.0.0",
+            hierarchy="asset",
+            selector={"asset_class": "equity"},
+            member_instrument_ids=(instrument_id,),
+            effective_at="2020-01-01T00:00:00Z",
+            known_at="2020-01-02T00:00:00Z",
+            methodology="Canonical test peer set",
+            source_hashes=("d" * 64,),
+        ),),
+        reference_portfolios=declare_reference_portfolios(
+            (instrument_id,),
+            current_weights={instrument_id: 1.0},
+            effective_at="2020-01-01T00:00:00Z",
+            known_at="2020-01-02T00:00:00Z",
+            currency="EUR",
+            minimum_horizon_years=0.0,
+            maximum_horizon_years=10.0,
+            start_date="2020-01-01",
+            end_date="2100-12-31",
+        ),
+    )
+    context = resolve_canonical_reference(
+        benchmark_registry,
+        analysis_id="cash-score-positive-flow",
+        purpose="comparison",
+        instrument_id=instrument_id,
+        instrument={"asset_class": "equity"},
+        currency="EUR",
+        horizon_years=horizon,
+        start_date=start.isoformat(),
+        end_date=end.isoformat(),
+        decision_time=adjusted_endpoint_available_at(end),
+        reference_portfolio_ids=("reference:equal_weight",),
+    )
+    canonical_reference = context.projection
+    canonical_identity = context.identity
     scores = build_simple_instrument_scores(
-        snapshot.config, snapshot.signals, snapshot.forecasts, snapshot.prices
+        snapshot.config,
+        snapshot.signals,
+        snapshot.forecasts,
+        snapshot.prices,
+        benchmark_reference=canonical_reference,
+        benchmark_registry=benchmark_registry,
+        reference_identity=canonical_identity,
+        cash_observation_time=observation_time,
     )
     available_score = {score.display_id: score for score in scores}[instrument_id]
     assert available_score.cash_comparison_status == "available"
@@ -1433,8 +1519,28 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
     assert available_score.cash_decision_time == adjusted_endpoint_available_at(
         available_score.cash_end_date
     )
-    assert pd.Timestamp(available_score.cash_decision_time) <= pd.Timestamp.now(tz="UTC")
+    assert pd.Timestamp(available_score.cash_decision_time) <= observation_time
     assert available_score.execution_allowed is False
+
+    future_score = {
+        score.display_id: score
+        for score in build_simple_instrument_scores(
+            snapshot.config,
+            snapshot.signals,
+            snapshot.forecasts,
+            snapshot.prices,
+            benchmark_reference=canonical_reference,
+            benchmark_registry=benchmark_registry,
+            reference_identity=canonical_identity,
+            cash_observation_time=(
+                pd.Timestamp(adjusted_endpoint_available_at(end))
+                - pd.Timedelta(seconds=1)
+            ),
+        )
+    }[instrument_id]
+    assert future_score.cash_comparison_status == "unavailable"
+    assert future_score.cash_return is None
+    assert future_score.execution_allowed is False
 
     frame = simple_scoreboard_frame([available_score])
     attribution_path = tmp_path / "local_benchmark_attribution.parquet"
@@ -1519,3 +1625,141 @@ def test_local_cash_lookup_excludes_an_adjusted_endpoint_not_yet_available(
     )
 
     assert instrument_id not in lookup
+
+
+def test_local_cash_lookup_rejects_canonical_decision_after_explicit_observation(
+    monkeypatch,
+) -> None:
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    identity = snapshot.config.universe.by_id()[instrument_id]
+    observation = "2030-01-02T12:00:00Z"
+    start = "2030-01-01"
+    end = "2030-01-02"
+    decision = adjusted_endpoint_available_at(end)
+    prices = pd.DataFrame(
+        {
+            "etf_id": [instrument_id, instrument_id],
+            "date": [start, end],
+            "adjusted_close": [100.0, 101.0],
+        }
+    )
+    mapping = RiskFreeProxyMapping(
+        currency=identity.currency,
+        minimum_horizon_years=0.0,
+        maximum_horizon_years=10.0,
+        curve_id="official-cash",
+        fallback_curve_ids=(),
+        methodology="test mapping",
+    )
+
+    class AvailableCash:
+        def cash_comparison(self, **_: object) -> dict[str, object]:
+            return {
+                "status": "available",
+                "curve_id": "official-cash",
+                "start_date": start,
+                "end_date": end,
+                "decision_time": decision,
+                "currency": identity.currency,
+            }
+
+    monkeypatch.setattr(
+        simple_scores_module,
+        "load_risk_free_proxy_mappings",
+        lambda: (mapping,),
+    )
+    monkeypatch.setattr(simple_scores_module, "MacroWarehouse", AvailableCash)
+    lookup = simple_scores_module._build_local_cash_comparison_lookup(
+        snapshot.config,
+        prices,
+        as_of=observation,
+        canonical_cash_request={
+            "cash_id": "official-cash",
+            "currency": identity.currency,
+            "start_date": start,
+            "end_date": end,
+            "decision_time": decision,
+        },
+    )
+
+    assert instrument_id not in lookup
+
+
+def test_malformed_canonical_cash_chronology_is_rejected_without_raising() -> None:
+    cash_hash = "c" * 64
+    reference = {
+        "cash": {
+            "status": "available",
+            "id": "official-cash",
+            "content_hash": cash_hash,
+        },
+        "selected_records": {"cash": cash_hash},
+    }
+    malformed_analyses = (
+        {
+            "currency": "EUR",
+            "start_date": "2025-02-30",
+            "end_date": "2025-03-01",
+            "decision_time": "2025-03-02T00:00:00Z",
+        },
+        {
+            "currency": "EUR",
+            "start_date": "2025-1-01",
+            "end_date": "2025-03-01",
+            "decision_time": "2025-03-02T00:00:00Z",
+        },
+        {
+            "currency": "EUR",
+            "start_date": "2025-03-02",
+            "end_date": "2025-03-01",
+            "decision_time": "2025-03-03T00:00:00Z",
+        },
+        {
+            "currency": "EUR",
+            "start_date": "2025-03-01",
+            "end_date": "2025-03-01",
+            "decision_time": "2025-03-02T00:00:00Z",
+        },
+        {
+            "currency": "EUR",
+            "start_date": "2025-03-01",
+            "end_date": "2025-03-02",
+            "decision_time": "2025-03-03T00:00:00",
+        },
+        {
+            "currency": "EUR",
+            "start_date": "2025-03-01",
+            "end_date": "2025-03-02",
+            "decision_time": "not-a-timestamp",
+        },
+        {
+            "currency": "EUR",
+            "start_date": "2025-03-01",
+            "end_date": "2025-03-02",
+            "decision_time": "2025-03-02T23:59:59Z",
+        },
+    )
+
+    identities: list[dict[str, object]] = []
+    for analysis in malformed_analyses:
+        identity = {
+            "selected_records": {"cash": cash_hash},
+            "analysis": analysis,
+        }
+        identities.append(identity)
+        assert simple_scores_module._canonical_cash_request(reference, identity) is None
+
+    snapshot = build_snapshot()
+    scores = build_simple_instrument_scores(
+        snapshot.config,
+        snapshot.signals,
+        snapshot.forecasts,
+        snapshot.prices,
+        benchmark_reference=reference,
+        reference_identity=identities[0],
+        cash_observation_time="2025-03-02T00:00:00Z",
+    )
+    assert scores
+    assert all(score.cash_comparison_status == "unavailable" for score in scores)
+    assert all(score.cash_return is None for score in scores)
