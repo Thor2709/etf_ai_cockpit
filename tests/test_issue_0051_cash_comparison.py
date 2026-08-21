@@ -1366,7 +1366,8 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
     instrument_prices["date"] = pd.to_datetime(instrument_prices["date"], utc=True)
     instrument_prices = instrument_prices.sort_values("date").tail(121)
     start = instrument_prices.iloc[0]["date"].date()
-    end = instrument_prices.iloc[-1]["date"].date()
+    observation_time = instrument_prices.iloc[-1]["date"] + pd.Timedelta(hours=12)
+    end = instrument_prices.iloc[-2]["date"].date()
     horizon = (end - start).days / 365.0
     available = (pd.Timestamp(start, tz="UTC") - pd.Timedelta(days=2)).isoformat()
 
@@ -1458,7 +1459,7 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
     assert available_score.cash_decision_time == adjusted_endpoint_available_at(
         available_score.cash_end_date
     )
-    assert pd.Timestamp(available_score.cash_decision_time) <= pd.Timestamp.now(tz="UTC")
+    assert pd.Timestamp(available_score.cash_decision_time) <= observation_time
     assert available_score.execution_allowed is False
 
     frame = simple_scoreboard_frame([available_score])
@@ -1541,6 +1542,65 @@ def test_local_cash_lookup_excludes_an_adjusted_endpoint_not_yet_available(
         snapshot.config,
         prices,
         as_of="2030-01-02T12:00:00Z",
+    )
+
+    assert instrument_id not in lookup
+
+
+def test_local_cash_lookup_rejects_canonical_decision_after_explicit_observation(
+    monkeypatch,
+) -> None:
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    identity = snapshot.config.universe.by_id()[instrument_id]
+    observation = "2030-01-02T12:00:00Z"
+    start = "2030-01-01"
+    end = "2030-01-02"
+    decision = adjusted_endpoint_available_at(end)
+    prices = pd.DataFrame(
+        {
+            "etf_id": [instrument_id, instrument_id],
+            "date": [start, end],
+            "adjusted_close": [100.0, 101.0],
+        }
+    )
+    mapping = RiskFreeProxyMapping(
+        currency=identity.currency,
+        minimum_horizon_years=0.0,
+        maximum_horizon_years=10.0,
+        curve_id="official-cash",
+        fallback_curve_ids=(),
+        methodology="test mapping",
+    )
+
+    class AvailableCash:
+        def cash_comparison(self, **_: object) -> dict[str, object]:
+            return {
+                "status": "available",
+                "curve_id": "official-cash",
+                "start_date": start,
+                "end_date": end,
+                "decision_time": decision,
+                "currency": identity.currency,
+            }
+
+    monkeypatch.setattr(
+        simple_scores_module,
+        "load_risk_free_proxy_mappings",
+        lambda: (mapping,),
+    )
+    monkeypatch.setattr(simple_scores_module, "MacroWarehouse", AvailableCash)
+    lookup = simple_scores_module._build_local_cash_comparison_lookup(
+        snapshot.config,
+        prices,
+        as_of=observation,
+        canonical_cash_request={
+            "cash_id": "official-cash",
+            "currency": identity.currency,
+            "start_date": start,
+            "end_date": end,
+            "decision_time": decision,
+        },
     )
 
     assert instrument_id not in lookup

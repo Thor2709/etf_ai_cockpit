@@ -3104,3 +3104,14 @@ next action and whether the requested outcome is actually complete.
   Ruff, compile, registry validation, byte-clean programme generation and diff
   hygiene pass. Freeze and publish one replacement exact head for paired final
   review and fresh full H-tier evidence.
+- Hosted run `31797431753` attempt 2 completed all 526 changed tests within the
+  existing 240-second bound (`220.694s`) and corrected the earlier timeout-only
+  diagnosis. Its sole failure demonstrated a point-in-time defect: a canonical
+  cash decision after the actual observation time could admit a not-yet-
+  available adjusted endpoint. One bounded correction now rejects that future
+  decision before local curve resolution and makes the available-flow fixture
+  use an actually eligible endpoint. The exact failing regression, the new
+  explicit replay-observation regression, the full cash-comparison suite,
+  focused simple-score cash tests, Ruff, compile, byte-clean programme
+  generation and diff hygiene pass. Freeze one replacement exact head; do not
+  alter the validator timeout, test selection, CI architecture or authority.

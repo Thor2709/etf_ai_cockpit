@@ -4318,3 +4318,14 @@ round trip and both malformed inputs. The affected collection, changed validator
 offline smoke, Ruff, compile, registry, byte-clean programme and diff checks pass.
 Freeze one clean replacement exact head for paired review and fresh Linux,
 Windows, terminal, package and pilot evidence.
+
+`FUTURE CASH DECISION CORRECTION` hosted run `31794764667` was not the final
+evidence run; exact-head run `31797431753` attempt 2 completed 526 changed tests
+in `220.694s` and exposed one real chronology defect rather than a timeout. A
+canonical cash decision later than the current or replay observation could
+admit a future adjusted endpoint. The bounded correction rejects that request
+before curve resolution and uses an eligible endpoint in the positive-flow
+fixture. Direct future-decision and positive-flow regressions, the complete cash
+suite, focused simple-score cash checks, static/programme checks and diff hygiene
+pass. Keep the 240-second bound unchanged and freeze one new H-tier head for
+paired review plus Linux, Windows, terminal, package and two-repetition pilots.

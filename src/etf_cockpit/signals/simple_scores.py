@@ -2616,13 +2616,25 @@ def _build_local_cash_comparison_lookup(
     canonical_decision = canonical_cash_request.get("decision_time") if canonical_cash_request is not None else None
     canonical_cash_id = canonical_cash_request.get("cash_id") if canonical_cash_request is not None else None
     try:
-        decision_source = canonical_decision if canonical_decision is not None else as_of
-        decision = pd.Timestamp.now(tz="UTC") if decision_source is None else pd.Timestamp(decision_source)
+        observation = pd.Timestamp.now(tz="UTC") if as_of is None else pd.Timestamp(as_of)
+        decision = (
+            pd.Timestamp(canonical_decision)
+            if canonical_decision is not None
+            else observation
+        )
     except (TypeError, ValueError, OverflowError):
         return {}
-    if pd.isna(decision) or decision.tzinfo is None:
+    if (
+        pd.isna(observation)
+        or observation.tzinfo is None
+        or pd.isna(decision)
+        or decision.tzinfo is None
+    ):
         return {}
+    observation = observation.tz_convert("UTC")
     decision = decision.tz_convert("UTC")
+    if canonical_decision is not None and decision > observation:
+        return {}
     identities = config.universe.by_id()
     for instrument_id in config.universe.enabled_ids:
         identity = identities.get(instrument_id)
