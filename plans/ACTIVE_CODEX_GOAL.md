@@ -3223,3 +3223,12 @@ next action and whether the requested outcome is actually complete.
   that predicate and extend the existing unavailable-record regression through
   the validator and regime consumer. Freeze one replacement exact head for
   paired review and fresh full H-tier evidence; make no adjacent change.
+- Exact head `7d3de279056dd67f08f6e81b300cb33eb6a0676b` received one approval
+  and one rejection; run `32492442121` is failed/stale after changed-test
+  preflight reached its finite 360-second bound. Whole-diff review reproduced
+  one distinct malformed shape: a top-level available projection could carry
+  populated peer authority fields while marking the peer unavailable or stale,
+  bypassing the available-peer validation branch. Reject non-empty unavailable
+  peer projections and unsupported peer statuses, while retaining the canonical
+  empty unavailable-peer shape. Add only the direct validator-to-regime
+  regression and leave the timeout unchanged for the fresh replacement head.

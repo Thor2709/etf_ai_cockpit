@@ -251,7 +251,9 @@ def validate_benchmark_reference(
     ):
         return None
     peer = reference.get("peer_set")
-    if isinstance(peer, Mapping) and selected_records.get("peer_set") != peer.get("content_hash"):
+    if not isinstance(peer, Mapping):
+        return None
+    if selected_records.get("peer_set") != peer.get("content_hash"):
         return None
     try:
         registry_payload = registry.as_payload()
@@ -285,7 +287,7 @@ def validate_benchmark_reference(
         )
         if benchmark_data_id != canonical_data_id:
             return None
-        if isinstance(peer, Mapping) and peer.get("status") == "available":
+        if peer.get("status") == "available":
             peer_matches = [
                 item
                 for item in registry.peer_sets
@@ -303,6 +305,22 @@ def validate_benchmark_reference(
                 or tuple(projected_members) != peer_matches[0].member_instrument_ids
             ):
                 return None
+        elif peer.get("status") == "unavailable":
+            projected_members = peer.get("member_instrument_ids")
+            if (
+                any(peer.get(field) is not None for field in ("id", "version", "content_hash"))
+                or (
+                    projected_members is not None
+                    and (
+                        not isinstance(projected_members, Sequence)
+                        or isinstance(projected_members, (str, bytes))
+                        or len(projected_members) != 0
+                    )
+                )
+            ):
+                return None
+        else:
+            return None
     except (BenchmarkReferenceError, AttributeError, KeyError, RecursionError, TypeError, ValueError):
         return None
     return benchmark_data_id

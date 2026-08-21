@@ -4452,3 +4452,13 @@ context boundary. Add only the missing status predicate and extend the existing
 unavailable-record validator/regime regression. Freeze one replacement head for
 paired review and fresh H-tier evidence; preserve all financial, authority and
 `execution_allowed=false` boundaries.
+
+`FINAL UNAVAILABLE PEER SHAPE` head
+`7d3de279056dd67f08f6e81b300cb33eb6a0676b` received one approval and one
+rejection; run `32492442121` is failed/stale after the selected changed suite
+reached its finite 360-second bound. A top-level available projection could
+carry populated peer authority fields while labelling the peer unavailable or
+stale, bypassing the available-peer branch. Reject that malformed shape and
+unsupported statuses while preserving the empty canonical unavailable peer.
+Add only the exact validator/regime regression and leave CI timing unchanged
+for the fresh replacement head.

@@ -2237,6 +2237,29 @@ def test_reference_validation_rejects_projection_availability_over_unavailable_r
     )["regime_score_10"] is None
 
 
+@pytest.mark.parametrize("projected_status", ("unavailable", "stale"))
+def test_reference_validation_rejects_populated_non_available_peer_projection(
+    projected_status: str,
+) -> None:
+    registry = _available_registry(
+        peer_status="unavailable" if projected_status == "unavailable" else "available",
+    )
+    reference = _available_reference(peer=True)
+    peer = registry.peer_sets[0]
+    reference["registry_hash"] = registry.as_payload()["registry_hash"]
+    reference["peer_set"]["status"] = projected_status
+    reference["peer_set"]["content_hash"] = peer.digest()
+    reference["selected_records"]["peer_set"] = peer.digest()
+
+    assert validate_benchmark_reference(reference, "BENCH", registry=registry) is None
+    assert build_market_regime(
+        _prices(),
+        benchmark_id="BENCH",
+        benchmark_reference=reference,
+        benchmark_registry=registry,
+    )["regime_score_10"] is None
+
+
 def test_backtest_write_and_readback_checksum_use_the_same_reference_window() -> None:
     config = load_config()
     benchmark_id = config.universe.enabled_ids[0]
