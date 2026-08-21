@@ -17,8 +17,6 @@ from etf_cockpit.app.state import ActivityUnavailableError, AppState, activity_r
 from etf_cockpit.application.benchmark_reference import adjusted_price_binding_for_reference, context_from_snapshot
 from etf_cockpit.core.paths import FORECASTS_DIR
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.data.trade_candidate_analysis import load_candidate_price_binding
-from etf_cockpit.models.forecast_scores import configured_forecast_request_identity
 from etf_cockpit.application.alerts import (
     AlertReadback,
     AlertRecord,
@@ -46,7 +44,9 @@ from etf_cockpit.application.ui_facade import (
     compare_runs,
     events_available_as_of,
     filter_forecasts_for_universe,
+    configured_forecast_request_identity,
     load_calendar_events,
+    load_candidate_price_binding,
     load_latest_forecasts,
     load_news_items,
     normalise_event_decision_time,

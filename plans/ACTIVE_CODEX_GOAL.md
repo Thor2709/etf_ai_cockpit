@@ -3147,3 +3147,14 @@ next action and whether the requested outcome is actually complete.
   writer-to-score readback, and aligns only those two coupled expectations with
   `D+1 00:00:00Z`. Direct adversarial and coupled tests pass; freeze one final
   head for paired review and fresh H-tier evidence with no further broadening.
+- Exact head `c548c48becb08040ed219597fa38619d2c5e35a0` is rejected, and run
+  `32477488001` is stale after all changed product tests passed in 320 seconds
+  but the enforced architecture boundary failed. Review reproduced the parallel
+  raw-candidate CSV escape, the separate score-path `_bool_like` non-scalar
+  escape, and a regression whose default directory was bound before monkeypatch.
+  The consolidated correction gives both candidate loaders dynamic fail-closed
+  boundaries, rejects non-scalar trend evidence in the real candidate scorer,
+  and routes the dashboard's two demonstrated implementation imports through
+  the existing application facade. Direct builder adversarial tests and the
+  button/architecture boundary suite pass. Freeze one replacement head for
+  final paired review and fresh H-tier evidence; no adjacent redesign.

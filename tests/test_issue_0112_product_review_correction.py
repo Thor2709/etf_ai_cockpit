@@ -1564,6 +1564,54 @@ def test_malformed_candidate_report_fails_closed_through_score_builder(
     assert all(score.execution_allowed is False for score in scores)
 
 
+def test_malformed_raw_candidate_input_fails_closed_through_score_builder(
+    tmp_path, monkeypatch
+) -> None:
+    raw_directory = tmp_path / "trade_candidates"
+    raw_directory.mkdir()
+    (raw_directory / "yahoo_trade_candidates_20250102.csv").write_bytes(
+        b"\xff\xfe\x00invalid-raw-candidate-input"
+    )
+    monkeypatch.setattr(simple_scores_module, "RAW_DIR", tmp_path)
+
+    scores = build_simple_instrument_scores(
+        load_config(),
+        [],
+        pd.DataFrame(),
+        pd.DataFrame(),
+    )
+
+    assert scores
+    assert all(score.execution_allowed is False for score in scores)
+
+
+@pytest.mark.parametrize("value", ([True], [True, False]))
+def test_candidate_score_rejects_non_scalar_trend_signal(value: list[bool]) -> None:
+    scores = simple_scores_module.build_candidate_simple_scores(
+        pd.DataFrame(
+            [
+                {
+                    "instrument_id": "MALFORMED",
+                    "instrument_type": "ETF",
+                    "data_policy": "yfinance_only",
+                    "latest_date": "2025-01-02",
+                    "latest_price": 100.0,
+                    "rows": 260,
+                    "sma50_signal": None,
+                    "sma200_signal": value,
+                }
+            ]
+        ),
+        pd.DataFrame(),
+    )
+
+    assert len(scores) == 1
+    trend = next(component for component in scores[0].components if component.key == "trend")
+    assert trend.raw_score is None
+    assert trend.score_10 is None
+    assert scores[0].execution_allowed is False
+
+
 def test_simple_score_candidate_loader_passes_reference_identity(monkeypatch) -> None:
     captured: dict[str, object] = {}
     candidate_binding = {

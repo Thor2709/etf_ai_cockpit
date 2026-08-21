@@ -4371,3 +4371,17 @@ the stale `D+1 00:00:00Z` expectations. Direct adversarial and coupled tests
 must pass before one final replacement head is frozen for paired review and
 fresh H-tier evidence. Do not broaden persistence, validation, authority,
 financial logic or execution behavior.
+
+`FINAL CANDIDATE INPUT AND FACADE CORRECTION` head
+`c548c48becb08040ed219597fa38619d2c5e35a0` is rejected, and exact run
+`32477488001` is stale. Its changed product collection passed in 320 seconds,
+then the protected presentation boundary reproduced two direct dashboard
+implementation imports. Review also reproduced invalid raw candidate CSV bytes
+and non-scalar trend evidence through the production candidate scorer, while
+the first malformed-report regression had not exercised its bound default
+directory. Make both candidate loaders dynamically fail closed, reject the
+parallel `_bool_like` path, and import the two dashboard functions through the
+existing application facade. Add only the direct builder regressions and require
+the focused architecture/button suite before one replacement head is frozen for
+paired review and fresh full H-tier evidence. Preserve financial logic,
+authority and `execution_allowed=false`.

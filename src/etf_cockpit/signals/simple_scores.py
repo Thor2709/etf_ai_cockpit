@@ -1647,7 +1647,8 @@ def build_candidate_simple_scores(
     return [_with_canonical_score(score) for score in output]
 
 
-def load_latest_candidate_report(directory: Path = REPORTS_DIR) -> tuple[pd.DataFrame, Path | None]:
+def load_latest_candidate_report(directory: Path | None = None) -> tuple[pd.DataFrame, Path | None]:
+    directory = REPORTS_DIR if directory is None else directory
     try:
         files = sorted(
             directory.glob("yfinance_trade_candidate_analysis_*.csv"),
@@ -1671,11 +1672,28 @@ def load_latest_candidate_report(directory: Path = REPORTS_DIR) -> tuple[pd.Data
         return pd.DataFrame(), None
 
 
-def _latest_candidate_input_frame(directory: Path = RAW_DIR / "trade_candidates") -> pd.DataFrame:
-    files = sorted(directory.glob("yahoo_trade_candidates_*.csv"), key=lambda path: path.stat().st_mtime, reverse=True)
+def _latest_candidate_input_frame(directory: Path | None = None) -> pd.DataFrame:
+    directory = RAW_DIR / "trade_candidates" if directory is None else directory
+    try:
+        files = sorted(
+            directory.glob("yahoo_trade_candidates_*.csv"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return pd.DataFrame()
     if not files:
         return pd.DataFrame()
-    frame = pd.read_csv(files[0])
+    try:
+        frame = pd.read_csv(files[0])
+    except (
+        OSError,
+        UnicodeError,
+        ValueError,
+        pd.errors.EmptyDataError,
+        pd.errors.ParserError,
+    ):
+        return pd.DataFrame()
     if "instrument_id" not in frame or "yahoo_symbol" not in frame:
         return pd.DataFrame()
     return frame
@@ -3375,7 +3393,12 @@ def _fmt_number(value: object) -> str:
 
 
 def _bool_like(value: object) -> bool | None:
-    if value is None or pd.isna(value):
+    if value is None or not pd.api.types.is_scalar(value):
+        return None
+    try:
+        if bool(pd.isna(value)):
+            return None
+    except (TypeError, ValueError):
         return None
     if isinstance(value, bool):
         return value
