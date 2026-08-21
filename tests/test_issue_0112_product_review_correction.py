@@ -120,11 +120,18 @@ def _available_reference(
         "content_hash": peer_set.digest() if peer else None,
         "member_instrument_ids": ["PEER"] if peer else [],
     }
+    registry_hash = registry.as_payload()["registry_hash"]
+    selected_records = {
+        "benchmark": benchmark.digest(),
+        "cash": cash.digest(),
+        "peer_set": peer_set.digest() if peer else None,
+        "references": {f"{reference.portfolio_id}@{reference.version}": reference.digest()},
+    }
     return {
         "status": "available",
         "analysis_id": "analysis:test",
         "purpose": "comparison",
-        "registry_hash": registry.as_payload()["registry_hash"],
+        "registry_hash": registry_hash,
         "benchmark_data_id": benchmark_data_id,
         "benchmark": {
             "status": "available",
@@ -150,11 +157,11 @@ def _available_reference(
             "known_at": pd.Timestamp(reference.known_at).isoformat(),
             "source_hashes": list(reference.source_hashes),
         }],
-        "selected_records": {
-            "benchmark": benchmark.digest(),
-            "cash": cash.digest(),
-            "peer_set": peer_set.digest() if peer else None,
-            "references": {f"{reference.portfolio_id}@{reference.version}": reference.digest()},
+        "selected_records": selected_records,
+        "provenance": {
+            "registry_hash": registry_hash,
+            "selected_records": selected_records,
+            "selected_vwce_anchor_digest": None,
         },
         "analysis": {
             "instrument_id": "ETF",
@@ -2193,6 +2200,37 @@ def test_shared_reference_validation_binds_references_and_point_in_time_window()
     )["regime_score_10"] is None
 
 
+def test_shared_reference_validation_binds_emitted_provenance() -> None:
+    registry = _available_registry()
+    reference = _available_reference()
+    assert validate_benchmark_reference(reference, "BENCH", registry=registry) == "BENCH"
+
+    malformed_cases = []
+    missing = deepcopy(reference)
+    missing.pop("provenance")
+    malformed_cases.append(missing)
+    wrong_type = deepcopy(reference)
+    wrong_type["provenance"] = []
+    malformed_cases.append(wrong_type)
+    wrong_registry = deepcopy(reference)
+    wrong_registry["provenance"]["registry_hash"] = "f" * 64
+    malformed_cases.append(wrong_registry)
+    wrong_records = deepcopy(reference)
+    wrong_records["provenance"]["selected_records"] = {}
+    malformed_cases.append(wrong_records)
+    wrong_anchor = deepcopy(reference)
+    wrong_anchor["provenance"]["selected_vwce_anchor_digest"] = "f" * 64
+    malformed_cases.append(wrong_anchor)
+    extra_field = deepcopy(reference)
+    extra_field["provenance"]["unexpected"] = "forged"
+    malformed_cases.append(extra_field)
+
+    assert all(
+        validate_benchmark_reference(case, "BENCH", registry=registry) is None
+        for case in malformed_cases
+    )
+
+
 def test_shared_reference_validation_rejects_caller_selection_from_ambiguous_constituents() -> None:
     constituents = ("BENCH_A", "BENCH_B")
     registry = _available_registry(constituents)
@@ -2361,6 +2399,7 @@ def test_empty_unavailable_peer_is_legal_without_pit_available_registry_peer() -
     )
     reference = _available_reference(peer=False)
     reference["registry_hash"] = registry.as_payload()["registry_hash"]
+    reference["provenance"]["registry_hash"] = reference["registry_hash"]
 
     assert validate_benchmark_reference(reference, "BENCH", registry=registry) == "BENCH"
 
@@ -2426,6 +2465,7 @@ def test_cash_request_allows_only_reference_baseline_unavailability() -> None:
         [""],
         ["reference:unavailable:"],
         ["reference:unavailable:   "],
+        ["reference:unavailable: reference:missing"],
         ["reference_projection_invalid"],
         ["reference:unavailable:reference:missing", "peer:no eligible peer"],
         ["reference:unavailable:reference:missing", 1],

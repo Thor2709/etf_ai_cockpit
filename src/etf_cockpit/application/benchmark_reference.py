@@ -234,15 +234,26 @@ def validate_benchmark_reference(
     benchmark = reference.get("benchmark")
     cash = reference.get("cash")
     selected_records = reference.get("selected_records")
+    provenance = reference.get("provenance")
     if (
         not isinstance(benchmark, Mapping)
         or not isinstance(cash, Mapping)
         or not isinstance(selected_records, Mapping)
+        or not isinstance(provenance, Mapping)
         or benchmark.get("status") != "available"
         or cash.get("status") != "available"
         or reference.get("benchmark_data_id") != benchmark_data_id
         or not isinstance(reference.get("registry_hash"), str)
         or reference.get("registry_hash") in ("", "unavailable")
+    ):
+        return None
+    expected_provenance = {
+        "registry_hash": reference.get("registry_hash"),
+        "selected_records": selected_records,
+        "selected_vwce_anchor_digest": selected_records.get("vwce_anchor"),
+    }
+    if set(provenance) != set(expected_provenance) or any(
+        provenance.get(field) != value for field, value in expected_provenance.items()
     ):
         return None
     benchmark_digest = benchmark.get("content_hash")

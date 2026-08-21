@@ -4503,3 +4503,12 @@ of `reference:unavailable:<id>` entries; fail closed for absent, malformed,
 mixed or unrelated blockers. Add only the direct regressions, retain the
 240-second bound and freeze one replacement head for paired review and fresh
 H-tier evidence.
+
+`FINAL PROVENANCE AND BLOCKER CANONICALITY` head
+`ac878aafe9dc6f0bbe53d2a24467b0c0d4896e0a` is rejected by both reviewers and
+run `32501547687` is cancelled/stale. The cash-scope defect is closed. Reject
+whitespace inside the blocker identifier after `reference:unavailable:` and
+require the emitted provenance mapping to exactly bind registry hash, selected
+records and optional VWCE anchor to the validated top-level projection. Add
+only direct regressions and freeze one replacement head; do not change CI,
+authority or financial behavior.

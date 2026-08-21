@@ -3268,3 +3268,11 @@ next action and whether the requested outcome is actually complete.
   unrelated blockers. Add only those direct regressions, retain the 240-second
   bound and freeze one replacement head for paired review and fresh H-tier
   evidence.
+- Exact head `ac878aafe9dc6f0bbe53d2a24467b0c0d4896e0a` is rejected by both
+  reviewers and run `32501547687` is cancelled/stale. The cash-scope defect is
+  closed. The complete new finding set is two fail-closed details: canonical
+  blocker IDs must reject whitespace immediately after the
+  `reference:unavailable:` prefix, and the emitted provenance mapping must
+  exactly bind its registry hash, selected records and optional VWCE anchor to
+  the validated top-level projection. Add only direct regressions and freeze
+  one replacement head without changing CI, authority or financial behavior.

@@ -2808,7 +2808,8 @@ def _canonical_cash_request(
                 not isinstance(blocker, str)
                 or not blocker.startswith("reference:unavailable:")
                 or not blocker.removeprefix("reference:unavailable:").strip()
-                or blocker != blocker.strip()
+                or blocker.removeprefix("reference:unavailable:")
+                != blocker.removeprefix("reference:unavailable:").strip()
                 for blocker in blockers
             )
         ):
