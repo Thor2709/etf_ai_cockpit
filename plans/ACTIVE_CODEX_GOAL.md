@@ -3327,3 +3327,17 @@ next action and whether the requested outcome is actually complete.
   `in_progress -> implemented_initially -> integrated`, bound to the same
   product head and review evidence, then resume ISSUE-0046. Preserve
   `execution_allowed=false`.
+- ISSUE-0112 completion PR #690 merged exact independently approved replay
+  head `3a404d8f2e71b0c2945b17968a1960d80dc2b90b` as
+  `d8d9b9d618680ead29b493f16659e11c52f5fd14`. Run `32525576510`
+  passed the required Linux, Windows, terminal, authority and status checks.
+  Writer run `32528744114` applied one aggregate proposal/receipt containing
+  exactly `in_progress -> implemented_initially -> integrated`, terminal
+  `applied_and_verified` with `zero_action_readback=true`; convergence run
+  `32528744124` produced no write and `execution_allowed=false` remains
+  unchanged. ISSUE-0046 is the next dependency-ready product issue. Its
+  six-file monthly-decision implementation was transplanted onto exact main
+  `d8d9b9d618680ead29b493f16659e11c52f5fd14` as clean product commit
+  `c47164d3ab874bfe4dba66714fe8b327547373b9`; complete focused validation,
+  H-tier review and hosted Linux/Windows evidence without changing lifecycle
+  state in the product PR.

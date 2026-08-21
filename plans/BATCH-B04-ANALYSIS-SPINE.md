@@ -4566,3 +4566,14 @@ ISSUE-0046 implementation onto the resulting exact main. Keep
 Complete the bounded two-hop aggregate replay against product PR #688 and
 reviewed head `876ec1df5a4ab96afa20476bd632918a4212e152`, preserving
 `execution_allowed=false`, before ISSUE-0046 integration.
+
+`ISSUE-0112 CONVERGED / ISSUE-0046 ACTIVE` PR #690 merged exact replay head
+`3a404d8f2e71b0c2945b17968a1960d80dc2b90b` as
+`d8d9b9d618680ead29b493f16659e11c52f5fd14`. Writer run `32528744114`
+is `applied_and_verified` with one aggregate two-hop proposal/receipt and
+`zero_action_readback=true`; convergence run `32528744124` produced no write.
+The prepared ISSUE-0046 monthly decision template is now cleanly rebased onto
+that exact main as `c47164d3ab874bfe4dba66714fe8b327547373b9`. Validate the
+existing six-file product/test scope, preserve canonical lifecycle state and
+`execution_allowed=false`, freeze one H-tier review head, and run paired review
+with fresh authoritative Linux/Windows and terminal evidence.

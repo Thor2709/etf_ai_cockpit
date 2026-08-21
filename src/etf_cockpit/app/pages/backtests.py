@@ -9,6 +9,11 @@ from etf_cockpit.app.components.charts import equity_drawdown_chart, history_cha
 from etf_cockpit.app.components.tables import accessible_table
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
+from etf_cockpit.application.monthly_decision_template import (
+    build_monthly_decision_template,
+    monthly_decision_template_lines,
+    unavailable_monthly_evidence,
+)
 from etf_cockpit.core.paths import EXPORTS_DIR
 from etf_cockpit.application.ui_facade import NEWS_TIMESTAMP_VALIDATION_PATH, cost_capacity_status, event_engine_status, export_table
 from etf_cockpit.application.validation import build_validation_preview
@@ -28,16 +33,22 @@ def _format_number(value: object, *, percent: bool = False, money: bool = False,
 def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
     report = state.snapshot.backtest
     news_warning = _news_validation_warning()
+    reference_context = context_from_snapshot(
+        state.snapshot,
+        purpose="validation",
+        analysis_id=f"validation:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
+    )
     validation_panel = _validation_panel(
         getattr(state.snapshot, "prices", None),
-        reference_context=context_from_snapshot(
-            state.snapshot,
-            purpose="validation",
-            analysis_id=f"validation:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
-        ),
+        reference_context=reference_context,
     )
     event_panel = _event_replay_panel()
     cost_panel = _cost_capacity_panel(state.snapshot.config)
+    monthly_decision_panel = _monthly_decision_panel(
+        reference_context,
+        report=report,
+        config=state.snapshot.config,
+    )
     if report.results.empty or "strategy_name" not in report.results.columns:
         return ft.Column(
             [
@@ -49,6 +60,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                             validation_panel,
                             cost_panel,
                             event_panel,
+                            monthly_decision_panel,
                             ft.Text("\n".join(report.quality_notes or ["Backtest pending."]), color=theme.MUTED, selectable=True),
                         ],
                         spacing=10,
@@ -70,6 +82,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                             validation_panel,
                             cost_panel,
                             event_panel,
+                            monthly_decision_panel,
                             ft.Text("\n".join(report.quality_notes or ["Backtest pending."]), color=theme.MUTED, selectable=True),
                         ],
                         spacing=10,
@@ -171,6 +184,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
             news_warning,
             validation_panel,
             cost_panel,
+            monthly_decision_panel,
             panel(
                 ft.Column(
                     [
@@ -233,6 +247,113 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
     )
 
 
+def _monthly_decision_panel(reference_context: object, *, report: object, config: object) -> ft.Control:
+    metadata = getattr(report, "metadata", {})
+    metadata = metadata if isinstance(metadata, dict) else {}
+    event_status = event_engine_status()
+    next_session_available = (
+        metadata.get("execution_delay_sessions") == 1
+        and metadata.get("same_bar_execution_avoided") is True
+    )
+    template = build_monthly_decision_template(
+        benchmark_reference=getattr(reference_context, "projection", None),
+        benchmark_registry=getattr(reference_context, "registry", None),
+        alternatives={
+            name: unavailable_monthly_evidence(f"backtest_monthly_{name}_return_projection_unavailable")
+            for name in ("basket", "benchmark", "cash", "no_action")
+        },
+        expected_returns=unavailable_monthly_evidence("monthly_expected_return_distribution_not_produced_by_backtest_report"),
+        optimiser=unavailable_monthly_evidence("optimiser_solution_not_bound_to_backtest_report"),
+        costs=_monthly_backtest_costs(config),
+        events={
+            "status": "partial",
+            "reason": "event_engine_contract_has_no_version_field",
+            "source_id": "event_engine_status+BacktestReport.metadata",
+            "replay": {"status": "available", **event_status},
+            "next_session": {
+                "status": "available" if next_session_available else "unavailable",
+                "reason": "backtest_next_session_evidence_unavailable" if not next_session_available else "canonical_backtest_metadata",
+                "execution_delay_sessions": metadata.get("execution_delay_sessions"),
+                "same_bar_execution_avoided": metadata.get("same_bar_execution_avoided"),
+                "arrival_price_assumption": "next_adjusted_close" if next_session_available else None,
+                "execution_allowed": False,
+            },
+            "execution_allowed": False,
+        },
+        forward_evidence=unavailable_monthly_evidence("ForwardEvidenceSnapshot_not_bound_to_backtest_report"),
+        paper_outcomes=unavailable_monthly_evidence("PaperAccountSnapshot_not_bound_to_backtest_report"),
+        concentration={
+            "status": "unavailable",
+            "reason": "portfolio_sector_theme_concentration_not_produced_by_backtest_report",
+            "execution_allowed": False,
+        },
+        assumptions={
+            "status": "available",
+            "version": "monthly-decision-assumptions.v1",
+            "source_id": str(metadata.get("input_checksum") or "BacktestReport.metadata"),
+            "values": {
+                "rebalance_cadence": "monthly",
+                "execution_assumption": "next_session",
+                "price_field": metadata.get("price_field"),
+                "lookahead_protection": metadata.get("lookahead_protection"),
+                "execution_delay_sessions": metadata.get("execution_delay_sessions"),
+                "same_bar_execution_avoided": metadata.get("same_bar_execution_avoided"),
+            },
+            "execution_allowed": False,
+        },
+        evidence_maturity=getattr(report, "quality_label", "unavailable"),
+        sample_size=metadata.get("walk_forward_periods"),
+        source="backtest_report",
+    )
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Monthly decision template",
+                    "Advisory comparison for basket, canonical benchmark, canonical cash proxy and no-action context; backtest evidence remains descriptive.",
+                ),
+                ft.Text("\n".join(monthly_decision_template_lines(template)), color=theme.MUTED, selectable=True),
+            ],
+            spacing=6,
+        ),
+    )
+
+
+def _monthly_backtest_costs(config: object) -> dict[str, object]:
+    enabled_ids = list(getattr(getattr(config, "universe", None), "enabled_ids", []) or [])
+    instrument_id = str(enabled_ids[0]) if enabled_ids else "unselected"
+    try:
+        value = cost_capacity_status(config, instrument_id)
+    except (ArithmeticError, AttributeError, KeyError, TypeError, ValueError):
+        return unavailable_monthly_evidence("cost_capacity_contract_unavailable")
+    return {
+        "status": "partial",
+        "reason": "single_instrument_preview_is_not_a_basket_cost_projection",
+        "model_id": value.get("model_id"),
+        "source_id": "cost_capacity_status",
+        "components": [
+            {
+                "instrument_id": value.get("instrument_id"),
+                "order_value_eur": value.get("order_preview_eur"),
+                "estimated_cost_eur": value.get("estimated_cost_eur"),
+                "estimated_cost_bps": value.get("estimated_cost_bps"),
+                "data_quality": value.get("data_quality"),
+                "execution_allowed": False,
+            }
+        ],
+        "total": {
+            "order_value_eur": value.get("order_preview_eur"),
+            "cost_eur": value.get("estimated_cost_eur"),
+            "cost_bps": value.get("estimated_cost_bps"),
+        },
+        "capacity": {
+            "status": "available" if value.get("capacity_eur") is not None else "unavailable",
+            "amount_eur": value.get("capacity_eur"),
+            "reason": value.get("capacity_status"),
+        },
+        "assumptions": list(value.get("assumptions", ())),
+        "execution_allowed": False,
+    }
 def _event_replay_panel() -> ft.Control:
     status = event_engine_status()
     lifecycle = ", ".join(str(item).replace("_", " ") for item in status["lifecycle"])

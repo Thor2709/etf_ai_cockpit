@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 import flet as ft
 import pandas as pd
@@ -8,6 +9,12 @@ import pandas as pd
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.benchmark_reference import context_from_snapshot
+from etf_cockpit.application.monthly_decision_template import (
+    build_monthly_decision_template,
+    monthly_decision_template_lines,
+    unavailable_monthly_evidence,
+)
 from etf_cockpit.core.paths import DERIVED_DIR, FORECASTS_DIR, MODEL_DIR, REPORTS_DIR
 from etf_cockpit.application.ui_facade import (
     build_coverage_audit,
@@ -192,8 +199,14 @@ def data_models_page(_page: ft.Page, state: AppState) -> ft.Control:
             panel(
                 ft.Column(
                     [
-                        section_header("Strategy templates", "Simple deterministic template tags derived from the x/10 evidence components."),
+                        section_header("Strategy templates", "Simple deterministic template tags and a monthly basket/benchmark/cash comparison."),
                         ft.Text(_strategy_template_text(), color=theme.MUTED, selectable=True),
+                        ft.Text(
+                            "Monthly decision template\n" + _monthly_decision_text(state),
+                            key="data-models.monthly-decision-template",
+                            color=theme.MUTED,
+                            selectable=True,
+                        ),
                     ]
                 )
             ),
@@ -305,3 +318,119 @@ def _strategy_template_text() -> str:
             )
         )
     return "\n".join(lines)
+
+
+def _monthly_decision_text(state: AppState) -> str:
+    path = DERIVED_DIR / "strategy_templates.csv"
+    try:
+        frame = pd.read_csv(path) if path.exists() else pd.DataFrame()
+    except Exception as exc:
+        return f"Monthly decision template unavailable: {type(exc).__name__}."
+    reference = context_from_snapshot(
+        state.snapshot,
+        purpose="comparison",
+        analysis_id=f"monthly-decision:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
+    )
+    components = [
+        _strategy_distribution_component(row.to_dict())
+        for _, row in frame.iterrows()
+    ]
+    template = build_monthly_decision_template(
+        benchmark_reference=reference.projection,
+        benchmark_registry=reference.registry,
+        alternatives={
+            name: unavailable_monthly_evidence(
+                f"strategy_templates_{name}_portfolio_return_unavailable"
+            )
+            for name in ("basket", "benchmark", "cash", "no_action")
+        },
+        expected_returns={
+            "status": "partial" if components else "unavailable",
+            "reason": "canonical_basket_distribution_unavailable",
+            "components": components,
+            "execution_allowed": False,
+        } if components else unavailable_monthly_evidence("strategy_distribution_rows_unavailable"),
+        optimiser=unavailable_monthly_evidence("optimiser_projection_not_produced_on_strategy_templates_surface"),
+        costs=unavailable_monthly_evidence("portfolio_cost_projection_not_produced_on_strategy_templates_surface"),
+        events=unavailable_monthly_evidence("event_replay_projection_not_produced_on_strategy_templates_surface"),
+        forward_evidence=unavailable_monthly_evidence("forward_evidence_snapshot_not_produced_on_strategy_templates_surface"),
+        paper_outcomes=unavailable_monthly_evidence("paper_account_snapshot_not_produced_on_strategy_templates_surface"),
+        concentration={
+            "status": "partial",
+            "reason": "portfolio_concentration_not_available_from_instrument_rows",
+            "sector": unavailable_monthly_evidence("portfolio_sector_concentration_unavailable"),
+            "theme": unavailable_monthly_evidence("portfolio_theme_concentration_unavailable"),
+            "components": [
+                {
+                    "instrument_id": str(row.get("instrument_id") or "unavailable"),
+                    "sector_theme_warning": str(row.get("sector_theme_warning") or "unavailable"),
+                    "theme_concentration": _optional_number(row.get("crowding_top_ranked_theme_concentration")),
+                }
+                for _, row in frame.iterrows()
+            ],
+            "execution_allowed": False,
+        },
+        assumptions={
+            "status": "available",
+            "version": "monthly-decision-assumptions.v1",
+            "source_id": "ISSUE-0046",
+            "values": {
+                "rebalance_cadence": "monthly",
+                "execution_assumption": "next_session",
+                "financial_values_are_caller_supplied": True,
+            },
+            "execution_allowed": False,
+        },
+        evidence_maturity="unavailable",
+        source=f"strategy_templates:{len(frame)}-instrument-components",
+    )
+    return "\n".join(monthly_decision_template_lines(template))
+
+
+def _strategy_distribution_component(row: dict[str, object]) -> dict[str, object]:
+    values = {
+        "q10": _optional_number(row.get("q10_expected_return")),
+        "q50": _optional_number(row.get("q50_expected_return")),
+        "q90": _optional_number(row.get("q90_expected_return")),
+        "net_q10": _optional_number(row.get("net_q10_expected_return")),
+        "net_q50": _optional_number(row.get("net_expected_return")),
+        "net_q90": _optional_number(row.get("net_q90_expected_return")),
+        "horizon": _optional_number(row.get("expected_return_horizon_days")),
+    }
+    version = row.get("expected_return_distribution_version")
+    source_dataset = row.get("expected_return_source_dataset")
+    available = (
+        all(value is not None for value in values.values())
+        and isinstance(version, str)
+        and bool(version.strip())
+        and isinstance(source_dataset, str)
+        and bool(source_dataset.strip())
+    )
+    if not available:
+        return {
+            "instrument_id": str(row.get("instrument_id") or "unavailable"),
+            "status": "unavailable",
+            "reason": "complete_gross_net_distribution_unavailable",
+            "execution_allowed": False,
+        }
+    return {
+        "instrument_id": str(row.get("instrument_id") or "unavailable"),
+        "status": "available",
+        "version": version,
+        "source_id": str(row.get("instrument_id") or "unavailable"),
+        "source_dataset": source_dataset,
+        "horizon_days": values["horizon"],
+        "gross": {"q10": values["q10"], "q50": values["q50"], "q90": values["q90"]},
+        "net": {"q10": values["net_q10"], "q50": values["net_q50"], "q90": values["net_q90"]},
+        "execution_allowed": False,
+    }
+
+
+def _optional_number(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None

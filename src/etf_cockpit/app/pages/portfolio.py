@@ -32,6 +32,11 @@ from etf_cockpit.application.portfolio_sandbox import (
     draft_portfolio_proposal,
     export_portfolio_analysis,
 )
+from etf_cockpit.application.monthly_decision_template import (
+    build_monthly_decision_template,
+    monthly_decision_template_lines,
+    unavailable_monthly_evidence,
+)
 from etf_cockpit.core.paths import ROOT
 
 
@@ -557,6 +562,60 @@ def _analysis_view(analysis: PortfolioAnalysis) -> ft.Control:
             ]
         )
     )
+    monthly_template = build_monthly_decision_template(
+        benchmark_reference=benchmark,
+        alternatives={
+            name: unavailable_monthly_evidence(f"portfolio_{name}_return_projection_unavailable")
+            for name in ("basket", "benchmark", "cash", "no_action")
+        },
+        expected_returns=unavailable_monthly_evidence("portfolio_level_expected_return_distribution_unavailable"),
+        optimiser=_monthly_portfolio_optimiser(analysis),
+        costs=_monthly_portfolio_costs(analysis),
+        events=unavailable_monthly_evidence("event_replay_projection_not_bound_to_portfolio_candidate"),
+        forward_evidence=unavailable_monthly_evidence("forward_evidence_snapshot_not_bound_to_portfolio_candidate"),
+        paper_outcomes=unavailable_monthly_evidence("paper_account_snapshot_not_bound_to_portfolio_candidate"),
+        concentration={
+            "status": "partial",
+            "reason": "theme_exposure_not_present_in_portfolio_analysis_contract",
+            "sector": {
+                "status": "available" if analysis.sector_exposure else "unavailable",
+                "source_id": "PortfolioAnalysis.sector_exposure",
+                "exposures": [
+                    {"label": row.bucket, "weight": row.target_weight}
+                    for row in analysis.sector_exposure
+                ],
+            },
+            "theme": unavailable_monthly_evidence("theme_exposure_not_present_in_portfolio_analysis_contract"),
+            "execution_allowed": False,
+        },
+        assumptions={
+            "status": "available",
+            "version": "monthly-decision-assumptions.v1",
+            "source_id": analysis.candidate.candidate_id,
+            "values": {
+                "rebalance_cadence": "monthly",
+                "execution_assumption": "next_session",
+                "candidate_id": analysis.candidate.candidate_id,
+                "candidate_source_revision": analysis.candidate.source_revision,
+                "source_snapshot_bound": analysis.snapshot_binding is not None,
+            },
+            "execution_allowed": False,
+        },
+        evidence_maturity="unavailable",
+        source=f"portfolio_candidate:{analysis.candidate.candidate_id}",
+    )
+    monthly_decision_evidence = panel(
+        ft.Column(
+            [
+                section_header(
+                    "Monthly decision template",
+                    "Advisory comparison context for a monthly basket, canonical benchmark, canonical cash proxy and no-action alternative.",
+                ),
+                ft.Text("\n".join(monthly_decision_template_lines(monthly_template)), color=theme.MUTED, selectable=True),
+            ],
+            spacing=6,
+        ),
+    )
     return ft.Column(
         [
             panel(
@@ -591,6 +650,7 @@ def _analysis_view(analysis: PortfolioAnalysis) -> ft.Control:
             _holding_evidence_view(analysis),
             _constraint_evidence_view(analysis),
             reference_evidence,
+            monthly_decision_evidence,
             panel(
                 ft.Column(
                     [
@@ -624,6 +684,87 @@ def _analysis_view(analysis: PortfolioAnalysis) -> ft.Control:
         ],
         spacing=12,
     )
+
+
+def _monthly_portfolio_optimiser(analysis: PortfolioAnalysis) -> dict[str, object]:
+    value = analysis.service_evidence.get("optimiser")
+    if not isinstance(value, dict) or value.get("status") == "unavailable":
+        return unavailable_monthly_evidence("canonical_optimiser_solution_unavailable")
+    return {
+        "status": "partial",
+        "reason": "solver_binding_diagnostics_not_exposed_by_portfolio_service_projection",
+        "model_version": value.get("model_version"),
+        "method": value.get("method"),
+        "source_id": "PortfolioAnalysis.service_evidence.optimiser",
+        "constraints": {
+            "status": "available",
+            "source_id": "PortfolioAnalysis.constraints",
+            "rows": [
+                {
+                    "name": row.name,
+                    "current_value": row.current_value,
+                    "target_value": row.target_value,
+                    "limit": row.limit,
+                    "status": row.status,
+                    "reason": row.reason,
+                }
+                for row in analysis.constraints
+            ],
+            "execution_allowed": False,
+        },
+        "solution": {
+            "status": value.get("status"),
+            "feasible": value.get("feasible"),
+            "weights": value.get("weights", {}),
+            "warnings": value.get("warnings", []),
+            "diagnostics": unavailable_monthly_evidence("solver_binding_diagnostics_unavailable"),
+            "execution_allowed": False,
+        },
+        "execution_allowed": False,
+    }
+
+
+def _monthly_portfolio_costs(analysis: PortfolioAnalysis) -> dict[str, object]:
+    cost = analysis.cost
+    return {
+        "status": "available" if cost.capacity_eur is not None else "partial",
+        "reason": "capacity_unavailable" if cost.capacity_eur is None else "complete_portfolio_cost_estimate",
+        "model_id": cost.model_id,
+        "source_id": "PortfolioCostEstimate",
+        "components": [
+            {
+                "estimate_id": item.estimate_id,
+                "instrument_id": item.instrument_id,
+                "order_value_eur": item.order_value_eur,
+                "cost_eur": item.total_cost_eur,
+                "cost_bps": item.total_cost_bps,
+                "commission_eur": item.commission_eur,
+                "spread_bps": item.spread_bps,
+                "slippage_bps": item.slippage_bps,
+                "market_impact_bps": item.market_impact_bps,
+                "capacity_eur": item.capacity_eur,
+                "capacity_status": item.capacity_status,
+                "data_quality": item.data_quality,
+                "execution_allowed": False,
+            }
+            for item in cost.estimates
+        ],
+        "total": {
+            "order_value_eur": cost.total_order_value_eur,
+            "cost_eur": cost.total_cost_eur,
+            "cost_bps": cost.weighted_cost_bps,
+        },
+        "capacity": {
+            "status": "available" if cost.capacity_eur is not None else "unavailable",
+            "amount_eur": cost.capacity_eur,
+        },
+        "assumptions": [
+            assumption
+            for item in cost.estimates
+            for assumption in item.assumptions
+        ],
+        "execution_allowed": False,
+    }
 
 
 def _holding_evidence_view(analysis: PortfolioAnalysis) -> ft.Control:
