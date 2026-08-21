@@ -4483,3 +4483,12 @@ incomplete positive fixtures with real registry-resolved contexts; and restore
 the original 240-second changed-test bound. The exact seven failures and direct
 missing-authority regression pass. Freeze one replacement H head with no CI,
 financial, persistence or authority broadening.
+
+`FINAL CLEARED PEER AUTHORITY` head
+`2188cefd7cf31d31044829c60cd67e4cf459ea00` received one approval and one
+rejection. Run `32498029942` attempt 1 failed only at the restored 240-second
+changed-test bound; its one exact-head retry was cancelled as stale after a
+caller-cleared peer was reproduced. Reject an unavailable peer projection when
+the registry has a PIT-eligible available peer, while keeping empty unavailable
+peer evidence legal when no such record exists. Add only direct validator,
+attribution and cash-gate regressions; preserve every other boundary.

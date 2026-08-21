@@ -104,7 +104,7 @@ def _prices() -> pd.DataFrame:
 
 def _available_reference(
     *,
-    peer: bool = False,
+    peer: bool = True,
     benchmark_data_id: str = "BENCH",
     benchmark_constituents: tuple[str, ...] | None = None,
 ) -> dict[str, object]:
@@ -2319,6 +2319,50 @@ def test_reference_validation_rejects_populated_non_available_peer_projection(
         benchmark_reference=reference,
         benchmark_registry=registry,
     )["regime_score_10"] is None
+
+
+def test_reference_validation_rejects_cleared_available_registry_peer() -> None:
+    registry = _available_registry()
+    reference = _available_reference(peer=True)
+    reference["peer_set"] = {
+        "status": "unavailable",
+        "id": None,
+        "version": None,
+        "content_hash": None,
+        "member_instrument_ids": [],
+    }
+    reference["selected_records"]["peer_set"] = None
+    identity = {
+        "registry_hash": reference["registry_hash"],
+        "selected_records": reference["selected_records"],
+        "analysis": reference["analysis"],
+    }
+
+    assert validate_benchmark_reference(reference, "BENCH", registry=registry) is None
+    assert build_benchmark_attribution_lookup(
+        _prices(),
+        benchmark_id="BENCH",
+        benchmark_reference=reference,
+        benchmark_registry=registry,
+    )["ALT"]["benchmark_return"] is None
+    assert simple_scores_module._canonical_cash_request(
+        reference,
+        identity,
+        benchmark_registry=registry,
+    ) is None
+
+
+def test_empty_unavailable_peer_is_legal_without_pit_available_registry_peer() -> None:
+    complete_registry = _available_registry()
+    registry = CanonicalBenchmarkRegistry(
+        benchmarks=complete_registry.benchmarks,
+        cash_proxies=complete_registry.cash_proxies,
+        reference_portfolios=complete_registry.reference_portfolios,
+    )
+    reference = _available_reference(peer=False)
+    reference["registry_hash"] = registry.as_payload()["registry_hash"]
+
+    assert validate_benchmark_reference(reference, "BENCH", registry=registry) == "BENCH"
 
 
 def test_cash_request_uses_complete_reference_validation_for_peer_authority() -> None:

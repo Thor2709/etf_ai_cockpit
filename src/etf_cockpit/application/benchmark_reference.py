@@ -404,6 +404,13 @@ def validate_benchmark_reference(
                 or pd.Timestamp(peer_record.known_at).tz_convert("UTC") > decision_cutoff
             ):
                 return None
+        elif any(
+            item.status == "available"
+            and pd.Timestamp(item.effective_at).tz_convert("UTC") <= effective_cutoff
+            and pd.Timestamp(item.known_at).tz_convert("UTC") <= decision_cutoff
+            for item in registry.peer_sets
+        ):
+            return None
         for item in matched_references:
             reference_effective_cutoff = decision_cutoff if item.method == "no_trade" else effective_cutoff
             if (

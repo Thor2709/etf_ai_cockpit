@@ -3250,3 +3250,11 @@ next action and whether the requested outcome is actually complete.
   unrelated reference baselines are unavailable, migrate the seven coupled
   tests to real canonical contexts, and restore the 240-second bound. The exact
   seven failures and direct missing-authority regression pass; freeze one head.
+- Exact head `2188cefd7cf31d31044829c60cd67e4cf459ea00` received one approval
+  and one rejection. Run `32498029942` attempt 1 failed only at the restored
+  240-second changed-test bound; its single exact-head retry was cancelled as
+  stale after review reproduced a caller-cleared peer. The validator accepted
+  an empty unavailable peer even when the registry contained a PIT-eligible
+  available peer. Reject that mismatch, retain empty unavailable peer evidence
+  only when no available registry peer exists at the declared cutoffs, and add
+  direct validator, attribution and cash-gate regressions. No adjacent change.
