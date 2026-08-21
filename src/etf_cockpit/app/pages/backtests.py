@@ -273,13 +273,19 @@ def _monthly_decision_panel(reference_context: object, *, report: object, config
             "status": "partial",
             "reason": "event_engine_contract_has_no_version_field",
             "source_id": "event_engine_status+BacktestReport.metadata",
-            "replay": {"status": "available", **event_status},
+            "replay": {
+                "status": "available" if _backtest_evidence_bound(metadata) else "unavailable",
+                "reason": "backtest_event_evidence_unavailable" if not _backtest_evidence_bound(metadata) else "canonical_backtest_metadata",
+                **event_status,
+                **_backtest_evidence_fields(metadata, "replay"),
+            },
             "next_session": {
-                "status": "available" if next_session_available else "unavailable",
-                "reason": "backtest_next_session_evidence_unavailable" if not next_session_available else "canonical_backtest_metadata",
+                "status": "available" if next_session_available and _backtest_evidence_bound(metadata) else "unavailable",
+                "reason": "backtest_next_session_evidence_unavailable" if not next_session_available or not _backtest_evidence_bound(metadata) else "canonical_backtest_metadata",
                 "execution_delay_sessions": metadata.get("execution_delay_sessions"),
                 "same_bar_execution_avoided": metadata.get("same_bar_execution_avoided"),
                 "arrival_price_assumption": "next_adjusted_close" if next_session_available else None,
+                **_backtest_evidence_fields(metadata, "next-session"),
                 "execution_allowed": False,
             },
             "execution_allowed": False,
@@ -333,41 +339,71 @@ def _monthly_backtest_alternatives(
 
     curves = getattr(report, "equity_curves", None)
     if not isinstance(curves, pd.DataFrame) or curves.empty:
-        curves = pd.DataFrame()
-    source_id = str(metadata.get("source_id") or metadata.get("input_checksum") or "")
-    source_digest = str(metadata.get("input_checksum") or "")
-    source_dataset = f"{metadata.get('date_range_start', 'unavailable')}:{metadata.get('date_range_end', 'unavailable')}"
-    version = str(metadata.get("backtest_version") or "")
-    as_of = metadata.get("date_range_end")
-    known_at = metadata.get("known_at") or metadata.get("decision_time")
-    reference = reference if isinstance(reference, Mapping) else metadata.get("benchmark_reference")
-    reference = reference if isinstance(reference, Mapping) else {}
-    benchmark_ref = reference.get("benchmark")
-    cash_ref = reference.get("cash")
-    no_action_ref = next(
-        (item for item in reference.get("references", ()) if isinstance(item, Mapping) and item.get("method") == "no_trade"),
-        None,
-    )
-    alternatives: dict[str, object] = {}
+        return {
+            name: unavailable_monthly_evidence(f"backtest_monthly_{name}_return_projection_unavailable")
+            for name in ("basket", "benchmark", "cash", "no_action")
+        }
+    if not isinstance(curves.index, pd.DatetimeIndex) or not curves.index.is_monotonic_increasing:
+        return {
+            name: unavailable_monthly_evidence("backtest_monthly_comparison_window_unsorted")
+            for name in ("basket", "benchmark", "cash", "no_action")
+        }
     aliases = {
         "basket": ("basket", "signal_strategy"),
         "benchmark": (str(metadata.get("benchmark_data_id") or ""), "benchmark"),
         "cash": ("cash", "cash_proxy"),
         "no_action": ("no_action", "buy_and_hold"),
     }
-    for name, columns in aliases.items():
-        column = next((candidate for candidate in columns if candidate and candidate in curves.columns), None)
-        if column is None:
-            alternatives[name] = unavailable_monthly_evidence(f"backtest_monthly_{name}_return_projection_unavailable")
-            continue
-        series = pd.to_numeric(curves[column], errors="coerce").dropna()
-        if len(series) < 2 or not math.isfinite(float(series.iloc[0])) or not math.isfinite(float(series.iloc[-1])) or float(series.iloc[0]) <= 0:
-            alternatives[name] = unavailable_monthly_evidence(f"backtest_monthly_{name}_return_projection_invalid")
-            continue
-        period_return = float(series.iloc[-1] / series.iloc[0] - 1.0)
+    columns = {name: next((candidate for candidate in names if candidate and candidate in curves.columns), None) for name, names in aliases.items()}
+    if any(column is None for column in columns.values()):
+        return {
+            name: unavailable_monthly_evidence(
+                f"backtest_monthly_{name}_return_projection_unavailable" if columns[name] is None else "backtest_monthly_comparison_window_unavailable"
+            )
+            for name in columns
+        }
+    selected = curves[[column for column in columns.values() if column is not None]].apply(pd.to_numeric, errors="coerce")
+    selected = selected.dropna(how="any")
+    if len(selected) < 2 or not selected.index.is_monotonic_increasing:
+        return {
+            name: unavailable_monthly_evidence("backtest_monthly_comparison_window_unavailable")
+            for name in columns
+        }
+    start = selected.index[0]
+    end = selected.index[-1]
+    horizon_days = (end - start).total_seconds() / 86400.0
+    if not math.isfinite(horizon_days) or horizon_days <= 0:
+        return {
+            name: unavailable_monthly_evidence("backtest_monthly_comparison_window_invalid")
+            for name in columns
+        }
+    source_id = str(metadata.get("source_id") or "")
+    source_digest = str(metadata.get("input_checksum") or "")
+    source_dataset = str(metadata.get("source_dataset") or "")
+    version = str(metadata.get("backtest_version") or "")
+    as_of = _timestamp_text(end)
+    known_at = metadata.get("known_at") or metadata.get("decision_time")
+    canonical_reference = reference if isinstance(reference, Mapping) else metadata.get("benchmark_reference")
+    canonical_reference = canonical_reference if isinstance(canonical_reference, Mapping) else {}
+    canonical_no_action = next(
+        (
+            item
+            for item in canonical_reference.get("references", ())
+            if isinstance(item, Mapping) and item.get("method") == "no_trade"
+        ),
+        None,
+    )
+    alternatives: dict[str, object] = {}
+    for name, column in columns.items():
+        series = selected[column]  # type: ignore[index]
+        first_value = float(series.iloc[0])
+        last_value = float(series.iloc[-1])
+        period_return = float(last_value / first_value - 1.0) if first_value > 0 else float("nan")
         if not math.isfinite(period_return) or period_return < -1:
             alternatives[name] = unavailable_monthly_evidence(f"backtest_monthly_{name}_return_projection_invalid")
             continue
+        producer_reference = _monthly_producer_reference(metadata, name)
+        reference_fields = producer_reference or {}
         alternatives[name] = {
             "status": "available",
             "version": version,
@@ -377,26 +413,13 @@ def _monthly_backtest_alternatives(
             "as_of": as_of,
             "known_at": known_at,
             "period_return": period_return,
-            "horizon_days": max(1, int((curves.index[-1] - curves.index[0]).days)) if hasattr(curves.index[-1], "day") else 1,
-            "reference_id": (
-                benchmark_ref.get("id") if name == "benchmark" and isinstance(benchmark_ref, Mapping)
-                else cash_ref.get("id") if name == "cash" and isinstance(cash_ref, Mapping)
-                else no_action_ref.get("id") if name == "no_action" and isinstance(no_action_ref, Mapping)
-                else None
-            ),
-            "reference_version": (
-                benchmark_ref.get("version") if name == "benchmark" and isinstance(benchmark_ref, Mapping)
-                else cash_ref.get("version") if name == "cash" and isinstance(cash_ref, Mapping)
-                else no_action_ref.get("version") if name == "no_action" and isinstance(no_action_ref, Mapping)
-                else None
-            ),
-            "reference_content_hash": (
-                benchmark_ref.get("content_hash") if name == "benchmark" and isinstance(benchmark_ref, Mapping)
-                else cash_ref.get("content_hash") if name == "cash" and isinstance(cash_ref, Mapping)
-                else no_action_ref.get("content_hash") if name == "no_action" and isinstance(no_action_ref, Mapping)
-                else None
-            ),
+            "horizon_days": horizon_days,
+            "reference_id": reference_fields.get("id"),
+            "reference_version": reference_fields.get("version"),
+            "reference_content_hash": reference_fields.get("content_hash"),
             "reference_method": "no_trade" if name == "no_action" else None,
+            "trust": metadata.get("trust"),
+            "source_bound": metadata.get("source_bound"),
             "execution_allowed": False,
         }
         if name in {"benchmark", "cash", "no_action"} and any(
@@ -404,6 +427,10 @@ def _monthly_backtest_alternatives(
             for field in ("reference_id", "reference_version", "reference_content_hash")
         ):
             alternatives[name] = unavailable_monthly_evidence(f"backtest_monthly_{name}_reference_unavailable")
+        if name == "no_action" and not _monthly_no_action_binding(
+            metadata, reference_fields, canonical_no_action
+        ):
+            alternatives[name] = unavailable_monthly_evidence("backtest_monthly_no_action_binding_unavailable")
     basket = alternatives.get("basket")
     benchmark = alternatives.get("benchmark")
     cash = alternatives.get("cash")
@@ -421,6 +448,134 @@ def _monthly_backtest_alternatives(
         else:
             alternatives["basket"] = unavailable_monthly_evidence("backtest_monthly_basket_relative_evidence_unavailable")
     return alternatives
+
+
+def _backtest_evidence_bound(metadata: Mapping[str, object]) -> bool:
+    digest = str(metadata.get("input_checksum") or "")
+    return (
+        metadata.get("trust") is True
+        and metadata.get("source_bound") is True
+        and bool(str(metadata.get("source_id") or "").strip())
+        and len(digest) == 64
+        and bool(str(metadata.get("known_at") or metadata.get("decision_time") or "").strip())
+    )
+
+
+def _backtest_evidence_fields(metadata: Mapping[str, object], suffix: str) -> dict[str, object]:
+    if not _backtest_evidence_bound(metadata):
+        return {}
+    end = metadata.get("date_range_end")
+    try:
+        as_of = _timestamp_text(pd.Timestamp(end))
+    except (TypeError, ValueError):
+        return {}
+    field_prefix = suffix.replace("-", "_")
+    source_id = metadata.get(f"{field_prefix}_source_id")
+    source_dataset = metadata.get(f"{field_prefix}_source_dataset", metadata.get("source_dataset"))
+    if not str(source_id or "").strip() or not str(source_dataset or "").strip():
+        return {}
+    return {
+        "version": str(metadata.get("backtest_version") or ""),
+        "source_id": str(source_id),
+        "source_dataset": str(source_dataset),
+        "source_digest": str(metadata.get("input_checksum")),
+        "as_of": as_of,
+        "known_at": metadata.get("known_at") or metadata.get("decision_time"),
+        "trust": True,
+        "source_bound": True,
+    }
+
+
+def _monthly_producer_reference(metadata: Mapping[str, object], name: str) -> Mapping[str, object]:
+    """Read reference identity carried by the producer; never use the current UI registry."""
+
+    if name == "no_action":
+        binding = metadata.get("monthly_no_action_binding", metadata.get("no_action_binding"))
+        if isinstance(binding, Mapping) and any(binding.get(field) for field in ("id", "version", "content_hash")):
+            return binding
+    for key in (f"monthly_{name}_reference", f"{name}_reference"):
+        value = metadata.get(key)
+        if isinstance(value, Mapping):
+            return value
+    identity = metadata.get("reference_identity")
+    if isinstance(identity, Mapping):
+        if name == "no_action":
+            references = identity.get("references")
+            if isinstance(references, (list, tuple)):
+                for value in references:
+                    if isinstance(value, Mapping) and value.get("method") == "no_trade":
+                        return value
+        value = identity.get(name)
+        if isinstance(value, Mapping):
+            return value
+    fields = {
+        "id": metadata.get(f"monthly_{name}_reference_id", metadata.get(f"{name}_reference_id")),
+        "version": metadata.get(f"monthly_{name}_reference_version", metadata.get(f"{name}_reference_version")),
+        "content_hash": metadata.get(
+            f"monthly_{name}_reference_content_hash", metadata.get(f"{name}_reference_content_hash")
+        ),
+        "method": "no_trade" if name == "no_action" else None,
+    }
+    return fields if any(value not in (None, "") for value in fields.values()) else {}
+
+
+def _monthly_no_action_binding(
+    metadata: Mapping[str, object],
+    reference: Mapping[str, object],
+    canonical_reference: object,
+) -> bool:
+    binding = metadata.get("monthly_no_action_binding", metadata.get("no_action_binding"))
+    if not isinstance(binding, Mapping):
+        binding = metadata
+    constituents = binding.get("constituents", binding.get("no_action_constituents"))
+    weights = binding.get("weights", binding.get("no_action_weights"))
+    if not reference.get("id") or not reference.get("version") or not reference.get("content_hash"):
+        return False
+    if not isinstance(canonical_reference, Mapping) or any(
+        reference.get(field) != canonical_reference.get(field)
+        for field in ("id", "version", "content_hash")
+    ):
+        return False
+    if not isinstance(constituents, (list, tuple)) or not constituents:
+        return False
+    if not isinstance(weights, Mapping) or not weights:
+        return False
+    values = []
+    for constituent in constituents:
+        weight = weights.get(constituent)
+        if isinstance(weight, bool):
+            return False
+        try:
+            number = float(weight)
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(number) or number < 0:
+            return False
+        values.append(number)
+    if not math.isclose(sum(values), 1.0, rel_tol=0.0, abs_tol=1e-9):
+        return False
+    canonical_constituents = canonical_reference.get("constituent_instrument_ids")
+    canonical_weights = canonical_reference.get("current_weights")
+    if not isinstance(canonical_constituents, (list, tuple)) or not isinstance(canonical_weights, Mapping):
+        return False
+    if tuple(str(item) for item in constituents) != tuple(str(item) for item in canonical_constituents):
+        return False
+    if set(weights) != set(canonical_weights):
+        return False
+    return all(
+        not isinstance(canonical_weights.get(key), bool)
+        and math.isclose(float(weights[key]), float(canonical_weights[key]), rel_tol=0.0, abs_tol=1e-12)
+        for key in weights
+    )
+
+
+def _timestamp_text(value: pd.Timestamp) -> str:
+    timestamp = value
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize("UTC")
+    else:
+        timestamp = timestamp.tz_convert("UTC")
+    return timestamp.isoformat().replace("+00:00", "Z")
 
 
 def _monthly_backtest_costs(config: object) -> dict[str, object]:

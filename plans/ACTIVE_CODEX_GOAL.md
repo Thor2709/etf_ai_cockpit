@@ -3355,3 +3355,15 @@ next action and whether the requested outcome is actually complete.
   corrections once on top of the published rejected head, freeze one replacement
   H-tier head, and launch both exact-head reviews with fresh hosted Linux,
   Windows and terminal evidence.
+- ISSUE-0046 replacement head `34010ff530ceaf6be72d9095051d2a65d45f8dfd`
+  is rejected by both exact-head reviewers; H-tier run `32531962188` is
+  cancelled/stale. The one consolidated follow-up closes the complete
+  demonstrated set: unavailable no-action authority, timezone-naive evidence,
+  mismatched comparison windows, malformed partial nesting, producer identity
+  relabelling and row disagreement, contradictory relative returns, absent
+  positive provenance on available sections, and unequal backtest endpoints.
+  Producer no-action evidence must also match the exact canonical constituents
+  and weights. The corrected five-file delta passes 63 direct regressions, the
+  affected benchmark/evidence/backtest/portfolio/UI suite, Ruff, compilation
+  and diff hygiene. Commit once on top of the rejected published head, freeze
+  one replacement, and repeat both reviews with fresh H-tier evidence.

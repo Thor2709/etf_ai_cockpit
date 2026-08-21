@@ -43,12 +43,12 @@ def _reference() -> dict[str, object]:
         "analysis": {"decision_time": "2026-08-21T23:59:59Z"},
         "benchmark": {"status": "available", "id": "benchmark:global", "version": "1.0.0", "content_hash": "benchmark-hash"},
         "cash": {"status": "available", "id": "cash:EUR", "version": "1.0.0", "content_hash": "cash-hash"},
-        "references": [{"status": "available", "id": "reference:no-trade", "version": "1.0.0", "content_hash": "no-trade-hash", "method": "no_trade"}],
+        "references": [{"status": "available", "id": "reference:no-trade", "version": "1.0.0", "content_hash": "no-trade-hash", "method": "no_trade", "constituent_instrument_ids": ["VWCE"], "current_weights": {"VWCE": 1.0}}],
     }
 
 
 def _full_evidence() -> dict[str, object]:
-    return {
+    evidence = {
         "alternatives": {
             "basket": {"status": "available", "version": "returns.v3", "source_id": "candidate:42", "source_dataset": "forward:2026-08", "source_digest": _SOURCE_DIGEST, "as_of": "2026-08-21", "known_at": "2026-08-21T12:00:00Z", "horizon_days": 21, "period_return": 0.07, "benchmark_relative_return": 0.02, "cash_relative_return": 0.04, "no_action_relative_return": 0.03, "execution_allowed": False},
             "benchmark": {"status": "available", "version": "returns.v3", "source_id": "benchmark:42", "source_dataset": "forward:2026-08", "source_digest": _SOURCE_DIGEST, "as_of": "2026-08-21", "known_at": "2026-08-21T12:00:00Z", "horizon_days": 21, "reference_id": "benchmark:global", "reference_version": "1.0.0", "reference_content_hash": "benchmark-hash", "period_return": 0.05, "execution_allowed": False},
@@ -84,6 +84,28 @@ def _full_evidence() -> dict[str, object]:
         "concentration": {"status": "available", "sector": {"status": "available", "max_weight": 0.32, "execution_allowed": False}, "theme": {"status": "available", "max_weight": 0.18, "execution_allowed": False}, "execution_allowed": False},
         "assumptions": {"status": "available", "version": "assumptions.v1", "source_id": "policy:42", "values": {"rebalance_cadence": "monthly", "execution_assumption": "next_session"}, "execution_allowed": False},
     }
+    _bind_available_evidence(evidence)
+    return evidence
+
+
+def _bind_available_evidence(value: object) -> None:
+    if isinstance(value, dict):
+        if value.get("as_of") == "2026-08-21":
+            value["as_of"] = "2026-08-21T00:00:00Z"
+        if value.get("status") == "available":
+            value.setdefault("version", "evidence.v1")
+            value.setdefault("source_id", "evidence:test")
+            value.setdefault("source_dataset", "local:test")
+            value.setdefault("source_digest", _SOURCE_DIGEST)
+            value.setdefault("as_of", "2026-08-21T00:00:00Z")
+            value.setdefault("known_at", "2026-08-21T12:00:00Z")
+            value.setdefault("trust", True)
+            value.setdefault("source_bound", True)
+        for item in value.values():
+            _bind_available_evidence(item)
+    elif isinstance(value, list):
+        for item in value:
+            _bind_available_evidence(item)
 
 
 def _build(evidence: dict[str, object] | None = None):
@@ -234,6 +256,54 @@ def test_reference_execution_authority_injection_fails_closed() -> None:
     _assert_execution_disabled(result.projection())
 
 
+def test_explicitly_unavailable_canonical_no_action_reference_fails_closed() -> None:
+    reference = _reference()
+    reference["references"][0]["status"] = "unavailable"  # type: ignore[index]
+
+    result = build_monthly_decision_template(
+        benchmark_reference=reference,
+        benchmark_registry=_TEST_REGISTRY,
+        **_full_evidence(),
+    )
+
+    assert result.status == "unavailable"
+    assert "canonical_reference_invalid" in result.blockers
+
+
+def test_omitted_canonical_no_action_status_remains_compatible() -> None:
+    reference = _reference()
+    del reference["references"][0]["status"]  # type: ignore[index]
+
+    result = build_monthly_decision_template(
+        benchmark_reference=reference,
+        benchmark_registry=_TEST_REGISTRY,
+        **_full_evidence(),
+    )
+
+    assert result.status == "available"
+
+
+@pytest.mark.parametrize("location", ["alternative", "reference", "section"])
+def test_timezone_naive_known_decision_and_knowledge_timestamps_fail_closed(location: str) -> None:
+    evidence = _full_evidence()
+    reference = _reference()
+    if location == "alternative":
+        evidence["alternatives"]["basket"]["known_at"] = "2026-08-21T12:00:00"  # type: ignore[index]
+    elif location == "reference":
+        reference["analysis"]["decision_time"] = "2026-08-21T23:59:59"  # type: ignore[index]
+    else:
+        evidence["events"]["knowledge_cutoff"] = "2026-08-21T23:59:59"  # type: ignore[index]
+
+    result = build_monthly_decision_template(
+        benchmark_reference=reference,
+        benchmark_registry=_TEST_REGISTRY,
+        **evidence,
+    )
+
+    assert result.status == "unavailable"
+    _assert_execution_disabled(result.projection())
+
+
 def test_available_reference_without_authoritative_registry_fails_closed() -> None:
     evidence = _full_evidence()
 
@@ -325,6 +395,56 @@ def test_horizon_mismatch_fails_closed() -> None:
     _assert_execution_disabled(result.projection())
 
 
+@pytest.mark.parametrize("field", ["as_of", "known_at"])
+def test_alternatives_require_one_exact_normalized_window(field: str) -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"]["cash"][field] = "2026-08-20T00:00:00Z" if field == "as_of" else "2026-08-20T12:00:00Z"  # type: ignore[index]
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert "monthly_horizon_mismatch" in result.blockers
+    assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
+
+
+def test_partial_forward_evidence_validates_malformed_nested_outcomes() -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence["forward_evidence"]["status"] = "partial"  # type: ignore[index]
+    evidence["forward_evidence"]["outcomes"] = [{"status": "available", "horizon_days": "not-a-number"}]  # type: ignore[index]
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert result.projection()["forward_evidence"]["status"] == "unavailable"
+    assert "forward_evidence_invalid" in result.blockers
+
+
+def test_basket_relative_returns_must_reconcile_with_period_returns() -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"]["basket"]["cash_relative_return"] = 0.041  # type: ignore[index]
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
+    assert "basket_relative_invalid" in result.blockers
+
+
+@pytest.mark.parametrize("path", [("expected_returns",), ("optimiser", "solution", "diagnostics")])
+def test_available_evidence_requires_positive_trust_and_source_binding(path: tuple[str, ...]) -> None:
+    evidence = deepcopy(_full_evidence())
+    target: object = evidence
+    for part in path:
+        target = target[part]  # type: ignore[index]
+    assert isinstance(target, dict)
+    del target["trust"]
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    _assert_execution_disabled(result.projection())
+
+
 @pytest.mark.parametrize("field", ["horizon_days", "source_digest", "as_of", "known_at"])
 def test_available_alternative_requires_complete_bound_evidence(field: str) -> None:
     evidence = deepcopy(_full_evidence())
@@ -413,10 +533,24 @@ def test_backtest_alternative_writer_is_accepted_by_generic_composer() -> None:
     metadata = {
         "input_checksum": _SOURCE_DIGEST,
         "source_id": "backtest:42",
+        "source_dataset": "backtest:2026-07-31:2026-08-21",
         "backtest_version": "backtest.equity.v1",
         "date_range_start": "2026-07-31",
         "date_range_end": "2026-08-21",
         "known_at": "2026-08-21T12:00:00Z",
+        "trust": True,
+        "source_bound": True,
+        "monthly_benchmark_reference_id": "benchmark:global",
+        "monthly_benchmark_reference_version": "1.0.0",
+        "monthly_benchmark_reference_content_hash": "benchmark-hash",
+        "monthly_cash_reference_id": "cash:EUR",
+        "monthly_cash_reference_version": "1.0.0",
+        "monthly_cash_reference_content_hash": "cash-hash",
+        "monthly_no_action_reference_id": "reference:no-trade",
+        "monthly_no_action_reference_version": "1.0.0",
+        "monthly_no_action_reference_content_hash": "no-trade-hash",
+        "no_action_constituents": ["VWCE"],
+        "no_action_weights": {"VWCE": 1.0},
     }
     alternatives = backtests._monthly_backtest_alternatives(
         SimpleNamespace(equity_curves=curves), metadata, reference=_reference()
@@ -430,6 +564,85 @@ def test_backtest_alternative_writer_is_accepted_by_generic_composer() -> None:
     assert result.projection()["alternatives"]["basket"]["no_action_relative_return"] == pytest.approx(0.03)
 
 
+def test_backtest_no_action_does_not_synthesize_current_registry_identity() -> None:
+    curves = pd.DataFrame(
+        {
+            "basket": [1.0, 1.07],
+            "benchmark": [1.0, 1.05],
+            "cash": [1.0, 1.03],
+            "no_action": [1.0, 1.04],
+        },
+        index=pd.to_datetime(["2026-07-31", "2026-08-21"]),
+    )
+    metadata = {
+        "input_checksum": _SOURCE_DIGEST,
+        "source_id": "backtest:42",
+        "source_dataset": "backtest:2026-07-31:2026-08-21",
+        "backtest_version": "backtest.equity.v1",
+        "known_at": "2026-08-21T12:00:00Z",
+        "trust": True,
+        "source_bound": True,
+        "monthly_benchmark_reference_id": "benchmark:global",
+        "monthly_benchmark_reference_version": "1.0.0",
+        "monthly_benchmark_reference_content_hash": "benchmark-hash",
+        "monthly_cash_reference_id": "cash:EUR",
+        "monthly_cash_reference_version": "1.0.0",
+        "monthly_cash_reference_content_hash": "cash-hash",
+    }
+
+    alternatives = backtests._monthly_backtest_alternatives(
+        SimpleNamespace(equity_curves=curves), metadata, reference=_reference()
+    )
+
+    assert alternatives["no_action"]["status"] == "unavailable"  # type: ignore[index]
+    assert alternatives["no_action"]["reason"] == "backtest_monthly_no_action_binding_unavailable"  # type: ignore[index]
+
+
+def test_backtest_no_action_binding_must_match_canonical_constituents_and_weights() -> None:
+    curves = pd.DataFrame(
+        {name: [1.0, value] for name, value in {"basket": 1.07, "benchmark": 1.05, "cash": 1.03, "no_action": 1.04}.items()},
+        index=pd.to_datetime(["2026-07-31", "2026-08-21"]),
+    )
+    metadata = {
+        "input_checksum": _SOURCE_DIGEST,
+        "source_id": "backtest:42",
+        "source_dataset": "backtest:2026-07-31:2026-08-21",
+        "backtest_version": "backtest.equity.v1",
+        "known_at": "2026-08-21T12:00:00Z",
+        "trust": True,
+        "source_bound": True,
+        "monthly_no_action_reference_id": "reference:no-trade",
+        "monthly_no_action_reference_version": "1.0.0",
+        "monthly_no_action_reference_content_hash": "no-trade-hash",
+        "no_action_constituents": ["VWCE"],
+        "no_action_weights": {"VWCE": 0.5},
+    }
+
+    alternatives = backtests._monthly_backtest_alternatives(
+        SimpleNamespace(equity_curves=curves), metadata, reference=_reference()
+    )
+
+    assert alternatives["no_action"]["status"] == "unavailable"  # type: ignore[index]
+    assert alternatives["no_action"]["reason"] == "backtest_monthly_no_action_binding_unavailable"  # type: ignore[index]
+
+
+def test_backtest_comparisons_require_sorted_shared_non_null_endpoints() -> None:
+    curves = pd.DataFrame(
+        {
+            "basket": [1.0, 1.07, 1.08],
+            "benchmark": [float("nan"), 1.02, float("nan")],
+            "cash": [1.0, 1.03, 1.04],
+            "no_action": [1.0, 1.04, 1.05],
+        },
+        index=pd.to_datetime(["2026-07-31", "2026-08-10", "2026-08-21"]),
+    )
+
+    alternatives = backtests._monthly_backtest_alternatives(SimpleNamespace(equity_curves=curves), {})
+
+    assert all(value["status"] == "unavailable" for value in alternatives.values())  # type: ignore[index]
+    assert all("comparison_window" in value["reason"] for value in alternatives.values())  # type: ignore[index]
+
+
 def test_strategy_alternative_writer_is_accepted_by_generic_composer() -> None:
     row: dict[str, object] = {"instrument_id": "VWCE"}
     for name, period_return in {"basket": 0.07, "benchmark": 0.05, "cash": 0.03, "no_action": 0.04}.items():
@@ -440,9 +653,22 @@ def test_strategy_alternative_writer_is_accepted_by_generic_composer() -> None:
                 f"monthly_{name}_source_id": f"{name}:42",
                 f"monthly_{name}_source_dataset": "forward:2026-08",
                 f"monthly_{name}_source_digest": _SOURCE_DIGEST,
-                f"monthly_{name}_as_of": "2026-08-21",
+                f"monthly_{name}_as_of": "2026-08-21T00:00:00Z",
                 f"monthly_{name}_known_at": "2026-08-21T12:00:00Z",
                 f"monthly_{name}_horizon_days": 21,
+                f"monthly_{name}_trust": True,
+                f"monthly_{name}_source_bound": True,
+                f"monthly_{name}_reference_id": {
+                    "benchmark": "benchmark:global",
+                    "cash": "cash:EUR",
+                    "no_action": "reference:no-trade",
+                }.get(name),
+                f"monthly_{name}_reference_version": "1.0.0" if name != "basket" else None,
+                f"monthly_{name}_reference_content_hash": {
+                    "benchmark": "benchmark-hash",
+                    "cash": "cash-hash",
+                    "no_action": "no-trade-hash",
+                }.get(name),
             }
         )
     alternatives = data_models._monthly_strategy_alternatives(pd.DataFrame([row]), _reference())
@@ -453,6 +679,44 @@ def test_strategy_alternative_writer_is_accepted_by_generic_composer() -> None:
 
     assert result.status == "available"
     assert result.projection()["alternatives"]["benchmark"]["reference_content_hash"] == "benchmark-hash"
+
+
+def test_strategy_contributing_rows_must_agree_on_evidence_identity() -> None:
+    row: dict[str, object] = {"instrument_id": "VWCE"}
+    for name, period_return in {"basket": 0.07, "benchmark": 0.05, "cash": 0.03, "no_action": 0.04}.items():
+        row.update(
+            {
+                f"monthly_{name}_return": period_return,
+                f"monthly_{name}_version": "returns.v3",
+                f"monthly_{name}_source_id": f"{name}:42",
+                f"monthly_{name}_source_dataset": "forward:2026-08",
+                f"monthly_{name}_source_digest": _SOURCE_DIGEST,
+                f"monthly_{name}_as_of": "2026-08-21T00:00:00Z",
+                f"monthly_{name}_known_at": "2026-08-21T12:00:00Z",
+                f"monthly_{name}_horizon_days": 21,
+                f"monthly_{name}_trust": True,
+                f"monthly_{name}_source_bound": True,
+                f"monthly_{name}_reference_id": {
+                    "benchmark": "benchmark:global",
+                    "cash": "cash:EUR",
+                    "no_action": "reference:no-trade",
+                }.get(name),
+                f"monthly_{name}_reference_version": "1.0.0" if name != "basket" else None,
+                f"monthly_{name}_reference_content_hash": {
+                    "benchmark": "benchmark-hash",
+                    "cash": "cash-hash",
+                    "no_action": "no-trade-hash",
+                }.get(name),
+            }
+        )
+    second = deepcopy(row)
+    second["instrument_id"] = "LYP6"
+    second["monthly_basket_source_digest"] = "b" * 64
+
+    alternatives = data_models._monthly_strategy_alternatives(pd.DataFrame([row, second]), _reference())
+
+    assert alternatives["basket"]["status"] == "unavailable"  # type: ignore[index]
+    assert alternatives["benchmark"]["status"] == "available"  # type: ignore[index]
 
 
 def test_actual_ui_consumers_render_the_monthly_projection(monkeypatch, tmp_path) -> None:

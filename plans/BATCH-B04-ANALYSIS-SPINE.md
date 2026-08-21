@@ -4590,3 +4590,16 @@ portfolio surface, and fail-closed financial signs. Direct adversarial tests
 new commit on top of the rejected published head and rerun both reviews plus
 fresh H-tier Linux, Windows and terminal gates; do not change lifecycle state
 or `execution_allowed=false` in the product PR.
+
+`ISSUE-0046 FINAL EVIDENCE BINDING` head
+`34010ff530ceaf6be72d9095051d2a65d45f8dfd` is rejected by both reviewers and
+run `32531962188` is cancelled/stale. The single consolidated correction
+requires available no-action authority, timezone-aware chronology, one exact
+comparison window, valid supplied partial shapes, producer-carried canonical
+identity with contributing-row agreement, reconciled relative returns,
+positive source/PIT/trust binding for every available section, and shared
+backtest endpoints. No-action backtest constituents and weights must match the
+exact canonical no-trade record. All 63 direct regressions plus the affected
+integration suite, Ruff, compilation and diff hygiene pass. Freeze one final
+replacement head for paired review and fresh H-tier Linux/Windows/terminal
+evidence; lifecycle and `execution_allowed=false` remain unchanged.

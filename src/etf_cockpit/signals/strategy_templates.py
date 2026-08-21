@@ -75,10 +75,13 @@ def strategy_template_frame(scoreboard: pd.DataFrame) -> pd.DataFrame:
         "expected_return_cost_eur",
         "expected_return_cost_ratio",
         "expected_return_distribution_version",
+        "expected_return_source_id",
         "expected_return_source_dataset",
         "expected_return_source_digest",
         "expected_return_as_of",
         "expected_return_known_at",
+        "expected_return_trust",
+        "expected_return_source_bound",
         "sector_theme_warning",
         "crowding_top_ranked_concentration",
         "crowding_top_ranked_theme_concentration",
@@ -99,6 +102,11 @@ def strategy_template_frame(scoreboard: pd.DataFrame) -> pd.DataFrame:
                 f"monthly_{alternative}_as_of",
                 f"monthly_{alternative}_known_at",
                 f"monthly_{alternative}_horizon_days",
+                f"monthly_{alternative}_reference_id",
+                f"monthly_{alternative}_reference_version",
+                f"monthly_{alternative}_reference_content_hash",
+                f"monthly_{alternative}_trust",
+                f"monthly_{alternative}_source_bound",
             ]
         )
     if scoreboard.empty:

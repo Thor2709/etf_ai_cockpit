@@ -29,6 +29,7 @@ SECTION_NAMES = (
     "assumptions",
 )
 _STATUSES = frozenset({"available", "partial", "pending", "unavailable"})
+_RELATIVE_RETURN_TOLERANCE = 1e-12
 
 
 @dataclass(frozen=True, slots=True)
@@ -347,6 +348,24 @@ def _normalise_alternatives(
             if isinstance(item, Mapping) and item.get("status") == "available" and actual_identity != expected_identity:
                 result[name] = unavailable_monthly_evidence(f"{name}_reference_identity_mismatch")
                 errors.append(f"{name}_alternative_invalid")
+    available_windows = {
+        name: _alternative_window(item)
+        for name, item in result.items()
+        if isinstance(item, Mapping) and item.get("status") == "available"
+    }
+    if len(available_windows) == len(ALTERNATIVE_NAMES) and len(set(available_windows.values())) > 1:
+        for name, item in tuple(result.items()):
+            if isinstance(item, Mapping) and item.get("status") == "available":
+                result[name] = unavailable_monthly_evidence(f"{name}_alternative_window_mismatch")
+        errors.append("monthly_horizon_mismatch")
+    if all(
+        isinstance(result.get(name), Mapping) and result[name].get("status") == "available"  # type: ignore[index]
+        for name in ALTERNATIVE_NAMES
+    ):
+        basket = result["basket"]
+        if not _relative_returns_reconcile(basket, result):  # type: ignore[arg-type]
+            result["basket"] = unavailable_monthly_evidence("basket_relative_return_mismatch")
+            errors.append("basket_relative_invalid")
     return _json_copy(result), errors
 
 
@@ -367,6 +386,12 @@ def _normalise_alternative(name: str, value: object, *, cutoff: datetime | None)
     if status != "available":
         if not _text(item.get("reason")):
             return unavailable_monthly_evidence(f"{name}_alternative_reason_unavailable"), [f"{name}_alternative_invalid"]
+        nested_errors = _evidence_contract_errors(item, cutoff=cutoff)
+        if nested_errors:
+            return unavailable_monthly_evidence(f"{name}_alternative_evidence_invalid"), [
+                f"{name}_alternative_invalid",
+                *(f"{name}_{error}" for error in nested_errors),
+            ]
         item["execution_allowed"] = False
         return item, [f"{name}_alternative_unavailable"]
     contract_errors = _evidence_contract_errors(item, cutoff=cutoff)
@@ -496,6 +521,8 @@ def _validate_optimiser(value: Mapping[str, object], complete: bool) -> list[str
         errors.append("constraints")
     if complete and not isinstance(solution, Mapping):
         errors.append("solution")
+    if "constraints" in value and not isinstance(constraints, Mapping):
+        errors.append("constraints")
     if isinstance(constraints, Mapping) and (
         constraints.get("status") not in _STATUSES
         or not isinstance(constraints.get("values", constraints.get("rows")), (Mapping, list))
@@ -508,6 +535,8 @@ def _validate_optimiser(value: Mapping[str, object], complete: bool) -> list[str
                 number = _finite(constraint_values.get(key))
                 if key in constraint_values and (number is None or not 0 <= number <= 1):
                     errors.append("financial_invalid")
+    if "solution" in value and not isinstance(solution, Mapping):
+        errors.append("solution")
     if isinstance(solution, Mapping):
         if solution.get("status") not in {"success", "fallback", "available", "partial", "unavailable"}:
             errors.append("solution_status")
@@ -537,7 +566,9 @@ def _validate_costs(value: Mapping[str, object], complete: bool) -> list[str]:
     capacity = value.get("capacity")
     if complete and not _sequence(components):
         errors.append("components")
-    if _sequence(components):
+    if "components" in value and not _sequence(components, allow_empty=True):
+        errors.append("components")
+    if _sequence(components, allow_empty=True):
         for component in components:
             if not isinstance(component, Mapping) or not _text(component.get("estimate_id", component.get("instrument_id"))):
                 errors.append("component")
@@ -561,6 +592,8 @@ def _validate_costs(value: Mapping[str, object], complete: bool) -> list[str]:
                             errors.append("financial_invalid")
     if complete and not isinstance(total, Mapping):
         errors.append("total")
+    if "total" in value and not isinstance(total, Mapping):
+        errors.append("total")
     if isinstance(total, Mapping) and any(_finite(total.get(field)) is None for field in ("order_value_eur", "cost_eur", "cost_bps")):
         errors.append("total")
     if isinstance(total, Mapping) and any(
@@ -569,6 +602,8 @@ def _validate_costs(value: Mapping[str, object], complete: bool) -> list[str]:
     ):
         errors.append("financial_invalid")
     if complete and not isinstance(capacity, Mapping):
+        errors.append("capacity")
+    if "capacity" in value and not isinstance(capacity, Mapping):
         errors.append("capacity")
     if isinstance(capacity, Mapping):
         if capacity.get("status") not in _STATUSES:
@@ -588,6 +623,10 @@ def _validate_events(value: Mapping[str, object], complete: bool) -> list[str]:
         errors.append("identity")
     replay = value.get("replay")
     next_session = value.get("next_session")
+    if "replay" in value and not isinstance(replay, Mapping):
+        errors.append("replay")
+    if "next_session" in value and not isinstance(next_session, Mapping):
+        errors.append("next_session")
     if complete and not isinstance(replay, Mapping):
         errors.append("replay")
     if complete and not isinstance(next_session, Mapping):
@@ -604,10 +643,25 @@ def _validate_forward_evidence(value: Mapping[str, object], complete: bool) -> l
     errors: list[str] = []
     if complete and any(not _text(value.get(field)) for field in ("version", "source_id")):
         errors.append("identity")
+    if "snapshot" in value and not isinstance(value.get("snapshot"), Mapping):
+        errors.append("snapshot")
     if complete and not isinstance(value.get("snapshot"), Mapping):
         errors.append("snapshot")
-    if complete and not _sequence(value.get("outcomes"), allow_empty=True):
+    outcomes = value.get("outcomes")
+    if "outcomes" in value and not _sequence(outcomes, allow_empty=True):
         errors.append("outcomes")
+    if complete and not _sequence(outcomes, allow_empty=True):
+        errors.append("outcomes")
+    if _sequence(outcomes, allow_empty=True):
+        for outcome in outcomes:
+            if not isinstance(outcome, Mapping):
+                errors.append("outcome")
+                continue
+            if outcome.get("status") == "available":
+                if _finite(outcome.get("horizon_days")) is None or _finite(outcome.get("net_return")) is None:
+                    errors.append("outcome")
+            elif outcome.get("status") not in {"matured", "pending", "partial", "unavailable"}:
+                errors.append("outcome_status")
     return errors
 
 
@@ -621,8 +675,15 @@ def _validate_paper_outcomes(value: Mapping[str, object], complete: bool) -> lis
         errors.append("matured_outcomes")
     if _finite(value.get("matured_outcomes")) is not None and _finite(value.get("matured_outcomes")) < 0:
         errors.append("financial_invalid")
-    if complete and not _sequence(value.get("outcomes"), allow_empty=True):
+    outcomes = value.get("outcomes")
+    if "outcomes" in value and not _sequence(outcomes, allow_empty=True):
         errors.append("outcomes")
+    if complete and not _sequence(outcomes, allow_empty=True):
+        errors.append("outcomes")
+    if _sequence(outcomes, allow_empty=True):
+        for outcome in outcomes:
+            if not isinstance(outcome, Mapping):
+                errors.append("outcome")
     return errors
 
 
@@ -663,6 +724,8 @@ def _validate_assumptions(value: Mapping[str, object], complete: bool) -> list[s
     if complete and any(not _text(value.get(field)) for field in ("version", "source_id")):
         errors.append("identity")
     values = value.get("values")
+    if "values" in value and not isinstance(values, Mapping):
+        errors.append("values")
     if complete and not isinstance(values, Mapping):
         errors.append("values")
     if isinstance(values, Mapping) and (
@@ -674,18 +737,46 @@ def _validate_assumptions(value: Mapping[str, object], complete: bool) -> list[s
 
 
 def _evidence_contract_errors(value: Mapping[str, object], *, cutoff: datetime | None = None) -> list[str]:
-    errors = _evidence_contract_errors_one(value, cutoff=cutoff)
+    errors = _evidence_contract_errors_one(value, cutoff=cutoff, required=value.get("status") == "available")
     for nested in _nested_mappings(value):
-        errors.extend(_evidence_contract_errors_one(nested, cutoff=cutoff))
+        errors.extend(_evidence_contract_errors_one(nested, cutoff=cutoff, required=nested.get("status") == "available"))
     return list(dict.fromkeys(errors))
 
 
-def _evidence_contract_errors_one(value: Mapping[str, object], *, cutoff: datetime | None = None) -> list[str]:
+def _evidence_contract_errors_one(
+    value: Mapping[str, object], *, cutoff: datetime | None = None, required: bool = False
+) -> list[str]:
     """Reject explicit chronology, trust and source-binding contradictions."""
 
     errors: list[str] = []
+    if required:
+        has_version = any(_text(value.get(field)) for field in ("version", "model_version", "model_id"))
+        has_source_id = _text(value.get("source_id"))
+        has_source_dataset = _text(value.get("source_dataset"))
+        has_reference_identity = all(
+            _text(value.get(field))
+            for field in ("reference_id", "reference_version", "reference_content_hash")
+        )
+        if not ((has_version and has_source_id and has_source_dataset) or has_reference_identity):
+            errors.append("identity")
+        if not _sha256(value.get("source_digest")):
+            errors.append("source_digest")
+        if _timestamp(value.get("as_of")) is None or _timestamp(value.get("known_at")) is None:
+            errors.append("chronology")
+        if value.get("trust") is not True:
+            errors.append("untrusted")
+        if value.get("source_bound") is not True:
+            errors.append("unbound")
     timestamps: dict[str, datetime] = {}
-    for key in ("as_of", "known_at", "decision_time", "knowledge_cutoff", "effective_at"):
+    for key in (
+        "as_of",
+        "known_at",
+        "decision_time",
+        "knowledge_cutoff",
+        "decision",
+        "knowledge_at",
+        "effective_at",
+    ):
         if key not in value or value.get(key) in (None, ""):
             continue
         parsed = _timestamp(value.get(key))
@@ -697,7 +788,7 @@ def _evidence_contract_errors_one(value: Mapping[str, object], *, cutoff: dateti
         local_cutoff = next(
             (
                 timestamps.get(key)
-                for key in ("decision_time", "knowledge_cutoff")
+                for key in ("decision_time", "knowledge_cutoff", "decision", "knowledge_at")
                 if timestamps.get(key) is not None
             ),
             None,
@@ -751,7 +842,7 @@ def _reference_cutoff(reference: Mapping[str, object]) -> datetime | None:
     analysis = reference.get("analysis")
     if not isinstance(analysis, Mapping):
         return None
-    for field in ("decision_time", "knowledge_cutoff", "end_date"):
+    for field in ("decision_time", "knowledge_cutoff", "decision", "knowledge_at", "end_date"):
         parsed = _timestamp(analysis.get(field))
         if parsed is not None:
             return parsed
@@ -767,6 +858,34 @@ def _reference_identity(value: object) -> tuple[object, object, object] | None:
 def _sha256(value: object) -> str:
     text = _text(value).casefold()
     return text if len(text) == 64 and all(character in "0123456789abcdef" for character in text) else ""
+
+
+def _alternative_window(value: Mapping[str, object]) -> tuple[datetime, datetime, float]:
+    as_of = _timestamp(value.get("as_of"))
+    known_at = _timestamp(value.get("known_at"))
+    horizon = _finite(value.get("horizon_days"))
+    if as_of is None or known_at is None or horizon is None:
+        return (datetime.min.replace(tzinfo=timezone.utc), datetime.min.replace(tzinfo=timezone.utc), -1.0)
+    return as_of, known_at, horizon
+
+
+def _relative_returns_reconcile(basket: Mapping[str, object], alternatives: Mapping[str, object]) -> bool:
+    basket_return = _finite(basket.get("period_return"))
+    if basket_return is None:
+        return False
+    for name, field in (
+        ("benchmark", "benchmark_relative_return"),
+        ("cash", "cash_relative_return"),
+        ("no_action", "no_action_relative_return"),
+    ):
+        comparison = alternatives.get(name)
+        comparison_return = _finite(comparison.get("period_return")) if isinstance(comparison, Mapping) else None
+        supplied = _finite(basket.get(field))
+        if comparison_return is None or supplied is None or not math.isclose(
+            supplied, basket_return - comparison_return, rel_tol=0.0, abs_tol=_RELATIVE_RETURN_TOLERANCE
+        ):
+            return False
+    return True
 
 
 def _horizon_mismatch_errors(
@@ -804,8 +923,8 @@ def _timestamp(value: object) -> datetime | None:
         parsed = datetime.fromisoformat(text)
     except ValueError:
         return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
     return parsed.astimezone(timezone.utc)
 
 
@@ -830,7 +949,8 @@ def _available_identity(value: object) -> bool:
 
 
 def _available_reference_identity(value: Mapping[str, object]) -> bool:
-    return all(_text(value.get(field)) for field in ("id", "version", "content_hash"))
+    status = value.get("status")
+    return status in {None, "available"} and all(_text(value.get(field)) for field in ("id", "version", "content_hash"))
 
 
 def _execution_disabled(value: object) -> bool:
