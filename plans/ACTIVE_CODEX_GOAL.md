@@ -3304,3 +3304,15 @@ next action and whether the requested outcome is actually complete.
   cancelled/stale. Freeze one replacement head for both reviews and fresh
   H-tier evidence; do not alter tests, product behavior, workflow steps or
   authority.
+- ISSUE-0112 product PR #688 is merged from independently approved exact head
+  `876ec1df5a4ab96afa20476bd632918a4212e152` as
+  `6b5859d265c2a1a0cdd176d7facd2ba287dc58f9`. H-tier run `32511929644`
+  passed classifier, preflight, supply chain, authoritative Linux and Windows
+  release gates, terminal validation and the Linux report-only pilot. The
+  Windows report-only pilot completed both safe repetitions, both unsafe
+  repetitions and one full serial repetition with zero failures or errors,
+  then exhausted its 90-minute envelope after the second serial repetition
+  began. Complete the legal ISSUE-0112 lifecycle transactions from this exact
+  main, require applied-and-verified writer evidence and zero-action readback,
+  then resume the disjoint ISSUE-0046 product lane. Preserve
+  `execution_allowed=false`.

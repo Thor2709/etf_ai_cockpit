@@ -4740,7 +4740,19 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0112": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #688 merged exact independently approved head 876ec1df5a4ab96afa20476bd632918a4212e152 as 6b5859d265c2a1a0cdd176d7facd2ba287dc58f9",
+            "Release run 32511929644 passed classifier, authority preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Acceptance evidence covers the canonical benchmark hierarchy, point-in-time and versioned benchmark, cash, peer and reference portfolios, the VWCE anchor, strict registry-bound consumer validation and explicit unavailable states while execution_allowed=false"
+          ],
+          "review_reference": "PR #688 exact-head product reviews and H-tier validation",
+          "reviewed_date": "2026-08-22",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "status": "in_progress"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0051": {
           "contract_reference": "phase-05/ISSUE-0051/currency-horizon-cash-comparison-v1",
@@ -4768,11 +4780,11 @@
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "PR #688 exact-head product reviews and H-tier validation",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -4828,10 +4840,24 @@
           "reviewed_date": "2026-08-13",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "87b05852121ff6ecdd1c9b1b8ae5ed423875523c"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #688 merged exact independently approved head 876ec1df5a4ab96afa20476bd632918a4212e152 as 6b5859d265c2a1a0cdd176d7facd2ba287dc58f9",
+            "Release run 32511929644 passed classifier, authority preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Acceptance evidence covers the canonical benchmark hierarchy, point-in-time and versioned benchmark, cash, peer and reference portfolios, the VWCE anchor, strict registry-bound consumer validation and explicit unavailable states while execution_allowed=false"
+          ],
+          "from": "planned",
+          "review_reference": "PR #688 exact-head product reviews and H-tier validation",
+          "reviewed_date": "2026-08-22",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "to": "in_progress",
+          "verified_commit": "6b5859d265c2a1a0cdd176d7facd2ba287dc58f9"
         }
       ],
-      "verified_commit": "87b05852121ff6ecdd1c9b1b8ae5ed423875523c",
-      "verified_date": "2026-08-13"
+      "verified_commit": "6b5859d265c2a1a0cdd176d7facd2ba287dc58f9",
+      "verified_date": "2026-08-22"
     },
     "ISSUE-0113": {
       "acceptance_evidence": [],
