@@ -3183,3 +3183,15 @@ next action and whether the requested outcome is actually complete.
   backtest, UI and architecture suites. Freeze one replacement exact head for
   paired review and fresh full H-tier evidence; no adjacent authority or
   persistence redesign.
+- Exact head `a97d5dfe9c1542bd5465a5557060519b7f0d701a` is rejected and
+  run `32485090226` is cancelled/stale. Both final reviewers confirmed the
+  checksum defect is closed, then reproduced three remaining fields sourced
+  from caller projections within the same registry-authority boundary:
+  ambiguous benchmark constituent selection, peer member lists and score-time
+  cash identity. The consolidated correction now derives the only permissible
+  benchmark series, peer members and cash record from unique digest-matched
+  registry records and rejects projection disagreement. Direct adversarial
+  regressions and the complete affected ISSUE-0112, cash, portfolio, regime,
+  macro, backtest, UI and architecture collection pass. Freeze one replacement
+  head for paired review and fresh full H-tier evidence; make no further
+  adjacent authority change.

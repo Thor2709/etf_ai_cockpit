@@ -775,6 +775,7 @@ def test_snapshot_cash_chronology_is_accepted_by_score_readback(monkeypatch) -> 
     request = simple_scores_module._canonical_cash_request(
         context.projection,
         context.identity,
+        benchmark_registry=context.registry,
     )
     captured: dict[str, object] = {}
 
@@ -793,6 +794,8 @@ def test_snapshot_cash_chronology_is_accepted_by_score_readback(monkeypatch) -> 
         pd.DataFrame(),
         pd.DataFrame(),
         benchmark_reference=context.projection,
+        benchmark_data_id=context.benchmark_data_id,
+        benchmark_registry=context.registry,
         reference_identity=context.identity,
         cash_observation_time=inputs["decision_time"],
     )

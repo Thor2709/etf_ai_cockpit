@@ -13,7 +13,9 @@ from typing import Iterable, Literal
 
 import pandas as pd
 
-from etf_cockpit.application.benchmark_reference import adjusted_price_binding_for_reference
+from etf_cockpit.application.benchmark_reference import (
+    adjusted_price_binding_for_reference,
+)
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RAW_DIR, REPORTS_DIR, ROOT
@@ -45,7 +47,10 @@ from etf_cockpit.models.forecast_scores import (
     load_latest_forecasts,
 )
 from etf_cockpit.portfolio.costs import estimate_execution_cost
-from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    BenchmarkReferenceError,
+    CanonicalBenchmarkRegistry,
+)
 from etf_cockpit.signals.research_states import (
     ALLOWED_EVIDENCE_SOURCE_IDS,
     AnalysisStatus,
@@ -736,7 +741,11 @@ def build_simple_instrument_scores(
     # The ordinary score path resolves the official local curve evidence once;
     # callers may still inject a previously resolved lookup for replay/tests.
     if cash_comparison_lookup is None:
-        cash_request = _canonical_cash_request(benchmark_reference, reference_identity)
+        cash_request = _canonical_cash_request(
+            benchmark_reference,
+            reference_identity,
+            benchmark_registry=benchmark_registry,
+        )
         if cash_request is None:
             cash_comparison_lookup = _unavailable_cash_lookup(
                 config,
@@ -2773,6 +2782,8 @@ def _build_local_cash_comparison_lookup(
 def _canonical_cash_request(
     benchmark_reference: Mapping[str, object] | None,
     reference_identity: Mapping[str, object] | None,
+    *,
+    benchmark_registry: CanonicalBenchmarkRegistry | None = None,
 ) -> dict[str, object] | None:
     if not isinstance(benchmark_reference, Mapping) or not isinstance(reference_identity, Mapping):
         return None
@@ -2781,6 +2792,17 @@ def _canonical_cash_request(
     identity_records = reference_identity.get("selected_records")
     analysis = reference_identity.get("analysis")
     if not all(isinstance(value, Mapping) for value in (cash, projection_records, identity_records, analysis)):
+        return None
+    if not isinstance(benchmark_registry, CanonicalBenchmarkRegistry):
+        return None
+    try:
+        registry_hash = benchmark_registry.as_payload()["registry_hash"]
+    except (BenchmarkReferenceError, KeyError, RecursionError, TypeError, ValueError):
+        return None
+    if (
+        benchmark_reference.get("registry_hash") != registry_hash
+        or reference_identity.get("registry_hash") != registry_hash
+    ):
         return None
     cash_id = cash.get("id")
     cash_hash = cash.get("content_hash")
@@ -2794,6 +2816,17 @@ def _canonical_cash_request(
         or identity_records.get("cash") != cash_hash
     ):
         return None
+    matches = [
+        item
+        for item in benchmark_registry.cash_proxies
+        if item.proxy_id == cash.get("id")
+        and item.version == cash.get("version")
+        and item.digest() == cash_hash
+        and item.status == "available"
+    ]
+    if len(matches) != 1:
+        return None
+    cash_record = matches[0]
     required = ("currency", "start_date", "end_date", "decision_time")
     if not all(isinstance(analysis.get(key), str) and analysis.get(key) for key in required):
         return None
@@ -2812,14 +2845,15 @@ def _canonical_cash_request(
         or start >= end
         or pd.isna(decision)
         or decision.tzinfo is None
+        or analysis.get("currency") != cash_record.currency
     ):
         return None
     decision = decision.tz_convert("UTC")
     if decision < pd.Timestamp(adjusted_endpoint_available_at(end)):
         return None
     return {
-        "cash_id": cash_id.strip(),
-        "currency": str(analysis["currency"]),
+        "cash_id": cash_record.proxy_id,
+        "currency": cash_record.currency,
         "start_date": start.isoformat(),
         "end_date": end.isoformat(),
         "decision_time": decision.isoformat(),

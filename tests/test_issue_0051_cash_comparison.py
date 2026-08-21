@@ -35,6 +35,10 @@ from etf_cockpit.signals.simple_scores import (
     simple_scoreboard_frame,
 )
 from etf_cockpit.signals import simple_scores as simple_scores_module
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    CashProxyDefinition,
+    CanonicalBenchmarkRegistry,
+)
 
 
 def _evidence(**updates: object) -> dict[str, object]:
@@ -1423,17 +1427,36 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
         root=tmp_path,
     )
 
-    cash_hash = "c" * 64
+    cash_record = CashProxyDefinition(
+        proxy_id="eur-official-local-spot",
+        version="1.0.0",
+        selector={"asset_class": "equity"},
+        currency="EUR",
+        minimum_horizon_years=0.0,
+        maximum_horizon_years=10.0,
+        effective_at="2020-01-01T00:00:00Z",
+        known_at="2020-01-02T00:00:00Z",
+        start_date="2020-01-01",
+        end_date="2100-12-31",
+        methodology="Explicit official EUR local proxy mapping v1",
+        source_hashes=("d" * 64,),
+    )
+    benchmark_registry = CanonicalBenchmarkRegistry(cash_proxies=(cash_record,))
+    cash_hash = cash_record.digest()
+    registry_hash = benchmark_registry.as_payload()["registry_hash"]
     canonical_reference = {
+        "registry_hash": registry_hash,
         "cash": {
             "status": "available",
             "id": "eur-official-local-spot",
+            "version": "1.0.0",
             "content_hash": cash_hash,
         },
         "selected_records": {"cash": cash_hash},
         "execution_allowed": False,
     }
     canonical_identity = {
+        "registry_hash": registry_hash,
         "selected_records": {"cash": cash_hash},
         "analysis": {
             "currency": "EUR",
@@ -1449,6 +1472,7 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
         snapshot.forecasts,
         snapshot.prices,
         benchmark_reference=canonical_reference,
+        benchmark_registry=benchmark_registry,
         reference_identity=canonical_identity,
         cash_observation_time=observation_time,
     )
@@ -1471,6 +1495,7 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
             snapshot.forecasts,
             snapshot.prices,
             benchmark_reference=canonical_reference,
+            benchmark_registry=benchmark_registry,
             reference_identity=canonical_identity,
             cash_observation_time=(
                 pd.Timestamp(adjusted_endpoint_available_at(end))

@@ -241,7 +241,6 @@ def validate_benchmark_reference(
             if item.benchmark_id == benchmark.get("id")
             and item.version == benchmark.get("version")
             and item.digest() == benchmark_digest
-            and benchmark_data_id in item.constituents
         ]
         cash_matches = [
             item
@@ -252,6 +251,16 @@ def validate_benchmark_reference(
         ]
         if len(benchmark_matches) != 1 or len(cash_matches) != 1:
             return None
+        benchmark_record = benchmark_matches[0]
+        canonical_data_id = (
+            benchmark_record.benchmark_id
+            if benchmark_record.benchmark_id in benchmark_record.constituents
+            else benchmark_record.constituents[0]
+            if len(benchmark_record.constituents) == 1
+            else None
+        )
+        if benchmark_data_id != canonical_data_id:
+            return None
         if isinstance(peer, Mapping) and peer.get("status") == "available":
             peer_matches = [
                 item
@@ -261,6 +270,13 @@ def validate_benchmark_reference(
                 and item.digest() == peer.get("content_hash")
             ]
             if len(peer_matches) != 1:
+                return None
+            projected_members = peer.get("member_instrument_ids")
+            if (
+                not isinstance(projected_members, Sequence)
+                or isinstance(projected_members, (str, bytes))
+                or tuple(projected_members) != peer_matches[0].member_instrument_ids
+            ):
                 return None
     except (BenchmarkReferenceError, AttributeError, KeyError, RecursionError, TypeError, ValueError):
         return None

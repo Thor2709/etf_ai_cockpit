@@ -4409,3 +4409,15 @@ score and backtest boundaries. Add only the two exact regressions, then freeze
 one replacement head for paired review and fresh Linux, Windows, terminal,
 package and pilot evidence. Preserve `execution_allowed=false` and all existing
 financial and persistence safeguards.
+
+`FINAL REGISTRY-DERIVED AUTHORITY FIELDS` head
+`a97d5dfe9c1542bd5465a5557060519b7f0d701a` is rejected and hosted run
+`32485090226` is cancelled/stale. The checksum path is verified closed. The
+complete review set reproduced three residual projection-authority paths:
+caller choice among ambiguous benchmark constituents, caller-supplied peer
+members and score-time cash identity. Derive all three solely from unique
+digest-matched authoritative registry records, reject any projection mismatch,
+and add the exact adversarial regressions. The full affected collection passes;
+freeze one replacement head for paired review and fresh Linux, Windows,
+terminal, package and pilot evidence. Preserve `execution_allowed=false` and
+do not broaden the authority architecture.

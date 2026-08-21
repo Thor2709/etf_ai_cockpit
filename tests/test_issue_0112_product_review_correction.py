@@ -97,8 +97,13 @@ def _prices() -> pd.DataFrame:
     )
 
 
-def _available_reference(*, peer: bool = False) -> dict[str, object]:
-    registry = _available_registry()
+def _available_reference(
+    *,
+    peer: bool = False,
+    benchmark_data_id: str = "BENCH",
+    benchmark_constituents: tuple[str, ...] | None = None,
+) -> dict[str, object]:
+    registry = _available_registry(benchmark_constituents or benchmark_data_id)
     benchmark = registry.benchmarks[0]
     cash = registry.cash_proxies[0]
     peer_set = registry.peer_sets[0]
@@ -112,7 +117,7 @@ def _available_reference(*, peer: bool = False) -> dict[str, object]:
     return {
         "status": "available",
         "registry_hash": registry.as_payload()["registry_hash"],
-        "benchmark_data_id": "BENCH",
+        "benchmark_data_id": benchmark_data_id,
         "benchmark": {
             "status": "available",
             "id": benchmark.benchmark_id,
@@ -446,7 +451,12 @@ def _cache_identity() -> dict[str, object]:
     }
 
 
-def _available_registry(benchmark_data_id: str = "BENCH") -> CanonicalBenchmarkRegistry:
+def _available_registry(
+    benchmark_data_id: str | tuple[str, ...] = "BENCH",
+) -> CanonicalBenchmarkRegistry:
+    benchmark_constituents = (
+        (benchmark_data_id,) if isinstance(benchmark_data_id, str) else benchmark_data_id
+    )
     common = {
         "version": "1.0.0",
         "selector": {"asset_class": "equity"},
@@ -464,7 +474,7 @@ def _available_registry(benchmark_data_id: str = "BENCH") -> CanonicalBenchmarkR
             maximum_horizon_years=50.0,
             start_date="2020-01-01",
             end_date="2100-12-31",
-            constituents=(benchmark_data_id,),
+            constituents=benchmark_constituents,
             **common,
         ),),
         cash_proxies=(CashProxyDefinition(
@@ -486,7 +496,7 @@ def _available_registry(benchmark_data_id: str = "BENCH") -> CanonicalBenchmarkR
             portfolio_id="reference:test",
             version="1.0.0",
             method="equal_weight",
-            constituent_instrument_ids=(benchmark_data_id,),
+            constituent_instrument_ids=benchmark_constituents,
             methodology="test authority",
             effective_at="2020-01-01T00:00:00Z",
             known_at="2020-01-02T00:00:00Z",
@@ -1516,6 +1526,7 @@ def test_ui_forecast_action_rebuild_reads_configured_and_candidate_caches_with_o
     identity = {
         **_cache_identity(),
         "analysis": {
+            "currency": "EUR",
             "start_date": "2025-01-01",
             "end_date": "2025-01-02",
             "decision_time": "2025-01-02T23:59:59Z",
@@ -2009,6 +2020,80 @@ def test_shared_reference_validation_rejects_self_consistent_forged_registry_aut
         benchmark_reference=forged,
         benchmark_registry=registry,
     )["regime_score_10"] is None
+
+
+def test_shared_reference_validation_rejects_caller_selection_from_ambiguous_constituents() -> None:
+    constituents = ("BENCH_A", "BENCH_B")
+    registry = _available_registry(constituents)
+    reference = _available_reference(
+        benchmark_data_id="BENCH_B",
+        benchmark_constituents=constituents,
+    )
+    assert validate_benchmark_reference(reference, "BENCH_B", registry=registry) is None
+    assert _validated_benchmark_data_id(
+        "BENCH_B",
+        reference,
+        {
+            "status": "available",
+            "registry_hash": reference["registry_hash"],
+            "benchmark_data_id": "BENCH_B",
+            "selected_records": reference["selected_records"],
+            "execution_allowed": False,
+        },
+        registry,
+        pd.Index(constituents),
+    ) is None
+
+
+def test_peer_members_and_cash_identity_are_derived_from_registry_authority(monkeypatch) -> None:
+    registry = _available_registry()
+    peer_forged = _available_reference(peer=True)
+    peer_forged["peer_set"]["member_instrument_ids"] = ["FORGED"]
+    assert validate_benchmark_reference(peer_forged, "BENCH", registry=registry) is None
+    attribution = build_benchmark_attribution_lookup(
+        _prices(),
+        benchmark_id="BENCH",
+        benchmark_reference=peer_forged,
+        benchmark_registry=registry,
+    )
+    assert all(row["benchmark_return"] is None for row in attribution.values())
+
+    cash_forged = _available_reference()
+    cash_forged["cash"]["id"] = "cash:forged"
+    cash_forged["cash"]["content_hash"] = "c" * 64
+    cash_forged["selected_records"]["cash"] = "c" * 64
+    identity = {
+        "status": "available",
+        "registry_hash": cash_forged["registry_hash"],
+        "benchmark_data_id": "BENCH",
+        "selected_records": cash_forged["selected_records"],
+        "analysis": cash_forged["analysis"],
+        "execution_allowed": False,
+    }
+    assert simple_scores_module._canonical_cash_request(
+        cash_forged,
+        identity,
+        benchmark_registry=registry,
+    ) is None
+    monkeypatch.setattr(
+        simple_scores_module,
+        "_build_local_cash_comparison_lookup",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("forged cash identity reached local curve lookup")
+        ),
+    )
+    scores = build_simple_instrument_scores(
+        load_config(),
+        [],
+        pd.DataFrame(),
+        pd.DataFrame(),
+        benchmark_data_id="BENCH",
+        benchmark_reference=cash_forged,
+        benchmark_registry=registry,
+        reference_identity=identity,
+    )
+    assert scores
+    assert all(score.cash_comparison_status == "unavailable" for score in scores)
 
 
 def test_backtest_write_and_readback_checksum_use_the_same_reference_window() -> None:

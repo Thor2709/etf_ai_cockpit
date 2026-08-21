@@ -180,7 +180,7 @@ def build_benchmark_attribution_lookup(
 ) -> dict[str, dict[str, object]]:
     validate_execution_disabled(benchmark_reference or _unavailable_reference())
     reference = dict(benchmark_reference or _unavailable_reference())
-    peer_member_ids = _canonical_peer_member_ids(reference, peer_member_ids)
+    peer_member_ids = _canonical_peer_member_ids(reference, benchmark_registry)
     if prices.empty or not {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
         return {}
     frame = _clip_to_reference_window(prices, reference)
@@ -608,7 +608,7 @@ def _peer_attribution_result(
 
 def _canonical_peer_member_ids(
     reference: Mapping[str, object],
-    peer_member_ids: Sequence[str] | None,
+    registry: CanonicalBenchmarkRegistry | None,
 ) -> tuple[str, ...] | None:
     peer = reference.get("peer_set")
     selected_records = reference.get("selected_records")
@@ -618,15 +618,18 @@ def _canonical_peer_member_ids(
         or peer.get("status") != "available"
         or not isinstance(selected_records, Mapping)
         or selected_records.get("peer_set") != peer.get("content_hash")
-        or not isinstance(peer.get("member_instrument_ids"), Sequence)
+        or not isinstance(registry, CanonicalBenchmarkRegistry)
     ):
         return None
-    members = peer.get("member_instrument_ids")
-    if not isinstance(members, Sequence) or isinstance(members, (str, bytes)):
-        return None
-    if any(not isinstance(item, str) or not item.strip() for item in members):
-        return None
-    return tuple(dict.fromkeys(item.strip() for item in members))
+    matches = [
+        item
+        for item in registry.peer_sets
+        if item.peer_set_id == peer.get("id")
+        and item.version == peer.get("version")
+        and item.digest() == peer.get("content_hash")
+        and item.status == "available"
+    ]
+    return matches[0].member_instrument_ids if len(matches) == 1 else None
 
 
 def _clip_to_reference_window(
