@@ -1270,6 +1270,7 @@ class AppState:
             candidate_report,
             benchmark_id=reference_context.benchmark_data_id,
             benchmark_reference=reference_context.projection,
+            benchmark_registry=reference_context.registry,
         )
         with self.activity_publication():
             write_market_regime(regime)
@@ -1283,6 +1284,7 @@ class AppState:
             self.snapshot.prices,
             benchmark_data_id=reference_context.benchmark_data_id,
             benchmark_reference=reference_context.projection,
+            benchmark_registry=reference_context.registry,
             reference_identity=reference_context.identity,
             peer_member_ids=reference_context.peer_member_ids,
             cash_observation_time=self.snapshot.benchmark_reference_decision_time,

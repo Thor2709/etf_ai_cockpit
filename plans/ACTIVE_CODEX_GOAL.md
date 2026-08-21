@@ -3170,3 +3170,16 @@ next action and whether the requested outcome is actually complete.
   backtest suite pass locally. Freeze one replacement head for paired review
   and fresh full H-tier evidence; preserve all financial, authority and
   execution boundaries.
+- Exact head `924fdd834f83a2f851c17207f60436b6cd6c4c1e` is rejected and
+  hosted run `32482225329` is cancelled/stale. Whole-diff review approved, while
+  risk review reproduced two blocking boundary defects: write/readback checksum
+  calculation could use different canonical price windows, and a self-
+  consistent forged projection could select a non-registry benchmark. The one
+  consolidated correction replays the declared price window before cache
+  checksum comparison and requires every relative financial consumer to bind
+  the projection to the exact authoritative `CanonicalBenchmarkRegistry`
+  object, including backtests. Direct pre-window checksum and forged-registry
+  regressions pass with the affected regime, macro, attribution, score,
+  backtest, UI and architecture suites. Freeze one replacement exact head for
+  paired review and fresh full H-tier evidence; no adjacent authority or
+  persistence redesign.

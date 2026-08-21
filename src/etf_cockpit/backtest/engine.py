@@ -13,7 +13,10 @@ import pandas as pd
 
 from etf_cockpit.backtest.benchmarks import equal_weights, momentum_weights, target_weights, trend_weights
 from etf_cockpit.backtest.metrics import performance_metrics
-from etf_cockpit.application.benchmark_reference import clip_to_decision_window
+from etf_cockpit.application.benchmark_reference import (
+    clip_to_decision_window,
+    validate_benchmark_reference,
+)
 from etf_cockpit.core.constants import TRADING_DAYS_PER_YEAR
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.types import DataQualityReport
@@ -23,6 +26,7 @@ from etf_cockpit.data.etf_structure import structure_confidence_caps, structure_
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.portfolio.costs import COST_MODEL_ID, estimate_rebalance_cost
 from etf_cockpit.portfolio.benchmark_reference_contract import (
+    CanonicalBenchmarkRegistry,
     unavailable_reference_projection,
     validate_execution_disabled,
 )
@@ -149,11 +153,21 @@ def _validated_benchmark_data_id(
     benchmark_data_id: str | None,
     benchmark_reference: Mapping[str, object] | None,
     reference_identity: Mapping[str, object] | None,
+    benchmark_registry: CanonicalBenchmarkRegistry | None,
     available_columns: pd.Index,
 ) -> str | None:
     """Use a benchmark only when its projection and identity agree exactly."""
 
-    if benchmark_reference is None or reference_identity is None:
+    if (
+        benchmark_reference is None
+        or reference_identity is None
+        or validate_benchmark_reference(
+            benchmark_reference,
+            benchmark_data_id,
+            registry=benchmark_registry,
+        )
+        is None
+    ):
         return None
     validate_execution_disabled(benchmark_reference)
     validate_execution_disabled(reference_identity)
@@ -270,6 +284,7 @@ def run_backtest(
     benchmark_data_id: str | None = None,
     benchmark_reference: Mapping[str, object] | None = None,
     reference_identity: Mapping[str, object] | None = None,
+    benchmark_registry: CanonicalBenchmarkRegistry | None = None,
 ) -> BacktestReport:
     validate_execution_disabled(benchmark_reference or unavailable_reference_projection())
     validate_execution_disabled(reference_identity or {})
@@ -311,6 +326,7 @@ def run_backtest(
         benchmark_data_id,
         benchmark_reference,
         reference_identity,
+        benchmark_registry,
         pivot.columns,
     )
     canonical_reference = dict(benchmark_reference or unavailable_reference_projection())

@@ -18,6 +18,7 @@ from etf_cockpit.application.benchmark_reference import (
     unavailable_reference_projection,
     validate_benchmark_reference,
 )
+from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry
 
 
 _PROXY_KEYWORDS = {
@@ -40,6 +41,7 @@ def build_macro_context(
     *,
     benchmark_data_id: str | None = None,
     benchmark_reference: Mapping[str, object] | None = None,
+    benchmark_registry: CanonicalBenchmarkRegistry | None = None,
 ) -> dict[str, object]:
     """Build a local macro context snapshot without network access.
 
@@ -55,6 +57,7 @@ def build_macro_context(
     if (benchmark_data_id is not None or benchmark_reference is not None) and validate_benchmark_reference(
         benchmark_reference,
         benchmark_data_id,
+        registry=benchmark_registry,
     ) is None:
         return _unavailable(
             "Canonical benchmark/cash resolution is unavailable.",
@@ -98,6 +101,7 @@ def build_macro_context(
         max_forward_fill=5,
         benchmark_id=benchmark_data_id,
         benchmark_reference=benchmark_reference,
+        benchmark_registry=benchmark_registry,
     )
     freshness_days = max(0, (date.today() - latest_date.date()).days)
     dashboard_label = _dashboard_label(regime.get("regime_score_10"))

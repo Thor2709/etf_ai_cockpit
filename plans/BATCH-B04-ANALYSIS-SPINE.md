@@ -4397,3 +4397,15 @@ testing the loader failure. The exact failures and affected backtest suite pass;
 freeze one replacement head for paired review and fresh Linux, Windows,
 terminal, package and pilot evidence. Do not broaden persistence, financial
 logic, workflow, authority or `execution_allowed=false`.
+
+`CANONICAL WINDOW AND REGISTRY AUTHORITY CORRECTION` head
+`924fdd834f83a2f851c17207f60436b6cd6c4c1e` is rejected and run
+`32482225329` is cancelled/stale. Risk review reproduced a write/readback
+checksum mismatch when pre-window price rows exist and acceptance of a forged,
+self-consistent reference projection by relative consumers. Replay the exact
+declared price window for readback checksums and require projection validation
+against the same authoritative registry object at regime, macro, attribution,
+score and backtest boundaries. Add only the two exact regressions, then freeze
+one replacement head for paired review and fresh Linux, Windows, terminal,
+package and pilot evidence. Preserve `execution_allowed=false` and all existing
+financial and persistence safeguards.

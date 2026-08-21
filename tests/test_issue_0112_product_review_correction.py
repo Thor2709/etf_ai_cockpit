@@ -24,7 +24,13 @@ from etf_cockpit.application.benchmark_reference import (
     adjusted_price_snapshot_binding,
 )
 from etf_cockpit.application.validation import _clip_to_reference_window
-from etf_cockpit.backtest.engine import BacktestDataUnavailableError, _declared_calculation_window, run_backtest
+from etf_cockpit.backtest.engine import (
+    BacktestDataUnavailableError,
+    _declared_calculation_window,
+    _validated_benchmark_data_id,
+    backtest_input_checksum,
+    run_backtest,
+)
 from etf_cockpit.core import atomic_io
 from etf_cockpit.operations.recovery import recover_incomplete_transactions
 from etf_cockpit.features.regime import (
@@ -64,8 +70,12 @@ from etf_cockpit.core.config import load_config
 from etf_cockpit.data.sample_data import generate_sample_prices
 from etf_cockpit.core.types import ForecastResult
 from etf_cockpit.portfolio.benchmark_reference_contract import (
+    BenchmarkDefinition,
     BenchmarkReferenceError,
+    CashProxyDefinition,
     CanonicalBenchmarkRegistry,
+    PeerSetDefinition,
+    ReferencePortfolioDefinition,
     load_canonical_benchmark_registry,
     unavailable_reference_projection as contract_unavailable_reference_projection,
 )
@@ -88,22 +98,38 @@ def _prices() -> pd.DataFrame:
 
 
 def _available_reference(*, peer: bool = False) -> dict[str, object]:
+    registry = _available_registry()
+    benchmark = registry.benchmarks[0]
+    cash = registry.cash_proxies[0]
+    peer_set = registry.peer_sets[0]
     peer_record = {
         "status": "available" if peer else "unavailable",
-        "content_hash": "p" * 64 if peer else None,
+        "id": peer_set.peer_set_id if peer else None,
+        "version": peer_set.version if peer else None,
+        "content_hash": peer_set.digest() if peer else None,
         "member_instrument_ids": ["PEER"] if peer else [],
     }
     return {
         "status": "available",
-        "registry_hash": "r" * 64,
+        "registry_hash": registry.as_payload()["registry_hash"],
         "benchmark_data_id": "BENCH",
-        "benchmark": {"status": "available", "content_hash": "b" * 64},
-        "cash": {"status": "available", "content_hash": "c" * 64},
+        "benchmark": {
+            "status": "available",
+            "id": benchmark.benchmark_id,
+            "version": benchmark.version,
+            "content_hash": benchmark.digest(),
+        },
+        "cash": {
+            "status": "available",
+            "id": cash.proxy_id,
+            "version": cash.version,
+            "content_hash": cash.digest(),
+        },
         "peer_set": peer_record,
         "selected_records": {
-            "benchmark": "b" * 64,
-            "cash": "c" * 64,
-            "peer_set": "p" * 64 if peer else None,
+            "benchmark": benchmark.digest(),
+            "cash": cash.digest(),
+            "peer_set": peer_set.digest() if peer else None,
         },
         "analysis": {
             "start_date": "2025-01-01",
@@ -123,10 +149,16 @@ def test_relative_consumers_require_explicit_canonical_benchmark_and_cash_resolu
     reordered = prices.sort_values(["date", "etf_id"], ascending=[True, False])
     reference = _available_reference()
     first = build_benchmark_attribution_lookup(
-        reordered, benchmark_id="BENCH", benchmark_reference=reference
+        reordered,
+        benchmark_id="BENCH",
+        benchmark_reference=reference,
+        benchmark_registry=_available_registry(),
     )
     second = build_benchmark_attribution_lookup(
-        prices, benchmark_id="BENCH", benchmark_reference=reference
+        prices,
+        benchmark_id="BENCH",
+        benchmark_reference=reference,
+        benchmark_registry=_available_registry(),
     )
     assert first["ALT"]["benchmark_id"] == second["ALT"]["benchmark_id"] == "BENCH"
     assert first["ALT"]["benchmark_return"] == second["ALT"]["benchmark_return"]
@@ -412,6 +444,55 @@ def _cache_identity() -> dict[str, object]:
         "calculation_schema": "canonical-benchmark-cash.v1",
         "execution_allowed": False,
     }
+
+
+def _available_registry(benchmark_data_id: str = "BENCH") -> CanonicalBenchmarkRegistry:
+    common = {
+        "version": "1.0.0",
+        "selector": {"asset_class": "equity"},
+        "effective_at": "2020-01-01T00:00:00Z",
+        "known_at": "2020-01-02T00:00:00Z",
+        "methodology": "test authority",
+        "source_hashes": ("a" * 64,),
+    }
+    return CanonicalBenchmarkRegistry(
+        benchmarks=(BenchmarkDefinition(
+            benchmark_id="benchmark:test",
+            hierarchy="asset",
+            currency="EUR",
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=50.0,
+            start_date="2020-01-01",
+            end_date="2100-12-31",
+            constituents=(benchmark_data_id,),
+            **common,
+        ),),
+        cash_proxies=(CashProxyDefinition(
+            proxy_id="cash:test",
+            currency="EUR",
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=50.0,
+            start_date="2020-01-01",
+            end_date="2100-12-31",
+            **common,
+        ),),
+        peer_sets=(PeerSetDefinition(
+            peer_set_id="peers:test",
+            hierarchy="asset",
+            member_instrument_ids=("PEER",),
+            **common,
+        ),),
+        reference_portfolios=(ReferencePortfolioDefinition(
+            portfolio_id="reference:test",
+            version="1.0.0",
+            method="equal_weight",
+            constituent_instrument_ids=(benchmark_data_id,),
+            methodology="test authority",
+            effective_at="2020-01-01T00:00:00Z",
+            known_at="2020-01-02T00:00:00Z",
+            source_hashes=("a" * 64,),
+        ),),
+    )
 
 
 def test_feature_and_forecast_pair_round_trip_rejects_payload_substitution(tmp_path) -> None:
@@ -1540,6 +1621,7 @@ def test_packaged_registry_unavailable_cash_blocks_local_curve_lookup(monkeypatc
         pd.DataFrame(),
         benchmark_reference=context.projection,
         reference_identity=context.identity,
+        benchmark_registry=context.registry,
     )
     assert scores
     assert all(score.cash_comparison_status == "unavailable" for score in scores)
@@ -1892,6 +1974,89 @@ def test_shared_reference_validation_rejects_digest_mismatch_for_all_relative_co
     )["status"] == "unavailable"
 
 
+def test_shared_reference_validation_rejects_self_consistent_forged_registry_authority() -> None:
+    registry = _available_registry()
+    reference = _available_reference()
+    assert validate_benchmark_reference(reference, "BENCH", registry=registry) == "BENCH"
+
+    forged = json.loads(json.dumps(reference))
+    forged["registry_hash"] = "f" * 64
+    forged["benchmark_data_id"] = "FORGED"
+    forged["benchmark"]["content_hash"] = "b" * 64
+    forged["cash"]["content_hash"] = "c" * 64
+    forged["selected_records"]["benchmark"] = "b" * 64
+    forged["selected_records"]["cash"] = "c" * 64
+    prices = _prices().replace({"BENCH": "FORGED"})
+
+    assert validate_benchmark_reference(forged, "FORGED", registry=registry) is None
+    forged_identity = {
+        "status": "available",
+        "registry_hash": forged["registry_hash"],
+        "benchmark_data_id": "FORGED",
+        "selected_records": forged["selected_records"],
+        "execution_allowed": False,
+    }
+    assert _validated_benchmark_data_id(
+        "FORGED",
+        forged,
+        forged_identity,
+        registry,
+        pd.Index(["FORGED"]),
+    ) is None
+    assert build_market_regime(
+        prices,
+        benchmark_id="FORGED",
+        benchmark_reference=forged,
+        benchmark_registry=registry,
+    )["regime_score_10"] is None
+
+
+def test_backtest_write_and_readback_checksum_use_the_same_reference_window() -> None:
+    config = load_config()
+    benchmark_id = config.universe.enabled_ids[0]
+    dates = pd.bdate_range("2024-01-01", periods=261)
+    rows = [
+        {
+            "date": dt,
+            "etf_id": instrument_id,
+            "adjusted_close": 100.0 + index,
+            "volume": 1_000_000.0,
+        }
+        for index, dt in enumerate(dates)
+        for instrument_id in config.universe.enabled_ids
+        if index > 0 or instrument_id == benchmark_id
+    ]
+    prices = pd.DataFrame(rows)
+    registry = _available_registry(benchmark_id)
+    context = resolve_canonical_reference(
+        registry,
+        analysis_id="backtest-checksum-window",
+        purpose="comparison",
+        instrument_id=benchmark_id,
+        instrument={"asset_class": "equity"},
+        currency="EUR",
+        horizon_years=1.0,
+        start_date=dates[1].date().isoformat(),
+        end_date=dates[-1].date().isoformat(),
+        decision_time=f"{dates[-1].date().isoformat()}T23:59:59Z",
+        reference_portfolio_ids=("reference:test",),
+    )
+    checksum_prices = services_module._backtest_prices_for_reference(prices, context)
+    assert checksum_prices is not None
+    report = run_backtest(
+        config,
+        prices,
+        benchmark_data_id=context.benchmark_data_id,
+        benchmark_reference=context.projection,
+        reference_identity=context.identity,
+    )
+
+    assert report.metadata["input_checksum"] == backtest_input_checksum(
+        config, checksum_prices, None
+    )
+    assert report.metadata["input_checksum"] != backtest_input_checksum(config, prices, None)
+
+
 def test_peer_attribution_uses_digest_bound_members_not_caller_supplied_members() -> None:
     prices = pd.DataFrame(
         [
@@ -1904,6 +2069,7 @@ def test_peer_attribution_uses_digest_bound_members_not_caller_supplied_members(
         prices,
         benchmark_id="BENCH",
         benchmark_reference=_available_reference(peer=True),
+        benchmark_registry=_available_registry(),
         peer_member_ids=("FORGED",),
     )
     assert attribution["ALT"]["sector_sample_size"] > 0

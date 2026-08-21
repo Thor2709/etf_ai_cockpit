@@ -27,6 +27,7 @@ def signals_page(_page: ft.Page, state: AppState) -> ft.Control:
         state.snapshot.prices,
         benchmark_data_id=reference_context.benchmark_data_id,
         benchmark_reference=reference_context.projection,
+        benchmark_registry=reference_context.registry,
         reference_identity=reference_context.identity,
         peer_member_ids=reference_context.peer_member_ids,
         cash_observation_time=state.snapshot.benchmark_reference_decision_time,

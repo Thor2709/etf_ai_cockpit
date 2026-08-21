@@ -77,6 +77,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
         context_rows,
         benchmark_data_id=reference_context.benchmark_data_id,
         benchmark_reference=reference_context.projection,
+        benchmark_registry=reference_context.registry,
     )
     regime = macro_context["regime"]
     breadth = macro_context["breadth"]

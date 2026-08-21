@@ -220,7 +220,15 @@ def _canonical_benchmark_returns(
         projection = _reference_projection(reference_context)
     except (BenchmarkReferenceError, TypeError, ValueError, KeyError):
         return None
-    if validate_benchmark_reference(projection, benchmark_id) is None or benchmark_id not in returns.columns:
+    if (
+        validate_benchmark_reference(
+            projection,
+            benchmark_id,
+            registry=getattr(reference_context, "registry", None),
+        )
+        is None
+        or benchmark_id not in returns.columns
+    ):
         return None
     series = returns[benchmark_id].dropna()
     if series.empty:

@@ -45,6 +45,7 @@ from etf_cockpit.models.forecast_scores import (
     load_latest_forecasts,
 )
 from etf_cockpit.portfolio.costs import estimate_execution_cost
+from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry
 from etf_cockpit.signals.research_states import (
     ALLOWED_EVIDENCE_SOURCE_IDS,
     AnalysisStatus,
@@ -667,6 +668,7 @@ def build_simple_instrument_scores(
     cash_comparison_lookup: Mapping[str, Mapping[str, object]] | None = None,
     benchmark_data_id: str | None = None,
     benchmark_reference: Mapping[str, object] | None = None,
+    benchmark_registry: CanonicalBenchmarkRegistry | None = None,
     reference_identity: Mapping[str, object] | None = None,
     peer_member_ids: tuple[str, ...] | None = None,
     cash_observation_time: object | None = None,
@@ -708,12 +710,14 @@ def build_simple_instrument_scores(
         candidate_report,
         benchmark_id=benchmark_data_id,
         benchmark_reference=benchmark_reference,
+        benchmark_registry=benchmark_registry,
         peer_member_ids=peer_member_ids,
     )
     portfolio_fit = build_portfolio_fit_lookup(
         prices,
         benchmark_id=benchmark_data_id,
         benchmark_reference=benchmark_reference,
+        benchmark_registry=benchmark_registry,
         peer_member_ids=peer_member_ids,
     )
     metadata: dict[str, object] = {
@@ -726,6 +730,7 @@ def build_simple_instrument_scores(
         benchmark_id=benchmark_data_id,
         metadata=metadata,
         benchmark_reference=benchmark_reference,
+        benchmark_registry=benchmark_registry,
         peer_member_ids=peer_member_ids,
     )
     # The ordinary score path resolves the official local curve evidence once;

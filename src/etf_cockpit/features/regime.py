@@ -11,6 +11,7 @@ import pandas as pd
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.features.benchmark_attribution import build_benchmark_attribution
 from etf_cockpit.portfolio.benchmark_reference_contract import (
+    CanonicalBenchmarkRegistry,
     unavailable_reference_projection,
     validate_execution_disabled,
 )
@@ -25,11 +26,14 @@ def build_market_regime(
     max_forward_fill: int | None = None,
     benchmark_id: str | None = None,
     benchmark_reference: Mapping[str, object] | None = None,
+    benchmark_registry: CanonicalBenchmarkRegistry | None = None,
     peer_member_ids: Sequence[str] | None = None,
 ) -> dict[str, object]:
     validate_execution_disabled(benchmark_reference or _unavailable_reference())
     reference = dict(benchmark_reference or _unavailable_reference())
-    canonical_benchmark_id = validate_benchmark_reference(benchmark_reference, benchmark_id)
+    canonical_benchmark_id = validate_benchmark_reference(
+        benchmark_reference, benchmark_id, registry=benchmark_registry
+    )
     if prices.empty or not {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
         return _empty_regime("No clean yfinance price panel is available.", benchmark_reference=reference)
     frame = _clip_to_reference_window(prices, reference)
@@ -110,6 +114,7 @@ def build_portfolio_fit_lookup(
     *,
     benchmark_id: str | None = None,
     benchmark_reference: Mapping[str, object] | None = None,
+    benchmark_registry: CanonicalBenchmarkRegistry | None = None,
     peer_member_ids: Sequence[str] | None = None,
 ) -> dict[str, dict[str, object]]:
     validate_execution_disabled(benchmark_reference or _unavailable_reference())
@@ -127,7 +132,9 @@ def build_portfolio_fit_lookup(
             str(item): _unavailable_fit("not enough clean instruments", reference)
             for item in pivot.columns
         }
-    benchmark_id = validate_benchmark_reference(benchmark_reference, benchmark_id)
+    benchmark_id = validate_benchmark_reference(
+        benchmark_reference, benchmark_id, registry=benchmark_registry
+    )
     if benchmark_id is None or benchmark_id not in pivot.columns:
         return {
             str(item): _unavailable_fit(
@@ -168,6 +175,7 @@ def build_benchmark_attribution_lookup(
     benchmark_id: str | None = None,
     metadata: dict[str, object] | None = None,
     benchmark_reference: Mapping[str, object] | None = None,
+    benchmark_registry: CanonicalBenchmarkRegistry | None = None,
     peer_member_ids: Sequence[str] | None = None,
 ) -> dict[str, dict[str, object]]:
     validate_execution_disabled(benchmark_reference or _unavailable_reference())
@@ -188,7 +196,9 @@ def build_benchmark_attribution_lookup(
             )
             for item in pivot.columns
         }
-    benchmark_id = validate_benchmark_reference(benchmark_reference, benchmark_id)
+    benchmark_id = validate_benchmark_reference(
+        benchmark_reference, benchmark_id, registry=benchmark_registry
+    )
     if benchmark_id is None or benchmark_id not in pivot.columns:
         return {
             str(item): _unavailable_attribution(

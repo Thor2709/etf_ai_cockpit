@@ -184,6 +184,8 @@ def unavailable_reference_projection(
 def validate_benchmark_reference(
     reference: Mapping[str, object] | None,
     benchmark_data_id: str | None,
+    *,
+    registry: CanonicalBenchmarkRegistry | None = None,
 ) -> str | None:
     """Validate one shared, execution-disabled benchmark/cash projection.
 
@@ -193,7 +195,7 @@ def validate_benchmark_reference(
     authority escalation remains an explicit contract error.
     """
 
-    if not isinstance(reference, Mapping):
+    if not isinstance(reference, Mapping) or not isinstance(registry, CanonicalBenchmarkRegistry):
         return None
     try:
         _assert_execution_disabled(reference)
@@ -228,6 +230,39 @@ def validate_benchmark_reference(
         return None
     peer = reference.get("peer_set")
     if isinstance(peer, Mapping) and selected_records.get("peer_set") != peer.get("content_hash"):
+        return None
+    try:
+        registry_payload = registry.as_payload()
+        if reference.get("registry_hash") != registry_payload.get("registry_hash"):
+            return None
+        benchmark_matches = [
+            item
+            for item in registry.benchmarks
+            if item.benchmark_id == benchmark.get("id")
+            and item.version == benchmark.get("version")
+            and item.digest() == benchmark_digest
+            and benchmark_data_id in item.constituents
+        ]
+        cash_matches = [
+            item
+            for item in registry.cash_proxies
+            if item.proxy_id == cash.get("id")
+            and item.version == cash.get("version")
+            and item.digest() == cash_digest
+        ]
+        if len(benchmark_matches) != 1 or len(cash_matches) != 1:
+            return None
+        if isinstance(peer, Mapping) and peer.get("status") == "available":
+            peer_matches = [
+                item
+                for item in registry.peer_sets
+                if item.peer_set_id == peer.get("id")
+                and item.version == peer.get("version")
+                and item.digest() == peer.get("content_hash")
+            ]
+            if len(peer_matches) != 1:
+                return None
+    except (BenchmarkReferenceError, AttributeError, KeyError, RecursionError, TypeError, ValueError):
         return None
     return benchmark_data_id
 

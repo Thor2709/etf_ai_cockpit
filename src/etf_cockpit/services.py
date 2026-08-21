@@ -1822,6 +1822,7 @@ class BacktestService:
                 benchmark_data_id=reference_context.benchmark_data_id,
                 benchmark_reference=reference_context.projection,
                 reference_identity=reference_context.identity,
+                benchmark_registry=reference_context.registry,
             )
             # Bind every runner result to the freshly resolved readback context
             # before publication, including older local runner seams.
@@ -1903,7 +1904,11 @@ class BacktestService:
 
     def _load_cached_backtest(self, as_of_date: date | None = None) -> BacktestReport | None:
         settings_revision = current_settings_revision()
-        reference_context = _backtest_calculation_context(self.config, self.reference_context, load_prices())
+        prices = load_prices()
+        reference_context = _backtest_calculation_context(self.config, self.reference_context, prices)
+        checksum_prices = _backtest_prices_for_reference(prices, reference_context)
+        if checksum_prices is None:
+            return None
         results_path = BACKTESTS_DIR / "backtest_results.csv"
         equity_path = BACKTESTS_DIR / "equity_curves.csv"
         trade_path = BACKTESTS_DIR / "trade_log.csv"
@@ -1998,7 +2003,7 @@ class BacktestService:
                 return None
             if metadata.get("input_checksum") != backtest_input_checksum(
                 self.config,
-                load_prices(),
+                checksum_prices,
                 load_fundamental_evidence(),
                 structure_document_registry=(structure_evidence.document_registry if structure_evidence else None),
                 structure_report_records=(structure_evidence.report_records if structure_evidence else None),
@@ -2303,6 +2308,27 @@ def _backtest_calculation_context(
         )
     except (BenchmarkReferenceError, OSError, TypeError, ValueError, KeyError, AttributeError):
         return CanonicalReferenceContext(base_context.registry, None, blocker="backtest_reference_resolution_unavailable")
+
+
+def _backtest_prices_for_reference(
+    prices: pd.DataFrame,
+    reference_context: CanonicalReferenceContext,
+) -> pd.DataFrame | None:
+    """Replay the exact price snapshot consumed by the backtest checksum."""
+
+    identity = reference_context.identity
+    analysis = identity.get("analysis")
+    if analysis is None and identity.get("status") == "unavailable":
+        return prices
+    if not isinstance(analysis, Mapping):
+        return None
+    clipped = clip_to_decision_window(
+        prices,
+        start_date=analysis.get("start_date"),
+        end_date=analysis.get("end_date"),
+        decision_time=analysis.get("decision_time"),
+    )
+    return None if clipped.empty else clipped
 
 
 def _current_portfolio_reference(
