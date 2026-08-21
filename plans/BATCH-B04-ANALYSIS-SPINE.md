@@ -4556,3 +4556,13 @@ envelope expired after the next serial repetition began. Complete the ordered
 ISSUE-0112 lifecycle and zero-action readback before transplanting the disjoint
 ISSUE-0046 implementation onto the resulting exact main. Keep
 `execution_allowed=false`.
+
+`ISSUE-0112 INITIAL WRITER VERIFIED` PR #689 merged exact approved head
+`a76eb26063eacef7eef9fb4f4ec0d95c824f30d6` as
+`d49f34f605e5b7c79b2cd80549330b3fc23861d0` after E-tier run
+`32521746474` passed Linux, Windows and terminal validation. Writer run
+`32524833080` applied and verified only `planned -> in_progress` with
+`zero_action_readback=true`; convergence run `32524833091` produced no write.
+Complete the bounded two-hop aggregate replay against product PR #688 and
+reviewed head `876ec1df5a4ab96afa20476bd632918a4212e152`, preserving
+`execution_allowed=false`, before ISSUE-0046 integration.

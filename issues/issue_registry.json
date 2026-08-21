@@ -17959,6 +17959,28 @@
           "reviewed_date": "2026-08-22",
           "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product PR #688 merged exact independently approved head 876ec1df5a4ab96afa20476bd632918a4212e152 as 6b5859d265c2a1a0cdd176d7facd2ba287dc58f9",
+            "Release run 32511929644 passed classifier, authority preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Ordered writer run 32524833080 applied only ISSUE-0112 planned to in_progress with terminal applied_and_verified, full authority reconciliation and zero-action readback; convergence run 32524833091 produced no write and execution_allowed remains false"
+          ],
+          "review_reference": "PR #688 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-22",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product PR #688 merged exact independently approved head 876ec1df5a4ab96afa20476bd632918a4212e152 as 6b5859d265c2a1a0cdd176d7facd2ba287dc58f9",
+            "Release run 32511929644 passed classifier, authority preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Ordered writer run 32524833080 applied only ISSUE-0112 planned to in_progress with terminal applied_and_verified, full authority reconciliation and zero-action readback; convergence run 32524833091 produced no write and execution_allowed remains false"
+          ],
+          "review_reference": "PR #688 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-22",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -18036,7 +18058,7 @@
       "package_status": "",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P0/P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0112-canonical-benchmarks-peer-sets-cash-proxies-and-reference-portfolios",
@@ -18067,7 +18089,7 @@
       ],
       "title": "Create canonical benchmarks, peer sets, cash proxies and reference portfolios",
       "ui_requirement": "Benchmark selector and comparison panels everywhere relevant.",
-      "verified_commit": "6b5859d265c2a1a0cdd176d7facd2ba287dc58f9",
+      "verified_commit": "876ec1df5a4ab96afa20476bd632918a4212e152",
       "verified_date": "2026-08-22",
       "why": "Professional evaluation requires appropriate alternatives and reference portfolios.",
       "write_conflict_group": "returns-and-risk"
@@ -27985,7 +28007,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "4cee92cf3aad09778b85bb6325cf9f682d16c9b4e2157e1de86d226ca4c59a1c",
+    "programme_control_state_sha256": "e2670488e8506f856a90a528156e03571cfe649bc491c0b57282872829c9419e",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
