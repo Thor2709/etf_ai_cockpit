@@ -4421,3 +4421,13 @@ and add the exact adversarial regressions. The full affected collection passes;
 freeze one replacement head for paired review and fresh Linux, Windows,
 terminal, package and pilot evidence. Preserve `execution_allowed=false` and
 do not broaden the authority architecture.
+
+`FINAL REGISTRY STATUS MISMATCH` head
+`196af80f942d805ed4914accc9bd0b616c44ac25` is rejected and run
+`32487467875` is cancelled/stale. The risk verdict approves the consolidated
+authority correction, while whole-diff review reproduced acceptance of a
+projection claiming availability over a digest-matched registry benchmark or
+cash record whose authoritative status is unavailable. Require `available` on
+both uniquely matched records and add the exact two regressions. Freeze one
+final replacement head for paired review and fresh Linux, Windows, terminal,
+package and pilot evidence; make no adjacent change.

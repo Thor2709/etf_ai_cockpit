@@ -6,6 +6,7 @@ import os
 import threading
 from datetime import date
 from types import SimpleNamespace
+from typing import Literal
 
 import pandas as pd
 import pytest
@@ -453,6 +454,9 @@ def _cache_identity() -> dict[str, object]:
 
 def _available_registry(
     benchmark_data_id: str | tuple[str, ...] = "BENCH",
+    *,
+    benchmark_status: Literal["available", "unavailable"] = "available",
+    cash_status: Literal["available", "unavailable"] = "available",
 ) -> CanonicalBenchmarkRegistry:
     benchmark_constituents = (
         (benchmark_data_id,) if isinstance(benchmark_data_id, str) else benchmark_data_id
@@ -475,6 +479,7 @@ def _available_registry(
             start_date="2020-01-01",
             end_date="2100-12-31",
             constituents=benchmark_constituents,
+            status=benchmark_status,
             **common,
         ),),
         cash_proxies=(CashProxyDefinition(
@@ -484,6 +489,7 @@ def _available_registry(
             maximum_horizon_years=50.0,
             start_date="2020-01-01",
             end_date="2100-12-31",
+            status=cash_status,
             **common,
         ),),
         peer_sets=(PeerSetDefinition(
@@ -2094,6 +2100,32 @@ def test_peer_members_and_cash_identity_are_derived_from_registry_authority(monk
     )
     assert scores
     assert all(score.cash_comparison_status == "unavailable" for score in scores)
+
+
+@pytest.mark.parametrize("unavailable_kind", ("benchmark", "cash"))
+def test_reference_validation_rejects_projection_availability_over_unavailable_registry_record(
+    unavailable_kind: str,
+) -> None:
+    registry = _available_registry(
+        benchmark_status="unavailable" if unavailable_kind == "benchmark" else "available",
+        cash_status="unavailable" if unavailable_kind == "cash" else "available",
+    )
+    reference = _available_reference()
+    reference["registry_hash"] = registry.as_payload()["registry_hash"]
+    benchmark = registry.benchmarks[0]
+    cash = registry.cash_proxies[0]
+    reference["benchmark"]["content_hash"] = benchmark.digest()
+    reference["cash"]["content_hash"] = cash.digest()
+    reference["selected_records"]["benchmark"] = benchmark.digest()
+    reference["selected_records"]["cash"] = cash.digest()
+
+    assert validate_benchmark_reference(reference, "BENCH", registry=registry) is None
+    assert build_market_regime(
+        _prices(),
+        benchmark_id="BENCH",
+        benchmark_reference=reference,
+        benchmark_registry=registry,
+    )["regime_score_10"] is None
 
 
 def test_backtest_write_and_readback_checksum_use_the_same_reference_window() -> None:

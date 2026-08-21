@@ -3195,3 +3195,12 @@ next action and whether the requested outcome is actually complete.
   macro, backtest, UI and architecture collection pass. Freeze one replacement
   head for paired review and fresh full H-tier evidence; make no further
   adjacent authority change.
+- Exact head `196af80f942d805ed4914accc9bd0b616c44ac25` is rejected and
+  run `32487467875` is cancelled/stale. Risk review approved all named
+  high-consequence paths; whole-diff review reproduced one final registry/
+  projection mismatch: digest-matched benchmark or cash records marked
+  unavailable in the authoritative registry could be claimed available by a
+  projection. The bounded correction requires both matched records themselves
+  to be available. Direct benchmark and cash regressions pass; freeze one final
+  replacement head for paired review and fresh H-tier evidence without any
+  additional scope.

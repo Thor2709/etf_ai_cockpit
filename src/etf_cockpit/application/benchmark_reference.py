@@ -241,6 +241,7 @@ def validate_benchmark_reference(
             if item.benchmark_id == benchmark.get("id")
             and item.version == benchmark.get("version")
             and item.digest() == benchmark_digest
+            and item.status == "available"
         ]
         cash_matches = [
             item
@@ -248,6 +249,7 @@ def validate_benchmark_reference(
             if item.proxy_id == cash.get("id")
             and item.version == cash.get("version")
             and item.digest() == cash_digest
+            and item.status == "available"
         ]
         if len(benchmark_matches) != 1 or len(cash_matches) != 1:
             return None
