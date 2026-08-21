@@ -1,29 +1,27 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_dependency_edge_updates": [
+  "allowed_status_transitions": [
     {
-      "dependency_id": "ISSUE-0051",
-      "issue_id": "ISSUE-0112"
-    },
-    {
-      "dependency_id": "ISSUE-0059",
-      "issue_id": "ISSUE-0112"
+      "from": "planned",
+      "issue_id": "ISSUE-0112",
+      "to": "in_progress"
     }
   ],
-  "allowed_status_transitions": [],
-  "base_commit": "87b05852121ff6ecdd1c9b1b8ae5ed423875523c",
-  "branch": "codex/issue0112-dependencies-20260813",
-  "issue_ids": [],
+  "base_commit": "6b5859d265c2a1a0cdd176d7facd2ba287dc58f9",
+  "branch": "codex/issue0112-lifecycle-start-20260822",
+  "issue_ids": [
+    "ISSUE-0112"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "e3a054f055d260d78a073a30b2792f5a2f513cc2a8a76be2e8c27b4ec386788e",
+    "base_registry_sha256": "0ba3ce443f169481155cd905244d7475f93a4fac2ad981857d5d51fe1ec1482c",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "0ba3ce443f169481155cd905244d7475f93a4fac2ad981857d5d51fe1ec1482c",
-    "reason": "Record only the two independent reviewed ISSUE-0112 dependency edges to integrated ISSUE-0051 cash-comparison and ISSUE-0059 benchmark-attribution contracts; preserve planned lifecycle state, product code, external authority and execution_allowed=false.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "46ff24de71330a1994dca2b2030a0f2915120c9f1e1e06331242d81bc88a98f2",
+    "reason": "Advance only ISSUE-0112 from planned to in_progress using merged product PR #688, exact independent reviews and H-tier run 32511929644; preserve dependencies, acceptance criteria, product code, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.3"
+  "schema_version": "1.2"
 }
