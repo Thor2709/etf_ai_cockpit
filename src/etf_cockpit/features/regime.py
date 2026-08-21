@@ -455,9 +455,13 @@ def _candidate_chronology(
 ) -> tuple[pd.Timestamp | None, bool]:
     populated: list[object] = []
     for field in fields:
-        if field not in row or pd.isna(row.get(field)):
+        if field not in row:
             continue
         value = row.get(field)
+        if not pd.api.types.is_scalar(value):
+            return None, False
+        if pd.isna(value):
+            continue
         if isinstance(value, str) and not value.strip():
             continue
         populated.append(value)
@@ -488,8 +492,13 @@ def _candidate_observation_timestamp(row: pd.Series) -> pd.Timestamp | None:
 
 def _candidate_provenance(row: pd.Series) -> str | None:
     for field in ("provenance", "source_dataset", "source_id", "source", "data_policy"):
-        if field in row and not pd.isna(row.get(field)) and str(row.get(field)).strip():
-            return str(row.get(field)).strip()
+        if field not in row:
+            continue
+        value = row.get(field)
+        if not pd.api.types.is_scalar(value):
+            return None
+        if not pd.isna(value) and str(value).strip():
+            return str(value).strip()
     return None
 
 

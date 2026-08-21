@@ -1450,6 +1450,7 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
         snapshot.prices,
         benchmark_reference=canonical_reference,
         reference_identity=canonical_identity,
+        cash_observation_time=observation_time,
     )
     available_score = {score.display_id: score for score in scores}[instrument_id]
     assert available_score.cash_comparison_status == "available"
@@ -1461,6 +1462,25 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
     )
     assert pd.Timestamp(available_score.cash_decision_time) <= observation_time
     assert available_score.execution_allowed is False
+
+    future_score = {
+        score.display_id: score
+        for score in build_simple_instrument_scores(
+            snapshot.config,
+            snapshot.signals,
+            snapshot.forecasts,
+            snapshot.prices,
+            benchmark_reference=canonical_reference,
+            reference_identity=canonical_identity,
+            cash_observation_time=(
+                pd.Timestamp(adjusted_endpoint_available_at(end))
+                - pd.Timedelta(seconds=1)
+            ),
+        )
+    }[instrument_id]
+    assert future_score.cash_comparison_status == "unavailable"
+    assert future_score.cash_return is None
+    assert future_score.execution_allowed is False
 
     frame = simple_scoreboard_frame([available_score])
     attribution_path = tmp_path / "local_benchmark_attribution.parquet"
@@ -1604,3 +1624,82 @@ def test_local_cash_lookup_rejects_canonical_decision_after_explicit_observation
     )
 
     assert instrument_id not in lookup
+
+
+def test_malformed_canonical_cash_chronology_is_rejected_without_raising() -> None:
+    cash_hash = "c" * 64
+    reference = {
+        "cash": {
+            "status": "available",
+            "id": "official-cash",
+            "content_hash": cash_hash,
+        },
+        "selected_records": {"cash": cash_hash},
+    }
+    malformed_analyses = (
+        {
+            "currency": "EUR",
+            "start_date": "2025-02-30",
+            "end_date": "2025-03-01",
+            "decision_time": "2025-03-02T00:00:00Z",
+        },
+        {
+            "currency": "EUR",
+            "start_date": "2025-1-01",
+            "end_date": "2025-03-01",
+            "decision_time": "2025-03-02T00:00:00Z",
+        },
+        {
+            "currency": "EUR",
+            "start_date": "2025-03-02",
+            "end_date": "2025-03-01",
+            "decision_time": "2025-03-03T00:00:00Z",
+        },
+        {
+            "currency": "EUR",
+            "start_date": "2025-03-01",
+            "end_date": "2025-03-01",
+            "decision_time": "2025-03-02T00:00:00Z",
+        },
+        {
+            "currency": "EUR",
+            "start_date": "2025-03-01",
+            "end_date": "2025-03-02",
+            "decision_time": "2025-03-03T00:00:00",
+        },
+        {
+            "currency": "EUR",
+            "start_date": "2025-03-01",
+            "end_date": "2025-03-02",
+            "decision_time": "not-a-timestamp",
+        },
+        {
+            "currency": "EUR",
+            "start_date": "2025-03-01",
+            "end_date": "2025-03-02",
+            "decision_time": "2025-03-02T23:59:59Z",
+        },
+    )
+
+    identities: list[dict[str, object]] = []
+    for analysis in malformed_analyses:
+        identity = {
+            "selected_records": {"cash": cash_hash},
+            "analysis": analysis,
+        }
+        identities.append(identity)
+        assert simple_scores_module._canonical_cash_request(reference, identity) is None
+
+    snapshot = build_snapshot()
+    scores = build_simple_instrument_scores(
+        snapshot.config,
+        snapshot.signals,
+        snapshot.forecasts,
+        snapshot.prices,
+        benchmark_reference=reference,
+        reference_identity=identities[0],
+        cash_observation_time="2025-03-02T00:00:00Z",
+    )
+    assert scores
+    assert all(score.cash_comparison_status == "unavailable" for score in scores)
+    assert all(score.cash_return is None for score in scores)

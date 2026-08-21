@@ -3115,3 +3115,14 @@ next action and whether the requested outcome is actually complete.
   focused simple-score cash tests, Ruff, compile, byte-clean programme
   generation and diff hygiene pass. Freeze one replacement exact head; do not
   alter the validator timeout, test selection, CI architecture or authority.
+- Exact head `61ef80802eb58e23ac55f888c78e3c1ff66247b2` is rejected by both
+  final reviewers, and hosted run `32470544434` is stale after the changed-test
+  collection reproducibly exceeded its 240-second bound. The complete bounded
+  finding set is: propagate the snapshot replay date through every production
+  cash-score caller; reject malformed, unordered or timezone-naive canonical
+  cash chronology; reject non-scalar breadth chronology/provenance; and raise
+  only the finite changed-test timeout to 360 seconds without altering test
+  selection, sharding, classification or workflow topology. One consolidated
+  working-tree correction and direct regressions now cover those four findings;
+  freeze a replacement exact head only after focused verification and then run
+  paired review plus fresh full H-tier evidence.

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, datetime
 import hashlib
 import json
 from math import isfinite, tanh
@@ -669,6 +669,7 @@ def build_simple_instrument_scores(
     benchmark_reference: Mapping[str, object] | None = None,
     reference_identity: Mapping[str, object] | None = None,
     peer_member_ids: tuple[str, ...] | None = None,
+    cash_observation_time: object | None = None,
 ) -> list[SimpleInstrumentScore]:
     if universe_revision is None:
         universe_revision = load_universe().revision
@@ -740,6 +741,7 @@ def build_simple_instrument_scores(
             cash_comparison_lookup = _build_local_cash_comparison_lookup(
                 config,
                 prices,
+                as_of=cash_observation_time,
                 canonical_cash_request=cash_request,
             )
     else:
@@ -2616,7 +2618,13 @@ def _build_local_cash_comparison_lookup(
     canonical_decision = canonical_cash_request.get("decision_time") if canonical_cash_request is not None else None
     canonical_cash_id = canonical_cash_request.get("cash_id") if canonical_cash_request is not None else None
     try:
-        observation = pd.Timestamp.now(tz="UTC") if as_of is None else pd.Timestamp(as_of)
+        observation = (
+            pd.Timestamp.now(tz="UTC")
+            if as_of is None
+            else pd.Timestamp(as_of, tz="UTC")
+            if isinstance(as_of, date) and not isinstance(as_of, datetime)
+            else pd.Timestamp(as_of)
+        )
         decision = (
             pd.Timestamp(canonical_decision)
             if canonical_decision is not None
@@ -2635,6 +2643,22 @@ def _build_local_cash_comparison_lookup(
     decision = decision.tz_convert("UTC")
     if canonical_decision is not None and decision > observation:
         return {}
+    canonical_start_date: date | None = None
+    canonical_end_date: date | None = None
+    if canonical_start is not None or canonical_end is not None:
+        if not isinstance(canonical_start, str) or not isinstance(canonical_end, str):
+            return {}
+        try:
+            canonical_start_date = date.fromisoformat(canonical_start)
+            canonical_end_date = date.fromisoformat(canonical_end)
+        except ValueError:
+            return {}
+        if (
+            canonical_start != canonical_start_date.isoformat()
+            or canonical_end != canonical_end_date.isoformat()
+            or canonical_start_date >= canonical_end_date
+        ):
+            return {}
     identities = config.universe.by_id()
     for instrument_id in config.universe.enabled_ids:
         identity = identities.get(instrument_id)
@@ -2659,11 +2683,11 @@ def _build_local_cash_comparison_lookup(
         ]
         if identity is None or len(rows) < 2:
             continue
-        if canonical_start is not None and canonical_end is not None:
+        if canonical_start_date is not None and canonical_end_date is not None:
             comparison_rows = rows.loc[
                 rows["date"].dt.date.between(
-                    date.fromisoformat(str(canonical_start)),
-                    date.fromisoformat(str(canonical_end)),
+                    canonical_start_date,
+                    canonical_end_date,
                 )
             ]
         else:
@@ -2734,9 +2758,32 @@ def _canonical_cash_request(
     required = ("currency", "start_date", "end_date", "decision_time")
     if not all(isinstance(analysis.get(key), str) and analysis.get(key) for key in required):
         return None
+    start_raw = str(analysis["start_date"])
+    end_raw = str(analysis["end_date"])
+    decision_raw = str(analysis["decision_time"])
+    try:
+        start = date.fromisoformat(start_raw)
+        end = date.fromisoformat(end_raw)
+        decision = pd.Timestamp(decision_raw)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if (
+        start_raw != start.isoformat()
+        or end_raw != end.isoformat()
+        or start >= end
+        or pd.isna(decision)
+        or decision.tzinfo is None
+    ):
+        return None
+    decision = decision.tz_convert("UTC")
+    if decision < pd.Timestamp(adjusted_endpoint_available_at(end)):
+        return None
     return {
         "cash_id": cash_id.strip(),
-        **{key: str(analysis[key]) for key in required},
+        "currency": str(analysis["currency"]),
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+        "decision_time": decision.isoformat(),
     }
 
 

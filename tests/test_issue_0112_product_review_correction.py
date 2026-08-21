@@ -1024,6 +1024,42 @@ def test_candidate_breadth_rejects_future_contradictory_populated_aliases() -> N
     assert _candidate_pct_above_sma200(future_observation_alias, decision_time=cutoff) is None
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("latest_date", ["2025-01-10"]),
+        ("provenance", ["yfinance_adjusted_close"]),
+    ),
+)
+def test_candidate_breadth_rejects_sequence_chronology_and_provenance(
+    field: str,
+    value: list[str],
+) -> None:
+    row: dict[str, object] = {
+        "sma200_signal": True,
+        "latest_date": "2025-01-10",
+        "provenance": "yfinance_adjusted_close",
+    }
+    row[field] = value
+    report = pd.DataFrame([row])
+    reference = _available_reference()
+
+    assert (
+        _candidate_pct_above_sma200(
+            report,
+            decision_time=reference["analysis"]["decision_time"],
+        )
+        is None
+    )
+    regime = build_market_regime(
+        _prices(),
+        report,
+        benchmark_id="BENCH",
+        benchmark_reference=reference,
+    )
+    assert regime["candidate_pct_above_sma200"] is None
+
+
 def test_shared_window_clip_caps_intraday_authority_and_date_only_rows() -> None:
     prices = pd.DataFrame(
         {

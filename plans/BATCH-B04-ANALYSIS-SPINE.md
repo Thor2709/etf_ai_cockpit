@@ -4319,6 +4319,17 @@ offline smoke, Ruff, compile, registry, byte-clean programme and diff checks pas
 Freeze one clean replacement exact head for paired review and fresh Linux,
 Windows, terminal, package and pilot evidence.
 
+`REPLAY OBSERVATION AND FINITE PREFLIGHT CORRECTION` head
+`61ef80802eb58e23ac55f888c78e3c1ff66247b2` is rejected by both final reviewers,
+and run `32470544434` is stale after its changed-test collection exceeded the
+240-second bound. Propagate the existing snapshot replay date through every real
+cash-score caller; reject malformed, unordered, timezone-naive or non-scalar
+cash/breadth chronology; and increase only that finite changed-test bound to 360
+seconds. Direct regressions must cover the production path and malformed inputs.
+Do not alter selection, sharding, classification, workflow architecture,
+financial formulas, authority or `execution_allowed=false`. Freeze one new head
+after focused verification for paired review and fresh full H-tier evidence.
+
 `FUTURE CASH DECISION CORRECTION` hosted run `31794764667` was not the final
 evidence run; exact-head run `31797431753` attempt 2 completed 526 changed tests
 in `220.694s` and exposed one real chronology defect rather than a timeout. A
@@ -4329,3 +4340,9 @@ fixture. Direct future-decision and positive-flow regressions, the complete cash
 suite, focused simple-score cash checks, static/programme checks and diff hygiene
 pass. Keep the 240-second bound unchanged and freeze one new H-tier head for
 paired review plus Linux, Windows, terminal, package and two-repetition pilots.
+
+The later `REPLAY OBSERVATION AND FINITE PREFLIGHT CORRECTION` supersedes the
+instruction above to retain 240 seconds: exact-head run `32470544434`
+subsequently demonstrated that the unchanged selected collection can exceed
+that bound. The current checkpoint is the consolidated four-finding correction
+and a finite 360-second bound only.
