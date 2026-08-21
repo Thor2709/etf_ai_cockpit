@@ -3398,3 +3398,12 @@ next action and whether the requested outcome is actually complete.
   simplification passes 82 direct regressions and the affected integration
   suite with Ruff and diff hygiene. Freeze and review this simpler contract;
   do not reintroduce partial financial display or add adjacent hardening.
+- ISSUE-0046 simplified head `647d7fbc86b26ba3c4630822d5096dd7645eb1ea`
+  is rejected by both reviewers; run `32537797786` is cancelled/stale. The
+  exact simplified contract now rejects forbidden financial keys recursively
+  anywhere in a non-available alternative and invalidates an available basket
+  unless benchmark, cash and no-action are all available for reconciliation.
+  The two-file correction passes 84 direct regressions and the affected
+  integration suite with Ruff and diff hygiene. Freeze this final presentation
+  boundary for paired review and H-tier evidence; no further adjacent shape
+  hardening belongs in ISSUE-0046.

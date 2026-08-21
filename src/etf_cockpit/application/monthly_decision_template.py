@@ -368,12 +368,13 @@ def _normalise_alternatives(
             if isinstance(item, Mapping) and _comparison_bundle_participant(item):
                 result[name] = unavailable_monthly_evidence(f"{name}_alternative_source_mismatch")
         errors.append("monthly_comparison_bundle_invalid")
-    if all(
-        isinstance(result.get(name), Mapping) and result[name].get("status") == "available"  # type: ignore[index]
-        for name in ALTERNATIVE_NAMES
-    ):
-        basket = result["basket"]
-        if not _relative_returns_reconcile(basket, result):  # type: ignore[arg-type]
+    basket = result["basket"]
+    if isinstance(basket, Mapping) and basket.get("status") == "available":
+        comparators_available = all(
+            isinstance(result.get(name), Mapping) and result[name].get("status") == "available"  # type: ignore[index]
+            for name in ("benchmark", "cash", "no_action")
+        )
+        if not comparators_available or not _relative_returns_reconcile(basket, result):
             result["basket"] = unavailable_monthly_evidence("basket_relative_return_mismatch")
             errors.append("basket_relative_invalid")
     return _json_copy(result), errors
@@ -903,7 +904,8 @@ def _partial_alternative_errors(name: str, value: Mapping[str, object]) -> list[
         "cash_relative_return",
         "no_action_relative_return",
     )
-    if any(field in value for field in financial_fields):
+    supplied_mappings = (value, *_nested_mappings(value))
+    if any(field in item for item in supplied_mappings for field in financial_fields):
         errors.append("financial_invalid")
     identity_fields = ("version", "source_id", "source_dataset")
     if any(field in value and not _text(value.get(field)) for field in identity_fields):

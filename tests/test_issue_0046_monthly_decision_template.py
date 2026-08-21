@@ -532,6 +532,37 @@ def test_partial_no_action_return_with_fabricated_identity_is_never_rendered() -
     assert "return=+4.00%" not in rendered
 
 
+def test_nested_partial_return_is_never_preserved() -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"]["basket"] = {
+        "status": "partial",
+        "reason": "incomplete",
+        "detail": {"period_return": 0.07, "execution_allowed": False},
+        "execution_allowed": False,
+    }
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
+
+
+def test_available_basket_requires_every_comparator_before_rendering_relatives() -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"]["no_action"] = {
+        "status": "unavailable",
+        "reason": "no_action_unavailable",
+        "execution_allowed": False,
+    }
+
+    result = _build(evidence)
+    rendered = "\n".join(monthly_decision_template_lines(result))
+
+    assert result.status == "unavailable"
+    assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
+    assert "vs no-action=+3.00%" not in rendered
+
+
 def test_partial_forward_evidence_validates_malformed_nested_outcomes() -> None:
     evidence = deepcopy(_full_evidence())
     evidence["forward_evidence"]["status"] = "partial"  # type: ignore[index]

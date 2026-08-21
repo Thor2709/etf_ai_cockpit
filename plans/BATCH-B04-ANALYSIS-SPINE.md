@@ -4635,3 +4635,12 @@ bound and canonically matched alternatives. All 82 direct regressions and the
 affected integration suite pass with Ruff and diff hygiene. Freeze this simpler
 contract for paired review and fresh H-tier evidence; do not restore partial
 financial display or add adjacent hardening.
+
+`ISSUE-0046 FINAL PRESENTATION BOUNDARY` simplified head
+`647d7fbc86b26ba3c4630822d5096dd7645eb1ea` is rejected by both reviewers;
+run `32537797786` is cancelled/stale. Reject forbidden financial keys
+recursively in every non-available alternative and invalidate an available
+basket whenever benchmark, cash or no-action is unavailable, preventing any
+unreconciled relative value from rendering. All 84 direct regressions and the
+affected integration suite pass with Ruff and diff hygiene. Freeze for paired
+review and fresh H-tier evidence; no adjacent shape hardening is in scope.
