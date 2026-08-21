@@ -540,6 +540,8 @@ def _monthly_no_action_binding(
         return False
     if not isinstance(weights, Mapping) or not weights:
         return False
+    if any(not isinstance(constituent, str) or not constituent.strip() for constituent in constituents):
+        return False
     values = []
     for constituent in constituents:
         weight = weights.get(constituent)
@@ -558,15 +560,22 @@ def _monthly_no_action_binding(
     canonical_weights = canonical_reference.get("current_weights")
     if not isinstance(canonical_constituents, (list, tuple)) or not isinstance(canonical_weights, Mapping):
         return False
-    if tuple(str(item) for item in constituents) != tuple(str(item) for item in canonical_constituents):
+    if any(not isinstance(item, str) or not item.strip() for item in canonical_constituents):
+        return False
+    if tuple(constituents) != tuple(canonical_constituents):
         return False
     if set(weights) != set(canonical_weights):
         return False
-    return all(
-        not isinstance(canonical_weights.get(key), bool)
-        and math.isclose(float(weights[key]), float(canonical_weights[key]), rel_tol=0.0, abs_tol=1e-12)
-        for key in weights
-    )
+    try:
+        return all(
+            not isinstance(canonical_weights.get(key), bool)
+            and math.isfinite(float(canonical_weights[key]))
+            and float(canonical_weights[key]) >= 0
+            and math.isclose(float(weights[key]), float(canonical_weights[key]), rel_tol=0.0, abs_tol=1e-12)
+            for key in weights
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def _timestamp_text(value: pd.Timestamp) -> str:

@@ -398,12 +398,50 @@ def test_horizon_mismatch_fails_closed() -> None:
 @pytest.mark.parametrize("field", ["as_of", "known_at"])
 def test_alternatives_require_one_exact_normalized_window(field: str) -> None:
     evidence = deepcopy(_full_evidence())
-    evidence["alternatives"]["cash"][field] = "2026-08-20T00:00:00Z" if field == "as_of" else "2026-08-20T12:00:00Z"  # type: ignore[index]
+    evidence["alternatives"]["cash"][field] = "2026-08-20T00:00:00Z" if field == "as_of" else "2026-08-21T13:00:00Z"  # type: ignore[index]
 
     result = _build(evidence)
 
     assert result.status == "unavailable"
     assert "monthly_horizon_mismatch" in result.blockers
+    assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
+
+
+@pytest.mark.parametrize("field", ["version", "source_dataset", "source_digest"])
+def test_alternatives_require_one_exact_source_bundle(field: str) -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"]["cash"][field] = "b" * 64 if field == "source_digest" else "different"  # type: ignore[index]
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert "monthly_comparison_bundle_invalid" in result.blockers
+
+
+def test_known_at_cannot_precede_as_of() -> None:
+    evidence = deepcopy(_full_evidence())
+    for alternative in evidence["alternatives"].values():  # type: ignore[union-attr]
+        alternative["as_of"] = "2026-08-21T12:00:00Z"
+        alternative["known_at"] = "2026-08-21T11:59:59Z"
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert any("temporal_invalid" in blocker for blocker in result.blockers)
+
+
+def test_partial_alternative_rejects_malformed_supplied_financial_value() -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"]["basket"] = {
+        "status": "partial",
+        "reason": "incomplete",
+        "period_return": "not-a-number",
+        "execution_allowed": False,
+    }
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
     assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
 
 
@@ -624,6 +662,35 @@ def test_backtest_no_action_binding_must_match_canonical_constituents_and_weight
 
     assert alternatives["no_action"]["status"] == "unavailable"  # type: ignore[index]
     assert alternatives["no_action"]["reason"] == "backtest_monthly_no_action_binding_unavailable"  # type: ignore[index]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda reference: reference["references"][0].update(current_weights={"VWCE": "invalid"}),
+        lambda reference: reference["references"][0].update(constituent_instrument_ids=[["VWCE"]]),
+    ],
+)
+def test_malformed_canonical_no_action_binding_fails_closed(mutation) -> None:
+    reference = _reference()
+    mutation(reference)
+    curves = pd.DataFrame(
+        {name: [1.0, value] for name, value in {"basket": 1.07, "benchmark": 1.05, "cash": 1.03, "no_action": 1.04}.items()},
+        index=pd.to_datetime(["2026-07-31", "2026-08-21"]),
+    )
+    metadata = {
+        "monthly_no_action_reference_id": "reference:no-trade",
+        "monthly_no_action_reference_version": "1.0.0",
+        "monthly_no_action_reference_content_hash": "no-trade-hash",
+        "no_action_constituents": ["VWCE"],
+        "no_action_weights": {"VWCE": 1.0},
+    }
+
+    alternatives = backtests._monthly_backtest_alternatives(
+        SimpleNamespace(equity_curves=curves), metadata, reference=reference
+    )
+
+    assert alternatives["no_action"]["status"] == "unavailable"  # type: ignore[index]
 
 
 def test_backtest_comparisons_require_sorted_shared_non_null_endpoints() -> None:

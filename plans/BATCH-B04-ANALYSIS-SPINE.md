@@ -4603,3 +4603,14 @@ exact canonical no-trade record. All 63 direct regressions plus the affected
 integration suite, Ruff, compilation and diff hygiene pass. Freeze one final
 replacement head for paired review and fresh H-tier Linux/Windows/terminal
 evidence; lifecycle and `execution_allowed=false` remain unchanged.
+
+`ISSUE-0046 FINAL SHARED BUNDLE` head
+`45c3f2079df9a7e50f1758ea3c9e2128f1e2b67c` is rejected by both reviewers;
+run `32534775753` is cancelled/stale. The prior finding set is closed. The only
+new correction requires a common version/dataset/digest/PIT comparison bundle,
+orders `as_of <= known_at`, validates every supplied partial-alternative field,
+and turns malformed canonical no-action constituents/weights into unavailable
+evidence rather than exceptions. All 70 direct regressions, the affected
+integration suite, Ruff, compilation and diff hygiene pass. Freeze one final
+head for paired review and fresh H-tier evidence; do not broaden this product
+lane or alter lifecycle and `execution_allowed=false`.

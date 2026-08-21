@@ -3367,3 +3367,13 @@ next action and whether the requested outcome is actually complete.
   affected benchmark/evidence/backtest/portfolio/UI suite, Ruff, compilation
   and diff hygiene. Commit once on top of the rejected published head, freeze
   one replacement, and repeat both reviews with fresh H-tier evidence.
+- ISSUE-0046 head `45c3f2079df9a7e50f1758ea3c9e2128f1e2b67c`
+  is rejected by both final reviewers; run `32534775753` is cancelled/stale.
+  All earlier findings are closed. The sole newly demonstrated follow-up binds
+  all four alternatives to one version/dataset/digest/PIT bundle, requires
+  `as_of <= known_at`, rejects malformed supplied fields on partial
+  alternatives, and makes malformed canonical no-action constituents/weights
+  fail closed without exceptions. The three-file correction passes 70 direct
+  regressions, the affected integration suite, Ruff, compilation and diff
+  hygiene. Freeze one replacement head for the final paired review and fresh
+  H-tier Linux/Windows/terminal evidence; allow no further speculative cycle.

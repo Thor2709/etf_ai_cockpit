@@ -358,6 +358,16 @@ def _normalise_alternatives(
             if isinstance(item, Mapping) and item.get("status") == "available":
                 result[name] = unavailable_monthly_evidence(f"{name}_alternative_window_mismatch")
         errors.append("monthly_horizon_mismatch")
+    available_bundles = {
+        name: _alternative_bundle(item)
+        for name, item in result.items()
+        if isinstance(item, Mapping) and item.get("status") == "available"
+    }
+    if len(available_bundles) == len(ALTERNATIVE_NAMES) and len(set(available_bundles.values())) > 1:
+        for name, item in tuple(result.items()):
+            if isinstance(item, Mapping) and item.get("status") == "available":
+                result[name] = unavailable_monthly_evidence(f"{name}_alternative_source_mismatch")
+        errors.append("monthly_comparison_bundle_invalid")
     if all(
         isinstance(result.get(name), Mapping) and result[name].get("status") == "available"  # type: ignore[index]
         for name in ALTERNATIVE_NAMES
@@ -387,6 +397,7 @@ def _normalise_alternative(name: str, value: object, *, cutoff: datetime | None)
         if not _text(item.get("reason")):
             return unavailable_monthly_evidence(f"{name}_alternative_reason_unavailable"), [f"{name}_alternative_invalid"]
         nested_errors = _evidence_contract_errors(item, cutoff=cutoff)
+        nested_errors.extend(_partial_alternative_errors(name, item))
         if nested_errors:
             return unavailable_monthly_evidence(f"{name}_alternative_evidence_invalid"), [
                 f"{name}_alternative_invalid",
@@ -785,6 +796,8 @@ def _evidence_contract_errors_one(
         else:
             timestamps[key] = parsed
     if timestamps.get("known_at") is not None:
+        if timestamps.get("as_of") is not None and timestamps["known_at"] < timestamps["as_of"]:
+            errors.append("temporal_invalid")
         local_cutoff = next(
             (
                 timestamps.get(key)
@@ -867,6 +880,46 @@ def _alternative_window(value: Mapping[str, object]) -> tuple[datetime, datetime
     if as_of is None or known_at is None or horizon is None:
         return (datetime.min.replace(tzinfo=timezone.utc), datetime.min.replace(tzinfo=timezone.utc), -1.0)
     return as_of, known_at, horizon
+
+
+def _alternative_bundle(value: Mapping[str, object]) -> tuple[object, ...]:
+    return (
+        value.get("version"),
+        value.get("source_dataset"),
+        value.get("source_digest"),
+        *_alternative_window(value),
+    )
+
+
+def _partial_alternative_errors(name: str, value: Mapping[str, object]) -> list[str]:
+    errors: list[str] = []
+    if "period_return" in value:
+        period_return = _finite(value.get("period_return"))
+        if period_return is None or period_return < -1:
+            errors.append("financial_invalid")
+    if "horizon_days" in value:
+        horizon = _finite(value.get("horizon_days"))
+        if horizon is None or horizon <= 0:
+            errors.append("horizon_invalid")
+    if "source_digest" in value and not _sha256(value.get("source_digest")):
+        errors.append("source_digest_invalid")
+    for field in ("as_of", "known_at"):
+        if field in value and _timestamp(value.get(field)) is None:
+            errors.append("temporal_invalid")
+    relative_fields = (
+        "benchmark_relative_return",
+        "cash_relative_return",
+        "no_action_relative_return",
+    )
+    if name == "basket" and any(
+        field in value and _finite(value.get(field)) is None for field in relative_fields
+    ):
+        errors.append("financial_invalid")
+    reference_fields = ("reference_id", "reference_version", "reference_content_hash")
+    if name in {"benchmark", "cash", "no_action"} and any(field in value for field in reference_fields):
+        if any(not _text(value.get(field)) for field in reference_fields):
+            errors.append("identity_invalid")
+    return list(dict.fromkeys(errors))
 
 
 def _relative_returns_reconcile(basket: Mapping[str, object], alternatives: Mapping[str, object]) -> bool:
