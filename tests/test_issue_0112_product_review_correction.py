@@ -2398,6 +2398,62 @@ def test_cash_request_uses_complete_reference_validation_for_peer_authority() ->
     ) is None
 
 
+def test_cash_request_allows_only_reference_baseline_unavailability() -> None:
+    registry = _available_registry()
+    reference = _available_reference()
+    identity = {
+        "registry_hash": reference["registry_hash"],
+        "selected_records": reference["selected_records"],
+        "analysis": reference["analysis"],
+    }
+    missing_reference = deepcopy(reference)
+    missing_reference["status"] = "unavailable"
+    missing_reference["blockers"] = ["reference:unavailable:reference:missing"]
+
+    assert simple_scores_module._canonical_cash_request(
+        missing_reference,
+        identity,
+        benchmark_registry=registry,
+    ) is not None
+
+
+@pytest.mark.parametrize(
+    "blockers",
+    (
+        None,
+        [],
+        "reference:unavailable:reference:missing",
+        [""],
+        ["reference:unavailable:"],
+        ["reference:unavailable:   "],
+        ["reference_projection_invalid"],
+        ["reference:unavailable:reference:missing", "peer:no eligible peer"],
+        ["reference:unavailable:reference:missing", 1],
+    ),
+)
+def test_cash_request_rejects_absent_malformed_mixed_or_unrelated_unavailability(
+    blockers: object,
+) -> None:
+    registry = _available_registry()
+    reference = _available_reference()
+    reference["status"] = "unavailable"
+    if blockers is not None:
+        reference["blockers"] = blockers
+    else:
+        reference.pop("blockers", None)
+    identity = {
+        "registry_hash": reference["registry_hash"],
+        "selected_records": reference["selected_records"],
+        "analysis": reference["analysis"],
+    }
+
+    assert simple_scores_module._canonical_cash_request(
+        reference,
+        identity,
+        benchmark_registry=registry,
+    ) is None
+
+
 def test_backtest_write_and_readback_checksum_use_the_same_reference_window() -> None:
     config = load_config()
     benchmark_id = config.universe.enabled_ids[0]

@@ -4492,3 +4492,14 @@ caller-cleared peer was reproduced. Reject an unavailable peer projection when
 the registry has a PIT-eligible available peer, while keeping empty unavailable
 peer evidence legal when no such record exists. Add only direct validator,
 attribution and cash-gate regressions; preserve every other boundary.
+
+`FINAL CASH EXCEPTION SCOPE` head
+`0dfb0191113cdd6e5097cfe5dd6c291786084ea2` is rejected and H-tier run
+`32499674130` failed/stale at the unchanged 240-second changed-test ceiling.
+Whole-diff review found no separate product defect; risk review reproduced an
+unscoped cash exception that relabelled any unavailable projection available.
+Permit that exception only for a non-empty canonical blocker list made entirely
+of `reference:unavailable:<id>` entries; fail closed for absent, malformed,
+mixed or unrelated blockers. Add only the direct regressions, retain the
+240-second bound and freeze one replacement head for paired review and fresh
+H-tier evidence.

@@ -3258,3 +3258,13 @@ next action and whether the requested outcome is actually complete.
   available peer. Reject that mismatch, retain empty unavailable peer evidence
   only when no available registry peer exists at the declared cutoffs, and add
   direct validator, attribution and cash-gate regressions. No adjacent change.
+- Exact head `0dfb0191113cdd6e5097cfe5dd6c291786084ea2` is rejected and H-tier
+  run `32499674130` failed/stale at the unchanged 240-second changed-test
+  ceiling. Whole-diff review found no separate product defect; risk review
+  reproduced one cash-path bypass where any unavailable projection could be
+  relabelled available. Scope the existing cash exception strictly to a
+  non-empty canonical blocker list containing only
+  `reference:unavailable:<id>` entries, and reject absent, malformed, mixed or
+  unrelated blockers. Add only those direct regressions, retain the 240-second
+  bound and freeze one replacement head for paired review and fresh H-tier
+  evidence.

@@ -2797,8 +2797,25 @@ def _canonical_cash_request(
     if not isinstance(benchmark_registry, CanonicalBenchmarkRegistry):
         return None
     benchmark_data_id = benchmark_reference.get("benchmark_data_id")
+    reference_status = benchmark_reference.get("status")
     cash_scoped_reference = dict(benchmark_reference)
-    cash_scoped_reference["status"] = "available"
+    if reference_status == "unavailable":
+        blockers = benchmark_reference.get("blockers")
+        if (
+            not isinstance(blockers, list)
+            or not blockers
+            or any(
+                not isinstance(blocker, str)
+                or not blocker.startswith("reference:unavailable:")
+                or not blocker.removeprefix("reference:unavailable:").strip()
+                or blocker != blocker.strip()
+                for blocker in blockers
+            )
+        ):
+            return None
+        cash_scoped_reference["status"] = "available"
+    elif reference_status != "available":
+        return None
     if (
         not isinstance(benchmark_data_id, str)
         or validate_benchmark_reference(
