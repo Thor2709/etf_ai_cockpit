@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
 import tarfile
 import zipfile
 from pathlib import Path
@@ -9,6 +10,25 @@ from pathlib import Path
 import pytest
 
 from scripts import release_gate
+
+
+def test_full_suite_timeout_is_scoped_to_the_full_release_test_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed: list[int] = []
+
+    def completed(*_args, **kwargs):
+        observed.append(kwargs["timeout"])
+        return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(release_gate.subprocess, "run", completed)
+    output = tmp_path / "evidence"
+    output.mkdir()
+
+    release_gate.run_command(tmp_path, output, "full_tests", ("pytest",))
+    release_gate.run_command(tmp_path, output, "package_build", ("build",))
+
+    assert observed == [2400, 1800]
 
 
 def _source_fixture(root: Path) -> None:

@@ -3285,3 +3285,14 @@ next action and whether the requested outcome is actually complete.
   repair by raising only `CHANGED_TEST_TIMEOUT_SECONDS` to 480 seconds and its
   direct control assertion. Preserve test selection, all assertions, H-tier
   classification, package/pilot/Linux/Windows requirements and authority.
+- Replacement head `89a2ab464b14b2148d875cf230068f42032eea38` is approved by both
+  final reviewers and passed H-tier classifier, supply-chain and preflight run
+  `32506389260`. Both authoritative release jobs then independently reached
+  the unchanged 1,800-second full-suite ceiling (`1800026 ms` on Linux and
+  `1800041 ms` on Windows); every completed package, parity, smoke, policy,
+  security, privacy, legal, performance and SBOM check passed. Preserve the
+  1,800-second default for all other release commands and give only
+  `full_tests` a finite 2,400-second ceiling with a direct scoping regression.
+  The failed run and its report-only pilots are stale; freeze one replacement
+  head for paired review and one fresh full H-tier run without changing test
+  selection, assertions, workflow topology, product behavior or authority.

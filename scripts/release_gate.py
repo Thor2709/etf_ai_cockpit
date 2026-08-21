@@ -405,8 +405,16 @@ def _command_text(command: Iterable[str]) -> str:
     return " ".join(shlex.quote(str(part)) for part in command)
 
 
-def run_command(root: Path, output_dir: Path, name: str, command: tuple[str, ...], *, required: bool = True) -> CheckResult:
+def run_command(
+    root: Path,
+    output_dir: Path,
+    name: str,
+    command: tuple[str, ...],
+    *,
+    required: bool = True,
+) -> CheckResult:
     started = time.perf_counter()
+    timeout_seconds = 2400 if name == "full_tests" else 1800
     try:
         completed = subprocess.run(
             list(command),
@@ -415,7 +423,7 @@ def run_command(root: Path, output_dir: Path, name: str, command: tuple[str, ...
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=1800,
+            timeout=timeout_seconds,
             check=False,
         )
         output = (completed.stdout + completed.stderr).strip()

@@ -4521,3 +4521,16 @@ finite 240-second changed-test ceiling. The identical selected collection takes
 test fail immediately. Raise only the existing finite changed-test timeout to
 480 seconds and update its direct guard. Do not alter selection, assertions,
 classification, package/pilot/Linux/Windows gates, authority or product code.
+
+`DETERMINISTIC FULL-SUITE RUNTIME` replacement head
+`89a2ab464b14b2148d875cf230068f42032eea38` is approved by both final
+reviewers. H-tier run `32506389260` passed classifier, supply chain and
+preflight, while both authoritative platforms independently timed out only the
+mandatory full suite at the unchanged 1,800-second command ceiling
+(`1800026 ms` Linux; `1800041 ms` Windows). All completed package, parity,
+smoke, policy, security, privacy, legal, performance and SBOM checks passed.
+Keep every non-test command at 1,800 seconds and scope one finite 2,400-second
+ceiling only to `full_tests`, with a direct regression. The failed run is stale;
+repeat paired review and fresh Linux, Windows, package, pilot and terminal
+evidence at one replacement head without changing selection, assertions,
+workflow topology, product behavior or authority.
