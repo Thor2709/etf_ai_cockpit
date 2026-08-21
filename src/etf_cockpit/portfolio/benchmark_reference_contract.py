@@ -1233,6 +1233,7 @@ class CanonicalBenchmarkRegistry:
         if selected_vwce_anchor_digest is not None:
             anchor_matches = sum(
                 anchor.digest() == selected_vwce_anchor_digest
+                and anchor.status == "available"
                 for anchor in self.vwce_anchors
             )
             if anchor_matches != 1:
@@ -1843,7 +1844,10 @@ def project_profile_relative_analysis(
     registry_anchor_bound = (
         anchor is not None
         and registry is not None
-        and sum(item.digest() == anchor.digest() for item in registry.vwce_anchors) == 1
+        and sum(
+            item.digest() == anchor.digest() and item.status == "available"
+            for item in registry.vwce_anchors
+        ) == 1
     )
     complete_available = registry_anchor_bound and _complete_available_anchor_resolution(
         anchor_resolution,

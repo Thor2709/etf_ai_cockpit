@@ -4462,3 +4462,14 @@ stale, bypassing the available-peer branch. Reject that malformed shape and
 unsupported statuses while preserving the empty canonical unavailable peer.
 Add only the exact validator/regime regression and leave CI timing unchanged
 for the fresh replacement head.
+
+`FINAL COMPLETE PROJECTION INTEGRITY` head
+`d29416950b45bd860e8f0f81feccdcf2432a359b` is rejected by both reviewers and
+run `32494124285` is cancelled/stale. The cash-score path bypassed the generic
+validator; that validator did not bind projected reference portfolios or their
+declared point-in-time window; and a digest-matched stale VWCE anchor could be
+attached to sandbox evidence. Reuse the existing registry and analysis-
+declaration contracts to validate those fields, route cash through the complete
+validator and require available VWCE membership. Add only the four exact
+regressions, preserve `execution_allowed=false`, and freeze one replacement H
+head without changing CI architecture or timing.

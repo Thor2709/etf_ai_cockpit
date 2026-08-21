@@ -222,7 +222,8 @@ def analyse_portfolio_candidate(
         anchor_digest = vwce_anchor.digest()
         benchmark_reference = services["benchmark_reference"]
         registry_anchor_matches = sum(
-            item.digest() == anchor_digest for item in reference_registry.vwce_anchors
+            item.digest() == anchor_digest and item.status == "available"
+            for item in reference_registry.vwce_anchors
         )
         registry_anchor_bound = registry_anchor_matches == 1
         if not registry_anchor_bound and isinstance(benchmark_reference, dict):

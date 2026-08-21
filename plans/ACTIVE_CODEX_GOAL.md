@@ -3232,3 +3232,12 @@ next action and whether the requested outcome is actually complete.
   peer projections and unsupported peer statuses, while retaining the canonical
   empty unavailable-peer shape. Add only the direct validator-to-regime
   regression and leave the timeout unchanged for the fresh replacement head.
+- Exact head `d29416950b45bd860e8f0f81feccdcf2432a359b` is rejected by both
+  final reviewers, and run `32494124285` is cancelled/stale. The consolidated
+  reproduced set is complete projection integrity: the cash-score gate bypassed
+  the generic validator; reference portfolios and the declared PIT window were
+  not registry-aligned by that validator; and a digest-matched stale VWCE anchor
+  could enter the sandbox projection. Reuse the existing registry/declaration
+  contracts to bind those fields, require the cash gate to pass the complete
+  validator, and require available VWCE registry membership. Add only direct
+  cash, reference, PIT and stale-anchor regressions, then freeze one exact head.

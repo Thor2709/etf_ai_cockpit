@@ -15,6 +15,7 @@ import pandas as pd
 
 from etf_cockpit.application.benchmark_reference import (
     adjusted_price_binding_for_reference,
+    validate_benchmark_reference,
 )
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.config import AppConfig
@@ -2794,6 +2795,17 @@ def _canonical_cash_request(
     if not all(isinstance(value, Mapping) for value in (cash, projection_records, identity_records, analysis)):
         return None
     if not isinstance(benchmark_registry, CanonicalBenchmarkRegistry):
+        return None
+    benchmark_data_id = benchmark_reference.get("benchmark_data_id")
+    if (
+        not isinstance(benchmark_data_id, str)
+        or validate_benchmark_reference(
+            benchmark_reference,
+            benchmark_data_id,
+            registry=benchmark_registry,
+        ) is None
+        or benchmark_reference.get("analysis") != analysis
+    ):
         return None
     try:
         registry_hash = benchmark_registry.as_payload()["registry_hash"]

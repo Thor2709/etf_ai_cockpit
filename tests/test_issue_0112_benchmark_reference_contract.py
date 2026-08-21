@@ -240,6 +240,36 @@ def test_ui_projection_binds_selected_records_and_full_registry_to_content_diges
         )
 
 
+def test_ui_projection_rejects_digest_matched_stale_vwce_anchor() -> None:
+    stale_anchor = replace(_vwce(), status="stale")
+    base = _registry()
+    registry = CanonicalBenchmarkRegistry(
+        benchmarks=base.benchmarks,
+        cash_proxies=base.cash_proxies,
+        peer_sets=base.peer_sets,
+        reference_portfolios=base.reference_portfolios,
+        vwce_anchors=(stale_anchor,),
+    )
+    resolution = registry.resolve_analysis(
+        analysis_id="stale-vwce-projection",
+        purpose="comparison",
+        instrument_id="ETF-1",
+        instrument=INSTRUMENT,
+        currency="AUD",
+        horizon_years=1.0,
+        start_date="2024-02-01",
+        end_date="2025-02-01",
+        decision_time="2025-02-02T00:00:00Z",
+        reference_portfolio_ids=("reference:equal_weight",),
+    )
+
+    with pytest.raises(BenchmarkReferenceError, match="uniquely bound"):
+        registry.ui_projection(
+            resolution,
+            selected_vwce_anchor_digest=stale_anchor.digest(),
+        )
+
+
 def _resolved_registry() -> tuple[CanonicalBenchmarkRegistry, AnalysisResolution]:
     registry = _registry()
     resolution = registry.resolve_analysis(

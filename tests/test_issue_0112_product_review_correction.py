@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import threading
+from copy import deepcopy
 from datetime import date
 from types import SimpleNamespace
 from typing import Literal
@@ -111,6 +112,7 @@ def _available_reference(
     benchmark = registry.benchmarks[0]
     cash = registry.cash_proxies[0]
     peer_set = registry.peer_sets[0]
+    reference = registry.reference_portfolios[0]
     peer_record = {
         "status": "available" if peer else "unavailable",
         "id": peer_set.peer_set_id if peer else None,
@@ -120,6 +122,8 @@ def _available_reference(
     }
     return {
         "status": "available",
+        "analysis_id": "analysis:test",
+        "purpose": "comparison",
         "registry_hash": registry.as_payload()["registry_hash"],
         "benchmark_data_id": benchmark_data_id,
         "benchmark": {
@@ -135,15 +139,30 @@ def _available_reference(
             "content_hash": cash.digest(),
         },
         "peer_set": peer_record,
+        "references": [{
+            "id": reference.portfolio_id,
+            "version": reference.version,
+            "method": reference.method,
+            "content_hash": reference.digest(),
+            "constituent_instrument_ids": list(reference.constituent_instrument_ids),
+            "current_weights": None,
+            "effective_at": pd.Timestamp(reference.effective_at).isoformat(),
+            "known_at": pd.Timestamp(reference.known_at).isoformat(),
+            "source_hashes": list(reference.source_hashes),
+        }],
         "selected_records": {
             "benchmark": benchmark.digest(),
             "cash": cash.digest(),
             "peer_set": peer_set.digest() if peer else None,
+            "references": {f"{reference.portfolio_id}@{reference.version}": reference.digest()},
         },
         "analysis": {
+            "instrument_id": "ETF",
+            "currency": "EUR",
+            "horizon_years": 1.0,
             "start_date": "2025-01-01",
             "end_date": "2025-12-31",
-            "decision_time": "2025-12-31T23:59:59Z",
+            "decision_time": "2026-01-01T00:00:00Z",
         },
         "execution_allowed": False,
     }
@@ -512,6 +531,11 @@ def _available_registry(
             effective_at="2020-01-01T00:00:00Z",
             known_at="2020-01-02T00:00:00Z",
             source_hashes=("a" * 64,),
+            currency="EUR",
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=50.0,
+            start_date="2020-01-01",
+            end_date="2100-12-31",
         ),),
     )
 
@@ -2132,6 +2156,29 @@ def test_shared_reference_validation_rejects_self_consistent_forged_registry_aut
     )["regime_score_10"] is None
 
 
+def test_shared_reference_validation_binds_references_and_point_in_time_window() -> None:
+    registry = _available_registry()
+    reference = _available_reference()
+    assert validate_benchmark_reference(reference, "BENCH", registry=registry) == "BENCH"
+
+    forged_reference = deepcopy(reference)
+    forged_reference["references"][0]["content_hash"] = "f" * 64
+    forged_reference["selected_records"]["references"] = {
+        "reference:test@1.0.0": "f" * 64,
+    }
+    assert validate_benchmark_reference(forged_reference, "BENCH", registry=registry) is None
+
+    forged_window = deepcopy(reference)
+    forged_window["analysis"]["start_date"] = "2019-01-01"
+    assert validate_benchmark_reference(forged_window, "BENCH", registry=registry) is None
+    assert build_market_regime(
+        _prices(),
+        benchmark_id="BENCH",
+        benchmark_reference=forged_window,
+        benchmark_registry=registry,
+    )["regime_score_10"] is None
+
+
 def test_shared_reference_validation_rejects_caller_selection_from_ambiguous_constituents() -> None:
     constituents = ("BENCH_A", "BENCH_B")
     registry = _available_registry(constituents)
@@ -2258,6 +2305,39 @@ def test_reference_validation_rejects_populated_non_available_peer_projection(
         benchmark_reference=reference,
         benchmark_registry=registry,
     )["regime_score_10"] is None
+
+
+def test_cash_request_uses_complete_reference_validation_for_peer_authority() -> None:
+    valid_registry = _available_registry()
+    valid_reference = _available_reference()
+    valid_identity = {
+        "registry_hash": valid_reference["registry_hash"],
+        "selected_records": valid_reference["selected_records"],
+        "analysis": valid_reference["analysis"],
+    }
+    assert simple_scores_module._canonical_cash_request(
+        valid_reference,
+        valid_identity,
+        benchmark_registry=valid_registry,
+    ) is not None
+
+    unavailable_registry = _available_registry(peer_status="unavailable")
+    malformed = _available_reference(peer=True)
+    peer = unavailable_registry.peer_sets[0]
+    malformed["registry_hash"] = unavailable_registry.as_payload()["registry_hash"]
+    malformed["peer_set"]["status"] = "unavailable"
+    malformed["peer_set"]["content_hash"] = peer.digest()
+    malformed["selected_records"]["peer_set"] = peer.digest()
+    malformed_identity = {
+        "registry_hash": malformed["registry_hash"],
+        "selected_records": malformed["selected_records"],
+        "analysis": malformed["analysis"],
+    }
+    assert simple_scores_module._canonical_cash_request(
+        malformed,
+        malformed_identity,
+        benchmark_registry=unavailable_registry,
+    ) is None
 
 
 def test_backtest_write_and_readback_checksum_use_the_same_reference_window() -> None:

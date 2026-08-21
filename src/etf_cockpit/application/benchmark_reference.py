@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
+from datetime import date
 import hashlib
 import json
 import math
@@ -12,6 +13,7 @@ from types import MappingProxyType
 import pandas as pd
 
 from etf_cockpit.portfolio.benchmark_reference_contract import (
+    AnalysisDeclaration,
     AnalysisResolution,
     BenchmarkReferenceError,
     CanonicalBenchmarkRegistry,
@@ -278,6 +280,7 @@ def validate_benchmark_reference(
         if len(benchmark_matches) != 1 or len(cash_matches) != 1:
             return None
         benchmark_record = benchmark_matches[0]
+        cash_record = cash_matches[0]
         canonical_data_id = (
             benchmark_record.benchmark_id
             if benchmark_record.benchmark_id in benchmark_record.constituents
@@ -320,6 +323,106 @@ def validate_benchmark_reference(
             ):
                 return None
         else:
+            return None
+
+        analysis = reference.get("analysis")
+        projected_references = reference.get("references")
+        selected_references = selected_records.get("references")
+        if (
+            not isinstance(analysis, Mapping)
+            or not isinstance(projected_references, Sequence)
+            or isinstance(projected_references, (str, bytes))
+            or not isinstance(selected_references, Mapping)
+        ):
+            return None
+        matched_references = []
+        expected_selected_references: dict[str, str] = {}
+        for projected in projected_references:
+            if not isinstance(projected, Mapping):
+                return None
+            matches = [
+                item
+                for item in registry.reference_portfolios
+                if item.portfolio_id == projected.get("id")
+                and item.version == projected.get("version")
+                and item.digest() == projected.get("content_hash")
+            ]
+            if len(matches) != 1:
+                return None
+            matched = matches[0]
+            expected_projection = {
+                "method": matched.method,
+                "constituent_instrument_ids": list(matched.constituent_instrument_ids),
+                "current_weights": None if matched.current_weights is None else dict(matched.current_weights),
+                "effective_at": pd.Timestamp(matched.effective_at).isoformat(),
+                "known_at": pd.Timestamp(matched.known_at).isoformat(),
+                "source_hashes": list(matched.source_hashes),
+            }
+            if any(projected.get(field) != value for field, value in expected_projection.items()):
+                return None
+            matched_references.append(matched)
+            expected_selected_references[f"{matched.portfolio_id}@{matched.version}"] = matched.digest()
+        if dict(selected_references) != expected_selected_references:
+            return None
+
+        declaration = AnalysisDeclaration(
+            analysis_id=reference.get("analysis_id"),  # type: ignore[arg-type]
+            purpose=reference.get("purpose"),  # type: ignore[arg-type]
+            instrument_id=analysis.get("instrument_id"),  # type: ignore[arg-type]
+            currency=analysis.get("currency"),  # type: ignore[arg-type]
+            horizon_years=analysis.get("horizon_years"),  # type: ignore[arg-type]
+            start_date=analysis.get("start_date"),  # type: ignore[arg-type]
+            end_date=analysis.get("end_date"),  # type: ignore[arg-type]
+            decision_time=analysis.get("decision_time"),  # type: ignore[arg-type]
+            benchmark_id=benchmark.get("id"),  # type: ignore[arg-type]
+            cash_proxy_id=cash.get("id"),  # type: ignore[arg-type]
+            peer_set_id=peer.get("id") if peer.get("status") == "available" else None,  # type: ignore[arg-type]
+            reference_portfolio_ids=tuple(item.portfolio_id for item in matched_references),
+        )
+        effective_cutoff = pd.Timestamp(declaration.start_date).tz_localize("UTC")
+        decision_cutoff = pd.Timestamp(declaration.decision_time).tz_convert("UTC")
+
+        def aligned_record(item: object) -> bool:
+            return (
+                pd.Timestamp(getattr(item, "effective_at")).tz_convert("UTC") <= effective_cutoff
+                and pd.Timestamp(getattr(item, "known_at")).tz_convert("UTC") <= decision_cutoff
+                and getattr(item, "currency") == declaration.currency
+                and getattr(item, "minimum_horizon_years") <= declaration.horizon_years
+                <= getattr(item, "maximum_horizon_years")
+                and date.fromisoformat(getattr(item, "start_date")) <= date.fromisoformat(declaration.start_date)
+                and date.fromisoformat(getattr(item, "end_date")) >= date.fromisoformat(declaration.end_date)
+            )
+
+        if not aligned_record(benchmark_record) or not aligned_record(cash_record):
+            return None
+        if peer.get("status") == "available":
+            peer_record = peer_matches[0]
+            if (
+                pd.Timestamp(peer_record.effective_at).tz_convert("UTC") > effective_cutoff
+                or pd.Timestamp(peer_record.known_at).tz_convert("UTC") > decision_cutoff
+            ):
+                return None
+        for item in matched_references:
+            reference_effective_cutoff = decision_cutoff if item.method == "no_trade" else effective_cutoff
+            if (
+                pd.Timestamp(item.effective_at).tz_convert("UTC") > reference_effective_cutoff
+                or pd.Timestamp(item.known_at).tz_convert("UTC") > decision_cutoff
+                or item.currency != declaration.currency
+                or item.minimum_horizon_years is None
+                or item.maximum_horizon_years is None
+                or not item.minimum_horizon_years <= declaration.horizon_years <= item.maximum_horizon_years
+                or item.start_date is None
+                or item.end_date is None
+                or date.fromisoformat(item.start_date) > date.fromisoformat(declaration.start_date)
+                or date.fromisoformat(item.end_date) < date.fromisoformat(declaration.end_date)
+            ):
+                return None
+
+        selected_vwce_anchor = selected_records.get("vwce_anchor")
+        if selected_vwce_anchor is not None and sum(
+            item.digest() == selected_vwce_anchor and item.status == "available"
+            for item in registry.vwce_anchors
+        ) != 1:
             return None
     except (BenchmarkReferenceError, AttributeError, KeyError, RecursionError, TypeError, ValueError):
         return None
