@@ -3276,3 +3276,12 @@ next action and whether the requested outcome is actually complete.
   exactly bind its registry hash, selected records and optional VWCE anchor to
   the validated top-level projection. Add only direct regressions and freeze
   one replacement head without changing CI, authority or financial behavior.
+- Exact product head `7e0ffa25c2e17df6331762309da30c1d5144a673` is approved by both
+  independent reviewers, but H-tier run `32503807519` attempts 1 and 2 both
+  failed solely when the required changed-test collection reached the finite
+  240-second ceiling. The identical selected collection completes locally in
+  `243.927s` even though the absent local `build` tool makes its wheel test fail
+  immediately; hosted release installs that tool. Apply one bounded validation
+  repair by raising only `CHANGED_TEST_TIMEOUT_SECONDS` to 480 seconds and its
+  direct control assertion. Preserve test selection, all assertions, H-tier
+  classification, package/pilot/Linux/Windows requirements and authority.

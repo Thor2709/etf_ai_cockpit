@@ -4512,3 +4512,12 @@ require the emitted provenance mapping to exactly bind registry hash, selected
 records and optional VWCE anchor to the validated top-level projection. Add
 only direct regressions and freeze one replacement head; do not change CI,
 authority or financial behavior.
+
+`DETERMINISTIC CHANGED-TEST RUNTIME` head
+`7e0ffa25c2e17df6331762309da30c1d5144a673` is approved by both independent
+reviewers, but H-tier run `32503807519` attempts 1 and 2 failed solely at the
+finite 240-second changed-test ceiling. The identical selected collection takes
+`243.927s` locally even with the missing local `build` tool making the wheel
+test fail immediately. Raise only the existing finite changed-test timeout to
+480 seconds and update its direct guard. Do not alter selection, assertions,
+classification, package/pilot/Linux/Windows gates, authority or product code.
