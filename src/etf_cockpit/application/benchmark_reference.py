@@ -292,6 +292,7 @@ def validate_benchmark_reference(
                 if item.peer_set_id == peer.get("id")
                 and item.version == peer.get("version")
                 and item.digest() == peer.get("content_hash")
+                and item.status == "available"
             ]
             if len(peer_matches) != 1:
                 return None

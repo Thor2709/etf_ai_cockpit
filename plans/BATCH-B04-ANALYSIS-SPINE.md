@@ -4442,3 +4442,13 @@ when projection validation fails. Direct benchmark/cash/peer regressions and
 both complete ISSUE-0112 contract suites pass. Freeze one replacement head for
 paired review and fresh Linux, Windows, terminal, package and pilot evidence;
 preserve `execution_allowed=false` and make no adjacent architecture change.
+
+`FINAL GENERIC PEER STATUS BINDING` head
+`f733b202ce13573bb8c96773c85da23281e813fd` is rejected by both reviewers and
+run `32491319757` is cancelled/stale. The generic validator matched peer ID,
+version, digest and members without requiring the authoritative peer record to
+be available, so regime output could escape the otherwise corrected typed
+context boundary. Add only the missing status predicate and extend the existing
+unavailable-record validator/regime regression. Freeze one replacement head for
+paired review and fresh H-tier evidence; preserve all financial, authority and
+`execution_allowed=false` boundaries.

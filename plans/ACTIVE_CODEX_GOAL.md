@@ -3215,3 +3215,11 @@ next action and whether the requested outcome is actually complete.
   and both complete ISSUE-0112 contract suites pass; freeze one replacement
   head for paired review and fresh full H-tier evidence. No adjacent authority,
   persistence, workflow or financial formula changes are permitted.
+- Exact head `f733b202ce13573bb8c96773c85da23281e813fd` is rejected by both
+  final reviewers, and run `32491319757` is cancelled/stale. Both reproduced
+  one remaining peer path: the generic projection validator matched peer ID,
+  version, digest and members but omitted the authoritative record's available
+  status, allowing regime output over an unavailable peer definition. Add only
+  that predicate and extend the existing unavailable-record regression through
+  the validator and regime consumer. Freeze one replacement exact head for
+  paired review and fresh full H-tier evidence; make no adjacent change.

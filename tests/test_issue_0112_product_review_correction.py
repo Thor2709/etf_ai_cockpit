@@ -2206,15 +2206,16 @@ def test_peer_members_and_cash_identity_are_derived_from_registry_authority(monk
     assert all(score.cash_comparison_status == "unavailable" for score in scores)
 
 
-@pytest.mark.parametrize("unavailable_kind", ("benchmark", "cash"))
+@pytest.mark.parametrize("unavailable_kind", ("benchmark", "cash", "peer"))
 def test_reference_validation_rejects_projection_availability_over_unavailable_registry_record(
     unavailable_kind: str,
 ) -> None:
     registry = _available_registry(
         benchmark_status="unavailable" if unavailable_kind == "benchmark" else "available",
         cash_status="unavailable" if unavailable_kind == "cash" else "available",
+        peer_status="unavailable" if unavailable_kind == "peer" else "available",
     )
-    reference = _available_reference()
+    reference = _available_reference(peer=unavailable_kind == "peer")
     reference["registry_hash"] = registry.as_payload()["registry_hash"]
     benchmark = registry.benchmarks[0]
     cash = registry.cash_proxies[0]
@@ -2222,6 +2223,10 @@ def test_reference_validation_rejects_projection_availability_over_unavailable_r
     reference["cash"]["content_hash"] = cash.digest()
     reference["selected_records"]["benchmark"] = benchmark.digest()
     reference["selected_records"]["cash"] = cash.digest()
+    if unavailable_kind == "peer":
+        peer = registry.peer_sets[0]
+        reference["peer_set"]["content_hash"] = peer.digest()
+        reference["selected_records"]["peer_set"] = peer.digest()
 
     assert validate_benchmark_reference(reference, "BENCH", registry=registry) is None
     assert build_market_regime(
