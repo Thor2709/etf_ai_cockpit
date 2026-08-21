@@ -4624,3 +4624,14 @@ require unique exact no-action constituent/weight key sets. All 80 direct
 regressions, the affected integration suite, Ruff, compilation and diff hygiene
 pass. Freeze one last exact head for paired review and fresh H-tier evidence;
 do not broaden the approach if the same root cause fails review again.
+
+`ISSUE-0046 PARTIAL-FINANCIAL STOP CONDITION` head
+`26a38b7d83163da7750bb131099a6c03b9ba3eab` is rejected by both reviewers and
+run `32536963003` is cancelled/stale after the same partial-financial ambiguity
+was reproduced again. Stop that approach. The smallest safe replacement makes
+partial/unavailable alternatives context-only and rejects every supplied return
+or relative-return field; financial display is reserved for fully available,
+bound and canonically matched alternatives. All 82 direct regressions and the
+affected integration suite pass with Ruff and diff hygiene. Freeze this simpler
+contract for paired review and fresh H-tier evidence; do not restore partial
+financial display or add adjacent hardening.

@@ -482,7 +482,7 @@ def test_partial_no_action_financial_value_requires_no_trade_method() -> None:
     assert result.projection()["alternatives"]["no_action"]["status"] == "unavailable"
 
 
-def test_available_and_partial_financial_legs_share_one_source_bundle() -> None:
+def test_partial_financial_leg_is_rejected_before_bundle_comparison() -> None:
     evidence = deepcopy(_full_evidence())
     evidence["alternatives"]["no_action"].update(status="partial", reason="incomplete")  # type: ignore[index]
     evidence["alternatives"]["cash"]["source_digest"] = "b" * 64  # type: ignore[index]
@@ -490,7 +490,46 @@ def test_available_and_partial_financial_legs_share_one_source_bundle() -> None:
     result = _build(evidence)
 
     assert result.status == "unavailable"
-    assert "monthly_comparison_bundle_invalid" in result.blockers
+    assert result.projection()["alternatives"]["no_action"]["status"] == "unavailable"
+
+
+def test_partial_relative_returns_are_never_rendered() -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"]["basket"] = {
+        "status": "partial",
+        "reason": "incomplete",
+        "benchmark_relative_return": 0.02,
+        "cash_relative_return": 0.04,
+        "no_action_relative_return": 0.03,
+        "execution_allowed": False,
+    }
+
+    result = _build(evidence)
+    rendered = "\n".join(monthly_decision_template_lines(result))
+
+    assert result.status == "unavailable"
+    assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
+    assert "vs benchmark=+2.00%" not in rendered
+
+
+def test_partial_no_action_return_with_fabricated_identity_is_never_rendered() -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"]["no_action"] = {
+        "status": "partial",
+        "reason": "incomplete",
+        "period_return": 0.04,
+        "reference_id": "fabricated",
+        "reference_version": "9.9.9",
+        "reference_content_hash": "fabricated-hash",
+        "execution_allowed": False,
+    }
+
+    result = _build(evidence)
+    rendered = "\n".join(monthly_decision_template_lines(result))
+
+    assert result.status == "unavailable"
+    assert result.projection()["alternatives"]["no_action"]["status"] == "unavailable"
+    assert "return=+4.00%" not in rendered
 
 
 def test_partial_forward_evidence_validates_malformed_nested_outcomes() -> None:

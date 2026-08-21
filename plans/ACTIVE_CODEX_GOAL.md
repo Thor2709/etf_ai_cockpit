@@ -3388,3 +3388,13 @@ next action and whether the requested outcome is actually complete.
   last exact head for safeguards; if a reviewer demonstrates another defect in
   this same partial/binding approach, preserve the checkpoint and stop that
   approach under the two-attempt rule rather than broadening ISSUE-0046.
+- ISSUE-0046 head `26a38b7d83163da7750bb131099a6c03b9ba3eab`
+  hit the recorded stop condition: both reviewers reproduced the same ambiguous
+  partial-financial root through relative-only and fabricated-reference inputs;
+  run `32536963003` is cancelled/stale. Stop that approach. The replacement
+  contract permits return and relative-return fields only on `available`, fully
+  bound alternatives; partial/unavailable alternatives are context-only and
+  any supplied financial field fails closed before rendering. This two-file
+  simplification passes 82 direct regressions and the affected integration
+  suite with Ruff and diff hygiene. Freeze and review this simpler contract;
+  do not reintroduce partial financial display or add adjacent hardening.

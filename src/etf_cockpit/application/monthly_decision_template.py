@@ -892,13 +892,19 @@ def _alternative_bundle(value: Mapping[str, object]) -> tuple[object, ...]:
 
 
 def _comparison_bundle_participant(value: Mapping[str, object]) -> bool:
-    return value.get("status") == "available" or (
-        value.get("status") == "partial" and "period_return" in value
-    )
+    return value.get("status") == "available"
 
 
 def _partial_alternative_errors(name: str, value: Mapping[str, object]) -> list[str]:
     errors: list[str] = []
+    financial_fields = (
+        "period_return",
+        "benchmark_relative_return",
+        "cash_relative_return",
+        "no_action_relative_return",
+    )
+    if any(field in value for field in financial_fields):
+        errors.append("financial_invalid")
     identity_fields = ("version", "source_id", "source_dataset")
     if any(field in value and not _text(value.get(field)) for field in identity_fields):
         errors.append("identity_invalid")
@@ -932,26 +938,6 @@ def _partial_alternative_errors(name: str, value: Mapping[str, object]) -> list[
         errors.append("untrusted")
     if "source_bound" in value and value.get("source_bound") is not True:
         errors.append("unbound")
-    financial_fields = ("period_return", *relative_fields)
-    if any(field in value for field in financial_fields):
-        if any(not _text(value.get(field)) for field in identity_fields):
-            errors.append("identity_invalid")
-        if not _sha256(value.get("source_digest")):
-            errors.append("source_digest_invalid")
-        if _timestamp(value.get("as_of")) is None or _timestamp(value.get("known_at")) is None:
-            errors.append("temporal_invalid")
-        horizon = _finite(value.get("horizon_days"))
-        if horizon is None or horizon <= 0:
-            errors.append("horizon_invalid")
-        if value.get("trust") is not True:
-            errors.append("untrusted")
-        if value.get("source_bound") is not True:
-            errors.append("unbound")
-        if name == "no_action" and (
-            value.get("reference_method") != "no_trade"
-            or any(not _text(value.get(field)) for field in reference_fields)
-        ):
-            errors.append("identity_invalid")
     return list(dict.fromkeys(errors))
 
 
