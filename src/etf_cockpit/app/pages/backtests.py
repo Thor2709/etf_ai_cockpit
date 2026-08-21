@@ -362,6 +362,11 @@ def _monthly_backtest_alternatives(
             )
             for name in columns
         }
+    if len(set(columns.values())) != len(columns):
+        return {
+            name: unavailable_monthly_evidence("backtest_monthly_comparison_identity_ambiguous")
+            for name in columns
+        }
     selected = curves[[column for column in columns.values() if column is not None]].apply(pd.to_numeric, errors="coerce")
     selected = selected.dropna(how="any")
     if len(selected) < 2 or not selected.index.is_monotonic_increasing:
@@ -542,6 +547,8 @@ def _monthly_no_action_binding(
         return False
     if any(not isinstance(constituent, str) or not constituent.strip() for constituent in constituents):
         return False
+    if len(set(constituents)) != len(constituents) or set(weights) != set(constituents):
+        return False
     values = []
     for constituent in constituents:
         weight = weights.get(constituent)
@@ -562,9 +569,13 @@ def _monthly_no_action_binding(
         return False
     if any(not isinstance(item, str) or not item.strip() for item in canonical_constituents):
         return False
+    if len(set(canonical_constituents)) != len(canonical_constituents):
+        return False
     if tuple(constituents) != tuple(canonical_constituents):
         return False
     if set(weights) != set(canonical_weights):
+        return False
+    if set(canonical_weights) != set(canonical_constituents):
         return False
     try:
         return all(

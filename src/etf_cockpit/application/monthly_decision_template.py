@@ -361,11 +361,11 @@ def _normalise_alternatives(
     available_bundles = {
         name: _alternative_bundle(item)
         for name, item in result.items()
-        if isinstance(item, Mapping) and item.get("status") == "available"
+        if isinstance(item, Mapping) and _comparison_bundle_participant(item)
     }
-    if len(available_bundles) == len(ALTERNATIVE_NAMES) and len(set(available_bundles.values())) > 1:
+    if len(available_bundles) > 1 and len(set(available_bundles.values())) > 1:
         for name, item in tuple(result.items()):
-            if isinstance(item, Mapping) and item.get("status") == "available":
+            if isinstance(item, Mapping) and _comparison_bundle_participant(item):
                 result[name] = unavailable_monthly_evidence(f"{name}_alternative_source_mismatch")
         errors.append("monthly_comparison_bundle_invalid")
     if all(
@@ -891,8 +891,17 @@ def _alternative_bundle(value: Mapping[str, object]) -> tuple[object, ...]:
     )
 
 
+def _comparison_bundle_participant(value: Mapping[str, object]) -> bool:
+    return value.get("status") == "available" or (
+        value.get("status") == "partial" and "period_return" in value
+    )
+
+
 def _partial_alternative_errors(name: str, value: Mapping[str, object]) -> list[str]:
     errors: list[str] = []
+    identity_fields = ("version", "source_id", "source_dataset")
+    if any(field in value and not _text(value.get(field)) for field in identity_fields):
+        errors.append("identity_invalid")
     if "period_return" in value:
         period_return = _finite(value.get("period_return"))
         if period_return is None or period_return < -1:
@@ -918,6 +927,30 @@ def _partial_alternative_errors(name: str, value: Mapping[str, object]) -> list[
     reference_fields = ("reference_id", "reference_version", "reference_content_hash")
     if name in {"benchmark", "cash", "no_action"} and any(field in value for field in reference_fields):
         if any(not _text(value.get(field)) for field in reference_fields):
+            errors.append("identity_invalid")
+    if "trust" in value and value.get("trust") is not True:
+        errors.append("untrusted")
+    if "source_bound" in value and value.get("source_bound") is not True:
+        errors.append("unbound")
+    financial_fields = ("period_return", *relative_fields)
+    if any(field in value for field in financial_fields):
+        if any(not _text(value.get(field)) for field in identity_fields):
+            errors.append("identity_invalid")
+        if not _sha256(value.get("source_digest")):
+            errors.append("source_digest_invalid")
+        if _timestamp(value.get("as_of")) is None or _timestamp(value.get("known_at")) is None:
+            errors.append("temporal_invalid")
+        horizon = _finite(value.get("horizon_days"))
+        if horizon is None or horizon <= 0:
+            errors.append("horizon_invalid")
+        if value.get("trust") is not True:
+            errors.append("untrusted")
+        if value.get("source_bound") is not True:
+            errors.append("unbound")
+        if name == "no_action" and (
+            value.get("reference_method") != "no_trade"
+            or any(not _text(value.get(field)) for field in reference_fields)
+        ):
             errors.append("identity_invalid")
     return list(dict.fromkeys(errors))
 

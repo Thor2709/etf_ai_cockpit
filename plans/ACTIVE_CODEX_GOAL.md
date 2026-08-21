@@ -3377,3 +3377,14 @@ next action and whether the requested outcome is actually complete.
   regressions, the affected integration suite, Ruff, compilation and diff
   hygiene. Freeze one replacement head for the final paired review and fresh
   H-tier Linux/Windows/terminal evidence; allow no further speculative cycle.
+- ISSUE-0046 head `af3915c202cf181c05a6bd8345e45595e53468e2`
+  is rejected by both reviewers; run `32535934534` is cancelled/stale. The
+  final fail-closed pass requires complete positive provenance for every
+  partial leg carrying financial values, includes available and partial
+  financial legs in the shared bundle invariant, requires distinct backtest
+  comparison columns, and rejects duplicate/mismatched no-action constituents
+  or weight keys. The three-file correction passes 80 direct regressions, the
+  affected integration suite, Ruff, compilation and diff hygiene. Freeze one
+  last exact head for safeguards; if a reviewer demonstrates another defect in
+  this same partial/binding approach, preserve the checkpoint and stop that
+  approach under the two-attempt rule rather than broadening ISSUE-0046.

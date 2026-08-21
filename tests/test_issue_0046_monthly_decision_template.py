@@ -445,6 +445,54 @@ def test_partial_alternative_rejects_malformed_supplied_financial_value() -> Non
     assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
 
 
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [
+        ("version", ""),
+        ("source_id", ""),
+        ("source_dataset", ""),
+        ("trust", False),
+        ("source_bound", False),
+    ],
+)
+def test_partial_financial_alternative_requires_complete_positive_binding(field: str, invalid: object) -> None:
+    evidence = deepcopy(_full_evidence())
+    basket = evidence["alternatives"]["basket"]  # type: ignore[index]
+    basket["status"] = "partial"
+    basket["reason"] = "incomplete"
+    basket[field] = invalid
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
+    assert "return=+7.00%" not in "\n".join(monthly_decision_template_lines(result))
+
+
+def test_partial_no_action_financial_value_requires_no_trade_method() -> None:
+    evidence = deepcopy(_full_evidence())
+    no_action = evidence["alternatives"]["no_action"]  # type: ignore[index]
+    no_action["status"] = "partial"
+    no_action["reason"] = "incomplete"
+    no_action["reference_method"] = "buy_and_hold"
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert result.projection()["alternatives"]["no_action"]["status"] == "unavailable"
+
+
+def test_available_and_partial_financial_legs_share_one_source_bundle() -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"]["no_action"].update(status="partial", reason="incomplete")  # type: ignore[index]
+    evidence["alternatives"]["cash"]["source_digest"] = "b" * 64  # type: ignore[index]
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert "monthly_comparison_bundle_invalid" in result.blockers
+
+
 def test_partial_forward_evidence_validates_malformed_nested_outcomes() -> None:
     evidence = deepcopy(_full_evidence())
     evidence["forward_evidence"]["status"] = "partial"  # type: ignore[index]
@@ -669,6 +717,8 @@ def test_backtest_no_action_binding_must_match_canonical_constituents_and_weight
     [
         lambda reference: reference["references"][0].update(current_weights={"VWCE": "invalid"}),
         lambda reference: reference["references"][0].update(constituent_instrument_ids=[["VWCE"]]),
+        lambda reference: reference["references"][0].update(constituent_instrument_ids=["VWCE", "VWCE"]),
+        lambda reference: reference["references"][0].update(current_weights={"VWCE": 1.0, "EXTRA": 0.0}),
     ],
 )
 def test_malformed_canonical_no_action_binding_fails_closed(mutation) -> None:
@@ -708,6 +758,20 @@ def test_backtest_comparisons_require_sorted_shared_non_null_endpoints() -> None
 
     assert all(value["status"] == "unavailable" for value in alternatives.values())  # type: ignore[index]
     assert all("comparison_window" in value["reason"] for value in alternatives.values())  # type: ignore[index]
+
+
+def test_backtest_comparison_columns_must_be_distinct() -> None:
+    curves = pd.DataFrame(
+        {"basket": [1.0, 1.07], "cash": [1.0, 1.03], "no_action": [1.0, 1.04]},
+        index=pd.to_datetime(["2026-07-31", "2026-08-21"]),
+    )
+
+    alternatives = backtests._monthly_backtest_alternatives(
+        SimpleNamespace(equity_curves=curves), {"benchmark_data_id": "basket"}
+    )
+
+    assert all(value["status"] == "unavailable" for value in alternatives.values())  # type: ignore[index]
+    assert all(value["reason"] == "backtest_monthly_comparison_identity_ambiguous" for value in alternatives.values())  # type: ignore[index]
 
 
 def test_strategy_alternative_writer_is_accepted_by_generic_composer() -> None:

@@ -4614,3 +4614,13 @@ evidence rather than exceptions. All 70 direct regressions, the affected
 integration suite, Ruff, compilation and diff hygiene pass. Freeze one final
 head for paired review and fresh H-tier evidence; do not broaden this product
 lane or alter lifecycle and `execution_allowed=false`.
+
+`ISSUE-0046 FINAL FAIL-CLOSED SHAPE` head
+`af3915c202cf181c05a6bd8345e45595e53468e2` is rejected by both reviewers;
+run `32535934534` is cancelled/stale. Require full provenance on partial legs
+that carry financial values, enforce the common bundle across available and
+partial financial legs, reject duplicate resolved comparison columns, and
+require unique exact no-action constituent/weight key sets. All 80 direct
+regressions, the affected integration suite, Ruff, compilation and diff hygiene
+pass. Freeze one last exact head for paired review and fresh H-tier evidence;
+do not broaden the approach if the same root cause fails review again.
