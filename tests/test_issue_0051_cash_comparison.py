@@ -36,9 +36,13 @@ from etf_cockpit.signals.simple_scores import (
 )
 from etf_cockpit.signals import simple_scores as simple_scores_module
 from etf_cockpit.portfolio.benchmark_reference_contract import (
+    BenchmarkDefinition,
     CashProxyDefinition,
     CanonicalBenchmarkRegistry,
+    PeerSetDefinition,
+    declare_reference_portfolios,
 )
+from etf_cockpit.application.benchmark_reference import resolve_canonical_reference
 
 
 def _evidence(**updates: object) -> dict[str, object]:
@@ -1441,31 +1445,62 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
         methodology="Explicit official EUR local proxy mapping v1",
         source_hashes=("d" * 64,),
     )
-    benchmark_registry = CanonicalBenchmarkRegistry(cash_proxies=(cash_record,))
-    cash_hash = cash_record.digest()
-    registry_hash = benchmark_registry.as_payload()["registry_hash"]
-    canonical_reference = {
-        "registry_hash": registry_hash,
-        "cash": {
-            "status": "available",
-            "id": "eur-official-local-spot",
-            "version": "1.0.0",
-            "content_hash": cash_hash,
-        },
-        "selected_records": {"cash": cash_hash},
-        "execution_allowed": False,
-    }
-    canonical_identity = {
-        "registry_hash": registry_hash,
-        "selected_records": {"cash": cash_hash},
-        "analysis": {
-            "currency": "EUR",
-            "start_date": start.isoformat(),
-            "end_date": end.isoformat(),
-            "decision_time": adjusted_endpoint_available_at(end),
-        },
-        "execution_allowed": False,
-    }
+    benchmark_registry = CanonicalBenchmarkRegistry(
+        benchmarks=(BenchmarkDefinition(
+            benchmark_id="benchmark:test",
+            version="1.0.0",
+            hierarchy="asset",
+            selector={"asset_class": "equity"},
+            currency="EUR",
+            minimum_horizon_years=0.0,
+            maximum_horizon_years=10.0,
+            effective_at="2020-01-01T00:00:00Z",
+            known_at="2020-01-02T00:00:00Z",
+            start_date="2020-01-01",
+            end_date="2100-12-31",
+            methodology="Canonical test benchmark",
+            constituents=(instrument_id,),
+            source_hashes=("d" * 64,),
+        ),),
+        cash_proxies=(cash_record,),
+        peer_sets=(PeerSetDefinition(
+            peer_set_id="peers:test",
+            version="1.0.0",
+            hierarchy="asset",
+            selector={"asset_class": "equity"},
+            member_instrument_ids=(instrument_id,),
+            effective_at="2020-01-01T00:00:00Z",
+            known_at="2020-01-02T00:00:00Z",
+            methodology="Canonical test peer set",
+            source_hashes=("d" * 64,),
+        ),),
+        reference_portfolios=declare_reference_portfolios(
+            (instrument_id,),
+            current_weights={instrument_id: 1.0},
+            effective_at="2020-01-01T00:00:00Z",
+            known_at="2020-01-02T00:00:00Z",
+            currency="EUR",
+            minimum_horizon_years=0.0,
+            maximum_horizon_years=10.0,
+            start_date="2020-01-01",
+            end_date="2100-12-31",
+        ),
+    )
+    context = resolve_canonical_reference(
+        benchmark_registry,
+        analysis_id="cash-score-positive-flow",
+        purpose="comparison",
+        instrument_id=instrument_id,
+        instrument={"asset_class": "equity"},
+        currency="EUR",
+        horizon_years=horizon,
+        start_date=start.isoformat(),
+        end_date=end.isoformat(),
+        decision_time=adjusted_endpoint_available_at(end),
+        reference_portfolio_ids=("reference:equal_weight",),
+    )
+    canonical_reference = context.projection
+    canonical_identity = context.identity
     scores = build_simple_instrument_scores(
         snapshot.config,
         snapshot.signals,

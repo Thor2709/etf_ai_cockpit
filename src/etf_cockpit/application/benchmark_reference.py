@@ -225,6 +225,8 @@ def validate_benchmark_reference(
         _assert_execution_disabled(reference)
     except RecursionError:
         return None
+    if reference.get("execution_allowed") is not False:
+        return None
     if reference.get("status") != "available":
         return None
     if not isinstance(benchmark_data_id, str) or not benchmark_data_id.strip():

@@ -2156,6 +2156,20 @@ def test_shared_reference_validation_rejects_self_consistent_forged_registry_aut
     )["regime_score_10"] is None
 
 
+def test_shared_reference_validation_requires_explicit_disabled_execution_authority() -> None:
+    registry = _available_registry()
+    reference = _available_reference()
+    reference.pop("execution_allowed")
+
+    assert validate_benchmark_reference(reference, "BENCH", registry=registry) is None
+    assert build_market_regime(
+        _prices(),
+        benchmark_id="BENCH",
+        benchmark_reference=reference,
+        benchmark_registry=registry,
+    )["regime_score_10"] is None
+
+
 def test_shared_reference_validation_binds_references_and_point_in_time_window() -> None:
     registry = _available_registry()
     reference = _available_reference()

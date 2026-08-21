@@ -3241,3 +3241,12 @@ next action and whether the requested outcome is actually complete.
   contracts to bind those fields, require the cash gate to pass the complete
   validator, and require available VWCE registry membership. Add only direct
   cash, reference, PIT and stale-anchor regressions, then freeze one exact head.
+- Exact head `608c962992b3b709f0e5617fbdc1db41766bfc89` is rejected by both
+  final reviewers, and run `32496389713` is cancelled/stale. The strict final
+  set is explicit top-level `execution_allowed=false`, complete canonical
+  positive fixtures for cash/regime/attribution consumers, and removal of the
+  earlier 240-to-360 changed-test timeout relaxation. Require the authority
+  field, preserve cash-specific use of a structurally complete projection when
+  unrelated reference baselines are unavailable, migrate the seven coupled
+  tests to real canonical contexts, and restore the 240-second bound. The exact
+  seven failures and direct missing-authority regression pass; freeze one head.

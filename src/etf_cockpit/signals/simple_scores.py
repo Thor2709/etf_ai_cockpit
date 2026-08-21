@@ -2797,10 +2797,12 @@ def _canonical_cash_request(
     if not isinstance(benchmark_registry, CanonicalBenchmarkRegistry):
         return None
     benchmark_data_id = benchmark_reference.get("benchmark_data_id")
+    cash_scoped_reference = dict(benchmark_reference)
+    cash_scoped_reference["status"] = "available"
     if (
         not isinstance(benchmark_data_id, str)
         or validate_benchmark_reference(
-            benchmark_reference,
+            cash_scoped_reference,
             benchmark_data_id,
             registry=benchmark_registry,
         ) is None

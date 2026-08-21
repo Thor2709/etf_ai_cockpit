@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from etf_cockpit.application.benchmark_reference import resolve_canonical_reference
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
 from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast_calibration
 from etf_cockpit.signals.strategy_templates import strategy_template_labels, template_description
@@ -10,42 +11,26 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkDefinition,
     CashProxyDefinition,
     CanonicalBenchmarkRegistry,
+    PeerSetDefinition,
+    declare_reference_portfolios,
 )
 
 
 def _available_reference() -> dict[str, object]:
     registry = _available_registry()
-    benchmark = registry.benchmarks[0]
-    cash = registry.cash_proxies[0]
-    return {
-        "status": "available",
-        "registry_hash": registry.as_payload()["registry_hash"],
-        "benchmark_data_id": "BENCH",
-        "benchmark": {
-            "status": "available",
-            "id": benchmark.benchmark_id,
-            "version": benchmark.version,
-            "content_hash": benchmark.digest(),
-        },
-        "cash": {
-            "status": "available",
-            "id": cash.proxy_id,
-            "version": cash.version,
-            "content_hash": cash.digest(),
-        },
-        "peer_set": {"status": "unavailable", "content_hash": None},
-        "selected_records": {
-            "benchmark": benchmark.digest(),
-            "cash": cash.digest(),
-            "peer_set": None,
-        },
-        "analysis": {
-            "start_date": "2025-01-01",
-            "end_date": "2026-12-31",
-            "decision_time": "2026-12-31T23:59:59Z",
-        },
-        "execution_allowed": False,
-    }
+    return resolve_canonical_reference(
+        registry,
+        analysis_id="evidence-derivatives",
+        purpose="comparison",
+        instrument_id="ALT",
+        instrument={"asset_class": "equity"},
+        currency="EUR",
+        horizon_years=1.0,
+        start_date="2025-01-01",
+        end_date="2026-12-31",
+        decision_time="2026-12-31T23:59:59Z",
+        reference_portfolio_ids=("reference:equal_weight",),
+    ).projection
 
 
 def _available_registry() -> CanonicalBenchmarkRegistry:
@@ -78,6 +63,23 @@ def _available_registry() -> CanonicalBenchmarkRegistry:
             end_date="2100-12-31",
             **common,
         ),),
+        peer_sets=(PeerSetDefinition(
+            peer_set_id="peers:test",
+            hierarchy="asset",
+            member_instrument_ids=("ALT",),
+            **common,
+        ),),
+        reference_portfolios=declare_reference_portfolios(
+            ("ALT", "BENCH"),
+            current_weights={"ALT": 0.5, "BENCH": 0.5},
+            effective_at="2020-01-01T00:00:00Z",
+            known_at="2020-01-02T00:00:00Z",
+            currency="EUR",
+            minimum_horizon_years=0.1,
+            maximum_horizon_years=50.0,
+            start_date="2020-01-01",
+            end_date="2100-12-31",
+        )[:1],
     )
 
 

@@ -4473,3 +4473,13 @@ declaration contracts to validate those fields, route cash through the complete
 validator and require available VWCE membership. Add only the four exact
 regressions, preserve `execution_allowed=false`, and freeze one replacement H
 head without changing CI architecture or timing.
+
+`FINAL CANONICAL CALLER COMPATIBILITY` head
+`608c962992b3b709f0e5617fbdc1db41766bfc89` is rejected by both reviewers and
+run `32496389713` is cancelled/stale. Require the canonical projection's own
+top-level `execution_allowed=false`; keep cash-specific validation structurally
+complete when an unrelated reference baseline is unavailable; replace the seven
+incomplete positive fixtures with real registry-resolved contexts; and restore
+the original 240-second changed-test bound. The exact seven failures and direct
+missing-authority regression pass. Freeze one replacement H head with no CI,
+financial, persistence or authority broadening.
