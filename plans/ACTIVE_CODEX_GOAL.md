@@ -3316,3 +3316,14 @@ next action and whether the requested outcome is actually complete.
   main, require applied-and-verified writer evidence and zero-action readback,
   then resume the disjoint ISSUE-0046 product lane. Preserve
   `execution_allowed=false`.
+- ISSUE-0112 initial lifecycle PR #689 merged exact independently approved
+  head `a76eb26063eacef7eef9fb4f4ec0d95c824f30d6` as
+  `d49f34f605e5b7c79b2cd80549330b3fc23861d0`. E-tier run
+  `32521746474` passed the status guard, authority preflight, supply chain,
+  authoritative Linux and Windows package gates and terminal validation.
+  Ordered writer run `32524833080` is terminal `applied_and_verified` with
+  `zero_action_readback=true`; convergence run `32524833091` produced no
+  staged write. Complete only the aggregate ISSUE-0112 replay
+  `in_progress -> implemented_initially -> integrated`, bound to the same
+  product head and review evidence, then resume ISSUE-0046. Preserve
+  `execution_allowed=false`.

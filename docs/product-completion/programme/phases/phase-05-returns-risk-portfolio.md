@@ -61,7 +61,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0109` | `P0/P1` | `implemented_initially` | `returns-and-risk` | `ISSUE-0108` | - | `ISSUE-0115`, `ISSUE-0157`, `ISSUE-0166`, `ISSUE-0168`, `ISSUE-0172`, `ISSUE-0174` | - |
 | `ISSUE-0110` | `P0` | `integrated` | `returns-and-risk` | `ISSUE-0052`, `ISSUE-0059` | - | `ISSUE-0111`, `ISSUE-0113`, `ISSUE-0115`, `ISSUE-0166`, `ISSUE-0168`, `ISSUE-0174` | - |
 | `ISSUE-0111` | `P0` | `integrated` | `returns-and-risk` | `ISSUE-0110` | - | `ISSUE-0113`, `ISSUE-0156`, `ISSUE-0166`, `ISSUE-0168`, `ISSUE-0174` | - |
-| `ISSUE-0112` | `P0/P1` | `in_progress` | `returns-and-risk` | `ISSUE-0051`, `ISSUE-0059` | - | `ISSUE-0157`, `ISSUE-0166`, `ISSUE-0172`, `ISSUE-0174` | - |
+| `ISSUE-0112` | `P0/P1` | `integrated` | `returns-and-risk` | `ISSUE-0051`, `ISSUE-0059` | - | `ISSUE-0157`, `ISSUE-0166`, `ISSUE-0172`, `ISSUE-0174` | - |
 | `ISSUE-0113` | `P0` | `implemented_initially` | `portfolio-construction` | `ISSUE-0021`, `ISSUE-0110`, `ISSUE-0111` | - | `ISSUE-0114`, `ISSUE-0164`, `ISSUE-0166` | - |
 | `ISSUE-0114` | `P0/P1` | `implemented_initially` | `portfolio-construction` | `ISSUE-0113` | - | `ISSUE-0130`, `ISSUE-0164`, `ISSUE-0167` | - |
 | `ISSUE-0115` | `P0/P1` | `integrated` | `returns-and-risk` | `ISSUE-0109`, `ISSUE-0110` | - | `ISSUE-0164`, `ISSUE-0168` | - |

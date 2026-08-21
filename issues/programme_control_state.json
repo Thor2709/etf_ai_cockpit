@@ -4751,6 +4751,28 @@
           "reviewed_date": "2026-08-22",
           "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product PR #688 merged exact independently approved head 876ec1df5a4ab96afa20476bd632918a4212e152 as 6b5859d265c2a1a0cdd176d7facd2ba287dc58f9",
+            "Release run 32511929644 passed classifier, authority preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Ordered writer run 32524833080 applied only ISSUE-0112 planned to in_progress with terminal applied_and_verified, full authority reconciliation and zero-action readback; convergence run 32524833091 produced no write and execution_allowed remains false"
+          ],
+          "review_reference": "PR #688 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-22",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product PR #688 merged exact independently approved head 876ec1df5a4ab96afa20476bd632918a4212e152 as 6b5859d265c2a1a0cdd176d7facd2ba287dc58f9",
+            "Release run 32511929644 passed classifier, authority preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Ordered writer run 32524833080 applied only ISSUE-0112 planned to in_progress with terminal applied_and_verified, full authority reconciliation and zero-action readback; convergence run 32524833091 produced no write and execution_allowed remains false"
+          ],
+          "review_reference": "PR #688 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-22",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "status": "integrated"
         }
       ],
       "dependency_edge_evidence": {
@@ -4780,11 +4802,11 @@
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "PR #688 exact-head product reviews and H-tier validation",
-        "to": "in_progress"
+        "from": "implemented_initially",
+        "review_reference": "PR #688 exact-head whole-diff and risk reviews plus H-tier validation",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -4854,9 +4876,37 @@
           "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
           "to": "in_progress",
           "verified_commit": "6b5859d265c2a1a0cdd176d7facd2ba287dc58f9"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #688 merged exact independently approved head 876ec1df5a4ab96afa20476bd632918a4212e152 as 6b5859d265c2a1a0cdd176d7facd2ba287dc58f9",
+            "Release run 32511929644 passed classifier, authority preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Ordered writer run 32524833080 applied only ISSUE-0112 planned to in_progress with terminal applied_and_verified, full authority reconciliation and zero-action readback; convergence run 32524833091 produced no write and execution_allowed remains false"
+          ],
+          "from": "in_progress",
+          "review_reference": "PR #688 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-22",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "to": "implemented_initially",
+          "verified_commit": "876ec1df5a4ab96afa20476bd632918a4212e152"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #688 merged exact independently approved head 876ec1df5a4ab96afa20476bd632918a4212e152 as 6b5859d265c2a1a0cdd176d7facd2ba287dc58f9",
+            "Release run 32511929644 passed classifier, authority preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Ordered writer run 32524833080 applied only ISSUE-0112 planned to in_progress with terminal applied_and_verified, full authority reconciliation and zero-action readback; convergence run 32524833091 produced no write and execution_allowed remains false"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #688 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-22",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "to": "integrated",
+          "verified_commit": "876ec1df5a4ab96afa20476bd632918a4212e152"
         }
       ],
-      "verified_commit": "6b5859d265c2a1a0cdd176d7facd2ba287dc58f9",
+      "verified_commit": "876ec1df5a4ab96afa20476bd632918a4212e152",
       "verified_date": "2026-08-22"
     },
     "ISSUE-0113": {
