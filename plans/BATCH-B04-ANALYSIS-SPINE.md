@@ -4534,3 +4534,13 @@ ceiling only to `full_tests`, with a direct regression. The failed run is stale;
 repeat paired review and fresh Linux, Windows, package, pilot and terminal
 evidence at one replacement head without changing selection, assertions,
 workflow topology, product behavior or authority.
+
+`FULL-SUITE JOB ENVELOPE` head
+`7070679dcc0f2b8c615fe4a7421fddf18e25549a` is rejected after paired final
+review. Risk review approved; whole-diff review demonstrated that the scoped
+2,400-second full-suite ceiling left insufficient guaranteed margin inside the
+unchanged 45-minute release-job envelope for setup and mandatory post-suite
+checks. Increase only the enclosing release-job budget to 50 minutes and its
+direct workflow assertion. Run `32510953354` is cancelled/stale. Freeze one
+replacement head for both reviews and fresh H-tier evidence without changing
+test selection, assertions, workflow steps, product behavior or authority.

@@ -3296,3 +3296,11 @@ next action and whether the requested outcome is actually complete.
   The failed run and its report-only pilots are stale; freeze one replacement
   head for paired review and one fresh full H-tier run without changing test
   selection, assertions, workflow topology, product behavior or authority.
+- Head `7070679dcc0f2b8c615fe4a7421fddf18e25549a` is rejected after the
+  paired final review: risk review approved, while whole-diff review showed the
+  2,400-second suite ceiling had insufficient guaranteed margin inside the
+  unchanged 45-minute release-job envelope. Increase only that enclosing job
+  budget to 50 minutes and update its direct assertion. Run `32510953354` is
+  cancelled/stale. Freeze one replacement head for both reviews and fresh
+  H-tier evidence; do not alter tests, product behavior, workflow steps or
+  authority.
