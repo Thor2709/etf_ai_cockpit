@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+import math
+
 import flet as ft
 import pandas as pd
 
@@ -258,10 +261,11 @@ def _monthly_decision_panel(reference_context: object, *, report: object, config
     template = build_monthly_decision_template(
         benchmark_reference=getattr(reference_context, "projection", None),
         benchmark_registry=getattr(reference_context, "registry", None),
-        alternatives={
-            name: unavailable_monthly_evidence(f"backtest_monthly_{name}_return_projection_unavailable")
-            for name in ("basket", "benchmark", "cash", "no_action")
-        },
+        alternatives=_monthly_backtest_alternatives(
+            report,
+            metadata,
+            reference=getattr(reference_context, "projection", None),
+        ),
         expected_returns=unavailable_monthly_evidence("monthly_expected_return_distribution_not_produced_by_backtest_report"),
         optimiser=unavailable_monthly_evidence("optimiser_solution_not_bound_to_backtest_report"),
         costs=_monthly_backtest_costs(config),
@@ -317,6 +321,106 @@ def _monthly_decision_panel(reference_context: object, *, report: object, config
             spacing=6,
         ),
     )
+
+
+def _monthly_backtest_alternatives(
+    report: object,
+    metadata: Mapping[str, object],
+    *,
+    reference: object = None,
+) -> dict[str, object]:
+    """Project only return curves actually carried by the backtest report."""
+
+    curves = getattr(report, "equity_curves", None)
+    if not isinstance(curves, pd.DataFrame) or curves.empty:
+        curves = pd.DataFrame()
+    source_id = str(metadata.get("source_id") or metadata.get("input_checksum") or "")
+    source_digest = str(metadata.get("input_checksum") or "")
+    source_dataset = f"{metadata.get('date_range_start', 'unavailable')}:{metadata.get('date_range_end', 'unavailable')}"
+    version = str(metadata.get("backtest_version") or "")
+    as_of = metadata.get("date_range_end")
+    known_at = metadata.get("known_at") or metadata.get("decision_time")
+    reference = reference if isinstance(reference, Mapping) else metadata.get("benchmark_reference")
+    reference = reference if isinstance(reference, Mapping) else {}
+    benchmark_ref = reference.get("benchmark")
+    cash_ref = reference.get("cash")
+    no_action_ref = next(
+        (item for item in reference.get("references", ()) if isinstance(item, Mapping) and item.get("method") == "no_trade"),
+        None,
+    )
+    alternatives: dict[str, object] = {}
+    aliases = {
+        "basket": ("basket", "signal_strategy"),
+        "benchmark": (str(metadata.get("benchmark_data_id") or ""), "benchmark"),
+        "cash": ("cash", "cash_proxy"),
+        "no_action": ("no_action", "buy_and_hold"),
+    }
+    for name, columns in aliases.items():
+        column = next((candidate for candidate in columns if candidate and candidate in curves.columns), None)
+        if column is None:
+            alternatives[name] = unavailable_monthly_evidence(f"backtest_monthly_{name}_return_projection_unavailable")
+            continue
+        series = pd.to_numeric(curves[column], errors="coerce").dropna()
+        if len(series) < 2 or not math.isfinite(float(series.iloc[0])) or not math.isfinite(float(series.iloc[-1])) or float(series.iloc[0]) <= 0:
+            alternatives[name] = unavailable_monthly_evidence(f"backtest_monthly_{name}_return_projection_invalid")
+            continue
+        period_return = float(series.iloc[-1] / series.iloc[0] - 1.0)
+        if not math.isfinite(period_return) or period_return < -1:
+            alternatives[name] = unavailable_monthly_evidence(f"backtest_monthly_{name}_return_projection_invalid")
+            continue
+        alternatives[name] = {
+            "status": "available",
+            "version": version,
+            "source_id": source_id,
+            "source_dataset": source_dataset,
+            "source_digest": source_digest,
+            "as_of": as_of,
+            "known_at": known_at,
+            "period_return": period_return,
+            "horizon_days": max(1, int((curves.index[-1] - curves.index[0]).days)) if hasattr(curves.index[-1], "day") else 1,
+            "reference_id": (
+                benchmark_ref.get("id") if name == "benchmark" and isinstance(benchmark_ref, Mapping)
+                else cash_ref.get("id") if name == "cash" and isinstance(cash_ref, Mapping)
+                else no_action_ref.get("id") if name == "no_action" and isinstance(no_action_ref, Mapping)
+                else None
+            ),
+            "reference_version": (
+                benchmark_ref.get("version") if name == "benchmark" and isinstance(benchmark_ref, Mapping)
+                else cash_ref.get("version") if name == "cash" and isinstance(cash_ref, Mapping)
+                else no_action_ref.get("version") if name == "no_action" and isinstance(no_action_ref, Mapping)
+                else None
+            ),
+            "reference_content_hash": (
+                benchmark_ref.get("content_hash") if name == "benchmark" and isinstance(benchmark_ref, Mapping)
+                else cash_ref.get("content_hash") if name == "cash" and isinstance(cash_ref, Mapping)
+                else no_action_ref.get("content_hash") if name == "no_action" and isinstance(no_action_ref, Mapping)
+                else None
+            ),
+            "reference_method": "no_trade" if name == "no_action" else None,
+            "execution_allowed": False,
+        }
+        if name in {"benchmark", "cash", "no_action"} and any(
+            not alternatives[name].get(field)
+            for field in ("reference_id", "reference_version", "reference_content_hash")
+        ):
+            alternatives[name] = unavailable_monthly_evidence(f"backtest_monthly_{name}_reference_unavailable")
+    basket = alternatives.get("basket")
+    benchmark = alternatives.get("benchmark")
+    cash = alternatives.get("cash")
+    no_action = alternatives.get("no_action")
+    if isinstance(basket, dict) and basket.get("status") == "available":
+        if (
+            isinstance(benchmark, dict)
+            and isinstance(cash, dict)
+            and isinstance(no_action, dict)
+            and benchmark.get("status") == cash.get("status") == no_action.get("status") == "available"
+        ):
+            basket["benchmark_relative_return"] = float(basket["period_return"]) - float(benchmark["period_return"])
+            basket["cash_relative_return"] = float(basket["period_return"]) - float(cash["period_return"])
+            basket["no_action_relative_return"] = float(basket["period_return"]) - float(no_action["period_return"])
+        else:
+            alternatives["basket"] = unavailable_monthly_evidence("backtest_monthly_basket_relative_evidence_unavailable")
+    return alternatives
 
 
 def _monthly_backtest_costs(config: object) -> dict[str, object]:

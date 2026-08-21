@@ -125,7 +125,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
         selectable=True,
     )
     result_host = ft.Column(
-        [_analysis_view(analyse_portfolio_candidate(state.snapshot, initial, account_id=account.value, portfolio_id=portfolio.value, snapshot_id=snapshot.value, holdings_view=holdings_view.value))],
+        [_analysis_view(analyse_portfolio_candidate(state.snapshot, initial, account_id=account.value, portfolio_id=portfolio.value, snapshot_id=snapshot.value, holdings_view=holdings_view.value), benchmark_registry=getattr(state.snapshot, "benchmark_reference_registry", None))],
         key="portfolio.results",
         spacing=12,
     )
@@ -155,7 +155,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
             snapshot_id=str(snapshot.value or "current"),
             holdings_view=str(holdings_view.value or "combined"),
         )
-        result_host.controls = [_analysis_view(analysis)]
+        result_host.controls = [_analysis_view(analysis, benchmark_registry=getattr(state.snapshot, "benchmark_reference_registry", None))]
         status.value = message
         status.color = colour
         state.last_message = message
@@ -457,7 +457,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
     )
 
 
-def _analysis_view(analysis: PortfolioAnalysis) -> ft.Control:
+def _analysis_view(analysis: PortfolioAnalysis, *, benchmark_registry: object | None = None) -> ft.Control:
     cost = analysis.cost
     binding = analysis.snapshot_binding
     source_text = "snapshot binding unavailable"
@@ -564,6 +564,7 @@ def _analysis_view(analysis: PortfolioAnalysis) -> ft.Control:
     )
     monthly_template = build_monthly_decision_template(
         benchmark_reference=benchmark,
+        benchmark_registry=benchmark_registry,
         alternatives={
             name: unavailable_monthly_evidence(f"portfolio_{name}_return_projection_unavailable")
             for name in ("basket", "benchmark", "cash", "no_action")

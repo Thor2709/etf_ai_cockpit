@@ -335,15 +335,11 @@ def _monthly_decision_text(state: AppState) -> str:
         _strategy_distribution_component(row.to_dict())
         for _, row in frame.iterrows()
     ]
+    alternatives = _monthly_strategy_alternatives(frame, reference.projection)
     template = build_monthly_decision_template(
         benchmark_reference=reference.projection,
         benchmark_registry=reference.registry,
-        alternatives={
-            name: unavailable_monthly_evidence(
-                f"strategy_templates_{name}_portfolio_return_unavailable"
-            )
-            for name in ("basket", "benchmark", "cash", "no_action")
-        },
+        alternatives=alternatives,
         expected_returns={
             "status": "partial" if components else "unavailable",
             "reason": "canonical_basket_distribution_unavailable",
@@ -387,6 +383,110 @@ def _monthly_decision_text(state: AppState) -> str:
     return "\n".join(monthly_decision_template_lines(template))
 
 
+def _monthly_strategy_alternatives(frame: pd.DataFrame, reference: dict[str, object]) -> dict[str, object]:
+    """Use explicit monthly return fields; instrument rows alone are not a basket."""
+
+    result = {
+        name: unavailable_monthly_evidence(f"strategy_templates_{name}_portfolio_return_unavailable")
+        for name in ("basket", "benchmark", "cash", "no_action")
+    }
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return result
+
+    rows = [row.to_dict() for _, row in frame.iterrows()]
+    for name in result:
+        field = f"monthly_{name}_return"
+        if field not in frame.columns:
+            continue
+        values = [_optional_number(row.get(field)) for row in rows]
+        if not values or any(value is None for value in values) or len({float(value) for value in values if value is not None}) != 1:
+            continue
+        first = rows[0]
+        item = _monthly_strategy_alternative(name, float(values[0]), first, reference)
+        if item is not None:
+            result[name] = item
+
+    weights_column = next((name for name in ("basket_weight", "portfolio_weight") if name in frame.columns), None)
+    if weights_column is not None and "instrument_period_return" in frame.columns:
+        weights = [_optional_number(row.get(weights_column)) for row in rows]
+        returns = [_optional_number(row.get("instrument_period_return")) for row in rows]
+        if (
+            all(value is not None for value in (*weights, *returns))
+            and all(float(value) >= 0 for value in weights if value is not None)
+            and math.isclose(sum(float(value) for value in weights if value is not None), 1.0, rel_tol=0.0, abs_tol=1e-9)
+        ):
+            basket = _monthly_strategy_alternative(
+                "basket",
+                sum(float(weight) * float(value) for weight, value in zip(weights, returns)),
+                rows[0],
+                reference,
+            )
+            if basket is not None:
+                result["basket"] = basket
+
+    basket = result["basket"]
+    benchmark = result["benchmark"]
+    cash = result["cash"]
+    no_action = result["no_action"]
+    if isinstance(basket, dict) and basket.get("status") == "available":
+        if (
+            isinstance(benchmark, dict)
+            and isinstance(cash, dict)
+            and isinstance(no_action, dict)
+            and benchmark.get("status") == cash.get("status") == no_action.get("status") == "available"
+        ):
+            basket["benchmark_relative_return"] = float(basket["period_return"]) - float(benchmark["period_return"])
+            basket["cash_relative_return"] = float(basket["period_return"]) - float(cash["period_return"])
+            basket["no_action_relative_return"] = float(basket["period_return"]) - float(no_action["period_return"])
+        else:
+            result["basket"] = unavailable_monthly_evidence("strategy_templates_basket_relative_evidence_unavailable")
+    return result
+
+
+def _monthly_strategy_alternative(
+    name: str,
+    period_return: float,
+    row: dict[str, object],
+    reference: dict[str, object],
+) -> dict[str, object] | None:
+    if not math.isfinite(period_return) or period_return < -1:
+        return None
+    version = row.get(f"monthly_{name}_version")
+    source_id = row.get(f"monthly_{name}_source_id")
+    source_dataset = row.get(f"monthly_{name}_source_dataset")
+    source_digest = row.get(f"monthly_{name}_source_digest")
+    as_of = row.get(f"monthly_{name}_as_of")
+    known_at = row.get(f"monthly_{name}_known_at")
+    horizon = _optional_number(row.get(f"monthly_{name}_horizon_days"))
+    if not all(isinstance(value, str) and value.strip() for value in (version, source_id, source_dataset)) or horizon is None or horizon <= 0:
+        return None
+    references = {
+        "benchmark": reference.get("benchmark") if isinstance(reference.get("benchmark"), dict) else None,
+        "cash": reference.get("cash") if isinstance(reference.get("cash"), dict) else None,
+    }
+    no_action = next(
+        (item for item in reference.get("references", ()) if isinstance(item, dict) and item.get("method") == "no_trade"),
+        None,
+    )
+    selected_reference = references.get(name) or (no_action if name == "no_action" else None)
+    return {
+        "status": "available",
+        "version": version,
+        "source_id": source_id,
+        "source_dataset": source_dataset,
+        "source_digest": source_digest,
+        "as_of": as_of,
+        "known_at": known_at,
+        "period_return": period_return,
+        "horizon_days": horizon,
+        "reference_id": selected_reference.get("id") if isinstance(selected_reference, dict) else None,
+        "reference_version": selected_reference.get("version") if isinstance(selected_reference, dict) else None,
+        "reference_content_hash": selected_reference.get("content_hash") if isinstance(selected_reference, dict) else None,
+        "reference_method": "no_trade" if name == "no_action" else None,
+        "execution_allowed": False,
+    }
+
+
 def _strategy_distribution_component(row: dict[str, object]) -> dict[str, object]:
     values = {
         "q10": _optional_number(row.get("q10_expected_return")),
@@ -399,6 +499,9 @@ def _strategy_distribution_component(row: dict[str, object]) -> dict[str, object
     }
     version = row.get("expected_return_distribution_version")
     source_dataset = row.get("expected_return_source_dataset")
+    source_digest = row.get("expected_return_source_digest")
+    as_of = row.get("expected_return_as_of")
+    known_at = row.get("expected_return_known_at")
     available = (
         all(value is not None for value in values.values())
         and isinstance(version, str)
@@ -419,6 +522,9 @@ def _strategy_distribution_component(row: dict[str, object]) -> dict[str, object
         "version": version,
         "source_id": str(row.get("instrument_id") or "unavailable"),
         "source_dataset": source_dataset,
+        "source_digest": source_digest,
+        "as_of": as_of,
+        "known_at": known_at,
         "horizon_days": values["horizon"],
         "gross": {"q10": values["q10"], "q50": values["q50"], "q90": values["q90"]},
         "net": {"q10": values["net_q10"], "q50": values["net_q50"], "q90": values["net_q90"]},

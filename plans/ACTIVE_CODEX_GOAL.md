@@ -3341,3 +3341,17 @@ next action and whether the requested outcome is actually complete.
   `c47164d3ab874bfe4dba66714fe8b327547373b9`; complete focused validation,
   H-tier review and hosted Linux/Windows evidence without changing lifecycle
   state in the product PR.
+- ISSUE-0046 review head `4331452cb6c3bb2ac558be369aada08601ebeedd`
+  is rejected and H-tier run `32529045037` is cancelled/stale. Both reviewers
+  completed before correction. Their demonstrated findings were consolidated
+  once: bind every available return/distribution to digest, chronology and a
+  positive horizon; bind canonical alternatives to exact id/version/hash;
+  require all three basket comparisons including no-action; preserve immutable
+  nested evidence and `execution_allowed=false`; project only actually supplied
+  backtest/strategy evidence; pass the canonical registry through the portfolio
+  surface; and reject malformed financial signs. The corrected six-file scope
+  passes 48 direct adversarial tests, the single affected benchmark/evidence/
+  backtest/portfolio/UI integration suite, Ruff and compilation. Commit these
+  corrections once on top of the published rejected head, freeze one replacement
+  H-tier head, and launch both exact-head reviews with fresh hosted Linux,
+  Windows and terminal evidence.

@@ -4577,3 +4577,16 @@ that exact main as `c47164d3ab874bfe4dba66714fe8b327547373b9`. Validate the
 existing six-file product/test scope, preserve canonical lifecycle state and
 `execution_allowed=false`, freeze one H-tier review head, and run paired review
 with fresh authoritative Linux/Windows and terminal evidence.
+
+`ISSUE-0046 CONSOLIDATED CORRECTION` initial head
+`4331452cb6c3bb2ac558be369aada08601ebeedd` is rejected by both reviewers and
+run `32529045037` is cancelled/stale. Waited for the full verdict set, then
+closed the demonstrated defects in one correction: strict digest/chronology/
+horizon evidence, exact canonical id/version/hash binding, mandatory benchmark/
+cash/no-action basket comparisons, immutable safe projections, real supplied
+backtest and strategy-template writer paths, canonical registry use on the
+portfolio surface, and fail-closed financial signs. Direct adversarial tests
+(48), the affected integration suite, Ruff and compilation pass. Freeze one
+new commit on top of the rejected published head and rerun both reviews plus
+fresh H-tier Linux, Windows and terminal gates; do not change lifecycle state
+or `execution_allowed=false` in the product PR.

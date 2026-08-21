@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 import math
+from types import MappingProxyType
 from typing import Literal
 
 from etf_cockpit.application.benchmark_reference import validate_benchmark_reference
@@ -51,6 +53,25 @@ class MonthlyDecisionTemplate:
     schema: str = MONTHLY_DECISION_TEMPLATE_SCHEMA
     cadence: str = MONTHLY_REBALANCE_CADENCE
     execution_assumption: str = NEXT_SESSION_EXECUTION_ASSUMPTION
+
+    def __post_init__(self) -> None:
+        """Freeze the composed evidence at the application boundary."""
+
+        if self.execution_allowed is not False:
+            raise ValueError("monthly decision template cannot grant execution authority")
+        for name in (
+            "benchmark_reference",
+            "alternatives",
+            "expected_returns",
+            "optimiser",
+            "costs",
+            "events",
+            "forward_evidence",
+            "paper_outcomes",
+            "concentration",
+            "assumptions",
+        ):
+            object.__setattr__(self, name, _freeze_json(getattr(self, name)))
 
     def projection(self) -> dict[str, object]:
         """Return a fresh JSON projection without changing supplied evidence."""
@@ -121,6 +142,7 @@ def build_monthly_decision_template(
     alternative_projection, alternative_errors = _normalise_alternatives(
         alternatives,
         reference,
+        cutoff=_reference_cutoff(reference),
     )
     blockers.extend(alternative_errors)
 
@@ -145,10 +167,14 @@ def build_monthly_decision_template(
         "assumptions": _validate_assumptions,
     }
     sections: dict[str, dict[str, object]] = {}
+    cutoff = _reference_cutoff(reference)
     for name in SECTION_NAMES:
-        section, errors = _normalise_section(name, supplied[name], validators[name])
+        section, errors = _normalise_section(name, supplied[name], validators[name], cutoff=cutoff)
         sections[name] = section
         blockers.extend(errors)
+
+    horizon_errors = _horizon_mismatch_errors(alternative_projection, sections)
+    blockers.extend(horizon_errors)
 
     evidence_warning = _evidence_warning(evidence_maturity, sample_size)
     if evidence_warning:
@@ -160,7 +186,22 @@ def build_monthly_decision_template(
 
     blockers = list(dict.fromkeys(blockers))
     warnings = list(dict.fromkeys(warnings))
-    malformed = any(item.endswith(("_malformed", "_invalid", "_authority_invalid")) for item in blockers)
+    malformed = any(
+        item.endswith(
+            (
+                "_malformed",
+                "_invalid",
+                "_authority_invalid",
+                "_stale",
+                "_future_known",
+                "_untrusted",
+                "_unbound",
+                "_financial_invalid",
+                "_horizon_mismatch",
+            )
+        )
+        for item in blockers
+    )
     fully_available = (
         not reference_error
         and all(
@@ -260,12 +301,16 @@ def _normalise_reference(
         registry=benchmark_registry,
     ) is None:
         return unavailable_monthly_evidence("canonical_reference_validation_failed"), "canonical_reference_invalid"
+    if _reference_cutoff(result) is None:
+        return unavailable_monthly_evidence("canonical_reference_cutoff_unavailable"), "canonical_reference_invalid"
     return result, None
 
 
 def _normalise_alternatives(
     value: Mapping[str, object] | None,
     reference: Mapping[str, object],
+    *,
+    cutoff: datetime | None,
 ) -> tuple[dict[str, object], list[str]]:
     errors: list[str] = []
     if value is not None and not isinstance(value, Mapping):
@@ -276,7 +321,7 @@ def _normalise_alternatives(
     result: dict[str, object] = {}
     for name in ALTERNATIVE_NAMES:
         raw = value.get(name) if isinstance(value, Mapping) else None
-        item, item_errors = _normalise_alternative(name, raw)
+        item, item_errors = _normalise_alternative(name, raw, cutoff=cutoff)
         result[name] = item
         errors.extend(item_errors)
     if reference.get("status") == "available":
@@ -287,20 +332,25 @@ def _normalise_alternatives(
             (item for item in references if isinstance(item, Mapping) and item.get("method") == "no_trade"),
             None,
         ) if _sequence(references) else None
-        expected_ids = {
-            "benchmark": benchmark.get("id") if isinstance(benchmark, Mapping) else None,
-            "cash": cash.get("id") if isinstance(cash, Mapping) else None,
-            "no_action": no_action.get("id") if isinstance(no_action, Mapping) else None,
+        expected_identities = {
+            "benchmark": _reference_identity(benchmark),
+            "cash": _reference_identity(cash),
+            "no_action": _reference_identity(no_action),
         }
-        for name, expected_id in expected_ids.items():
+        for name, expected_identity in expected_identities.items():
             item = result[name]
-            if isinstance(item, Mapping) and item.get("status") == "available" and item.get("reference_id") != expected_id:
+            actual_identity = (
+                item.get("reference_id"),
+                item.get("reference_version"),
+                item.get("reference_content_hash"),
+            ) if isinstance(item, Mapping) else None
+            if isinstance(item, Mapping) and item.get("status") == "available" and actual_identity != expected_identity:
                 result[name] = unavailable_monthly_evidence(f"{name}_reference_identity_mismatch")
                 errors.append(f"{name}_alternative_invalid")
     return _json_copy(result), errors
 
 
-def _normalise_alternative(name: str, value: object) -> tuple[dict[str, object], list[str]]:
+def _normalise_alternative(name: str, value: object, *, cutoff: datetime | None) -> tuple[dict[str, object], list[str]]:
     if value is None:
         return unavailable_monthly_evidence(f"{name}_alternative_unavailable"), [f"{name}_alternative_unavailable"]
     if not isinstance(value, Mapping):
@@ -319,14 +369,35 @@ def _normalise_alternative(name: str, value: object) -> tuple[dict[str, object],
             return unavailable_monthly_evidence(f"{name}_alternative_reason_unavailable"), [f"{name}_alternative_invalid"]
         item["execution_allowed"] = False
         return item, [f"{name}_alternative_unavailable"]
-    if any(not _text(item.get(field)) for field in ("version", "source_id", "source_dataset")) or _finite(item.get("period_return")) is None:
+    contract_errors = _evidence_contract_errors(item, cutoff=cutoff)
+    if contract_errors:
+        return unavailable_monthly_evidence(f"{name}_alternative_evidence_invalid"), [
+            f"{name}_alternative_invalid",
+            *(f"{name}_{error}" for error in contract_errors),
+        ]
+    horizon = _finite(item.get("horizon_days"))
+    if (
+        any(not _text(item.get(field)) for field in ("version", "source_id", "source_dataset"))
+        or not _sha256(item.get("source_digest"))
+        or _timestamp(item.get("as_of")) is None
+        or _timestamp(item.get("known_at")) is None
+        or horizon is None
+        or horizon <= 0
+        or _finite(item.get("period_return")) is None
+    ):
         return unavailable_monthly_evidence(f"{name}_alternative_evidence_invalid"), [f"{name}_alternative_invalid"]
+    if _finite(item.get("period_return")) < -1:
+        return unavailable_monthly_evidence(f"{name}_alternative_financial_invalid"), [f"{name}_financial_invalid", f"{name}_alternative_invalid"]
     if name == "basket" and (
         _finite(item.get("benchmark_relative_return")) is None
         or _finite(item.get("cash_relative_return")) is None
+        or _finite(item.get("no_action_relative_return")) is None
     ):
         return unavailable_monthly_evidence("basket_relative_return_invalid"), ["basket_alternative_invalid"]
-    if name in {"benchmark", "cash", "no_action"} and not _text(item.get("reference_id")):
+    if name in {"benchmark", "cash", "no_action"} and any(
+        not _text(item.get(field))
+        for field in ("reference_id", "reference_version", "reference_content_hash")
+    ):
         return unavailable_monthly_evidence(f"{name}_reference_identity_unavailable"), [f"{name}_alternative_invalid"]
     if name == "no_action" and item.get("reference_method") != "no_trade":
         return unavailable_monthly_evidence("no_action_reference_method_invalid"), ["no_action_alternative_invalid"]
@@ -334,7 +405,13 @@ def _normalise_alternative(name: str, value: object) -> tuple[dict[str, object],
     return item, []
 
 
-def _normalise_section(name: str, value: Mapping[str, object] | None, validator) -> tuple[dict[str, object], list[str]]:
+def _normalise_section(
+    name: str,
+    value: Mapping[str, object] | None,
+    validator,
+    *,
+    cutoff: datetime | None,
+) -> tuple[dict[str, object], list[str]]:
     if value is None:
         return unavailable_monthly_evidence(f"{name}_unavailable"), [f"{name}_unavailable"]
     if not isinstance(value, Mapping):
@@ -353,8 +430,12 @@ def _normalise_section(name: str, value: Mapping[str, object] | None, validator)
             return unavailable_monthly_evidence(f"{name}_reason_unavailable"), [f"{name}_invalid"]
         item["execution_allowed"] = False
         return item, [f"{name}_unavailable"]
-    if validator(item, status == "available"):
-        return unavailable_monthly_evidence(f"{name}_evidence_invalid"), [f"{name}_invalid"]
+    errors = [*_evidence_contract_errors(item, cutoff=cutoff), *validator(item, status == "available")]
+    if errors:
+        return unavailable_monthly_evidence(f"{name}_evidence_invalid"), [
+            f"{name}_invalid",
+            *(f"{name}_{error}" for error in errors),
+        ]
     item["execution_allowed"] = False
     return item, ([] if status == "available" else [f"{name}_partial"])
 
@@ -385,6 +466,10 @@ def _distribution_errors(value: Mapping[str, object]) -> list[str]:
     errors: list[str] = []
     if any(not _text(value.get(field)) for field in ("version", "source_id", "source_dataset")):
         errors.append("identity")
+    if not _sha256(value.get("source_digest")):
+        errors.append("source_digest")
+    if _timestamp(value.get("as_of")) is None or _timestamp(value.get("known_at")) is None:
+        errors.append("chronology")
     horizon = _finite(value.get("horizon_days"))
     if horizon is None or horizon <= 0:
         errors.append("horizon")
@@ -396,6 +481,8 @@ def _distribution_errors(value: Mapping[str, object]) -> list[str]:
         values = [_finite(quantiles.get(key)) for key in ("q10", "q50", "q90")]
         if any(item is None for item in values) or values != sorted(values):
             errors.append(name)
+        elif any(item < -1 for item in values if item is not None):
+            errors.append("financial_invalid")
     return errors
 
 
@@ -414,6 +501,13 @@ def _validate_optimiser(value: Mapping[str, object], complete: bool) -> list[str
         or not isinstance(constraints.get("values", constraints.get("rows")), (Mapping, list))
     ):
         errors.append("constraints")
+    if isinstance(constraints, Mapping):
+        constraint_values = constraints.get("values")
+        if isinstance(constraint_values, Mapping):
+            for key in ("max_weight", "turnover_limit"):
+                number = _finite(constraint_values.get(key))
+                if key in constraint_values and (number is None or not 0 <= number <= 1):
+                    errors.append("financial_invalid")
     if isinstance(solution, Mapping):
         if solution.get("status") not in {"success", "fallback", "available", "partial", "unavailable"}:
             errors.append("solution_status")
@@ -425,6 +519,12 @@ def _validate_optimiser(value: Mapping[str, object], complete: bool) -> list[str
         if isinstance(diagnostics, Mapping) and diagnostics.get("status", "available") == "available":
             if not _sequence(diagnostics.get("binding_constraints"), allow_empty=True):
                 errors.append("binding_constraints")
+        weights = solution.get("weights")
+        if isinstance(weights, Mapping):
+            for weight in weights.values():
+                number = _finite(weight)
+                if number is None or not 0 <= number <= 1:
+                    errors.append("financial_invalid")
     return errors
 
 
@@ -443,10 +543,31 @@ def _validate_costs(value: Mapping[str, object], complete: bool) -> list[str]:
                 errors.append("component")
             elif _finite(component.get("cost_eur", component.get("estimated_cost_eur"))) is None:
                 errors.append("component_cost")
+            else:
+                for field in (
+                    "order_value_eur",
+                    "cost_eur",
+                    "estimated_cost_eur",
+                    "cost_bps",
+                    "estimated_cost_bps",
+                    "commission_eur",
+                    "spread_bps",
+                    "slippage_bps",
+                    "market_impact_bps",
+                ):
+                    if field in component:
+                        number = _finite(component.get(field))
+                        if number is None or number < 0:
+                            errors.append("financial_invalid")
     if complete and not isinstance(total, Mapping):
         errors.append("total")
     if isinstance(total, Mapping) and any(_finite(total.get(field)) is None for field in ("order_value_eur", "cost_eur", "cost_bps")):
         errors.append("total")
+    if isinstance(total, Mapping) and any(
+        _finite(total.get(field)) is not None and _finite(total.get(field)) < 0
+        for field in ("order_value_eur", "cost_eur", "cost_bps")
+    ):
+        errors.append("financial_invalid")
     if complete and not isinstance(capacity, Mapping):
         errors.append("capacity")
     if isinstance(capacity, Mapping):
@@ -454,6 +575,8 @@ def _validate_costs(value: Mapping[str, object], complete: bool) -> list[str]:
             errors.append("capacity_status")
         if capacity.get("status") == "available" and _finite(capacity.get("amount_eur")) is None:
             errors.append("capacity")
+        if _finite(capacity.get("amount_eur")) is not None and _finite(capacity.get("amount_eur")) < 0:
+            errors.append("financial_invalid")
     if complete and not _sequence(value.get("assumptions"), allow_empty=True):
         errors.append("assumptions")
     return errors
@@ -496,6 +619,8 @@ def _validate_paper_outcomes(value: Mapping[str, object], complete: bool) -> lis
         errors.append("reconciliation")
     if complete and _finite(value.get("matured_outcomes")) is None:
         errors.append("matured_outcomes")
+    if _finite(value.get("matured_outcomes")) is not None and _finite(value.get("matured_outcomes")) < 0:
+        errors.append("financial_invalid")
     if complete and not _sequence(value.get("outcomes"), allow_empty=True):
         errors.append("outcomes")
     return errors
@@ -522,7 +647,11 @@ def _validate_concentration(value: Mapping[str, object], complete: bool) -> list
                     errors.append(dimension)
                 else:
                     for exposure in exposures:
-                        if not isinstance(exposure, Mapping) or _finite(exposure.get("weight")) is None:
+                        if (
+                            not isinstance(exposure, Mapping)
+                            or _finite(exposure.get("weight")) is None
+                            or not 0 <= _finite(exposure.get("weight")) <= 1
+                        ):
                             errors.append(dimension)
         elif complete:
             errors.append(dimension)
@@ -542,6 +671,142 @@ def _validate_assumptions(value: Mapping[str, object], complete: bool) -> list[s
     ):
         errors.append("values")
     return errors
+
+
+def _evidence_contract_errors(value: Mapping[str, object], *, cutoff: datetime | None = None) -> list[str]:
+    errors = _evidence_contract_errors_one(value, cutoff=cutoff)
+    for nested in _nested_mappings(value):
+        errors.extend(_evidence_contract_errors_one(nested, cutoff=cutoff))
+    return list(dict.fromkeys(errors))
+
+
+def _evidence_contract_errors_one(value: Mapping[str, object], *, cutoff: datetime | None = None) -> list[str]:
+    """Reject explicit chronology, trust and source-binding contradictions."""
+
+    errors: list[str] = []
+    timestamps: dict[str, datetime] = {}
+    for key in ("as_of", "known_at", "decision_time", "knowledge_cutoff", "effective_at"):
+        if key not in value or value.get(key) in (None, ""):
+            continue
+        parsed = _timestamp(value.get(key))
+        if parsed is None:
+            errors.append("temporal_invalid")
+        else:
+            timestamps[key] = parsed
+    if timestamps.get("known_at") is not None:
+        local_cutoff = next(
+            (
+                timestamps.get(key)
+                for key in ("decision_time", "knowledge_cutoff")
+                if timestamps.get(key) is not None
+            ),
+            None,
+        )
+        if local_cutoff is not None and timestamps["known_at"] > local_cutoff:
+            errors.append("future_known")
+        if cutoff is not None and timestamps["known_at"] > cutoff:
+            errors.append("future_known")
+    if timestamps.get("effective_at") is not None and timestamps.get("as_of") is not None:
+        if timestamps["effective_at"] > timestamps["as_of"]:
+            errors.append("future_known")
+    if cutoff is not None and timestamps.get("as_of") is not None and timestamps["as_of"] > cutoff:
+        errors.append("future_known")
+
+    if value.get("stale") is True or str(value.get("status", "")).casefold() == "stale":
+        errors.append("stale")
+    if value.get("trusted") is False:
+        errors.append("untrusted")
+    for key in ("trust", "trust_status", "source_trust", "provenance_status", "source_status", "data_quality"):
+        marker = str(value.get(key, "")).strip().casefold()
+        if marker in {"untrusted", "rejected", "invalid", "stale", "future", "future_known"}:
+            errors.append("untrusted" if marker == "untrusted" else marker)
+
+    if value.get("bound") is False or value.get("source_bound") is False:
+        errors.append("unbound")
+    source_binding = value.get("source_binding")
+    if source_binding is not None:
+        if not isinstance(source_binding, Mapping) or source_binding.get("status") not in {None, "available"}:
+            errors.append("unbound")
+        elif isinstance(source_binding, Mapping):
+            for field in ("source_id", "source_dataset"):
+                if field in source_binding and source_binding.get(field) != value.get(field):
+                    errors.append("unbound")
+    return list(dict.fromkeys(errors))
+
+
+def _nested_mappings(value: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
+    nested: list[Mapping[str, object]] = []
+    pending: list[object] = list(value.values())
+    while pending:
+        item = pending.pop()
+        if isinstance(item, Mapping):
+            nested.append(item)
+            pending.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            pending.extend(item)
+    return tuple(nested)
+
+
+def _reference_cutoff(reference: Mapping[str, object]) -> datetime | None:
+    analysis = reference.get("analysis")
+    if not isinstance(analysis, Mapping):
+        return None
+    for field in ("decision_time", "knowledge_cutoff", "end_date"):
+        parsed = _timestamp(analysis.get(field))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _reference_identity(value: object) -> tuple[object, object, object] | None:
+    if not isinstance(value, Mapping):
+        return None
+    return value.get("id"), value.get("version"), value.get("content_hash")
+
+
+def _sha256(value: object) -> str:
+    text = _text(value).casefold()
+    return text if len(text) == 64 and all(character in "0123456789abcdef" for character in text) else ""
+
+
+def _horizon_mismatch_errors(
+    alternatives: Mapping[str, object],
+    sections: Mapping[str, Mapping[str, object]],
+) -> list[str]:
+    horizons: list[float] = []
+    for value in alternatives.values():
+        if isinstance(value, Mapping) and value.get("status") == "available":
+            horizon = _finite(value.get("horizon_days"))
+            if horizon is not None:
+                horizons.append(horizon)
+    expected = sections.get("expected_returns", {})
+    if isinstance(expected, Mapping) and expected.get("status") == "available":
+        horizon = _finite(expected.get("horizon_days"))
+        if horizon is not None:
+            horizons.append(horizon)
+    forward = sections.get("forward_evidence", {})
+    if isinstance(forward, Mapping) and forward.get("status") == "available":
+        outcomes = forward.get("outcomes")
+        if _sequence(outcomes, allow_empty=True):
+            for outcome in outcomes:
+                if isinstance(outcome, Mapping):
+                    horizon = _finite(outcome.get("horizon_days"))
+                    if horizon is not None:
+                        horizons.append(horizon)
+    return ["monthly_horizon_mismatch"] if horizons and len(set(horizons)) > 1 else []
+
+
+def _timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _evidence_warning(maturity: object, sample_size: object) -> str | None:
@@ -587,11 +852,27 @@ def _safe_execution_disabled(value: object) -> bool:
 
 
 def _json_copy(value: object) -> dict[str, object]:
-    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    payload = json.dumps(_thaw_json(value), sort_keys=True, separators=(",", ":"), allow_nan=False)
     result = json.loads(payload)
     if not isinstance(result, dict):
         raise TypeError("monthly evidence must be a mapping")
     return result
+
+
+def _freeze_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(key): _freeze_json(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_json(item) for item in value)
+    return value
+
+
+def _thaw_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {str(key): _thaw_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw_json(item) for item in value]
+    return value
 
 
 def _finite(value: object) -> float | None:
@@ -624,6 +905,7 @@ def _alternative_line(label: str, value: object) -> str:
         f"{label}: {value.get('status', 'unavailable')} | return={_format_percent(value.get('period_return'))} | "
         f"vs benchmark={_format_percent(value.get('benchmark_relative_return'))} | "
         f"vs cash={_format_percent(value.get('cash_relative_return'))} | "
+        f"vs no-action={_format_percent(value.get('no_action_relative_return'))} | "
         f"version={value.get('version', 'unavailable')} | source={value.get('source_id', 'unavailable')}"
     )
 

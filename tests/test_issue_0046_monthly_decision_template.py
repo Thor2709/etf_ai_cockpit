@@ -19,6 +19,7 @@ from etf_cockpit.signals.strategy_templates import strategy_template_frame
 
 
 _TEST_REGISTRY = CanonicalBenchmarkRegistry()
+_SOURCE_DIGEST = "a" * 64
 
 
 @pytest.fixture(autouse=True)
@@ -39,6 +40,7 @@ def _reference() -> dict[str, object]:
         "benchmark_data_id": "VWCE", "registry_hash": "registry-hash",
         "selected_records": {"benchmark": "benchmark-hash", "cash": "cash-hash", "peer_set": "peer-hash"},
         "provenance": {"registry_hash": "registry-hash", "selected_records": {"benchmark": "benchmark-hash", "cash": "cash-hash", "peer_set": "peer-hash"}},
+        "analysis": {"decision_time": "2026-08-21T23:59:59Z"},
         "benchmark": {"status": "available", "id": "benchmark:global", "version": "1.0.0", "content_hash": "benchmark-hash"},
         "cash": {"status": "available", "id": "cash:EUR", "version": "1.0.0", "content_hash": "cash-hash"},
         "references": [{"status": "available", "id": "reference:no-trade", "version": "1.0.0", "content_hash": "no-trade-hash", "method": "no_trade"}],
@@ -48,13 +50,13 @@ def _reference() -> dict[str, object]:
 def _full_evidence() -> dict[str, object]:
     return {
         "alternatives": {
-            "basket": {"status": "available", "version": "returns.v3", "source_id": "candidate:42", "source_dataset": "forward:2026-08", "period_return": 0.07, "benchmark_relative_return": 0.02, "cash_relative_return": 0.04, "execution_allowed": False},
-            "benchmark": {"status": "available", "version": "returns.v3", "source_id": "benchmark:42", "source_dataset": "forward:2026-08", "reference_id": "benchmark:global", "period_return": 0.05, "execution_allowed": False},
-            "cash": {"status": "available", "version": "returns.v3", "source_id": "cash:42", "source_dataset": "forward:2026-08", "reference_id": "cash:EUR", "period_return": 0.03, "execution_allowed": False},
-            "no_action": {"status": "available", "version": "returns.v3", "source_id": "no-trade:42", "source_dataset": "forward:2026-08", "reference_id": "reference:no-trade", "reference_method": "no_trade", "period_return": 0.04, "execution_allowed": False},
+            "basket": {"status": "available", "version": "returns.v3", "source_id": "candidate:42", "source_dataset": "forward:2026-08", "source_digest": _SOURCE_DIGEST, "as_of": "2026-08-21", "known_at": "2026-08-21T12:00:00Z", "horizon_days": 21, "period_return": 0.07, "benchmark_relative_return": 0.02, "cash_relative_return": 0.04, "no_action_relative_return": 0.03, "execution_allowed": False},
+            "benchmark": {"status": "available", "version": "returns.v3", "source_id": "benchmark:42", "source_dataset": "forward:2026-08", "source_digest": _SOURCE_DIGEST, "as_of": "2026-08-21", "known_at": "2026-08-21T12:00:00Z", "horizon_days": 21, "reference_id": "benchmark:global", "reference_version": "1.0.0", "reference_content_hash": "benchmark-hash", "period_return": 0.05, "execution_allowed": False},
+            "cash": {"status": "available", "version": "returns.v3", "source_id": "cash:42", "source_dataset": "forward:2026-08", "source_digest": _SOURCE_DIGEST, "as_of": "2026-08-21", "known_at": "2026-08-21T12:00:00Z", "horizon_days": 21, "reference_id": "cash:EUR", "reference_version": "1.0.0", "reference_content_hash": "cash-hash", "period_return": 0.03, "execution_allowed": False},
+            "no_action": {"status": "available", "version": "returns.v3", "source_id": "no-trade:42", "source_dataset": "forward:2026-08", "source_digest": _SOURCE_DIGEST, "as_of": "2026-08-21", "known_at": "2026-08-21T12:00:00Z", "horizon_days": 21, "reference_id": "reference:no-trade", "reference_version": "1.0.0", "reference_content_hash": "no-trade-hash", "reference_method": "no_trade", "period_return": 0.04, "execution_allowed": False},
         },
         "expected_returns": {
-            "status": "available", "version": "distribution.v2", "source_id": "score:42", "source_dataset": "features:2026-08", "horizon_days": 21,
+            "status": "available", "version": "distribution.v2", "source_id": "score:42", "source_dataset": "features:2026-08", "source_digest": _SOURCE_DIGEST, "as_of": "2026-08-21", "known_at": "2026-08-21T12:00:00Z", "horizon_days": 21,
             "gross": {"q10": -0.03, "q50": 0.06, "q90": 0.14},
             "net": {"q10": -0.035, "q50": 0.055, "q90": 0.135}, "execution_allowed": False,
         },
@@ -145,7 +147,7 @@ def test_full_projection_preserves_canonical_evidence_without_calculation() -> N
     assert set(projection["alternatives"]) == {"basket", "benchmark", "cash", "no_action"}
     _assert_execution_disabled(projection)
     rendered = "\n".join(monthly_decision_template_lines(result)).casefold()
-    assert "gross=" in rendered and "net=" in rendered
+    assert "gross=" in rendered and "net=" in rendered and "vs no-action=" in rendered
     assert "buy" not in rendered and "sell" not in rendered
 
 
@@ -269,6 +271,103 @@ def test_recursive_reference_and_section_evidence_fail_closed() -> None:
     assert "forward_evidence_authority_invalid" in section_result.blockers
 
 
+def test_nested_result_evidence_is_immutable_and_projection_is_isolated() -> None:
+    result = _build()
+
+    with pytest.raises(TypeError):
+        result.alternatives["basket"]["period_return"] = 0.99  # type: ignore[index]
+    with pytest.raises(TypeError):
+        result.expected_returns["gross"]["q50"] = 0.99  # type: ignore[index]
+
+    projection = result.projection()
+    projection["alternatives"]["basket"]["period_return"] = 0.99  # type: ignore[index]
+    assert result.projection()["alternatives"]["basket"]["period_return"] == 0.07
+    _assert_execution_disabled(result.projection())
+
+
+@pytest.mark.parametrize(
+    ("section", "updates"),
+    [
+        ("costs", {"capacity": {"amount_eur": -1.0}}),
+        ("costs", {"total": {"cost_eur": -1.0}}),
+        ("optimiser", {"solution": {"weights": {"VWCE": -0.1}}}),
+        ("forward_evidence", {"as_of": "2026-08-22", "known_at": "2026-08-23T00:00:00Z"}),
+        ("paper_outcomes", {"trust_status": "untrusted"}),
+        ("events", {"source_bound": False}),
+    ],
+)
+def test_temporal_trust_binding_and_financial_signs_fail_closed(section: str, updates: dict[str, object]) -> None:
+    evidence = deepcopy(_full_evidence())
+    target = evidence[section]
+    assert isinstance(target, dict)
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            target[key].update(value)  # type: ignore[index]
+        else:
+            target[key] = value
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert result.projection()[section]["status"] == "unavailable"
+    _assert_execution_disabled(result.projection())
+
+
+def test_horizon_mismatch_fails_closed() -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"]["cash"]["horizon_days"] = 20  # type: ignore[index]
+    evidence["alternatives"]["benchmark"]["horizon_days"] = 21  # type: ignore[index]
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert "monthly_horizon_mismatch" in result.blockers
+    _assert_execution_disabled(result.projection())
+
+
+@pytest.mark.parametrize("field", ["horizon_days", "source_digest", "as_of", "known_at"])
+def test_available_alternative_requires_complete_bound_evidence(field: str) -> None:
+    evidence = deepcopy(_full_evidence())
+    del evidence["alternatives"]["basket"][field]  # type: ignore[index]
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
+
+
+@pytest.mark.parametrize("field", ["source_digest", "as_of", "known_at"])
+def test_available_distribution_requires_complete_bound_evidence(field: str) -> None:
+    evidence = deepcopy(_full_evidence())
+    del evidence["expected_returns"][field]  # type: ignore[index]
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert result.projection()["expected_returns"]["status"] == "unavailable"
+
+
+@pytest.mark.parametrize("field", ["reference_version", "reference_content_hash"])
+def test_alternative_requires_exact_canonical_reference_identity(field: str) -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"]["benchmark"][field] = "mismatch"  # type: ignore[index]
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert result.projection()["alternatives"]["benchmark"]["status"] == "unavailable"
+
+
+def test_basket_requires_no_action_comparison() -> None:
+    evidence = deepcopy(_full_evidence())
+    del evidence["alternatives"]["basket"]["no_action_relative_return"]  # type: ignore[index]
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
+
+
 def test_strategy_template_frame_retains_required_projection_inputs() -> None:
     frame = strategy_template_frame(pd.DataFrame([{"instrument_id": "VWCE", "q10_expected_return": -0.03, "q50_expected_return": 0.06, "q90_expected_return": 0.14, "net_q10_expected_return": -0.035, "net_expected_return": 0.055, "net_q90_expected_return": 0.135, "expected_return_distribution_version": "distribution.v2", "expected_return_source_dataset": "features:2026-08", "expected_return_cost_bps": 12.5, "expected_return_cost_eur": 12.5, "expected_return_cost_ratio": 0.00125, "execution_allowed": False}]))
 
@@ -301,14 +400,69 @@ def test_strategy_distribution_component_rejects_non_financial_numbers(invalid: 
     }
 
 
+def test_backtest_alternative_writer_is_accepted_by_generic_composer() -> None:
+    curves = pd.DataFrame(
+        {
+            "basket": [1.0, 1.07],
+            "benchmark": [1.0, 1.05],
+            "cash": [1.0, 1.03],
+            "no_action": [1.0, 1.04],
+        },
+        index=pd.to_datetime(["2026-07-31", "2026-08-21"]),
+    )
+    metadata = {
+        "input_checksum": _SOURCE_DIGEST,
+        "source_id": "backtest:42",
+        "backtest_version": "backtest.equity.v1",
+        "date_range_start": "2026-07-31",
+        "date_range_end": "2026-08-21",
+        "known_at": "2026-08-21T12:00:00Z",
+    }
+    alternatives = backtests._monthly_backtest_alternatives(
+        SimpleNamespace(equity_curves=curves), metadata, reference=_reference()
+    )
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"] = alternatives
+
+    result = _build(evidence)
+
+    assert result.status == "available"
+    assert result.projection()["alternatives"]["basket"]["no_action_relative_return"] == pytest.approx(0.03)
+
+
+def test_strategy_alternative_writer_is_accepted_by_generic_composer() -> None:
+    row: dict[str, object] = {"instrument_id": "VWCE"}
+    for name, period_return in {"basket": 0.07, "benchmark": 0.05, "cash": 0.03, "no_action": 0.04}.items():
+        row.update(
+            {
+                f"monthly_{name}_return": period_return,
+                f"monthly_{name}_version": "returns.v3",
+                f"monthly_{name}_source_id": f"{name}:42",
+                f"monthly_{name}_source_dataset": "forward:2026-08",
+                f"monthly_{name}_source_digest": _SOURCE_DIGEST,
+                f"monthly_{name}_as_of": "2026-08-21",
+                f"monthly_{name}_known_at": "2026-08-21T12:00:00Z",
+                f"monthly_{name}_horizon_days": 21,
+            }
+        )
+    alternatives = data_models._monthly_strategy_alternatives(pd.DataFrame([row]), _reference())
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"] = alternatives
+
+    result = _build(evidence)
+
+    assert result.status == "available"
+    assert result.projection()["alternatives"]["benchmark"]["reference_content_hash"] == "benchmark-hash"
+
+
 def test_actual_ui_consumers_render_the_monthly_projection(monkeypatch, tmp_path) -> None:
     frame = pd.DataFrame([
-        {"instrument_id": instrument_id, "q10_expected_return": -0.03, "q50_expected_return": 0.06, "q90_expected_return": 0.14, "net_q10_expected_return": -0.035, "net_expected_return": 0.055, "net_q90_expected_return": 0.135, "expected_return_horizon_days": 21, "expected_return_distribution_version": "distribution.v2", "expected_return_source_dataset": "features:2026-08", "sector_theme_warning": "partial", "crowding_top_ranked_theme_concentration": 0.18}
+        {"instrument_id": instrument_id, "q10_expected_return": -0.03, "q50_expected_return": 0.06, "q90_expected_return": 0.14, "net_q10_expected_return": -0.035, "net_expected_return": 0.055, "net_q90_expected_return": 0.135, "expected_return_horizon_days": 21, "expected_return_distribution_version": "distribution.v2", "expected_return_source_dataset": "features:2026-08", "expected_return_source_digest": _SOURCE_DIGEST, "expected_return_as_of": "2026-08-21", "expected_return_known_at": "2026-08-21T12:00:00Z", "sector_theme_warning": "partial", "crowding_top_ranked_theme_concentration": 0.18}
         for instrument_id in ("VWCE", "LYP6")
     ])
     frame.to_csv(tmp_path / "strategy_templates.csv", index=False)
     monkeypatch.setattr(data_models, "DERIVED_DIR", tmp_path)
-    monkeypatch.setattr(data_models, "context_from_snapshot", lambda *_args, **_kwargs: SimpleNamespace(projection=_reference(), registry=None))
+    monkeypatch.setattr(data_models, "context_from_snapshot", lambda *_args, **_kwargs: SimpleNamespace(projection=_reference(), registry=_TEST_REGISTRY))
     strategy_text = data_models._monthly_decision_text(SimpleNamespace(snapshot=SimpleNamespace(universe_revision="revision:42")))
     assert "Expected-return distributions: partial" in strategy_text
     assert "components=2" in strategy_text
@@ -326,7 +480,18 @@ def test_actual_ui_consumers_render_the_monthly_projection(monkeypatch, tmp_path
         holdings=pd.DataFrame([{"etf_id": "VWCE", "current_weight": 1.0, "market_value_eur": 40_000.0, "as_of_date": "2026-08-21", "known_at": "2026-08-21T12:00:00Z"}]),
         universe_revision="revision:42", data_report=SimpleNamespace(as_of_date="2026-08-21"),
     )
+    registry = CanonicalBenchmarkRegistry()
+    snapshot.benchmark_reference_registry = registry
+    captured_registries: list[object] = []
+    original_builder = portfolio.build_monthly_decision_template
+
+    def capture_builder(**kwargs):
+        captured_registries.append(kwargs.get("benchmark_registry"))
+        return original_builder(**kwargs)
+
+    monkeypatch.setattr(portfolio, "build_monthly_decision_template", capture_builder)
     portfolio_text = _text(portfolio.portfolio_page(None, SimpleNamespace(snapshot=snapshot)))
     assert "Monthly decision template" in portfolio_text
     assert "No-action context: unavailable" in portfolio_text
     assert "execution_allowed=false" in portfolio_text
+    assert any(item is registry for item in captured_registries)

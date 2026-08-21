@@ -76,6 +76,9 @@ def strategy_template_frame(scoreboard: pd.DataFrame) -> pd.DataFrame:
         "expected_return_cost_ratio",
         "expected_return_distribution_version",
         "expected_return_source_dataset",
+        "expected_return_source_digest",
+        "expected_return_as_of",
+        "expected_return_known_at",
         "sector_theme_warning",
         "crowding_top_ranked_concentration",
         "crowding_top_ranked_theme_concentration",
@@ -85,7 +88,25 @@ def strategy_template_frame(scoreboard: pd.DataFrame) -> pd.DataFrame:
         "backtest_validity",
         "execution_allowed",
     ]
-    return scoreboard[[column for column in columns if column in scoreboard.columns]].copy() if not scoreboard.empty else pd.DataFrame(columns=columns)
+    for alternative in ("basket", "benchmark", "cash", "no_action"):
+        columns.extend(
+            [
+                f"monthly_{alternative}_return",
+                f"monthly_{alternative}_version",
+                f"monthly_{alternative}_source_id",
+                f"monthly_{alternative}_source_dataset",
+                f"monthly_{alternative}_source_digest",
+                f"monthly_{alternative}_as_of",
+                f"monthly_{alternative}_known_at",
+                f"monthly_{alternative}_horizon_days",
+            ]
+        )
+    if scoreboard.empty:
+        return pd.DataFrame(columns=columns)
+    result = scoreboard[[column for column in columns if column in scoreboard.columns]].copy()
+    if "execution_allowed" in result.columns:
+        result["execution_allowed"] = False
+    return result
 
 
 def write_strategy_template_frame(scoreboard: pd.DataFrame, path) -> None:
