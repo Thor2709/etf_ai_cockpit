@@ -638,7 +638,7 @@ def test_snapshot_reference_inputs_fail_closed_when_local_registry_is_missing(
         lambda frame: frame.assign(imported_at="2026-07-18T12:00:00"),
         lambda frame: frame.assign(available_at="2026-07-18T12:00:00"),
         lambda frame: frame.assign(known_at="2026-07-17T23:59:59Z"),
-        lambda frame: frame.assign(known_at="2026-07-19T00:00:00Z"),
+        lambda frame: frame.assign(known_at="2026-07-19T00:00:01Z"),
         lambda frame: frame.assign(as_of_date="2026-07-17"),
         lambda frame: frame.assign(current_weight=[0.8, 0.3]),
         lambda frame: frame.assign(current_weight=[-0.1, 0.2]),
@@ -776,6 +776,26 @@ def test_snapshot_cash_chronology_is_accepted_by_score_readback(monkeypatch) -> 
         context.projection,
         context.identity,
     )
+    captured: dict[str, object] = {}
+
+    def capture_local_cash(_config, _prices, **kwargs):
+        captured.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(
+        simple_scores_module,
+        "_build_local_cash_comparison_lookup",
+        capture_local_cash,
+    )
+    scores = simple_scores_module.build_simple_instrument_scores(
+        load_config(),
+        [],
+        pd.DataFrame(),
+        pd.DataFrame(),
+        benchmark_reference=context.projection,
+        reference_identity=context.identity,
+        cash_observation_time=inputs["decision_time"],
+    )
 
     expected_observation = adjusted_endpoint_available_at("2026-07-18")
     assert inputs["end_date"] == "2026-07-18"
@@ -783,6 +803,10 @@ def test_snapshot_cash_chronology_is_accepted_by_score_readback(monkeypatch) -> 
     assert request is not None
     assert request["end_date"] == "2026-07-18"
     assert request["decision_time"] == pd.Timestamp(expected_observation).isoformat()
+    assert captured["canonical_cash_request"] == request
+    assert captured["as_of"] == expected_observation
+    assert scores
+    assert all(score.execution_allowed is False for score in scores)
 
 
 def test_snapshot_inputs_fail_closed_only_on_true_latest_anchor_tie(monkeypatch) -> None:

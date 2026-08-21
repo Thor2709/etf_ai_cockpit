@@ -204,7 +204,7 @@ def test_portfolio_ui_renders_available_canonical_identities_versions_and_digest
     assert f"canonical_share_class_id:{VWCE_CANONICAL_SHARE_CLASS}" in result_text
     assert "listing_id:listing:xetra" in result_text
     assert "effective_date:2025-07-18" in result_text
-    assert "knowledge_cutoff:2026-07-18T23:59:59+00:00" in result_text
+    assert "knowledge_cutoff:2026-07-19T00:00:00+00:00" in result_text
 
 
 def test_snapshot_selector_cannot_relabel_the_supplied_snapshot() -> None:

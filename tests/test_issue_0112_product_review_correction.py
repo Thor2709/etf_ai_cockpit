@@ -1027,6 +1027,7 @@ def test_candidate_breadth_rejects_future_contradictory_populated_aliases() -> N
 @pytest.mark.parametrize(
     ("field", "value"),
     (
+        ("sma200_signal", [True]),
         ("latest_date", ["2025-01-10"]),
         ("provenance", ["yfinance_adjusted_close"]),
     ),
@@ -1543,6 +1544,24 @@ def test_packaged_registry_unavailable_cash_blocks_local_curve_lookup(monkeypatc
     assert scores
     assert all(score.cash_comparison_status == "unavailable" for score in scores)
     assert all(score.cash_return is None for score in scores)
+
+
+def test_malformed_candidate_report_fails_closed_through_score_builder(
+    tmp_path, monkeypatch
+) -> None:
+    report_path = tmp_path / "yfinance_trade_candidate_analysis_20250102.csv"
+    report_path.write_bytes(b"\xff\xfe\x00invalid-candidate-report")
+    monkeypatch.setattr(simple_scores_module, "REPORTS_DIR", tmp_path)
+
+    scores = build_simple_instrument_scores(
+        load_config(),
+        [],
+        pd.DataFrame(),
+        pd.DataFrame(),
+    )
+
+    assert scores
+    assert all(score.execution_allowed is False for score in scores)
 
 
 def test_simple_score_candidate_loader_passes_reference_identity(monkeypatch) -> None:

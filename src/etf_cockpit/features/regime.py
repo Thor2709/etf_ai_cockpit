@@ -660,7 +660,12 @@ def _regime_summary(label: str, score: float, pct_above: float, ret60: float | N
 
 
 def _bool_like(value: object) -> bool | None:
-    if value is None or pd.isna(value):
+    if value is None or not pd.api.types.is_scalar(value):
+        return None
+    try:
+        if bool(pd.isna(value)):
+            return None
+    except (TypeError, ValueError):
         return None
     if isinstance(value, bool):
         return value

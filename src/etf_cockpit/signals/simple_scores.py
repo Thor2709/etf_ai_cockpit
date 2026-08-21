@@ -1648,11 +1648,27 @@ def build_candidate_simple_scores(
 
 
 def load_latest_candidate_report(directory: Path = REPORTS_DIR) -> tuple[pd.DataFrame, Path | None]:
-    files = sorted(directory.glob("yfinance_trade_candidate_analysis_*.csv"), key=lambda path: path.stat().st_mtime, reverse=True)
+    try:
+        files = sorted(
+            directory.glob("yfinance_trade_candidate_analysis_*.csv"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return pd.DataFrame(), None
     if not files:
         return pd.DataFrame(), None
     path = files[0]
-    return pd.read_csv(path), path
+    try:
+        return pd.read_csv(path), path
+    except (
+        OSError,
+        UnicodeError,
+        ValueError,
+        pd.errors.EmptyDataError,
+        pd.errors.ParserError,
+    ):
+        return pd.DataFrame(), None
 
 
 def _latest_candidate_input_frame(directory: Path = RAW_DIR / "trade_candidates") -> pd.DataFrame:

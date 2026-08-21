@@ -4359,3 +4359,15 @@ test consume the actual final endpoint. Do not alter financial formulas,
 availability policy, validation architecture, authority or
 `execution_allowed=false`; freeze one final replacement head for paired review
 and fresh full H-tier evidence.
+
+`MALFORMED BREADTH READBACK CORRECTION` head
+`d0f3d54f3dcb23b39e80b8b5938afb3aa4548ce0` is rejected and exact run
+`32475420169` failed preflight. Invalid candidate CSV bytes and non-scalar
+`sma200_signal` can escape through the production score builder; the snapshot
+chronology regression stops before that builder; and two coupled tests retain
+the superseded `D 23:59:59` cutoff. Fail closed on exactly those malformed
+breadth inputs, route the regression through the real builder, and update only
+the stale `D+1 00:00:00Z` expectations. Direct adversarial and coupled tests
+must pass before one final replacement head is frozen for paired review and
+fresh H-tier evidence. Do not broaden persistence, validation, authority,
+financial logic or execution behavior.

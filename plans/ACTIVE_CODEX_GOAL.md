@@ -3137,3 +3137,13 @@ next action and whether the requested outcome is actually complete.
   reference writer-to-score readback and the positive local-curve path now use
   the actual final endpoint and pass focused validation. Freeze one replacement
   head for paired review and fresh full H-tier evidence; make no adjacent change.
+- Exact head `d0f3d54f3dcb23b39e80b8b5938afb3aa4548ce0` is rejected and run
+  `32475420169` failed preflight. The complete new demonstrated set is confined
+  to malformed candidate breadth: invalid candidate CSV bytes and non-scalar
+  `sma200_signal` could still escape the production score builder. The same run
+  identified two tests retaining the superseded end-of-day cutoff, and review
+  required the snapshot chronology regression to invoke the real score builder.
+  One consolidated correction makes both malformed paths unavailable, extends
+  writer-to-score readback, and aligns only those two coupled expectations with
+  `D+1 00:00:00Z`. Direct adversarial and coupled tests pass; freeze one final
+  head for paired review and fresh H-tier evidence with no further broadening.
