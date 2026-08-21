@@ -4385,3 +4385,15 @@ existing application facade. Add only the direct builder regressions and require
 the focused architecture/button suite before one replacement head is frozen for
 paired review and fresh full H-tier evidence. Preserve financial logic,
 authority and `execution_allowed=false`.
+
+`FINAL GENERIC READBACK COMPATIBILITY CORRECTION` head
+`9dfceb03d3c7550c321908b51ca75135bffae20c` is approved by both exact-head
+reviewers, but hosted run `32478661469` failed Linux full tests on three
+deterministic coupled paths and was cancelled as stale. Publish the canonical
+benchmark strategy in result rows produced by older runner seams, fail closed
+when dashboard snapshot configuration is unavailable, and make the structural
+cache-corruption regression construct every required payload and sidecar before
+testing the loader failure. The exact failures and affected backtest suite pass;
+freeze one replacement head for paired review and fresh Linux, Windows,
+terminal, package and pilot evidence. Do not broaden persistence, financial
+logic, workflow, authority or `execution_allowed=false`.

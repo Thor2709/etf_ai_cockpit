@@ -919,6 +919,9 @@ def _export_pack(page: ft.Page, state: AppState) -> None:
 
 
 def _valid_model_pairs(state: AppState) -> int:
+    config = getattr(state.snapshot, "config", None)
+    if config is None:
+        return 0
     universe_revision = str(
         getattr(state.snapshot, "universe_revision", "")
         or getattr(state, "universe_cache_revision", "")
@@ -932,7 +935,7 @@ def _valid_model_pairs(state: AppState) -> int:
         getattr(state.snapshot, "prices", pd.DataFrame()),
         reference_context.identity,
     )
-    request_identity = configured_forecast_request_identity(state.snapshot.config)
+    request_identity = configured_forecast_request_identity(config)
     retained_candidate_binding = getattr(state.snapshot, "candidate_price_binding", None)
     candidate_price_binding = (
         retained_candidate_binding

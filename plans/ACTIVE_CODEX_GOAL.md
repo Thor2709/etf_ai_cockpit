@@ -3158,3 +3158,15 @@ next action and whether the requested outcome is actually complete.
   the existing application facade. Direct builder adversarial tests and the
   button/architecture boundary suite pass. Freeze one replacement head for
   final paired review and fresh H-tier evidence; no adjacent redesign.
+- Exact head `9dfceb03d3c7550c321908b51ca75135bffae20c` received APPROVE
+  verdicts from both independent reviewers. Hosted run `32478661469` passed
+  classifier, supply-chain and preflight validation, then Linux full tests
+  reproduced three coupled compatibility/readback failures; the remaining run
+  was cancelled and its evidence is stale. One consolidated correction binds
+  the benchmark strategy into legacy runner result rows before publication,
+  makes dashboard model-pair readback return zero when snapshot configuration
+  is absent, and upgrades the structural-corruption fixture to the complete
+  current atomic cache shape. The three exact failures and the affected
+  backtest suite pass locally. Freeze one replacement head for paired review
+  and fresh full H-tier evidence; preserve all financial, authority and
+  execution boundaries.

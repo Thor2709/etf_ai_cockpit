@@ -1825,7 +1825,9 @@ class BacktestService:
             )
             # Bind every runner result to the freshly resolved readback context
             # before publication, including older local runner seams.
-            report.metadata.update(_reference_binding(reference_context))
+            reference_binding = _reference_binding(reference_context)
+            report.metadata.update(reference_binding)
+            report.results["benchmark_strategy"] = reference_binding["benchmark_strategy"]
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
         run_id = settings_bound_run_id("backtest", settings_identity=settings_identity)

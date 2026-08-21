@@ -1395,11 +1395,22 @@ def test_backtest_cache_is_invalidated_when_structural_loader_raises(tmp_path, m
             for strategy in ("momentum_only", "signal_strategy", "quality_momentum")
         ]
     )
+    monkeypatch.setattr(services, "BACKTESTS_DIR", backtests)
+    monkeypatch.setattr(services, "load_prices", lambda: prices)
+    monkeypatch.setattr(services, "load_fundamental_evidence", lambda: fundamentals)
+    monkeypatch.setattr(services, "current_settings_revision", lambda: "settings-1")
+    service = services.BacktestService(config, universe_revision="universe-1")
+    reference_context = services._backtest_calculation_context(
+        config, service.reference_context, prices
+    )
+    binding = services._reference_binding(reference_context)
+    results["benchmark_strategy"] = binding["benchmark_strategy"]
     results.to_csv(backtests / "backtest_results.csv", index=False)
     pd.DataFrame({"signal_strategy": [100.0]}, index=pd.to_datetime(["2026-07-10"])).to_csv(
         backtests / "equity_curves.csv"
     )
     evidence.to_csv(backtests / "quality_momentum_evidence.csv", index=False)
+    pd.DataFrame([{"event": "none"}]).to_csv(backtests / "trade_log.csv", index=False)
     pd.DataFrame(
         [{
             "date": "2026-07-10",
@@ -1412,15 +1423,23 @@ def test_backtest_cache_is_invalidated_when_structural_loader_raises(tmp_path, m
         "input_checksum": backtest_input_checksum(config, prices, fundamentals),
         "quality_momentum_strategy_version": QUALITY_MOMENTUM_VERSION,
         "quality_momentum_evidence_checksum": services.quality_momentum_evidence_checksum(evidence),
+        **binding,
     }
     (backtests / "backtest_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
 
-    monkeypatch.setattr(services, "BACKTESTS_DIR", backtests)
-    monkeypatch.setattr(services, "load_prices", lambda: prices)
-    monkeypatch.setattr(services, "load_fundamental_evidence", lambda: fundamentals)
-    monkeypatch.setattr(services, "current_settings_revision", lambda: "settings-1")
-    for path in (backtests / "backtest_results.csv", backtests / "equity_curves.csv"):
-        services._write_universe_cache_metadata(path, "universe-1", "settings-1")
+    for filename in (
+        "backtest_results.csv",
+        "equity_curves.csv",
+        "trade_log.csv",
+        "signal_log.csv",
+        "quality_momentum_evidence.csv",
+    ):
+        services._write_universe_cache_metadata(
+            backtests / filename,
+            "universe-1",
+            "settings-1",
+            reference_identity=reference_context.identity,
+        )
 
     loader_called = False
 
@@ -1431,7 +1450,6 @@ def test_backtest_cache_is_invalidated_when_structural_loader_raises(tmp_path, m
 
     monkeypatch.setattr(services, "_load_local_structural_evidence", raise_structural_corruption)
 
-    service = services.BacktestService(config, universe_revision="universe-1")
     assert service._load_cached_backtest() is None
     assert loader_called is True
 
