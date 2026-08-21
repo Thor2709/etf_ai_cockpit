@@ -1252,6 +1252,7 @@ class CanonicalBenchmarkRegistry:
                 if _definition_id(item) == selection.selected_id
                 and getattr(item, "version", None) == selection.version
                 and item.digest() == selection.content_hash
+                and getattr(item, "status", None) == "available"
             ]
             if len(matches) != 1:
                 raise BenchmarkReferenceError(

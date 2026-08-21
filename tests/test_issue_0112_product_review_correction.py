@@ -71,12 +71,15 @@ from etf_cockpit.core.config import load_config
 from etf_cockpit.data.sample_data import generate_sample_prices
 from etf_cockpit.core.types import ForecastResult
 from etf_cockpit.portfolio.benchmark_reference_contract import (
+    AnalysisDeclaration,
+    AnalysisResolution,
     BenchmarkDefinition,
     BenchmarkReferenceError,
     CashProxyDefinition,
     CanonicalBenchmarkRegistry,
     PeerSetDefinition,
     ReferencePortfolioDefinition,
+    Selection,
     load_canonical_benchmark_registry,
     unavailable_reference_projection as contract_unavailable_reference_projection,
 )
@@ -457,6 +460,7 @@ def _available_registry(
     *,
     benchmark_status: Literal["available", "unavailable"] = "available",
     cash_status: Literal["available", "unavailable"] = "available",
+    peer_status: Literal["available", "unavailable"] = "available",
 ) -> CanonicalBenchmarkRegistry:
     benchmark_constituents = (
         (benchmark_data_id,) if isinstance(benchmark_data_id, str) else benchmark_data_id
@@ -496,6 +500,7 @@ def _available_registry(
             peer_set_id="peers:test",
             hierarchy="asset",
             member_instrument_ids=("PEER",),
+            status=peer_status,
             **common,
         ),),
         reference_portfolios=(ReferencePortfolioDefinition(
@@ -509,6 +514,105 @@ def _available_registry(
             source_hashes=("a" * 64,),
         ),),
     )
+
+
+def _typed_context_with_registry_status(
+    unavailable_kind: Literal["benchmark", "cash", "peer"],
+) -> CanonicalReferenceContext:
+    registry = _available_registry(
+        benchmark_status="unavailable" if unavailable_kind == "benchmark" else "available",
+        cash_status="unavailable" if unavailable_kind == "cash" else "available",
+        peer_status="unavailable" if unavailable_kind == "peer" else "available",
+    )
+    benchmark = registry.benchmarks[0]
+    cash = registry.cash_proxies[0]
+    peer = registry.peer_sets[0]
+    reference = registry.reference_portfolios[0]
+    declaration = AnalysisDeclaration(
+        "analysis:typed-inconsistent",
+        "comparison",
+        "ETF",
+        "EUR",
+        1.0,
+        "2025-01-01",
+        "2025-12-31",
+        "2025-12-31T23:59:59Z",
+        benchmark.benchmark_id,
+        cash.proxy_id,
+        peer.peer_set_id,
+        (reference.portfolio_id,),
+    )
+    resolution = AnalysisResolution(
+        declaration,
+        Selection(
+            "benchmark", "available", benchmark.benchmark_id, benchmark.version, None,
+            content_hash=benchmark.digest(),
+        ),
+        Selection(
+            "cash", "available", cash.proxy_id, cash.version, None,
+            content_hash=cash.digest(),
+        ),
+        Selection(
+            "peer", "available", peer.peer_set_id, peer.version, None,
+            content_hash=peer.digest(),
+        ),
+        (reference,),
+        (),
+    )
+    return CanonicalReferenceContext(registry, resolution)
+
+
+@pytest.mark.parametrize("unavailable_kind", ["benchmark", "cash", "peer"])
+def test_typed_context_cannot_project_registry_record_marked_unavailable(
+    unavailable_kind: Literal["benchmark", "cash", "peer"],
+) -> None:
+    context = _typed_context_with_registry_status(unavailable_kind)
+
+    assert context.projection["status"] == "unavailable"
+    assert context.projection["blockers"] == ["reference_projection_invalid"]
+    assert _reference_binding(context)["benchmark_strategy"] == "unavailable"
+    assert context.benchmark_data_id is None
+
+
+def test_feature_and_forecast_consumers_cannot_use_unavailable_typed_benchmark(
+    monkeypatch,
+) -> None:
+    context = _typed_context_with_registry_status("benchmark")
+    prices = pd.DataFrame([
+        {"date": "2025-01-01", "etf_id": "ETF", "adjusted_close": 100.0},
+        {"date": "2025-01-02", "etf_id": "ETF", "adjusted_close": 101.0},
+        {"date": "2025-01-01", "etf_id": "BENCH", "adjusted_close": 100.0},
+        {"date": "2025-01-02", "etf_id": "BENCH", "adjusted_close": 102.0},
+    ])
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        services_module,
+        "compute_features",
+        lambda frame, benchmark_etf_id=None: captured.update(
+            feature_benchmark=benchmark_etf_id,
+        ) or frame,
+    )
+    monkeypatch.setattr(services_module, "write_features", lambda *_args, **_kwargs: None)
+    services_module.FeatureService(load_config(), reference_context=context).compute_features(
+        date(2025, 1, 2), prices,
+    )
+
+    def capture_baseline(*_args, **kwargs):
+        captured["forecast_benchmark_returns"] = kwargs["benchmark_returns"]
+        return []
+
+    monkeypatch.setattr(services_module, "baseline_forecast", capture_baseline)
+    forecast_service = services_module.ForecastService(load_config(), reference_context=context)
+    monkeypatch.setattr(forecast_service, "_run_timesfm_forecasts", lambda *_args: [])
+    monkeypatch.setattr(forecast_service, "_run_toto_forecasts", lambda *_args: [])
+    monkeypatch.setattr(forecast_service, "_write_forecasts", lambda *_args, **_kwargs: None)
+    forecast_service.run_forecasts(date(2025, 1, 2), ["ETF"], prices, horizons=[1])
+
+    assert captured == {
+        "feature_benchmark": None,
+        "forecast_benchmark_returns": None,
+    }
 
 
 def test_feature_and_forecast_pair_round_trip_rejects_payload_substitution(tmp_path) -> None:

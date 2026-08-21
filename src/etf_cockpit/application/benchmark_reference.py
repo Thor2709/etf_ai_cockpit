@@ -148,12 +148,34 @@ class CanonicalReferenceContext:
         selected_id = resolution.benchmark.selected_id
         if not selected_id:
             return None
+        cash_definitions = [
+            item
+            for item in self.registry.cash_proxies
+            if item.proxy_id == resolution.cash.selected_id
+            and item.version == resolution.cash.version
+            and item.digest() == resolution.cash.content_hash
+            and item.status == "available"
+        ]
+        if len(cash_definitions) != 1:
+            return None
+        if resolution.peer_set.status == "available":
+            peer_definitions = [
+                item
+                for item in self.registry.peer_sets
+                if item.peer_set_id == resolution.peer_set.selected_id
+                and item.version == resolution.peer_set.version
+                and item.digest() == resolution.peer_set.content_hash
+                and item.status == "available"
+            ]
+            if len(peer_definitions) != 1:
+                return None
         definitions = [
             item
             for item in self.registry.benchmarks
             if item.benchmark_id == selected_id
             and item.version == resolution.benchmark.version
             and item.digest() == resolution.benchmark.content_hash
+            and item.status == "available"
         ]
         if len(definitions) != 1:
             return None

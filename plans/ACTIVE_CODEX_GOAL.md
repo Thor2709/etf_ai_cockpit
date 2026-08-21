@@ -3204,3 +3204,14 @@ next action and whether the requested outcome is actually complete.
   to be available. Direct benchmark and cash regressions pass; freeze one final
   replacement head for paired review and fresh H-tier evidence without any
   additional scope.
+- Exact head `1446f39ed7c3209560c6062fa2f30f271c127455` is rejected by both
+  independent reviewers, and run `32488839153` is cancelled/stale. Both
+  reproduced the same direct typed-context defect: an `AnalysisResolution`
+  claiming availability could bind to digest-matched benchmark, cash or peer
+  records whose authoritative registry status is unavailable. The one bounded
+  correction requires available registry records at projection and direct
+  benchmark-id boundaries and prevents an unavailable projection from selecting
+  the canonical-price-series strategy. Direct benchmark/cash/peer regressions
+  and both complete ISSUE-0112 contract suites pass; freeze one replacement
+  head for paired review and fresh full H-tier evidence. No adjacent authority,
+  persistence, workflow or financial formula changes are permitted.

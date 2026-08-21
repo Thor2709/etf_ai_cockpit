@@ -622,7 +622,11 @@ def _reference_binding(reference_context: CanonicalReferenceContext) -> dict[str
     projection = reference_context.projection
     identity = reference_context.identity
     identity_hash = _reference_identity_hash(identity)
-    strategy = "canonical_price_series" if reference_context.benchmark_data_id else "unavailable"
+    strategy = (
+        "canonical_price_series"
+        if projection.get("status") == "available" and reference_context.benchmark_data_id
+        else "unavailable"
+    )
     strategy_identity = {
         "strategy": strategy,
         "benchmark_data_id": reference_context.benchmark_data_id,

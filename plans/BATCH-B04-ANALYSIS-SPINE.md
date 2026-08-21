@@ -4431,3 +4431,14 @@ cash record whose authoritative status is unavailable. Require `available` on
 both uniquely matched records and add the exact two regressions. Freeze one
 final replacement head for paired review and fresh Linux, Windows, terminal,
 package and pilot evidence; make no adjacent change.
+
+`FINAL TYPED CONTEXT STATUS BINDING` head
+`1446f39ed7c3209560c6062fa2f30f271c127455` is rejected by both reviewers and
+run `32488839153` is cancelled/stale. A directly constructed typed resolution
+could claim availability over digest-matched benchmark, cash or peer records
+whose authoritative status was unavailable. Require available registry records
+in the projector and direct benchmark-id path, and keep the strategy unavailable
+when projection validation fails. Direct benchmark/cash/peer regressions and
+both complete ISSUE-0112 contract suites pass. Freeze one replacement head for
+paired review and fresh Linux, Windows, terminal, package and pilot evidence;
+preserve `execution_allowed=false` and make no adjacent architecture change.
