@@ -83,6 +83,7 @@ from etf_cockpit.data.trade_candidate_analysis import (
 from etf_cockpit.data.validation import validate_holdings, validate_prices
 from etf_cockpit.data.yfinance_provider import YFinanceProvider
 from etf_cockpit.data.universe_store import load_universe
+from etf_cockpit.features.cash_comparison import adjusted_endpoint_available_at
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.models.baseline_models import baseline_forecast
 from etf_cockpit.models.forecast_scores import (
@@ -2111,10 +2112,7 @@ def _benchmark_reference_snapshot_inputs(
         end_date = as_of_timestamp.date()
         start_date = (as_of_timestamp - pd.DateOffset(years=1)).date()
         base_currency = config.targets.base_currency.strip().upper()
-        decision_time = (
-            pd.Timestamp(end_date, tz="UTC")
-            + pd.Timedelta(hours=23, minutes=59, seconds=59)
-        ).isoformat()
+        decision_time = adjusted_endpoint_available_at(end_date)
         no_trade = _current_portfolio_reference(
             config,
             holdings,

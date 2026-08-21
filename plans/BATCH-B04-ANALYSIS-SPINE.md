@@ -4346,3 +4346,16 @@ instruction above to retain 240 seconds: exact-head run `32470544434`
 subsequently demonstrated that the unchanged selected collection can exceed
 that bound. The current checkpoint is the consolidated four-finding correction
 and a finite 360-second bound only.
+
+`FINAL SNAPSHOT CASH CHRONOLOGY CORRECTION` head
+`7f121763597cd0b06d08d7821f405eb9f8658865` is rejected by both final reviewers,
+and run `32473727621` is cancelled/stale. Snapshot reference publication used
+`D 23:59:59` for an adjusted endpoint that becomes available at
+`D+1 00:00:00Z`, and callers supplied a date-only observation. Align the writer
+with the existing conservative endpoint-availability instant and pass its full
+canonical timestamp through every production score caller. Add the exact
+snapshot-writer-to-score-readback regression and make the positive local-curve
+test consume the actual final endpoint. Do not alter financial formulas,
+availability policy, validation architecture, authority or
+`execution_allowed=false`; freeze one final replacement head for paired review
+and fresh full H-tier evidence.

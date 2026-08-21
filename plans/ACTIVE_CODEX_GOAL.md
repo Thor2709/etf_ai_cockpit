@@ -3126,3 +3126,14 @@ next action and whether the requested outcome is actually complete.
   working-tree correction and direct regressions now cover those four findings;
   freeze a replacement exact head only after focused verification and then run
   paired review plus fresh full H-tier evidence.
+- Exact head `7f121763597cd0b06d08d7821f405eb9f8658865` is rejected by both
+  final reviewers, and run `32473727621` is cancelled/stale. Both reproduced
+  one production chronology conflict: snapshot reference inputs declared the
+  adjusted-price end date at `D` but the decision at `D 23:59:59`, one second
+  before the endpoint becomes conservatively available, while score callers
+  supplied only the date label. The single bounded correction declares the
+  decision at the existing `D+1 00:00:00Z` availability instant and propagates
+  that full canonical timestamp through all four score callers. A real snapshot
+  reference writer-to-score readback and the positive local-curve path now use
+  the actual final endpoint and pass focused validation. Freeze one replacement
+  head for paired review and fresh full H-tier evidence; make no adjacent change.

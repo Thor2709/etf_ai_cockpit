@@ -1366,8 +1366,8 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
     instrument_prices["date"] = pd.to_datetime(instrument_prices["date"], utc=True)
     instrument_prices = instrument_prices.sort_values("date").tail(121)
     start = instrument_prices.iloc[0]["date"].date()
-    observation_time = instrument_prices.iloc[-1]["date"] + pd.Timedelta(hours=12)
-    end = instrument_prices.iloc[-2]["date"].date()
+    end = instrument_prices.iloc[-1]["date"].date()
+    observation_time = pd.Timestamp(adjusted_endpoint_available_at(end))
     horizon = (end - start).days / 365.0
     available = (pd.Timestamp(start, tz="UTC") - pd.Timedelta(days=2)).isoformat()
 

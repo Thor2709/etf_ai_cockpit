@@ -24,6 +24,7 @@ from etf_cockpit.application.portfolio_sandbox import (
 from etf_cockpit.application import portfolio_sandbox as sandbox_store
 from etf_cockpit.core.config import load_config
 from etf_cockpit.data.local_storage import StorageRevisionConflict, TransactionalStore
+from etf_cockpit.features.cash_comparison import adjusted_endpoint_available_at
 from etf_cockpit.portfolio.sandbox import holdings_checksum
 from etf_cockpit.portfolio.sandbox import select_holdings_view
 from etf_cockpit.portfolio.benchmark_reference_contract import (
@@ -37,6 +38,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     VwceListingObservation,
     declare_reference_portfolios,
 )
+from etf_cockpit.signals import simple_scores as simple_scores_module
 
 
 def _benchmark_registry(source_hash: str) -> CanonicalBenchmarkRegistry:
@@ -751,6 +753,36 @@ def test_snapshot_inputs_select_newest_pit_anchor_and_replay_listing_history(mon
     )
     assert replay.status == "available"
     assert replay.observation_effective_at == revised_listing.effective_at
+
+
+def test_snapshot_cash_chronology_is_accepted_by_score_readback(monkeypatch) -> None:
+    registry = _canonical_reference_registry(_vwce_anchor())
+    monkeypatch.setattr(
+        services,
+        "load_canonical_benchmark_registry",
+        lambda path: registry,
+    )
+
+    inputs = services._benchmark_reference_snapshot_inputs(
+        load_config(),
+        "2026-07-18",
+    )
+    context = services._reference_context_from_inputs(
+        inputs,
+        purpose="comparison",
+        analysis_id="snapshot-cash-chronology",
+    )
+    request = simple_scores_module._canonical_cash_request(
+        context.projection,
+        context.identity,
+    )
+
+    expected_observation = adjusted_endpoint_available_at("2026-07-18")
+    assert inputs["end_date"] == "2026-07-18"
+    assert inputs["decision_time"] == expected_observation
+    assert request is not None
+    assert request["end_date"] == "2026-07-18"
+    assert request["decision_time"] == pd.Timestamp(expected_observation).isoformat()
 
 
 def test_snapshot_inputs_fail_closed_only_on_true_latest_anchor_tie(monkeypatch) -> None:

@@ -28,7 +28,7 @@ def comparison_page(page: ft.Page, state: AppState) -> ft.Control:
         benchmark_reference=reference_context.projection,
         reference_identity=reference_context.identity,
         peer_member_ids=reference_context.peer_member_ids,
-        cash_observation_time=state.snapshot.data_report.as_of_date,
+        cash_observation_time=state.snapshot.benchmark_reference_decision_time,
     )
     if not scores:
         return ft.Column(
