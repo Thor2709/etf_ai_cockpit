@@ -4695,3 +4695,13 @@ section or alternative. Cover only the three reproduced paths, rerun the
 affected suite once, and freeze a replacement for paired review and fresh
 H-tier evidence. Lifecycle state and `execution_allowed=false` remain
 unchanged.
+
+`ISSUE-0046 FINAL CANONICAL CUTOFF BOUNDARY` head
+`4b7520fd4ff4f2fbaabf995436f4a85860002fde` is rejected by both reviewers;
+run `32543524148` is cancelled/stale. Reject a supplied malformed benchmark
+data identity before column aliasing, use the strictest valid explicit cutoff
+from the canonical reference, and apply chronology checks before returning
+pending or unavailable sections. Add only the three reproduced regressions,
+rerun the affected suite once, and freeze the replacement for paired review
+and fresh H-tier evidence. Preserve lifecycle state and
+`execution_allowed=false`.

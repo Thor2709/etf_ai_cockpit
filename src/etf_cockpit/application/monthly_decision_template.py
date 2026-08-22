@@ -475,12 +475,18 @@ def _normalise_section(
             f"{name}_invalid",
             f"{name}_financial_invalid",
         ]
+    errors = _evidence_contract_errors(item, cutoff=cutoff)
     if status in {"unavailable", "pending"}:
         if not _text(item.get("reason")):
             return unavailable_monthly_evidence(f"{name}_reason_unavailable"), [f"{name}_invalid"]
+        if errors:
+            return unavailable_monthly_evidence(f"{name}_evidence_invalid"), [
+                f"{name}_invalid",
+                *(f"{name}_{error}" for error in errors),
+            ]
         item["execution_allowed"] = False
         return item, [f"{name}_unavailable"]
-    errors = [*_evidence_contract_errors(item, cutoff=cutoff), *validator(item, status == "available")]
+    errors.extend(validator(item, status == "available"))
     if errors:
         return unavailable_monthly_evidence(f"{name}_evidence_invalid"), [
             f"{name}_invalid",
@@ -883,11 +889,16 @@ def _reference_cutoff(reference: Mapping[str, object]) -> datetime | None:
     analysis = reference.get("analysis")
     if not isinstance(analysis, Mapping):
         return None
+    cutoffs: list[datetime] = []
     for field in ("decision_time", "knowledge_cutoff", "decision", "knowledge_at", "end_date"):
-        parsed = _timestamp(analysis.get(field))
-        if parsed is not None:
-            return parsed
-    return None
+        raw = analysis.get(field)
+        if raw in (None, ""):
+            continue
+        parsed = _timestamp(raw)
+        if parsed is None:
+            return None
+        cutoffs.append(parsed)
+    return min(cutoffs) if cutoffs else None
 
 
 def _reference_identity(value: object) -> tuple[object, object, object] | None:

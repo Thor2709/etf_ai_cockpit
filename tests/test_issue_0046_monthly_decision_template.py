@@ -320,6 +320,45 @@ def test_known_at_must_not_exceed_any_supplied_cutoff() -> None:
     assert any("future_known" in blocker for blocker in result.blockers)
 
 
+def test_known_at_must_not_exceed_any_canonical_reference_cutoff() -> None:
+    evidence = deepcopy(_full_evidence())
+    reference = _reference()
+    reference["analysis"].update(  # type: ignore[union-attr]
+        decision_time="2026-08-21T23:00:00Z",
+        knowledge_cutoff="2026-08-21T10:00:00Z",
+    )
+
+    result = build_monthly_decision_template(
+        benchmark_reference=reference,
+        benchmark_registry=_TEST_REGISTRY,
+        **evidence,
+    )
+
+    assert result.status == "unavailable"
+    assert any("future_known" in blocker for blocker in result.blockers)
+
+
+def test_non_available_section_still_rejects_future_known_evidence() -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence["events"] = {
+        "status": "unavailable",
+        "reason": "not_produced",
+        "as_of": "2026-08-21",
+        "known_at": "2026-08-22T00:00:00Z",
+        "execution_allowed": False,
+    }
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert result.projection()["events"] == {
+        "status": "unavailable",
+        "reason": "events_evidence_invalid",
+        "execution_allowed": False,
+    }
+    assert "events_future_known" in result.blockers
+
+
 def test_available_reference_without_authoritative_registry_fails_closed() -> None:
     evidence = _full_evidence()
 
@@ -651,6 +690,34 @@ def test_backtest_adapter_does_not_coerce_forged_checksum_identity() -> None:
     assert all(item["status"] == "unavailable" for item in alternatives.values())  # type: ignore[union-attr]
     assert result.status != "available"
     assert "return=+" not in rendered
+
+
+def test_backtest_adapter_does_not_coerce_forged_benchmark_identity() -> None:
+    class ForgedBenchmarkId:
+        def __str__(self) -> str:
+            return "benchmark"
+
+    curves = pd.DataFrame(
+        {name: [1.0, value] for name, value in {"basket": 1.07, "benchmark": 1.05, "cash": 1.03, "no_action": 1.04}.items()},
+        index=pd.to_datetime(["2026-07-31", "2026-08-21"]),
+    )
+    metadata = {
+        "benchmark_data_id": ForgedBenchmarkId(),
+        "input_checksum": _SOURCE_DIGEST,
+        "source_id": "backtest:42",
+        "source_dataset": "backtest:2026-07-31:2026-08-21",
+        "backtest_version": "backtest.equity.v1",
+        "known_at": "2026-08-21T12:00:00Z",
+        "trust": True,
+        "source_bound": True,
+    }
+
+    alternatives = backtests._monthly_backtest_alternatives(
+        SimpleNamespace(equity_curves=curves), metadata, reference=_reference()
+    )
+
+    assert all(item["status"] == "unavailable" for item in alternatives.values())  # type: ignore[union-attr]
+    assert all(item["reason"] == "backtest_monthly_source_identity_invalid" for item in alternatives.values())  # type: ignore[union-attr]
 
 
 @pytest.mark.parametrize("suffix", ["replay", "next-session"])

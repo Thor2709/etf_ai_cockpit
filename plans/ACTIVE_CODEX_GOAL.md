@@ -3455,3 +3455,12 @@ next action and whether the requested outcome is actually complete.
   rerun the affected suite once, and freeze a replacement head for fresh paired
   review and H-tier evidence. Preserve lifecycle state and
   `execution_allowed=false`.
+- ISSUE-0046 head `4b7520fd4ff4f2fbaabf995436f4a85860002fde`
+  is rejected by both reviewers; run `32543524148` is cancelled/stale. The
+  consolidated correction rejects a supplied non-string benchmark column
+  identity before alias selection, enforces the strictest of every explicit
+  canonical reference cutoff, and validates chronology before preserving
+  pending or unavailable sections. Direct regressions cover all three
+  reproduced paths. Freeze one replacement head for paired exact-head review
+  and fresh H-tier evidence; add no adjacent evidence or workflow changes and
+  preserve lifecycle state and `execution_allowed=false`.

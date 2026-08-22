@@ -352,9 +352,17 @@ def _monthly_backtest_alternatives(
             name: unavailable_monthly_evidence("backtest_monthly_comparison_window_unsorted")
             for name in ("basket", "benchmark", "cash", "no_action")
         }
+    benchmark_data_id = metadata.get("benchmark_data_id")
+    if benchmark_data_id is not None and (
+        not isinstance(benchmark_data_id, str) or not benchmark_data_id.strip()
+    ):
+        return {
+            name: unavailable_monthly_evidence("backtest_monthly_source_identity_invalid")
+            for name in ("basket", "benchmark", "cash", "no_action")
+        }
     aliases = {
         "basket": ("basket", "signal_strategy"),
-        "benchmark": (str(metadata.get("benchmark_data_id") or ""), "benchmark"),
+        "benchmark": (benchmark_data_id or "", "benchmark"),
         "cash": ("cash", "cash_proxy"),
         "no_action": ("no_action", "buy_and_hold"),
     }
