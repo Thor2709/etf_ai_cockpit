@@ -107,6 +107,7 @@ def test_performance_metrics_tail_path_does_not_bridge_invalid_equity_gap() -> N
     assert metrics["largest_negative_period_return"] is None
     assert metrics["loss_cluster_max_days"] == 0
     assert metrics["diagnostic_status"] == "available"
+    assert metrics["max_drawdown"] == 0.0
     assert metrics["cagr"] == pytest.approx((81.0 / 100.0) ** 126 - 1.0)
 
 
@@ -173,7 +174,7 @@ def test_backtest_rejects_insufficient_complete_adjusted_price_history() -> None
 def test_backtest_report_makes_data_and_execution_assumptions_explicit() -> None:
     config = load_config()
     prices = generate_sample_prices(config, periods=420, end_date=pd.Timestamp("2026-06-26").date())
-    missing_date = pd.to_datetime(prices["date"]).sort_values().iloc[280]
+    missing_date = pd.to_datetime(prices["date"]).drop_duplicates().sort_values().iloc[280]
     prices = prices.loc[~((pd.to_datetime(prices["date"]) == missing_date) & (prices["etf_id"] == config.universe.enabled_ids[0]))].copy()
 
     report = run_backtest(config, prices, rebalance_frequency_days=42)
@@ -186,6 +187,14 @@ def test_backtest_report_makes_data_and_execution_assumptions_explicit() -> None
     assert report.metadata["benchmark_strategy"] == "unavailable"
     assert report.metadata["benchmark_data_id"] is None
     assert report.metadata["data_status"] == "warning"
+    assert missing_date in report.equity_curves.index
+    assert report.equity_curves.loc[missing_date].isna().all()
+    next_date = report.equity_curves.index[report.equity_curves.index.get_loc(missing_date) + 1]
+    observed_returns = report.equity_curves["buy_and_hold"].pct_change(fill_method=None)
+    assert pd.isna(observed_returns.loc[missing_date])
+    assert pd.isna(observed_returns.loc[next_date])
+    buy_and_hold = report.results.loc[report.results["strategy_name"] == "buy_and_hold"].iloc[0]
+    assert buy_and_hold["max_drawdown"] == performance_metrics(report.equity_curves["buy_and_hold"])["max_drawdown"]
     required_trade_fields = {
         "signal_date",
         "execution_date",

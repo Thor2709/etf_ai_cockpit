@@ -12,9 +12,13 @@ STRESS_QUANTILE = 0.75
 
 
 def max_drawdown(equity: pd.Series) -> float:
-    running_peak = equity.cummax()
-    drawdown = equity / running_peak - 1.0
-    return float(drawdown.min())
+    raw = _normalise_series(equity)
+    worst = 0.0
+    for segment in _valid_segments(raw):
+        running_peak = segment.cummax()
+        drawdown = segment / running_peak - 1.0
+        worst = min(worst, float(drawdown.min()))
+    return worst
 
 
 def tail_event_diagnostics(
@@ -386,7 +390,7 @@ def performance_metrics(
     sharpe = float((returns.mean() * TRADING_DAYS_PER_YEAR) / vol) if vol > 0 else 0.0
     downside = returns[returns < 0].std() * np.sqrt(TRADING_DAYS_PER_YEAR)
     sortino = float((returns.mean() * TRADING_DAYS_PER_YEAR) / downside) if downside and downside > 0 else 0.0
-    mdd = max_drawdown(equity)
+    mdd = max_drawdown(raw_equity)
     calmar = float(cagr / abs(mdd)) if mdd < 0 else 0.0
     information = 0.0
     if benchmark is not None and not benchmark.empty:

@@ -4908,3 +4908,15 @@ and inferred volatility, and gives no-loss concentration its own explicit
 status/reason on Backtests and Instrument Detail. Adversarial and complete
 affected local evidence pass. Freeze one replacement head for both reviews and
 a fresh full package gate while preserving `execution_allowed=false`.
+
+Replacement ISSUE-0049 head
+`480f7e53cde41f158841babf550b94c25c9e11a4` is rejected only by final risk
+review; its hosted run `32567298371` is cancelled and stale. The newly
+demonstrated production interaction is now covered without adjacent changes:
+the engine retains incomplete sessions as explicit diagnostic gaps, and the
+aggregate maximum drawdown uses the same contiguous-valid-segment boundary as
+the tail window. Production-path and direct metric regressions plus the full
+affected application validation, offline smoke, registry, compile, Ruff and
+diff checks pass. Freeze one final exact head for paired review and the fresh
+cadence-required package gate. Preserve canonical `implemented_initially` and
+`execution_allowed=false`.

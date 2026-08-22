@@ -582,9 +582,13 @@ def run_backtest(
                         }
                     )
 
-    equity_curves = pd.DataFrame({name: values for name, values in equity.items()}, index=index_values)
+    calculation_equity_curves = pd.DataFrame({name: values for name, values in equity.items()}, index=index_values)
+    diagnostic_index = selected_raw.loc[
+        calculation_equity_curves.index.min() : calculation_equity_curves.index.max()
+    ].index
+    equity_curves = calculation_equity_curves.reindex(diagnostic_index)
     benchmark = (
-        pivot.loc[equity_curves.index, canonical_benchmark_id]
+        pivot[canonical_benchmark_id].reindex(equity_curves.index)
         if canonical_benchmark_id is not None
         else None
     )
@@ -609,7 +613,7 @@ def run_backtest(
         if canonical_benchmark_id is None:
             metrics["information_ratio"] = None
         strategy_trades = [row for row in trade_rows if row["strategy"] == name]
-        returns_252d = equity_curves[name].pct_change(252)
+        returns_252d = equity_curves[name].pct_change(252, fill_method=None)
         metrics["n_walk_forward_periods"] = rebalance_count
         metrics["train_periods"] = start_index
         metrics["validation_periods"] = 0

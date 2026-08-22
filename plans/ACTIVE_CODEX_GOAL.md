@@ -3670,3 +3670,15 @@ performance-concentration status. Direct adversarial regressions and the
 complete affected local validation pass without retry. Freeze one replacement
 head for paired review and a fresh cadence-required full package gate;
 `execution_allowed=false` remains unchanged.
+
+The first corrected ISSUE-0049 head
+`480f7e53cde41f158841babf550b94c25c9e11a4` passed whole-diff review but was
+rejected by risk review after two production-path reproductions; hosted run
+`32567298371` is cancelled and stale. The final bounded correction preserves
+incomplete-session boundaries in the reported equity passed to diagnostics
+and makes aggregate maximum drawdown reset independently across each valid
+segment. Direct regressions, the complete affected application validation,
+offline smoke, registry, compile, Ruff and diff hygiene pass. Freeze the
+replacement exact head for paired final review and a fresh cadence-required
+full package gate; canonical status remains `implemented_initially` and
+`execution_allowed=false`.
