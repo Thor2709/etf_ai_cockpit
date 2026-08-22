@@ -348,6 +348,8 @@ FEATURE_DRIVER_COLUMNS = [
     "driver_text",
     "source_dataset",
     "source_span",
+    "source_vintage_hash",
+    "claim_hash",
     "as_of_date",
     "freshness_status",
     "missingness",

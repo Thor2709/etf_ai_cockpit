@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -27,6 +29,8 @@ FEATURE_DRIVER_COLUMNS = [
     "driver_text",
     "source_dataset",
     "source_span",
+    "source_vintage_hash",
+    "claim_hash",
     "as_of_date",
     "freshness_status",
     "missingness",
@@ -48,6 +52,9 @@ _NUMERIC_EVIDENCE_BOUNDS: dict[str, tuple[float | None, float | None]] = {
     "counterfactual_sensitivity": (None, None),
     "contribution": (None, None),
 }
+_SCORE_BOUNDS = (0.0, 10.0)
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_UNAVAILABLE_CLAIM = "unavailable (non-traceable claim; source provenance unavailable)."
 
 
 def build_feature_drivers(scores: pd.DataFrame | Iterable[Any], ledger: pd.DataFrame | None = None) -> pd.DataFrame:
@@ -73,7 +80,13 @@ def build_feature_drivers(scores: pd.DataFrame | Iterable[Any], ledger: pd.DataF
     frame["component"] = frame["component"].map(_text)
     if "normalised_score" not in frame.columns:
         frame["normalised_score"] = frame.get("normalised_score_10", frame.get("score_10"))
-    frame["normalised_score"] = pd.to_numeric(frame["normalised_score"], errors="coerce")
+    frame["normalised_score"] = pd.array(
+        [
+            _evidence_number(value, minimum=_SCORE_BOUNDS[0], maximum=_SCORE_BOUNDS[1])
+            for value in frame["normalised_score"]
+        ],
+        dtype="Float64",
+    )
     if "raw_metric" not in frame.columns:
         frame["raw_metric"] = frame.get("raw_metric_value", frame.get("raw_score"))
     if "source_id" not in frame.columns:
@@ -87,6 +100,8 @@ def build_feature_drivers(scores: pd.DataFrame | Iterable[Any], ledger: pd.DataF
         ("driver_text", ""),
         ("source_dataset", ""),
         ("source_span", "unavailable"),
+        ("source_vintage_hash", "unavailable"),
+        ("claim_hash", "unavailable"),
         ("as_of_date", ""),
         ("freshness_status", "unknown"),
         ("uncertainty", "unavailable"),
@@ -104,9 +119,17 @@ def build_feature_drivers(scores: pd.DataFrame | Iterable[Any], ledger: pd.DataF
             "coverage",
             "counterfactual_sensitivity",
             "contribution",
+            "driver_text",
+            "source_authority",
+            "source_span",
+            "source_vintage_hash",
+            "claim_hash",
         }:
             frame[column] = frame[column].map(_text).replace("", default)
     frame["authority"] = frame["authority"].map(_text).replace("", "unknown")
+    frame["source_authority"] = frame["source_authority"].map(_scalar_text).replace("", "unavailable")
+    frame["source_span"] = frame["source_span"].map(_scalar_text).replace("", "unavailable")
+    frame["source_vintage_hash"] = frame["source_vintage_hash"].map(_source_vintage_hash).replace("", "unavailable")
     frame["source_id"] = frame["source_id"].map(_text)
     frame["source_dataset"] = frame.apply(_source_dataset, axis=1)
     frame["as_of_date"] = frame["as_of_date"].map(_text)
@@ -115,10 +138,13 @@ def build_feature_drivers(scores: pd.DataFrame | Iterable[Any], ledger: pd.DataF
     _derive_peer_percentiles(frame)
     _normalise_numeric_evidence(frame)
     frame["uncertainty"] = frame["uncertainty"].map(_uncertainty)
-    frame["missingness"] = frame.apply(_missingness, axis=1)
+    frame["missingness"] = frame["normalised_score"].map(
+        lambda value: "missing" if pd.isna(value) else "not_missing"
+    )
     frame["conflict"] = frame.apply(_conflict, axis=1)
     frame["conflict_id"] = frame["conflict_id"].map(_text).replace("", "unavailable")
     frame["driver_text"] = frame.apply(_driver_text, axis=1)
+    frame["claim_hash"] = frame.apply(_claim_hash_for_row, axis=1)
     frame["authority_classification"] = frame["authority"].map(_authority_classification)
     frame["freshness_classification"] = frame["freshness_status"].map(_freshness_classification)
     frame["classification"] = frame.apply(_classification, axis=1)
@@ -157,7 +183,8 @@ def _as_frame(scores: pd.DataFrame | Iterable[Any]) -> pd.DataFrame:
                     "driver_text": getattr(component, "why", ""),
                     "source_id": getattr(component, "source_id", ""),
                     "source_span": canonical_row.get("source_span", getattr(component, "source_span", getattr(component, "exact_source_span", "unavailable"))),
-                    "as_of_date": getattr(component, "as_of_date", getattr(score, "latest_date", "")),
+                    "source_vintage_hash": getattr(canonical, "source_vintage_hash", None) or canonical_row.get("source_vintage_hash", "unavailable"),
+                    "as_of_date": getattr(component, "as_of_date", getattr(score, "latest_date", getattr(canonical, "decision_time", ""))),
                     "freshness_status": getattr(component, "freshness_status", "unknown"),
                     "peer_group": canonical_row.get("peer_group", getattr(component, "peer_group", "unavailable")),
                     "peer_percentile": canonical_row.get("peer_percentile", getattr(component, "peer_percentile", None)),
@@ -185,6 +212,7 @@ def _merge_ledger(frame: pd.DataFrame, ledger: pd.DataFrame) -> pd.DataFrame:
         column
         for column in (
             "source_id", "source_authority", "authority", "source_dataset", "source_span",
+            "source_vintage_hash", "claim_hash",
             "as_of_date", "freshness_status", "missingness", "conflict", "conflict_id",
             "contribution", "historical_contribution", "coverage", "uncertainty",
             "interaction", "counterfactual_sensitivity", "peer_group", "peer_percentile",
@@ -195,6 +223,7 @@ def _merge_ledger(frame: pd.DataFrame, ledger: pd.DataFrame) -> pd.DataFrame:
     merged = frame.merge(source, on=keys, how="left", suffixes=("", "_ledger"))
     for column in (
         "source_id", "authority", "source_authority", "source_dataset", "source_span",
+        "source_vintage_hash", "claim_hash",
         "as_of_date", "freshness_status", "missingness", "conflict", "conflict_id",
         "contribution", "historical_contribution", "coverage", "uncertainty",
         "interaction", "counterfactual_sensitivity", "peer_group", "peer_percentile",
@@ -224,6 +253,7 @@ def _normalise_evidence_columns(frame: pd.DataFrame) -> None:
         "counterfactual_sensitivity": ("counterfactual", "counterfactual_effect"),
         "source_span": ("exact_source_span", "citation_span"),
         "source_authority": ("authority_source",),
+        "source_vintage_hash": ("vintage_hash", "canonical_source_vintage_hash"),
         "conflict": ("conflict_status",),
         "conflict_id": ("conflict_reference",),
         "contribution": ("canonical_contribution_raw",),
@@ -244,11 +274,22 @@ def _derive_peer_percentiles(frame: pd.DataFrame) -> None:
 
     if "peer_percentile" not in frame.columns or "peer_group" not in frame.columns:
         return
-    values = pd.to_numeric(frame["normalised_score"], errors="coerce")
+    values = frame["normalised_score"]
     groups = frame["peer_group"].map(_text)
     components = frame["component"].map(_text)
-    for (component, peer_group), indices in frame.groupby([components, groups], sort=False).groups.items():
-        if not component or not peer_group or peer_group.casefold() in {"unknown", "unavailable"}:
+    dates = frame["as_of_date"].map(_scalar_text)
+    vintages = frame["source_vintage_hash"].map(_source_vintage_hash)
+    frame["peer_percentile"] = None
+    for (component, peer_group, as_of_date, source_vintage_hash), indices in frame.groupby(
+        [components, groups, dates, vintages], sort=False, dropna=False
+    ).groups.items():
+        if (
+            not component
+            or not peer_group
+            or peer_group.casefold() in {"unknown", "unavailable"}
+            or not as_of_date
+            or not _SHA256_RE.fullmatch(str(source_vintage_hash or ""))
+        ):
             continue
         valid = [index for index in indices if pd.notna(values.loc[index])]
         if len(valid) < 2:
@@ -302,9 +343,6 @@ def _uncertainty(value: object) -> str:
 
 
 def _missingness(row: pd.Series) -> str:
-    explicit = _text(row.get("missingness"))
-    if explicit:
-        return explicit
     return "missing" if _text(row.get("direction")) == "missing" else "not_missing"
 
 
@@ -373,15 +411,73 @@ def _flags(row: pd.Series) -> str:
 
 
 def _driver_text(row: pd.Series) -> str:
-    existing = _text(row.get("driver_text"))
-    if existing:
-        return existing
-    component = _text(row.get("component")) or "component"
-    direction = _text(row.get("direction"))
-    score = row.get("normalised_score")
-    if direction == "missing":
-        return f"{component}: unavailable (N/A); informational only."
-    return f"{component}: {direction} driver at {float(score):.1f}/10; informational only."
+    source_vintage_hash = _source_vintage_hash(row.get("source_vintage_hash"))
+    source_span = _scalar_text(row.get("source_span"))
+    claim = deterministic_driver_claim(row.get("component"), row.get("normalised_score"))
+    if claim and (source_vintage_hash or source_span):
+        return claim
+    if not claim:
+        return "unavailable (non-traceable claim; score unavailable)."
+    return _UNAVAILABLE_CLAIM
+
+
+def deterministic_driver_claim(component: object, score: object) -> str:
+    component_text = _scalar_text(component) or "component"
+    number = _evidence_number(score, minimum=_SCORE_BOUNDS[0], maximum=_SCORE_BOUNDS[1])
+    if number is None:
+        return ""
+    return f"{component_text}: observed score {number:.1f}/10 in the bound evidence; descriptive only."
+
+
+def _claim_hash_for_row(row: pd.Series) -> str:
+    claim = deterministic_driver_claim(row.get("component"), row.get("normalised_score"))
+    source_vintage_hash = _source_vintage_hash(row.get("source_vintage_hash"))
+    source_span = _scalar_text(row.get("source_span"))
+    if not claim or not (source_vintage_hash or source_span):
+        return "unavailable"
+    return claim_binding_hash(claim, source_vintage_hash, source_span)
+
+
+def claim_binding_hash(claim: str, source_vintage_hash: str | None, source_span: str | None) -> str:
+    payload = json.dumps(
+        {
+            "claim": claim,
+            "source_span": source_span or "unavailable",
+            "source_vintage_hash": source_vintage_hash or "unavailable",
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def normalise_bound_claim(
+    value: object,
+    *,
+    component: object,
+    score: object,
+    source_vintage_hash: object,
+    source_span: object,
+    claim_hash: object,
+    require_claim_hash: bool,
+) -> tuple[str, str]:
+    """Return only the deterministic claim bound to validated provenance."""
+
+    vintage = _source_vintage_hash(source_vintage_hash)
+    span = _scalar_text(source_span)
+    claim = deterministic_driver_claim(component, score)
+    if not claim:
+        return "unavailable (non-traceable claim; score unavailable).", "unavailable"
+    if not (vintage or span):
+        return _UNAVAILABLE_CLAIM, "unavailable"
+    supplied_claim = value.strip() if isinstance(value, str) else ""
+    if supplied_claim != claim:
+        return "unavailable (non-traceable claim; claim content inconsistent).", "unavailable"
+    expected = claim_binding_hash(claim, vintage, span)
+    supplied = _source_vintage_hash(claim_hash)
+    if require_claim_hash and supplied != expected:
+        return "unavailable (non-traceable claim; claim binding unavailable).", "unavailable"
+    return claim, expected
 
 
 def _source_dataset(row: pd.Series) -> str:
@@ -405,3 +501,15 @@ def _text(value: object) -> str:
     if isinstance(value, Mapping):
         return json.dumps(value, sort_keys=True, default=str, separators=(",", ":"))
     return str(value).strip()
+
+
+def _scalar_text(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    return "" if text.casefold() in {"", "unavailable", "nan", "none", "<na>"} else text
+
+
+def _source_vintage_hash(value: object) -> str:
+    text = _scalar_text(value)
+    return text if _SHA256_RE.fullmatch(text) else ""

@@ -22,6 +22,7 @@ from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.identity_master import IdentityMasterStore, IdentitySourceRow
 from etf_cockpit.data.instrument_identity import IdentityClaim
 from etf_cockpit.services import build_snapshot
+from etf_cockpit.signals.feature_drivers import claim_binding_hash, deterministic_driver_claim
 from etf_cockpit.signals.simple_scores import load_simple_scoreboard
 
 
@@ -314,10 +315,14 @@ def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, m
     snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]
     monkeypatch.setattr(selector, "FEATURE_DRIVERS_PATH", tmp_path / "feature_drivers.parquet")
+    source_vintage_hash = "a" * 64
+    source_span = "prices.parquet#2026-07-10"
+    trend_claim = deterministic_driver_claim("trend", 8.5)
+    risk_claim = deterministic_driver_claim("risk", 2.0)
     pd.DataFrame(
         [
-            {"instrument_id": instrument_id, "component": "trend", "normalised_score": 8.5, "direction": "positive", "authority": "high", "freshness_status": "ok", "driver_text": "trend positive", "flags": "none"},
-            {"instrument_id": instrument_id, "component": "risk", "normalised_score": 2.0, "direction": "negative", "authority": "high", "freshness_status": "ok", "driver_text": "risk negative", "flags": "none"},
+            {"instrument_id": instrument_id, "component": "trend", "normalised_score": 8.5, "direction": "positive", "authority": "high", "source_authority": "vendor_unofficial", "freshness_status": "ok", "driver_text": trend_claim, "source_vintage_hash": source_vintage_hash, "source_span": source_span, "claim_hash": claim_binding_hash(trend_claim, source_vintage_hash, source_span), "flags": "none"},
+            {"instrument_id": instrument_id, "component": "risk", "normalised_score": 2.0, "direction": "negative", "authority": "high", "source_authority": "vendor_unofficial", "freshness_status": "ok", "driver_text": risk_claim, "source_vintage_hash": source_vintage_hash, "source_span": source_span, "claim_hash": claim_binding_hash(risk_claim, source_vintage_hash, source_span), "flags": "none"},
             {"instrument_id": instrument_id, "component": "value", "normalised_score": None, "direction": "missing", "authority": "unknown", "freshness_status": "unknown", "driver_text": "value unavailable", "flags": "missing|low_authority"},
             {"instrument_id": instrument_id, "component": "news", "normalised_score": 5.0, "direction": "mixed", "authority": "low", "freshness_status": "stale", "driver_text": "news stale", "flags": "stale|low_authority"},
         ]
@@ -330,8 +335,8 @@ def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, m
     assert "Missing / N/A" in texts
     assert "Low authority" in texts
     assert "Stale / partial" in texts
-    assert "trend positive" in texts
-    assert "risk negative" in texts
+    assert trend_claim in texts
+    assert risk_claim in texts
     assert "{'instrument_id'" not in " ".join(texts)
 
 
@@ -354,7 +359,7 @@ def test_instrument_detail_driver_panel_normalises_legacy_store_columns(tmp_path
 
     panel = selector._feature_driver_panel(instrument_id)
     assert panel["status"] == "available"
-    assert panel["top_positive"][0]["driver_text"] == "legacy trend"
+    assert panel["top_positive"][0]["driver_text"] == "unavailable (non-traceable claim; source provenance unavailable)."
     assert panel["low_authority"] == []
     assert panel["stale_or_partial"] == []
 

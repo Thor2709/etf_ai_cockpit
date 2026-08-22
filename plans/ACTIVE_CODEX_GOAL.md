@@ -3527,3 +3527,19 @@ issue in a disjoint worktree.
   the generic composer independently verifies it. Freeze the replacement only
   after producer/readback regressions and the affected suite pass; preserve
   lifecycle state and `execution_allowed=false`.
+
+`ISSUE-0047 CONSOLIDATED REVIEW CORRECTION` exact head
+`93d61e959f9a88f1ea95b0b34ba5ba95c7dab525` is rejected by both reviewers;
+run `32555947027` is stale despite passing its O-tier classifier, preflight,
+supply-chain and terminal summary. The complete demonstrated set is:
+unvalidated producer claim text could remain causal and unbound to canonical
+provenance; malformed persisted score/direction/provenance could bypass
+fail-closed grouping; and peer percentiles mixed dated source vintages. One
+combined correction now emits only deterministic descriptive claims bound to
+validated source-vintage hash/span, rejects malformed or inconsistent
+readback, recomputes direction/missingness from finite 0–10 scores and derives
+percentiles only within one dated vintage cohort. Direct adversarial and the
+complete affected feature-driver, persistence, selector and instrument-detail
+collection pass with Ruff and diff hygiene. Freeze one replacement exact head
+for paired review and fresh hosted evidence; preserve canonical status and
+`execution_allowed=false`.

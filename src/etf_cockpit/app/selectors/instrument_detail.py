@@ -57,6 +57,8 @@ from etf_cockpit.features.etf_economics import calculate_etf_liquidity
 from etf_cockpit.services import CockpitSnapshot
 from etf_cockpit.application.ui_facade import SimpleInstrumentScore
 from etf_cockpit.application.ui_facade import load_peer_cohort_projection
+from etf_cockpit.signals.feature_drivers import normalise_bound_claim
+from etf_cockpit.signals.feature_drivers import _derive_peer_percentiles, _scalar_text, _source_vintage_hash
 from etf_cockpit.application.ui_facade import load_financial_institution_projection
 from etf_cockpit.application.ui_facade import load_real_asset_projection
 from etf_cockpit.application.ui_facade import load_cyclical_projection
@@ -126,6 +128,7 @@ _FEATURE_DRIVER_NUMERIC_BOUNDS: dict[str, tuple[float | None, float | None]] = {
     "counterfactual_sensitivity": (None, None),
     "contribution": (None, None),
 }
+_FEATURE_DRIVER_SCORE_BOUNDS = (0.0, 10.0)
 
 
 def _unavailable(message: str) -> dict[str, Any]:
@@ -242,11 +245,19 @@ def _provenance_fields(row: Any) -> dict[str, Any]:
 
     getter = getattr(row, "get", None)
     if not callable(getter):
-        return {"source_id": "unavailable", "source_authority": "unavailable", "conflict_id": "unavailable"}
+        return {
+            "source_id": "unavailable",
+            "source_authority": "unavailable",
+            "conflict_id": "unavailable",
+            "source_vintage_hash": "unavailable",
+            "claim_hash": "unavailable",
+        }
     return {
         "source_id": _value_or(getter("source_id"), "unavailable"),
-        "source_authority": _value_or(getter("source_authority", getter("authority")), "unavailable"),
+        "source_authority": _scalar_text(getter("source_authority", getter("authority"))) or "unavailable",
         "conflict_id": _value_or(getter("conflict_id", getter("conflict_status")), "unavailable"),
+        "source_vintage_hash": _source_vintage_hash(getter("source_vintage_hash")) or "unavailable",
+        "claim_hash": _source_vintage_hash(getter("claim_hash")) or "unavailable",
     }
 
 
@@ -424,6 +435,7 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
         "counterfactual_sensitivity": ("counterfactual", "counterfactual_effect"),
         "source_span": ("exact_source_span", "citation_span"),
         "source_authority": ("authority_source",),
+        "source_vintage_hash": ("vintage_hash", "canonical_source_vintage_hash"),
         "conflict": ("conflict_status",),
         "conflict_id": ("conflict_reference",),
         "contribution": ("canonical_contribution_raw",),
@@ -439,6 +451,8 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
         ("driver_text", "Feature driver unavailable; informational only."),
         ("source_dataset", "unavailable"),
         ("source_span", "unavailable"),
+        ("source_vintage_hash", "unavailable"),
+        ("claim_hash", "unavailable"),
         ("as_of_date", "unavailable"),
         ("freshness_status", "unknown"),
         ("peer_group", "unavailable"),
@@ -461,9 +475,17 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
                 result[column].notna() & result[column].astype(str).str.strip().ne(""),
                 default,
             )
-    if "direction" not in result.columns:
-        score = pd.to_numeric(result["normalised_score"], errors="coerce")
-        result["direction"] = score.map(lambda value: "missing" if pd.isna(value) else "positive" if value >= 6 else "negative" if value <= 4 else "mixed")
+    score = result["normalised_score"].map(
+        lambda value: _feature_driver_number(
+            value,
+            minimum=_FEATURE_DRIVER_SCORE_BOUNDS[0],
+            maximum=_FEATURE_DRIVER_SCORE_BOUNDS[1],
+        )
+    )
+    result["normalised_score"] = score
+    result["direction"] = score.map(_feature_driver_direction)
+    _derive_peer_percentiles(result)
+    result["normalised_score"] = score.astype(object).where(score.notna(), "unavailable")
     for column, (minimum, maximum) in _FEATURE_DRIVER_NUMERIC_BOUNDS.items():
         result[column] = result[column].map(
             lambda value, lower=minimum, upper=maximum: _feature_driver_number(
@@ -477,17 +499,40 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
         )
     result["uncertainty"] = result["uncertainty"].map(_feature_driver_uncertainty)
     result["execution_allowed"] = False
-    score = pd.to_numeric(result["normalised_score"], errors="coerce")
-    missingness = result["missingness"].astype(str).str.strip()
-    result.loc[missingness.isin({"", "nan", "None", "unavailable"}) & score.isna(), "missingness"] = "missing"
-    result.loc[missingness.isin({"", "nan", "None", "unavailable"}) & score.notna(), "missingness"] = "not_missing"
+    result["missingness"] = score.map(lambda value: "missing" if pd.isna(value) else "not_missing")
     result["conflict"] = result["conflict"].where(result["conflict"].notna() & result["conflict"].astype(str).str.strip().ne(""), "unavailable")
     result["flags"] = result["flags"].fillna("none").astype(str)
     derived_flags = result["flags"].eq("none")
     result.loc[derived_flags & result["direction"].astype(str).eq("missing"), "flags"] = "missing"
     result.loc[derived_flags & result["authority_classification"].astype(str).str.contains("low", case=False, na=False), "flags"] = "low_authority"
     result.loc[derived_flags & result["freshness_classification"].astype(str).str.contains("stale|partial", case=False, na=False, regex=True), "flags"] = "stale"
+    result.loc[score.isna(), "flags"] = result.loc[score.isna(), "flags"].map(
+        lambda value: "missing" if value in {"", "none", "nan"} else f"{value}|missing"
+    )
+    claims = result.apply(
+        lambda row: normalise_bound_claim(
+            row.get("driver_text"),
+            component=row.get("component"),
+            score=row.get("normalised_score"),
+            source_vintage_hash=row.get("source_vintage_hash"),
+            source_span=row.get("source_span"),
+            claim_hash=row.get("claim_hash"),
+            require_claim_hash=True,
+        ),
+        axis=1,
+    )
+    result["driver_text"] = claims.map(lambda value: value[0])
+    result["claim_hash"] = claims.map(lambda value: value[1])
+    result["source_authority"] = result["source_authority"].map(_scalar_text).replace("", "unavailable")
+    result["source_span"] = result["source_span"].map(_scalar_text).replace("", "unavailable")
+    result["source_vintage_hash"] = result["source_vintage_hash"].map(_source_vintage_hash).replace("", "unavailable")
     return result
+
+
+def _feature_driver_direction(value: object) -> str:
+    if pd.isna(value):
+        return "missing"
+    return "positive" if float(value) >= 6.5 else "negative" if float(value) < 4.0 else "mixed"
 
 
 def _feature_driver_number(

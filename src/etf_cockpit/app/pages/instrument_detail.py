@@ -165,7 +165,7 @@ def _driver_table(label: str, rows: list[dict[str, object]]) -> ft.Control:
     columns = [
         "Component", "Score", "Direction", "Peer group", "Peer percentile", "Historical contribution",
         "Coverage", "Uncertainty", "Interaction", "Counterfactual sensitivity",
-        "Authority", "Source authority", "Freshness", "Source span", "Missingness", "Conflict", "Contribution", "Driver",
+        "Authority", "Source authority", "Freshness", "Source span", "Source vintage hash", "Claim hash", "Missingness", "Conflict", "Contribution", "Driver",
     ]
     if not rows:
         return ft.Column([ft.Text(label, color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12), ft.Text("Unavailable", color=theme.MUTED, size=11)], spacing=4)
@@ -186,6 +186,8 @@ def _driver_table(label: str, rows: list[dict[str, object]]) -> ft.Control:
                 ft.DataCell(ft.Text(_driver_value(row.get("source_authority")), color=theme.MUTED)),
                 ft.DataCell(ft.Text(_driver_value(row.get("freshness_status")), color=theme.MUTED)),
                 ft.DataCell(ft.Text(_driver_value(row.get("source_span")), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(_driver_value(row.get("source_vintage_hash")), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(_driver_value(row.get("claim_hash")), color=theme.MUTED, selectable=True)),
                 ft.DataCell(ft.Text(_driver_value(row.get("missingness")), color=theme.MUTED)),
                 ft.DataCell(ft.Text(_driver_value(row.get("conflict")), color=theme.MUTED, selectable=True)),
                 ft.DataCell(ft.Text(_driver_value(row.get("contribution")), color=theme.MUTED)),
