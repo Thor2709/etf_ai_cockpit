@@ -351,6 +351,14 @@ def _normalise_alternatives(
             if isinstance(item, Mapping) and item.get("status") == "available" and actual_identity != expected_identity:
                 result[name] = unavailable_monthly_evidence(f"{name}_reference_identity_mismatch")
                 errors.append(f"{name}_alternative_invalid")
+            if (
+                name == "no_action"
+                and isinstance(item, Mapping)
+                and item.get("status") == "available"
+                and not _no_action_binding_matches(item, no_action)
+            ):
+                result[name] = unavailable_monthly_evidence("no_action_reference_binding_mismatch")
+                errors.append("no_action_alternative_invalid")
     available_windows = {
         name: _alternative_window(item)
         for name, item in result.items()
@@ -895,10 +903,56 @@ def _reference_cutoff(reference: Mapping[str, object]) -> datetime | None:
         if raw in (None, ""):
             continue
         parsed = _timestamp(raw)
+        if parsed is None and field == "end_date" and isinstance(raw, str):
+            try:
+                parsed = datetime.strptime(raw, "%Y-%m-%d").replace(
+                    hour=23,
+                    minute=59,
+                    second=59,
+                    microsecond=999999,
+                    tzinfo=timezone.utc,
+                )
+            except ValueError:
+                parsed = None
         if parsed is None:
             return None
         cutoffs.append(parsed)
     return min(cutoffs) if cutoffs else None
+
+
+def _no_action_binding_matches(value: Mapping[str, object], canonical: object) -> bool:
+    if not isinstance(canonical, Mapping):
+        return False
+    constituents = value.get("constituent_instrument_ids")
+    weights = value.get("current_weights")
+    canonical_constituents = canonical.get("constituent_instrument_ids")
+    canonical_weights = canonical.get("current_weights")
+    if (
+        not _sequence(constituents)
+        or not _sequence(canonical_constituents)
+        or not isinstance(weights, Mapping)
+        or not isinstance(canonical_weights, Mapping)
+        or any(not isinstance(item, str) or not item.strip() for item in constituents)
+        or any(not isinstance(item, str) or not item.strip() for item in canonical_constituents)
+        or len(set(constituents)) != len(constituents)
+        or tuple(constituents) != tuple(canonical_constituents)
+        or set(weights) != set(constituents)
+        or set(canonical_weights) != set(canonical_constituents)
+    ):
+        return False
+    try:
+        return all(
+            not isinstance(weights[key], bool)
+            and not isinstance(canonical_weights[key], bool)
+            and math.isfinite(float(weights[key]))
+            and math.isfinite(float(canonical_weights[key]))
+            and float(weights[key]) >= 0
+            and float(canonical_weights[key]) >= 0
+            and math.isclose(float(weights[key]), float(canonical_weights[key]), rel_tol=0.0, abs_tol=1e-12)
+            for key in weights
+        ) and math.isclose(sum(float(weights[key]) for key in weights), 1.0, rel_tol=0.0, abs_tol=1e-9)
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def _reference_identity(value: object) -> tuple[object, object, object] | None:

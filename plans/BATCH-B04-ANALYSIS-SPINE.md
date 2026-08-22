@@ -4705,3 +4705,14 @@ pending or unavailable sections. Add only the three reproduced regressions,
 rerun the affected suite once, and freeze the replacement for paired review
 and fresh H-tier evidence. Preserve lifecycle state and
 `execution_allowed=false`.
+
+`ISSUE-0046 NO-ACTION HOLDINGS BINDING` head
+`57f4f04d450d3c4c755294d226c1c47ff086bddd` is rejected by both reviewers;
+run `32544988289` is cancelled/stale. Require exact canonical no-trade
+constituents and weights on every available no-action return, persist that
+binding through both backtest and strategy-template writers, and verify it in
+the generic composer. Interpret canonical date-only `analysis.end_date` as the
+inclusive end-of-day cutoff. Add only production-shaped producer/readback and
+date regressions, rerun the affected suite once, then freeze the replacement
+for paired review and fresh H-tier evidence. Preserve lifecycle state and
+`execution_allowed=false`.

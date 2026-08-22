@@ -3464,3 +3464,12 @@ next action and whether the requested outcome is actually complete.
   reproduced paths. Freeze one replacement head for paired exact-head review
   and fresh H-tier evidence; add no adjacent evidence or workflow changes and
   preserve lifecycle state and `execution_allowed=false`.
+- ISSUE-0046 head `57f4f04d450d3c4c755294d226c1c47ff086bddd`
+  is rejected by both reviewers; run `32544988289` is cancelled/stale. The
+  complete correction requires every available no-action return, including
+  strategy-template CSV evidence, to carry the exact canonical constituent and
+  weight binding, while preserving canonical date-only `analysis.end_date` as
+  an end-of-day cutoff. Backtest and strategy writers now emit the binding and
+  the generic composer independently verifies it. Freeze the replacement only
+  after producer/readback regressions and the affected suite pass; preserve
+  lifecycle state and `execution_allowed=false`.

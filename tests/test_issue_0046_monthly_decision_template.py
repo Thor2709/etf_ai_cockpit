@@ -15,7 +15,7 @@ from etf_cockpit.application.monthly_decision_template import (
 )
 from etf_cockpit.core.config import load_config
 from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry
-from etf_cockpit.signals.strategy_templates import strategy_template_frame
+from etf_cockpit.signals.strategy_templates import strategy_template_frame, write_strategy_template_frame
 
 
 _TEST_REGISTRY = CanonicalBenchmarkRegistry()
@@ -53,7 +53,7 @@ def _full_evidence() -> dict[str, object]:
             "basket": {"status": "available", "version": "returns.v3", "source_id": "candidate:42", "source_dataset": "forward:2026-08", "source_digest": _SOURCE_DIGEST, "as_of": "2026-08-21", "known_at": "2026-08-21T12:00:00Z", "horizon_days": 21, "period_return": 0.07, "benchmark_relative_return": 0.02, "cash_relative_return": 0.04, "no_action_relative_return": 0.03, "execution_allowed": False},
             "benchmark": {"status": "available", "version": "returns.v3", "source_id": "benchmark:42", "source_dataset": "forward:2026-08", "source_digest": _SOURCE_DIGEST, "as_of": "2026-08-21", "known_at": "2026-08-21T12:00:00Z", "horizon_days": 21, "reference_id": "benchmark:global", "reference_version": "1.0.0", "reference_content_hash": "benchmark-hash", "period_return": 0.05, "execution_allowed": False},
             "cash": {"status": "available", "version": "returns.v3", "source_id": "cash:42", "source_dataset": "forward:2026-08", "source_digest": _SOURCE_DIGEST, "as_of": "2026-08-21", "known_at": "2026-08-21T12:00:00Z", "horizon_days": 21, "reference_id": "cash:EUR", "reference_version": "1.0.0", "reference_content_hash": "cash-hash", "period_return": 0.03, "execution_allowed": False},
-            "no_action": {"status": "available", "version": "returns.v3", "source_id": "no-trade:42", "source_dataset": "forward:2026-08", "source_digest": _SOURCE_DIGEST, "as_of": "2026-08-21", "known_at": "2026-08-21T12:00:00Z", "horizon_days": 21, "reference_id": "reference:no-trade", "reference_version": "1.0.0", "reference_content_hash": "no-trade-hash", "reference_method": "no_trade", "period_return": 0.04, "execution_allowed": False},
+            "no_action": {"status": "available", "version": "returns.v3", "source_id": "no-trade:42", "source_dataset": "forward:2026-08", "source_digest": _SOURCE_DIGEST, "as_of": "2026-08-21", "known_at": "2026-08-21T12:00:00Z", "horizon_days": 21, "reference_id": "reference:no-trade", "reference_version": "1.0.0", "reference_content_hash": "no-trade-hash", "reference_method": "no_trade", "constituent_instrument_ids": ["VWCE"], "current_weights": {"VWCE": 1.0}, "period_return": 0.04, "execution_allowed": False},
         },
         "expected_returns": {
             "status": "available", "version": "distribution.v2", "source_id": "score:42", "source_dataset": "features:2026-08", "source_digest": _SOURCE_DIGEST, "as_of": "2026-08-21", "known_at": "2026-08-21T12:00:00Z", "horizon_days": 21,
@@ -336,6 +336,20 @@ def test_known_at_must_not_exceed_any_canonical_reference_cutoff() -> None:
 
     assert result.status == "unavailable"
     assert any("future_known" in blocker for blocker in result.blockers)
+
+
+def test_canonical_date_only_end_date_is_a_valid_end_of_day_cutoff() -> None:
+    evidence = deepcopy(_full_evidence())
+    reference = _reference()
+    reference["analysis"] = {"end_date": "2026-08-21"}
+
+    result = build_monthly_decision_template(
+        benchmark_reference=reference,
+        benchmark_registry=_TEST_REGISTRY,
+        **evidence,
+    )
+
+    assert result.status == "available"
 
 
 def test_non_available_section_still_rejects_future_known_evidence() -> None:
@@ -901,6 +915,17 @@ def test_basket_requires_no_action_comparison() -> None:
     assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
 
 
+@pytest.mark.parametrize("field", ["constituent_instrument_ids", "current_weights"])
+def test_generic_no_action_requires_canonical_constituent_binding(field: str) -> None:
+    evidence = deepcopy(_full_evidence())
+    del evidence["alternatives"]["no_action"][field]  # type: ignore[index]
+
+    result = _build(evidence)
+
+    assert result.projection()["alternatives"]["no_action"]["status"] == "unavailable"
+    assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
+
+
 def test_strategy_template_frame_retains_required_projection_inputs() -> None:
     frame = strategy_template_frame(pd.DataFrame([{"instrument_id": "VWCE", "q10_expected_return": -0.03, "q50_expected_return": 0.06, "q90_expected_return": 0.14, "net_q10_expected_return": -0.035, "net_expected_return": 0.055, "net_q90_expected_return": 0.135, "expected_return_distribution_version": "distribution.v2", "expected_return_source_dataset": "features:2026-08", "expected_return_cost_bps": 12.5, "expected_return_cost_eur": 12.5, "expected_return_cost_ratio": 0.00125, "execution_allowed": False}]))
 
@@ -1131,7 +1156,7 @@ def test_backtest_comparison_columns_must_be_distinct() -> None:
     assert all(value["reason"] == "backtest_monthly_comparison_identity_ambiguous" for value in alternatives.values())  # type: ignore[index]
 
 
-def test_strategy_alternative_writer_is_accepted_by_generic_composer() -> None:
+def test_strategy_alternative_writer_is_accepted_by_generic_composer(tmp_path) -> None:
     row: dict[str, object] = {"instrument_id": "VWCE"}
     for name, period_return in {"basket": 0.07, "benchmark": 0.05, "cash": 0.03, "no_action": 0.04}.items():
         row.update(
@@ -1159,7 +1184,10 @@ def test_strategy_alternative_writer_is_accepted_by_generic_composer() -> None:
                 }.get(name),
             }
         )
-    alternatives = data_models._monthly_strategy_alternatives(pd.DataFrame([row]), _reference())
+    row.update(monthly_no_action_constituent_id="VWCE", monthly_no_action_weight=1.0)
+    path = tmp_path / "strategy_templates.csv"
+    write_strategy_template_frame(pd.DataFrame([row]), path)
+    alternatives = data_models._monthly_strategy_alternatives(pd.read_csv(path), _reference())
     evidence = deepcopy(_full_evidence())
     evidence["alternatives"] = alternatives
 
@@ -1167,6 +1195,43 @@ def test_strategy_alternative_writer_is_accepted_by_generic_composer() -> None:
 
     assert result.status == "available"
     assert result.projection()["alternatives"]["benchmark"]["reference_content_hash"] == "benchmark-hash"
+
+
+@pytest.mark.parametrize("binding", [None, ("LYP6", 1.0), ("VWCE", 0.5)])
+def test_strategy_no_action_requires_exact_canonical_constituent_binding(
+    binding: tuple[str, float] | None,
+) -> None:
+    row: dict[str, object] = {"instrument_id": "VWCE"}
+    for name, period_return in {"basket": 0.07, "benchmark": 0.05, "cash": 0.03, "no_action": 0.99}.items():
+        row.update(
+            {
+                f"monthly_{name}_return": period_return,
+                f"monthly_{name}_version": "returns.v3",
+                f"monthly_{name}_source_id": f"{name}:42",
+                f"monthly_{name}_source_dataset": "forward:2026-08",
+                f"monthly_{name}_source_digest": _SOURCE_DIGEST,
+                f"monthly_{name}_as_of": "2026-08-21T00:00:00Z",
+                f"monthly_{name}_known_at": "2026-08-21T12:00:00Z",
+                f"monthly_{name}_horizon_days": 21,
+                f"monthly_{name}_trust": True,
+                f"monthly_{name}_source_bound": True,
+                f"monthly_{name}_reference_id": {"benchmark": "benchmark:global", "cash": "cash:EUR", "no_action": "reference:no-trade"}.get(name),
+                f"monthly_{name}_reference_version": "1.0.0" if name != "basket" else None,
+                f"monthly_{name}_reference_content_hash": {"benchmark": "benchmark-hash", "cash": "cash-hash", "no_action": "no-trade-hash"}.get(name),
+            }
+        )
+    if binding is not None:
+        row.update(monthly_no_action_constituent_id=binding[0], monthly_no_action_weight=binding[1])
+
+    alternatives = data_models._monthly_strategy_alternatives(pd.DataFrame([row]), _reference())
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"] = alternatives
+    result = _build(evidence)
+
+    assert alternatives["no_action"]["status"] == "unavailable"  # type: ignore[index]
+    assert alternatives["basket"]["status"] == "unavailable"  # type: ignore[index]
+    assert result.status != "available"
+    assert "return=+99.00%" not in "\n".join(monthly_decision_template_lines(result))
 
 
 def test_strategy_contributing_rows_must_agree_on_evidence_identity() -> None:

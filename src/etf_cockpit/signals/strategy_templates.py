@@ -109,6 +109,7 @@ def strategy_template_frame(scoreboard: pd.DataFrame) -> pd.DataFrame:
                 f"monthly_{alternative}_source_bound",
             ]
         )
+    columns.extend(("monthly_no_action_constituent_id", "monthly_no_action_weight"))
     if scoreboard.empty:
         return pd.DataFrame(columns=columns)
     result = scoreboard[[column for column in columns if column in scoreboard.columns]].copy()

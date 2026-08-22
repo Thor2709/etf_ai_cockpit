@@ -408,6 +408,12 @@ def _monthly_strategy_alternatives(frame: pd.DataFrame, reference: dict[str, obj
             continue
         first = rows[0]
         item = _monthly_strategy_alternative(name, float(values[0]), first, reference)
+        if name == "no_action" and item is not None:
+            binding = _strategy_no_action_binding(rows, reference)
+            if binding is None:
+                item = None
+            else:
+                item["constituent_instrument_ids"], item["current_weights"] = binding
         if item is not None:
             result[name] = item
 
@@ -513,6 +519,52 @@ def _strategy_metadata_consensus(rows: list[dict[str, object]], name: str) -> tu
         return None
     expected = tuple(_strategy_value_key(rows[0].get(field)) for field in fields)
     return expected if all(tuple(_strategy_value_key(row.get(field)) for field in fields) == expected for row in rows) else None
+
+
+def _strategy_no_action_binding(
+    rows: list[dict[str, object]], reference: dict[str, object]
+) -> tuple[list[str], dict[str, float]] | None:
+    references = reference.get("references")
+    canonical = next(
+        (
+            item
+            for item in references
+            if isinstance(item, dict) and item.get("method") == "no_trade"
+        ),
+        None,
+    ) if isinstance(references, (list, tuple)) else None
+    if not isinstance(canonical, dict):
+        return None
+    constituents = [row.get("monthly_no_action_constituent_id") for row in rows]
+    raw_weights = [row.get("monthly_no_action_weight") for row in rows]
+    weights = [_optional_number(value) for value in raw_weights]
+    canonical_constituents = canonical.get("constituent_instrument_ids")
+    canonical_weights = canonical.get("current_weights")
+    if (
+        not rows
+        or any(not isinstance(value, str) or not value.strip() for value in constituents)
+        or any(value is None or value < 0 for value in weights)
+        or len(set(constituents)) != len(constituents)
+        or not isinstance(canonical_constituents, (list, tuple))
+        or not isinstance(canonical_weights, dict)
+        or tuple(constituents) != tuple(canonical_constituents)
+        or set(canonical_weights) != set(canonical_constituents)
+        or not math.isclose(sum(value for value in weights if value is not None), 1.0, rel_tol=0.0, abs_tol=1e-9)
+    ):
+        return None
+    try:
+        result = {str(key): float(value) for key, value in zip(constituents, weights)}
+        if not all(
+            not isinstance(canonical_weights[key], bool)
+            and math.isfinite(float(canonical_weights[key]))
+            and float(canonical_weights[key]) >= 0
+            and math.isclose(result[key], float(canonical_weights[key]), rel_tol=0.0, abs_tol=1e-12)
+            for key in result
+        ):
+            return None
+    except (KeyError, TypeError, ValueError):
+        return None
+    return [str(value) for value in constituents], result
 
 
 def _strategy_reference(row: dict[str, object], name: str) -> dict[str, object] | None:

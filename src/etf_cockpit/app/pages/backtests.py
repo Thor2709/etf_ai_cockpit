@@ -460,6 +460,11 @@ def _monthly_backtest_alternatives(
             metadata, reference_fields, canonical_no_action
         ):
             alternatives[name] = unavailable_monthly_evidence("backtest_monthly_no_action_binding_unavailable")
+        elif name == "no_action" and isinstance(canonical_no_action, Mapping):
+            alternatives[name]["constituent_instrument_ids"] = list(  # type: ignore[index]
+                canonical_no_action["constituent_instrument_ids"]
+            )
+            alternatives[name]["current_weights"] = dict(canonical_no_action["current_weights"])  # type: ignore[index]
     basket = alternatives.get("basket")
     benchmark = alternatives.get("benchmark")
     cash = alternatives.get("cash")
