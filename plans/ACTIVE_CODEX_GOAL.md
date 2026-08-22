@@ -3694,3 +3694,14 @@ fail-closed malformed contribution evidence, invalidates legacy caches, and
 reports a 100% drawdown when equity reaches zero. Direct adversarial regressions
 and the complete affected application validation pass. Freeze one replacement
 head for paired final review and fresh full package evidence.
+
+Replacement head `55faf418aae18118c8032686d249f962979fc11f` is
+rejected by both final reviewers; run `32569076457` is cancelled and stale.
+The remaining reproduced readback cases are now closed in the same strict v2
+boundary: every always-emitted field is required, conditional stress fields
+are required when their status is available, numeric evidence must be finite
+and domain-consistent, dates must be canonical strings, and JSON contribution
+returns must be native finite negative numbers. Adversarial cache regressions
+cover omitted fields, infinity, positive loss evidence, zero-observation
+availability, numeric dates and string numerics. The complete affected suite
+passes; freeze the final replacement for paired review and fresh package gates.

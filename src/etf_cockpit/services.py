@@ -1780,7 +1780,7 @@ def _decode_negative_contribution_periods(value: object) -> list[dict[str, objec
             return None
         raw_date = record["date"]
         raw_return = record["return"]
-        if type(raw_date) is not str or isinstance(raw_return, bool):
+        if type(raw_date) is not str or type(raw_return) not in {int, float}:
             return None
         try:
             contribution_date = date.fromisoformat(raw_date)
@@ -1828,6 +1828,7 @@ def _cached_tail_diagnostics_are_valid(results: pd.DataFrame) -> bool:
     ).all():
         return False
     numeric_columns = (
+        "gross_log_return",
         "worst_1d_return",
         "worst_5d_return",
         "worst_10d_return",
@@ -1842,8 +1843,12 @@ def _cached_tail_diagnostics_are_valid(results: pd.DataFrame) -> bool:
         "negative_performance_concentration_share",
     )
     for column in numeric_columns:
+        if not results[column].map(lambda value: pd.isna(value) or type(value) is not bool).all():
+            return False
         values = pd.to_numeric(results[column], errors="coerce")
         if (results[column].notna() & values.isna()).any():
+            return False
+        if not values.dropna().map(math.isfinite).all():
             return False
     for column in (
         "worst_drawdown_duration_days",
@@ -1865,7 +1870,9 @@ def _cached_tail_diagnostics_are_valid(results: pd.DataFrame) -> bool:
             return False
     for column in ("worst_drawdown_start", "worst_drawdown_end", "largest_negative_period_date"):
         values = results[column]
-        if (values.notna() & pd.to_datetime(values, errors="coerce").isna()).any():
+        if not values.map(lambda value: pd.isna(value) or type(value) is str).all():
+            return False
+        if (values.notna() & pd.to_datetime(values, errors="coerce", format="%Y-%m-%d").isna()).any():
             return False
     for column in (
         "few_days_explain_most_performance",
@@ -1881,6 +1888,64 @@ def _cached_tail_diagnostics_are_valid(results: pd.DataFrame) -> bool:
         and value in {"positive_gross_log_return", "negative_gross_log_return", "flat_gross_log_return", "unavailable"}
     ).all():
         return False
+    observed = pd.to_numeric(results["observed_session_count"], errors="coerce")
+    available = results["diagnostic_status"].eq("available")
+    if (available & observed.lt(2)).any() or (~available & observed.ne(0)).any():
+        return False
+    for column in ("worst_1d_return", "worst_drawdown_start", "worst_drawdown_end"):
+        if available.ne(results[column].notna()).any():
+            return False
+    loss_cluster = pd.to_numeric(results["loss_cluster_max_days"], errors="coerce")
+    if loss_cluster.gt(observed).any():
+        return False
+    largest_negative = pd.to_numeric(results["largest_negative_period_return"], errors="coerce")
+    largest_negative_date = results["largest_negative_period_date"]
+    if largest_negative.notna().ne(largest_negative_date.notna()).any():
+        return False
+    if largest_negative.dropna().ge(0).any():
+        return False
+    for column in ("worst_1d_return", "worst_5d_return", "worst_10d_return"):
+        if pd.to_numeric(results[column], errors="coerce").dropna().le(-1.0).any():
+            return False
+    for status_column, value_column in (
+        ("negative_return_concentration_status", "negative_return_concentration_share"),
+        ("performance_concentration_status", "performance_concentration_share"),
+        ("positive_performance_concentration_status", "positive_performance_concentration_share"),
+        ("negative_performance_concentration_status", "negative_performance_concentration_share"),
+    ):
+        status_available = results[status_column].eq("available")
+        values_present = pd.to_numeric(results[value_column], errors="coerce").notna()
+        if status_available.ne(values_present).any():
+            return False
+    conditional_stress_fields = {
+        "high_volatility_loss_status": (
+            "losses_during_high_volatility",
+            "high_volatility_threshold",
+            "high_volatility_loss_sessions",
+            "loss_sessions_observed",
+        ),
+        "regime_stress_loss_status": (
+            "losses_during_regime_stress",
+            "regime_stress_loss_sessions",
+            "regime_stress_sessions_observed",
+        ),
+    }
+    for status_column, dependent_columns in conditional_stress_fields.items():
+        status_available = results[status_column].eq("available")
+        if status_available.any() and any(column not in results for column in dependent_columns):
+            return False
+        for column in dependent_columns:
+            if column in results and (status_available & results[column].isna()).any():
+                return False
+            if column in results and column not in {
+                "losses_during_high_volatility",
+                "losses_during_regime_stress",
+            }:
+                values = pd.to_numeric(results[column], errors="coerce")
+                if (results[column].notna() & values.isna()).any():
+                    return False
+                if not values.dropna().map(math.isfinite).all():
+                    return False
     decoded_contributions = results["largest_negative_contribution_periods"].map(
         _decode_negative_contribution_periods
     )
@@ -1898,6 +1963,7 @@ class BacktestService:
         "payoff_ratio",
         "expected_value_per_period",
         "payoff_asymmetry_warning",
+        "gross_log_return",
         "diagnostic_method",
         "diagnostic_status",
         "execution_allowed",

@@ -359,18 +359,28 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     original_results = results_path.read_bytes()
     original_sidecar = sidecar_path.read_bytes()
 
-    legacy_results = pd.read_csv(BytesIO(original_results)).drop(columns=["diagnostic_method"])
-    legacy_payload = legacy_results.to_csv(index=False).encode("utf-8")
-    legacy_sidecar = json.loads(original_sidecar)
-    legacy_sidecar["payload_sha256"] = hashlib.sha256(legacy_payload).hexdigest()
-    results_path.write_bytes(legacy_payload)
-    sidecar_path.write_text(json.dumps(legacy_sidecar), encoding="utf-8")
-    assert service._load_cached_backtest() is None
+    for missing_column in ("diagnostic_method", "gross_log_return"):
+        legacy_results = pd.read_csv(BytesIO(original_results)).drop(columns=[missing_column])
+        legacy_payload = legacy_results.to_csv(index=False).encode("utf-8")
+        legacy_sidecar = json.loads(original_sidecar)
+        legacy_sidecar["payload_sha256"] = hashlib.sha256(legacy_payload).hexdigest()
+        results_path.write_bytes(legacy_payload)
+        sidecar_path.write_text(json.dumps(legacy_sidecar), encoding="utf-8")
+        assert service._load_cached_backtest() is None
 
     for column, malformed_value in (
         ("execution_allowed", True),
         ("worst_1d_return", "not-a-number"),
+        ("worst_1d_return", True),
+        ("worst_1d_return", float("inf")),
+        ("largest_negative_period_return", 0.1),
+        ("observed_session_count", 0),
+        ("worst_drawdown_start", 123),
         ("largest_negative_contribution_periods", "not-json"),
+        (
+            "largest_negative_contribution_periods",
+            json.dumps([{"date": "2026-01-02", "return": "-0.1"}]),
+        ),
     ):
         malformed_results = pd.read_csv(BytesIO(original_results))
         malformed_results[column] = malformed_value

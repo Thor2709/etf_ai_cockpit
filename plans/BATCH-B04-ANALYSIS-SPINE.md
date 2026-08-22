@@ -4931,3 +4931,12 @@ treats zero equity as a 100% aggregate drawdown. The direct cache, malformed
 readback, round-trip and zero-equity regressions plus the complete affected
 application suite pass. Freeze one replacement for paired final review and a
 fresh cadence-required full package gate.
+
+Strict-cache head `55faf418aae18118c8032686d249f962979fc11f` is
+rejected by both final reviewers and run `32569076457` is cancelled/stale.
+The final bounded validation correction requires every always-emitted v2
+field, conditionally requires available stress auxiliaries, rejects non-finite
+or domain-inconsistent numbers and non-canonical date types, and disallows
+string numerics inside structured contribution JSON. Direct adversarial cache
+tests and the complete affected application validation pass. Freeze the next
+exact head for both final reviews and a fresh full package gate.
