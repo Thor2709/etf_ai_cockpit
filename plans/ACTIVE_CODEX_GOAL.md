@@ -3705,3 +3705,14 @@ returns must be native finite negative numbers. Adversarial cache regressions
 cover omitted fields, infinity, positive loss evidence, zero-observation
 availability, numeric dates and string numerics. The complete affected suite
 passes; freeze the final replacement for paired review and fresh package gates.
+
+Head `6ac637ccaef45731b54f05429f9b2c7f71f5b543` is rejected by both
+final reviewers and run `32570294347` is cancelled/stale. Rather than extend a
+manual invariant checklist, cached v2 tail evidence is now recomputed from the
+persisted equity curve through the existing canonical diagnostic calculation
+and compared field-for-field with strict scalar, canonical-date and structured
+JSON types; unexpected conditional auxiliaries fail closed. This directly
+rejects every reproduced alias, bound, stress-count, availability and
+performance-basis contradiction. Cache round-trip/interleaving regressions and
+the complete affected application validation pass. Freeze the replacement for
+final paired review and fresh package evidence.

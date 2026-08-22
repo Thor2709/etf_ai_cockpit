@@ -376,6 +376,11 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
         ("largest_negative_period_return", 0.1),
         ("observed_session_count", 0),
         ("worst_drawdown_start", 123),
+        ("worst_drawdown_start", "2026-1-1"),
+        ("worst_drawdown_duration_sessions", 1140),
+        ("diagnostic_status", "unavailable"),
+        ("high_volatility_loss_sessions", -1),
+        ("performance_concentration_basis", "flat_gross_log_return"),
         ("largest_negative_contribution_periods", "not-json"),
         (
             "largest_negative_contribution_periods",

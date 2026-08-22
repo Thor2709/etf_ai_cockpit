@@ -4940,3 +4940,13 @@ or domain-inconsistent numbers and non-canonical date types, and disallows
 string numerics inside structured contribution JSON. Direct adversarial cache
 tests and the complete affected application validation pass. Freeze the next
 exact head for both final reviews and a fresh full package gate.
+
+Head `6ac637ccaef45731b54f05429f9b2c7f71f5b543` is rejected by both final
+reviewers; run `32570294347` is cancelled/stale. The bounded final correction
+now replays the existing canonical tail calculation against persisted equity
+and requires field-for-field cache agreement with strict canonical types,
+instead of maintaining a second partial invariant list. Every reproduced
+duration, availability, date, stress-count and concentration contradiction now
+fails closed. Focused cache round-trip/interleaving tests and the complete
+affected application suite pass; freeze the replacement for paired review and
+fresh full package evidence.
