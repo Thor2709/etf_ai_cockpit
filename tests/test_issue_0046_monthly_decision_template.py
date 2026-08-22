@@ -304,6 +304,22 @@ def test_timezone_naive_known_decision_and_knowledge_timestamps_fail_closed(loca
     _assert_execution_disabled(result.projection())
 
 
+def test_known_at_must_not_exceed_any_supplied_cutoff() -> None:
+    evidence = deepcopy(_full_evidence())
+    expected_returns = evidence["expected_returns"]
+    assert isinstance(expected_returns, dict)
+    expected_returns.update(
+        known_at="2026-08-21T12:00:00Z",
+        decision_time="2026-08-21T23:00:00Z",
+        knowledge_cutoff="2026-08-21T10:00:00Z",
+    )
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert any("future_known" in blocker for blocker in result.blockers)
+
+
 def test_available_reference_without_authoritative_registry_fails_closed() -> None:
     evidence = _full_evidence()
 
@@ -555,6 +571,30 @@ def test_nested_return_keys_in_non_available_sections_fail_closed(section: str, 
     }
 
 
+@pytest.mark.parametrize("location", ["section", "alternative"])
+def test_nested_non_available_mapping_cannot_retain_return_under_available_parent(location: str) -> None:
+    evidence = deepcopy(_full_evidence())
+    nested = {
+        "status": "unavailable",
+        "reason": "not_produced",
+        "net_return": 0.42,
+        "execution_allowed": False,
+    }
+    if location == "section":
+        evidence["events"]["replay"] = nested  # type: ignore[index]
+    else:
+        evidence["alternatives"]["basket"]["context"] = {"deep": nested}  # type: ignore[index]
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    target = result.projection()["events" if location == "section" else "alternatives"]
+    if location == "section":
+        assert target["status"] == "unavailable"
+    else:
+        assert target["basket"]["status"] == "unavailable"
+
+
 @pytest.mark.parametrize("field", ["source_id", "source_dataset", "backtest_version"])
 @pytest.mark.parametrize("invalid", [{"malformed": True}, ["malformed"]])
 def test_backtest_adapter_does_not_stringify_malformed_source_identity(field: str, invalid: object) -> None:
@@ -579,6 +619,38 @@ def test_backtest_adapter_does_not_stringify_malformed_source_identity(field: st
 
     assert all(item["status"] == "unavailable" for item in alternatives.values())  # type: ignore[union-attr]
     assert all(item["reason"] == "backtest_monthly_source_identity_invalid" for item in alternatives.values())  # type: ignore[union-attr]
+
+
+def test_backtest_adapter_does_not_coerce_forged_checksum_identity() -> None:
+    class ForgedChecksum(dict):
+        def __str__(self) -> str:
+            return "a" * 64
+
+    curves = pd.DataFrame(
+        {name: [1.0, value] for name, value in {"basket": 1.07, "benchmark": 1.05, "cash": 1.03, "no_action": 1.04}.items()},
+        index=pd.to_datetime(["2026-07-31", "2026-08-21"]),
+    )
+    metadata = {
+        "input_checksum": ForgedChecksum(),
+        "source_id": "backtest:42",
+        "source_dataset": "backtest:2026-07-31:2026-08-21",
+        "backtest_version": "backtest.equity.v1",
+        "known_at": "2026-08-21T12:00:00Z",
+        "trust": True,
+        "source_bound": True,
+    }
+
+    alternatives = backtests._monthly_backtest_alternatives(
+        SimpleNamespace(equity_curves=curves), metadata, reference=_reference()
+    )
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"] = alternatives
+    result = _build(evidence)
+    rendered = "\n".join(monthly_decision_template_lines(result))
+
+    assert all(item["status"] == "unavailable" for item in alternatives.values())  # type: ignore[union-attr]
+    assert result.status != "available"
+    assert "return=+" not in rendered
 
 
 @pytest.mark.parametrize("suffix", ["replay", "next-session"])

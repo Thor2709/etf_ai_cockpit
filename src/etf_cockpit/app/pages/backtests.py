@@ -387,12 +387,14 @@ def _monthly_backtest_alternatives(
             for name in columns
         }
     source_id = metadata.get("source_id")
-    source_digest = str(metadata.get("input_checksum") or "")
+    source_digest = metadata.get("input_checksum")
     source_dataset = metadata.get("source_dataset")
     version = metadata.get("backtest_version")
     if any(
         not isinstance(value, str) or not value.strip()
         for value in (source_id, source_dataset, version)
+    ) or not isinstance(source_digest, str) or len(source_digest) != 64 or any(
+        character not in "0123456789abcdefABCDEF" for character in source_digest
     ):
         return {
             name: unavailable_monthly_evidence("backtest_monthly_source_identity_invalid")
@@ -480,6 +482,7 @@ def _backtest_evidence_bound(metadata: Mapping[str, object]) -> bool:
         and bool(source_id.strip())
         and isinstance(digest, str)
         and len(digest) == 64
+        and all(character in "0123456789abcdefABCDEF" for character in digest)
         and isinstance(known_at, str)
         and bool(known_at.strip())
     )

@@ -3446,3 +3446,12 @@ next action and whether the requested outcome is actually complete.
   replay/next-session regressions, and freeze one replacement head. No adjacent
   evidence framework work is in scope; lifecycle state and
   `execution_allowed=false` remain unchanged.
+- ISSUE-0046 head `5880e43d48ff3b68340e403b49cf29738decaa44`
+  is rejected by both reviewers; run `32542612635` is cancelled/stale. The
+  consolidated demonstrated set is: validate raw backtest checksum identity
+  before coercion, compare `known_at` against every supplied explicit cutoff,
+  and reject return keys in any nested non-available mapping even beneath an
+  available parent section or alternative. Add only these direct regressions,
+  rerun the affected suite once, and freeze a replacement head for fresh paired
+  review and H-tier evidence. Preserve lifecycle state and
+  `execution_allowed=false`.

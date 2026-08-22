@@ -397,6 +397,11 @@ def _normalise_alternative(name: str, value: object, *, cutoff: datetime | None)
     status = item.get("status")
     if status not in _STATUSES:
         return unavailable_monthly_evidence(f"{name}_alternative_status_invalid"), [f"{name}_alternative_invalid"]
+    if _non_available_mapping_contains_financial_return(item):
+        return unavailable_monthly_evidence(f"{name}_alternative_evidence_invalid"), [
+            f"{name}_alternative_invalid",
+            f"{name}_financial_invalid",
+        ]
     if status != "available":
         if not _text(item.get("reason")):
             return unavailable_monthly_evidence(f"{name}_alternative_reason_unavailable"), [f"{name}_alternative_invalid"]
@@ -465,7 +470,7 @@ def _normalise_section(
     status = item.get("status")
     if status not in _STATUSES:
         return unavailable_monthly_evidence(f"{name}_status_invalid"), [f"{name}_invalid"]
-    if status != "available" and _contains_financial_return_key(item):
+    if _non_available_mapping_contains_financial_return(item):
         return unavailable_monthly_evidence(f"{name}_evidence_invalid"), [
             f"{name}_invalid",
             f"{name}_financial_invalid",
@@ -807,15 +812,12 @@ def _evidence_contract_errors_one(
     if timestamps.get("known_at") is not None:
         if timestamps.get("as_of") is not None and timestamps["known_at"] < timestamps["as_of"]:
             errors.append("temporal_invalid")
-        local_cutoff = next(
-            (
-                timestamps.get(key)
-                for key in ("decision_time", "knowledge_cutoff", "decision", "knowledge_at")
-                if timestamps.get(key) is not None
-            ),
-            None,
+        local_cutoffs = (
+            timestamps[key]
+            for key in ("decision_time", "knowledge_cutoff", "decision", "knowledge_at")
+            if key in timestamps
         )
-        if local_cutoff is not None and timestamps["known_at"] > local_cutoff:
+        if any(timestamps["known_at"] > local_cutoff for local_cutoff in local_cutoffs):
             errors.append("future_known")
         if cutoff is not None and timestamps["known_at"] > cutoff:
             errors.append("future_known")
@@ -866,6 +868,14 @@ def _contains_financial_return_key(value: Mapping[str, object]) -> bool:
         and (field.casefold() in {"return", "relative_return", "net_return"} or field.casefold().endswith("_return"))
         for item in (value, *_nested_mappings(value))
         for field in item
+    )
+
+
+def _non_available_mapping_contains_financial_return(value: Mapping[str, object]) -> bool:
+    return any(
+        item.get("status") in {"partial", "pending", "unavailable"}
+        and _contains_financial_return_key(item)
+        for item in (value, *_nested_mappings(value))
     )
 
 

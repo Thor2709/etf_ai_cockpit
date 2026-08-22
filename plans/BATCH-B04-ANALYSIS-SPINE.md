@@ -4685,3 +4685,13 @@ validated fields so mappings/lists cannot be laundered into available nested
 evidence. Add only direct regressions for both suffixes, rerun the affected
 suite once, and freeze a replacement for paired review and fresh H-tier
 evidence. Preserve lifecycle state and `execution_allowed=false`.
+
+`ISSUE-0046 COMPLETE RECURSIVE/PIT BOUNDARY` head
+`5880e43d48ff3b68340e403b49cf29738decaa44` is rejected by both reviewers;
+run `32542612635` is cancelled/stale. Validate the raw backtest checksum before
+coercion, enforce `known_at` against every explicit local cutoff, and reject
+return keys in nested non-available mappings regardless of an available parent
+section or alternative. Cover only the three reproduced paths, rerun the
+affected suite once, and freeze a replacement for paired review and fresh
+H-tier evidence. Lifecycle state and `execution_allowed=false` remain
+unchanged.
