@@ -3543,6 +3543,21 @@ complete affected feature-driver, persistence, selector and instrument-detail
 collection pass with Ruff and diff hygiene. Freeze one replacement exact head
 for paired review and fresh hosted evidence; preserve canonical status and
 `execution_allowed=false`.
+
+
+`ISSUE-0047 FINAL GENERIC READBACK CORRECTION` exact head
+`676e4322706668b111b3b2dead2352ae7897635b` is rejected by both reviewers;
+O-tier run `32561959531` passed classifier, preflight, supply chain and terminal
+validation but is stale. The remaining reproduced set is limited to mandatory
+vintage binding, agreement across all populated ledger-time aliases,
+fail-closed trust classification across component and source authorities, and
+normalisation before generic trust-evidence rendering. These paths now share
+the existing strict readback, reject missing or contradictory identities, and
+exclude unbound or low-authority rows from trusted top groups. Direct focused
+regressions pass with architecture, Ruff and diff hygiene. Freeze the next
+exact head for paired review and fresh O-tier evidence; preserve canonical
+`implemented_initially` and `execution_allowed=false`.
+
 +
 
 `ISSUE-0047 COMPLETE TRACEABILITY/PIT CORRECTION` exact head

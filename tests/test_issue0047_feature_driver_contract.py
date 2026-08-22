@@ -9,6 +9,7 @@ from etf_cockpit.app.pages.trust_evidence import FEATURE_DRIVER_EVIDENCE_COLUMNS
 from etf_cockpit.app.pages.trust_evidence import _table_panel
 from etf_cockpit.app.selectors.instrument_detail import _feature_driver_panel
 from etf_cockpit.app.selectors.instrument_detail import _normalise_feature_driver_frame
+from etf_cockpit.app.selectors.instrument_detail import normalise_feature_driver_frame
 from etf_cockpit.data import trust_artifacts as trust
 from etf_cockpit.signals.feature_drivers import build_feature_drivers
 from etf_cockpit.signals.feature_drivers import claim_binding_hash
@@ -591,9 +592,103 @@ def test_peer_percentile_fraction_alias_scales_in_producer_and_selector() -> Non
 def test_trust_evidence_requests_complete_feature_driver_projection(tmp_path) -> None:
     assert set(FEATURE_DRIVER_COLUMNS) - {"instrument"} <= set(FEATURE_DRIVER_EVIDENCE_COLUMNS)
     path = tmp_path / "feature_drivers.parquet"
-    pd.DataFrame([{column: "evidence" for column in FEATURE_DRIVER_EVIDENCE_COLUMNS}]).to_parquet(path)
+    pd.DataFrame(
+        [
+            {
+                **{column: "evidence" for column in FEATURE_DRIVER_EVIDENCE_COLUMNS},
+                "instrument_id": "A",
+                "component": "quality",
+                "normalised_score": 7.0,
+                "driver_text": "quality causes returns",
+                "source_span": True,
+                "source_authority": ["official"],
+                "source_vintage_hash": "unavailable",
+                "execution_allowed": True,
+            }
+        ]
+    ).to_parquet(path)
 
-    table = _table_panel("Feature drivers", path, FEATURE_DRIVER_EVIDENCE_COLUMNS).content.controls[1]
+    table = _table_panel(
+        "Feature drivers",
+        path,
+        FEATURE_DRIVER_EVIDENCE_COLUMNS,
+        normaliser=normalise_feature_driver_frame,
+    ).content.controls[1]
     labels = [column.label.value for column in table.columns]
+    values = {label: cell.content.value for label, cell in zip(labels, table.rows[0].cells)}
 
     assert labels == FEATURE_DRIVER_EVIDENCE_COLUMNS
+    assert "causes" not in values["driver_text"]
+    assert values["source_span"] == "unavailable"
+    assert values["source_authority"] == "unavailable"
+    assert values["source_vintage_hash"] == "unavailable"
+    assert values["claim_hash"] == "unavailable"
+    assert values["execution_allowed"] == "False"
+
+
+def test_missing_vintage_and_low_source_authority_cannot_enter_trusted_top_lists(
+    monkeypatch, tmp_path
+) -> None:
+    common = {
+        "instrument_id": "A",
+        "component": "quality",
+        "normalised_score": 7.0,
+        "authority": "high",
+        "source_span": "quality.parquet#row-1",
+        "as_of_date": "2026-07-10",
+    }
+    missing_vintage = build_feature_drivers(
+        pd.DataFrame([{**common, "source_authority": "official"}])
+    ).iloc[0]
+    low_source = build_feature_drivers(
+        pd.DataFrame(
+            [
+                {
+                    **common,
+                    "source_authority": "manual_context",
+                    "source_vintage_hash": VALID_VINTAGE,
+                }
+            ]
+        )
+    ).iloc[0]
+
+    assert missing_vintage["driver_text"].startswith("unavailable (non-traceable claim;")
+    assert missing_vintage["claim_hash"] == "unavailable"
+    assert low_source["authority_classification"] == "low_authority"
+    assert low_source["classification"] == "low_authority"
+    assert "low_authority" in low_source["flags"]
+
+    path = tmp_path / "feature_drivers.parquet"
+    pd.DataFrame([missing_vintage, low_source]).to_parquet(path, index=False)
+    monkeypatch.setattr(
+        "etf_cockpit.app.selectors.instrument_detail.FEATURE_DRIVERS_PATH", path
+    )
+    panel = _feature_driver_panel("A")
+    assert panel["top_positive"] == []
+    assert panel["low_authority"][0]["component"] == "quality"
+
+
+def test_ledger_rejects_conflicting_populated_evidence_time_aliases() -> None:
+    scores = pd.DataFrame(
+        [{"instrument_id": "A", "component": "quality", "normalised_score": 7.0, "as_of_date": "2026-01-01"}]
+    )
+    ledger = pd.DataFrame(
+        [
+            {
+                "instrument_id": "A",
+                "component": "quality",
+                "evidence_at": "2025-12-31",
+                "as_of_date": "2026-01-02",
+                "source_authority": "official",
+                "source_span": "quality.parquet#row-1",
+                "source_vintage_hash": VALID_VINTAGE,
+            }
+        ]
+    )
+
+    row = build_feature_drivers(scores, ledger).iloc[0]
+
+    assert row["source_span"] == "unavailable"
+    assert row["source_authority"] == "unavailable"
+    assert row["source_vintage_hash"] == "unavailable"
+    assert row["claim_hash"] == "unavailable"

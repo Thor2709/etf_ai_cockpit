@@ -58,9 +58,9 @@ from etf_cockpit.services import CockpitSnapshot
 from etf_cockpit.application.ui_facade import SimpleInstrumentScore
 from etf_cockpit.application.ui_facade import load_peer_cohort_projection
 from etf_cockpit.application.ui_facade import (
-    _authority_classification,
     _canonical_cohort_time,
     _classification,
+    _combined_authority_classification,
     _derive_peer_percentiles,
     _flags,
     _freshness_classification,
@@ -522,7 +522,7 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
     result["source_authority"] = result["source_authority"].map(_source_provenance_text).replace("", "unavailable")
     result["source_span"] = result["source_span"].map(_source_provenance_text).replace("", "unavailable")
     result["source_vintage_hash"] = result["source_vintage_hash"].map(_source_vintage_hash).replace("", "unavailable")
-    result["authority_classification"] = result["authority"].map(_authority_classification)
+    result["authority_classification"] = result.apply(_combined_authority_classification, axis=1)
     result["freshness_classification"] = result["freshness_status"].map(_freshness_classification)
     result["classification"] = result.apply(_classification, axis=1)
     result["flags"] = result.apply(_flags, axis=1)
@@ -583,6 +583,12 @@ def _feature_driver_uncertainty(value: object) -> object:
     if not text or text.casefold() in {"nan", "inf", "+inf", "-inf", "infinity", "+infinity", "-infinity", "<na>", "none"}:
         return "unavailable"
     return text
+
+
+def normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Public application readback used by all feature-driver presentation paths."""
+
+    return _normalise_feature_driver_frame(frame)
 
 
 def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:

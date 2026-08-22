@@ -361,7 +361,8 @@ def test_instrument_detail_driver_panel_normalises_legacy_store_columns(tmp_path
     assert panel["status"] == "available"
     assert panel["top_positive"] == []
     assert panel["rows"][0]["driver_text"] == "unavailable (non-traceable claim; source provenance unavailable)."
-    assert panel["low_authority"] == []
+    assert panel["low_authority"][0]["component"] == "trend"
+    assert panel["low_authority"][0]["authority_classification"] == "low_authority"
     assert panel["stale_or_partial"][0]["component"] == "trend"
     assert panel["stale_or_partial"][0]["freshness_classification"] == "partial"
 

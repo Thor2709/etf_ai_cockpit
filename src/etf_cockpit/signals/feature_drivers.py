@@ -155,7 +155,7 @@ def build_feature_drivers(scores: pd.DataFrame | Iterable[Any], ledger: pd.DataF
     frame["conflict_id"] = frame["conflict_id"].map(_text).replace("", "unavailable")
     frame["driver_text"] = frame.apply(_driver_text, axis=1)
     frame["claim_hash"] = frame.apply(_claim_hash_for_row, axis=1)
-    frame["authority_classification"] = frame["authority"].map(_authority_classification)
+    frame["authority_classification"] = frame.apply(_combined_authority_classification, axis=1)
     frame["freshness_classification"] = frame["freshness_status"].map(_freshness_classification)
     frame["classification"] = frame.apply(_classification, axis=1)
     frame["flags"] = frame.apply(_flags, axis=1)
@@ -277,14 +277,20 @@ def _latest_eligible_ledger_row(score_row: pd.Series, ledger: pd.DataFrame) -> p
 
 
 def _required_row_time(row: pd.Series, columns: tuple[str, ...]) -> pd.Timestamp | None:
+    timestamps: list[pd.Timestamp] = []
     for column in columns:
         if column not in row.index:
             continue
         value = row.get(column)
         if not _has_value(value):
             continue
-        return _parse_canonical_time(value)
-    return None
+        timestamp = _parse_canonical_time(value)
+        if timestamp is None:
+            return None
+        timestamps.append(timestamp)
+    if not timestamps or any(value != timestamps[0] for value in timestamps[1:]):
+        return None
+    return timestamps[0]
 
 
 def _score_cutoff_time(row: pd.Series) -> pd.Timestamp | None:
@@ -512,9 +518,15 @@ def _direction(value: object) -> str:
 
 def _authority_classification(value: object) -> str:
     text = _text(value).casefold()
-    if text in {"low", "unknown", "model", "model_advisory", "manual_context"} or not text:
+    if text in {"low", "unknown", "unavailable", "model", "model_advisory", "manual_context"} or not text:
         return "low_authority"
     return "authoritative"
+
+
+def _combined_authority_classification(row: pd.Series) -> str:
+    component = _authority_classification(row.get("authority"))
+    source = _authority_classification(row.get("source_authority"))
+    return "low_authority" if "low_authority" in {component, source} else "authoritative"
 
 
 def _freshness_classification(value: object) -> str:
@@ -557,10 +569,11 @@ def _flags(row: pd.Series) -> str:
 
 
 def _driver_text(row: pd.Series) -> str:
+    source_vintage_hash = _source_vintage_hash(row.get("source_vintage_hash"))
     source_span = _source_provenance_text(row.get("source_span"))
     source_authority = _source_provenance_text(row.get("source_authority"))
     claim = deterministic_driver_claim(row.get("component"), row.get("normalised_score"))
-    if claim and source_span and source_authority and bool(row.get("_pit_valid", False)):
+    if claim and source_vintage_hash and source_span and source_authority and bool(row.get("_pit_valid", False)):
         return claim
     if not claim:
         return "unavailable (non-traceable claim; score unavailable)."
@@ -580,7 +593,7 @@ def _claim_hash_for_row(row: pd.Series) -> str:
     source_vintage_hash = _source_vintage_hash(row.get("source_vintage_hash"))
     source_span = _source_provenance_text(row.get("source_span"))
     source_authority = _source_provenance_text(row.get("source_authority"))
-    if not claim or not source_span or not source_authority or not bool(row.get("_pit_valid", False)):
+    if not claim or not source_vintage_hash or not source_span or not source_authority or not bool(row.get("_pit_valid", False)):
         return "unavailable"
     return claim_binding_hash(claim, source_vintage_hash, source_span, source_authority)
 
@@ -629,7 +642,7 @@ def normalise_bound_claim(
     pit_row = pd.Series(
         {"as_of_date": as_of_date, "decision_time": decision_time, "decision_at": decision_at}
     )
-    if not span or not authority or not _score_pit_is_valid(pit_row):
+    if not vintage or not span or not authority or not _score_pit_is_valid(pit_row):
         return _UNAVAILABLE_CLAIM, "unavailable"
     supplied_claim = value.strip() if isinstance(value, str) else ""
     if supplied_claim != claim:
