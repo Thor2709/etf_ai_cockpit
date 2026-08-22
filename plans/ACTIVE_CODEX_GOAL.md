@@ -3682,3 +3682,15 @@ offline smoke, registry, compile, Ruff and diff hygiene pass. Freeze the
 replacement exact head for paired final review and a fresh cadence-required
 full package gate; canonical status remains `implemented_initially` and
 `execution_allowed=false`.
+
+ISSUE-0049 head `10175910a2f1d94835e89a497a0faf0840872f40`
+is rejected by both final reviewers; hosted run `32568224697` is cancelled and
+stale. Their complete demonstrated set is limited to pre-v2 diagnostic caches
+remaining eligible, structured negative-contribution records degrading through
+CSV readback, and zero equity being omitted from aggregate drawdown. The
+consolidated correction now requires and validates the complete v2 cached
+diagnostic contract with strict `execution_allowed=false`, JSON round-trips and
+fail-closed malformed contribution evidence, invalidates legacy caches, and
+reports a 100% drawdown when equity reaches zero. Direct adversarial regressions
+and the complete affected application validation pass. Freeze one replacement
+head for paired final review and fresh full package evidence.

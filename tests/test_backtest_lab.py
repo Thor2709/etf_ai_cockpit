@@ -111,6 +111,12 @@ def test_performance_metrics_tail_path_does_not_bridge_invalid_equity_gap() -> N
     assert metrics["cagr"] == pytest.approx((81.0 / 100.0) ** 126 - 1.0)
 
 
+def test_performance_metrics_reports_total_loss_when_equity_reaches_zero() -> None:
+    metrics = performance_metrics(pd.Series([100.0, 0.0, 80.0]))
+
+    assert metrics["max_drawdown"] == -1.0
+
+
 def test_tail_windows_drawdown_clusters_and_volatility_do_not_cross_invalid_gap() -> None:
     index = pd.bdate_range("2026-02-02", periods=10)
     diagnostics = tail_event_diagnostics(
@@ -333,14 +339,47 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     cached = service._load_cached_backtest()
 
     assert cached is not None
+    assert isinstance(cached.results.iloc[0]["largest_negative_contribution_periods"], list)
+    assert cached.results.iloc[0]["largest_negative_contribution_periods"] == generated.results.iloc[0][
+        "largest_negative_contribution_periods"
+    ]
     assert cached.metadata["quality_momentum_evidence_checksum"] == generated.metadata[
         "quality_momentum_evidence_checksum"
     ]
     metadata_path = tmp_path / "backtest_metadata.json"
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    original_metadata = metadata_path.read_bytes()
+    metadata = json.loads(original_metadata)
     metadata["reference_identity"]["execution_allowed"] = 0
     metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
     assert service._load_cached_backtest() is None
+    metadata_path.write_bytes(original_metadata)
+
+    results_path = tmp_path / "backtest_results.csv"
+    sidecar_path = services._universe_cache_meta_path(results_path)
+    original_results = results_path.read_bytes()
+    original_sidecar = sidecar_path.read_bytes()
+
+    legacy_results = pd.read_csv(BytesIO(original_results)).drop(columns=["diagnostic_method"])
+    legacy_payload = legacy_results.to_csv(index=False).encode("utf-8")
+    legacy_sidecar = json.loads(original_sidecar)
+    legacy_sidecar["payload_sha256"] = hashlib.sha256(legacy_payload).hexdigest()
+    results_path.write_bytes(legacy_payload)
+    sidecar_path.write_text(json.dumps(legacy_sidecar), encoding="utf-8")
+    assert service._load_cached_backtest() is None
+
+    for column, malformed_value in (
+        ("execution_allowed", True),
+        ("worst_1d_return", "not-a-number"),
+        ("largest_negative_contribution_periods", "not-json"),
+    ):
+        malformed_results = pd.read_csv(BytesIO(original_results))
+        malformed_results[column] = malformed_value
+        malformed_payload = malformed_results.to_csv(index=False).encode("utf-8")
+        malformed_sidecar = json.loads(original_sidecar)
+        malformed_sidecar["payload_sha256"] = hashlib.sha256(malformed_payload).hexdigest()
+        results_path.write_bytes(malformed_payload)
+        sidecar_path.write_text(json.dumps(malformed_sidecar), encoding="utf-8")
+        assert service._load_cached_backtest() is None
 
 
 def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(

@@ -4920,3 +4920,14 @@ affected application validation, offline smoke, registry, compile, Ruff and
 diff checks pass. Freeze one final exact head for paired review and the fresh
 cadence-required package gate. Preserve canonical `implemented_initially` and
 `execution_allowed=false`.
+
+Final-review ISSUE-0049 head
+`10175910a2f1d94835e89a497a0faf0840872f40` is rejected by both reviewers and
+run `32568224697` is cancelled/stale. One consolidated correction invalidates
+pre-v2 diagnostic caches, strictly validates the complete v2 cache schema and
+disabled-execution marker, preserves structured negative-contribution records
+through JSON persistence/readback while rejecting malformed evidence, and
+treats zero equity as a 100% aggregate drawdown. The direct cache, malformed
+readback, round-trip and zero-equity regressions plus the complete affected
+application suite pass. Freeze one replacement for paired final review and a
+fresh cadence-required full package gate.

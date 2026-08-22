@@ -13,6 +13,8 @@ STRESS_QUANTILE = 0.75
 
 def max_drawdown(equity: pd.Series) -> float:
     raw = _normalise_series(equity)
+    if (raw.dropna() <= 0).any():
+        return -1.0
     worst = 0.0
     for segment in _valid_segments(raw):
         running_peak = segment.cummax()
@@ -375,7 +377,7 @@ def performance_metrics(
             "volatility": 0.0,
             "sharpe": 0.0,
             "sortino": 0.0,
-            "max_drawdown": 0.0,
+            "max_drawdown": max_drawdown(raw_equity),
             "calmar": 0.0,
             "turnover": turnover,
             "cost_drag": cost_drag,

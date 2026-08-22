@@ -1765,6 +1765,131 @@ def _config_with_optional_models_disabled(config: AppConfig) -> AppConfig:
     return quick_config
 
 
+def _decode_negative_contribution_periods(value: object) -> list[dict[str, object]] | None:
+    if type(value) is not str:
+        return None
+    try:
+        decoded = json.loads(value)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(decoded, list):
+        return None
+    records: list[dict[str, object]] = []
+    for record in decoded:
+        if not isinstance(record, dict) or set(record) != {"date", "return"}:
+            return None
+        raw_date = record["date"]
+        raw_return = record["return"]
+        if type(raw_date) is not str or isinstance(raw_return, bool):
+            return None
+        try:
+            contribution_date = date.fromisoformat(raw_date)
+            contribution_return = float(raw_return)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(contribution_return) or contribution_return >= 0:
+            return None
+        records.append({"date": contribution_date, "return": contribution_return})
+    return records
+
+
+def _cached_tail_diagnostics_are_valid(results: pd.DataFrame) -> bool:
+    exact_methods = {
+        "diagnostic_method": "historical_tail_diagnostics.v2",
+        "negative_return_concentration_method": (
+            "five worst observed loss sessions divided by total observed loss magnitude"
+        ),
+        "performance_concentration_method": (
+            "best/worst up-to-five observed sessions divided by same-sign gross log contribution"
+        ),
+        "high_volatility_loss_method": (
+            "loss-session alignment with 20-session realized volatility at or above its 75th percentile"
+        ),
+        "regime_stress_loss_method": "loss-session alignment with explicitly labelled stress regimes",
+    }
+    for column, expected in exact_methods.items():
+        if not results[column].map(lambda value: type(value) is str and value == expected).all():
+            return False
+    for column in (
+        "diagnostic_status",
+        "negative_return_concentration_status",
+        "performance_concentration_status",
+        "positive_performance_concentration_status",
+        "negative_performance_concentration_status",
+        "high_volatility_loss_status",
+        "regime_stress_loss_status",
+    ):
+        if not results[column].map(
+            lambda value: type(value) is str and value in {"available", "unavailable"}
+        ).all():
+            return False
+    if not results["execution_allowed"].map(
+        lambda value: type(value) is bool and value is False
+    ).all():
+        return False
+    numeric_columns = (
+        "worst_1d_return",
+        "worst_5d_return",
+        "worst_10d_return",
+        "worst_drawdown_duration_days",
+        "worst_drawdown_duration_sessions",
+        "observed_session_count",
+        "loss_cluster_max_days",
+        "largest_negative_period_return",
+        "negative_return_concentration_share",
+        "performance_concentration_share",
+        "positive_performance_concentration_share",
+        "negative_performance_concentration_share",
+    )
+    for column in numeric_columns:
+        values = pd.to_numeric(results[column], errors="coerce")
+        if (results[column].notna() & values.isna()).any():
+            return False
+    for column in (
+        "worst_drawdown_duration_days",
+        "worst_drawdown_duration_sessions",
+        "observed_session_count",
+        "loss_cluster_max_days",
+    ):
+        values = pd.to_numeric(results[column], errors="coerce").dropna()
+        if (values < 0).any() or (values % 1 != 0).any():
+            return False
+    for column in (
+        "negative_return_concentration_share",
+        "performance_concentration_share",
+        "positive_performance_concentration_share",
+        "negative_performance_concentration_share",
+    ):
+        values = pd.to_numeric(results[column], errors="coerce").dropna()
+        if not values.between(0.0, 1.0).all():
+            return False
+    for column in ("worst_drawdown_start", "worst_drawdown_end", "largest_negative_period_date"):
+        values = results[column]
+        if (values.notna() & pd.to_datetime(values, errors="coerce").isna()).any():
+            return False
+    for column in (
+        "few_days_explain_most_performance",
+        "positive_performance_few_sessions_explain_most",
+        "negative_performance_few_sessions_explain_most",
+        "losses_during_high_volatility",
+        "losses_during_regime_stress",
+    ):
+        if not results[column].map(lambda value: pd.isna(value) or type(value) is bool).all():
+            return False
+    if not results["performance_concentration_basis"].map(
+        lambda value: type(value) is str
+        and value in {"positive_gross_log_return", "negative_gross_log_return", "flat_gross_log_return", "unavailable"}
+    ).all():
+        return False
+    decoded_contributions = results["largest_negative_contribution_periods"].map(
+        _decode_negative_contribution_periods
+    )
+    if decoded_contributions.isna().any():
+        return False
+    results["largest_negative_contribution_periods"] = decoded_contributions
+    return True
+
+
 class BacktestService:
     REQUIRED_RESULT_COLUMNS = {
         "return_hit_rate",
@@ -1773,6 +1898,44 @@ class BacktestService:
         "payoff_ratio",
         "expected_value_per_period",
         "payoff_asymmetry_warning",
+        "diagnostic_method",
+        "diagnostic_status",
+        "execution_allowed",
+        "worst_1d_return",
+        "worst_5d_return",
+        "worst_10d_return",
+        "worst_drawdown_start",
+        "worst_drawdown_end",
+        "worst_drawdown_duration_days",
+        "worst_drawdown_duration_sessions",
+        "observed_session_count",
+        "loss_cluster_max_days",
+        "largest_negative_period_return",
+        "largest_negative_period_date",
+        "largest_negative_contribution_periods",
+        "negative_return_concentration_share",
+        "negative_return_concentration_status",
+        "negative_return_concentration_reason",
+        "negative_return_concentration_method",
+        "few_days_explain_most_performance",
+        "performance_concentration_basis",
+        "performance_concentration_method",
+        "performance_concentration_status",
+        "performance_concentration_share",
+        "positive_performance_concentration_share",
+        "positive_performance_concentration_status",
+        "positive_performance_few_sessions_explain_most",
+        "negative_performance_concentration_share",
+        "negative_performance_concentration_status",
+        "negative_performance_few_sessions_explain_most",
+        "losses_during_high_volatility",
+        "high_volatility_loss_status",
+        "high_volatility_loss_reason",
+        "high_volatility_loss_method",
+        "losses_during_regime_stress",
+        "regime_stress_loss_status",
+        "regime_stress_loss_reason",
+        "regime_stress_loss_method",
     }
 
     def __init__(
@@ -1852,9 +2015,14 @@ class BacktestService:
             )
         with publication_scope(publish_guard):
             BACKTESTS_DIR.mkdir(parents=True, exist_ok=True)
+        persisted_results = report.results.copy()
+        if "largest_negative_contribution_periods" in persisted_results:
+            persisted_results["largest_negative_contribution_periods"] = persisted_results[
+                "largest_negative_contribution_periods"
+            ].map(lambda value: json.dumps(value, default=str, separators=(",", ":")))
         payloads = {
             BACKTESTS_DIR / "backtest_results.csv": (
-                report.results.to_csv(index=False).encode("utf-8"),
+                persisted_results.to_csv(index=False).encode("utf-8"),
                 lambda path: _validate_csv(path),
             ),
             BACKTESTS_DIR / "equity_curves.csv": (
@@ -1955,6 +2123,8 @@ class BacktestService:
             if results.empty:
                 return None
             if not self.REQUIRED_RESULT_COLUMNS.issubset(results.columns):
+                return None
+            if not _cached_tail_diagnostics_are_valid(results):
                 return None
             if "quality_momentum" not in set(results.get("strategy_name", ())):
                 return None
