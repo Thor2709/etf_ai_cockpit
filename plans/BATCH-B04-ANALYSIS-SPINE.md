@@ -1334,6 +1334,16 @@ applied the two-hop aggregate, proved `zero_action_readback=true` and retained
 `execution_allowed=false`.
 
 
+`ISSUE-0047 PERSISTED COMPONENT READBACK CORRECTION` exact head
+`d1e2622e1f9a5e1485efc63ac1f5757ba1ecb389` is risk-approved but rejected
+by the whole-diff reviewer; run `32562792296` is stale. The shared persisted
+readback now validates component identities before scoring/classification and
+forces malformed bool/list/numeric values to missing, unavailable and unbound.
+Direct producer, instrument and generic-readback regressions pass. Freeze the
+replacement with canonical status and `execution_allowed=false` unchanged.
+
+
+
 `ISSUE-0047 RAW IDENTITY/PREFIX CORRECTION` exact head
 `d2b2a0ddccd608dd5ba7a4f1309656458cc3774e` is rejected by both reviewers;
 run `32562619023` is stale. Raw component identities are now validated before

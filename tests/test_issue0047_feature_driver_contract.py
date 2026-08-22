@@ -745,3 +745,29 @@ def test_ledger_rejects_conflicting_populated_evidence_time_aliases() -> None:
     assert row["source_authority"] == "unavailable"
     assert row["source_vintage_hash"] == "unavailable"
     assert row["claim_hash"] == "unavailable"
+
+
+def test_persisted_readback_rejects_raw_malformed_component_values() -> None:
+    source = pd.DataFrame(
+        [
+            {
+                "instrument_id": "A",
+                "component": component,
+                "normalised_score": 7.0,
+                "authority": "high",
+                "source_authority": "official",
+                "source_span": "quality.parquet#row-1",
+                "source_vintage_hash": VALID_VINTAGE,
+                "as_of_date": "2026-07-10",
+            }
+            for component in (True, ["quality"], 7)
+        ]
+    )
+
+    rows = normalise_feature_driver_frame(source)
+
+    assert rows["component"].eq("").all()
+    assert rows["normalised_score"].eq("unavailable").all()
+    assert rows["direction"].eq("missing").all()
+    assert rows["classification"].eq("missing").all()
+    assert rows["claim_hash"].eq("unavailable").all()

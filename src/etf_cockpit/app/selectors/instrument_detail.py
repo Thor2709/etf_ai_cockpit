@@ -61,6 +61,7 @@ from etf_cockpit.application.ui_facade import (
     _canonical_cohort_time,
     _classification,
     _combined_authority_classification,
+    _component_id,
     _derive_peer_percentiles,
     _flags,
     _freshness_classification,
@@ -489,6 +490,8 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
                 result[column].notna() & result[column].astype(str).str.strip().ne(""),
                 default,
             )
+    result["component"] = result["component"].map(_component_id)
+    invalid_component = result["component"].eq("")
     score = result["normalised_score"].map(
         lambda value: _feature_driver_number(
             value,
@@ -496,6 +499,7 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
             maximum=_FEATURE_DRIVER_SCORE_BOUNDS[1],
         )
     )
+    score = score.mask(invalid_component)
     result["normalised_score"] = score
     result["direction"] = score.map(_feature_driver_direction)
     result["as_of_date"] = result["as_of_date"].map(_canonical_cohort_time).replace("", "unavailable")

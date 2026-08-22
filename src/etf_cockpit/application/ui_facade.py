@@ -151,6 +151,7 @@ from etf_cockpit.signals.feature_drivers import (  # noqa: F401
     _canonical_cohort_time,
     _classification,
     _combined_authority_classification,
+    _component_id,
     _derive_peer_percentiles,
     _flags,
     _freshness_classification,
