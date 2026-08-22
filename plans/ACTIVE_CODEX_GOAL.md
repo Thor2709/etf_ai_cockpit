@@ -3429,6 +3429,34 @@ next action and whether the requested outcome is actually complete.
   exact head for paired review and fresh H-tier evidence. Preserve canonical
   lifecycle state and `execution_allowed=false`.
 
+`ISSUE-0046 CONVERGED / ISSUE-0047 PRODUCT ACTIVE` PR #693 merged the exact
+independently approved lifecycle-replay head
+`6a9371612d638fcfdb29f1b4c23c0325887fc064` as
+`b657fbe9c5676787eb3375d5b0b35be900cb50ba`. Exact-head run
+`32551626662` and status guard `32551626653` passed. Writer run
+`32553971326` applied the single aggregate two-hop replay
+`in_progress -> implemented_initially -> integrated` for ISSUE-0046 only,
+with one proposal/receipt, terminal `applied_and_verified`,
+`zero_action_readback=true` and `execution_allowed=false`; convergence run
+`32553971275` made no independent write. Canonical state and GitHub issue #98
+both read back as integrated.
+
+ISSUE-0047 is dependency-ready at canonical `implemented_initially`. Its clean
+product lane is based on exact main
+`b657fbe9c5676787eb3375d5b0b35be900cb50ba` and is limited to feature-driver
+production, trust-artifact persistence/readback, instrument-detail projection
+and presentation, plus direct regressions. Every displayed driver now carries
+descriptive peer/history/coverage/uncertainty/interaction/counterfactual,
+source-span/authority, missingness/conflict and contribution evidence without
+causal claims; malformed, non-finite, out-of-range or absent numeric evidence
+fails closed as unavailable while valid zero survives persistence and UI
+readback. The complete affected feature-driver, persistence, selector and
+instrument-detail collection passes with Ruff and diff hygiene. Preserve
+canonical lifecycle state and `execution_allowed=false` until the exact product
+head is frozen, independently reviewed and validated; prepare the legal
+`implemented_initially -> integrated` writer and zero-action readback before
+merge.
+
 `ISSUE-0046 PRODUCT MERGED / LIFECYCLE START PREPARED` PR #691 merged exact
 independently approved product head `40fdaf2cea8d187bd4de047654d4eba83027e6dc`
 as `38604ce9ed62a591f95c4623329f3579fe2cab3c`. Exact-head H-tier run

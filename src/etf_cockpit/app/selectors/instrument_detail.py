@@ -119,6 +119,13 @@ PAPER_TRADES_PATH = DERIVED_DIR / "paper_trades.parquet"
 _KNOWN_FRESHNESS_STATES = frozenset({"ok", "fresh", "warning", "stale", "stale_block", "missing", "missing_or_pending", "unknown", "not_checked", "unavailable"})
 _KNOWN_BACKTEST_QUALITIES = frozenset({"low", "medium", "high", "not_evaluated", "not_backtested_candidate", "unverified_backtest", "usable_low_authority", "weak_or_low_quality", "model_claim_unverified", "stale_universe", "unavailable"})
 _KNOWN_FUNDAMENTAL_ELIGIBILITY = frozenset({"eligible", "eligible_negative_evidence", "not_score_eligible"})
+_FEATURE_DRIVER_NUMERIC_BOUNDS: dict[str, tuple[float | None, float | None]] = {
+    "peer_percentile": (0.0, 100.0),
+    "historical_contribution": (None, None),
+    "coverage": (0.0, 1.0),
+    "counterfactual_sensitivity": (None, None),
+    "contribution": (None, None),
+}
 
 
 def _unavailable(message: str) -> dict[str, Any]:
@@ -408,14 +415,39 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
         result["normalised_score"] = result.get("normalised_score_10")
     if "raw_metric" not in result.columns:
         result["raw_metric"] = result.get("raw_metric_value")
+    aliases = {
+        "peer_percentile": ("peer_percentile_0_1", "peer_percentile_pct", "percentile"),
+        "historical_contribution": ("historical_contribution_raw", "contribution_history"),
+        "coverage": ("coverage_ratio", "canonical_coverage"),
+        "uncertainty": ("evidence_uncertainty", "evidence_quality"),
+        "interaction": ("interaction_effect", "interaction_note"),
+        "counterfactual_sensitivity": ("counterfactual", "counterfactual_effect"),
+        "source_span": ("exact_source_span", "citation_span"),
+        "source_authority": ("authority_source",),
+        "conflict": ("conflict_status",),
+        "conflict_id": ("conflict_reference",),
+        "contribution": ("canonical_contribution_raw",),
+    }
+    for target, candidates in aliases.items():
+        if target not in result.columns:
+            result[target] = next((result[candidate] for candidate in candidates if candidate in result.columns), "unavailable")
     for column, default in (
         ("component", "unknown"),
         ("source_id", "unavailable"),
         ("authority", "unknown"),
+        ("source_authority", "unavailable"),
         ("driver_text", "Feature driver unavailable; informational only."),
         ("source_dataset", "unavailable"),
+        ("source_span", "unavailable"),
         ("as_of_date", "unavailable"),
         ("freshness_status", "unknown"),
+        ("peer_group", "unavailable"),
+        ("uncertainty", "unavailable"),
+        ("interaction", "unavailable"),
+        ("counterfactual_sensitivity", "unavailable"),
+        ("missingness", "unavailable"),
+        ("conflict", "unavailable"),
+        ("conflict_id", "unavailable"),
         ("classification", "unclassified"),
         ("authority_classification", "unknown"),
         ("freshness_classification", "unknown"),
@@ -424,15 +456,70 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
     ):
         if column not in result.columns:
             result[column] = default
+        else:
+            result[column] = result[column].astype(object).where(
+                result[column].notna() & result[column].astype(str).str.strip().ne(""),
+                default,
+            )
     if "direction" not in result.columns:
         score = pd.to_numeric(result["normalised_score"], errors="coerce")
         result["direction"] = score.map(lambda value: "missing" if pd.isna(value) else "positive" if value >= 6 else "negative" if value <= 4 else "mixed")
+    for column, (minimum, maximum) in _FEATURE_DRIVER_NUMERIC_BOUNDS.items():
+        result[column] = result[column].map(
+            lambda value, lower=minimum, upper=maximum: _feature_driver_number(
+                value,
+                minimum=lower,
+                maximum=upper,
+            )
+        )
+        result[column] = result[column].astype(object).where(
+            result[column].notna(), "unavailable"
+        )
+    result["uncertainty"] = result["uncertainty"].map(_feature_driver_uncertainty)
+    result["execution_allowed"] = False
+    score = pd.to_numeric(result["normalised_score"], errors="coerce")
+    missingness = result["missingness"].astype(str).str.strip()
+    result.loc[missingness.isin({"", "nan", "None", "unavailable"}) & score.isna(), "missingness"] = "missing"
+    result.loc[missingness.isin({"", "nan", "None", "unavailable"}) & score.notna(), "missingness"] = "not_missing"
+    result["conflict"] = result["conflict"].where(result["conflict"].notna() & result["conflict"].astype(str).str.strip().ne(""), "unavailable")
     result["flags"] = result["flags"].fillna("none").astype(str)
     derived_flags = result["flags"].eq("none")
     result.loc[derived_flags & result["direction"].astype(str).eq("missing"), "flags"] = "missing"
     result.loc[derived_flags & result["authority_classification"].astype(str).str.contains("low", case=False, na=False), "flags"] = "low_authority"
     result.loc[derived_flags & result["freshness_classification"].astype(str).str.contains("stale|partial", case=False, na=False, regex=True), "flags"] = "stale"
     return result
+
+
+def _feature_driver_number(
+    value: object,
+    *,
+    minimum: float | None,
+    maximum: float | None,
+) -> float | None:
+    if isinstance(value, bool) or not pd.api.types.is_scalar(value):
+        return None
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    if minimum is not None and number < minimum:
+        return None
+    if maximum is not None and number > maximum:
+        return None
+    return number
+
+
+def _feature_driver_uncertainty(value: object) -> object:
+    if isinstance(value, bool) or not pd.api.types.is_scalar(value):
+        return "unavailable"
+    if isinstance(value, (int, float)):
+        return float(value) if math.isfinite(float(value)) else "unavailable"
+    text = str(value).strip()
+    if not text or text.casefold() in {"nan", "inf", "+inf", "-inf", "infinity", "+infinity", "-infinity", "<na>", "none"}:
+        return "unavailable"
+    return text
 
 
 def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
