@@ -5,6 +5,7 @@ import hashlib
 import math
 import re
 from collections.abc import Iterable, Mapping
+from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
@@ -54,6 +55,7 @@ _NUMERIC_EVIDENCE_BOUNDS: dict[str, tuple[float | None, float | None]] = {
 }
 _SCORE_BOUNDS = (0.0, 10.0)
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _UNAVAILABLE_CLAIM = "unavailable (non-traceable claim; source provenance unavailable)."
 
 
@@ -124,6 +126,7 @@ def build_feature_drivers(scores: pd.DataFrame | Iterable[Any], ledger: pd.DataF
             "source_span",
             "source_vintage_hash",
             "claim_hash",
+            "as_of_date",
         }:
             frame[column] = frame[column].map(_text).replace("", default)
     frame["authority"] = frame["authority"].map(_text).replace("", "unknown")
@@ -132,7 +135,7 @@ def build_feature_drivers(scores: pd.DataFrame | Iterable[Any], ledger: pd.DataF
     frame["source_vintage_hash"] = frame["source_vintage_hash"].map(_source_vintage_hash).replace("", "unavailable")
     frame["source_id"] = frame["source_id"].map(_text)
     frame["source_dataset"] = frame.apply(_source_dataset, axis=1)
-    frame["as_of_date"] = frame["as_of_date"].map(_text)
+    frame["as_of_date"] = frame["as_of_date"].map(_canonical_cohort_time).replace("", "unavailable")
     frame["freshness_status"] = frame["freshness_status"].map(_text).replace("", "unknown")
     frame["direction"] = frame["normalised_score"].map(_direction)
     _derive_peer_percentiles(frame)
@@ -205,10 +208,10 @@ def _merge_ledger(frame: pd.DataFrame, ledger: pd.DataFrame) -> pd.DataFrame:
     source = ledger.copy()
     if "instrument_id" not in source.columns and "instrument" in source.columns:
         source["instrument_id"] = source["instrument"]
-    keys = [key for key in ("instrument_id", "component") if key in frame.columns and key in source.columns]
-    if not keys:
+    keys = ("instrument_id", "component")
+    if any(key not in frame.columns or key not in source.columns for key in keys):
         return frame
-    columns = keys + [
+    evidence_columns = [
         column
         for column in (
             "source_id", "source_authority", "authority", "source_dataset", "source_span",
@@ -219,26 +222,94 @@ def _merge_ledger(frame: pd.DataFrame, ledger: pd.DataFrame) -> pd.DataFrame:
         )
         if column in source.columns
     ]
-    source = source[columns].drop_duplicates(keys, keep="last")
-    merged = frame.merge(source, on=keys, how="left", suffixes=("", "_ledger"))
-    for column in (
-        "source_id", "authority", "source_authority", "source_dataset", "source_span",
-        "source_vintage_hash", "claim_hash",
-        "as_of_date", "freshness_status", "missingness", "conflict", "conflict_id",
-        "contribution", "historical_contribution", "coverage", "uncertainty",
-        "interaction", "counterfactual_sensitivity", "peer_group", "peer_percentile",
-    ):
-        ledger_column = f"{column}_ledger"
-        if ledger_column in merged.columns:
-            merged[column] = merged[column].where(merged[column].notna() & merged[column].astype(str).ne(""), merged[ledger_column])
-            merged = merged.drop(columns=[ledger_column])
-    if "source_authority" in merged.columns:
-        if "authority" not in merged.columns:
-            merged["authority"] = merged["source_authority"]
+    result = frame.copy().reset_index(drop=True)
+    for index, score_row in result.iterrows():
+        selected = _latest_eligible_ledger_row(score_row, source)
+        if selected is None:
+            continue
+        for column in evidence_columns:
+            if column not in result.columns:
+                result[column] = None
+            if not _has_value(result.at[index, column]):
+                result.at[index, column] = selected.get(column)
+    if "source_authority" in result.columns:
+        if "authority" not in result.columns:
+            result["authority"] = result["source_authority"]
         else:
-            missing_authority = merged["authority"].isna() | merged["authority"].astype(str).str.strip().isin({"", "unknown"})
-            merged.loc[missing_authority, "authority"] = merged.loc[missing_authority, "source_authority"]
-    return merged
+            missing_authority = result["authority"].isna() | result["authority"].astype(str).str.strip().isin({"", "unknown"})
+            result.loc[missing_authority, "authority"] = result.loc[missing_authority, "source_authority"]
+    return result
+
+
+def _latest_eligible_ledger_row(score_row: pd.Series, ledger: pd.DataFrame) -> pd.Series | None:
+    cutoff = _required_row_time(score_row, ("decision_time", "decision_at", "as_of_date"))
+    if cutoff is None:
+        return None
+    instrument = _scalar_text(score_row.get("instrument_id"))
+    component = _scalar_text(score_row.get("component"))
+    if not instrument or not component:
+        return None
+    candidates: list[tuple[pd.Timestamp, pd.Series]] = []
+    for _, candidate in ledger.iterrows():
+        if _scalar_text(candidate.get("instrument_id")) != instrument or _scalar_text(candidate.get("component")) != component:
+            continue
+        evidence_time = _required_row_time(candidate, ("evidence_at", "valid_at", "as_of_date"))
+        if evidence_time is None or evidence_time > cutoff:
+            continue
+        if not _optional_cutoff_is_eligible(candidate, "known_at", cutoff):
+            continue
+        if not _optional_cutoff_is_eligible(candidate, "available_at", cutoff):
+            continue
+        candidates.append((evidence_time, candidate))
+    if not candidates:
+        return None
+    latest_time = max(item[0] for item in candidates)
+    latest = [row for timestamp, row in candidates if timestamp == latest_time]
+    identities = {_deterministic_ledger_row_key(row) for row in latest}
+    if len(identities) != 1:
+        return None
+    return min(latest, key=_deterministic_ledger_row_key)
+
+
+def _required_row_time(row: pd.Series, columns: tuple[str, ...]) -> pd.Timestamp | None:
+    for column in columns:
+        if column not in row.index:
+            continue
+        value = row.get(column)
+        if not _has_value(value):
+            continue
+        return _parse_canonical_time(value)
+    return None
+
+
+def _optional_cutoff_is_eligible(row: pd.Series, column: str, cutoff: pd.Timestamp) -> bool:
+    if column not in row.index or not _has_value(row.get(column)):
+        return True
+    timestamp = _parse_canonical_time(row.get(column))
+    return timestamp is not None and timestamp <= cutoff
+
+
+def _deterministic_ledger_row_key(row: pd.Series) -> str:
+    return json.dumps(
+        {str(column): row.get(column) for column in sorted(row.index)},
+        sort_keys=True,
+        default=str,
+        separators=(",", ":"),
+    )
+
+
+def _has_value(value: object) -> bool:
+    if value is None:
+        return False
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        return True
+    if not pd.api.types.is_scalar(missing):
+        return True
+    if bool(missing):
+        return False
+    return not isinstance(value, str) or bool(value.strip())
 
 
 def _normalise_evidence_columns(frame: pd.DataFrame) -> None:
@@ -277,9 +348,13 @@ def _derive_peer_percentiles(frame: pd.DataFrame) -> None:
     values = frame["normalised_score"]
     groups = frame["peer_group"].map(_text)
     components = frame["component"].map(_text)
-    dates = frame["as_of_date"].map(_scalar_text)
+    dates = frame["as_of_date"].map(_canonical_cohort_time)
     vintages = frame["source_vintage_hash"].map(_source_vintage_hash)
-    frame["peer_percentile"] = None
+    derivable = frame["peer_percentile"].map(_missing_peer_percentile)
+    frame["peer_percentile"] = [
+        _evidence_number(value, minimum=0.0, maximum=100.0)
+        for value in frame["peer_percentile"]
+    ]
     for (component, peer_group, as_of_date, source_vintage_hash), indices in frame.groupby(
         [components, groups, dates, vintages], sort=False, dropna=False
     ).groups.items():
@@ -297,8 +372,19 @@ def _derive_peer_percentiles(frame: pd.DataFrame) -> None:
         ranks = values.loc[valid].rank(method="average", pct=True) * 100.0
         for index, percentile in ranks.items():
             current = frame.at[index, "peer_percentile"]
-            if _text(current) == "":
+            if derivable.loc[index] and pd.isna(current):
                 frame.at[index, "peer_percentile"] = round(float(percentile), 6)
+
+
+def _missing_peer_percentile(value: object) -> bool:
+    if not _has_value(value):
+        return True
+    return isinstance(value, str) and value.strip().casefold() in {
+        "unavailable",
+        "nan",
+        "none",
+        "<na>",
+    }
 
 
 def _normalise_numeric_evidence(frame: pd.DataFrame) -> None:
@@ -508,6 +594,36 @@ def _scalar_text(value: object) -> str:
         return ""
     text = value.strip()
     return "" if text.casefold() in {"", "unavailable", "nan", "none", "<na>"} else text
+
+
+def _canonical_cohort_time(value: object) -> str:
+    if isinstance(value, bool) or not isinstance(value, (str, date, datetime, pd.Timestamp)):
+        return ""
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ""
+        if _DATE_ONLY_RE.fullmatch(text):
+            timestamp = _parse_canonical_time(text)
+            return timestamp.date().isoformat() if timestamp is not None else ""
+    elif isinstance(value, date) and not isinstance(value, datetime):
+        return value.isoformat()
+    timestamp = _parse_canonical_time(value)
+    if timestamp is None:
+        return ""
+    return timestamp.isoformat().replace("+00:00", "Z")
+
+
+def _parse_canonical_time(value: object) -> pd.Timestamp | None:
+    if isinstance(value, bool) or not isinstance(value, (str, date, datetime, pd.Timestamp)):
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    try:
+        timestamp = pd.to_datetime(value, errors="coerce", utc=True)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return timestamp if isinstance(timestamp, pd.Timestamp) and not pd.isna(timestamp) else None
 
 
 def _source_vintage_hash(value: object) -> str:

@@ -57,8 +57,13 @@ from etf_cockpit.features.etf_economics import calculate_etf_liquidity
 from etf_cockpit.services import CockpitSnapshot
 from etf_cockpit.application.ui_facade import SimpleInstrumentScore
 from etf_cockpit.application.ui_facade import load_peer_cohort_projection
-from etf_cockpit.signals.feature_drivers import normalise_bound_claim
-from etf_cockpit.signals.feature_drivers import _derive_peer_percentiles, _scalar_text, _source_vintage_hash
+from etf_cockpit.application.ui_facade import (
+    _canonical_cohort_time,
+    _derive_peer_percentiles,
+    _scalar_text,
+    _source_vintage_hash,
+    normalise_bound_claim,
+)
 from etf_cockpit.application.ui_facade import load_financial_institution_projection
 from etf_cockpit.application.ui_facade import load_real_asset_projection
 from etf_cockpit.application.ui_facade import load_cyclical_projection
@@ -484,6 +489,7 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
     )
     result["normalised_score"] = score
     result["direction"] = score.map(_feature_driver_direction)
+    result["as_of_date"] = result["as_of_date"].map(_canonical_cohort_time).replace("", "unavailable")
     _derive_peer_percentiles(result)
     result["normalised_score"] = score.astype(object).where(score.notna(), "unavailable")
     for column, (minimum, maximum) in _FEATURE_DRIVER_NUMERIC_BOUNDS.items():

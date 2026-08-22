@@ -3543,3 +3543,18 @@ complete affected feature-driver, persistence, selector and instrument-detail
 collection pass with Ruff and diff hygiene. Freeze one replacement exact head
 for paired review and fresh hosted evidence; preserve canonical status and
 `execution_allowed=false`.
+
+`ISSUE-0047 FINAL EVIDENCE/POINT-IN-TIME CORRECTION` replacement head
+`2df0703320eb4cee892a60f964e09ff9d1f04ef8` is rejected by both final
+reviewers; exact-head run `32558612970` is stale after its architecture
+preflight rejected a selector-to-signals implementation import. The complete
+demonstrated set is that import boundary, loss of an explicit zero percentile,
+malformed cohort dates, and order-dependent ledger reconciliation that could
+attach future or ambiguous evidence. One bounded correction now re-exports
+the helper contract through the application facade, preserves valid explicit
+percentiles including zero, canonicalises only scalar valid dates, and selects
+only the latest point-in-time-eligible ledger row while failing closed on
+incompatible same-time rows. Direct adversarial, architecture, feature-driver,
+persistence and instrument-detail tests pass. Freeze one clean replacement
+head for final paired review and fresh hosted evidence; keep canonical status
+unchanged and preserve `execution_allowed=false`.

@@ -263,7 +263,7 @@ def test_mixed_numeric_evidence_fails_closed_and_zero_survives_write_readback_an
         assert generated.loc["valid-zero", column] == 0.0
         assert pd.isna(generated.loc["malformed", column])
         assert pd.isna(generated.loc["missing", column])
-    assert pd.isna(generated.loc["valid-zero", "peer_percentile"])
+    assert generated.loc["valid-zero", "peer_percentile"] == 0.0
     assert generated.loc["valid-zero", "uncertainty"] == "0.0"
     assert generated.loc["malformed", "uncertainty"] == "unavailable"
     assert generated.loc["missing", "uncertainty"] == "unavailable"
@@ -275,6 +275,7 @@ def test_mixed_numeric_evidence_fails_closed_and_zero_survives_write_readback_an
     trust.write_feature_drivers(source)
     persisted = pd.read_parquet(output).set_index("component")
     assert persisted.loc["valid-zero", "counterfactual_sensitivity"] == 0.0
+    assert persisted.loc["valid-zero", "peer_percentile"] == 0.0
     assert pd.isna(persisted.loc["malformed", "peer_percentile"])
     assert pd.isna(persisted.loc["missing", "coverage"])
     assert persisted["execution_allowed"].eq(False).all()
@@ -291,7 +292,7 @@ def test_mixed_numeric_evidence_fails_closed_and_zero_survives_write_readback_an
         assert rows["valid-zero"][column] == 0.0
         assert rows["malformed"][column] == "unavailable"
         assert rows["missing"][column] == "unavailable"
-    assert rows["valid-zero"]["peer_percentile"] == "unavailable"
+    assert rows["valid-zero"]["peer_percentile"] == 0.0
     assert rows["valid-zero"]["uncertainty"] == "0.0"
     assert rows["malformed"]["uncertainty"] == "unavailable"
     assert rows["missing"]["uncertainty"] == "unavailable"
@@ -311,7 +312,7 @@ def test_mixed_numeric_evidence_fails_closed_and_zero_survives_write_readback_an
     ):
         assert first[label] == "0.0"
         assert second[label] == "unavailable"
-    assert first["Peer percentile"] == "unavailable"
+    assert first["Peer percentile"] == "0.0"
 
 
 def test_object_path_replaces_causal_claims_with_deterministic_bound_claim() -> None:
@@ -355,3 +356,107 @@ def test_peer_percentile_does_not_mix_vintages() -> None:
     assert rows.loc["A", "peer_percentile"] == 100.0
     assert rows.loc["B", "peer_percentile"] == 50.0
     assert pd.isna(rows.loc["C", "peer_percentile"])
+
+
+def test_peer_percentile_rejects_malformed_dates_and_normalises_timestamps() -> None:
+    source = pd.DataFrame(
+        [
+            {"instrument_id": "A", "component": "momentum", "normalised_score": 8.0, "peer_group": "growth", "as_of_date": "not-a-date", "source_vintage_hash": VALID_VINTAGE},
+            {"instrument_id": "B", "component": "momentum", "normalised_score": 4.0, "peer_group": "growth", "as_of_date": ["2026-07-10"], "source_vintage_hash": VALID_VINTAGE},
+            {"instrument_id": "C", "component": "momentum", "normalised_score": 8.0, "peer_group": "growth", "as_of_date": "2026-07-10T01:00:00+01:00", "source_vintage_hash": "b" * 64},
+            {"instrument_id": "D", "component": "momentum", "normalised_score": 4.0, "peer_group": "growth", "as_of_date": pd.Timestamp("2026-07-10T00:00:00Z"), "source_vintage_hash": "b" * 64},
+        ]
+    )
+
+    rows = build_feature_drivers(source).set_index("instrument_id")
+
+    assert pd.isna(rows.loc["A", "peer_percentile"])
+    assert pd.isna(rows.loc["B", "peer_percentile"])
+    assert rows.loc["A", "as_of_date"] == "unavailable"
+    assert rows.loc["B", "as_of_date"] == "unavailable"
+    assert rows.loc["C", "as_of_date"] == "2026-07-10T00:00:00Z"
+    assert rows.loc["D", "as_of_date"] == "2026-07-10T00:00:00Z"
+    assert rows.loc["C", "peer_percentile"] == 100.0
+    assert rows.loc["D", "peer_percentile"] == 50.0
+
+
+def test_ledger_selects_latest_eligible_evidence_independent_of_row_order() -> None:
+    scores = pd.DataFrame(
+        [{"instrument_id": "A", "component": "quality", "normalised_score": 7.0, "as_of_date": "2026-01-01"}]
+    )
+    old = {
+        "instrument_id": "A",
+        "component": "quality",
+        "as_of_date": "2025-12-31",
+        "known_at": "2025-12-31T12:00:00Z",
+        "available_at": "2025-12-31T13:00:00Z",
+        "source_id": "fundamentals:old",
+        "source_authority": "official_filing",
+        "source_span": "old.parquet#quality",
+        "source_vintage_hash": "b" * 64,
+    }
+    future = {
+        "instrument_id": "A",
+        "component": "quality",
+        "as_of_date": "2026-01-02",
+        "known_at": "2026-01-02T12:00:00Z",
+        "available_at": "2026-01-02T13:00:00Z",
+        "source_id": "fundamentals:future",
+        "source_authority": "official_filing",
+        "source_span": "future.parquet#quality",
+        "source_vintage_hash": "c" * 64,
+    }
+
+    forward = build_feature_drivers(scores, pd.DataFrame([old, future])).iloc[0]
+    reversed_rows = build_feature_drivers(scores, pd.DataFrame([future, old])).iloc[0]
+
+    for row in (forward, reversed_rows):
+        assert row["source_id"] == "fundamentals:old"
+        assert row["source_span"] == "old.parquet#quality"
+        assert row["source_vintage_hash"] == "b" * 64
+        assert not str(row["driver_text"]).startswith("unavailable")
+    assert forward["claim_hash"] == reversed_rows["claim_hash"]
+
+
+def test_ledger_same_time_incompatible_provenance_fails_closed() -> None:
+    scores = pd.DataFrame(
+        [{"instrument_id": "A", "component": "quality", "normalised_score": 7.0, "as_of_date": "2026-01-01"}]
+    )
+    ledger = pd.DataFrame(
+        [
+            {"instrument_id": "A", "component": "quality", "as_of_date": "2025-12-31", "source_id": "fundamentals:first", "source_authority": "official_filing", "source_span": "first.parquet#quality", "source_vintage_hash": "b" * 64},
+            {"instrument_id": "A", "component": "quality", "as_of_date": "2025-12-31", "source_id": "fundamentals:second", "source_authority": "official_filing", "source_span": "second.parquet#quality", "source_vintage_hash": "c" * 64},
+        ]
+    )
+
+    row = build_feature_drivers(scores, ledger).iloc[0]
+
+    assert row["source_id"] == ""
+    assert row["source_span"] == "unavailable"
+    assert row["source_vintage_hash"] == "unavailable"
+    assert row["driver_text"] == "unavailable (non-traceable claim; source provenance unavailable)."
+    assert row["claim_hash"] == "unavailable"
+
+
+def test_ledger_same_time_same_provenance_with_conflicting_evidence_fails_closed() -> None:
+    scores = pd.DataFrame(
+        [{"instrument_id": "A", "component": "quality", "normalised_score": 7.0, "as_of_date": "2026-01-01"}]
+    )
+    shared = {
+        "instrument_id": "A",
+        "component": "quality",
+        "as_of_date": "2025-12-31",
+        "source_id": "fundamentals:first",
+        "source_authority": "official_filing",
+        "source_span": "first.parquet#quality",
+        "source_vintage_hash": "b" * 64,
+    }
+    ledger = pd.DataFrame([{**shared, "coverage": 0.8}, {**shared, "coverage": 0.9}])
+
+    row = build_feature_drivers(scores, ledger).iloc[0]
+
+    assert row["source_id"] == ""
+    assert row["source_span"] == "unavailable"
+    assert row["coverage"] is pd.NA or pd.isna(row["coverage"])
+    assert row["driver_text"] == "unavailable (non-traceable claim; source provenance unavailable)."
+    assert row["claim_hash"] == "unavailable"
