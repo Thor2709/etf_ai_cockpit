@@ -11687,7 +11687,19 @@
       "write_conflict_group": "analysis-and-validation"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #694 merged exact independently approved head ea0c2af2536ba55f0219cabfa158a0394f194891 as 8798108305b7f8212e15299b0aa5b94bd88c9881",
+            "Release run 32562924713 passed classifier, product/protected preflight, supply chain and terminal validation; both independent reviewers approved the exact head",
+            "Acceptance evidence verifies deterministic non-causal driver claims bound to exact vintage, source span and authority; strict point-in-time chronology; fail-closed persistence and generic readback; trusted grouping; and execution_allowed=false"
+          ],
+          "review_reference": "PR #694 exact-head whole-diff and risk reviews plus O-tier validation",
+          "reviewed_date": "2026-08-22",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0047",
@@ -11717,7 +11729,7 @@
       "package_status": "Implementation complete; closure pending",
       "phase": "phase-01-governance-scope",
       "priority": "P1",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0025-issue-0054-issue-0007-and-issue-0047-documents-timestamps-contradictions-and-explanations"
@@ -11744,8 +11756,8 @@
       "source_record_id": "ISSUE-0047",
       "source_title": "Feature-driver explanations for every evidence component",
       "title": "Feature-driver explanations for every evidence component",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "ea0c2af2536ba55f0219cabfa158a0394f194891",
+      "verified_date": "2026-08-22",
       "why": "A score is trustworthy only when every contribution reconciles to the exact canonical formula.",
       "write_conflict_group": "programme-governance"
     },
@@ -28041,7 +28053,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "0895f2f3ef3d1e6b775aba1633c0d7e8f3fab5293d13a6f0fdd86f7a795c1a1e",
+    "programme_control_state_sha256": "97cffb48a4143873cd76a170e8c709d014cd934fa6d9e9e462d086d97091b046",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
