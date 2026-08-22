@@ -148,9 +148,16 @@ from etf_cockpit.portfolio.sandbox import select_holdings_view  # noqa: F401
 from etf_cockpit.application.overlap import *  # noqa: F401,F403
 from etf_cockpit.signals.simple_scores import *  # noqa: F401,F403
 from etf_cockpit.signals.feature_drivers import (  # noqa: F401
+    _authority_classification,
     _canonical_cohort_time,
+    _classification,
     _derive_peer_percentiles,
+    _flags,
+    _freshness_classification,
+    _normalise_interaction,
+    _normalise_peer_percentile_alias,
     _scalar_text,
+    _source_provenance_text,
     _source_vintage_hash,
     normalise_bound_claim,
 )

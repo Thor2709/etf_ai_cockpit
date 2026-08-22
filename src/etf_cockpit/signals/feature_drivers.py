@@ -56,6 +56,11 @@ _NUMERIC_EVIDENCE_BOUNDS: dict[str, tuple[float | None, float | None]] = {
 _SCORE_BOUNDS = (0.0, 10.0)
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_AWARE_TIMESTAMP_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$"
+)
+_PROVENANCE_PLACEHOLDERS = {"", "unknown", "unavailable", "nan", "none", "<na>", "n/a", "na"}
+_SAFE_INTERACTION_STATES = {"none", "not_observed", "observed", "mixed"}
 _UNAVAILABLE_CLAIM = "unavailable (non-traceable claim; source provenance unavailable)."
 
 
@@ -130,17 +135,19 @@ def build_feature_drivers(scores: pd.DataFrame | Iterable[Any], ledger: pd.DataF
         }:
             frame[column] = frame[column].map(_text).replace("", default)
     frame["authority"] = frame["authority"].map(_text).replace("", "unknown")
-    frame["source_authority"] = frame["source_authority"].map(_scalar_text).replace("", "unavailable")
-    frame["source_span"] = frame["source_span"].map(_scalar_text).replace("", "unavailable")
+    frame["source_authority"] = frame["source_authority"].map(_source_provenance_text).replace("", "unavailable")
+    frame["source_span"] = frame["source_span"].map(_source_provenance_text).replace("", "unavailable")
     frame["source_vintage_hash"] = frame["source_vintage_hash"].map(_source_vintage_hash).replace("", "unavailable")
     frame["source_id"] = frame["source_id"].map(_text)
     frame["source_dataset"] = frame.apply(_source_dataset, axis=1)
+    frame["_pit_valid"] = frame.apply(_score_pit_is_valid, axis=1)
     frame["as_of_date"] = frame["as_of_date"].map(_canonical_cohort_time).replace("", "unavailable")
     frame["freshness_status"] = frame["freshness_status"].map(_text).replace("", "unknown")
     frame["direction"] = frame["normalised_score"].map(_direction)
     _derive_peer_percentiles(frame)
     _normalise_numeric_evidence(frame)
     frame["uncertainty"] = frame["uncertainty"].map(_uncertainty)
+    frame["interaction"] = frame["interaction"].map(_normalise_interaction)
     frame["missingness"] = frame["normalised_score"].map(
         lambda value: "missing" if pd.isna(value) else "not_missing"
     )
@@ -242,7 +249,7 @@ def _merge_ledger(frame: pd.DataFrame, ledger: pd.DataFrame) -> pd.DataFrame:
 
 
 def _latest_eligible_ledger_row(score_row: pd.Series, ledger: pd.DataFrame) -> pd.Series | None:
-    cutoff = _required_row_time(score_row, ("decision_time", "decision_at", "as_of_date"))
+    cutoff = _score_cutoff_time(score_row)
     if cutoff is None:
         return None
     instrument = _scalar_text(score_row.get("instrument_id"))
@@ -256,9 +263,7 @@ def _latest_eligible_ledger_row(score_row: pd.Series, ledger: pd.DataFrame) -> p
         evidence_time = _required_row_time(candidate, ("evidence_at", "valid_at", "as_of_date"))
         if evidence_time is None or evidence_time > cutoff:
             continue
-        if not _optional_cutoff_is_eligible(candidate, "known_at", cutoff):
-            continue
-        if not _optional_cutoff_is_eligible(candidate, "available_at", cutoff):
+        if not _ledger_chronology_is_valid(candidate, evidence_time, cutoff):
             continue
         candidates.append((evidence_time, candidate))
     if not candidates:
@@ -282,11 +287,45 @@ def _required_row_time(row: pd.Series, columns: tuple[str, ...]) -> pd.Timestamp
     return None
 
 
-def _optional_cutoff_is_eligible(row: pd.Series, column: str, cutoff: pd.Timestamp) -> bool:
-    if column not in row.index or not _has_value(row.get(column)):
-        return True
-    timestamp = _parse_canonical_time(row.get(column))
-    return timestamp is not None and timestamp <= cutoff
+def _score_cutoff_time(row: pd.Series) -> pd.Timestamp | None:
+    as_of = _required_row_time(row, ("as_of_date",))
+    if as_of is None:
+        return None
+    decisions: list[pd.Timestamp] = []
+    for column in ("decision_time", "decision_at"):
+        if column not in row.index or not _has_value(row.get(column)):
+            continue
+        parsed = _parse_canonical_time(row.get(column))
+        if parsed is None:
+            return None
+        decisions.append(parsed)
+    if decisions and any(value != decisions[0] for value in decisions[1:]):
+        return None
+    cutoff = decisions[0] if decisions else as_of
+    return cutoff if cutoff >= as_of else None
+
+
+def _score_pit_is_valid(row: pd.Series) -> bool:
+    return _score_cutoff_time(row) is not None
+
+
+def _ledger_chronology_is_valid(
+    row: pd.Series,
+    evidence_time: pd.Timestamp,
+    cutoff: pd.Timestamp,
+) -> bool:
+    chronology = [evidence_time]
+    for column in ("known_at", "available_at"):
+        if column not in row.index or not _has_value(row.get(column)):
+            continue
+        timestamp = _parse_canonical_time(row.get(column))
+        if timestamp is None:
+            return False
+        chronology.append(timestamp)
+    return (
+        all(left <= right for left, right in zip(chronology, chronology[1:]))
+        and chronology[-1] <= cutoff
+    )
 
 
 def _deterministic_ledger_row_key(row: pd.Series) -> str:
@@ -316,7 +355,6 @@ def _normalise_evidence_columns(frame: pd.DataFrame) -> None:
     """Map known producer aliases without manufacturing absent evidence."""
 
     aliases = {
-        "peer_percentile": ("peer_percentile_0_1", "peer_percentile_pct", "percentile"),
         "historical_contribution": ("historical_contribution_raw", "contribution_history"),
         "coverage": ("coverage_ratio", "canonical_coverage"),
         "uncertainty": ("evidence_uncertainty", "evidence_quality"),
@@ -329,6 +367,7 @@ def _normalise_evidence_columns(frame: pd.DataFrame) -> None:
         "conflict_id": ("conflict_reference",),
         "contribution": ("canonical_contribution_raw",),
     }
+    _normalise_peer_percentile_alias(frame)
     for target, candidates in aliases.items():
         if target in frame.columns:
             continue
@@ -338,6 +377,25 @@ def _normalise_evidence_columns(frame: pd.DataFrame) -> None:
                 break
         else:
             frame[target] = None
+
+
+def _normalise_peer_percentile_alias(frame: pd.DataFrame) -> None:
+    if "peer_percentile" in frame.columns:
+        return
+    if "peer_percentile_0_1" in frame.columns:
+        frame["peer_percentile"] = frame["peer_percentile_0_1"].map(
+            lambda value: (
+                number * 100.0
+                if (number := _evidence_number(value, minimum=0.0, maximum=1.0)) is not None
+                else None
+            )
+        )
+        return
+    for candidate in ("peer_percentile_pct", "percentile"):
+        if candidate in frame.columns:
+            frame["peer_percentile"] = frame[candidate]
+            return
+    frame["peer_percentile"] = None
 
 
 def _derive_peer_percentiles(frame: pd.DataFrame) -> None:
@@ -463,9 +521,11 @@ def _freshness_classification(value: object) -> str:
     text = _text(value).casefold()
     if text in {"stale", "stale_block", "expired", "old"}:
         return "stale"
+    if text in {"fresh", "ok", "current"}:
+        return "fresh"
     if text in {"partial", "warning", "missing_or_pending", "unknown", ""}:
         return "partial"
-    return "fresh"
+    return "partial"
 
 
 def _classification(row: pd.Series) -> str:
@@ -497,10 +557,10 @@ def _flags(row: pd.Series) -> str:
 
 
 def _driver_text(row: pd.Series) -> str:
-    source_vintage_hash = _source_vintage_hash(row.get("source_vintage_hash"))
-    source_span = _scalar_text(row.get("source_span"))
+    source_span = _source_provenance_text(row.get("source_span"))
+    source_authority = _source_provenance_text(row.get("source_authority"))
     claim = deterministic_driver_claim(row.get("component"), row.get("normalised_score"))
-    if claim and (source_vintage_hash or source_span):
+    if claim and source_span and source_authority and bool(row.get("_pit_valid", False)):
         return claim
     if not claim:
         return "unavailable (non-traceable claim; score unavailable)."
@@ -518,17 +578,24 @@ def deterministic_driver_claim(component: object, score: object) -> str:
 def _claim_hash_for_row(row: pd.Series) -> str:
     claim = deterministic_driver_claim(row.get("component"), row.get("normalised_score"))
     source_vintage_hash = _source_vintage_hash(row.get("source_vintage_hash"))
-    source_span = _scalar_text(row.get("source_span"))
-    if not claim or not (source_vintage_hash or source_span):
+    source_span = _source_provenance_text(row.get("source_span"))
+    source_authority = _source_provenance_text(row.get("source_authority"))
+    if not claim or not source_span or not source_authority or not bool(row.get("_pit_valid", False)):
         return "unavailable"
-    return claim_binding_hash(claim, source_vintage_hash, source_span)
+    return claim_binding_hash(claim, source_vintage_hash, source_span, source_authority)
 
 
-def claim_binding_hash(claim: str, source_vintage_hash: str | None, source_span: str | None) -> str:
+def claim_binding_hash(
+    claim: str,
+    source_vintage_hash: str | None,
+    source_span: str,
+    source_authority: str,
+) -> str:
     payload = json.dumps(
         {
             "claim": claim,
             "source_span": source_span or "unavailable",
+            "source_authority": source_authority or "unavailable",
             "source_vintage_hash": source_vintage_hash or "unavailable",
         },
         sort_keys=True,
@@ -544,22 +611,30 @@ def normalise_bound_claim(
     score: object,
     source_vintage_hash: object,
     source_span: object,
+    source_authority: object,
     claim_hash: object,
     require_claim_hash: bool,
+    as_of_date: object,
+    decision_time: object = None,
+    decision_at: object = None,
 ) -> tuple[str, str]:
     """Return only the deterministic claim bound to validated provenance."""
 
     vintage = _source_vintage_hash(source_vintage_hash)
-    span = _scalar_text(source_span)
+    span = _source_provenance_text(source_span)
+    authority = _source_provenance_text(source_authority)
     claim = deterministic_driver_claim(component, score)
     if not claim:
         return "unavailable (non-traceable claim; score unavailable).", "unavailable"
-    if not (vintage or span):
+    pit_row = pd.Series(
+        {"as_of_date": as_of_date, "decision_time": decision_time, "decision_at": decision_at}
+    )
+    if not span or not authority or not _score_pit_is_valid(pit_row):
         return _UNAVAILABLE_CLAIM, "unavailable"
     supplied_claim = value.strip() if isinstance(value, str) else ""
     if supplied_claim != claim:
         return "unavailable (non-traceable claim; claim content inconsistent).", "unavailable"
-    expected = claim_binding_hash(claim, vintage, span)
+    expected = claim_binding_hash(claim, vintage, span, authority)
     supplied = _source_vintage_hash(claim_hash)
     if require_claim_hash and supplied != expected:
         return "unavailable (non-traceable claim; claim binding unavailable).", "unavailable"
@@ -596,6 +671,24 @@ def _scalar_text(value: object) -> str:
     return "" if text.casefold() in {"", "unavailable", "nan", "none", "<na>"} else text
 
 
+def _source_provenance_text(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    return "" if text.casefold() in _PROVENANCE_PLACEHOLDERS else text
+
+
+def _normalise_interaction(value: object) -> object:
+    number = _evidence_number(value, minimum=None, maximum=None)
+    if number is not None:
+        return number
+    if isinstance(value, str):
+        state = value.strip().casefold().replace("-", "_").replace(" ", "_")
+        if state in _SAFE_INTERACTION_STATES:
+            return state
+    return "unavailable"
+
+
 def _canonical_cohort_time(value: object) -> str:
     if isinstance(value, bool) or not isinstance(value, (str, date, datetime, pd.Timestamp)):
         return ""
@@ -617,7 +710,21 @@ def _canonical_cohort_time(value: object) -> str:
 def _parse_canonical_time(value: object) -> pd.Timestamp | None:
     if isinstance(value, bool) or not isinstance(value, (str, date, datetime, pd.Timestamp)):
         return None
-    if isinstance(value, str) and not value.strip():
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if _DATE_ONLY_RE.fullmatch(text):
+            try:
+                date.fromisoformat(text)
+            except ValueError:
+                return None
+        elif not _AWARE_TIMESTAMP_RE.fullmatch(text):
+            return None
+        value = text
+    elif isinstance(value, datetime) and value.tzinfo is None:
+        return None
+    elif isinstance(value, pd.Timestamp) and value.tzinfo is None:
         return None
     try:
         timestamp = pd.to_datetime(value, errors="coerce", utc=True)

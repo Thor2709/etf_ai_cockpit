@@ -5,12 +5,15 @@ from types import SimpleNamespace
 import pandas as pd
 
 from etf_cockpit.app.pages.instrument_detail import _driver_table
+from etf_cockpit.app.pages.trust_evidence import FEATURE_DRIVER_EVIDENCE_COLUMNS
+from etf_cockpit.app.pages.trust_evidence import _table_panel
 from etf_cockpit.app.selectors.instrument_detail import _feature_driver_panel
 from etf_cockpit.app.selectors.instrument_detail import _normalise_feature_driver_frame
 from etf_cockpit.data import trust_artifacts as trust
 from etf_cockpit.signals.feature_drivers import build_feature_drivers
 from etf_cockpit.signals.feature_drivers import claim_binding_hash
 from etf_cockpit.signals.feature_drivers import deterministic_driver_claim
+from etf_cockpit.signals.feature_drivers import FEATURE_DRIVER_COLUMNS
 
 
 VALID_VINTAGE = "a" * 64
@@ -59,7 +62,7 @@ def test_feature_driver_delta_is_descriptive_and_traceable() -> None:
     assert row["historical_contribution"] == 0.12
     assert row["coverage"] == 0.8
     assert row["uncertainty"] == "medium"
-    assert row["interaction"] == "momentum × trend: observed co-movement"
+    assert row["interaction"] == "unavailable"
     assert row["counterfactual_sensitivity"] == -0.04
     assert row["source_span"] == "prices.parquet#2026-07-10"
     assert row["source_authority"] == "vendor_unofficial"
@@ -68,6 +71,14 @@ def test_feature_driver_delta_is_descriptive_and_traceable() -> None:
     assert row["contribution"] == 0.45
     assert bool(row["execution_allowed"]) is False
     assert "causal" not in str(row["driver_text"]).casefold()
+    claim = deterministic_driver_claim("momentum", 8.0)
+    assert row["driver_text"] == claim
+    assert row["claim_hash"] == claim_binding_hash(
+        claim,
+        VALID_VINTAGE,
+        "prices.parquet#2026-07-10",
+        "vendor_unofficial",
+    )
 
 
 def test_feature_driver_writer_readback_preserves_canonical_evidence(tmp_path, monkeypatch) -> None:
@@ -114,11 +125,11 @@ def test_feature_driver_writer_readback_preserves_canonical_evidence(tmp_path, m
     assert persisted.loc[0, "uncertainty"] == "low"
     assert persisted.loc[0, "contribution"] == 0.31
     assert persisted.loc[0, "source_vintage_hash"] == VALID_VINTAGE
-    claim = deterministic_driver_claim("momentum", 8.0)
-    assert persisted.loc[0, "driver_text"] == claim
-    assert persisted.loc[0, "claim_hash"] == claim_binding_hash(
-        claim, VALID_VINTAGE, None
+    assert persisted.loc[0, "source_span"] == "unavailable"
+    assert persisted.loc[0, "driver_text"] == (
+        "unavailable (non-traceable claim; source provenance unavailable)."
     )
+    assert persisted.loc[0, "claim_hash"] == "unavailable"
     assert persisted["execution_allowed"].eq(False).all()
 
 
@@ -175,9 +186,13 @@ def test_selector_rejects_claim_content_inconsistent_with_its_binding() -> None:
                     "source_authority": "official",
                     "source_span": "quality.parquet#2026-07-10",
                     "source_vintage_hash": VALID_VINTAGE,
+                    "as_of_date": "2026-07-10",
                     "driver_text": "tampered claim text",
                     "claim_hash": claim_binding_hash(
-                        claim, VALID_VINTAGE, "quality.parquet#2026-07-10"
+                        claim,
+                        VALID_VINTAGE,
+                        "quality.parquet#2026-07-10",
+                        "official",
                     ),
                 }
             ]
@@ -338,7 +353,12 @@ def test_object_path_replaces_causal_claims_with_deterministic_bound_claim() -> 
 
     claim = deterministic_driver_claim("momentum", 8.0)
     assert row["driver_text"] == claim
-    assert row["claim_hash"] == claim_binding_hash(claim, VALID_VINTAGE, "prices.parquet#2026-07-10")
+    assert row["claim_hash"] == claim_binding_hash(
+        claim,
+        VALID_VINTAGE,
+        "prices.parquet#2026-07-10",
+        "vendor_unofficial",
+    )
     assert row["source_vintage_hash"] == VALID_VINTAGE
 
 
@@ -460,3 +480,120 @@ def test_ledger_same_time_same_provenance_with_conflicting_evidence_fails_closed
     assert row["coverage"] is pd.NA or pd.isna(row["coverage"])
     assert row["driver_text"] == "unavailable (non-traceable claim; source provenance unavailable)."
     assert row["claim_hash"] == "unavailable"
+
+
+def test_selector_rederives_claim_authority_classifications_and_flags(monkeypatch, tmp_path) -> None:
+    claim = deterministic_driver_claim("quality", 7.0)
+    source_span = "quality.parquet#2026-07-10"
+    bound_hash = claim_binding_hash(claim, VALID_VINTAGE, source_span, "official")
+    source = pd.DataFrame(
+        [
+            {
+                "instrument_id": "A",
+                "component": "quality",
+                "normalised_score": 7.0,
+                "authority": "unknown",
+                "source_authority": "vendor_unofficial",
+                "source_span": source_span,
+                "source_vintage_hash": VALID_VINTAGE,
+                "as_of_date": "2026-07-10",
+                "freshness_status": "stale",
+                "driver_text": claim,
+                "claim_hash": bound_hash,
+                "authority_classification": "authoritative",
+                "freshness_classification": "fresh",
+                "classification": "positive",
+                "flags": "none",
+            }
+        ]
+    )
+
+    row = _normalise_feature_driver_frame(source).iloc[0]
+
+    assert row["driver_text"].startswith("unavailable (non-traceable claim;")
+    assert row["claim_hash"] == "unavailable"
+    assert row["authority_classification"] == "low_authority"
+    assert row["freshness_classification"] == "stale"
+    assert row["classification"] == "low_authority"
+    assert row["flags"] == "low_authority|stale"
+
+    path = tmp_path / "feature_drivers.parquet"
+    source.to_parquet(path, index=False)
+    monkeypatch.setattr(
+        "etf_cockpit.app.selectors.instrument_detail.FEATURE_DRIVERS_PATH", path
+    )
+    panel = _feature_driver_panel("A")
+    assert panel["top_positive"] == []
+    assert panel["low_authority"][0]["component"] == "quality"
+    assert panel["stale_or_partial"][0]["component"] == "quality"
+
+
+def test_strict_pit_rejects_future_naive_and_ambiguous_score_evidence() -> None:
+    common = {
+        "component": "quality",
+        "normalised_score": 7.0,
+        "source_authority": "official",
+        "source_span": "quality.parquet#row-1",
+        "source_vintage_hash": VALID_VINTAGE,
+    }
+    rows = build_feature_drivers(
+        pd.DataFrame(
+            [
+                {"instrument_id": "future", "as_of_date": "2026-07-11", "decision_at": "2026-07-10T23:59:59Z", **common},
+                {"instrument_id": "naive", "as_of_date": "2026-07-10T12:00:00", **common},
+                {"instrument_id": "ambiguous", "as_of_date": "07/10/2026", **common},
+            ]
+        )
+    ).set_index("instrument_id")
+
+    for instrument_id in ("future", "naive", "ambiguous"):
+        assert str(rows.loc[instrument_id, "driver_text"]).startswith("unavailable (non-traceable claim;")
+        assert rows.loc[instrument_id, "claim_hash"] == "unavailable"
+    assert rows.loc["naive", "as_of_date"] == "unavailable"
+    assert rows.loc["ambiguous", "as_of_date"] == "unavailable"
+
+
+def test_ledger_rejects_impossible_chronology() -> None:
+    scores = pd.DataFrame(
+        [{"instrument_id": "A", "component": "quality", "normalised_score": 7.0, "as_of_date": "2026-01-02"}]
+    )
+    ledger = pd.DataFrame(
+        [
+            {
+                "instrument_id": "A",
+                "component": "quality",
+                "as_of_date": "2026-01-01",
+                "known_at": "2026-01-01T13:00:00Z",
+                "available_at": "2026-01-01T12:00:00Z",
+                "source_authority": "official",
+                "source_span": "quality.parquet#row-1",
+                "source_vintage_hash": VALID_VINTAGE,
+            }
+        ]
+    )
+
+    row = build_feature_drivers(scores, ledger).iloc[0]
+
+    assert row["source_span"] == "unavailable"
+    assert row["source_authority"] == "unavailable"
+    assert row["claim_hash"] == "unavailable"
+
+
+def test_peer_percentile_fraction_alias_scales_in_producer_and_selector() -> None:
+    source = pd.DataFrame(
+        [{"instrument_id": "A", "component": "quality", "normalised_score": 7.0, "peer_percentile_0_1": 0.8}]
+    )
+
+    assert build_feature_drivers(source).iloc[0]["peer_percentile"] == 80.0
+    assert _normalise_feature_driver_frame(source).iloc[0]["peer_percentile"] == 80.0
+
+
+def test_trust_evidence_requests_complete_feature_driver_projection(tmp_path) -> None:
+    assert set(FEATURE_DRIVER_COLUMNS) - {"instrument"} <= set(FEATURE_DRIVER_EVIDENCE_COLUMNS)
+    path = tmp_path / "feature_drivers.parquet"
+    pd.DataFrame([{column: "evidence" for column in FEATURE_DRIVER_EVIDENCE_COLUMNS}]).to_parquet(path)
+
+    table = _table_panel("Feature drivers", path, FEATURE_DRIVER_EVIDENCE_COLUMNS).content.controls[1]
+    labels = [column.label.value for column in table.columns]
+
+    assert labels == FEATURE_DRIVER_EVIDENCE_COLUMNS

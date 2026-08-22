@@ -1332,6 +1332,22 @@ Completion PR #642 merged exact approved head
 passed both package platforms and terminal validation. Writer `30746368016`
 applied the two-hop aggregate, proved `zero_action_readback=true` and retained
 `execution_allowed=false`.
++
+
+`ISSUE-0047 COMPLETE TRACEABILITY/PIT CORRECTION` exact head
+`06a572a610a451df9663e2c68e90f94aa4a75513` is rejected by both final
+reviewers; exact-head O-tier run `32560345879` passed classifier, preflight,
+supply chain and terminal validation but is stale. The consolidated reproduced
+set requires exact span and authority in every available claim binding,
+non-causal structured interaction evidence, independent readback derivation of
+classifications and trusted top-driver groups, strict unambiguous score and
+ledger chronology, correct 0-1 percentile alias scaling, and complete generic
+trust-evidence projection. One bounded correction covers all paths with direct
+regressions; focused product, selector, architecture and trust-evidence tests,
+Ruff, diff hygiene and generated-state checks pass. Freeze one replacement
+head for final paired review and fresh hosted evidence; canonical status stays
+`implemented_initially` and `execution_allowed=false`.
+
 
 `ISSUE-0047 FINAL EVIDENCE/POINT-IN-TIME CORRECTION` replacement head
 `2df0703320eb4cee892a60f964e09ff9d1f04ef8` is rejected by both final

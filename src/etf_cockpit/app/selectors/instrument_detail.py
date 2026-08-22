@@ -58,9 +58,16 @@ from etf_cockpit.services import CockpitSnapshot
 from etf_cockpit.application.ui_facade import SimpleInstrumentScore
 from etf_cockpit.application.ui_facade import load_peer_cohort_projection
 from etf_cockpit.application.ui_facade import (
+    _authority_classification,
     _canonical_cohort_time,
+    _classification,
     _derive_peer_percentiles,
+    _flags,
+    _freshness_classification,
+    _normalise_interaction,
+    _normalise_peer_percentile_alias,
     _scalar_text,
+    _source_provenance_text,
     _source_vintage_hash,
     normalise_bound_claim,
 )
@@ -398,12 +405,14 @@ def _feature_driver_panel(instrument_id: str) -> dict[str, Any]:
     if scoped.empty:
         return {"status": "unavailable", "rows": [], "message": "Feature drivers unavailable for this instrument.", "execution_allowed": False}
     scoped["_score_sort"] = pd.to_numeric(scoped.get("normalised_score"), errors="coerce")
-    rows = scoped.drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
-    positive = scoped.loc[scoped["direction"].astype(str).eq("positive")].sort_values(["_score_sort", "component"], ascending=[False, True], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
-    negative = scoped.loc[scoped["direction"].astype(str).eq("negative")].sort_values(["_score_sort", "component"], ascending=[True, True], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
-    missing = scoped.loc[scoped["direction"].astype(str).eq("missing")].sort_values(["component"], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
-    low_authority = scoped.loc[scoped["flags"].astype(str).str.contains("low_authority", na=False)].sort_values(["component"], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
-    stale_or_partial = scoped.loc[scoped["flags"].astype(str).str.contains("stale|partial", na=False, regex=True)].sort_values(["component"], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
+    scoped["_claim_traceable"] = scoped["claim_hash"].map(_source_vintage_hash).ne("")
+    internal_columns = ["_score_sort", "_claim_traceable"]
+    rows = scoped.drop(columns=internal_columns, errors="ignore").to_dict(orient="records")
+    positive = scoped.loc[scoped["classification"].astype(str).eq("positive") & scoped["_claim_traceable"]].sort_values(["_score_sort", "component"], ascending=[False, True], kind="stable").drop(columns=["_score_sort", "_claim_traceable"], errors="ignore").to_dict(orient="records")
+    negative = scoped.loc[scoped["classification"].astype(str).eq("negative") & scoped["_claim_traceable"]].sort_values(["_score_sort", "component"], ascending=[True, True], kind="stable").drop(columns=["_score_sort", "_claim_traceable"], errors="ignore").to_dict(orient="records")
+    missing = scoped.loc[scoped["direction"].astype(str).eq("missing")].sort_values(["component"], kind="stable").drop(columns=internal_columns, errors="ignore").to_dict(orient="records")
+    low_authority = scoped.loc[scoped["flags"].astype(str).str.contains("low_authority", na=False)].sort_values(["component"], kind="stable").drop(columns=internal_columns, errors="ignore").to_dict(orient="records")
+    stale_or_partial = scoped.loc[scoped["flags"].astype(str).str.contains("stale|partial", na=False, regex=True)].sort_values(["component"], kind="stable").drop(columns=internal_columns, errors="ignore").to_dict(orient="records")
     return {
         "status": "available",
         "rows": rows,
@@ -432,7 +441,6 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
     if "raw_metric" not in result.columns:
         result["raw_metric"] = result.get("raw_metric_value")
     aliases = {
-        "peer_percentile": ("peer_percentile_0_1", "peer_percentile_pct", "percentile"),
         "historical_contribution": ("historical_contribution_raw", "contribution_history"),
         "coverage": ("coverage_ratio", "canonical_coverage"),
         "uncertainty": ("evidence_uncertainty", "evidence_quality"),
@@ -445,6 +453,7 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
         "conflict_id": ("conflict_reference",),
         "contribution": ("canonical_contribution_raw",),
     }
+    _normalise_peer_percentile_alias(result)
     for target, candidates in aliases.items():
         if target not in result.columns:
             result[target] = next((result[candidate] for candidate in candidates if candidate in result.columns), "unavailable")
@@ -504,17 +513,19 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
             result[column].notna(), "unavailable"
         )
     result["uncertainty"] = result["uncertainty"].map(_feature_driver_uncertainty)
+    result["interaction"] = result["interaction"].map(_normalise_interaction)
     result["execution_allowed"] = False
     result["missingness"] = score.map(lambda value: "missing" if pd.isna(value) else "not_missing")
     result["conflict"] = result["conflict"].where(result["conflict"].notna() & result["conflict"].astype(str).str.strip().ne(""), "unavailable")
-    result["flags"] = result["flags"].fillna("none").astype(str)
-    derived_flags = result["flags"].eq("none")
-    result.loc[derived_flags & result["direction"].astype(str).eq("missing"), "flags"] = "missing"
-    result.loc[derived_flags & result["authority_classification"].astype(str).str.contains("low", case=False, na=False), "flags"] = "low_authority"
-    result.loc[derived_flags & result["freshness_classification"].astype(str).str.contains("stale|partial", case=False, na=False, regex=True), "flags"] = "stale"
-    result.loc[score.isna(), "flags"] = result.loc[score.isna(), "flags"].map(
-        lambda value: "missing" if value in {"", "none", "nan"} else f"{value}|missing"
-    )
+    result["authority"] = result["authority"].map(_scalar_text).replace("", "unknown")
+    result["freshness_status"] = result["freshness_status"].map(_scalar_text).replace("", "unknown")
+    result["source_authority"] = result["source_authority"].map(_source_provenance_text).replace("", "unavailable")
+    result["source_span"] = result["source_span"].map(_source_provenance_text).replace("", "unavailable")
+    result["source_vintage_hash"] = result["source_vintage_hash"].map(_source_vintage_hash).replace("", "unavailable")
+    result["authority_classification"] = result["authority"].map(_authority_classification)
+    result["freshness_classification"] = result["freshness_status"].map(_freshness_classification)
+    result["classification"] = result.apply(_classification, axis=1)
+    result["flags"] = result.apply(_flags, axis=1)
     claims = result.apply(
         lambda row: normalise_bound_claim(
             row.get("driver_text"),
@@ -522,16 +533,17 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
             score=row.get("normalised_score"),
             source_vintage_hash=row.get("source_vintage_hash"),
             source_span=row.get("source_span"),
+            source_authority=row.get("source_authority"),
             claim_hash=row.get("claim_hash"),
             require_claim_hash=True,
+            as_of_date=row.get("as_of_date"),
+            decision_time=row.get("decision_time"),
+            decision_at=row.get("decision_at"),
         ),
         axis=1,
     )
     result["driver_text"] = claims.map(lambda value: value[0])
     result["claim_hash"] = claims.map(lambda value: value[1])
-    result["source_authority"] = result["source_authority"].map(_scalar_text).replace("", "unavailable")
-    result["source_span"] = result["source_span"].map(_scalar_text).replace("", "unavailable")
-    result["source_vintage_hash"] = result["source_vintage_hash"].map(_source_vintage_hash).replace("", "unavailable")
     return result
 
 

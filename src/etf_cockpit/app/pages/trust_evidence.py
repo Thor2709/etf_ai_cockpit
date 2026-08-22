@@ -68,6 +68,41 @@ from etf_cockpit.application.ui_facade import (
 from etf_cockpit.plugins.builtins import plugin_status_rows
 
 
+FEATURE_DRIVER_EVIDENCE_COLUMNS = [
+    "instrument_id",
+    "component",
+    "raw_metric",
+    "normalised_score",
+    "peer_group",
+    "peer_percentile",
+    "historical_contribution",
+    "coverage",
+    "uncertainty",
+    "interaction",
+    "counterfactual_sensitivity",
+    "direction",
+    "authority",
+    "source_authority",
+    "driver_text",
+    "source_dataset",
+    "source_span",
+    "source_vintage_hash",
+    "claim_hash",
+    "as_of_date",
+    "freshness_status",
+    "missingness",
+    "conflict",
+    "conflict_id",
+    "contribution",
+    "classification",
+    "authority_classification",
+    "freshness_classification",
+    "flags",
+    "source_id",
+    "execution_allowed",
+]
+
+
 @contextmanager
 def _materialise_picker_file(selected: object, suffix: str) -> Iterator[Path | None]:
     """Expose a FilePicker selection as a readable local path on web and native hosts."""
@@ -333,7 +368,7 @@ def evidence_ledger_page(_page: ft.Page, _state) -> ft.Control:
         [
             ("Evidence ledger", EVIDENCE_LEDGER_PATH, ["instrument_id", "component", "source_id", "source_authority", "authority_rank", "as_of_date", "freshness_status", "conflict_id", "score_eligible", "reason"]),
             ("Score components", SCORE_COMPONENTS_PATH, ["instrument_id", "component", "source_id", "source_authority", "normalised_score_10", "status", "authority", "freshness_status", "conflict_id", "driver_text"]),
-            ("Feature drivers", FEATURE_DRIVERS_PATH, ["instrument_id", "component", "normalised_score", "direction", "authority", "driver_text"]),
+            ("Feature drivers", FEATURE_DRIVERS_PATH, FEATURE_DRIVER_EVIDENCE_COLUMNS),
             ("Score history", SCORE_HISTORY_PATH, ["instrument_id", "run_completed_at", "final_combined_score_10", "final_label", "blocked_by"]),
             ("Score metric history", SCORE_METRIC_HISTORY_PATH, ["instrument_id", "component_name", "normalised_score_10", "score_available", "na_reason"]),
             ("Correlation clusters", CORRELATION_CLUSTERS_PATH, ["instrument_id", "cluster_label", "average_peer_correlation", "crowding_warning", "cluster_risk_contribution", "ranking_coverage", "pair_sample_size", "sector", "theme", "theme_warning", "top_ranked_theme_concentration", "top_ranked_theme_warning", "sample_size", "status", "execution_allowed"]),

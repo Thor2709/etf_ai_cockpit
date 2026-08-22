@@ -321,8 +321,8 @@ def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, m
     risk_claim = deterministic_driver_claim("risk", 2.0)
     pd.DataFrame(
         [
-            {"instrument_id": instrument_id, "component": "trend", "normalised_score": 8.5, "direction": "positive", "authority": "high", "source_authority": "vendor_unofficial", "freshness_status": "ok", "driver_text": trend_claim, "source_vintage_hash": source_vintage_hash, "source_span": source_span, "claim_hash": claim_binding_hash(trend_claim, source_vintage_hash, source_span), "flags": "none"},
-            {"instrument_id": instrument_id, "component": "risk", "normalised_score": 2.0, "direction": "negative", "authority": "high", "source_authority": "vendor_unofficial", "freshness_status": "ok", "driver_text": risk_claim, "source_vintage_hash": source_vintage_hash, "source_span": source_span, "claim_hash": claim_binding_hash(risk_claim, source_vintage_hash, source_span), "flags": "none"},
+            {"instrument_id": instrument_id, "component": "trend", "normalised_score": 8.5, "direction": "positive", "authority": "high", "source_authority": "vendor_unofficial", "freshness_status": "ok", "driver_text": trend_claim, "source_vintage_hash": source_vintage_hash, "source_span": source_span, "as_of_date": "2026-07-10", "claim_hash": claim_binding_hash(trend_claim, source_vintage_hash, source_span, "vendor_unofficial"), "flags": "none"},
+            {"instrument_id": instrument_id, "component": "risk", "normalised_score": 2.0, "direction": "negative", "authority": "high", "source_authority": "vendor_unofficial", "freshness_status": "ok", "driver_text": risk_claim, "source_vintage_hash": source_vintage_hash, "source_span": source_span, "as_of_date": "2026-07-10", "claim_hash": claim_binding_hash(risk_claim, source_vintage_hash, source_span, "vendor_unofficial"), "flags": "none"},
             {"instrument_id": instrument_id, "component": "value", "normalised_score": None, "direction": "missing", "authority": "unknown", "freshness_status": "unknown", "driver_text": "value unavailable", "flags": "missing|low_authority"},
             {"instrument_id": instrument_id, "component": "news", "normalised_score": 5.0, "direction": "mixed", "authority": "low", "freshness_status": "stale", "driver_text": "news stale", "flags": "stale|low_authority"},
         ]
@@ -359,9 +359,11 @@ def test_instrument_detail_driver_panel_normalises_legacy_store_columns(tmp_path
 
     panel = selector._feature_driver_panel(instrument_id)
     assert panel["status"] == "available"
-    assert panel["top_positive"][0]["driver_text"] == "unavailable (non-traceable claim; source provenance unavailable)."
+    assert panel["top_positive"] == []
+    assert panel["rows"][0]["driver_text"] == "unavailable (non-traceable claim; source provenance unavailable)."
     assert panel["low_authority"] == []
-    assert panel["stale_or_partial"] == []
+    assert panel["stale_or_partial"][0]["component"] == "trend"
+    assert panel["stale_or_partial"][0]["freshness_classification"] == "partial"
 
 
 def test_instrument_detail_has_required_sections_for_primary_and_sparebanken() -> None:
