@@ -11596,7 +11596,19 @@
       "write_conflict_group": "frontend-and-api"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #691 merged exact independently approved head 40fdaf2cea8d187bd4de047654d4eba83027e6dc as 38604ce9ed62a591f95c4623329f3579fe2cab3c",
+            "Release run 32545970072 passed classifier, authority preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Acceptance evidence covers the monthly basket, benchmark, cash and canonically holdings-bound no-action comparisons; versioned expected returns, risk, cost, event, capacity, forward and paper evidence; point-in-time fail-closed rendering; strategy CSV writer/readback; and execution_allowed=false"
+          ],
+          "review_reference": "PR #691 exact-head product reviews and H-tier validation",
+          "reviewed_date": "2026-08-22",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "status": "in_progress"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0046",
@@ -11621,7 +11633,7 @@
       "package_status": "Open",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P1/P2",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -11647,8 +11659,8 @@
       "source_record_id": "ISSUE-0046",
       "source_title": "Monthly decision template: basket vs benchmark vs cash",
       "title": "Monthly decision template: basket vs benchmark vs cash",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "38604ce9ed62a591f95c4623329f3579fe2cab3c",
+      "verified_date": "2026-08-22",
       "why": "Monthly long-horizon decisions require portfolio context, not a simple ranked basket.",
       "write_conflict_group": "analysis-and-validation"
     },
@@ -28007,7 +28019,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "e2670488e8506f856a90a528156e03571cfe649bc491c0b57282872829c9419e",
+    "programme_control_state_sha256": "07570d4dcea7ee91ee09541694dda54a09402fd482e1600d50fbd6c741d5b70c",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

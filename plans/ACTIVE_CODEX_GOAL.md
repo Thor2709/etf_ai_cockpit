@@ -3428,6 +3428,18 @@ next action and whether the requested outcome is actually complete.
   regressions for these inputs, rerun the affected suite once, and freeze a new
   exact head for paired review and fresh H-tier evidence. Preserve canonical
   lifecycle state and `execution_allowed=false`.
+
+`ISSUE-0046 PRODUCT MERGED / LIFECYCLE START PREPARED` PR #691 merged exact
+independently approved product head `40fdaf2cea8d187bd4de047654d4eba83027e6dc`
+as `38604ce9ed62a591f95c4623329f3579fe2cab3c`. Exact-head H-tier run
+`32545970072` passed classifier, preflight, supply-chain, Linux, Windows and
+terminal validation. The clean lifecycle-start lane is based on that exact
+main and contains only `ISSUE-0046: planned -> in_progress`, its generated
+projections, one append-only status authority record and matching completion
+candidate for GitHub issue #98. Validate, review and merge this E-tier
+transaction, require writer acceptance and zero-action readback, then apply the
+existing aggregate `in_progress -> implemented_initially -> integrated`
+completion contract. Preserve product code and `execution_allowed=false`.
 - ISSUE-0046 head `870ae7c3ca7588f10934fc07a4ee90818d3b47f5`
   is rejected by both reviewers; run `32540610615` is cancelled/stale. The
   complete verdict is one two-part boundary correction: validate original
