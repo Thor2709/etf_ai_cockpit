@@ -1334,6 +1334,17 @@ applied the two-hop aggregate, proved `zero_action_readback=true` and retained
 `execution_allowed=false`.
 
 
+`ISSUE-0047 RAW IDENTITY/PREFIX CORRECTION` exact head
+`d2b2a0ddccd608dd5ba7a4f1309656458cc3774e` is rejected by both reviewers;
+run `32562619023` is stale. Raw component identities are now validated before
+any coercion, and authoritative source families require exact or
+separator-bounded canonical labels, rejecting lookalikes such as
+`officially_unverified` and `vendorish`. Direct malformed scalar/list and
+authority-prefix regressions pass. Freeze the replacement without broadening
+scope; preserve `implemented_initially` and `execution_allowed=false`.
+
+
+
 `ISSUE-0047 CANONICAL AUTHORITY/COMPONENT CORRECTION` exact head
 `a9e6417ca312163bf29e9693ac8e925f210c7a2f` is rejected by both reviewers;
 run `32562368327` is stale. Canonical `manual` and `community` source

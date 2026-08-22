@@ -689,6 +689,10 @@ def test_canonical_context_authorities_and_causal_component_labels_fail_closed(
                     "component": "quality causes future returns",
                     "source_authority": "official",
                 },
+                {**common, "component": True, "source_authority": "official"},
+                {**common, "component": ["quality"], "source_authority": "official"},
+                {**common, "component": "official-lookalike", "source_authority": "officially_unverified"},
+                {**common, "component": "vendor-lookalike", "source_authority": "vendorish"},
             ]
         )
     ).set_index("component")
@@ -697,9 +701,14 @@ def test_canonical_context_authorities_and_causal_component_labels_fail_closed(
         assert rows.loc[component, "authority_classification"] == "low_authority"
         assert rows.loc[component, "classification"] == "low_authority"
         assert "low_authority" in rows.loc[component, "flags"]
-    malformed = rows.loc["quality causes future returns"]
-    assert malformed["driver_text"].startswith("unavailable (non-traceable claim;")
-    assert malformed["claim_hash"] == "unavailable"
+    malformed = rows.loc[""]
+    assert malformed["driver_text"].str.startswith(
+        "unavailable (non-traceable claim;"
+    ).all()
+    assert malformed["claim_hash"].eq("unavailable").all()
+    for component in ("official-lookalike", "vendor-lookalike"):
+        assert rows.loc[component, "authority_classification"] == "low_authority"
+        assert rows.loc[component, "classification"] == "low_authority"
 
     path = tmp_path / "feature_drivers.parquet"
     rows.reset_index().to_parquet(path, index=False)
@@ -708,7 +717,7 @@ def test_canonical_context_authorities_and_causal_component_labels_fail_closed(
     )
     panel = _feature_driver_panel("A")
     assert panel["top_positive"] == []
-    assert len(panel["low_authority"]) == 2
+    assert len(panel["low_authority"]) == 4
     assert all("causes" not in str(row["driver_text"]) for row in panel["rows"])
 
 

@@ -85,7 +85,7 @@ def build_feature_drivers(scores: pd.DataFrame | Iterable[Any], ledger: pd.DataF
     frame["instrument"] = frame["instrument"].map(_text)
     if "component" not in frame.columns:
         frame["component"] = frame.get("component_name", "")
-    frame["component"] = frame["component"].map(_text)
+    frame["component"] = frame["component"].map(_component_id)
     if "normalised_score" not in frame.columns:
         frame["normalised_score"] = frame.get("normalised_score_10", frame.get("score_10"))
     frame["normalised_score"] = pd.array(
@@ -536,8 +536,8 @@ def _source_authority_classification(value: object) -> str:
         ("manual_", "community_", "model_", "local_manual_", "self_asserted")
     ):
         return "low_authority"
-    if text in {"sec_edgar", "broker_licensed", "user_owned"} or text.startswith(
-        ("official", "issuer", "vendor", "derived_")
+    if text in {"official", "issuer", "vendor", "sec_edgar", "broker_licensed", "user_owned"} or text.startswith(
+        ("official_", "issuer_", "vendor_", "derived_")
     ):
         return "authoritative"
     return "low_authority"
@@ -595,8 +595,8 @@ def _driver_text(row: pd.Series) -> str:
 
 
 def deterministic_driver_claim(component: object, score: object) -> str:
-    component_text = _scalar_text(component)
-    if not _COMPONENT_ID_RE.fullmatch(component_text):
+    component_text = _component_id(component)
+    if not component_text:
         return ""
     number = _evidence_number(score, minimum=_SCORE_BOUNDS[0], maximum=_SCORE_BOUNDS[1])
     if number is None:
@@ -705,6 +705,13 @@ def _source_provenance_text(value: object) -> str:
         return ""
     text = value.strip()
     return "" if text.casefold() in _PROVENANCE_PLACEHOLDERS else text
+
+
+def _component_id(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    return text if _COMPONENT_ID_RE.fullmatch(text) else ""
 
 
 def _normalise_interaction(value: object) -> object:
