@@ -4881,3 +4881,21 @@ complete affected feature-driver, persistence, selector and instrument-detail
 collection pass with Ruff and diff hygiene. Freeze one replacement exact head
 for paired review and fresh hosted evidence; preserve canonical status and
 `execution_allowed=false`.
+
+## 2026-08-22 — ISSUE-0049 active delivery lane
+
+ISSUE-0047 converged on exact main
+`1cefadf51073f685411520453821f65597421e2c`: ordered writer run
+`32565486385` was applied and verified, and generic live reconciliation returned
+zero actions with effective GitHub status `integrated` and
+`execution_allowed=false`.
+
+ISSUE-0049 is ready with no canonical blocking dependencies. Implement only
+its historical tail-risk diagnostics and the required Backtests plus
+Instrument Detail visibility in isolated branch
+`codex/issue0049-product-20260822` from exact base
+`1cefadf51073f685411520453821f65597421e2c`. Instrument Detail may show these
+results only as strategy-level portfolio context; instrument trust remains
+derived from instrument-scoped signals/trades. Preserve
+`execution_allowed=false`, complete lifecycle evidence before freeze, and
+require the issue's full release gate before exact-head merge.

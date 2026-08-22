@@ -33,6 +33,18 @@ def _format_number(value: object, *, percent: bool = False, money: bool = False,
     return f"{number:.{decimals}f}"
 
 
+def _negative_contributions_label(value: object) -> str:
+    if not isinstance(value, (list, tuple)):
+        return "unavailable" if value is None else str(value)
+    if not value:
+        return "unavailable"
+    records = []
+    for record in value:
+        if isinstance(record, Mapping):
+            records.append(f"{record.get('date', 'n/a')}: {_format_number(record.get('return'), percent=True)}")
+    return "; ".join(records) if records else "unavailable"
+
+
 def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
     report = state.snapshot.backtest
     news_warning = _news_validation_warning()
@@ -144,12 +156,20 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
         f"Date range: {report.metadata.get('date_range_start', signal.get('start_date', 'n/a'))} to {report.metadata.get('date_range_end', signal.get('end_date', 'n/a'))}",
     ]
     tail_diagnostics = [
+        "Descriptive/non-causal evidence only; execution_allowed=false.",
         f"Worst 1-day return: {_format_number(signal.get('worst_1d_return'), percent=True)}",
         f"Worst 5-day return: {_format_number(signal.get('worst_5d_return'), percent=True)}",
         f"Worst 10-day return: {_format_number(signal.get('worst_10d_return'), percent=True)}",
-        f"Worst drawdown window: {signal.get('worst_drawdown_start', 'n/a')} to {signal.get('worst_drawdown_end', 'n/a')}",
+        f"Worst drawdown window: {signal.get('worst_drawdown_start', 'n/a')} to {signal.get('worst_drawdown_end', 'n/a')} ({signal.get('worst_drawdown_duration_days', 'n/a')} observed sessions)",
         f"Maximum consecutive loss periods: {signal.get('loss_cluster_max_days', 'n/a')}",
-        f"Largest negative period: {_format_number(signal.get('largest_negative_period_return'), percent=True)}",
+        f"Largest negative contribution period: {_format_number(signal.get('largest_negative_period_return'), percent=True)} on {signal.get('largest_negative_period_date', 'n/a')}",
+        f"Largest negative contribution periods: {_negative_contributions_label(signal.get('largest_negative_contribution_periods'))}",
+        f"Five worst loss sessions' share of total losses: {_format_number(signal.get('negative_return_concentration_share'), percent=True)} ({signal.get('performance_concentration_status', 'unavailable')})",
+        f"Positive gross performance concentration: {_format_number(signal.get('positive_performance_concentration_share'), percent=True)} ({signal.get('positive_performance_concentration_status', 'unavailable')})",
+        f"Negative gross performance concentration: {_format_number(signal.get('negative_performance_concentration_share'), percent=True)} ({signal.get('negative_performance_concentration_status', 'unavailable')})",
+        f"Few sessions explain most performance (selected gross side): {signal.get('few_days_explain_most_performance', 'unavailable')} (strictly >50%; {signal.get('performance_concentration_basis', 'unavailable')})",
+        f"Losses during high volatility: {signal.get('losses_during_high_volatility', 'unavailable')} ({signal.get('high_volatility_loss_status', 'unavailable')}; {signal.get('high_volatility_loss_reason', '')})",
+        f"Losses during regime stress: {signal.get('losses_during_regime_stress', 'unavailable')} ({signal.get('regime_stress_loss_status', 'unavailable')}; {signal.get('regime_stress_loss_reason', '')})",
     ]
     operational_evidence = [
         f"Signal timestamp: {report.metadata.get('lookahead_protection', 'n/a')}",

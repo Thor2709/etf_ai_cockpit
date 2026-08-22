@@ -3638,3 +3638,23 @@ incompatible same-time rows. Direct adversarial, architecture, feature-driver,
 persistence and instrument-detail tests pass. Freeze one clean replacement
 head for final paired review and fresh hosted evidence; keep canonical status
 unchanged and preserve `execution_allowed=false`.
+
+## 2026-08-22 — ISSUE-0047 convergence and ISSUE-0049 product checkpoint
+
+ISSUE-0047 is integrated on exact `origin/main`
+`1cefadf51073f685411520453821f65597421e2c`. Ordered writer run
+`32565486385` finished `applied_and_verified` for GitHub issue #99, and an
+independent generic live readback projected effective status `integrated` with
+zero actions. The writer and readback both preserved
+`execution_allowed=false`.
+
+ISSUE-0049 is the next canonical dependency-ready product issue. Its isolated
+lane `codex/issue0049-product-20260822` starts from exact main
+`1cefadf51073f685411520453821f65597421e2c`. The bounded product scope is
+historical worst-window, drawdown, loss-cluster, negative-contribution,
+same-sign performance-concentration and volatility/regime-alignment evidence,
+rendered on Backtests and as explicitly strategy-scoped portfolio context on
+Instrument Detail. It does not change execution, provider, broker, lifecycle
+or release authority. Focused metric and Instrument Detail evidence is green;
+complete the current local validation, lifecycle preparation and exact-head
+review/hosted full release gate before merge.

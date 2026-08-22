@@ -1050,6 +1050,54 @@ def test_backtest_panel_nullable_quality_fails_closed() -> None:
     assert panel["trade_rows"]
 
 
+def test_backtest_panel_renders_strategy_tail_context_without_claiming_instrument_trust() -> None:
+    snapshot = build_snapshot()
+    custom = replace(
+        snapshot,
+        backtest=BacktestReport(
+            results=pd.DataFrame(
+                [
+                    {
+                        "strategy_name": "signal_strategy",
+                        "diagnostic_status": "available",
+                        "diagnostic_method": "historical_tail_diagnostics.v2",
+                        "worst_1d_return": -0.08,
+                        "worst_5d_return": -0.12,
+                        "worst_10d_return": -0.15,
+                        "loss_cluster_max_days": 3,
+                        "largest_negative_contribution_periods": [{"date": date(2026, 6, 3), "return": -0.08}],
+                        "few_days_explain_most_performance": True,
+                        "losses_during_high_volatility": True,
+                        "high_volatility_loss_status": "available",
+                        "losses_during_regime_stress": None,
+                        "regime_stress_loss_status": "unavailable",
+                        "regime_stress_loss_reason": "regime observations were not supplied",
+                        "execution_allowed": False,
+                    }
+                ]
+            ),
+            equity_curves=pd.DataFrame(),
+            trade_log=pd.DataFrame(),
+            signal_log=pd.DataFrame(),
+            ai_added_value=False,
+        ),
+    )
+
+    panel = _backtest_panel(custom, "VWCE", {})
+    rendered = "\n".join(_text_values(_render_evidence_section("Backtest trust", panel)))
+
+    assert panel["status"] == "unavailable"
+    assert panel["trust"] == "unavailable"
+    assert panel["execution_allowed"] is False
+    assert len(panel["tail_diagnostics"]) == 1
+    assert panel["tail_diagnostics"][0]["scope"] == "portfolio_strategy_backtest"
+    assert panel["tail_diagnostics"][0]["execution_allowed"] is False
+    assert "Strategy-level tail diagnostics; not instrument-specific evidence." in rendered
+    assert "historical_tail_diagnostics.v2" in rendered
+    assert "signal_strategy" in rendered
+    assert "VWCE" not in rendered
+
+
 def test_evidence_sections_render_source_authority_and_conflict_badges() -> None:
     control = _render_evidence_section(
         "Evidence",

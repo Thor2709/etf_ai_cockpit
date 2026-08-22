@@ -15,7 +15,7 @@ from etf_cockpit.backtest.engine import (
     quality_momentum_evidence_checksum,
     run_backtest,
 )
-from etf_cockpit.backtest.metrics import tail_event_diagnostics
+from etf_cockpit.backtest.metrics import performance_metrics, tail_event_diagnostics
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.atomic_io import AtomicWriteRequest
 from etf_cockpit.data.sample_data import generate_sample_prices
@@ -37,6 +37,91 @@ def test_tail_event_diagnostics_expose_worst_windows_and_loss_clustering() -> No
     assert diagnostics["loss_cluster_max_days"] == 4
     assert diagnostics["worst_drawdown_start"] == index[1].date()
     assert diagnostics["worst_drawdown_end"] == index[5].date()
+    assert diagnostics["worst_drawdown_duration_days"] == 5
+
+
+def test_tail_event_diagnostics_measure_loss_concentration_and_stress_alignment() -> None:
+    index = pd.bdate_range("2026-01-01", periods=21)
+    returns = pd.Series(
+        [-0.01] * 10 + [0.01] * 10,
+        index=index[1:],
+    )
+    equity = pd.concat(
+        [pd.Series([100.0], index=[index[0]]), 100.0 * (1.0 + returns).cumprod()]
+    )
+    volatility = pd.Series(range(len(equity)), index=equity.index, dtype=float)
+    regime = pd.Series("calm", index=equity.index)
+    regime.iloc[-1] = "stress"
+
+    diagnostics = tail_event_diagnostics(
+        equity,
+        volatility=volatility,
+        regime=regime,
+    )
+
+    assert diagnostics["diagnostic_status"] == "available"
+    assert diagnostics["diagnostic_method"] == "historical_tail_diagnostics.v2"
+    assert diagnostics["negative_return_concentration_share"] == pytest.approx(0.5)
+    assert diagnostics["positive_performance_concentration_share"] == pytest.approx(0.5)
+    assert diagnostics["negative_performance_concentration_share"] == pytest.approx(0.5)
+    assert diagnostics["performance_concentration_basis"] == "negative_gross_log_return"
+    assert diagnostics["performance_concentration_status"] == "available"
+    assert diagnostics["few_days_explain_most_performance"] is False
+    assert diagnostics["positive_performance_few_sessions_explain_most"] is False
+    assert diagnostics["negative_performance_few_sessions_explain_most"] is False
+    assert len(diagnostics["largest_negative_contribution_periods"]) == 5
+    contribution_returns = [record["return"] for record in diagnostics["largest_negative_contribution_periods"]]
+    assert contribution_returns == sorted(contribution_returns)
+    assert diagnostics["largest_negative_contribution_periods"][0]["date"] == diagnostics["largest_negative_period_date"]
+    assert diagnostics["losses_during_high_volatility"] is False
+    assert diagnostics["high_volatility_loss_status"] == "available"
+    assert diagnostics["losses_during_regime_stress"] is False
+    assert diagnostics["regime_stress_loss_status"] == "available"
+    assert diagnostics["execution_allowed"] is False
+    assert performance_metrics(equity)["losses_during_regime_stress"] is None
+
+
+def test_performance_concentration_selects_the_sign_of_gross_performance() -> None:
+    index = pd.bdate_range("2026-03-02", periods=8)
+    positive = 100.0 * (1.0 + pd.Series([0.20, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01], index=index[1:])).cumprod()
+    positive = pd.concat([pd.Series([100.0], index=[index[0]]), positive])
+    negative = 100.0 * (1.0 + pd.Series([-0.20, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01], index=index[1:])).cumprod()
+    negative = pd.concat([pd.Series([100.0], index=[index[0]]), negative])
+
+    positive_diagnostics = tail_event_diagnostics(positive)
+    negative_diagnostics = tail_event_diagnostics(negative)
+
+    assert positive_diagnostics["performance_concentration_basis"] == "positive_gross_log_return"
+    assert positive_diagnostics["performance_concentration_share"] == positive_diagnostics["positive_performance_concentration_share"]
+    assert positive_diagnostics["few_days_explain_most_performance"] is True
+    assert negative_diagnostics["performance_concentration_basis"] == "negative_gross_log_return"
+    assert negative_diagnostics["performance_concentration_share"] == negative_diagnostics["negative_performance_concentration_share"]
+    assert negative_diagnostics["few_days_explain_most_performance"] is True
+
+
+def test_performance_metrics_tail_path_does_not_bridge_invalid_equity_gap() -> None:
+    index = pd.bdate_range("2026-02-02", periods=4)
+    metrics = performance_metrics(pd.Series([100.0, "invalid", 80.0, 81.0], index=index))
+
+    assert metrics["worst_1d_return"] == pytest.approx(0.0125)
+    assert metrics["largest_negative_period_return"] is None
+    assert metrics["loss_cluster_max_days"] == 0
+    assert metrics["diagnostic_status"] == "available"
+    assert metrics["cagr"] == pytest.approx((81.0 / 100.0) ** 126 - 1.0)
+
+
+def test_tail_event_diagnostics_fail_closed_for_malformed_or_insufficient_evidence() -> None:
+    diagnostics = tail_event_diagnostics(
+        pd.Series([100.0, "invalid", float("inf"), 101.0]),
+        benchmark=pd.Series([100.0, 101.0, 102.0, 103.0]),
+    )
+
+    assert diagnostics["diagnostic_status"] == "unavailable"
+    assert diagnostics["worst_5d_return"] is None
+    assert diagnostics["performance_concentration_status"] == "unavailable"
+    assert diagnostics["high_volatility_loss_status"] == "unavailable"
+    assert diagnostics["regime_stress_loss_status"] == "unavailable"
+    assert diagnostics["execution_allowed"] is False
 
 
 def test_backtest_rejects_insufficient_complete_adjusted_price_history() -> None:
@@ -83,12 +168,29 @@ def test_backtest_report_makes_data_and_execution_assumptions_explicit() -> None
         "worst_1d_return",
         "worst_5d_return",
         "worst_10d_return",
+        "worst_drawdown_duration_days",
+        "worst_drawdown_duration_sessions",
+        "observed_session_count",
+        "largest_negative_period_date",
+        "largest_negative_contribution_periods",
+        "negative_return_concentration_share",
+        "few_days_explain_most_performance",
+        "positive_performance_concentration_share",
+        "negative_performance_concentration_share",
+        "performance_concentration_basis",
+        "performance_concentration_status",
+        "losses_during_high_volatility",
+        "losses_during_regime_stress",
+        "diagnostic_status",
+        "diagnostic_method",
+        "execution_allowed",
         "loss_cluster_max_days",
         "overfitting_warning",
         "parameter_sensitivity_status",
     }
     assert required_result_fields <= set(report.results.columns)
     assert report.results["overfitting_warning"].notna().all()
+    assert report.results["execution_allowed"].eq(False).all()
 
 
 def test_execution_evidence_uses_next_session_adjusted_close() -> None:
@@ -114,6 +216,11 @@ def test_backtests_page_exposes_lab_evidence_sections() -> None:
     assert "quality-momentum" in source
     assert "Overfitting warning" in source
     assert "next-open" in source
+    assert "Largest negative contribution period" in source
+    assert "Largest negative contribution periods" in source
+    assert "Few sessions explain most performance" in source
+    assert "Losses during high volatility" in source
+    assert "Losses during regime stress" in source
 
 
 def test_backtest_registers_quality_momentum_and_quality_only_baselines() -> None:
