@@ -3658,3 +3658,15 @@ Instrument Detail. It does not change execution, provider, broker, lifecycle
 or release authority. Focused metric and Instrument Detail evidence is green;
 complete the current local validation, lifecycle preparation and exact-head
 review/hosted full release gate before merge.
+
+Initial ISSUE-0049 product head
+`345241dd2d4460939bd31b3fb2410ea51d1ef85a` was rejected by both exact-head
+reviewers. Hosted run `32566346217` was cancelled as stale after classifier,
+preflight and supply chain passed. The complete demonstrated correction set is
+limited to preserving explicit invalid-observation boundaries through rolling
+tail windows, loss clusters, drawdowns and inferred volatility, plus exposing
+the dedicated no-loss concentration status/reason instead of the unrelated
+performance-concentration status. Direct adversarial regressions and the
+complete affected local validation pass without retry. Freeze one replacement
+head for paired review and a fresh cadence-required full package gate;
+`execution_allowed=false` remains unchanged.

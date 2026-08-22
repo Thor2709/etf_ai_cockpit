@@ -110,6 +110,44 @@ def test_performance_metrics_tail_path_does_not_bridge_invalid_equity_gap() -> N
     assert metrics["cagr"] == pytest.approx((81.0 / 100.0) ** 126 - 1.0)
 
 
+def test_tail_windows_drawdown_clusters_and_volatility_do_not_cross_invalid_gap() -> None:
+    index = pd.bdate_range("2026-02-02", periods=10)
+    diagnostics = tail_event_diagnostics(
+        pd.Series([100.0, 90.0, 80.0, 70.0, 60.0, float("nan"), 50.0, 45.0, 40.0, 35.0], index=index)
+    )
+
+    assert diagnostics["worst_5d_return"] is None
+    assert diagnostics["worst_10d_return"] is None
+    assert diagnostics["loss_cluster_max_days"] == 4
+    assert diagnostics["worst_drawdown_start"] == index[0].date()
+    assert diagnostics["worst_drawdown_end"] == index[4].date()
+    assert diagnostics["worst_drawdown_duration_sessions"] == 5
+    assert diagnostics["high_volatility_loss_status"] == "unavailable"
+
+
+def test_inferred_volatility_window_resets_at_invalid_gap() -> None:
+    segment_returns = pd.Series([-0.01, 0.01] * 10)
+    first = [100.0, *(100.0 * (1.0 + segment_returns).cumprod()).tolist()]
+    second = [80.0, *(80.0 * (1.0 + segment_returns).cumprod()).tolist()]
+    equity = pd.Series([*first, float("nan"), *second], index=pd.bdate_range("2026-05-01", periods=43))
+
+    diagnostics = tail_event_diagnostics(equity)
+
+    assert diagnostics["high_volatility_loss_status"] == "unavailable"
+    assert diagnostics["high_volatility_loss_reason"] == "at least 20 aligned finite observations are required"
+
+
+def test_loss_concentration_has_its_own_unavailable_status_without_losses() -> None:
+    index = pd.bdate_range("2026-04-01", periods=8)
+    diagnostics = tail_event_diagnostics(pd.Series(range(100, 108), index=index, dtype=float))
+
+    assert diagnostics["negative_return_concentration_share"] is None
+    assert diagnostics["negative_return_concentration_status"] == "unavailable"
+    assert diagnostics["negative_return_concentration_reason"] == "no finite negative return observations are available"
+    assert diagnostics["negative_return_concentration_method"]
+    assert diagnostics["performance_concentration_status"] == "available"
+
+
 def test_tail_event_diagnostics_fail_closed_for_malformed_or_insufficient_evidence() -> None:
     diagnostics = tail_event_diagnostics(
         pd.Series([100.0, "invalid", float("inf"), 101.0]),
@@ -218,6 +256,7 @@ def test_backtests_page_exposes_lab_evidence_sections() -> None:
     assert "next-open" in source
     assert "Largest negative contribution period" in source
     assert "Largest negative contribution periods" in source
+    assert "negative_return_concentration_status" in source
     assert "Few sessions explain most performance" in source
     assert "Losses during high volatility" in source
     assert "Losses during regime stress" in source

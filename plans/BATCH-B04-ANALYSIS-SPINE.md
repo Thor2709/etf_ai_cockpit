@@ -4899,3 +4899,12 @@ results only as strategy-level portfolio context; instrument trust remains
 derived from instrument-scoped signals/trades. Preserve
 `execution_allowed=false`, complete lifecycle evidence before freeze, and
 require the issue's full release gate before exact-head merge.
+
+Initial ISSUE-0049 head
+`345241dd2d4460939bd31b3fb2410ea51d1ef85a` is rejected by both reviewers;
+run `32566346217` is cancelled and stale. One consolidated correction retains
+invalid-observation boundaries across tail windows, loss clusters, drawdowns
+and inferred volatility, and gives no-loss concentration its own explicit
+status/reason on Backtests and Instrument Detail. Adversarial and complete
+affected local evidence pass. Freeze one replacement head for both reviews and
+a fresh full package gate while preserving `execution_allowed=false`.

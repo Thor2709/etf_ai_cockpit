@@ -1066,6 +1066,10 @@ def test_backtest_panel_renders_strategy_tail_context_without_claiming_instrumen
                         "worst_10d_return": -0.15,
                         "loss_cluster_max_days": 3,
                         "largest_negative_contribution_periods": [{"date": date(2026, 6, 3), "return": -0.08}],
+                        "negative_return_concentration_share": None,
+                        "negative_return_concentration_status": "unavailable",
+                        "negative_return_concentration_reason": "no finite negative return observations are available",
+                        "negative_return_concentration_method": "five worst observed loss sessions divided by total observed loss magnitude",
                         "few_days_explain_most_performance": True,
                         "losses_during_high_volatility": True,
                         "high_volatility_loss_status": "available",
@@ -1094,6 +1098,8 @@ def test_backtest_panel_renders_strategy_tail_context_without_claiming_instrumen
     assert panel["tail_diagnostics"][0]["execution_allowed"] is False
     assert "Strategy-level tail diagnostics; not instrument-specific evidence." in rendered
     assert "historical_tail_diagnostics.v2" in rendered
+    assert "negative_return_concentration_status=unavailable" in rendered
+    assert "no finite negative return observations are available" in rendered
     assert "signal_strategy" in rendered
     assert "VWCE" not in rendered
 

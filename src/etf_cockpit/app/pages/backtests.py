@@ -164,7 +164,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
         f"Maximum consecutive loss periods: {signal.get('loss_cluster_max_days', 'n/a')}",
         f"Largest negative contribution period: {_format_number(signal.get('largest_negative_period_return'), percent=True)} on {signal.get('largest_negative_period_date', 'n/a')}",
         f"Largest negative contribution periods: {_negative_contributions_label(signal.get('largest_negative_contribution_periods'))}",
-        f"Five worst loss sessions' share of total losses: {_format_number(signal.get('negative_return_concentration_share'), percent=True)} ({signal.get('performance_concentration_status', 'unavailable')})",
+        f"Five worst loss sessions' share of total losses: {_format_number(signal.get('negative_return_concentration_share'), percent=True)} ({signal.get('negative_return_concentration_status', 'unavailable')}; {signal.get('negative_return_concentration_reason', '')})",
         f"Positive gross performance concentration: {_format_number(signal.get('positive_performance_concentration_share'), percent=True)} ({signal.get('positive_performance_concentration_status', 'unavailable')})",
         f"Negative gross performance concentration: {_format_number(signal.get('negative_performance_concentration_share'), percent=True)} ({signal.get('negative_performance_concentration_status', 'unavailable')})",
         f"Few sessions explain most performance (selected gross side): {signal.get('few_days_explain_most_performance', 'unavailable')} (strictly >50%; {signal.get('performance_concentration_basis', 'unavailable')})",

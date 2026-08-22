@@ -34,51 +34,49 @@ def tail_event_diagnostics(
 
     del benchmark
     raw = _normalise_series(equity)
-    clean = raw[raw > 0].dropna()
-    returns = _observed_returns(raw)
+    observed_returns = _observed_returns(raw)
+    returns = observed_returns.dropna()
     if returns.empty:
         return _empty_tail_diagnostics()
 
-    drawdown = clean / clean.cummax() - 1.0
-    drawdown_end_position = int(np.argmin(drawdown.to_numpy()))
-    drawdown_start_position = int(np.argmax(clean.iloc[: drawdown_end_position + 1].to_numpy()))
-    drawdown_end = clean.index[drawdown_end_position]
-    drawdown_start = clean.index[drawdown_start_position]
+    drawdown_start, drawdown_end, drawdown_duration = _worst_drawdown_window(raw)
     longest_cluster = 0
     current_cluster = 0
-    for value in returns:
-        if float(value) < 0:
+    for value in observed_returns:
+        if pd.notna(value) and float(value) < 0:
             current_cluster += 1
             longest_cluster = max(longest_cluster, current_cluster)
         else:
             current_cluster = 0
 
     negative_returns = returns[returns < 0]
-    largest_negative_position = int(np.argmin(returns.to_numpy()))
-    largest_negative_date = returns.index[largest_negative_position]
+    largest_negative_date = negative_returns.idxmin() if not negative_returns.empty else None
     concentration = _negative_return_concentration(negative_returns)
     performance_concentration = _performance_concentration(returns)
     negative_contributions = _largest_negative_contributions(returns)
-    high_volatility = _losses_during_high_volatility(returns, volatility)
-    regime_stress = _losses_during_regime_stress(returns, regime)
+    high_volatility = _losses_during_high_volatility(observed_returns, volatility)
+    regime_stress = _losses_during_regime_stress(observed_returns, regime)
 
     return {
         "diagnostic_method": "historical_tail_diagnostics.v2",
         "diagnostic_status": "available",
         "execution_allowed": False,
-        "worst_1d_return": _window_return(returns, 1),
-        "worst_5d_return": _window_return(returns, 5),
-        "worst_10d_return": _window_return(returns, 10),
+        "worst_1d_return": _window_return(observed_returns, 1),
+        "worst_5d_return": _window_return(observed_returns, 5),
+        "worst_10d_return": _window_return(observed_returns, 10),
         "worst_drawdown_start": _as_date(drawdown_start),
         "worst_drawdown_end": _as_date(drawdown_end),
-        "worst_drawdown_duration_days": drawdown_end_position - drawdown_start_position + 1,
-        "worst_drawdown_duration_sessions": drawdown_end_position - drawdown_start_position + 1,
-        "observed_session_count": int(len(clean)),
+        "worst_drawdown_duration_days": drawdown_duration,
+        "worst_drawdown_duration_sessions": drawdown_duration,
+        "observed_session_count": int((raw.notna() & (raw > 0)).sum()),
         "loss_cluster_max_days": longest_cluster,
         "largest_negative_period_return": float(returns.min()) if not negative_returns.empty else None,
         "largest_negative_period_date": _as_date(largest_negative_date) if not negative_returns.empty else None,
         "largest_negative_contribution_periods": negative_contributions,
         "negative_return_concentration_share": concentration["share"],
+        "negative_return_concentration_status": concentration["status"],
+        "negative_return_concentration_reason": concentration["reason"],
+        "negative_return_concentration_method": concentration["method"],
         "few_days_explain_most_performance": performance_concentration["positive_performance_few_sessions_explain_most"],
         **performance_concentration,
         **high_volatility,
@@ -105,7 +103,40 @@ def _observed_returns(values: pd.Series) -> pd.Series:
     valid = values.notna() & (values > 0)
     returns = values.pct_change(fill_method=None)
     adjacent_valid = valid & valid.shift(1, fill_value=False)
-    return returns.where(adjacent_valid).replace([np.inf, -np.inf], np.nan).dropna()
+    return returns.where(adjacent_valid).replace([np.inf, -np.inf], np.nan)
+
+
+def _valid_segments(values: pd.Series) -> list[pd.Series]:
+    valid = (values.notna() & (values > 0)).to_numpy(dtype=bool)
+    segments: list[pd.Series] = []
+    start: int | None = None
+    for position, is_valid in enumerate(valid):
+        if is_valid and start is None:
+            start = position
+        elif not is_valid and start is not None:
+            segments.append(values.iloc[start:position])
+            start = None
+    if start is not None:
+        segments.append(values.iloc[start:])
+    return segments
+
+
+def _worst_drawdown_window(values: pd.Series) -> tuple[object, object, int]:
+    worst_drawdown = float("inf")
+    worst_start: object = None
+    worst_end: object = None
+    worst_duration = 0
+    for segment in _valid_segments(values):
+        drawdown = segment / segment.cummax() - 1.0
+        end_position = int(np.argmin(drawdown.to_numpy()))
+        start_position = int(np.argmax(segment.iloc[: end_position + 1].to_numpy()))
+        candidate = float(drawdown.iloc[end_position])
+        if candidate < worst_drawdown:
+            worst_drawdown = candidate
+            worst_start = segment.index[start_position]
+            worst_end = segment.index[end_position]
+            worst_duration = end_position - start_position + 1
+    return worst_start, worst_end, worst_duration
 
 
 def _window_return(returns: pd.Series, window: int) -> float | None:
@@ -133,6 +164,9 @@ def _empty_tail_diagnostics() -> dict[str, object]:
         "largest_negative_period_date": None,
         "largest_negative_contribution_periods": [],
         "negative_return_concentration_share": None,
+        "negative_return_concentration_status": "unavailable",
+        "negative_return_concentration_reason": "no finite negative return observations are available",
+        "negative_return_concentration_method": "five worst observed loss sessions divided by total observed loss magnitude",
         "few_days_explain_most_performance": None,
         "performance_concentration_basis": "unavailable",
         "performance_concentration_method": "best/worst up-to-five observed sessions divided by same-sign gross log contribution",
