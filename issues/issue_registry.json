@@ -11607,6 +11607,28 @@
           "reviewed_date": "2026-08-22",
           "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product PR #691 merged exact independently approved head 40fdaf2cea8d187bd4de047654d4eba83027e6dc as 38604ce9ed62a591f95c4623329f3579fe2cab3c",
+            "Release run 32545970072 passed classifier, authority preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Ordered writer run 32550150826 applied only ISSUE-0046 planned to in_progress with terminal applied_and_verified and zero-action readback; convergence run 32550150852 made no independent write and execution_allowed remains false"
+          ],
+          "review_reference": "PR #691 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-22",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product PR #691 merged exact independently approved head 40fdaf2cea8d187bd4de047654d4eba83027e6dc as 38604ce9ed62a591f95c4623329f3579fe2cab3c",
+            "Release run 32545970072 passed classifier, authority preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Ordered writer run 32550150826 applied only ISSUE-0046 planned to in_progress with terminal applied_and_verified and zero-action readback; convergence run 32550150852 made no independent write and execution_allowed remains false"
+          ],
+          "review_reference": "PR #691 exact-head whole-diff and risk reviews plus H-tier validation",
+          "reviewed_date": "2026-08-22",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -11633,7 +11655,7 @@
       "package_status": "Open",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P1/P2",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -11659,7 +11681,7 @@
       "source_record_id": "ISSUE-0046",
       "source_title": "Monthly decision template: basket vs benchmark vs cash",
       "title": "Monthly decision template: basket vs benchmark vs cash",
-      "verified_commit": "38604ce9ed62a591f95c4623329f3579fe2cab3c",
+      "verified_commit": "40fdaf2cea8d187bd4de047654d4eba83027e6dc",
       "verified_date": "2026-08-22",
       "why": "Monthly long-horizon decisions require portfolio context, not a simple ranked basket.",
       "write_conflict_group": "analysis-and-validation"
@@ -28019,7 +28041,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "07570d4dcea7ee91ee09541694dda54a09402fd482e1600d50fbd6c741d5b70c",
+    "programme_control_state_sha256": "0895f2f3ef3d1e6b775aba1633c0d7e8f3fab5293d13a6f0fdd86f7a795c1a1e",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

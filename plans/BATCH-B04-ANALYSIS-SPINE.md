@@ -1345,6 +1345,20 @@ transaction, require writer acceptance and zero-action readback, then apply the
 existing aggregate `in_progress -> implemented_initially -> integrated`
 completion contract. Preserve product code and `execution_allowed=false`.
 
+`ISSUE-0046 LIFECYCLE START CONVERGED / COMPLETION REPLAY PREPARED` PR #692
+merged exact independently approved E-tier head
+`05ee9d3bc62ec17730ac15b7febc85a79e79edcf` as
+`70f76e74245994a3958266dd35363cbe0c87dfed`; run `32548275939` passed
+classifier, preflight, supply-chain, Linux, Windows and terminal validation.
+Writer run `32550150826` applied only `planned -> in_progress` with terminal
+`applied_and_verified` and zero-action readback; convergence run `32550150852`
+made no independent write. The clean completion lane is based on that exact
+main and binds the two ordered hops `in_progress -> implemented_initially ->
+integrated` to one aggregate replay authority/candidate for issue #98. Validate,
+review and merge only that exact replay while preserving product code and
+`execution_allowed=false`; ISSUE-0047 is the next dependency-ready product
+issue in a disjoint worktree.
+
 `THROUGHPUT_CONTINUATION` reader repair PR #676 merged reviewed head
 `aad1635b2ae1f1a61e2b78cc8c8e376a2ba98408` as exact main
 `4e601b44a8f0373f37813da4391121aebee4a67a` after H-tier run
