@@ -1333,6 +1333,18 @@ passed both package platforms and terminal validation. Writer `30746368016`
 applied the two-hop aggregate, proved `zero_action_readback=true` and retained
 `execution_allowed=false`.
 
+`ISSUE-0046 PRODUCT MERGED / LIFECYCLE START PREPARED` PR #691 merged exact
+independently approved product head `40fdaf2cea8d187bd4de047654d4eba83027e6dc`
+as `38604ce9ed62a591f95c4623329f3579fe2cab3c`. Exact-head H-tier run
+`32545970072` passed classifier, preflight, supply-chain, Linux, Windows and
+terminal validation. The clean lifecycle-start lane is based on that exact
+main and contains only `ISSUE-0046: planned -> in_progress`, its generated
+projections, one append-only status authority record and matching completion
+candidate for GitHub issue #98. Validate, review and merge this E-tier
+transaction, require writer acceptance and zero-action readback, then apply the
+existing aggregate `in_progress -> implemented_initially -> integrated`
+completion contract. Preserve product code and `execution_allowed=false`.
+
 `THROUGHPUT_CONTINUATION` reader repair PR #676 merged reviewed head
 `aad1635b2ae1f1a61e2b78cc8c8e376a2ba98408` as exact main
 `4e601b44a8f0373f37813da4391121aebee4a67a` after H-tier run
