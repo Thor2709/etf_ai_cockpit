@@ -668,6 +668,50 @@ def test_missing_vintage_and_low_source_authority_cannot_enter_trusted_top_lists
     assert panel["low_authority"][0]["component"] == "quality"
 
 
+def test_canonical_context_authorities_and_causal_component_labels_fail_closed(
+    monkeypatch, tmp_path
+) -> None:
+    common = {
+        "instrument_id": "A",
+        "normalised_score": 7.0,
+        "authority": "high",
+        "source_span": "quality.parquet#row-1",
+        "source_vintage_hash": VALID_VINTAGE,
+        "as_of_date": "2026-07-10",
+    }
+    rows = build_feature_drivers(
+        pd.DataFrame(
+            [
+                {**common, "component": "quality", "source_authority": "manual"},
+                {**common, "component": "value", "source_authority": "community"},
+                {
+                    **common,
+                    "component": "quality causes future returns",
+                    "source_authority": "official",
+                },
+            ]
+        )
+    ).set_index("component")
+
+    for component in ("quality", "value"):
+        assert rows.loc[component, "authority_classification"] == "low_authority"
+        assert rows.loc[component, "classification"] == "low_authority"
+        assert "low_authority" in rows.loc[component, "flags"]
+    malformed = rows.loc["quality causes future returns"]
+    assert malformed["driver_text"].startswith("unavailable (non-traceable claim;")
+    assert malformed["claim_hash"] == "unavailable"
+
+    path = tmp_path / "feature_drivers.parquet"
+    rows.reset_index().to_parquet(path, index=False)
+    monkeypatch.setattr(
+        "etf_cockpit.app.selectors.instrument_detail.FEATURE_DRIVERS_PATH", path
+    )
+    panel = _feature_driver_panel("A")
+    assert panel["top_positive"] == []
+    assert len(panel["low_authority"]) == 2
+    assert all("causes" not in str(row["driver_text"]) for row in panel["rows"])
+
+
 def test_ledger_rejects_conflicting_populated_evidence_time_aliases() -> None:
     scores = pd.DataFrame(
         [{"instrument_id": "A", "component": "quality", "normalised_score": 7.0, "as_of_date": "2026-01-01"}]

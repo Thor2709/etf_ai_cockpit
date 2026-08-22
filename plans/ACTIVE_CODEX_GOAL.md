@@ -3545,6 +3545,19 @@ for paired review and fresh hosted evidence; preserve canonical status and
 `execution_allowed=false`.
 
 
+`ISSUE-0047 CANONICAL AUTHORITY/COMPONENT CORRECTION` exact head
+`a9e6417ca312163bf29e9693ac8e925f210c7a2f` is rejected by both reviewers;
+run `32562368327` is stale. Canonical `manual` and `community` source
+authorities now fail closed as contextual/low authority, unknown authority labels
+do not enter trusted groups, and component identifiers are restricted to the
+existing machine-key shape so narrative or causal text cannot enter the
+bound deterministic claim. Producer, instrument and generic readback
+regressions pass. Freeze the replacement for paired review and fresh O-tier
+evidence while preserving `implemented_initially` and
+`execution_allowed=false`.
+
+
+
 `ISSUE-0047 FINAL GENERIC READBACK CORRECTION` exact head
 `676e4322706668b111b3b2dead2352ae7897635b` is rejected by both reviewers;
 O-tier run `32561959531` passed classifier, preflight, supply chain and terminal

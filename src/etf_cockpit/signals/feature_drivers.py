@@ -59,6 +59,7 @@ _DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _AWARE_TIMESTAMP_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$"
 )
+_COMPONENT_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
 _PROVENANCE_PLACEHOLDERS = {"", "unknown", "unavailable", "nan", "none", "<na>", "n/a", "na"}
 _SAFE_INTERACTION_STATES = {"none", "not_observed", "observed", "mixed"}
 _UNAVAILABLE_CLAIM = "unavailable (non-traceable claim; source provenance unavailable)."
@@ -525,8 +526,21 @@ def _authority_classification(value: object) -> str:
 
 def _combined_authority_classification(row: pd.Series) -> str:
     component = _authority_classification(row.get("authority"))
-    source = _authority_classification(row.get("source_authority"))
+    source = _source_authority_classification(row.get("source_authority"))
     return "low_authority" if "low_authority" in {component, source} else "authoritative"
+
+
+def _source_authority_classification(value: object) -> str:
+    text = _source_provenance_text(value).casefold().replace("-", "_")
+    if not text or text in {"manual", "community", "model"} or text.startswith(
+        ("manual_", "community_", "model_", "local_manual_", "self_asserted")
+    ):
+        return "low_authority"
+    if text in {"sec_edgar", "broker_licensed", "user_owned"} or text.startswith(
+        ("official", "issuer", "vendor", "derived_")
+    ):
+        return "authoritative"
+    return "low_authority"
 
 
 def _freshness_classification(value: object) -> str:
@@ -581,7 +595,9 @@ def _driver_text(row: pd.Series) -> str:
 
 
 def deterministic_driver_claim(component: object, score: object) -> str:
-    component_text = _scalar_text(component) or "component"
+    component_text = _scalar_text(component)
+    if not _COMPONENT_ID_RE.fullmatch(component_text):
+        return ""
     number = _evidence_number(score, minimum=_SCORE_BOUNDS[0], maximum=_SCORE_BOUNDS[1])
     if number is None:
         return ""
