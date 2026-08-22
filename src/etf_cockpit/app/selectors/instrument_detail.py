@@ -57,6 +57,21 @@ from etf_cockpit.features.etf_economics import calculate_etf_liquidity
 from etf_cockpit.services import CockpitSnapshot
 from etf_cockpit.application.ui_facade import SimpleInstrumentScore
 from etf_cockpit.application.ui_facade import load_peer_cohort_projection
+from etf_cockpit.application.ui_facade import (
+    _canonical_cohort_time,
+    _classification,
+    _combined_authority_classification,
+    _component_id,
+    _derive_peer_percentiles,
+    _flags,
+    _freshness_classification,
+    _normalise_interaction,
+    _normalise_peer_percentile_alias,
+    _scalar_text,
+    _source_provenance_text,
+    _source_vintage_hash,
+    normalise_bound_claim,
+)
 from etf_cockpit.application.ui_facade import load_financial_institution_projection
 from etf_cockpit.application.ui_facade import load_real_asset_projection
 from etf_cockpit.application.ui_facade import load_cyclical_projection
@@ -119,6 +134,14 @@ PAPER_TRADES_PATH = DERIVED_DIR / "paper_trades.parquet"
 _KNOWN_FRESHNESS_STATES = frozenset({"ok", "fresh", "warning", "stale", "stale_block", "missing", "missing_or_pending", "unknown", "not_checked", "unavailable"})
 _KNOWN_BACKTEST_QUALITIES = frozenset({"low", "medium", "high", "not_evaluated", "not_backtested_candidate", "unverified_backtest", "usable_low_authority", "weak_or_low_quality", "model_claim_unverified", "stale_universe", "unavailable"})
 _KNOWN_FUNDAMENTAL_ELIGIBILITY = frozenset({"eligible", "eligible_negative_evidence", "not_score_eligible"})
+_FEATURE_DRIVER_NUMERIC_BOUNDS: dict[str, tuple[float | None, float | None]] = {
+    "peer_percentile": (0.0, 100.0),
+    "historical_contribution": (None, None),
+    "coverage": (0.0, 1.0),
+    "counterfactual_sensitivity": (None, None),
+    "contribution": (None, None),
+}
+_FEATURE_DRIVER_SCORE_BOUNDS = (0.0, 10.0)
 
 
 def _unavailable(message: str) -> dict[str, Any]:
@@ -235,11 +258,19 @@ def _provenance_fields(row: Any) -> dict[str, Any]:
 
     getter = getattr(row, "get", None)
     if not callable(getter):
-        return {"source_id": "unavailable", "source_authority": "unavailable", "conflict_id": "unavailable"}
+        return {
+            "source_id": "unavailable",
+            "source_authority": "unavailable",
+            "conflict_id": "unavailable",
+            "source_vintage_hash": "unavailable",
+            "claim_hash": "unavailable",
+        }
     return {
         "source_id": _value_or(getter("source_id"), "unavailable"),
-        "source_authority": _value_or(getter("source_authority", getter("authority")), "unavailable"),
+        "source_authority": _scalar_text(getter("source_authority", getter("authority"))) or "unavailable",
         "conflict_id": _value_or(getter("conflict_id", getter("conflict_status")), "unavailable"),
+        "source_vintage_hash": _source_vintage_hash(getter("source_vintage_hash")) or "unavailable",
+        "claim_hash": _source_vintage_hash(getter("claim_hash")) or "unavailable",
     }
 
 
@@ -375,12 +406,14 @@ def _feature_driver_panel(instrument_id: str) -> dict[str, Any]:
     if scoped.empty:
         return {"status": "unavailable", "rows": [], "message": "Feature drivers unavailable for this instrument.", "execution_allowed": False}
     scoped["_score_sort"] = pd.to_numeric(scoped.get("normalised_score"), errors="coerce")
-    rows = scoped.drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
-    positive = scoped.loc[scoped["direction"].astype(str).eq("positive")].sort_values(["_score_sort", "component"], ascending=[False, True], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
-    negative = scoped.loc[scoped["direction"].astype(str).eq("negative")].sort_values(["_score_sort", "component"], ascending=[True, True], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
-    missing = scoped.loc[scoped["direction"].astype(str).eq("missing")].sort_values(["component"], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
-    low_authority = scoped.loc[scoped["flags"].astype(str).str.contains("low_authority", na=False)].sort_values(["component"], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
-    stale_or_partial = scoped.loc[scoped["flags"].astype(str).str.contains("stale|partial", na=False, regex=True)].sort_values(["component"], kind="stable").drop(columns=["_score_sort"], errors="ignore").to_dict(orient="records")
+    scoped["_claim_traceable"] = scoped["claim_hash"].map(_source_vintage_hash).ne("")
+    internal_columns = ["_score_sort", "_claim_traceable"]
+    rows = scoped.drop(columns=internal_columns, errors="ignore").to_dict(orient="records")
+    positive = scoped.loc[scoped["classification"].astype(str).eq("positive") & scoped["_claim_traceable"]].sort_values(["_score_sort", "component"], ascending=[False, True], kind="stable").drop(columns=["_score_sort", "_claim_traceable"], errors="ignore").to_dict(orient="records")
+    negative = scoped.loc[scoped["classification"].astype(str).eq("negative") & scoped["_claim_traceable"]].sort_values(["_score_sort", "component"], ascending=[True, True], kind="stable").drop(columns=["_score_sort", "_claim_traceable"], errors="ignore").to_dict(orient="records")
+    missing = scoped.loc[scoped["direction"].astype(str).eq("missing")].sort_values(["component"], kind="stable").drop(columns=internal_columns, errors="ignore").to_dict(orient="records")
+    low_authority = scoped.loc[scoped["flags"].astype(str).str.contains("low_authority", na=False)].sort_values(["component"], kind="stable").drop(columns=internal_columns, errors="ignore").to_dict(orient="records")
+    stale_or_partial = scoped.loc[scoped["flags"].astype(str).str.contains("stale|partial", na=False, regex=True)].sort_values(["component"], kind="stable").drop(columns=internal_columns, errors="ignore").to_dict(orient="records")
     return {
         "status": "available",
         "rows": rows,
@@ -408,14 +441,42 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
         result["normalised_score"] = result.get("normalised_score_10")
     if "raw_metric" not in result.columns:
         result["raw_metric"] = result.get("raw_metric_value")
+    aliases = {
+        "historical_contribution": ("historical_contribution_raw", "contribution_history"),
+        "coverage": ("coverage_ratio", "canonical_coverage"),
+        "uncertainty": ("evidence_uncertainty", "evidence_quality"),
+        "interaction": ("interaction_effect", "interaction_note"),
+        "counterfactual_sensitivity": ("counterfactual", "counterfactual_effect"),
+        "source_span": ("exact_source_span", "citation_span"),
+        "source_authority": ("authority_source",),
+        "source_vintage_hash": ("vintage_hash", "canonical_source_vintage_hash"),
+        "conflict": ("conflict_status",),
+        "conflict_id": ("conflict_reference",),
+        "contribution": ("canonical_contribution_raw",),
+    }
+    _normalise_peer_percentile_alias(result)
+    for target, candidates in aliases.items():
+        if target not in result.columns:
+            result[target] = next((result[candidate] for candidate in candidates if candidate in result.columns), "unavailable")
     for column, default in (
         ("component", "unknown"),
         ("source_id", "unavailable"),
         ("authority", "unknown"),
+        ("source_authority", "unavailable"),
         ("driver_text", "Feature driver unavailable; informational only."),
         ("source_dataset", "unavailable"),
+        ("source_span", "unavailable"),
+        ("source_vintage_hash", "unavailable"),
+        ("claim_hash", "unavailable"),
         ("as_of_date", "unavailable"),
         ("freshness_status", "unknown"),
+        ("peer_group", "unavailable"),
+        ("uncertainty", "unavailable"),
+        ("interaction", "unavailable"),
+        ("counterfactual_sensitivity", "unavailable"),
+        ("missingness", "unavailable"),
+        ("conflict", "unavailable"),
+        ("conflict_id", "unavailable"),
         ("classification", "unclassified"),
         ("authority_classification", "unknown"),
         ("freshness_classification", "unknown"),
@@ -424,15 +485,114 @@ def _normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
     ):
         if column not in result.columns:
             result[column] = default
-    if "direction" not in result.columns:
-        score = pd.to_numeric(result["normalised_score"], errors="coerce")
-        result["direction"] = score.map(lambda value: "missing" if pd.isna(value) else "positive" if value >= 6 else "negative" if value <= 4 else "mixed")
-    result["flags"] = result["flags"].fillna("none").astype(str)
-    derived_flags = result["flags"].eq("none")
-    result.loc[derived_flags & result["direction"].astype(str).eq("missing"), "flags"] = "missing"
-    result.loc[derived_flags & result["authority_classification"].astype(str).str.contains("low", case=False, na=False), "flags"] = "low_authority"
-    result.loc[derived_flags & result["freshness_classification"].astype(str).str.contains("stale|partial", case=False, na=False, regex=True), "flags"] = "stale"
+        else:
+            result[column] = result[column].astype(object).where(
+                result[column].notna() & result[column].astype(str).str.strip().ne(""),
+                default,
+            )
+    result["component"] = result["component"].map(_component_id)
+    invalid_component = result["component"].eq("")
+    score = result["normalised_score"].map(
+        lambda value: _feature_driver_number(
+            value,
+            minimum=_FEATURE_DRIVER_SCORE_BOUNDS[0],
+            maximum=_FEATURE_DRIVER_SCORE_BOUNDS[1],
+        )
+    )
+    score = score.mask(invalid_component)
+    result["normalised_score"] = score
+    result["direction"] = score.map(_feature_driver_direction)
+    result["as_of_date"] = result["as_of_date"].map(_canonical_cohort_time).replace("", "unavailable")
+    _derive_peer_percentiles(result)
+    result["normalised_score"] = score.astype(object).where(score.notna(), "unavailable")
+    for column, (minimum, maximum) in _FEATURE_DRIVER_NUMERIC_BOUNDS.items():
+        result[column] = result[column].map(
+            lambda value, lower=minimum, upper=maximum: _feature_driver_number(
+                value,
+                minimum=lower,
+                maximum=upper,
+            )
+        )
+        result[column] = result[column].astype(object).where(
+            result[column].notna(), "unavailable"
+        )
+    result["uncertainty"] = result["uncertainty"].map(_feature_driver_uncertainty)
+    result["interaction"] = result["interaction"].map(_normalise_interaction)
+    result["execution_allowed"] = False
+    result["missingness"] = score.map(lambda value: "missing" if pd.isna(value) else "not_missing")
+    result["conflict"] = result["conflict"].where(result["conflict"].notna() & result["conflict"].astype(str).str.strip().ne(""), "unavailable")
+    result["authority"] = result["authority"].map(_scalar_text).replace("", "unknown")
+    result["freshness_status"] = result["freshness_status"].map(_scalar_text).replace("", "unknown")
+    result["source_authority"] = result["source_authority"].map(_source_provenance_text).replace("", "unavailable")
+    result["source_span"] = result["source_span"].map(_source_provenance_text).replace("", "unavailable")
+    result["source_vintage_hash"] = result["source_vintage_hash"].map(_source_vintage_hash).replace("", "unavailable")
+    result["authority_classification"] = result.apply(_combined_authority_classification, axis=1)
+    result["freshness_classification"] = result["freshness_status"].map(_freshness_classification)
+    result["classification"] = result.apply(_classification, axis=1)
+    result["flags"] = result.apply(_flags, axis=1)
+    claims = result.apply(
+        lambda row: normalise_bound_claim(
+            row.get("driver_text"),
+            component=row.get("component"),
+            score=row.get("normalised_score"),
+            source_vintage_hash=row.get("source_vintage_hash"),
+            source_span=row.get("source_span"),
+            source_authority=row.get("source_authority"),
+            claim_hash=row.get("claim_hash"),
+            require_claim_hash=True,
+            as_of_date=row.get("as_of_date"),
+            decision_time=row.get("decision_time"),
+            decision_at=row.get("decision_at"),
+        ),
+        axis=1,
+    )
+    result["driver_text"] = claims.map(lambda value: value[0])
+    result["claim_hash"] = claims.map(lambda value: value[1])
     return result
+
+
+def _feature_driver_direction(value: object) -> str:
+    if pd.isna(value):
+        return "missing"
+    return "positive" if float(value) >= 6.5 else "negative" if float(value) < 4.0 else "mixed"
+
+
+def _feature_driver_number(
+    value: object,
+    *,
+    minimum: float | None,
+    maximum: float | None,
+) -> float | None:
+    if isinstance(value, bool) or not pd.api.types.is_scalar(value):
+        return None
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    if minimum is not None and number < minimum:
+        return None
+    if maximum is not None and number > maximum:
+        return None
+    return number
+
+
+def _feature_driver_uncertainty(value: object) -> object:
+    if isinstance(value, bool) or not pd.api.types.is_scalar(value):
+        return "unavailable"
+    if isinstance(value, (int, float)):
+        return float(value) if math.isfinite(float(value)) else "unavailable"
+    text = str(value).strip()
+    if not text or text.casefold() in {"nan", "inf", "+inf", "-inf", "infinity", "+infinity", "-infinity", "<na>", "none"}:
+        return "unavailable"
+    return text
+
+
+def normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Public application readback used by all feature-driver presentation paths."""
+
+    return _normalise_feature_driver_frame(frame)
 
 
 def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:

@@ -150,19 +150,48 @@ def render_news_context_panel(model: InstrumentDetailViewModel) -> ft.Control:
     )
 
 
+def _driver_value(value: object, *, missing: str = "unavailable") -> str:
+    if value is None:
+        return missing
+    if isinstance(value, float) and not math.isfinite(value):
+        return missing
+    text = str(value).strip()
+    if text.casefold() in {"", "nan", "none", "<na>", "inf", "+inf", "-inf", "infinity", "+infinity", "-infinity"}:
+        return missing
+    return text
+
+
 def _driver_table(label: str, rows: list[dict[str, object]]) -> ft.Control:
-    columns = ["Component", "Score", "Direction", "Authority", "Freshness", "Driver"]
+    columns = [
+        "Component", "Score", "Direction", "Peer group", "Peer percentile", "Historical contribution",
+        "Coverage", "Uncertainty", "Interaction", "Counterfactual sensitivity",
+        "Authority", "Source authority", "Freshness", "Source span", "Source vintage hash", "Claim hash", "Missingness", "Conflict", "Contribution", "Driver",
+    ]
     if not rows:
         return ft.Column([ft.Text(label, color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12), ft.Text("Unavailable", color=theme.MUTED, size=11)], spacing=4)
     table_rows = [
         ft.DataRow(
             cells=[
-                ft.DataCell(ft.Text(str(row.get("component") or "unavailable"), color=theme.TEXT)),
-                ft.DataCell(ft.Text(str(row.get("normalised_score") if row.get("normalised_score") is not None else "N/A"), color=theme.CYAN)),
-                ft.DataCell(ft.Text(str(row.get("direction") or "unavailable"), color=theme.MUTED)),
-                ft.DataCell(ft.Text(str(row.get("authority") or "unavailable"), color=theme.MUTED)),
-                ft.DataCell(ft.Text(str(row.get("freshness_status") or "unavailable"), color=theme.MUTED)),
-                ft.DataCell(ft.Text(str(row.get("driver_text") or "unavailable"), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(_driver_value(row.get("component")), color=theme.TEXT)),
+                ft.DataCell(ft.Text(_driver_value(row.get("normalised_score"), missing="N/A"), color=theme.CYAN)),
+                ft.DataCell(ft.Text(_driver_value(row.get("direction")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("peer_group")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("peer_percentile")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("historical_contribution")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("coverage")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("uncertainty")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("interaction")), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(_driver_value(row.get("counterfactual_sensitivity")), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(_driver_value(row.get("authority")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("source_authority")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("freshness_status")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("source_span")), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(_driver_value(row.get("source_vintage_hash")), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(_driver_value(row.get("claim_hash")), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(_driver_value(row.get("missingness")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("conflict")), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(_driver_value(row.get("contribution")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("driver_text")), color=theme.MUTED, selectable=True)),
             ]
         )
         for row in rows
@@ -189,7 +218,7 @@ def _render_feature_driver_panel(panel_data: object) -> ft.Control:
     return panel(
         ft.Column(
             [
-                section_header("Feature drivers", "Ordered driver rows are informational evidence only; missing, low-authority and stale values remain explicit."),
+                section_header("Feature drivers", "Ordered driver rows are descriptive, non-causal evidence only; missing, low-authority and stale values remain explicit."),
                 *[_driver_table(label, rows if isinstance(rows, list) else []) for label, rows in groups],
             ],
             spacing=8,

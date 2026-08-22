@@ -14,6 +14,7 @@ import pandas as pd
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
 from etf_cockpit.app.state import ActivityUnavailableError, AppState
+from etf_cockpit.app.selectors.instrument_detail import normalise_feature_driver_frame
 from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.paths import RAW_DIR, STATEMENT_FACTS_PATH
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
@@ -66,6 +67,41 @@ from etf_cockpit.application.ui_facade import (
     source_policy_rows,
 )
 from etf_cockpit.plugins.builtins import plugin_status_rows
+
+
+FEATURE_DRIVER_EVIDENCE_COLUMNS = [
+    "instrument_id",
+    "component",
+    "raw_metric",
+    "normalised_score",
+    "peer_group",
+    "peer_percentile",
+    "historical_contribution",
+    "coverage",
+    "uncertainty",
+    "interaction",
+    "counterfactual_sensitivity",
+    "direction",
+    "authority",
+    "source_authority",
+    "driver_text",
+    "source_dataset",
+    "source_span",
+    "source_vintage_hash",
+    "claim_hash",
+    "as_of_date",
+    "freshness_status",
+    "missingness",
+    "conflict",
+    "conflict_id",
+    "contribution",
+    "classification",
+    "authority_classification",
+    "freshness_classification",
+    "flags",
+    "source_id",
+    "execution_allowed",
+]
 
 
 @contextmanager
@@ -333,7 +369,7 @@ def evidence_ledger_page(_page: ft.Page, _state) -> ft.Control:
         [
             ("Evidence ledger", EVIDENCE_LEDGER_PATH, ["instrument_id", "component", "source_id", "source_authority", "authority_rank", "as_of_date", "freshness_status", "conflict_id", "score_eligible", "reason"]),
             ("Score components", SCORE_COMPONENTS_PATH, ["instrument_id", "component", "source_id", "source_authority", "normalised_score_10", "status", "authority", "freshness_status", "conflict_id", "driver_text"]),
-            ("Feature drivers", FEATURE_DRIVERS_PATH, ["instrument_id", "component", "normalised_score", "direction", "authority", "driver_text"]),
+            ("Feature drivers", FEATURE_DRIVERS_PATH, FEATURE_DRIVER_EVIDENCE_COLUMNS, normalise_feature_driver_frame),
             ("Score history", SCORE_HISTORY_PATH, ["instrument_id", "run_completed_at", "final_combined_score_10", "final_label", "blocked_by"]),
             ("Score metric history", SCORE_METRIC_HISTORY_PATH, ["instrument_id", "component_name", "normalised_score_10", "score_available", "na_reason"]),
             ("Correlation clusters", CORRELATION_CLUSTERS_PATH, ["instrument_id", "cluster_label", "average_peer_correlation", "crowding_warning", "cluster_risk_contribution", "ranking_coverage", "pair_sample_size", "sector", "theme", "theme_warning", "top_ranked_theme_concentration", "top_ranked_theme_warning", "sample_size", "status", "execution_allowed"]),
@@ -489,7 +525,16 @@ def _news_context_extra(state: AppState) -> ft.Control:
             spacing=8,
         )
     )
-def _status_page(title: str, subtitle: str, tables: list[tuple[str, Path, list[str]]], *, extra: ft.Control | None = None) -> ft.Control:
+def _status_page(
+    title: str,
+    subtitle: str,
+    tables: list[
+        tuple[str, Path, list[str]]
+        | tuple[str, Path, list[str], Callable[[pd.DataFrame], pd.DataFrame]]
+    ],
+    *,
+    extra: ft.Control | None = None,
+) -> ft.Control:
     controls: list[ft.Control] = [
         panel(
             ft.Column(
@@ -511,7 +556,10 @@ def _status_page(title: str, subtitle: str, tables: list[tuple[str, Path, list[s
     ]
     if extra is not None:
         controls.append(extra)
-    controls.extend(_table_panel(label, path, columns) for label, path, columns in tables)
+    for table in tables:
+        label, path, columns = table[:3]
+        normaliser = table[3] if len(table) == 4 else None
+        controls.append(_table_panel(label, path, columns, normaliser=normaliser))
     return ft.Column(
         controls,
         spacing=14,
@@ -993,8 +1041,19 @@ def _attach_picker(page: ft.Page, key: str) -> ft.FilePicker:
     return picker
 
 
-def _table_panel(label: str, path: Path, columns: list[str]) -> ft.Control:
+def _table_panel(
+    label: str,
+    path: Path,
+    columns: list[str],
+    *,
+    normaliser: Callable[[pd.DataFrame], pd.DataFrame] | None = None,
+) -> ft.Control:
     frame = _read_frame(path)
+    if normaliser is not None:
+        try:
+            frame = normaliser(frame)
+        except Exception:
+            frame = pd.DataFrame()
     selected_columns = [column for column in columns if column in frame.columns]
     if frame.empty:
         body: ft.Control = ft.Text(

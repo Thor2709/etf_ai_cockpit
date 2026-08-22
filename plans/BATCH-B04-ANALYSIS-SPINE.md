@@ -1333,6 +1333,114 @@ passed both package platforms and terminal validation. Writer `30746368016`
 applied the two-hop aggregate, proved `zero_action_readback=true` and retained
 `execution_allowed=false`.
 
+
+`ISSUE-0047 PERSISTED COMPONENT READBACK CORRECTION` exact head
+`d1e2622e1f9a5e1485efc63ac1f5757ba1ecb389` is risk-approved but rejected
+by the whole-diff reviewer; run `32562792296` is stale. The shared persisted
+readback now validates component identities before scoring/classification and
+forces malformed bool/list/numeric values to missing, unavailable and unbound.
+Direct producer, instrument and generic-readback regressions pass. Freeze the
+replacement with canonical status and `execution_allowed=false` unchanged.
+
+
+
+`ISSUE-0047 RAW IDENTITY/PREFIX CORRECTION` exact head
+`d2b2a0ddccd608dd5ba7a4f1309656458cc3774e` is rejected by both reviewers;
+run `32562619023` is stale. Raw component identities are now validated before
+any coercion, and authoritative source families require exact or
+separator-bounded canonical labels, rejecting lookalikes such as
+`officially_unverified` and `vendorish`. Direct malformed scalar/list and
+authority-prefix regressions pass. Freeze the replacement without broadening
+scope; preserve `implemented_initially` and `execution_allowed=false`.
+
+
+
+`ISSUE-0047 CANONICAL AUTHORITY/COMPONENT CORRECTION` exact head
+`a9e6417ca312163bf29e9693ac8e925f210c7a2f` is rejected by both reviewers;
+run `32562368327` is stale. Canonical `manual` and `community` source
+authorities now fail closed as contextual/low authority, unknown authority labels
+do not enter trusted groups, and component identifiers are restricted to the
+existing machine-key shape so narrative or causal text cannot enter the
+bound deterministic claim. Producer, instrument and generic readback
+regressions pass. Freeze the replacement for paired review and fresh O-tier
+evidence while preserving `implemented_initially` and
+`execution_allowed=false`.
+
+
+
+`ISSUE-0047 FINAL GENERIC READBACK CORRECTION` exact head
+`676e4322706668b111b3b2dead2352ae7897635b` is rejected by both reviewers;
+O-tier run `32561959531` passed classifier, preflight, supply chain and terminal
+validation but is stale. The remaining reproduced set is limited to mandatory
+vintage binding, agreement across all populated ledger-time aliases,
+fail-closed trust classification across component and source authorities, and
+normalisation before generic trust-evidence rendering. These paths now share
+the existing strict readback, reject missing or contradictory identities, and
+exclude unbound or low-authority rows from trusted top groups. Direct focused
+regressions pass with architecture, Ruff and diff hygiene. Freeze the next
+exact head for paired review and fresh O-tier evidence; preserve canonical
+`implemented_initially` and `execution_allowed=false`.
+
++
+
+`ISSUE-0047 COMPLETE TRACEABILITY/PIT CORRECTION` exact head
+`06a572a610a451df9663e2c68e90f94aa4a75513` is rejected by both final
+reviewers; exact-head O-tier run `32560345879` passed classifier, preflight,
+supply chain and terminal validation but is stale. The consolidated reproduced
+set requires exact span and authority in every available claim binding,
+non-causal structured interaction evidence, independent readback derivation of
+classifications and trusted top-driver groups, strict unambiguous score and
+ledger chronology, correct 0-1 percentile alias scaling, and complete generic
+trust-evidence projection. One bounded correction covers all paths with direct
+regressions; focused product, selector, architecture and trust-evidence tests,
+Ruff, diff hygiene and generated-state checks pass. Freeze one replacement
+head for final paired review and fresh hosted evidence; canonical status stays
+`implemented_initially` and `execution_allowed=false`.
+
+
+`ISSUE-0047 FINAL EVIDENCE/POINT-IN-TIME CORRECTION` replacement head
+`2df0703320eb4cee892a60f964e09ff9d1f04ef8` is rejected by both final
+reviewers; exact-head run `32558612970` is stale after its architecture
+preflight rejected a selector-to-signals implementation import. The complete
+demonstrated set is that import boundary, loss of an explicit zero percentile,
+malformed cohort dates, and order-dependent ledger reconciliation that could
+attach future or ambiguous evidence. One bounded correction now re-exports
+the helper contract through the application facade, preserves valid explicit
+percentiles including zero, canonicalises only scalar valid dates, and selects
+only the latest point-in-time-eligible ledger row while failing closed on
+incompatible same-time rows. Direct adversarial, architecture, feature-driver,
+persistence and instrument-detail tests pass. Freeze one clean replacement
+head for final paired review and fresh hosted evidence; keep canonical status
+unchanged and preserve `execution_allowed=false`.
+
+`ISSUE-0046 CONVERGED / ISSUE-0047 PRODUCT ACTIVE` PR #693 merged the exact
+independently approved lifecycle-replay head
+`6a9371612d638fcfdb29f1b4c23c0325887fc064` as
+`b657fbe9c5676787eb3375d5b0b35be900cb50ba`. Exact-head run
+`32551626662` and status guard `32551626653` passed. Writer run
+`32553971326` applied the single aggregate two-hop replay
+`in_progress -> implemented_initially -> integrated` for ISSUE-0046 only,
+with one proposal/receipt, terminal `applied_and_verified`,
+`zero_action_readback=true` and `execution_allowed=false`; convergence run
+`32553971275` made no independent write. Canonical state and GitHub issue #98
+both read back as integrated.
+
+ISSUE-0047 is dependency-ready at canonical `implemented_initially`. Its clean
+product lane is based on exact main
+`b657fbe9c5676787eb3375d5b0b35be900cb50ba` and is limited to feature-driver
+production, trust-artifact persistence/readback, instrument-detail projection
+and presentation, plus direct regressions. Every displayed driver now carries
+descriptive peer/history/coverage/uncertainty/interaction/counterfactual,
+source-span/authority, missingness/conflict and contribution evidence without
+causal claims; malformed, non-finite, out-of-range or absent numeric evidence
+fails closed as unavailable while valid zero survives persistence and UI
+readback. The complete affected feature-driver, persistence, selector and
+instrument-detail collection passes with Ruff and diff hygiene. Preserve
+canonical lifecycle state and `execution_allowed=false` until the exact product
+head is frozen, independently reviewed and validated; prepare the legal
+`implemented_initially -> integrated` writer and zero-action readback before
+merge.
+
 `ISSUE-0046 PRODUCT MERGED / LIFECYCLE START PREPARED` PR #691 merged exact
 independently approved product head `40fdaf2cea8d187bd4de047654d4eba83027e6dc`
 as `38604ce9ed62a591f95c4623329f3579fe2cab3c`. Exact-head H-tier run
@@ -4741,4 +4849,20 @@ the generic composer. Interpret canonical date-only `analysis.end_date` as the
 inclusive end-of-day cutoff. Add only production-shaped producer/readback and
 date regressions, rerun the affected suite once, then freeze the replacement
 for paired review and fresh H-tier evidence. Preserve lifecycle state and
+`execution_allowed=false`.
+
+`ISSUE-0047 CONSOLIDATED REVIEW CORRECTION` exact head
+`93d61e959f9a88f1ea95b0b34ba5ba95c7dab525` is rejected by both reviewers;
+run `32555947027` is stale despite passing its O-tier classifier, preflight,
+supply-chain and terminal summary. The complete demonstrated set is:
+unvalidated producer claim text could remain causal and unbound to canonical
+provenance; malformed persisted score/direction/provenance could bypass
+fail-closed grouping; and peer percentiles mixed dated source vintages. One
+combined correction now emits only deterministic descriptive claims bound to
+validated source-vintage hash/span, rejects malformed or inconsistent
+readback, recomputes direction/missingness from finite 0–10 scores and derives
+percentiles only within one dated vintage cohort. Direct adversarial and the
+complete affected feature-driver, persistence, selector and instrument-detail
+collection pass with Ruff and diff hygiene. Freeze one replacement exact head
+for paired review and fresh hosted evidence; preserve canonical status and
 `execution_allowed=false`.
