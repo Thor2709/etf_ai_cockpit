@@ -468,6 +468,11 @@ def _normalise_section(
     if status in {"unavailable", "pending"}:
         if not _text(item.get("reason")):
             return unavailable_monthly_evidence(f"{name}_reason_unavailable"), [f"{name}_invalid"]
+        if _contains_financial_return_key(item):
+            return unavailable_monthly_evidence(f"{name}_evidence_invalid"), [
+                f"{name}_invalid",
+                f"{name}_financial_invalid",
+            ]
         item["execution_allowed"] = False
         return item, [f"{name}_unavailable"]
     errors = [*_evidence_contract_errors(item, cutoff=cutoff), *validator(item, status == "available")]
@@ -855,6 +860,15 @@ def _nested_mappings(value: Mapping[str, object]) -> tuple[Mapping[str, object],
     return tuple(nested)
 
 
+def _contains_financial_return_key(value: Mapping[str, object]) -> bool:
+    return any(
+        isinstance(field, str)
+        and (field.casefold() in {"return", "relative_return", "net_return"} or field.casefold().endswith("_return"))
+        for item in (value, *_nested_mappings(value))
+        for field in item
+    )
+
+
 def _reference_cutoff(reference: Mapping[str, object]) -> datetime | None:
     analysis = reference.get("analysis")
     if not isinstance(analysis, Mapping):
@@ -901,22 +915,7 @@ def _comparison_bundle_participant(value: Mapping[str, object]) -> bool:
 
 def _partial_alternative_errors(name: str, value: Mapping[str, object]) -> list[str]:
     errors: list[str] = []
-    financial_fields = {
-        "return",
-        "relative_return",
-        "net_return",
-        "period_return",
-        "benchmark_relative_return",
-        "cash_relative_return",
-        "no_action_relative_return",
-    }
-    supplied_mappings = (value, *_nested_mappings(value))
-    if any(
-        isinstance(field, str)
-        and (field.casefold() in financial_fields or field.casefold().endswith("_return"))
-        for item in supplied_mappings
-        for field in item
-    ):
+    if _contains_financial_return_key(value):
         errors.append("financial_invalid")
     identity_fields = ("version", "source_id", "source_dataset")
     if any(field in value and not _text(value.get(field)) for field in identity_fields):
@@ -1099,7 +1098,9 @@ def _sequence(value: object, *, allow_empty: bool = False) -> bool:
 
 
 def _text(value: object) -> str:
-    text = str(value or "").strip()
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
     return "" if text.casefold() in {"none", "nan", "unavailable"} else text
 
 

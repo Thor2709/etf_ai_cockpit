@@ -534,6 +534,40 @@ def test_nested_partial_financial_return_keys_fail_closed(field: str) -> None:
     assert field not in result.projection()["alternatives"]["basket"]
 
 
+@pytest.mark.parametrize("section", ["expected_returns", "optimiser", "costs", "forward_evidence", "paper_outcomes", "events"])
+def test_nested_return_keys_in_non_available_sections_fail_closed(section: str) -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence[section] = {
+        "status": "unavailable",
+        "reason": "not_produced",
+        "context": {"deep": {"net_return": 0.42}},
+        "execution_allowed": False,
+    }
+
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert result.projection()[section] == {
+        "status": "unavailable",
+        "reason": f"{section}_evidence_invalid",
+        "execution_allowed": False,
+    }
+
+
+@pytest.mark.parametrize("field", ["version", "source_id", "source_dataset"])
+@pytest.mark.parametrize("invalid", [{"malformed": True}, ["malformed"]])
+def test_available_alternative_identity_must_be_non_empty_text(field: str, invalid: object) -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"]["basket"][field] = invalid  # type: ignore[index]
+
+    result = _build(evidence)
+    rendered = "\n".join(monthly_decision_template_lines(result))
+
+    assert result.status == "unavailable"
+    assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
+    assert "Basket: available" not in rendered
+
+
 def test_partial_no_action_return_with_fabricated_identity_is_never_rendered() -> None:
     evidence = deepcopy(_full_evidence())
     evidence["alternatives"]["no_action"] = {

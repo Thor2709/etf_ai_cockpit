@@ -3418,3 +3418,13 @@ next action and whether the requested outcome is actually complete.
   freeze one replacement head for paired review and fresh H-tier evidence.
   Do not expand the correction beyond these reproduced cases; lifecycle state
   and `execution_allowed=false` remain unchanged.
+- ISSUE-0046 head `01a51ad050b4b3b38d29bff083a820bf6ef6a66e`
+  is rejected by both reviewers; run `32539585282` is cancelled/stale. The two
+  demonstrated final defects are malformed mapping/list alternative identities
+  bypassing source binding or crashing bundle comparison, and nested return
+  keys surviving inside non-available general sections. Require non-empty
+  string identities before bundle construction and apply the existing recursive
+  non-available return-key rule to every monthly section. Add only direct
+  regressions for these inputs, rerun the affected suite once, and freeze a new
+  exact head for paired review and fresh H-tier evidence. Preserve canonical
+  lifecycle state and `execution_allowed=false`.

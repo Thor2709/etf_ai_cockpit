@@ -4655,3 +4655,13 @@ as unavailable rather than raising. Add only the three direct regressions and
 rerun the affected integration surface once before freezing a replacement for
 paired review and fresh H-tier evidence. Keep lifecycle state unchanged and
 `execution_allowed=false`.
+
+`ISSUE-0046 STRICT IDENTITY AND SECTION BOUNDARY` head
+`01a51ad050b4b3b38d29bff083a820bf6ef6a66e` is rejected by both reviewers;
+run `32539585282` is cancelled/stale. Reject non-string version, source ID and
+source-dataset identities before comparison-bundle construction, and reject
+recursive `*_return` keys in every non-available monthly section rather than
+preserving them in projections. Cover only these reproduced inputs, rerun the
+affected suite once, and freeze a replacement for paired review and fresh
+H-tier evidence. Lifecycle state and `execution_allowed=false` remain
+unchanged.
