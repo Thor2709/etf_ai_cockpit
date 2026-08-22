@@ -3428,3 +3428,12 @@ next action and whether the requested outcome is actually complete.
   regressions for these inputs, rerun the affected suite once, and freeze a new
   exact head for paired review and fresh H-tier evidence. Preserve canonical
   lifecycle state and `execution_allowed=false`.
+- ISSUE-0046 head `870ae7c3ca7588f10934fc07a4ee90818d3b47f5`
+  is rejected by both reviewers; run `32540610615` is cancelled/stale. The
+  complete verdict is one two-part boundary correction: validate original
+  backtest version/source identities before any string coercion, and apply the
+  recursive non-available return-key rejection to `partial` sections as well as
+  unavailable/pending sections. Add adapter-level mapping/list regressions and
+  partial-section regressions, rerun the affected suite once, and freeze a
+  replacement head. Do not broaden beyond these reproduced paths; canonical
+  lifecycle state and `execution_allowed=false` remain unchanged.

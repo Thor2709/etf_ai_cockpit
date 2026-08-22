@@ -465,14 +465,14 @@ def _normalise_section(
     status = item.get("status")
     if status not in _STATUSES:
         return unavailable_monthly_evidence(f"{name}_status_invalid"), [f"{name}_invalid"]
+    if status != "available" and _contains_financial_return_key(item):
+        return unavailable_monthly_evidence(f"{name}_evidence_invalid"), [
+            f"{name}_invalid",
+            f"{name}_financial_invalid",
+        ]
     if status in {"unavailable", "pending"}:
         if not _text(item.get("reason")):
             return unavailable_monthly_evidence(f"{name}_reason_unavailable"), [f"{name}_invalid"]
-        if _contains_financial_return_key(item):
-            return unavailable_monthly_evidence(f"{name}_evidence_invalid"), [
-                f"{name}_invalid",
-                f"{name}_financial_invalid",
-            ]
         item["execution_allowed"] = False
         return item, [f"{name}_unavailable"]
     errors = [*_evidence_contract_errors(item, cutoff=cutoff), *validator(item, status == "available")]

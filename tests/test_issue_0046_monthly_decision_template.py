@@ -535,10 +535,11 @@ def test_nested_partial_financial_return_keys_fail_closed(field: str) -> None:
 
 
 @pytest.mark.parametrize("section", ["expected_returns", "optimiser", "costs", "forward_evidence", "paper_outcomes", "events"])
-def test_nested_return_keys_in_non_available_sections_fail_closed(section: str) -> None:
+@pytest.mark.parametrize("status", ["unavailable", "partial"])
+def test_nested_return_keys_in_non_available_sections_fail_closed(section: str, status: str) -> None:
     evidence = deepcopy(_full_evidence())
     evidence[section] = {
-        "status": "unavailable",
+        "status": status,
         "reason": "not_produced",
         "context": {"deep": {"net_return": 0.42}},
         "execution_allowed": False,
@@ -552,6 +553,32 @@ def test_nested_return_keys_in_non_available_sections_fail_closed(section: str) 
         "reason": f"{section}_evidence_invalid",
         "execution_allowed": False,
     }
+
+
+@pytest.mark.parametrize("field", ["source_id", "source_dataset", "backtest_version"])
+@pytest.mark.parametrize("invalid", [{"malformed": True}, ["malformed"]])
+def test_backtest_adapter_does_not_stringify_malformed_source_identity(field: str, invalid: object) -> None:
+    curves = pd.DataFrame(
+        {name: [1.0, value] for name, value in {"basket": 1.07, "benchmark": 1.05, "cash": 1.03, "no_action": 1.04}.items()},
+        index=pd.to_datetime(["2026-07-31", "2026-08-21"]),
+    )
+    metadata: dict[str, object] = {
+        "input_checksum": _SOURCE_DIGEST,
+        "source_id": "backtest:42",
+        "source_dataset": "backtest:2026-07-31:2026-08-21",
+        "backtest_version": "backtest.equity.v1",
+        "known_at": "2026-08-21T12:00:00Z",
+        "trust": True,
+        "source_bound": True,
+    }
+    metadata[field] = invalid
+
+    alternatives = backtests._monthly_backtest_alternatives(
+        SimpleNamespace(equity_curves=curves), metadata, reference=_reference()
+    )
+
+    assert all(item["status"] == "unavailable" for item in alternatives.values())  # type: ignore[union-attr]
+    assert all(item["reason"] == "backtest_monthly_source_identity_invalid" for item in alternatives.values())  # type: ignore[union-attr]
 
 
 @pytest.mark.parametrize("field", ["version", "source_id", "source_dataset"])

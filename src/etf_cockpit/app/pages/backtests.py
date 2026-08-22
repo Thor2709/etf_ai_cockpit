@@ -382,10 +382,18 @@ def _monthly_backtest_alternatives(
             name: unavailable_monthly_evidence("backtest_monthly_comparison_window_invalid")
             for name in columns
         }
-    source_id = str(metadata.get("source_id") or "")
+    source_id = metadata.get("source_id")
     source_digest = str(metadata.get("input_checksum") or "")
-    source_dataset = str(metadata.get("source_dataset") or "")
-    version = str(metadata.get("backtest_version") or "")
+    source_dataset = metadata.get("source_dataset")
+    version = metadata.get("backtest_version")
+    if any(
+        not isinstance(value, str) or not value.strip()
+        for value in (source_id, source_dataset, version)
+    ):
+        return {
+            name: unavailable_monthly_evidence("backtest_monthly_source_identity_invalid")
+            for name in columns
+        }
     as_of = _timestamp_text(end)
     known_at = metadata.get("known_at") or metadata.get("decision_time")
     canonical_reference = reference if isinstance(reference, Mapping) else metadata.get("benchmark_reference")

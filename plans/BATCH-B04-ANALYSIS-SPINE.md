@@ -4665,3 +4665,13 @@ preserving them in projections. Cover only these reproduced inputs, rerun the
 affected suite once, and freeze a replacement for paired review and fresh
 H-tier evidence. Lifecycle state and `execution_allowed=false` remain
 unchanged.
+
+`ISSUE-0046 PRODUCER IDENTITY BOUNDARY` head
+`870ae7c3ca7588f10934fc07a4ee90818d3b47f5` is rejected by both reviewers;
+run `32540610615` is cancelled/stale. Validate raw backtest version, source ID
+and source-dataset values before coercion so malformed mappings/lists cannot be
+laundered into available evidence, and reject recursive `*_return` keys in
+`partial` sections under the same non-available contract. Add only direct
+adapter and partial-section regressions, rerun the affected suite once, and
+freeze the replacement for paired review and fresh H-tier evidence. Preserve
+lifecycle state and `execution_allowed=false`.
