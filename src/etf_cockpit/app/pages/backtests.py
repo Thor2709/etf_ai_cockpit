@@ -390,10 +390,12 @@ def _monthly_backtest_alternatives(
     known_at = metadata.get("known_at") or metadata.get("decision_time")
     canonical_reference = reference if isinstance(reference, Mapping) else metadata.get("benchmark_reference")
     canonical_reference = canonical_reference if isinstance(canonical_reference, Mapping) else {}
+    canonical_references = canonical_reference.get("references")
+    canonical_references = canonical_references if isinstance(canonical_references, (list, tuple)) else ()
     canonical_no_action = next(
         (
             item
-            for item in canonical_reference.get("references", ())
+            for item in canonical_references
             if isinstance(item, Mapping) and item.get("method") == "no_trade"
         ),
         None,

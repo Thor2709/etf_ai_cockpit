@@ -308,6 +308,7 @@ def test_available_reference_without_authoritative_registry_fails_closed() -> No
     evidence = _full_evidence()
 
     result = build_monthly_decision_template(benchmark_reference=_reference(), **evidence)
+    rendered = "\n".join(monthly_decision_template_lines(result))
 
     assert result.status == "unavailable"
     assert result.benchmark_reference == {
@@ -316,6 +317,8 @@ def test_available_reference_without_authoritative_registry_fails_closed() -> No
         "execution_allowed": False,
     }
     assert "canonical_reference_invalid" in result.blockers
+    assert all(item["status"] == "unavailable" for item in result.projection()["alternatives"].values())
+    assert "return=+" not in rendered
 
 
 def test_recursive_reference_and_section_evidence_fail_closed() -> None:
@@ -510,6 +513,25 @@ def test_partial_relative_returns_are_never_rendered() -> None:
     assert result.status == "unavailable"
     assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
     assert "vs benchmark=+2.00%" not in rendered
+
+
+@pytest.mark.parametrize("field", ["return", "relative_return", "net_return"])
+def test_nested_partial_financial_return_keys_fail_closed(field: str) -> None:
+    evidence = deepcopy(_full_evidence())
+    evidence["alternatives"]["basket"] = {  # type: ignore[index]
+        "status": "partial",
+        "reason": "incomplete",
+        "context": {"nested": {field: 0.07}},
+        "execution_allowed": False,
+    }
+
+    result = _build(evidence)
+    rendered = "\n".join(monthly_decision_template_lines(result))
+
+    assert result.status == "unavailable"
+    assert result.projection()["alternatives"]["basket"]["status"] == "unavailable"
+    assert "Basket: unavailable | return=unavailable" in rendered
+    assert field not in result.projection()["alternatives"]["basket"]
 
 
 def test_partial_no_action_return_with_fabricated_identity_is_never_rendered() -> None:
@@ -811,6 +833,36 @@ def test_malformed_canonical_no_action_binding_fails_closed(mutation) -> None:
     )
 
     assert alternatives["no_action"]["status"] == "unavailable"  # type: ignore[index]
+
+
+def test_malformed_canonical_reference_collection_fails_closed() -> None:
+    reference = _reference()
+    reference["references"] = None
+    curves = pd.DataFrame(
+        {name: [1.0, value] for name, value in {"basket": 1.07, "benchmark": 1.05, "cash": 1.03, "no_action": 1.04}.items()},
+        index=pd.to_datetime(["2026-07-31", "2026-08-21"]),
+    )
+    metadata = {
+        "input_checksum": _SOURCE_DIGEST,
+        "source_id": "backtest:42",
+        "source_dataset": "backtest:2026-07-31:2026-08-21",
+        "backtest_version": "backtest.equity.v1",
+        "known_at": "2026-08-21T12:00:00Z",
+        "trust": True,
+        "source_bound": True,
+        "monthly_no_action_reference_id": "reference:no-trade",
+        "monthly_no_action_reference_version": "1.0.0",
+        "monthly_no_action_reference_content_hash": "no-trade-hash",
+        "no_action_constituents": ["VWCE"],
+        "no_action_weights": {"VWCE": 1.0},
+    }
+
+    alternatives = backtests._monthly_backtest_alternatives(
+        SimpleNamespace(equity_curves=curves), metadata, reference=reference
+    )
+
+    assert alternatives["no_action"]["status"] == "unavailable"  # type: ignore[index]
+    assert alternatives["basket"]["status"] == "unavailable"  # type: ignore[index]
 
 
 def test_backtest_comparisons_require_sorted_shared_non_null_endpoints() -> None:

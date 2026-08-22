@@ -4644,3 +4644,14 @@ basket whenever benchmark, cash or no-action is unavailable, preventing any
 unreconciled relative value from rendering. All 84 direct regressions and the
 affected integration suite pass with Ruff and diff hygiene. Freeze for paired
 review and fresh H-tier evidence; no adjacent shape hardening is in scope.
+
+`ISSUE-0046 CANONICAL FAIL-CLOSED BOUNDARY` head
+`bfbf5496bb52abdfdbb018794ecb89d6190770ae` is rejected by both reviewers;
+run `32538719210` is cancelled/stale. The consolidated correction invalidates
+all alternatives when canonical reference validation fails, rejects nested
+`return`, `relative_return`, `net_return` and other `*_return` keys in any
+non-available alternative, and treats malformed backtest reference collections
+as unavailable rather than raising. Add only the three direct regressions and
+rerun the affected integration surface once before freezing a replacement for
+paired review and fresh H-tier evidence. Keep lifecycle state unchanged and
+`execution_allowed=false`.

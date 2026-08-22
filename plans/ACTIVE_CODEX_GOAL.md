@@ -3407,3 +3407,14 @@ next action and whether the requested outcome is actually complete.
   integration suite with Ruff and diff hygiene. Freeze this final presentation
   boundary for paired review and H-tier evidence; no further adjacent shape
   hardening belongs in ISSUE-0046.
+- ISSUE-0046 head `bfbf5496bb52abdfdbb018794ecb89d6190770ae`
+  is rejected by both reviewers; run `32538719210` is cancelled/stale. The
+  complete verdict identifies three final fail-closed paths: canonical
+  reference validation failure must invalidate every financial alternative;
+  any recursively nested `*_return` key in non-available evidence must be
+  rejected; and malformed backtest reference collections must normalize to
+  unavailable evidence without raising. Apply these together with direct
+  regressions, rerun the unchanged affected integration surface once, and
+  freeze one replacement head for paired review and fresh H-tier evidence.
+  Do not expand the correction beyond these reproduced cases; lifecycle state
+  and `execution_allowed=false` remain unchanged.

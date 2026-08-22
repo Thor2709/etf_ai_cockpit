@@ -325,7 +325,10 @@ def _normalise_alternatives(
         item, item_errors = _normalise_alternative(name, raw, cutoff=cutoff)
         result[name] = item
         errors.extend(item_errors)
-    if reference.get("status") == "available":
+    if reference.get("status") != "available":
+        for name in ALTERNATIVE_NAMES:
+            result[name] = unavailable_monthly_evidence(f"{name}_canonical_reference_unavailable")
+    else:
         benchmark = reference.get("benchmark")
         cash = reference.get("cash")
         references = reference.get("references")
@@ -898,14 +901,22 @@ def _comparison_bundle_participant(value: Mapping[str, object]) -> bool:
 
 def _partial_alternative_errors(name: str, value: Mapping[str, object]) -> list[str]:
     errors: list[str] = []
-    financial_fields = (
+    financial_fields = {
+        "return",
+        "relative_return",
+        "net_return",
         "period_return",
         "benchmark_relative_return",
         "cash_relative_return",
         "no_action_relative_return",
-    )
+    }
     supplied_mappings = (value, *_nested_mappings(value))
-    if any(field in item for item in supplied_mappings for field in financial_fields):
+    if any(
+        isinstance(field, str)
+        and (field.casefold() in financial_fields or field.casefold().endswith("_return"))
+        for item in supplied_mappings
+        for field in item
+    ):
         errors.append("financial_invalid")
     identity_fields = ("version", "source_id", "source_dataset")
     if any(field in value and not _text(value.get(field)) for field in identity_fields):
