@@ -3327,3 +3327,149 @@ next action and whether the requested outcome is actually complete.
   `in_progress -> implemented_initially -> integrated`, bound to the same
   product head and review evidence, then resume ISSUE-0046. Preserve
   `execution_allowed=false`.
+- ISSUE-0112 completion PR #690 merged exact independently approved replay
+  head `3a404d8f2e71b0c2945b17968a1960d80dc2b90b` as
+  `d8d9b9d618680ead29b493f16659e11c52f5fd14`. Run `32525576510`
+  passed the required Linux, Windows, terminal, authority and status checks.
+  Writer run `32528744114` applied one aggregate proposal/receipt containing
+  exactly `in_progress -> implemented_initially -> integrated`, terminal
+  `applied_and_verified` with `zero_action_readback=true`; convergence run
+  `32528744124` produced no write and `execution_allowed=false` remains
+  unchanged. ISSUE-0046 is the next dependency-ready product issue. Its
+  six-file monthly-decision implementation was transplanted onto exact main
+  `d8d9b9d618680ead29b493f16659e11c52f5fd14` as clean product commit
+  `c47164d3ab874bfe4dba66714fe8b327547373b9`; complete focused validation,
+  H-tier review and hosted Linux/Windows evidence without changing lifecycle
+  state in the product PR.
+- ISSUE-0046 review head `4331452cb6c3bb2ac558be369aada08601ebeedd`
+  is rejected and H-tier run `32529045037` is cancelled/stale. Both reviewers
+  completed before correction. Their demonstrated findings were consolidated
+  once: bind every available return/distribution to digest, chronology and a
+  positive horizon; bind canonical alternatives to exact id/version/hash;
+  require all three basket comparisons including no-action; preserve immutable
+  nested evidence and `execution_allowed=false`; project only actually supplied
+  backtest/strategy evidence; pass the canonical registry through the portfolio
+  surface; and reject malformed financial signs. The corrected six-file scope
+  passes 48 direct adversarial tests, the single affected benchmark/evidence/
+  backtest/portfolio/UI integration suite, Ruff and compilation. Commit these
+  corrections once on top of the published rejected head, freeze one replacement
+  H-tier head, and launch both exact-head reviews with fresh hosted Linux,
+  Windows and terminal evidence.
+- ISSUE-0046 replacement head `34010ff530ceaf6be72d9095051d2a65d45f8dfd`
+  is rejected by both exact-head reviewers; H-tier run `32531962188` is
+  cancelled/stale. The one consolidated follow-up closes the complete
+  demonstrated set: unavailable no-action authority, timezone-naive evidence,
+  mismatched comparison windows, malformed partial nesting, producer identity
+  relabelling and row disagreement, contradictory relative returns, absent
+  positive provenance on available sections, and unequal backtest endpoints.
+  Producer no-action evidence must also match the exact canonical constituents
+  and weights. The corrected five-file delta passes 63 direct regressions, the
+  affected benchmark/evidence/backtest/portfolio/UI suite, Ruff, compilation
+  and diff hygiene. Commit once on top of the rejected published head, freeze
+  one replacement, and repeat both reviews with fresh H-tier evidence.
+- ISSUE-0046 head `45c3f2079df9a7e50f1758ea3c9e2128f1e2b67c`
+  is rejected by both final reviewers; run `32534775753` is cancelled/stale.
+  All earlier findings are closed. The sole newly demonstrated follow-up binds
+  all four alternatives to one version/dataset/digest/PIT bundle, requires
+  `as_of <= known_at`, rejects malformed supplied fields on partial
+  alternatives, and makes malformed canonical no-action constituents/weights
+  fail closed without exceptions. The three-file correction passes 70 direct
+  regressions, the affected integration suite, Ruff, compilation and diff
+  hygiene. Freeze one replacement head for the final paired review and fresh
+  H-tier Linux/Windows/terminal evidence; allow no further speculative cycle.
+- ISSUE-0046 head `af3915c202cf181c05a6bd8345e45595e53468e2`
+  is rejected by both reviewers; run `32535934534` is cancelled/stale. The
+  final fail-closed pass requires complete positive provenance for every
+  partial leg carrying financial values, includes available and partial
+  financial legs in the shared bundle invariant, requires distinct backtest
+  comparison columns, and rejects duplicate/mismatched no-action constituents
+  or weight keys. The three-file correction passes 80 direct regressions, the
+  affected integration suite, Ruff, compilation and diff hygiene. Freeze one
+  last exact head for safeguards; if a reviewer demonstrates another defect in
+  this same partial/binding approach, preserve the checkpoint and stop that
+  approach under the two-attempt rule rather than broadening ISSUE-0046.
+- ISSUE-0046 head `26a38b7d83163da7750bb131099a6c03b9ba3eab`
+  hit the recorded stop condition: both reviewers reproduced the same ambiguous
+  partial-financial root through relative-only and fabricated-reference inputs;
+  run `32536963003` is cancelled/stale. Stop that approach. The replacement
+  contract permits return and relative-return fields only on `available`, fully
+  bound alternatives; partial/unavailable alternatives are context-only and
+  any supplied financial field fails closed before rendering. This two-file
+  simplification passes 82 direct regressions and the affected integration
+  suite with Ruff and diff hygiene. Freeze and review this simpler contract;
+  do not reintroduce partial financial display or add adjacent hardening.
+- ISSUE-0046 simplified head `647d7fbc86b26ba3c4630822d5096dd7645eb1ea`
+  is rejected by both reviewers; run `32537797786` is cancelled/stale. The
+  exact simplified contract now rejects forbidden financial keys recursively
+  anywhere in a non-available alternative and invalidates an available basket
+  unless benchmark, cash and no-action are all available for reconciliation.
+  The two-file correction passes 84 direct regressions and the affected
+  integration suite with Ruff and diff hygiene. Freeze this final presentation
+  boundary for paired review and H-tier evidence; no further adjacent shape
+  hardening belongs in ISSUE-0046.
+- ISSUE-0046 head `bfbf5496bb52abdfdbb018794ecb89d6190770ae`
+  is rejected by both reviewers; run `32538719210` is cancelled/stale. The
+  complete verdict identifies three final fail-closed paths: canonical
+  reference validation failure must invalidate every financial alternative;
+  any recursively nested `*_return` key in non-available evidence must be
+  rejected; and malformed backtest reference collections must normalize to
+  unavailable evidence without raising. Apply these together with direct
+  regressions, rerun the unchanged affected integration surface once, and
+  freeze one replacement head for paired review and fresh H-tier evidence.
+  Do not expand the correction beyond these reproduced cases; lifecycle state
+  and `execution_allowed=false` remain unchanged.
+- ISSUE-0046 head `01a51ad050b4b3b38d29bff083a820bf6ef6a66e`
+  is rejected by both reviewers; run `32539585282` is cancelled/stale. The two
+  demonstrated final defects are malformed mapping/list alternative identities
+  bypassing source binding or crashing bundle comparison, and nested return
+  keys surviving inside non-available general sections. Require non-empty
+  string identities before bundle construction and apply the existing recursive
+  non-available return-key rule to every monthly section. Add only direct
+  regressions for these inputs, rerun the affected suite once, and freeze a new
+  exact head for paired review and fresh H-tier evidence. Preserve canonical
+  lifecycle state and `execution_allowed=false`.
+- ISSUE-0046 head `870ae7c3ca7588f10934fc07a4ee90818d3b47f5`
+  is rejected by both reviewers; run `32540610615` is cancelled/stale. The
+  complete verdict is one two-part boundary correction: validate original
+  backtest version/source identities before any string coercion, and apply the
+  recursive non-available return-key rejection to `partial` sections as well as
+  unavailable/pending sections. Add adapter-level mapping/list regressions and
+  partial-section regressions, rerun the affected suite once, and freeze a
+  replacement head. Do not broaden beyond these reproduced paths; canonical
+  lifecycle state and `execution_allowed=false` remain unchanged.
+- ISSUE-0046 head `eebab983e294b55ce405303040ab16fef4d53743`
+  is approved by the risk reviewer but rejected by the whole-diff reviewer;
+  run `32541349639` is cancelled/stale. The sole remaining demonstrated path is
+  `_backtest_evidence_fields()` coercing malformed replay/next-session version
+  and source identities before nested section validation. Validate those raw
+  values, derive nested availability from the validated fields, add direct
+  replay/next-session regressions, and freeze one replacement head. No adjacent
+  evidence framework work is in scope; lifecycle state and
+  `execution_allowed=false` remain unchanged.
+- ISSUE-0046 head `5880e43d48ff3b68340e403b49cf29738decaa44`
+  is rejected by both reviewers; run `32542612635` is cancelled/stale. The
+  consolidated demonstrated set is: validate raw backtest checksum identity
+  before coercion, compare `known_at` against every supplied explicit cutoff,
+  and reject return keys in any nested non-available mapping even beneath an
+  available parent section or alternative. Add only these direct regressions,
+  rerun the affected suite once, and freeze a replacement head for fresh paired
+  review and H-tier evidence. Preserve lifecycle state and
+  `execution_allowed=false`.
+- ISSUE-0046 head `4b7520fd4ff4f2fbaabf995436f4a85860002fde`
+  is rejected by both reviewers; run `32543524148` is cancelled/stale. The
+  consolidated correction rejects a supplied non-string benchmark column
+  identity before alias selection, enforces the strictest of every explicit
+  canonical reference cutoff, and validates chronology before preserving
+  pending or unavailable sections. Direct regressions cover all three
+  reproduced paths. Freeze one replacement head for paired exact-head review
+  and fresh H-tier evidence; add no adjacent evidence or workflow changes and
+  preserve lifecycle state and `execution_allowed=false`.
+- ISSUE-0046 head `57f4f04d450d3c4c755294d226c1c47ff086bddd`
+  is rejected by both reviewers; run `32544988289` is cancelled/stale. The
+  complete correction requires every available no-action return, including
+  strategy-template CSV evidence, to carry the exact canonical constituent and
+  weight binding, while preserving canonical date-only `analysis.end_date` as
+  an end-of-day cutoff. Backtest and strategy writers now emit the binding and
+  the generic composer independently verifies it. Freeze the replacement only
+  after producer/readback regressions and the affected suite pass; preserve
+  lifecycle state and `execution_allowed=false`.
