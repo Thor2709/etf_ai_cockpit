@@ -581,6 +581,41 @@ def test_backtest_adapter_does_not_stringify_malformed_source_identity(field: st
     assert all(item["reason"] == "backtest_monthly_source_identity_invalid" for item in alternatives.values())  # type: ignore[union-attr]
 
 
+@pytest.mark.parametrize("suffix", ["replay", "next-session"])
+@pytest.mark.parametrize("field", ["backtest_version", "source_id", "source_dataset"])
+@pytest.mark.parametrize("invalid", [{"malformed": True}, ["malformed"]])
+def test_nested_backtest_evidence_does_not_stringify_malformed_identity(
+    suffix: str, field: str, invalid: object
+) -> None:
+    field_prefix = suffix.replace("-", "_")
+    metadata: dict[str, object] = {
+        "input_checksum": _SOURCE_DIGEST,
+        "source_id": "backtest:42",
+        "source_dataset": "backtest:2026-07-31:2026-08-21",
+        "backtest_version": "backtest.equity.v1",
+        "date_range_end": "2026-08-21",
+        "known_at": "2026-08-21T12:00:00Z",
+        "trust": True,
+        "source_bound": True,
+        f"{field_prefix}_source_id": f"{suffix}:42",
+        f"{field_prefix}_source_dataset": "backtest:2026-07-31:2026-08-21",
+    }
+    metadata[field if field == "backtest_version" else f"{field_prefix}_{field}"] = invalid
+
+    assert backtests._backtest_evidence_fields(metadata, suffix) == {}
+
+    evidence = deepcopy(_full_evidence())
+    evidence["events"][field_prefix] = {  # type: ignore[index]
+        "status": "available",
+        **backtests._backtest_evidence_fields(metadata, suffix),
+        "execution_allowed": False,
+    }
+    result = _build(evidence)
+
+    assert result.status == "unavailable"
+    assert result.projection()["events"]["status"] == "unavailable"
+
+
 @pytest.mark.parametrize("field", ["version", "source_id", "source_dataset"])
 @pytest.mark.parametrize("invalid", [{"malformed": True}, ["malformed"]])
 def test_available_alternative_identity_must_be_non_empty_text(field: str, invalid: object) -> None:

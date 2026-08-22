@@ -254,9 +254,13 @@ def _monthly_decision_panel(reference_context: object, *, report: object, config
     metadata = getattr(report, "metadata", {})
     metadata = metadata if isinstance(metadata, dict) else {}
     event_status = event_engine_status()
+    replay_fields = _backtest_evidence_fields(metadata, "replay")
+    next_session_fields = _backtest_evidence_fields(metadata, "next-session")
+    replay_available = bool(replay_fields)
     next_session_available = (
         metadata.get("execution_delay_sessions") == 1
         and metadata.get("same_bar_execution_avoided") is True
+        and bool(next_session_fields)
     )
     template = build_monthly_decision_template(
         benchmark_reference=getattr(reference_context, "projection", None),
@@ -274,18 +278,18 @@ def _monthly_decision_panel(reference_context: object, *, report: object, config
             "reason": "event_engine_contract_has_no_version_field",
             "source_id": "event_engine_status+BacktestReport.metadata",
             "replay": {
-                "status": "available" if _backtest_evidence_bound(metadata) else "unavailable",
-                "reason": "backtest_event_evidence_unavailable" if not _backtest_evidence_bound(metadata) else "canonical_backtest_metadata",
+                "status": "available" if replay_available else "unavailable",
+                "reason": "canonical_backtest_metadata" if replay_available else "backtest_event_evidence_unavailable",
                 **event_status,
-                **_backtest_evidence_fields(metadata, "replay"),
+                **replay_fields,
             },
             "next_session": {
-                "status": "available" if next_session_available and _backtest_evidence_bound(metadata) else "unavailable",
-                "reason": "backtest_next_session_evidence_unavailable" if not next_session_available or not _backtest_evidence_bound(metadata) else "canonical_backtest_metadata",
+                "status": "available" if next_session_available else "unavailable",
+                "reason": "canonical_backtest_metadata" if next_session_available else "backtest_next_session_evidence_unavailable",
                 "execution_delay_sessions": metadata.get("execution_delay_sessions"),
                 "same_bar_execution_avoided": metadata.get("same_bar_execution_avoided"),
                 "arrival_price_assumption": "next_adjusted_close" if next_session_available else None,
-                **_backtest_evidence_fields(metadata, "next-session"),
+                **next_session_fields,
                 "execution_allowed": False,
             },
             "execution_allowed": False,
@@ -466,13 +470,18 @@ def _monthly_backtest_alternatives(
 
 
 def _backtest_evidence_bound(metadata: Mapping[str, object]) -> bool:
-    digest = str(metadata.get("input_checksum") or "")
+    source_id = metadata.get("source_id")
+    digest = metadata.get("input_checksum")
+    known_at = metadata.get("known_at") or metadata.get("decision_time")
     return (
         metadata.get("trust") is True
         and metadata.get("source_bound") is True
-        and bool(str(metadata.get("source_id") or "").strip())
+        and isinstance(source_id, str)
+        and bool(source_id.strip())
+        and isinstance(digest, str)
         and len(digest) == 64
-        and bool(str(metadata.get("known_at") or metadata.get("decision_time") or "").strip())
+        and isinstance(known_at, str)
+        and bool(known_at.strip())
     )
 
 
@@ -485,15 +494,19 @@ def _backtest_evidence_fields(metadata: Mapping[str, object], suffix: str) -> di
     except (TypeError, ValueError):
         return {}
     field_prefix = suffix.replace("-", "_")
+    version = metadata.get("backtest_version")
     source_id = metadata.get(f"{field_prefix}_source_id")
     source_dataset = metadata.get(f"{field_prefix}_source_dataset", metadata.get("source_dataset"))
-    if not str(source_id or "").strip() or not str(source_dataset or "").strip():
+    if any(
+        not isinstance(value, str) or not value.strip()
+        for value in (version, source_id, source_dataset)
+    ):
         return {}
     return {
-        "version": str(metadata.get("backtest_version") or ""),
-        "source_id": str(source_id),
-        "source_dataset": str(source_dataset),
-        "source_digest": str(metadata.get("input_checksum")),
+        "version": version,
+        "source_id": source_id,
+        "source_dataset": source_dataset,
+        "source_digest": metadata.get("input_checksum"),
         "as_of": as_of,
         "known_at": metadata.get("known_at") or metadata.get("decision_time"),
         "trust": True,

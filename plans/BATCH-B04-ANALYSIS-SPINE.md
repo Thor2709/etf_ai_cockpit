@@ -4675,3 +4675,13 @@ laundered into available evidence, and reject recursive `*_return` keys in
 adapter and partial-section regressions, rerun the affected suite once, and
 freeze the replacement for paired review and fresh H-tier evidence. Preserve
 lifecycle state and `execution_allowed=false`.
+
+`ISSUE-0046 NESTED PRODUCER IDENTITY BOUNDARY` head
+`eebab983e294b55ce405303040ab16fef4d53743` is risk-approved but rejected by
+the whole-diff reviewer; run `32541349639` is cancelled/stale. Strictly validate
+raw replay and next-session version/source identities in
+`_backtest_evidence_fields()` and derive nested availability from those
+validated fields so mappings/lists cannot be laundered into available nested
+evidence. Add only direct regressions for both suffixes, rerun the affected
+suite once, and freeze a replacement for paired review and fresh H-tier
+evidence. Preserve lifecycle state and `execution_allowed=false`.

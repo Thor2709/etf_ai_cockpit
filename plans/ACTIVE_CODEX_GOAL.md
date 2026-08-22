@@ -3437,3 +3437,12 @@ next action and whether the requested outcome is actually complete.
   partial-section regressions, rerun the affected suite once, and freeze a
   replacement head. Do not broaden beyond these reproduced paths; canonical
   lifecycle state and `execution_allowed=false` remain unchanged.
+- ISSUE-0046 head `eebab983e294b55ce405303040ab16fef4d53743`
+  is approved by the risk reviewer but rejected by the whole-diff reviewer;
+  run `32541349639` is cancelled/stale. The sole remaining demonstrated path is
+  `_backtest_evidence_fields()` coercing malformed replay/next-session version
+  and source identities before nested section validation. Validate those raw
+  values, derive nested availability from the validated fields, add direct
+  replay/next-session regressions, and freeze one replacement head. No adjacent
+  evidence framework work is in scope; lifecycle state and
+  `execution_allowed=false` remain unchanged.
