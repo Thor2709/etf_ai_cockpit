@@ -4968,3 +4968,11 @@ normalized before replay comparison. That evidence is stale. Require exact
 canonical ISO spelling for persisted contribution dates, add the direct
 malformed-cache regression, and freeze the resulting bounded correction for
 both final reviews and fresh cadence-required package evidence.
+
+Replacement head `a709b0b2906fc7649083807ff6794f36282e45e2` is approved by
+whole-diff review but rejected by risk review; run `32718089571` is cancelled
+and stale. Mixed available/unavailable stress counts are promoted to floats by
+pandas, causing strict readback to reject the writer's valid snapshot. Preserve
+canonical integer CSV spelling for those nullable conditional fields, reject
+all non-canonical tokens, and add an end-to-end zero-recompute/zero-publication
+cache-hit regression before freezing the replacement head.

@@ -3736,3 +3736,12 @@ one remaining cache-integrity defect: Python accepted compact nested date
 stale. Require the persisted contribution date to equal its canonical ISO
 spelling and cover the exact malformed cache; make no adjacent changes before
 freezing the replacement head for both reviews and fresh hosted evidence.
+
+Replacement head `a709b0b2906fc7649083807ff6794f36282e45e2` is approved by
+whole-diff review but rejected by risk review; hosted run `32718089571` is
+cancelled and stale. The reproduced defect is limited to mixed-availability
+stress counts: pandas promoted valid nullable integers to floats, so strict
+readback rejected the writer's own snapshot. Preserve canonical integer CSV
+spelling for those conditional counts, decode only exact non-negative integer
+tokens, and prove a mixed available/unavailable cache is reused without
+recomputation or publication before freezing the replacement head.

@@ -391,6 +391,7 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
         ("worst_drawdown_duration_sessions", 1140),
         ("diagnostic_status", "unavailable"),
         ("high_volatility_loss_sessions", -1),
+        ("high_volatility_loss_sessions", 3.0),
         ("performance_concentration_basis", "flat_gross_log_return"),
         ("largest_negative_contribution_periods", "not-json"),
         (
@@ -410,6 +411,56 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
         results_path.write_bytes(malformed_payload)
         sidecar_path.write_text(json.dumps(malformed_sidecar), encoding="utf-8")
         assert service._load_cached_backtest() is None
+
+
+def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
+    tmp_path, monkeypatch
+) -> None:
+    from etf_cockpit.data.etf_structure import LocalStructuralEvidence
+
+    config = load_config()
+    prices = generate_sample_prices(config, periods=420, end_date=pd.Timestamp("2026-06-26").date())
+    monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
+    monkeypatch.setattr(
+        services,
+        "_load_local_structural_evidence",
+        lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
+    )
+    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        services,
+        "_run_backtest_compatibly",
+        lambda selected_config, selected_prices, **kwargs: run_backtest(
+            selected_config,
+            selected_prices,
+            rebalance_frequency_days=10,
+            transaction_cost_bps=100_000.0,
+            **kwargs,
+        ),
+    )
+    service = services.BacktestService(config, universe_revision="test-revision")
+
+    generated = service.run_backtest()
+    counts = generated.results["high_volatility_loss_sessions"]
+    assert counts.notna().any() and counts.isna().any()
+    monkeypatch.setattr(
+        service,
+        "run_backtest",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("valid cache must not be recomputed")),
+    )
+    monkeypatch.setattr(
+        services,
+        "atomic_write_group",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("cache hit must not publish")),
+    )
+
+    cached = service.load_or_run_backtest()
+
+    assert cached.results["high_volatility_loss_sessions"].map(
+        lambda value: pd.isna(value) or type(value) is int
+    ).all()
 
 
 def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(

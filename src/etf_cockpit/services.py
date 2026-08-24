@@ -1797,6 +1797,35 @@ def _decode_negative_contribution_periods(value: object) -> list[dict[str, objec
     return records
 
 
+_NULLABLE_INTEGER_DIAGNOSTIC_FIELDS = frozenset(
+    {
+        "high_volatility_loss_sessions",
+        "loss_sessions_observed",
+        "regime_stress_loss_sessions",
+        "regime_stress_sessions_observed",
+    }
+)
+
+
+def _encode_nullable_integer_diagnostic(value: object) -> object:
+    if pd.isna(value):
+        return pd.NA
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError("nullable diagnostic count must be an integer")
+    number = float(value)
+    if not math.isfinite(number) or number < 0 or not number.is_integer():
+        raise ValueError("nullable diagnostic count must be a non-negative integer")
+    return int(number)
+
+
+def _decode_nullable_integer_diagnostic(value: str) -> object:
+    if value == "":
+        return pd.NA
+    if not value.isascii() or not value.isdecimal() or (len(value) > 1 and value.startswith("0")):
+        raise ValueError("persisted diagnostic count is not a canonical integer")
+    return int(value)
+
+
 def _cached_value_matches(actual: object, expected: object) -> bool:
     if isinstance(expected, list):
         return (
@@ -2005,6 +2034,10 @@ class BacktestService:
         with publication_scope(publish_guard):
             BACKTESTS_DIR.mkdir(parents=True, exist_ok=True)
         persisted_results = report.results.copy()
+        for diagnostic_field in _NULLABLE_INTEGER_DIAGNOSTIC_FIELDS & set(persisted_results):
+            persisted_results[diagnostic_field] = persisted_results[diagnostic_field].map(
+                _encode_nullable_integer_diagnostic
+            )
         if "largest_negative_contribution_periods" in persisted_results:
             persisted_results["largest_negative_contribution_periods"] = persisted_results[
                 "largest_negative_contribution_periods"
@@ -2108,7 +2141,13 @@ class BacktestService:
                     )
                 ):
                     return None
-            results = pd.read_csv(BytesIO(payload_bytes[results_path]))
+            results = pd.read_csv(
+                BytesIO(payload_bytes[results_path]),
+                converters={
+                    field: _decode_nullable_integer_diagnostic
+                    for field in _NULLABLE_INTEGER_DIAGNOSTIC_FIELDS
+                },
+            )
             if results.empty:
                 return None
             if not self.REQUIRED_RESULT_COLUMNS.issubset(results.columns):
