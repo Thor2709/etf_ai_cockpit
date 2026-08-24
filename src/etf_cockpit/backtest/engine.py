@@ -20,6 +20,7 @@ from etf_cockpit.application.benchmark_reference import (
 )
 from etf_cockpit.core.constants import TRADING_DAYS_PER_YEAR
 from etf_cockpit.core.config import AppConfig
+from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.core.types import DataQualityReport
 from etf_cockpit.data.validation import validate_prices
 from etf_cockpit.data.provenance import sha256_dataframe
@@ -590,11 +591,13 @@ def _instrument_operational_evidence(
         reasons.append("exact_instrument_identity_unavailable")
     if pd.isna(signal_ts) or pd.isna(execution_ts):
         reasons.append("signal_or_execution_timestamp_unavailable")
-    elif execution_ts <= signal_ts or execution_ts.date() <= signal_ts.date():
+    elif execution_ts <= signal_ts:
         reasons.append("same_session_or_non_forward_execution")
 
     calendar_fields: dict[str, object] = {}
     valid_next_session = False
+    canonical_signal_day: date | None = None
+    canonical_execution_day: date | None = None
     if calendar_identity is not None:
         calendar_fields, calendar_reason = _canonical_calendar_contract(
             calendar_identity,
@@ -607,6 +610,12 @@ def _instrument_operational_evidence(
             reasons.append(calendar_reason)
         else:
             valid_next_session = True
+            signal_day_value = calendar_fields.get("signal_date")
+            execution_day_value = calendar_fields.get("execution_date")
+            canonical_signal_day = signal_day_value if isinstance(signal_day_value, date) else None
+            canonical_execution_day = (
+                execution_day_value if isinstance(execution_day_value, date) else None
+            )
     elif canonical_session_dates is None:
         reasons.append("canonical_market_session_unavailable")
     else:
@@ -641,6 +650,8 @@ def _instrument_operational_evidence(
                 reasons.append("observed_business_date_unavailable")
             else:
                 valid_next_session = True
+                canonical_signal_day = signal_day
+                canonical_execution_day = execution_day
 
     decision = finite(decision_price)
     next_open_value = finite(next_open)
@@ -769,7 +780,9 @@ def _instrument_operational_evidence(
             not pd.isna(signal_ts)
             and not pd.isna(execution_ts)
             and execution_ts > signal_ts
-            and execution_ts.date() > signal_ts.date()
+            and canonical_signal_day is not None
+            and canonical_execution_day is not None
+            and canonical_execution_day > canonical_signal_day
             and valid_next_session
         ),
         "session_state": None,
@@ -859,6 +872,9 @@ def run_backtest(
     adjusted_open_pivot = _corporate_action_adjusted_pivot(prices, "open", columns)
     adjusted_high_pivot = _corporate_action_adjusted_pivot(prices, "high", columns)
     adjusted_low_pivot = _corporate_action_adjusted_pivot(prices, "low", columns)
+    calendar_service = MarketCalendarService.from_correction_ledger(
+        CONFIG_DIR / "market_calendar_corrections.yaml"
+    )
     canonical_benchmark_id = _validated_benchmark_data_id(
         benchmark_data_id,
         benchmark_reference,
@@ -1177,7 +1193,7 @@ def run_backtest(
                                     )
                                 ),
                                 calendar_identity=_calendar_identity_from_price_rows(prices, instrument_id),
-                                calendar_service=MarketCalendarService(),
+                                calendar_service=calendar_service,
                                 decision_price_source_identity=_price_source_identity(prices, instrument_id, dt),
                                 next_open_source_identity=_price_source_identity(prices, instrument_id, execution_dt),
                                 next_period_source_identity=_price_source_identity(prices, instrument_id, pivot.index[i + 1]),

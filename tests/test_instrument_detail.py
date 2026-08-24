@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date
 
 import pandas as pd
 
@@ -22,6 +23,7 @@ from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.identity_master import IdentityMasterStore, IdentitySourceRow
 from etf_cockpit.data.instrument_identity import IdentityClaim
 from etf_cockpit.backtest.engine import _canonical_calendar_contract
+from etf_cockpit.backtest.engine import _instrument_operational_evidence
 from etf_cockpit.data.market_calendar import MarketCalendarService
 from etf_cockpit.services import build_snapshot
 from etf_cockpit.signals.feature_drivers import claim_binding_hash, deterministic_driver_claim
@@ -601,6 +603,87 @@ def test_operational_evidence_malformed_available_rows_fail_closed() -> None:
     rollover_panel = selector._operational_evidence_panel(rollover_report, "VWCE")
     assert rollover_panel["status"] == "unavailable"
     assert rollover_panel["rows"] == []
+
+
+def test_operational_evidence_roundtrips_point_in_time_calendar_closure(
+    tmp_path, monkeypatch
+) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import market_clock
+
+    ledger = tmp_path / "market_calendar_corrections.yaml"
+    ledger.write_text(
+        """schema_version: market-calendar-corrections.v1
+corrections:
+  - correction_id: xetr-2024-01-03-v1
+    mic: XETR
+    session_date: 2024-01-03
+    kind: exceptional_closure
+    revision: 1
+    reason: Exchange-declared closure fixture.
+    source_id: exchange-notice:test
+    source_checksum: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    timezone: Europe/Berlin
+    source_version: notice-v1
+    valid_from: 2024-01-03
+    known_at: 2024-01-02T12:00:00Z
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(market_clock, "CONFIG_DIR", tmp_path)
+    projection = {
+        "status": "available",
+        "instrument_id": "VWCE",
+        "identity_decision_id": "calendar-test-decision",
+        "identity_decision_time": "2024-01-01T00:00:00+00:00",
+        "identity_effective_at": "2020-01-01",
+        "identity_objects": [{
+            "object_type": "listing",
+            "object_id": "listing:VWCE:XETR",
+            "fields": {
+                "mic": "XETR",
+                "calendar_id": "XETR",
+                "timezone": "Europe/Berlin",
+                "calendar_source_version": "identity-master.v1",
+                "opening_auction_minutes": 5,
+                "closing_auction_minutes": 10,
+            },
+        }],
+        "identity_history": [{"source_id": "calendar-test-source"}],
+    }
+    service = MarketCalendarService.from_correction_ledger(ledger)
+    evidence = _instrument_operational_evidence(
+        instrument_id="VWCE",
+        strategy="signal_strategy",
+        signal_timestamp="2024-01-02T16:00:00+00:00",
+        execution_timestamp="2024-01-04T16:00:00+00:00",
+        signal_date=date(2024, 1, 2),
+        execution_date=date(2024, 1, 4),
+        decision_price=100.0,
+        next_open=101.0,
+        next_period_close=102.0,
+        high=103.0,
+        low=99.0,
+        open_price=101.0,
+        cost_spread_assumption_bps=4.0,
+        cost_spread_assumption_source="execution-cost-v1:CostEstimate.spread_bps",
+        estimated_cost_bps=9.0,
+        estimated_cost_bps_source="execution-cost-v1:CostEstimate.total_cost_bps",
+        decision_price_source_identity="test-source|VWCE",
+        next_open_source_identity="test-source|VWCE",
+        next_period_source_identity="test-source|VWCE",
+        calendar_identity=projection,
+        calendar_service=service,
+    )
+    report = type("Report", (), {"operational_evidence": pd.DataFrame([evidence])})()
+
+    panel = selector._operational_evidence_panel(report, "VWCE")
+
+    assert evidence["evidence_status"] == "available"
+    assert panel["status"] == "available"
+    assert len(panel["rows"]) == 1
+    assert panel["rows"][0]["calendar_session_lineage_hash"] == evidence["calendar_session_lineage_hash"]
+    assert panel["execution_allowed"] is False
 
 
 def test_paper_trade_source_is_not_conflated_with_simulated_fill() -> None:

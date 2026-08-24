@@ -189,7 +189,9 @@ def operational_calendar_record_is_canonical(
         "identity_history": [{"source_id": record["calendar_source_id"]}],
     }
     try:
-        service = MarketCalendarService()
+        service = MarketCalendarService.from_correction_ledger(
+            CONFIG_DIR / "market_calendar_corrections.yaml"
+        )
         listing = service.listing_from_identity_projection(projection)
         if (
             listing.source_checksum != record["calendar_source_checksum"]

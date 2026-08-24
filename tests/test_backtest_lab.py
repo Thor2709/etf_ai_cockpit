@@ -26,7 +26,7 @@ from etf_cockpit.backtest.metrics import performance_metrics, tail_event_diagnos
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.atomic_io import AtomicWriteRequest
 from etf_cockpit.data.sample_data import generate_sample_prices
-from etf_cockpit.data.market_calendar import ListingCalendarEvidence
+from etf_cockpit.data.market_calendar import ListingCalendarEvidence, MarketCalendarService
 from etf_cockpit.app.pages.signals import _latest_operational_row
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit import services
@@ -474,6 +474,56 @@ def test_canonical_calendar_persists_listing_timezone_local_dates() -> None:
     assert reason is None
     assert fields["signal_date"] == date(2026, 6, 2)
     assert fields["execution_date"] == date(2026, 6, 3)
+
+
+def test_operational_evidence_uses_listing_local_dates_for_forward_session() -> None:
+    projection = {
+        "status": "available",
+        "instrument_id": "X",
+        "identity_decision_id": "calendar-test-decision",
+        "identity_decision_time": "2026-01-01T00:00:00+00:00",
+        "identity_effective_at": "2020-01-01",
+        "identity_objects": [{
+            "object_type": "listing",
+            "object_id": "listing:X:XETR",
+            "fields": {
+                "mic": "XETR",
+                "calendar_id": "XETR",
+                "timezone": "Europe/Berlin",
+                "calendar_source_version": "identity-master.v1",
+                "opening_auction_minutes": 5,
+                "closing_auction_minutes": 10,
+            },
+        }],
+        "identity_history": [{"source_id": "calendar-test-source"}],
+    }
+
+    evidence = _instrument_operational_evidence(
+        instrument_id="X",
+        strategy="signal_strategy",
+        signal_timestamp="2026-06-02T00:30:00+00:00",
+        execution_timestamp="2026-06-02T22:30:00+00:00",
+        signal_date=date(2026, 6, 2),
+        execution_date=date(2026, 6, 3),
+        decision_price=100.0,
+        next_open=101.0,
+        next_period_close=102.0,
+        high=103.0,
+        low=99.0,
+        open_price=101.0,
+        cost_spread_assumption_bps=4.0,
+        cost_spread_assumption_source="execution-cost-v1",
+        decision_price_source_identity="source|X",
+        next_open_source_identity="source|X",
+        next_period_source_identity="source|X",
+        calendar_identity=projection,
+        calendar_service=MarketCalendarService(),
+    )
+
+    assert evidence["evidence_status"] == "available"
+    assert evidence["signal_date"] == date(2026, 6, 2)
+    assert evidence["execution_date"] == date(2026, 6, 3)
+    assert evidence["same_bar_execution_avoided"] is True
 
 
 def test_signals_select_latest_operational_row_by_decision_order() -> None:
