@@ -137,6 +137,15 @@ def test_read_only_existence_probe_does_not_create_local_storage(tmp_path: Path)
     assert not storage_layout(tmp_path).transactional_path.exists()
 
 
+def test_existing_partial_identity_store_is_invalid_not_absent(tmp_path: Path) -> None:
+    path = storage_layout(tmp_path).transactional_path
+    path.parent.mkdir(parents=True)
+    sqlite3.connect(path).close()
+
+    with pytest.raises(IdentityMasterSchemaError, match="without the transactional schema"):
+        identity_master_exists(tmp_path)
+
+
 def test_cross_instrument_duplicate_isin_quarantines_candidates_and_retains_conflict(tmp_path: Path) -> None:
     rows = (
         _row("row-a", "SEC-A", isin="US1111111111", ticker="AAA", exchange="XNAS", source_id="official:a"),

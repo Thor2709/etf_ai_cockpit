@@ -20,6 +20,7 @@ from etf_cockpit.backtest.engine import (
     _corporate_action_adjusted_pivot,
     _instrument_operational_evidence,
     _log_equity_returns,
+    _price_source_identity,
     _probabilistic_sharpe,
     quality_momentum_evidence_checksum,
     run_backtest,
@@ -525,6 +526,49 @@ def test_canonical_calendar_rejects_unavailable_legacy_identity() -> None:
     )
 
     assert reason == "canonical_market_calendar_identity_unavailable"
+
+
+@pytest.mark.parametrize(
+    ("field_name", "malformed"),
+    (("calendar_source_version", 123), ("opening_auction_minutes", "5")),
+)
+def test_canonical_calendar_rejects_malformed_nested_types(
+    field_name: str, malformed: object
+) -> None:
+    config = load_config()
+    prices = generate_sample_prices(
+        config, periods=20, end_date=pd.Timestamp("2026-06-26").date()
+    )
+    identity = json.loads(
+        json.dumps(prices.loc[prices["etf_id"].eq("VWCE"), "calendar_identity"].iloc[0])
+    )
+    identity["identity_objects"][0]["fields"][field_name] = malformed
+
+    _, reason = _canonical_calendar_contract(
+        identity,
+        "VWCE",
+        "2026-06-01T16:00:00+00:00",
+        "2026-06-02T16:00:00+00:00",
+    )
+
+    assert reason == "canonical_market_calendar_identity_unavailable"
+
+
+@pytest.mark.parametrize(("field_name", "malformed"), (("source", 123), ("provider_symbol", True)))
+def test_price_source_identity_rejects_non_string_fields(
+    field_name: str, malformed: object
+) -> None:
+    prices = pd.DataFrame(
+        [{
+            "date": date(2026, 6, 1),
+            "etf_id": "VWCE",
+            "source": "sample_generator",
+            "provider_symbol": "VWCE.DE",
+        }]
+    )
+    prices.loc[0, field_name] = malformed
+
+    assert _price_source_identity(prices, "VWCE", date(2026, 6, 1)) is None
 
 
 def test_canonical_calendar_persists_listing_timezone_local_dates() -> None:

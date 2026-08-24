@@ -618,12 +618,18 @@ def identity_master_exists(root: Path) -> bool:
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'transactional_records'"
             ).fetchone()
             if table is None:
-                return False
+                raise IdentityMasterSchemaError(
+                    "identity master store exists without the transactional schema"
+                )
             marker = connection.execute(
                 "SELECT 1 FROM transactional_records WHERE entity_type = ? AND entity_id = ? AND deleted_at IS NULL",
                 (_META_TYPE, _META_ID),
             ).fetchone()
-            return marker is not None
+            if marker is None:
+                raise IdentityMasterSchemaError(
+                    "identity master store exists without its schema marker"
+                )
+            return True
         finally:
             connection.close()
     except sqlite3.DatabaseError as exc:

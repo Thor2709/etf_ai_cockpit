@@ -287,8 +287,12 @@ def _price_source_identity(prices: pd.DataFrame, instrument_id: object, observed
     if len(rows) != 1:
         return None
     row = rows.iloc[0]
-    source = str(row.get("source", "")).strip()
-    provider_symbol = str(row.get("provider_symbol", "")).strip()
+    source_raw = row.get("source")
+    provider_symbol_raw = row.get("provider_symbol")
+    if type(source_raw) is not str or type(provider_symbol_raw) is not str:
+        return None
+    source = source_raw.strip()
+    provider_symbol = provider_symbol_raw.strip()
     if not source or not provider_symbol or source.casefold() in {"nan", "none"} or provider_symbol.casefold() in {"nan", "none"}:
         return None
     return f"{source}|{provider_symbol}"
@@ -300,6 +304,8 @@ def _calendar_projection(identity: Mapping[str, object], instrument_id: str) -> 
     if identity.get("status") != "available" or identity.get("instrument_id") != instrument_id:
         return {}
     if isinstance(identity.get("identity_objects"), list):
+        if not _calendar_projection_is_well_typed(identity):
+            return {}
         return dict(identity)
     fields = identity.get("fields")
     if not isinstance(fields, Mapping):
@@ -313,6 +319,18 @@ def _calendar_projection(identity: Mapping[str, object], instrument_id: str) -> 
     valid_from = fields.get("valid_from") or fields.get("calendar_valid_from")
     if not all(isinstance(value, str) and value.strip() for value in (listing_id, source_id, known_at, valid_from)):
         return {}
+    source_version = (
+        fields.get("source_version")
+        or fields.get("calendar_source_version")
+        or "identity-master.v1"
+    )
+    if type(source_version) is not str or not source_version.strip():
+        return {}
+    for field_name in ("opening_auction_minutes", "closing_auction_minutes"):
+        if field_name in fields:
+            value = fields[field_name]
+            if type(value) is not int or value < 0:
+                return {}
     return {
         "status": "available",
         "instrument_id": instrument_id,
@@ -327,7 +345,7 @@ def _calendar_projection(identity: Mapping[str, object], instrument_id: str) -> 
                     "mic": fields["mic"],
                     "calendar_id": fields["calendar_id"],
                     "timezone": fields["timezone"],
-                    "calendar_source_version": fields.get("source_version") or fields.get("calendar_source_version") or "identity-master.v1",
+                    "calendar_source_version": source_version,
                     "opening_auction_minutes": fields.get("opening_auction_minutes", 0),
                     "closing_auction_minutes": fields.get("closing_auction_minutes", 0),
                 },
@@ -337,6 +355,54 @@ def _calendar_projection(identity: Mapping[str, object], instrument_id: str) -> 
         "_persisted_source_checksum": fields.get("source_checksum") or fields.get("calendar_source_checksum"),
         "_persisted_lineage_hash": fields.get("identity_lineage_hash") or fields.get("calendar_identity_lineage_hash"),
     }
+
+
+def _calendar_projection_is_well_typed(identity: Mapping[str, object]) -> bool:
+    for field_name in (
+        "identity_decision_id",
+        "identity_decision_time",
+        "identity_effective_at",
+    ):
+        value = identity.get(field_name)
+        if type(value) is not str or not value.strip():
+            return False
+    objects = identity.get("identity_objects")
+    history = identity.get("identity_history")
+    if not isinstance(objects, list) or not isinstance(history, list) or not history:
+        return False
+    candidates = []
+    for item in objects:
+        if not isinstance(item, Mapping):
+            return False
+        object_type = item.get("object_type")
+        if type(object_type) is not str or object_type.casefold() not in {"listing", "quotation"}:
+            continue
+        object_id = item.get("object_id")
+        fields = item.get("fields")
+        if type(object_id) is not str or not object_id.strip() or not isinstance(fields, Mapping):
+            return False
+        if any(
+            type(fields.get(key)) is not str or not fields[key].strip()
+            for key in ("mic", "calendar_id", "timezone")
+        ):
+            return False
+        source_version = fields.get("calendar_source_version", "identity-master.v1")
+        if type(source_version) is not str or not source_version.strip():
+            return False
+        for field_name in ("opening_auction_minutes", "closing_auction_minutes"):
+            if field_name in fields:
+                value = fields[field_name]
+                if type(value) is not int or value < 0:
+                    return False
+        candidates.append(item)
+    if len(candidates) != 1:
+        return False
+    return all(
+        isinstance(row, Mapping)
+        and type(row.get("source_id")) is str
+        and bool(row["source_id"].strip())
+        for row in history
+    )
 
 
 def _explicit_utc_timestamp(value: object) -> pd.Timestamp | None:
