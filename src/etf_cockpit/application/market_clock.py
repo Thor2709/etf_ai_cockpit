@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
+import hashlib
+import json
+from numbers import Integral
 from typing import Mapping
+from zoneinfo import ZoneInfo
 
 from etf_cockpit.data.market_calendar import (
     ClockContext,
@@ -122,6 +126,120 @@ def build_market_clock_diagnostics(
         }
 
 
+def operational_calendar_record_is_canonical(
+    record: Mapping[str, object],
+    *,
+    instrument_id: str,
+    signal_timestamp: object,
+    execution_timestamp: object,
+    signal_date: date,
+    execution_date: date,
+) -> bool:
+    """Revalidate persisted operational calendar lineage for presentation."""
+
+    text_fields = (
+        "calendar_listing_id",
+        "calendar_mic",
+        "calendar_id",
+        "calendar_timezone",
+        "calendar_source_id",
+        "calendar_source_checksum",
+        "calendar_source_version",
+        "calendar_identity_decision_id",
+        "calendar_valid_from",
+        "calendar_known_at",
+        "calendar_identity_lineage_hash",
+        "calendar_session_lineage_hash",
+    )
+    if any(type(record.get(field)) is not str or not str(record[field]).strip() for field in text_fields):
+        return False
+    hashes = (
+        record["calendar_source_checksum"],
+        record["calendar_identity_lineage_hash"],
+        record["calendar_session_lineage_hash"],
+    )
+    if any(len(str(value)) != 64 for value in hashes):
+        return False
+    auction_fields = (
+        record.get("calendar_opening_auction_minutes"),
+        record.get("calendar_closing_auction_minutes"),
+    )
+    if any(not isinstance(value, Integral) or isinstance(value, bool) or value < 0 for value in auction_fields):
+        return False
+    projection = {
+        "status": "available",
+        "instrument_id": instrument_id,
+        "identity_decision_id": record["calendar_identity_decision_id"],
+        "identity_decision_time": record["calendar_known_at"],
+        "identity_effective_at": record["calendar_valid_from"],
+        "identity_objects": [
+            {
+                "object_type": "listing",
+                "object_id": record["calendar_listing_id"],
+                "fields": {
+                    "mic": record["calendar_mic"],
+                    "calendar_id": record["calendar_id"],
+                    "timezone": record["calendar_timezone"],
+                    "calendar_source_version": record["calendar_source_version"],
+                    "opening_auction_minutes": record["calendar_opening_auction_minutes"],
+                    "closing_auction_minutes": record["calendar_closing_auction_minutes"],
+                },
+            }
+        ],
+        "identity_history": [{"source_id": record["calendar_source_id"]}],
+    }
+    try:
+        service = MarketCalendarService()
+        listing = service.listing_from_identity_projection(projection)
+        if (
+            listing.source_checksum != record["calendar_source_checksum"]
+            or listing.lineage_hash != record["calendar_identity_lineage_hash"]
+        ):
+            return False
+        signal_instant = _instant(signal_timestamp)  # type: ignore[arg-type]
+        execution_instant = _instant(execution_timestamp)  # type: ignore[arg-type]
+        zone = ZoneInfo(listing.timezone)
+        signal_day = signal_instant.astimezone(zone).date()
+        execution_day = execution_instant.astimezone(zone).date()
+        cutoff = signal_instant
+        if signal_date != signal_day or execution_date != execution_day:
+            return False
+        if not service.is_business_day(listing, signal_day, knowledge_cutoff=cutoff):
+            return False
+        if not service.is_business_day(listing, execution_day, knowledge_cutoff=cutoff):
+            return False
+        candidate = signal_day + timedelta(days=1)
+        for _ in range(370):
+            if service.is_business_day(listing, candidate, knowledge_cutoff=cutoff):
+                break
+            candidate += timedelta(days=1)
+        else:
+            return False
+        if candidate != execution_day:
+            return False
+        signal_state = service.market_state(
+            listing, ClockContext.at(signal_instant, knowledge_cutoff=cutoff)
+        )
+        execution_state = service.market_state(
+            listing, ClockContext.at(execution_instant, knowledge_cutoff=cutoff)
+        )
+        if signal_state.certification != "certified" or execution_state.certification != "certified":
+            return False
+        lineage_payload = {
+            "listing": listing.lineage_hash,
+            "signal_state": signal_state.lineage_hash,
+            "execution_state": execution_state.lineage_hash,
+            "signal_date": signal_day.isoformat(),
+            "execution_date": execution_day.isoformat(),
+        }
+        expected = hashlib.sha256(
+            json.dumps(lineage_payload, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        return expected == record["calendar_session_lineage_hash"]
+    except (MarketClockError, TypeError, ValueError, OverflowError, AttributeError):
+        return False
+
+
 def _instant(value: str | date | datetime) -> datetime:
     if isinstance(value, datetime):
         parsed = value
@@ -143,4 +261,7 @@ def _instant(value: str | date | datetime) -> datetime:
     return parsed.astimezone(UTC)
 
 
-__all__ = ["build_market_clock_diagnostics"]
+__all__ = [
+    "build_market_clock_diagnostics",
+    "operational_calendar_record_is_canonical",
+]

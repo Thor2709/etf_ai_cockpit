@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
-import hashlib
-import json
+from datetime import date, datetime
 import math
 from numbers import Integral, Real
 from pathlib import Path
 from typing import Any, Mapping
 
 import pandas as pd
-from etf_cockpit.data.market_calendar import ClockContext, MarketCalendarService, MarketClockError
 
 from etf_cockpit.application.ui_facade import (
     BENCHMARK_ATTRIBUTION_PATH,
@@ -24,6 +21,7 @@ from etf_cockpit.application.ui_facade import (
     NEWS_CLEAN_PATH,
     assess_fundamental_row,
     build_market_clock_diagnostics,
+    operational_calendar_record_is_canonical,
     calculate_etf_economics,
     build_direct_overlap_view,
     build_document_inventory,
@@ -1765,87 +1763,21 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
     def explicit_unavailable(value: object) -> bool:
         return _is_missing_scalar(value)
 
-    def calendar_is_canonical(record: Mapping[str, Any], signal_ts: pd.Timestamp, execution_ts: pd.Timestamp) -> bool:
-        calendar_text_fields = (
-            "calendar_listing_id", "calendar_mic", "calendar_id", "calendar_timezone",
-            "calendar_source_id", "calendar_source_checksum", "calendar_source_version",
-            "calendar_identity_decision_id",
-            "calendar_valid_from", "calendar_known_at", "calendar_identity_lineage_hash",
-            "calendar_session_lineage_hash",
+    def calendar_is_canonical(
+        record: Mapping[str, Any],
+        signal_ts: pd.Timestamp,
+        execution_ts: pd.Timestamp,
+        signal_day: date,
+        execution_day: date,
+    ) -> bool:
+        return operational_calendar_record_is_canonical(
+            record,
+            instrument_id=instrument_id,
+            signal_timestamp=signal_ts,
+            execution_timestamp=execution_ts,
+            signal_date=signal_day,
+            execution_date=execution_day,
         )
-        if any(type(record.get(field)) is not str or not record[field].strip() for field in calendar_text_fields):
-            return False
-        if len(record["calendar_source_checksum"]) != 64 or len(record["calendar_identity_lineage_hash"]) != 64 or len(record["calendar_session_lineage_hash"]) != 64:
-            return False
-        auction_fields = (
-            record.get("calendar_opening_auction_minutes"),
-            record.get("calendar_closing_auction_minutes"),
-        )
-        if any(not isinstance(value, Integral) or isinstance(value, bool) or value < 0 for value in auction_fields):
-            return False
-        projection = {
-            "status": "available",
-            "instrument_id": instrument_id,
-            "identity_decision_id": record["calendar_identity_decision_id"],
-            "identity_decision_time": record["calendar_known_at"],
-            "identity_effective_at": record["calendar_valid_from"],
-            "identity_objects": [{
-                "object_type": "listing",
-                "object_id": record["calendar_listing_id"],
-                "fields": {
-                    "mic": record["calendar_mic"],
-                    "calendar_id": record["calendar_id"],
-                    "timezone": record["calendar_timezone"],
-                    "calendar_source_version": record["calendar_source_version"],
-                    "opening_auction_minutes": record["calendar_opening_auction_minutes"],
-                    "closing_auction_minutes": record["calendar_closing_auction_minutes"],
-                },
-            }],
-            "identity_history": [{"source_id": record["calendar_source_id"]}],
-        }
-        try:
-            listing = MarketCalendarService.listing_from_identity_projection(projection)
-            if listing.source_checksum != record["calendar_source_checksum"] or listing.lineage_hash != record["calendar_identity_lineage_hash"]:
-                return False
-            def as_utc(value: pd.Timestamp) -> datetime:
-                return (value.tz_localize(timezone.utc) if value.tzinfo is None else value).to_pydatetime().astimezone(timezone.utc)
-            signal_instant = as_utc(signal_ts)
-            execution_instant = as_utc(execution_ts)
-            cutoff = signal_instant
-            zone = __import__("zoneinfo").ZoneInfo(listing.timezone)
-            signal_day = signal_instant.astimezone(zone).date()
-            execution_day = execution_instant.astimezone(zone).date()
-            service = MarketCalendarService()
-            if not service.is_business_day(listing, signal_day, knowledge_cutoff=cutoff):
-                return False
-            if not service.is_business_day(listing, execution_day, knowledge_cutoff=cutoff):
-                return False
-            candidate = signal_day + timedelta(days=1)
-            for _ in range(370):
-                if service.is_business_day(listing, candidate, knowledge_cutoff=cutoff):
-                    break
-                candidate += timedelta(days=1)
-            else:
-                return False
-            if candidate != execution_day:
-                return False
-            signal_state = service.market_state(listing, ClockContext.at(signal_instant, knowledge_cutoff=cutoff))
-            execution_state = service.market_state(listing, ClockContext.at(execution_instant, knowledge_cutoff=cutoff))
-            if signal_state.certification != "certified" or execution_state.certification != "certified":
-                return False
-            if strict_date(record.get("signal_date")) != signal_day or strict_date(record.get("execution_date")) != execution_day:
-                return False
-            lineage_payload = {
-                "listing": listing.lineage_hash,
-                "signal_state": signal_state.lineage_hash,
-                "execution_state": execution_state.lineage_hash,
-                "signal_date": signal_day.isoformat(),
-                "execution_date": execution_day.isoformat(),
-            }
-            expected_session_lineage = hashlib.sha256(json.dumps(lineage_payload, sort_keys=True).encode("utf-8")).hexdigest()
-            return expected_session_lineage == record["calendar_session_lineage_hash"]
-        except (MarketClockError, TypeError, ValueError, OverflowError, AttributeError):
-            return False
 
     safe_rows: list[dict[str, Any]] = []
     for record in rows.to_dict("records"):
@@ -1935,7 +1867,7 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
             and explicit_unavailable(record.get("order_lifecycle"))
             and explicit_unavailable(record.get("paper_fill_source"))
             and explicit_unavailable(record.get("reconciled_fill_source"))
-            and calendar_is_canonical(record, signal_ts, execution_ts)
+            and calendar_is_canonical(record, signal_ts, execution_ts, signal_date, execution_date)
         )
         if safe:
             safe_rows.append(record)
