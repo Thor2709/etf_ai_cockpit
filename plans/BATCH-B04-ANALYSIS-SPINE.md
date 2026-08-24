@@ -4984,3 +4984,15 @@ structured result cells incorrectly exposed as sortable, and probabilistic
 Sharpe bridging preserved equity gaps. Correct those three existing paths with
 direct zero-publication, structured-sort and reported-metric regressions before
 freezing one replacement head for both reviews and fresh package evidence.
+
+ISSUE-0049 product PR #696 is merged at exact approved head
+`1efa61fa0d1c49a2a0d5cbaa8c234175b29d1a59` as exact main
+`19b3157f5033e82b68fd1618785b6b5d96d000b0`; both reviews approved and release
+run `32722220381` passed all required Linux, Windows and terminal gates. The
+clean lifecycle lane now contains only the canonical
+`implemented_initially -> integrated` transition, its manifest and mechanical
+projections. A fresh full live dry-run has semantic checksum
+`636cd91439bd98f5c546e9977c89dbb61a632f784685d850c746c7f72b11049c` and one
+action: update ISSUE-0049 / GitHub #103 to `integrated`. Complete exact-head
+E-tier review, merge, ordered writer verification and zero-action readback
+before selecting ISSUE-0050. Preserve `execution_allowed=false`.
