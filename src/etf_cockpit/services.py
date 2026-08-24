@@ -9,6 +9,7 @@ import math
 import json
 import hashlib
 import inspect
+from numbers import Integral, Real
 from pathlib import Path
 
 import pandas as pd
@@ -1815,13 +1816,12 @@ def _cached_value_matches(actual: object, expected: object) -> bool:
         return bool(pd.isna(actual))
     if type(expected) is bool:
         return type(actual) is bool and actual is expected
-    if type(expected) in {int, float}:
-        if isinstance(actual, bool):
+    if type(expected) is int:
+        return isinstance(actual, Integral) and not isinstance(actual, bool) and int(actual) == expected
+    if type(expected) is float:
+        if not isinstance(actual, Real) or isinstance(actual, (Integral, bool)):
             return False
-        try:
-            number = float(actual)
-        except (TypeError, ValueError):
-            return False
+        number = float(actual)
         return math.isfinite(number) and math.isclose(
             number,
             float(expected),
@@ -1836,7 +1836,12 @@ def _cached_value_matches(actual: object, expected: object) -> bool:
 
 
 def _cached_tail_diagnostics_are_valid(results: pd.DataFrame, equity_curves: pd.DataFrame) -> bool:
-    if results["strategy_name"].duplicated().any():
+    strategy_names = results["strategy_name"]
+    if (
+        strategy_names.duplicated().any()
+        or not strategy_names.map(lambda value: type(value) is str).all()
+        or set(strategy_names) != set(equity_curves.columns)
+    ):
         return False
     decoded_contributions = results["largest_negative_contribution_periods"].map(
         _decode_negative_contribution_periods

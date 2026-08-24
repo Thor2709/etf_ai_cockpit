@@ -3716,3 +3716,15 @@ rejects every reproduced alias, bound, stress-count, availability and
 performance-basis contradiction. Cache round-trip/interleaving regressions and
 the complete affected application validation pass. Freeze the replacement for
 final paired review and fresh package evidence.
+
+Head `15359f556ccf922311c9d1e992af6891c3954246` is rejected by both
+final reviewers; exact-head run `32571265485` passed classifier, preflight and
+supply chain but failed both package gates on the same Backtests structured-cell
+crash. The complete correction set is now closed together: generic accessible
+tables render container cells without scalar missing-value evaluation, cached
+result strategy IDs must exactly equal persisted equity columns, canonical
+integer and floating diagnostics retain distinct replay types, and the coupled
+ISSUE-0104 fake producer emits a complete v2 snapshot. Direct regressions and
+the complete affected 100-test application selection pass with offline smoke,
+compile, registry, Ruff and diff hygiene. Freeze one replacement exact head for
+paired final review and fresh cross-platform evidence.

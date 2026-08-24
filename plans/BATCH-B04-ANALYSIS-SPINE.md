@@ -4950,3 +4950,13 @@ duration, availability, date, stress-count and concentration contradiction now
 fails closed. Focused cache round-trip/interleaving tests and the complete
 affected application suite pass; freeze the replacement for paired review and
 fresh full package evidence.
+
+Head `15359f556ccf922311c9d1e992af6891c3954246` is rejected by both final
+reviewers and run `32571265485` failed identically on Linux and Windows because
+Backtests passed structured contribution lists into a scalar missing-value
+renderer. One consolidated correction makes accessible tables container-safe,
+requires exact result/equity strategy equality, distinguishes canonical integer
+and floating replay types, and updates the coupled ISSUE-0104 producer fixture
+to a complete v2 snapshot. The complete affected 100-test selection and local
+smoke/static checks pass. Freeze one replacement for paired final review and a
+fresh cadence-required package gate.

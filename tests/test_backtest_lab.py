@@ -359,6 +359,16 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     original_results = results_path.read_bytes()
     original_sidecar = sidecar_path.read_bytes()
 
+    incomplete_results = pd.read_csv(BytesIO(original_results)).loc[
+        lambda frame: frame["strategy_name"] == "quality_momentum"
+    ]
+    incomplete_payload = incomplete_results.to_csv(index=False).encode("utf-8")
+    incomplete_sidecar = json.loads(original_sidecar)
+    incomplete_sidecar["payload_sha256"] = hashlib.sha256(incomplete_payload).hexdigest()
+    results_path.write_bytes(incomplete_payload)
+    sidecar_path.write_text(json.dumps(incomplete_sidecar), encoding="utf-8")
+    assert service._load_cached_backtest() is None
+
     for missing_column in ("diagnostic_method", "gross_log_return"):
         legacy_results = pd.read_csv(BytesIO(original_results)).drop(columns=[missing_column])
         legacy_payload = legacy_results.to_csv(index=False).encode("utf-8")
@@ -375,6 +385,7 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
         ("worst_1d_return", float("inf")),
         ("largest_negative_period_return", 0.1),
         ("observed_session_count", 0),
+        ("observed_session_count", 3.0),
         ("worst_drawdown_start", 123),
         ("worst_drawdown_start", "2026-1-1"),
         ("worst_drawdown_duration_sessions", 1140),

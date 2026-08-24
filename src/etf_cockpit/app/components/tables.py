@@ -42,9 +42,15 @@ def accessible_table(
     data = frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
     columns = tuple(str(column) for column in data.columns)
 
+    def _cell_text(value: object) -> str:
+        if isinstance(value, (dict, list, tuple, set)):
+            return str(value)
+        missing = pd.isna(value)
+        return "" if isinstance(missing, bool) and missing else str(value)
+
     def _rows(view: pd.DataFrame) -> list[ft.DataRow]:
         return [
-            ft.DataRow(cells=[ft.DataCell(ft.Text("" if pd.isna(value) else str(value), selectable=True)) for value in row])
+            ft.DataRow(cells=[ft.DataCell(ft.Text(_cell_text(value), selectable=True)) for value in row])
             for row in view.itertuples(index=False, name=None)
         ]
 
