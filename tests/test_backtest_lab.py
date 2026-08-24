@@ -476,6 +476,31 @@ def test_canonical_calendar_requires_explicit_listing_and_requested_instrument()
     assert reason == "canonical_market_calendar_identity_unavailable"
 
 
+def test_canonical_calendar_rejects_unavailable_legacy_identity() -> None:
+    identity = {
+        "status": "unavailable",
+        "instrument_id": "X",
+        "fields": {
+            "mic": "XETR",
+            "calendar_id": "XETR",
+            "timezone": "Europe/Berlin",
+            "listing_id": "listing:X:XETR",
+            "source_id": "unavailable-source",
+            "known_at": "2026-01-01T00:00:00+00:00",
+            "valid_from": "2020-01-01",
+        },
+    }
+
+    _, reason = _canonical_calendar_contract(
+        identity,
+        "X",
+        "2026-06-01T16:00:00+00:00",
+        "2026-06-02T16:00:00+00:00",
+    )
+
+    assert reason == "canonical_market_calendar_identity_unavailable"
+
+
 def test_canonical_calendar_persists_listing_timezone_local_dates() -> None:
     projection = {
         "status": "available",
@@ -698,6 +723,39 @@ def test_sample_calendar_identity_survives_persisted_backtest_without_identity_m
     malformed.to_csv(malformed_path, index=False)
     malformed_loaded = duckdb_store.read_price_csv(malformed_path)
     assert malformed_loaded.loc[malformed_loaded["etf_id"].eq("VWCE"), "calendar_identity"].isna().all()
+
+    unavailable_identity = {
+        "status": "unavailable",
+        "instrument_id": "VWCE",
+        "fields": {
+            "mic": "XETR",
+            "calendar_id": "XETR",
+            "timezone": "Europe/Berlin",
+            "listing_id": "listing:VWCE:XETR",
+            "source_id": "unavailable-source",
+            "known_at": "2026-01-01T00:00:00+00:00",
+            "valid_from": "2020-01-01",
+        },
+    }
+    contradictory = pd.read_csv(price_csv)
+    contradictory.loc[contradictory["etf_id"].eq("VWCE"), "calendar_identity"] = json.dumps(
+        unavailable_identity, sort_keys=True, separators=(",", ":")
+    )
+    contradictory_csv = tmp_path / "contradictory.csv"
+    contradictory.to_csv(contradictory_csv, index=False)
+    contradictory_parquet = tmp_path / "validated" / "contradictory.parquet"
+    real_write_prices(
+        duckdb_store.read_price_csv(contradictory_csv), contradictory_parquet
+    )
+    contradictory_report = run_backtest(
+        config,
+        duckdb_store.load_prices(contradictory_parquet),
+        rebalance_frequency_days=42,
+    )
+    contradictory_panel = _operational_evidence_panel(contradictory_report, "VWCE")
+    assert contradictory_panel["status"] == "unavailable"
+    assert contradictory_panel["rows"] == []
+    assert contradictory_panel["execution_allowed"] is False
 
 
 def test_explicit_all_in_cost_does_not_masquerade_as_spread() -> None:

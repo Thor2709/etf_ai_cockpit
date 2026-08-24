@@ -198,8 +198,8 @@ def operational_calendar_record_is_canonical(
             or listing.lineage_hash != record["calendar_identity_lineage_hash"]
         ):
             return False
-        signal_instant = _instant(signal_timestamp)  # type: ignore[arg-type]
-        execution_instant = _instant(execution_timestamp)  # type: ignore[arg-type]
+        signal_instant = _explicit_instant(signal_timestamp)
+        execution_instant = _explicit_instant(execution_timestamp)
         zone = ZoneInfo(listing.timezone)
         signal_day = signal_instant.astimezone(zone).date()
         execution_day = execution_instant.astimezone(zone).date()
@@ -264,6 +264,21 @@ def _instant(value: str | date | datetime) -> datetime:
                 raise MarketClockError("market-clock timestamp is invalid") from exc
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _explicit_instant(value: object) -> datetime:
+    if isinstance(value, datetime):
+        parsed = value
+    elif type(value) is str and value.strip() == value and "T" in value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise MarketClockError("market-clock timestamp is invalid") from exc
+    else:
+        raise MarketClockError("market-clock timestamp must be an explicit instant")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise MarketClockError("market-clock timestamp must include a timezone offset")
     return parsed.astimezone(UTC)
 
 

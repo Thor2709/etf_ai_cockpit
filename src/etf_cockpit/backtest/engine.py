@@ -298,7 +298,7 @@ def _price_source_identity(prices: pd.DataFrame, instrument_id: object, observed
 def _calendar_projection(identity: Mapping[str, object], instrument_id: str) -> dict[str, object]:
     """Normalise the existing identity-master listing projection shape."""
 
-    if identity.get("instrument_id") != instrument_id:
+    if identity.get("status") != "available" or identity.get("instrument_id") != instrument_id:
         return {}
     if isinstance(identity.get("identity_objects"), list):
         return dict(identity)

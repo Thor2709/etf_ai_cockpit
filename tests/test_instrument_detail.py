@@ -129,6 +129,19 @@ def test_operational_calendar_readback_rejects_preclose_adjusted_close_lineage()
     )
 
 
+def test_operational_calendar_readback_rejects_timezone_naive_instants() -> None:
+    record = _calendar_fields()
+
+    assert not operational_calendar_record_is_canonical(
+        record,
+        instrument_id="VWCE",
+        signal_timestamp="2026-06-01T16:00:00",
+        execution_timestamp="2026-06-02T16:00:00+00:00",
+        signal_date=date(2026, 6, 1),
+        execution_date=date(2026, 6, 2),
+    )
+
+
 def test_instrument_detail_scoreboard_reader_hides_classification_invalidated_score(
     tmp_path,
     monkeypatch,
@@ -565,11 +578,13 @@ def test_operational_evidence_malformed_available_rows_fail_closed() -> None:
         ("evidence_status", True),
         ("signal_timestamp", "not-a-timestamp"),
         ("signal_timestamp", "2026-06-01"),
+        ("signal_timestamp", "2026-06-01T16:00:00"),
         ("signal_date", "2026-06-02"),
         ("execution_timestamp", "2026-06-01T01:00:00"),
         ("execution_date", "2026-06-01"),
         ("execution_date", "2026-06-03"),
         ("execution_timestamp", "2026-06-01T00:00:00"),
+        ("execution_timestamp", "2026-06-02T16:00:00"),
         ("decision_price", "100.0"),
         ("close_to_next_open_gap", 0.5),
         ("price_provenance", None),

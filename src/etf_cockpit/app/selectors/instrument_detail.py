@@ -1723,7 +1723,7 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
             parsed = pd.Timestamp(datetime.fromisoformat(value.replace("Z", "+00:00")))
         except (TypeError, ValueError, OverflowError):
             return None
-        return None if pd.isna(parsed) else parsed
+        return None if pd.isna(parsed) or parsed.tzinfo is None else parsed
 
     def strict_date(value: object) -> date | None:
         if isinstance(value, date) and not isinstance(value, datetime):
