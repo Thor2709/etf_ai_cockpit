@@ -479,14 +479,14 @@ def test_canonical_calendar_persists_listing_timezone_local_dates() -> None:
 def test_signals_select_latest_operational_row_by_decision_order() -> None:
     rows = [
         {
-            "execution_timestamp": "2026-06-03T00:00:00",
-            "signal_timestamp": "2026-06-02T00:00:00",
+            "execution_timestamp": "2026-06-03T00:30:00+00:00",
+            "signal_timestamp": "2026-06-02T21:00:00+00:00",
             "strategy": "signal_strategy",
             "decision_price": 103.0,
         },
         {
-            "execution_timestamp": "2026-06-02T00:00:00",
-            "signal_timestamp": "2026-06-01T00:00:00",
+            "execution_timestamp": "2026-06-03T02:00:00+02:00",
+            "signal_timestamp": "2026-06-02T23:00:00+02:00",
             "strategy": "signal_strategy",
             "decision_price": 102.0,
         },

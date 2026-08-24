@@ -10,7 +10,10 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import metric_card, panel, section_header
 from etf_cockpit.app.components.charts import equity_drawdown_chart, history_chart
 from etf_cockpit.app.components.tables import accessible_table
-from etf_cockpit.app.selectors.instrument_detail import _operational_evidence_panel
+from etf_cockpit.app.selectors.instrument_detail import (
+    _latest_operational_row,
+    _operational_evidence_panel,
+)
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.application.monthly_decision_template import (
@@ -226,25 +229,11 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
         instrument_id = str(row.get("instrument_id", "")).strip()
         if not instrument_id:
             continue
-        execution_key = pd.to_datetime(row.get("execution_timestamp"), errors="coerce")
-        signal_key = pd.to_datetime(row.get("signal_timestamp"), errors="coerce")
-        candidate_key = (
-            0 if pd.isna(execution_key) else 1,
-            "" if pd.isna(execution_key) else execution_key.isoformat(),
-            "" if pd.isna(signal_key) else signal_key.isoformat(),
-            str(row.get("strategy", "")),
+        latest_operational_rows[instrument_id] = _latest_operational_row(
+            [latest_operational_rows[instrument_id], row]
+            if instrument_id in latest_operational_rows
+            else [row]
         )
-        current = latest_operational_rows.get(instrument_id)
-        current_execution_key = pd.to_datetime(current.get("execution_timestamp"), errors="coerce") if current else pd.NaT
-        current_signal_key = pd.to_datetime(current.get("signal_timestamp"), errors="coerce") if current else pd.NaT
-        current_key = (
-            0 if current is None or pd.isna(current_execution_key) else 1,
-            "" if current is None or pd.isna(current_execution_key) else current_execution_key.isoformat(),
-            "" if current is None or pd.isna(current_signal_key) else current_signal_key.isoformat(),
-            str(current.get("strategy", "")) if current else "",
-        )
-        if current is None or candidate_key > current_key:
-            latest_operational_rows[instrument_id] = row
     operational_rows = []
     for row in (latest_operational_rows[key] for key in sorted(latest_operational_rows)):
         operational_rows.append(

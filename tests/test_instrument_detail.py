@@ -55,6 +55,8 @@ def _calendar_fields() -> dict[str, object]:
                 "calendar_id": "XETR",
                 "timezone": "Europe/Berlin",
                 "calendar_source_version": "identity-master.v1",
+                "opening_auction_minutes": 5,
+                "closing_auction_minutes": 10,
             },
         }],
         "identity_history": [{"source_id": "calendar-test-source"}],
@@ -67,6 +69,8 @@ def _calendar_fields() -> dict[str, object]:
         service=MarketCalendarService(),
     )
     assert reason is None
+    assert fields["calendar_opening_auction_minutes"] == 5
+    assert fields["calendar_closing_auction_minutes"] == 10
     return fields
 
 

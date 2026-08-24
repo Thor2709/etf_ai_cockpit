@@ -1633,6 +1633,26 @@ def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: M
     return {"status": "available" if quality is not None else "manual_review", "trust": trust, "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "tail_diagnostics": tail_diagnostics, "operational_evidence": operational_evidence, "execution_allowed": False, **llm_backtest_fields, **_provenance_fields(metadata_source)}
 
 
+def _latest_operational_row(rows: object) -> dict[str, object]:
+    """Select the latest evidence row by absolute UTC instant."""
+
+    if not isinstance(rows, list):
+        return {}
+
+    def sort_key(row: Mapping[str, object]) -> tuple[int, int, int, str]:
+        execution_key = pd.to_datetime(row.get("execution_timestamp"), errors="coerce", utc=True)
+        signal_key = pd.to_datetime(row.get("signal_timestamp"), errors="coerce", utc=True)
+        return (
+            0 if pd.isna(execution_key) else 1,
+            0 if pd.isna(execution_key) else int(execution_key.value),
+            0 if pd.isna(signal_key) else int(signal_key.value),
+            str(row.get("strategy", "")),
+        )
+
+    valid_rows = [row for row in rows if isinstance(row, Mapping)]
+    return dict(max(valid_rows, key=sort_key, default={}))
+
+
 def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str, Any]:
     """Project only strict exact-instrument simulated evidence."""
 
@@ -1685,6 +1705,8 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
         "calendar_source_id",
         "calendar_source_checksum",
         "calendar_source_version",
+        "calendar_opening_auction_minutes",
+        "calendar_closing_auction_minutes",
         "calendar_identity_decision_id",
         "calendar_valid_from",
         "calendar_known_at",
@@ -1755,6 +1777,12 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
             return False
         if len(record["calendar_source_checksum"]) != 64 or len(record["calendar_identity_lineage_hash"]) != 64 or len(record["calendar_session_lineage_hash"]) != 64:
             return False
+        auction_fields = (
+            record.get("calendar_opening_auction_minutes"),
+            record.get("calendar_closing_auction_minutes"),
+        )
+        if any(not isinstance(value, Integral) or isinstance(value, bool) or value < 0 for value in auction_fields):
+            return False
         projection = {
             "status": "available",
             "instrument_id": instrument_id,
@@ -1769,6 +1797,8 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
                     "calendar_id": record["calendar_id"],
                     "timezone": record["calendar_timezone"],
                     "calendar_source_version": record["calendar_source_version"],
+                    "opening_auction_minutes": record["calendar_opening_auction_minutes"],
+                    "closing_auction_minutes": record["calendar_closing_auction_minutes"],
                 },
             }],
             "identity_history": [{"source_id": record["calendar_source_id"]}],

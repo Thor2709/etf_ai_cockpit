@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 
 import flet as ft
@@ -13,25 +12,10 @@ from etf_cockpit.app.components.governance_badges import build_gate_summary
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.application.ui_facade import build_simple_instrument_scores
-from etf_cockpit.app.selectors.instrument_detail import _operational_evidence_panel
-
-
-def _latest_operational_row(rows: object) -> dict[str, object]:
-    if not isinstance(rows, list):
-        return {}
-
-    def sort_key(row: Mapping[str, object]) -> tuple[int, str, str, str]:
-        execution_key = pd.to_datetime(row.get("execution_timestamp"), errors="coerce")
-        signal_key = pd.to_datetime(row.get("signal_timestamp"), errors="coerce")
-        return (
-            0 if pd.isna(execution_key) else 1,
-            "" if pd.isna(execution_key) else execution_key.isoformat(),
-            "" if pd.isna(signal_key) else signal_key.isoformat(),
-            str(row.get("strategy", "")),
-        )
-
-    valid_rows = [row for row in rows if isinstance(row, Mapping)]
-    return dict(max(valid_rows, key=sort_key, default={}))
+from etf_cockpit.app.selectors.instrument_detail import (
+    _latest_operational_row,
+    _operational_evidence_panel,
+)
 
 
 def _signals_operational_evidence(scores: list[object], report: object) -> ft.Control:
