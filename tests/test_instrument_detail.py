@@ -21,6 +21,8 @@ from etf_cockpit.data.classification import (
 from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.identity_master import IdentityMasterStore, IdentitySourceRow
 from etf_cockpit.data.instrument_identity import IdentityClaim
+from etf_cockpit.backtest.engine import _canonical_calendar_contract
+from etf_cockpit.data.market_calendar import MarketCalendarService
 from etf_cockpit.services import build_snapshot
 from etf_cockpit.signals.feature_drivers import claim_binding_hash, deterministic_driver_claim
 from etf_cockpit.signals.simple_scores import load_simple_scoreboard
@@ -36,6 +38,36 @@ def _walk_controls(control):
     for row in getattr(control, "rows", []) or []:
         for cell in getattr(row, "cells", []) or []:
             yield from _walk_controls(getattr(cell, "content", None))
+
+
+def _calendar_fields() -> dict[str, object]:
+    projection = {
+        "status": "available",
+        "instrument_id": "VWCE",
+        "identity_decision_id": "calendar-test-decision",
+        "identity_decision_time": "2026-01-01T00:00:00+00:00",
+        "identity_effective_at": "2020-01-01",
+        "identity_objects": [{
+            "object_type": "listing",
+            "object_id": "listing:VWCE:XETR",
+            "fields": {
+                "mic": "XETR",
+                "calendar_id": "XETR",
+                "timezone": "Europe/Berlin",
+                "calendar_source_version": "identity-master.v1",
+            },
+        }],
+        "identity_history": [{"source_id": "calendar-test-source"}],
+    }
+    fields, reason = _canonical_calendar_contract(
+        projection,
+        "VWCE",
+        "2026-06-01T00:00:00",
+        "2026-06-02T00:00:00",
+        service=MarketCalendarService(),
+    )
+    assert reason is None
+    return fields
 
 
 def test_instrument_detail_scoreboard_reader_hides_classification_invalidated_score(
@@ -414,6 +446,7 @@ def test_operational_evidence_rejects_aggregate_and_contradictory_identity_rows(
         "paper_fill_source": None,
         "reconciled_fill_source": None,
         "execution_allowed": False,
+        **_calendar_fields(),
     }
     contradictory = dict(valid, etf_id="OTHER")
     aggregate = dict(valid)
@@ -467,6 +500,7 @@ def test_operational_evidence_malformed_available_rows_fail_closed() -> None:
         "paper_fill_source": None,
         "reconciled_fill_source": None,
         "execution_allowed": False,
+        **_calendar_fields(),
     }
     malformed_values = (
         ("evidence_status", True),
@@ -507,12 +541,19 @@ def test_operational_evidence_malformed_available_rows_fail_closed() -> None:
         panel = selector._operational_evidence_panel(report, "VWCE")
 
         assert panel["status"] == "unavailable", field
+        assert panel["rows"] == []
         assert panel["execution_allowed"] is False
 
     legacy = dict(valid, cost_spread_assumption_bps=None, cost_spread_assumption_source=None)
     report = type("Report", (), {"operational_evidence": pd.DataFrame([legacy])})()
     panel = selector._operational_evidence_panel(report, "VWCE")
     assert panel["status"] == "available"
+
+    negative_gap = dict(valid, next_open_reference_price=99.0, close_to_next_open_gap=-0.01)
+    report = type("Report", (), {"operational_evidence": pd.DataFrame([negative_gap])})()
+    panel = selector._operational_evidence_panel(report, "VWCE")
+    assert panel["status"] == "available"
+    assert panel["rows"][0]["close_to_next_open_gap"] == -0.01
 
     missing_required = dict(valid)
     missing_required.pop("next_open_source_identity")
@@ -555,6 +596,14 @@ def test_paper_trade_source_is_not_conflated_with_simulated_fill() -> None:
     )
     assert contradictory_markers["status"] == "unavailable"
     assert contradictory_markers["execution_allowed"] is False
+
+    for field, value in (("source", "live_broker"), ("mode", "live")):
+        contradictory_alias = selector._paper_trade_panel(
+            "VWCE",
+            pd.DataFrame([{"instrument_id": "VWCE", field: value, "paper_trade_id": f"p-{field}"}]),
+        )
+        assert contradictory_alias["status"] == "unavailable"
+        assert contradictory_alias["rows"] == []
 
 
 def test_missing_optional_stores_are_unavailable_not_crash() -> None:

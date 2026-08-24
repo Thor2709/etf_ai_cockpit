@@ -1433,6 +1433,7 @@ def test_backtest_cache_is_invalidated_when_structural_loader_raises(tmp_path, m
         "trade_log.csv",
         "signal_log.csv",
         "quality_momentum_evidence.csv",
+        "backtest_metadata.json",
     ):
         services._write_universe_cache_metadata(
             backtests / filename,

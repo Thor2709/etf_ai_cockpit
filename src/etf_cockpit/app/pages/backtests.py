@@ -221,8 +221,32 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                         "execution_allowed": False,
                     }
                 )
+    latest_operational_rows: dict[str, dict[str, object]] = {}
+    for row in validated_operational_rows:
+        instrument_id = str(row.get("instrument_id", "")).strip()
+        if not instrument_id:
+            continue
+        execution_key = pd.to_datetime(row.get("execution_timestamp"), errors="coerce")
+        signal_key = pd.to_datetime(row.get("signal_timestamp"), errors="coerce")
+        candidate_key = (
+            0 if pd.isna(execution_key) else 1,
+            "" if pd.isna(execution_key) else execution_key.isoformat(),
+            "" if pd.isna(signal_key) else signal_key.isoformat(),
+            str(row.get("strategy", "")),
+        )
+        current = latest_operational_rows.get(instrument_id)
+        current_execution_key = pd.to_datetime(current.get("execution_timestamp"), errors="coerce") if current else pd.NaT
+        current_signal_key = pd.to_datetime(current.get("signal_timestamp"), errors="coerce") if current else pd.NaT
+        current_key = (
+            0 if current is None or pd.isna(current_execution_key) else 1,
+            "" if current is None or pd.isna(current_execution_key) else current_execution_key.isoformat(),
+            "" if current is None or pd.isna(current_signal_key) else current_signal_key.isoformat(),
+            str(current.get("strategy", "")) if current else "",
+        )
+        if current is None or candidate_key > current_key:
+            latest_operational_rows[instrument_id] = row
     operational_rows = []
-    for row in validated_operational_rows[:12]:
+    for row in (latest_operational_rows[key] for key in sorted(latest_operational_rows)):
         operational_rows.append(
             ft.DataRow(
                 cells=[

@@ -13,6 +13,7 @@ from etf_cockpit.app.pages.signals import _signals_operational_evidence
 from etf_cockpit.backtest.engine import (
     BacktestDataUnavailableError,
     _execution_evidence,
+    _canonical_calendar_contract,
     _corporate_action_adjusted_pivot,
     _instrument_operational_evidence,
     _log_equity_returns,
@@ -385,6 +386,49 @@ def test_operational_evidence_does_not_label_a_missing_or_non_next_session_as_on
     assert "execution_not_next_canonical_market_session" in missing_observation["evidence_reason"]
 
 
+def test_canonical_calendar_rejects_xetr_holiday_as_next_session() -> None:
+    projection = {
+        "status": "available",
+        "instrument_id": "X",
+        "identity_decision_id": "calendar-test-decision",
+        "identity_decision_time": "2026-01-01T00:00:00+00:00",
+        "identity_effective_at": "2020-01-01",
+        "identity_objects": [{
+            "object_type": "listing",
+            "object_id": "listing:X:XETR",
+            "fields": {"mic": "XETR", "calendar_id": "XETR", "timezone": "Europe/Berlin"},
+        }],
+        "identity_history": [{"source_id": "calendar-test-source"}],
+    }
+    _, reason = _canonical_calendar_contract(
+        projection,
+        "X",
+        "2026-12-23T00:00:00",
+        "2026-12-25T00:00:00",
+    )
+    assert reason == "canonical_execution_session_unavailable"
+
+
+def test_operational_producer_rejects_negative_or_unpaired_costs() -> None:
+    values = dict(
+        instrument_id="VWCE", strategy="signal_strategy",
+        signal_timestamp="2026-06-01T00:00:00", execution_timestamp="2026-06-02T00:00:00",
+        signal_date=pd.Timestamp("2026-06-01").date(), execution_date=pd.Timestamp("2026-06-02").date(),
+        decision_price=100.0, next_open=99.0, next_period_close=102.0,
+        high=103.0, low=98.0, open_price=99.0,
+        cost_spread_assumption_bps=-1.0,
+        cost_spread_assumption_source="execution-cost-v1",
+        decision_price_source_identity="source|VWCE",
+        next_open_source_identity="source|VWCE",
+        next_period_source_identity="source|VWCE",
+        canonical_session_dates=pd.to_datetime(["2026-06-01", "2026-06-02"]),
+    )
+    rejected = _instrument_operational_evidence(**values)
+    assert rejected["evidence_status"] == "unavailable"
+    rejected = _instrument_operational_evidence(**{**values, "cost_spread_assumption_bps": 1.0, "cost_spread_assumption_source": None})
+    assert rejected["evidence_status"] == "unavailable"
+
+
 def test_operational_ohlc_is_scaled_from_the_same_row_adjustment_factor() -> None:
     prices = pd.DataFrame(
         [
@@ -472,6 +516,8 @@ def test_backtests_page_exposes_lab_evidence_sections() -> None:
     assert "evidence_status" in source
     assert "evidence_reason" in source
     assert "fill_source" in source
+    assert "latest_operational_rows" in source
+    assert "validated_operational_rows[:12]" not in source
     assert "Operational evidence" in inspect.getsource(_signals_operational_evidence)
     assert "aggregate aliases are excluded" in inspect.getsource(_signals_operational_evidence)
 

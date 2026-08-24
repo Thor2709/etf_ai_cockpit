@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
+import hashlib
+import json
 import math
 from numbers import Integral, Real
 from pathlib import Path
 from typing import Any, Mapping
 
 import pandas as pd
+from etf_cockpit.data.market_calendar import ClockContext, MarketCalendarService, MarketClockError
 
 from etf_cockpit.application.ui_facade import (
     BENCHMARK_ATTRIBUTION_PATH,
@@ -1675,6 +1678,18 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
         "paper_fill_source",
         "reconciled_fill_source",
         "execution_allowed",
+        "calendar_listing_id",
+        "calendar_mic",
+        "calendar_id",
+        "calendar_timezone",
+        "calendar_source_id",
+        "calendar_source_checksum",
+        "calendar_source_version",
+        "calendar_identity_decision_id",
+        "calendar_valid_from",
+        "calendar_known_at",
+        "calendar_identity_lineage_hash",
+        "calendar_session_lineage_hash",
     }
     if not required.issubset(rows.columns):
         return _unavailable(
@@ -1701,11 +1716,11 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
             return None
         return parsed if parsed.isoformat() == value else None
 
-    def strict_number(value: object, *, positive: bool) -> float | None:
+    def strict_number(value: object, *, positive: bool, signed: bool = False) -> float | None:
         if isinstance(value, bool) or not isinstance(value, Real):
             return None
         number = float(value)
-        if not math.isfinite(number) or (number <= 0 if positive else number < 0):
+        if not math.isfinite(number) or (number <= 0 if positive else (number < 0 and not signed)):
             return None
         return number
 
@@ -1728,6 +1743,78 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
     def explicit_unavailable(value: object) -> bool:
         return _is_missing_scalar(value)
 
+    def calendar_is_canonical(record: Mapping[str, Any], signal_ts: pd.Timestamp, execution_ts: pd.Timestamp) -> bool:
+        calendar_text_fields = (
+            "calendar_listing_id", "calendar_mic", "calendar_id", "calendar_timezone",
+            "calendar_source_id", "calendar_source_checksum", "calendar_source_version",
+            "calendar_identity_decision_id",
+            "calendar_valid_from", "calendar_known_at", "calendar_identity_lineage_hash",
+            "calendar_session_lineage_hash",
+        )
+        if any(type(record.get(field)) is not str or not record[field].strip() for field in calendar_text_fields):
+            return False
+        if len(record["calendar_source_checksum"]) != 64 or len(record["calendar_identity_lineage_hash"]) != 64 or len(record["calendar_session_lineage_hash"]) != 64:
+            return False
+        projection = {
+            "status": "available",
+            "instrument_id": instrument_id,
+            "identity_decision_id": record["calendar_identity_decision_id"],
+            "identity_decision_time": record["calendar_known_at"],
+            "identity_effective_at": record["calendar_valid_from"],
+            "identity_objects": [{
+                "object_type": "listing",
+                "object_id": record["calendar_listing_id"],
+                "fields": {
+                    "mic": record["calendar_mic"],
+                    "calendar_id": record["calendar_id"],
+                    "timezone": record["calendar_timezone"],
+                    "calendar_source_version": record["calendar_source_version"],
+                },
+            }],
+            "identity_history": [{"source_id": record["calendar_source_id"]}],
+        }
+        try:
+            listing = MarketCalendarService.listing_from_identity_projection(projection)
+            if listing.source_checksum != record["calendar_source_checksum"] or listing.lineage_hash != record["calendar_identity_lineage_hash"]:
+                return False
+            def as_utc(value: pd.Timestamp) -> datetime:
+                return (value.tz_localize(timezone.utc) if value.tzinfo is None else value).to_pydatetime().astimezone(timezone.utc)
+            signal_instant = as_utc(signal_ts)
+            execution_instant = as_utc(execution_ts)
+            cutoff = signal_instant
+            zone = __import__("zoneinfo").ZoneInfo(listing.timezone)
+            signal_day = signal_instant.astimezone(zone).date()
+            execution_day = execution_instant.astimezone(zone).date()
+            service = MarketCalendarService()
+            if not service.is_business_day(listing, signal_day, knowledge_cutoff=cutoff):
+                return False
+            if not service.is_business_day(listing, execution_day, knowledge_cutoff=cutoff):
+                return False
+            candidate = signal_day + timedelta(days=1)
+            for _ in range(370):
+                if service.is_business_day(listing, candidate, knowledge_cutoff=cutoff):
+                    break
+                candidate += timedelta(days=1)
+            else:
+                return False
+            if candidate != execution_day:
+                return False
+            signal_state = service.market_state(listing, ClockContext.at(signal_instant, knowledge_cutoff=cutoff))
+            execution_state = service.market_state(listing, ClockContext.at(execution_instant, knowledge_cutoff=cutoff))
+            if signal_state.certification != "certified" or execution_state.certification != "certified":
+                return False
+            lineage_payload = {
+                "listing": listing.lineage_hash,
+                "signal_state": signal_state.lineage_hash,
+                "execution_state": execution_state.lineage_hash,
+                "signal_date": signal_day.isoformat(),
+                "execution_date": execution_day.isoformat(),
+            }
+            expected_session_lineage = hashlib.sha256(json.dumps(lineage_payload, sort_keys=True).encode("utf-8")).hexdigest()
+            return expected_session_lineage == record["calendar_session_lineage_hash"]
+        except (MarketClockError, TypeError, ValueError, OverflowError, AttributeError):
+            return False
+
     safe_rows: list[dict[str, Any]] = []
     for record in rows.to_dict("records"):
         signal_ts = strict_timestamp(record.get("signal_timestamp"))
@@ -1746,7 +1833,7 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
         safe = (
             type(record.get("evidence_status")) is str
             and record.get("evidence_status") == "available"
-            and strict_text(record.get("evidence_reason"))
+            and record.get("evidence_reason") == "canonical_local_backtest_evidence"
             and strict_text(record.get("strategy"))
             and type(record.get("instrument_id")) is str
             and record.get("instrument_id") == instrument_id
@@ -1764,7 +1851,7 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
             and record.get("next_open_reference_basis") == "adjusted_ohlc_from_same_row_adjustment"
             and strict_number(record.get("next_period_reference_price"), positive=True) is not None
             and record.get("next_period_reference_basis") == "adjusted_close"
-            and strict_number(record.get("close_to_next_open_gap"), positive=False) is not None
+            and strict_number(record.get("close_to_next_open_gap"), positive=False, signed=True) is not None
             and math.isclose(
                 float(record.get("close_to_next_open_gap")),
                 float(record.get("next_open_reference_price")) / float(record.get("decision_price")) - 1.0,
@@ -1772,6 +1859,7 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
                 abs_tol=1e-9,
             )
             and strict_text(record.get("price_provenance"))
+            and record.get("price_provenance") == "row_bound_corporate_action_consistent"
             and strict_text(record.get("decision_price_source_identity"))
             and strict_text(record.get("next_open_source_identity"))
             and strict_text(record.get("next_period_source_identity"))
@@ -1817,6 +1905,7 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
             and explicit_unavailable(record.get("order_lifecycle"))
             and explicit_unavailable(record.get("paper_fill_source"))
             and explicit_unavailable(record.get("reconciled_fill_source"))
+            and calendar_is_canonical(record, signal_ts, execution_ts)
         )
         if safe:
             safe_rows.append(record)
@@ -1825,7 +1914,7 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
                 "Operational evidence is malformed, partial or contradictory; no execution claim is shown."
             ) | {
                 "instrument_id": instrument_id,
-                "rows": rows.to_dict("records"),
+                "rows": [],
                 "scope": "instrument",
                 "source": "simulated_backtest",
             }
@@ -1834,7 +1923,7 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
             "Operational evidence is malformed, partial or contradictory; no execution claim is shown."
         ) | {
             "instrument_id": instrument_id,
-            "rows": rows.to_dict("records"),
+            "rows": [],
             "scope": "instrument",
             "source": "simulated_backtest",
         }
@@ -1857,6 +1946,26 @@ def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) ->
         return _unavailable("Paper-trade history unavailable; no local paper-trade records are registered.") | {"rows": []}
     def has_marker(column: str) -> bool:
         return column in rows.columns and rows[column].map(lambda value: not _is_missing_scalar(value)).any()
+
+    live_aliases = {
+        "live", "live_broker", "broker", "broker_api", "provider", "provider_api",
+        "production", "real", "real_market", "execution",
+    }
+    recognized_source_fields = (
+        "source", "source_authority", "fill_source", "mode", "source_mode",
+        "execution_mode", "provider", "provider_name", "execution_source",
+        "order_source", "broker",
+    )
+    for field in recognized_source_fields:
+        if field not in rows.columns:
+            continue
+        for value in rows[field].tolist():
+            if _is_missing_scalar(value):
+                continue
+            normalized = str(value).strip().casefold().replace("-", "_").replace("/", "_")
+            aliases = {token for token in normalized.split("_") if token}
+            if normalized in live_aliases or aliases.intersection(live_aliases):
+                return _unavailable("Paper-trade source is contradictory; live or broker evidence is never presented as paper.") | {"rows": []}
 
     has_fill_marker = has_marker("fill_source")
     has_authority_marker = has_marker("source_authority")

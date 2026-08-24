@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from collections.abc import Mapping
 import hashlib
 import json
 from itertools import combinations
 from statistics import NormalDist
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -22,6 +23,12 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.types import DataQualityReport
 from etf_cockpit.data.validation import validate_prices
 from etf_cockpit.data.provenance import sha256_dataframe
+from etf_cockpit.data.market_calendar import (
+    ClockContext,
+    ListingCalendarEvidence,
+    MarketCalendarService,
+    MarketClockError,
+)
 from etf_cockpit.data.etf_structure import structure_confidence_caps, structure_input_checksum
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.portfolio.costs import COST_MODEL_ID, CostEstimate, estimate_rebalance_cost
@@ -32,6 +39,23 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
 )
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION, build_quality_momentum_frame, quality_momentum_weights
 from etf_cockpit.signals.signal_pipeline import generate_signals
+
+
+CANONICAL_OPERATIONAL_EVIDENCE_REASON = "canonical_local_backtest_evidence"
+CANONICAL_PRICE_PROVENANCE = "row_bound_corporate_action_consistent"
+_CALENDAR_COLUMNS = (
+    "calendar_listing_id",
+    "calendar_mic",
+    "calendar_id",
+    "calendar_timezone",
+    "calendar_source_id",
+    "calendar_source_checksum",
+    "calendar_source_version",
+    "calendar_identity_decision_id",
+    "calendar_valid_from",
+    "calendar_known_at",
+    "calendar_identity_lineage_hash",
+)
 
 
 @dataclass(frozen=True)
@@ -254,6 +278,185 @@ def _price_source_identity(prices: pd.DataFrame, instrument_id: object, observed
     return f"{source}|{provider_symbol}"
 
 
+def _calendar_projection(identity: Mapping[str, object], instrument_id: str) -> dict[str, object]:
+    """Normalise the existing identity-master listing projection shape."""
+
+    if isinstance(identity.get("identity_objects"), list):
+        return dict(identity)
+    fields = identity.get("fields")
+    if not isinstance(fields, Mapping):
+        fields = identity
+    required = ("mic", "calendar_id", "timezone")
+    if not all(type(fields.get(key)) is str and fields.get(key).strip() for key in required):
+        return {}
+    listing_id = fields.get("listing_id") or fields.get("listing") or f"listing:{instrument_id}"
+    source_id = fields.get("source_id") or fields.get("calendar_source_id")
+    known_at = fields.get("known_at") or fields.get("calendar_known_at")
+    valid_from = fields.get("valid_from") or fields.get("calendar_valid_from")
+    if not all(isinstance(value, str) and value.strip() for value in (listing_id, source_id, known_at, valid_from)):
+        return {}
+    return {
+        "status": "available",
+        "instrument_id": instrument_id,
+        "identity_decision_id": fields.get("decision_id") or source_id,
+        "identity_decision_time": known_at,
+        "identity_effective_at": valid_from,
+        "identity_objects": [
+            {
+                "object_type": "listing",
+                "object_id": listing_id,
+                "fields": {
+                    "mic": fields["mic"],
+                    "calendar_id": fields["calendar_id"],
+                    "timezone": fields["timezone"],
+                    "calendar_source_version": fields.get("source_version") or fields.get("calendar_source_version") or "identity-master.v1",
+                    "opening_auction_minutes": fields.get("opening_auction_minutes", 0),
+                    "closing_auction_minutes": fields.get("closing_auction_minutes", 0),
+                },
+            }
+        ],
+        "identity_history": [{"source_id": source_id}],
+        "_persisted_source_checksum": fields.get("source_checksum") or fields.get("calendar_source_checksum"),
+        "_persisted_lineage_hash": fields.get("identity_lineage_hash") or fields.get("calendar_identity_lineage_hash"),
+    }
+
+
+def _canonical_calendar_contract(
+    identity: object,
+    instrument_id: str,
+    signal_timestamp: object,
+    execution_timestamp: object,
+    *,
+    service: MarketCalendarService | None = None,
+) -> tuple[dict[str, object], str | None]:
+    """Revalidate one exact next-session pair through the calendar service."""
+
+    if isinstance(identity, ListingCalendarEvidence):
+        listing = identity
+        persisted: Mapping[str, object] = {}
+        decision_id = listing.source_id
+    elif isinstance(identity, Mapping):
+        projection = _calendar_projection(identity, instrument_id)
+        if not projection:
+            return {}, "canonical_market_calendar_identity_unavailable"
+        try:
+            listing = MarketCalendarService.listing_from_identity_projection(projection)
+        except (MarketClockError, TypeError, ValueError):
+            return {}, "canonical_market_calendar_identity_unavailable"
+        persisted = identity
+        decision_id = projection.get("identity_decision_id")
+        expected_source = persisted.get("_persisted_source_checksum") or persisted.get("calendar_source_checksum")
+        if expected_source not in {None, listing.source_checksum}:
+            return {}, "canonical_market_calendar_lineage_conflict"
+        expected_lineage = persisted.get("_persisted_lineage_hash") or persisted.get("calendar_identity_lineage_hash")
+        if expected_lineage not in {None, listing.lineage_hash}:
+            return {}, "canonical_market_calendar_lineage_conflict"
+    else:
+        return {}, "canonical_market_calendar_identity_unavailable"
+
+    def instant(value: object) -> datetime | None:
+        try:
+            parsed = pd.Timestamp(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if pd.isna(parsed):
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.tz_localize(timezone.utc)
+        return parsed.to_pydatetime().astimezone(timezone.utc)
+
+    signal_instant = instant(signal_timestamp)
+    execution_instant = instant(execution_timestamp)
+    if signal_instant is None or execution_instant is None or execution_instant <= signal_instant:
+        return {}, "canonical_market_session_timestamp_unavailable"
+    calendar_service = service or MarketCalendarService()
+    zone = ZoneInfo(listing.timezone)
+    signal_day = signal_instant.astimezone(zone).date()
+    execution_day = execution_instant.astimezone(zone).date()
+    try:
+        cutoff = signal_instant
+        if not calendar_service.is_business_day(listing, signal_day, knowledge_cutoff=cutoff):
+            return {}, "canonical_signal_session_unavailable"
+        if not calendar_service.is_business_day(listing, execution_day, knowledge_cutoff=cutoff):
+            return {}, "canonical_execution_session_unavailable"
+        candidate = signal_day + timedelta(days=1)
+        for _ in range(370):
+            if calendar_service.is_business_day(listing, candidate, knowledge_cutoff=cutoff):
+                break
+            candidate += timedelta(days=1)
+        else:
+            return {}, "canonical_next_session_unavailable"
+        if candidate != execution_day:
+            return {}, "execution_not_next_canonical_market_session"
+        signal_state = calendar_service.market_state(
+            listing, ClockContext.at(signal_instant, knowledge_cutoff=cutoff)
+        )
+        execution_state = calendar_service.market_state(
+            listing, ClockContext.at(execution_instant, knowledge_cutoff=cutoff)
+        )
+        if signal_state.certification != "certified" or execution_state.certification != "certified":
+            return {}, "canonical_market_session_unavailable"
+    except (MarketClockError, TypeError, ValueError, OverflowError):
+        return {}, "canonical_market_session_unavailable"
+    lineage_payload = {
+        "listing": listing.lineage_hash,
+        "signal_state": signal_state.lineage_hash,
+        "execution_state": execution_state.lineage_hash,
+        "signal_date": signal_day.isoformat(),
+        "execution_date": execution_day.isoformat(),
+    }
+    lineage = hashlib.sha256(json.dumps(lineage_payload, sort_keys=True).encode("utf-8")).hexdigest()
+    return {
+        "calendar_listing_id": listing.listing_id,
+        "calendar_mic": listing.mic,
+        "calendar_id": listing.calendar_id,
+        "calendar_timezone": listing.timezone,
+        "calendar_source_id": listing.source_id,
+        "calendar_source_checksum": listing.source_checksum,
+        "calendar_source_version": listing.source_version,
+        "calendar_identity_decision_id": str(decision_id),
+        "calendar_valid_from": listing.valid_from.isoformat(),
+        "calendar_known_at": listing.known_at.astimezone(timezone.utc).isoformat(),
+        "calendar_identity_lineage_hash": listing.lineage_hash,
+        "calendar_session_lineage_hash": lineage,
+    }, None
+
+
+def _calendar_identity_from_price_rows(prices: pd.DataFrame, instrument_id: object) -> Mapping[str, object] | None:
+    """Read only explicit persisted calendar identity from price rows."""
+
+    if not isinstance(prices, pd.DataFrame) or "etf_id" not in prices.columns:
+        return None
+    rows = prices.loc[prices["etf_id"] == instrument_id]
+    if rows.empty:
+        return None
+    if "calendar_identity" in rows.columns:
+        candidates = [value for value in rows["calendar_identity"] if isinstance(value, Mapping)]
+        if candidates and all(dict(value) == dict(candidates[0]) for value in candidates):
+            return candidates[0]
+    if not set(_CALENDAR_COLUMNS).issubset(rows.columns):
+        return None
+    values: dict[str, object] = {}
+    for column in _CALENDAR_COLUMNS:
+        unique = [value for value in rows[column].tolist() if value is not None and not pd.isna(value)]
+        if not unique or len({str(value) for value in unique}) != 1:
+            return None
+        values[column] = unique[0]
+    return {
+        "listing_id": values["calendar_listing_id"],
+        "mic": values["calendar_mic"],
+        "calendar_id": values["calendar_id"],
+        "timezone": values["calendar_timezone"],
+        "source_id": values["calendar_source_id"],
+        "source_checksum": values["calendar_source_checksum"],
+        "source_version": values["calendar_source_version"],
+        "decision_id": values["calendar_identity_decision_id"],
+        "valid_from": values["calendar_valid_from"],
+        "known_at": values["calendar_known_at"],
+        "identity_lineage_hash": values["calendar_identity_lineage_hash"],
+    }
+
+
 def _weighted_reference_price(values: pd.Series, weights: pd.Series) -> float | None:
     observed = pd.to_numeric(values, errors="coerce").reindex(weights.index)
     usable = observed.notna() & np.isfinite(observed)
@@ -343,6 +546,8 @@ def _instrument_operational_evidence(
     estimated_cost_bps: object = None,
     estimated_cost_bps_source: object = None,
     canonical_session_dates: object = None,
+    calendar_identity: object = None,
+    calendar_service: MarketCalendarService | None = None,
     decision_price_basis: object = "adjusted_close",
     next_open_reference_basis: object = "adjusted_ohlc_from_same_row_adjustment",
     next_period_reference_basis: object = "adjusted_close",
@@ -375,10 +580,26 @@ def _instrument_operational_evidence(
     elif execution_ts <= signal_ts or execution_ts.date() <= signal_ts.date():
         reasons.append("same_session_or_non_forward_execution")
 
-    canonical_dates: list[date] = []
-    if canonical_session_dates is None:
+    calendar_fields: dict[str, object] = {}
+    valid_next_session = False
+    if calendar_identity is not None:
+        calendar_fields, calendar_reason = _canonical_calendar_contract(
+            calendar_identity,
+            identity,
+            signal_timestamp,
+            execution_timestamp,
+            service=calendar_service,
+        )
+        if calendar_reason is not None:
+            reasons.append(calendar_reason)
+        else:
+            valid_next_session = True
+    elif canonical_session_dates is None:
         reasons.append("canonical_market_session_unavailable")
     else:
+        # Kept for the narrow unit-test seam.  The production backtest never
+        # supplies this value; it must use the identity-bound service above.
+        canonical_dates: list[date] = []
         try:
             canonical_dates = sorted(
                 {
@@ -405,6 +626,8 @@ def _instrument_operational_evidence(
                 for day in pd.bdate_range(signal_day, execution_day)[1:-1]
             ):
                 reasons.append("observed_business_date_unavailable")
+            else:
+                valid_next_session = True
 
     decision = finite(decision_price)
     next_open_value = finite(next_open)
@@ -458,6 +681,23 @@ def _instrument_operational_evidence(
         reasons.append("next_period_reference_basis_unavailable")
     if type(price_provenance) is not str or not price_provenance.strip():
         reasons.append("price_provenance_unavailable")
+    elif price_provenance != CANONICAL_PRICE_PROVENANCE:
+        reasons.append("noncanonical_price_provenance")
+    def cost_pair(value: object, source: object, label: str) -> float | None:
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            if source is not None and not (isinstance(source, float) and pd.isna(source)):
+                reasons.append(f"{label}_source_without_value")
+            return None
+        parsed = finite(value)
+        if parsed is None or parsed < 0:
+            reasons.append(f"{label}_invalid")
+            return None
+        if type(source) is not str or not source.strip():
+            reasons.append(f"{label}_source_unavailable")
+        return parsed
+
+    cost_spread = cost_pair(cost_spread_assumption_bps, cost_spread_assumption_source, "cost_spread_assumption")
+    estimated_cost = cost_pair(estimated_cost_bps, estimated_cost_bps_source, "estimated_cost")
 
     observed_spread = None
     if "observed_ohlc_incomplete" not in reasons:
@@ -476,14 +716,17 @@ def _instrument_operational_evidence(
         gap = float(next_open_value / decision - 1.0)
 
     status = "available" if not reasons else "unavailable"
-    valid_next_session = (
-        "execution_not_next_canonical_market_session" not in reasons
-        and "observed_business_date_unavailable" not in reasons
-        and "canonical_market_session_unavailable" not in reasons
+    valid_next_session = valid_next_session and not any(
+        reason in reasons
+        for reason in (
+            "execution_not_next_canonical_market_session",
+            "observed_business_date_unavailable",
+            "canonical_market_session_unavailable",
+        )
     )
     return {
         "evidence_status": status,
-        "evidence_reason": ";".join(dict.fromkeys(reasons)) or "canonical_local_backtest_evidence",
+        "evidence_reason": ";".join(dict.fromkeys(reasons)) or CANONICAL_OPERATIONAL_EVIDENCE_REASON,
         "instrument_id": identity or None,
         "strategy": strategy,
         "signal_date": signal_date,
@@ -503,9 +746,9 @@ def _instrument_operational_evidence(
         "close_to_next_open_gap": gap,
         "observed_range_spread_proxy": observed_spread,
         "spread_proxy": observed_spread,
-        "cost_spread_assumption_bps": finite(cost_spread_assumption_bps),
+        "cost_spread_assumption_bps": cost_spread,
         "cost_spread_assumption_source": str(cost_spread_assumption_source).strip() if cost_spread_assumption_source else None,
-        "estimated_cost_bps": finite(estimated_cost_bps),
+        "estimated_cost_bps": estimated_cost,
         "estimated_cost_bps_source": str(estimated_cost_bps_source).strip() if estimated_cost_bps_source else None,
         "arrival_price_assumption": "next_adjusted_close" if next_close is not None else "unavailable",
         "execution_delay_sessions": 1 if status == "available" and valid_next_session else None,
@@ -524,6 +767,7 @@ def _instrument_operational_evidence(
         "paper_fill_source": None,
         "reconciled_fill_source": None,
         "execution_allowed": False,
+        **calendar_fields,
     }
 
 
@@ -602,7 +846,6 @@ def run_backtest(
     adjusted_open_pivot = _corporate_action_adjusted_pivot(prices, "open", columns)
     adjusted_high_pivot = _corporate_action_adjusted_pivot(prices, "high", columns)
     adjusted_low_pivot = _corporate_action_adjusted_pivot(prices, "low", columns)
-    canonical_market_dates = pd.to_datetime(prices["date"], errors="coerce").dropna().dt.normalize().drop_duplicates().sort_values().tolist()
     canonical_benchmark_id = _validated_benchmark_data_id(
         benchmark_data_id,
         benchmark_reference,
@@ -920,10 +1163,11 @@ def run_backtest(
                                         else "explicit_transaction_cost_bps"
                                     )
                                 ),
-                                canonical_session_dates=canonical_market_dates,
+                                calendar_identity=_calendar_identity_from_price_rows(prices, instrument_id),
+                                calendar_service=MarketCalendarService(),
                                 decision_price_source_identity=_price_source_identity(prices, instrument_id, dt),
                                 next_open_source_identity=_price_source_identity(prices, instrument_id, execution_dt),
-                                next_period_source_identity=_price_source_identity(prices, instrument_id, execution_dt),
+                                next_period_source_identity=_price_source_identity(prices, instrument_id, pivot.index[i + 1]),
                             )
                         )
                     trade_rows.append(
