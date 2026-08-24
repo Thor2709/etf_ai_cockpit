@@ -881,6 +881,27 @@ class MarketCalendarService:
         item = candidates[0]
         fields = item["fields"]
         assert isinstance(fields, Mapping)
+        canonical_fields = {
+            "mic": str(fields["mic"]),
+            "calendar_id": str(fields["calendar_id"]),
+            "timezone": str(fields["timezone"]),
+            "calendar_source_version": str(
+                fields.get("calendar_source_version")
+                or fields.get("source_version")
+                or "identity-master.v1"
+            ),
+            "opening_auction_minutes": _non_negative_int(
+                fields.get("opening_auction_minutes", 0)
+            ),
+            "closing_auction_minutes": _non_negative_int(
+                fields.get("closing_auction_minutes", 0)
+            ),
+        }
+        canonical_item = {
+            "object_type": "listing",
+            "object_id": str(item.get("object_id", "")),
+            "fields": canonical_fields,
+        }
         history = projection.get("identity_history")
         source_ids = (
             sorted(
@@ -893,11 +914,12 @@ class MarketCalendarService:
             if isinstance(history, list)
             else []
         )
+        canonical_source_id = "|".join(source_ids) or "identity-master:projection"
         source_payload = {
             "instrument_id": projection.get("instrument_id"),
-            "object": item,
+            "object": canonical_item,
             "decision_id": projection.get("identity_decision_id"),
-            "sources": source_ids,
+            "source_id": canonical_source_id,
         }
         known_raw = projection.get("identity_decision_time")
         effective_raw = projection.get("identity_effective_at")
@@ -913,21 +935,13 @@ class MarketCalendarService:
             mic=str(fields["mic"]).upper(),
             calendar_id=str(fields["calendar_id"]),
             timezone=str(fields["timezone"]),
-            source_id="|".join(source_ids) or "identity-master:projection",
+            source_id=canonical_source_id,
             source_checksum=_hash(source_payload),
             valid_from=valid_from,
             known_at=known,
-            source_version=str(
-                fields.get("calendar_source_version")
-                or fields.get("source_version")
-                or "identity-master.v1"
-            ),
-            opening_auction_minutes=_non_negative_int(
-                fields.get("opening_auction_minutes", 0)
-            ),
-            closing_auction_minutes=_non_negative_int(
-                fields.get("closing_auction_minutes", 0)
-            ),
+            source_version=str(canonical_fields["calendar_source_version"]),
+            opening_auction_minutes=int(canonical_fields["opening_auction_minutes"]),
+            closing_auction_minutes=int(canonical_fields["closing_auction_minutes"]),
         )
 
     @staticmethod

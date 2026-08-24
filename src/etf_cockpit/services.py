@@ -64,6 +64,11 @@ from etf_cockpit.data.fx_data import commit_fx_import, fx_data_inventory, load_f
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.fundamentals import load_fundamental_evidence
+from etf_cockpit.data.identity_master import (
+    IdentityMasterSchemaError,
+    IdentityMasterStore,
+    identity_master_exists,
+)
 from etf_cockpit.data.import_pipeline import commit_price_import, rollback_latest_price_import as rollback_price_store
 from etf_cockpit.data.manual_notes import commit_manual_news_import, load_manual_news, validate_manual_news
 from etf_cockpit.data.parsed_disclosures import read_etf_report_records
@@ -76,6 +81,7 @@ from etf_cockpit.data.reference_data import (
     validate_reference_dataset,
 )
 from etf_cockpit.data.sample_data import ensure_sample_files
+from etf_cockpit.data.trust_artifacts import IDENTITY_PATH
 from etf_cockpit.data.trade_candidate_analysis import (
     fetch_candidate_prices,
     load_candidate_price_binding,
@@ -282,6 +288,48 @@ def _run_backtest_compatibly(config: AppConfig, prices: pd.DataFrame, **kwargs: 
     accepts_kwargs = any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
     supported = kwargs if accepts_kwargs else {key: value for key, value in kwargs.items() if key in parameters}
     return run_backtest(config, prices, **supported)
+
+
+def _open_backtest_calendar_identity_resolver() -> tuple[
+    IdentityMasterStore | None,
+    Callable[[str, object], Mapping[str, object] | None] | None,
+]:
+    """Open one read-only logical identity view for the complete backtest run."""
+
+    identity_path = Path(IDENTITY_PATH).resolve()
+    if len(identity_path.parents) < 3:
+        return None, None
+    root = identity_path.parents[2]
+    try:
+        if not identity_master_exists(root):
+            return None, None
+        store = IdentityMasterStore(root)
+    except (IdentityMasterSchemaError, OSError, ValueError):
+        return None, None
+    cache: dict[tuple[str, str], Mapping[str, object] | None] = {}
+
+    def resolve(instrument_id: str, signal_timestamp: object) -> Mapping[str, object] | None:
+        try:
+            timestamp = pd.Timestamp(signal_timestamp)
+            if pd.isna(timestamp):
+                return None
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.tz_localize("UTC")
+            else:
+                timestamp = timestamp.tz_convert("UTC")
+            point_in_time = timestamp.isoformat()
+            key = (instrument_id, point_in_time)
+            if key not in cache:
+                cache[key] = store.projection(
+                    instrument_id,
+                    effective_at=point_in_time,
+                    decision_time=point_in_time,
+                )
+            return cache[key]
+        except (IdentityMasterSchemaError, KeyError, TypeError, ValueError, OverflowError):
+            return None
+
+    return store, resolve
 
 
 def _load_structure_caps(instrument_ids: object, decision_time: object) -> dict[str, float]:
@@ -1997,6 +2045,7 @@ class BacktestService:
             structure_evidence = _load_local_structural_evidence()
         except Exception:
             structure_evidence = None
+        identity_store, calendar_identity_resolver = _open_backtest_calendar_identity_resolver()
         try:
             report = _run_backtest_compatibly(
                 self.config,
@@ -2010,6 +2059,7 @@ class BacktestService:
                 benchmark_reference=reference_context.projection,
                 reference_identity=reference_context.identity,
                 benchmark_registry=reference_context.registry,
+                calendar_identity_resolver=calendar_identity_resolver,
             )
             # Bind every runner result to the freshly resolved readback context
             # before publication, including older local runner seams.
@@ -2018,6 +2068,9 @@ class BacktestService:
             report.results["benchmark_strategy"] = reference_binding["benchmark_strategy"]
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
+        finally:
+            if identity_store is not None:
+                identity_store.close()
         run_id = settings_bound_run_id("backtest", settings_identity=settings_identity)
         with publication_scope(publish_guard):
             ensure_run_manifest(

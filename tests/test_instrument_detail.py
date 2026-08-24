@@ -56,7 +56,6 @@ def _calendar_fields() -> dict[str, object]:
                 "mic": "XETR",
                 "calendar_id": "XETR",
                 "timezone": "Europe/Berlin",
-                "calendar_source_version": "identity-master.v1",
                 "opening_auction_minutes": 5,
                 "closing_auction_minutes": 10,
             },

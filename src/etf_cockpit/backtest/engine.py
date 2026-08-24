@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import hashlib
 import json
 from itertools import combinations
@@ -835,6 +835,7 @@ def run_backtest(
     benchmark_reference: Mapping[str, object] | None = None,
     reference_identity: Mapping[str, object] | None = None,
     benchmark_registry: CanonicalBenchmarkRegistry | None = None,
+    calendar_identity_resolver: Callable[[str, object], Mapping[str, object] | None] | None = None,
 ) -> BacktestReport:
     validate_execution_disabled(benchmark_reference or unavailable_reference_projection())
     validate_execution_disabled(reference_identity or {})
@@ -1192,7 +1193,11 @@ def run_backtest(
                                         else "explicit_transaction_cost_bps"
                                     )
                                 ),
-                                calendar_identity=_calendar_identity_from_price_rows(prices, instrument_id),
+                                calendar_identity=(
+                                    calendar_identity_resolver(str(instrument_id), dt)
+                                    if calendar_identity_resolver is not None
+                                    else _calendar_identity_from_price_rows(prices, instrument_id)
+                                ),
                                 calendar_service=calendar_service,
                                 decision_price_source_identity=_price_source_identity(prices, instrument_id, dt),
                                 next_open_source_identity=_price_source_identity(prices, instrument_id, execution_dt),
