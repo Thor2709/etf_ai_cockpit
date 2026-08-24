@@ -7,7 +7,7 @@ import hashlib
 import json
 from numbers import Integral
 from typing import Mapping
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from etf_cockpit.data.market_calendar import (
     ClockContext,
@@ -242,7 +242,14 @@ def operational_calendar_record_is_canonical(
             json.dumps(lineage_payload, sort_keys=True).encode("utf-8")
         ).hexdigest()
         return expected == record["calendar_session_lineage_hash"]
-    except (MarketClockError, TypeError, ValueError, OverflowError, AttributeError):
+    except (
+        MarketClockError,
+        ZoneInfoNotFoundError,
+        TypeError,
+        ValueError,
+        OverflowError,
+        AttributeError,
+    ):
         return False
 
 

@@ -12,9 +12,11 @@ import pytest
 from etf_cockpit.app.pages.backtests import backtests_page
 from etf_cockpit.app.pages.signals import _signals_operational_evidence
 from etf_cockpit.backtest.engine import (
+    BacktestReport,
     BacktestDataUnavailableError,
     _execution_evidence,
     _canonical_calendar_contract,
+    _canonical_session_close_timestamp,
     _corporate_action_adjusted_pivot,
     _instrument_operational_evidence,
     _log_equity_returns,
@@ -558,6 +560,41 @@ def test_canonical_calendar_persists_listing_timezone_local_dates() -> None:
     assert reason == "canonical_market_session_timestamp_unavailable"
 
 
+def test_canonical_calendar_rejects_unknown_timezone_without_crashing() -> None:
+    projection = {
+        "status": "available",
+        "instrument_id": "X",
+        "identity_decision_id": "calendar-test-decision",
+        "identity_decision_time": "2026-01-01T00:00:00+00:00",
+        "identity_effective_at": "2020-01-01",
+        "identity_objects": [{
+            "object_type": "listing",
+            "object_id": "listing:X:UNKNOWN",
+            "fields": {
+                "mic": "XETR",
+                "calendar_id": "XETR",
+                "timezone": "Not/A_Real_Timezone",
+            },
+        }],
+        "identity_history": [{"source_id": "calendar-test-source"}],
+    }
+
+    _, reason = _canonical_calendar_contract(
+        projection,
+        "X",
+        "2026-06-02T16:00:00+00:00",
+        "2026-06-03T16:00:00+00:00",
+    )
+    assert reason == "canonical_market_calendar_identity_unavailable"
+    assert _canonical_session_close_timestamp(
+        projection,
+        "X",
+        date(2026, 6, 2),
+        service=MarketCalendarService(),
+        knowledge_cutoff="2026-06-02T16:00:00+00:00",
+    ) is None
+
+
 def test_operational_evidence_rejects_close_prices_before_session_close() -> None:
     projection = {
         "status": "available",
@@ -690,13 +727,45 @@ def test_backtest_operational_evidence_is_exactly_instrument_scoped() -> None:
     assert evidence["estimated_cost_bps_source"].str.endswith(":CostEstimate.total_cost_bps").all()
     assert (evidence["estimated_cost_bps"] >= evidence["cost_spread_assumption_bps"]).all()
     assert (evidence["estimated_cost_bps"] > evidence["cost_spread_assumption_bps"]).any()
-    timestamped = evidence.dropna(subset=["signal_timestamp", "execution_timestamp"])
+    missing_timestamps = evidence.loc[
+        evidence["signal_timestamp"].isna() | evidence["execution_timestamp"].isna()
+    ]
+    assert missing_timestamps["evidence_status"].eq("unavailable").all()
+    assert missing_timestamps["evidence_reason"].str.contains(
+        "signal_or_execution_timestamp_unavailable", regex=False
+    ).all()
+    timestamped = evidence.drop(index=missing_timestamps.index)
+    assert len(timestamped) + len(missing_timestamps) == len(evidence)
     assert (
         pd.to_datetime(timestamped["execution_timestamp"])
         > pd.to_datetime(timestamped["signal_timestamp"])
     ).all()
     assert "lookahead_protection" not in set(evidence["signal_timestamp"].astype(str))
     assert evidence["evidence_status"].eq("available").any()
+
+
+def test_operational_evidence_readback_preserves_raw_integer_types() -> None:
+    rows = [
+        {
+            "execution_delay_sessions": value,
+            "calendar_opening_auction_minutes": value,
+            "calendar_closing_auction_minutes": value,
+        }
+        for value in (1, True, 1.5, "1", None)
+    ]
+    report = BacktestReport(
+        results=pd.DataFrame(),
+        equity_curves=pd.DataFrame(),
+        trade_log=pd.DataFrame(),
+        signal_log=pd.DataFrame(),
+        ai_added_value=False,
+        metadata={"operational_evidence_rows": rows},
+    )
+
+    evidence = report.operational_evidence
+
+    for field in rows[0]:
+        assert evidence[field].tolist() == [1, True, 1.5, "1", None]
 
 
 def test_sample_calendar_identity_survives_persisted_backtest_without_identity_master(
@@ -792,6 +861,32 @@ def test_sample_calendar_identity_survives_persisted_backtest_without_identity_m
     assert contradictory_panel["status"] == "unavailable"
     assert contradictory_panel["rows"] == []
     assert contradictory_panel["execution_allowed"] is False
+
+
+def test_unreadable_identity_store_never_uses_sample_calendar_fallback(
+    monkeypatch,
+) -> None:
+    def unreadable(_root):
+        raise services.IdentityMasterSchemaError("identity store is corrupt")
+
+    monkeypatch.setattr(services, "identity_master_exists", unreadable)
+    store, resolver = services._open_backtest_calendar_identity_resolver()
+    assert store is None
+    assert resolver is not None
+    config = load_config()
+    prices = generate_sample_prices(
+        config, periods=360, end_date=pd.Timestamp("2026-06-26").date()
+    )
+
+    report = run_backtest(
+        config,
+        prices,
+        rebalance_frequency_days=42,
+        calendar_identity_resolver=resolver,
+    )
+
+    assert not report.operational_evidence["evidence_status"].eq("available").any()
+    assert report.operational_evidence["execution_allowed"].eq(False).all()
 
 
 def test_explicit_all_in_cost_does_not_masquerade_as_spread() -> None:

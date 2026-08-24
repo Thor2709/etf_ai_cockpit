@@ -296,6 +296,14 @@ def _open_backtest_calendar_identity_resolver() -> tuple[
 ]:
     """Open one read-only logical identity view for the complete backtest run."""
 
+    def unavailable(instrument_id: str, _signal_timestamp: object) -> Mapping[str, object]:
+        return {
+            "status": "unavailable",
+            "instrument_id": instrument_id,
+            "reason": "canonical_identity_store_unreadable",
+            "execution_allowed": False,
+        }
+
     identity_path = Path(IDENTITY_PATH).resolve()
     if len(identity_path.parents) < 3:
         return None, None
@@ -305,7 +313,7 @@ def _open_backtest_calendar_identity_resolver() -> tuple[
             return None, None
         store = IdentityMasterStore(root)
     except (IdentityMasterSchemaError, OSError, ValueError):
-        return None, None
+        return None, unavailable
     cache: dict[tuple[str, str], Mapping[str, object] | None] = {}
 
     def resolve(instrument_id: str, signal_timestamp: object) -> Mapping[str, object] | None:
@@ -327,7 +335,7 @@ def _open_backtest_calendar_identity_resolver() -> tuple[
                 )
             return cache[key]
         except (IdentityMasterSchemaError, KeyError, TypeError, ValueError, OverflowError):
-            return None
+            return unavailable(instrument_id, signal_timestamp)
 
     return store, resolve
 

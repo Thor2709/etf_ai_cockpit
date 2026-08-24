@@ -142,6 +142,19 @@ def test_operational_calendar_readback_rejects_timezone_naive_instants() -> None
     )
 
 
+def test_operational_calendar_readback_rejects_unknown_timezone_without_crashing() -> None:
+    record = _calendar_fields()
+    record["calendar_timezone"] = "Not/A_Real_Timezone"
+    assert not operational_calendar_record_is_canonical(
+        record,
+        instrument_id="VWCE",
+        signal_timestamp="2026-06-01T16:00:00+00:00",
+        execution_timestamp="2026-06-02T16:00:00+00:00",
+        signal_date=date(2026, 6, 1),
+        execution_date=date(2026, 6, 2),
+    )
+
+
 def test_instrument_detail_scoreboard_reader_hides_classification_invalidated_score(
     tmp_path,
     monkeypatch,

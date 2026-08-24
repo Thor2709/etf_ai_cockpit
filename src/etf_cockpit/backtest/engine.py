@@ -7,7 +7,7 @@ import hashlib
 import json
 from itertools import combinations
 from statistics import NormalDist
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import numpy as np
 import pandas as pd
@@ -80,7 +80,9 @@ class BacktestReport:
         rows = self.metadata.get("operational_evidence_rows", [])
         if not isinstance(rows, list):
             return pd.DataFrame()
-        frame = pd.DataFrame(rows)
+        if any(not isinstance(row, Mapping) for row in rows):
+            return pd.DataFrame()
+        frame = pd.DataFrame([dict(row) for row in rows])
         for field_name in (
             "execution_delay_sessions",
             "calendar_opening_auction_minutes",
@@ -88,10 +90,7 @@ class BacktestReport:
         ):
             if field_name in frame:
                 frame[field_name] = pd.Series(
-                    [
-                        None if pd.isna(value) else int(value)
-                        for value in frame[field_name].tolist()
-                    ],
+                    [row.get(field_name) for row in rows],
                     dtype=object,
                 )
         return frame
@@ -394,10 +393,10 @@ def _canonical_calendar_contract(
     if signal_instant is None or execution_instant is None or execution_instant <= signal_instant:
         return {}, "canonical_market_session_timestamp_unavailable"
     calendar_service = service or MarketCalendarService()
-    zone = ZoneInfo(listing.timezone)
-    signal_day = signal_instant.astimezone(zone).date()
-    execution_day = execution_instant.astimezone(zone).date()
     try:
+        zone = ZoneInfo(listing.timezone)
+        signal_day = signal_instant.astimezone(zone).date()
+        execution_day = execution_instant.astimezone(zone).date()
         cutoff = signal_instant
         if not calendar_service.is_business_day(listing, signal_day, knowledge_cutoff=cutoff):
             return {}, "canonical_signal_session_unavailable"
@@ -424,7 +423,7 @@ def _canonical_calendar_contract(
             return {}, "decision_price_not_available_at_signal_timestamp"
         if execution_state.session_close is None or execution_instant < execution_state.session_close:
             return {}, "next_period_reference_not_available_at_execution_timestamp"
-    except (MarketClockError, TypeError, ValueError, OverflowError):
+    except (MarketClockError, ZoneInfoNotFoundError, TypeError, ValueError, OverflowError):
         return {}, "canonical_market_session_unavailable"
     lineage_payload = {
         "listing": listing.lineage_hash,
@@ -484,7 +483,7 @@ def _canonical_session_close_timestamp(
             listing,
             ClockContext.at(probe, knowledge_cutoff=cutoff.to_pydatetime()),
         )
-    except (MarketClockError, TypeError, ValueError, OverflowError):
+    except (MarketClockError, ZoneInfoNotFoundError, TypeError, ValueError, OverflowError):
         return None
     if state.certification != "certified" or not state.is_session:
         return None
