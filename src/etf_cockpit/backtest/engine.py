@@ -497,9 +497,19 @@ def _calendar_identity_from_price_rows(prices: pd.DataFrame, instrument_id: obje
     if rows.empty:
         return None
     if "calendar_identity" in rows.columns:
-        candidates = [value for value in rows["calendar_identity"] if isinstance(value, Mapping)]
-        if candidates and all(dict(value) == dict(candidates[0]) for value in candidates):
-            return candidates[0]
+        values = rows["calendar_identity"].tolist()
+        if not values or any(not isinstance(value, Mapping) for value in values):
+            return None
+        try:
+            encoded = [
+                json.dumps(dict(value), sort_keys=True, separators=(",", ":"), allow_nan=False)
+                for value in values
+            ]
+        except (TypeError, ValueError):
+            return None
+        if len(set(encoded)) == 1:
+            return json.loads(encoded[0])
+        return None
     if not set(_CALENDAR_COLUMNS).issubset(rows.columns):
         return None
     values: dict[str, object] = {}

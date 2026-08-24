@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import json
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +30,15 @@ def _sample_calendar_identities() -> dict[str, dict[str, object]]:
         if isinstance(fields, dict)
         and all(type(fields.get(key)) is str and fields.get(key).strip() for key in ("mic", "calendar_id", "timezone"))
     }
+
+
+def _sample_calendar_identity_json(value: object) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError):
+        return None
 
 
 def generate_sample_prices(config: AppConfig, periods: int = 900, end_date: date | None = None) -> pd.DataFrame:
@@ -173,6 +183,11 @@ def ensure_sample_files(
         holdings = generate_sample_holdings(config, prices)
         with publication_scope(publish_guard):
             ensure_project_dirs()
-            prices.to_csv(price_path, index=False)
+            csv_prices = prices.copy()
+            if "calendar_identity" in csv_prices.columns:
+                csv_prices["calendar_identity"] = csv_prices["calendar_identity"].map(
+                    _sample_calendar_identity_json
+                )
+            csv_prices.to_csv(price_path, index=False)
             holdings.to_csv(holdings_path, index=False)
     return price_path, holdings_path

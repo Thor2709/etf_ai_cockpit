@@ -25,9 +25,11 @@ from etf_cockpit.backtest.engine import (
 from etf_cockpit.backtest.metrics import performance_metrics, tail_event_diagnostics
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.atomic_io import AtomicWriteRequest
+from etf_cockpit.data import duckdb_store, sample_data
 from etf_cockpit.data.sample_data import generate_sample_prices
 from etf_cockpit.data.market_calendar import ListingCalendarEvidence, MarketCalendarService
 from etf_cockpit.app.pages.signals import _latest_operational_row
+from etf_cockpit.app.selectors.instrument_detail import _operational_evidence_panel
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit import services
 
@@ -634,6 +636,68 @@ def test_backtest_operational_evidence_is_exactly_instrument_scoped() -> None:
     assert (pd.to_datetime(evidence["execution_timestamp"]) > pd.to_datetime(evidence["signal_timestamp"])).all()
     assert "lookahead_protection" not in set(evidence["signal_timestamp"].astype(str))
     assert evidence["evidence_status"].eq("available").any()
+
+
+def test_sample_calendar_identity_survives_persisted_backtest_without_identity_master(
+    tmp_path, monkeypatch
+) -> None:
+    config = load_config()
+    real_generator = sample_data.generate_sample_prices
+    monkeypatch.setattr(
+        sample_data,
+        "generate_sample_prices",
+        lambda selected_config: real_generator(
+            selected_config, periods=360, end_date=pd.Timestamp("2026-06-26").date()
+        ),
+    )
+    raw_dir = tmp_path / "raw"
+    portfolios_dir = tmp_path / "portfolios"
+    (raw_dir / "prices").mkdir(parents=True)
+    portfolios_dir.mkdir()
+    monkeypatch.setattr(sample_data, "RAW_DIR", raw_dir)
+    monkeypatch.setattr(sample_data, "PORTFOLIOS_DIR", portfolios_dir)
+    monkeypatch.setattr(sample_data, "ensure_project_dirs", lambda: None)
+    parquet_path = tmp_path / "validated" / "prices.parquet"
+    real_write_prices = duckdb_store.write_prices
+    monkeypatch.setattr(
+        duckdb_store,
+        "write_prices",
+        lambda prices: real_write_prices(prices, parquet_path),
+    )
+
+    price_csv, _ = sample_data.ensure_sample_files(config, force=True)
+    persisted_csv = price_csv.read_text(encoding="utf-8")
+    assert "'calendar_id': 'XETR'" not in persisted_csv
+    persisted_identity = pd.read_csv(price_csv).loc[
+        lambda frame: frame["etf_id"].eq("VWCE"), "calendar_identity"
+    ].iloc[0]
+    assert json.loads(persisted_identity)["identity_objects"][0]["fields"]["calendar_id"] == "XETR"
+
+    duckdb_store.initialise_store(config, force_sample=True)
+    prices = duckdb_store.load_prices(parquet_path)
+    identity = prices.loc[prices["etf_id"].eq("VWCE"), "calendar_identity"].iloc[0]
+    assert isinstance(identity, dict)
+    assert identity["instrument_id"] == "VWCE"
+
+    report = run_backtest(config, prices, rebalance_frequency_days=42)
+    evidence = report.operational_evidence
+    available = evidence.loc[evidence["evidence_status"].eq("available")]
+    assert not available.empty
+    assert all(value is False for value in available["execution_allowed"].tolist())
+    instrument_id = str(available.iloc[0]["instrument_id"])
+    panel = _operational_evidence_panel(report, instrument_id)
+    assert panel["status"] == "available"
+    assert panel["rows"]
+    assert panel["execution_allowed"] is False
+
+    malformed = pd.read_csv(price_csv)
+    malformed.loc[malformed["etf_id"].eq("VWCE"), "calendar_identity"] = (
+        "{'status': 'available'}"
+    )
+    malformed_path = tmp_path / "malformed.csv"
+    malformed.to_csv(malformed_path, index=False)
+    malformed_loaded = duckdb_store.read_price_csv(malformed_path)
+    assert malformed_loaded.loc[malformed_loaded["etf_id"].eq("VWCE"), "calendar_identity"].isna().all()
 
 
 def test_explicit_all_in_cost_does_not_masquerade_as_spread() -> None:
