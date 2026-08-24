@@ -4960,3 +4960,11 @@ and floating replay types, and updates the coupled ISSUE-0104 producer fixture
 to a complete v2 snapshot. The complete affected 100-test selection and local
 smoke/static checks pass. Freeze one replacement for paired final review and a
 fresh cadence-required package gate.
+
+Head `8062301466b793a509f466432cc33ca8a78e98c0` passed risk review and exact-head
+Linux, Windows and terminal run `32713795289`, but whole-diff review reproduced
+one remaining cache-integrity defect: compact nested date `20260102` was
+normalized before replay comparison. That evidence is stale. Require exact
+canonical ISO spelling for persisted contribution dates, add the direct
+malformed-cache regression, and freeze the resulting bounded correction for
+both final reviews and fresh cadence-required package evidence.

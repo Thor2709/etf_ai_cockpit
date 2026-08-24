@@ -3728,3 +3728,11 @@ ISSUE-0104 fake producer emits a complete v2 snapshot. Direct regressions and
 the complete affected 100-test application selection pass with offline smoke,
 compile, registry, Ruff and diff hygiene. Freeze one replacement exact head for
 paired final review and fresh cross-platform evidence.
+
+Head `8062301466b793a509f466432cc33ca8a78e98c0` passed risk review and exact-head
+Linux, Windows and terminal run `32713795289`, but whole-diff review reproduced
+one remaining cache-integrity defect: Python accepted compact nested date
+`20260102` and normalized it before replay comparison. That evidence becomes
+stale. Require the persisted contribution date to equal its canonical ISO
+spelling and cover the exact malformed cache; make no adjacent changes before
+freezing the replacement head for both reviews and fresh hosted evidence.

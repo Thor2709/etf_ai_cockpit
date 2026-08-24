@@ -1789,6 +1789,8 @@ def _decode_negative_contribution_periods(value: object) -> list[dict[str, objec
             contribution_return = float(raw_return)
         except (TypeError, ValueError):
             return None
+        if contribution_date.isoformat() != raw_date:
+            return None
         if not math.isfinite(contribution_return) or contribution_return >= 0:
             return None
         records.append({"date": contribution_date, "return": contribution_return})

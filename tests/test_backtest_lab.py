@@ -397,6 +397,10 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
             "largest_negative_contribution_periods",
             json.dumps([{"date": "2026-01-02", "return": "-0.1"}]),
         ),
+        (
+            "largest_negative_contribution_periods",
+            json.dumps([{"date": "20260102", "return": -0.1}]),
+        ),
     ):
         malformed_results = pd.read_csv(BytesIO(original_results))
         malformed_results[column] = malformed_value
