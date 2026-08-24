@@ -1,0 +1,22 @@
+schema_version: sample-calendar-identities.v1
+identities:
+  VWCE:
+    mic: XETR
+    calendar_id: XETR
+    timezone: Europe/Berlin
+  LYP6:
+    mic: XETR
+    calendar_id: XETR
+    timezone: Europe/Berlin
+  SPYK:
+    mic: XETR
+    calendar_id: XETR
+    timezone: Europe/Berlin
+  SXRJ_EMU_SMALL:
+    mic: XETR
+    calendar_id: XETR
+    timezone: Europe/Berlin
+  EXX1:
+    mic: XETR
+    calendar_id: XETR
+    timezone: Europe/Berlin

@@ -27,9 +27,6 @@ from etf_cockpit.core.config import load_config
 from etf_cockpit.core.atomic_io import AtomicWriteRequest
 from etf_cockpit.data.sample_data import generate_sample_prices
 from etf_cockpit.data.market_calendar import ListingCalendarEvidence, MarketCalendarService
-from etf_cockpit.data.contracts import SourceAuthority
-from etf_cockpit.data.identity_master import IdentityMasterStore
-from etf_cockpit.data.instrument_identity import IdentityClaim
 from etf_cockpit.app.pages.signals import _latest_operational_row
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit import services
@@ -636,6 +633,7 @@ def test_backtest_operational_evidence_is_exactly_instrument_scoped() -> None:
     assert (evidence["estimated_cost_bps"] > evidence["cost_spread_assumption_bps"]).any()
     assert (pd.to_datetime(evidence["execution_timestamp"]) > pd.to_datetime(evidence["signal_timestamp"])).all()
     assert "lookahead_protection" not in set(evidence["signal_timestamp"].astype(str))
+    assert evidence["evidence_status"].eq("available").any()
 
 
 def test_explicit_all_in_cost_does_not_masquerade_as_spread() -> None:
@@ -726,32 +724,11 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
 
     config = load_config()
     prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
-    identity_root = tmp_path / "identity-root"
-    identity_path = identity_root / "data" / "clean" / "instrument_identity.parquet"
-    monkeypatch.setattr(services, "IDENTITY_PATH", identity_path)
-    claims = []
-    for instrument_id in config.universe.enabled_ids:
-        for field, value in (
-            ("mic", "XETR"),
-            ("calendar_id", "XETR"),
-            ("timezone", "Europe/Berlin"),
-        ):
-            claims.append(
-                IdentityClaim(
-                    instrument_id,
-                    field,
-                    value,
-                    "fixture",
-                    SourceAuthority.OFFICIAL,
-                    f"calendar:{instrument_id}:{field}",
-                    object_type="listing",
-                    object_id=f"listing:{instrument_id}:XETR",
-                    valid_from="2024-01-01T00:00:00Z",
-                    available_at="2024-01-02T00:00:00Z",
-                )
-            )
-    with IdentityMasterStore(identity_root) as identity_store:
-        identity_store.append_claims(claims)
+    monkeypatch.setattr(
+        services,
+        "IDENTITY_PATH",
+        tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
+    )
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)

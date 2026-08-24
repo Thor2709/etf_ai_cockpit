@@ -5,10 +5,30 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml  # type: ignore[import-untyped]
 
 from etf_cockpit.core.config import AppConfig
-from etf_cockpit.core.paths import PORTFOLIOS_DIR, RAW_DIR, ensure_project_dirs
+from etf_cockpit.core.paths import CONFIG_DIR, PORTFOLIOS_DIR, RAW_DIR, ensure_project_dirs
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
+
+
+def _sample_calendar_identities() -> dict[str, dict[str, object]]:
+    path = CONFIG_DIR / "sample_calendar_identities.yaml"
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, UnicodeError, yaml.YAMLError):
+        return {}
+    identities = payload.get("identities") if isinstance(payload, dict) else None
+    if payload.get("schema_version") != "sample-calendar-identities.v1" or not isinstance(
+        identities, dict
+    ):
+        return {}
+    return {
+        str(instrument_id): dict(fields)
+        for instrument_id, fields in identities.items()
+        if isinstance(fields, dict)
+        and all(type(fields.get(key)) is str and fields.get(key).strip() for key in ("mic", "calendar_id", "timezone"))
+    }
 
 
 def generate_sample_prices(config: AppConfig, periods: int = 900, end_date: date | None = None) -> pd.DataFrame:
@@ -31,6 +51,8 @@ def generate_sample_prices(config: AppConfig, periods: int = 900, end_date: date
         "commodity": (0.00010, 0.009),
     }
     start_prices = np.linspace(35, 125, num=max(1, len(config.universe.etfs)))
+    identity_known_at = (dates[0].tz_localize("UTC") - pd.Timedelta(days=1)).isoformat()
+    calendar_identities = _sample_calendar_identities()
 
     for index, etf in enumerate(config.universe.etfs):
         drift, vol = role_params.get(etf.role, (0.00015, 0.010))
@@ -58,6 +80,26 @@ def generate_sample_prices(config: AppConfig, periods: int = 900, end_date: date
         low = np.minimum(open_price, close) * (1 - np.abs(rng.normal(0.0025, 0.0015, len(dates))))
         volume_base = 100_000 + 25_000 * index
         volume = np.maximum(0, rng.normal(volume_base, volume_base * 0.18, size=len(dates))).round()
+        calendar_identity = None
+        calendar_fields = calendar_identities.get(etf.id)
+        if calendar_fields is not None:
+            calendar_identity = {
+                "status": "available",
+                "instrument_id": etf.id,
+                "identity_decision_id": f"sample-calendar:{etf.id}",
+                "identity_decision_time": identity_known_at,
+                "identity_effective_at": dates[0].date().isoformat(),
+                "identity_objects": [{
+                    "object_type": "listing",
+                    "object_id": f"sample-listing:{etf.id}:{calendar_fields['mic']}",
+                    "fields": {
+                        **calendar_fields,
+                        "calendar_source_version": "sample-calendar-identities.v1",
+                    },
+                }],
+                "identity_history": [{"source_id": f"sample_generator:calendar:{etf.id}"}],
+                "execution_allowed": False,
+            }
 
         for dt, opn, hi, lo, cls, volm in zip(dates, open_price, high, low, close, volume):
             rows.append(
@@ -75,6 +117,7 @@ def generate_sample_prices(config: AppConfig, periods: int = 900, end_date: date
                     "source": "sample_generator",
                     "is_adjusted": True,
                     "ingested_at": pd.Timestamp.now(tz="UTC").isoformat(),
+                    "calendar_identity": calendar_identity,
                 }
             )
 

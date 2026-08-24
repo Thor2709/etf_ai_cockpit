@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import date
+import hashlib
+import json
 
 import pandas as pd
 
@@ -13,6 +15,7 @@ from etf_cockpit.application.ui_facade import (
     load_classification_projection,
     load_identity_projection,
 )
+from etf_cockpit.application.market_clock import operational_calendar_record_is_canonical
 from etf_cockpit.data.classification import (
     ClassificationEvidence,
     ClassificationOverride,
@@ -24,7 +27,7 @@ from etf_cockpit.data.identity_master import IdentityMasterStore, IdentitySource
 from etf_cockpit.data.instrument_identity import IdentityClaim
 from etf_cockpit.backtest.engine import _canonical_calendar_contract
 from etf_cockpit.backtest.engine import _instrument_operational_evidence
-from etf_cockpit.data.market_calendar import MarketCalendarService
+from etf_cockpit.data.market_calendar import ClockContext, MarketCalendarService
 from etf_cockpit.services import build_snapshot
 from etf_cockpit.signals.feature_drivers import claim_binding_hash, deterministic_driver_claim
 from etf_cockpit.signals.simple_scores import load_simple_scoreboard
@@ -73,6 +76,57 @@ def _calendar_fields() -> dict[str, object]:
     assert fields["calendar_opening_auction_minutes"] == 5
     assert fields["calendar_closing_auction_minutes"] == 10
     return fields
+
+
+def test_operational_calendar_readback_rejects_preclose_adjusted_close_lineage() -> None:
+    record = _calendar_fields()
+    projection = {
+        "status": "available",
+        "instrument_id": "VWCE",
+        "identity_decision_id": record["calendar_identity_decision_id"],
+        "identity_decision_time": record["calendar_known_at"],
+        "identity_effective_at": record["calendar_valid_from"],
+        "identity_objects": [{
+            "object_type": "listing",
+            "object_id": record["calendar_listing_id"],
+            "fields": {
+                "mic": record["calendar_mic"],
+                "calendar_id": record["calendar_id"],
+                "timezone": record["calendar_timezone"],
+                "calendar_source_version": record["calendar_source_version"],
+                "opening_auction_minutes": record["calendar_opening_auction_minutes"],
+                "closing_auction_minutes": record["calendar_closing_auction_minutes"],
+            },
+        }],
+        "identity_history": [{"source_id": record["calendar_source_id"]}],
+    }
+    service = MarketCalendarService()
+    listing = service.listing_from_identity_projection(projection)
+    signal = pd.Timestamp("2026-06-01T14:00:00+00:00").to_pydatetime()
+    execution = pd.Timestamp("2026-06-02T14:00:00+00:00").to_pydatetime()
+    signal_state = service.market_state(listing, ClockContext.at(signal, knowledge_cutoff=signal))
+    execution_state = service.market_state(
+        listing, ClockContext.at(execution, knowledge_cutoff=signal)
+    )
+    lineage_payload = {
+        "listing": listing.lineage_hash,
+        "signal_state": signal_state.lineage_hash,
+        "execution_state": execution_state.lineage_hash,
+        "signal_date": "2026-06-01",
+        "execution_date": "2026-06-02",
+    }
+    record["calendar_session_lineage_hash"] = hashlib.sha256(
+        json.dumps(lineage_payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+    assert not operational_calendar_record_is_canonical(
+        record,
+        instrument_id="VWCE",
+        signal_timestamp=signal,
+        execution_timestamp=execution,
+        signal_date=date(2026, 6, 1),
+        execution_date=date(2026, 6, 2),
+    )
 
 
 def test_instrument_detail_scoreboard_reader_hides_classification_invalidated_score(

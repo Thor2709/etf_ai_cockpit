@@ -80,7 +80,21 @@ class BacktestReport:
         rows = self.metadata.get("operational_evidence_rows", [])
         if not isinstance(rows, list):
             return pd.DataFrame()
-        return pd.DataFrame(rows)
+        frame = pd.DataFrame(rows)
+        for field_name in (
+            "execution_delay_sessions",
+            "calendar_opening_auction_minutes",
+            "calendar_closing_auction_minutes",
+        ):
+            if field_name in frame:
+                frame[field_name] = pd.Series(
+                    [
+                        None if pd.isna(value) else int(value)
+                        for value in frame[field_name].tolist()
+                    ],
+                    dtype=object,
+                )
+        return frame
 
 
 class BacktestDataUnavailableError(ValueError):
@@ -1183,8 +1197,12 @@ def run_backtest(
                         initial_calendar_identity = (
                             calendar_identity_resolver(str(instrument_id), dt)
                             if calendar_identity_resolver is not None
-                            else _calendar_identity_from_price_rows(prices, instrument_id)
+                            else None
                         )
+                        if initial_calendar_identity is None:
+                            initial_calendar_identity = _calendar_identity_from_price_rows(
+                                prices, instrument_id
+                            )
                         signal_close = _canonical_session_close_timestamp(
                             initial_calendar_identity,
                             str(instrument_id),

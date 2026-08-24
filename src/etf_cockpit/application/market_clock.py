@@ -227,6 +227,10 @@ def operational_calendar_record_is_canonical(
         )
         if signal_state.certification != "certified" or execution_state.certification != "certified":
             return False
+        if signal_state.session_close is None or signal_instant < signal_state.session_close:
+            return False
+        if execution_state.session_close is None or execution_instant < execution_state.session_close:
+            return False
         lineage_payload = {
             "listing": listing.lineage_hash,
             "signal_state": signal_state.lineage_hash,
