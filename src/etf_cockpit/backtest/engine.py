@@ -668,8 +668,8 @@ def run_backtest(
 
 
 def _log_equity_returns(equity: pd.Series) -> pd.Series:
-    clean = equity.dropna().astype(float)
-    return np.log(clean / clean.shift(1)).replace([np.inf, -np.inf], np.nan).dropna()
+    observed = pd.to_numeric(equity, errors="coerce")
+    return np.log(observed / observed.shift(1)).replace([np.inf, -np.inf], np.nan).dropna()
 
 
 def _probabilistic_sharpe(returns: pd.Series, *, benchmark_sharpe: float = 0.0) -> float:

@@ -3745,3 +3745,12 @@ readback rejected the writer's own snapshot. Preserve canonical integer CSV
 spelling for those conditional counts, decode only exact non-negative integer
 tokens, and prove a mixed available/unavailable cache is reused without
 recomputation or publication before freezing the replacement head.
+
+Head `71c932ce32a89ef84e00d3711693511b9ffa2a77` is rejected by both final
+reviewers; run `32720398860` is cancelled and stale. Their complete concrete
+set is limited to nullable drawdown durations omitted from the integer codec,
+structured Backtests cells still exposed as sortable, and probabilistic-Sharpe
+returns bridging preserved equity gaps. Extend the existing codec to the two
+duration fields, make only scalar table columns sortable, and compute log
+returns before dropping invalid observations. Add direct zero-publication,
+structured-sort and reported-metric regressions, then freeze one replacement.

@@ -4976,3 +4976,11 @@ pandas, causing strict readback to reject the writer's valid snapshot. Preserve
 canonical integer CSV spelling for those nullable conditional fields, reject
 all non-canonical tokens, and add an end-to-end zero-recompute/zero-publication
 cache-hit regression before freezing the replacement head.
+
+Head `71c932ce32a89ef84e00d3711693511b9ffa2a77` is rejected by both final
+reviewers and run `32720398860` is cancelled/stale. The complete demonstrated
+set is nullable drawdown durations omitted from canonical integer persistence,
+structured result cells incorrectly exposed as sortable, and probabilistic
+Sharpe bridging preserved equity gaps. Correct those three existing paths with
+direct zero-publication, structured-sort and reported-metric regressions before
+freezing one replacement head for both reviews and fresh package evidence.

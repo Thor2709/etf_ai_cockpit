@@ -1803,6 +1803,8 @@ _NULLABLE_INTEGER_DIAGNOSTIC_FIELDS = frozenset(
         "loss_sessions_observed",
         "regime_stress_loss_sessions",
         "regime_stress_sessions_observed",
+        "worst_drawdown_duration_days",
+        "worst_drawdown_duration_sessions",
     }
 )
 

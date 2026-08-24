@@ -12,6 +12,8 @@ from etf_cockpit.app.pages.backtests import backtests_page
 from etf_cockpit.backtest.engine import (
     BacktestDataUnavailableError,
     _execution_evidence,
+    _log_equity_returns,
+    _probabilistic_sharpe,
     quality_momentum_evidence_checksum,
     run_backtest,
 )
@@ -201,6 +203,12 @@ def test_backtest_report_makes_data_and_execution_assumptions_explicit() -> None
     assert pd.isna(observed_returns.loc[next_date])
     buy_and_hold = report.results.loc[report.results["strategy_name"] == "buy_and_hold"].iloc[0]
     assert buy_and_hold["max_drawdown"] == performance_metrics(report.equity_curves["buy_and_hold"])["max_drawdown"]
+    gap_safe_log_returns = _log_equity_returns(report.equity_curves["buy_and_hold"])
+    assert missing_date not in gap_safe_log_returns.index
+    assert next_date not in gap_safe_log_returns.index
+    assert buy_and_hold["probabilistic_sharpe"] == pytest.approx(
+        _probabilistic_sharpe(gap_safe_log_returns)
+    )
     required_trade_fields = {
         "signal_date",
         "execution_date",
@@ -392,6 +400,7 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
         ("diagnostic_status", "unavailable"),
         ("high_volatility_loss_sessions", -1),
         ("high_volatility_loss_sessions", 3.0),
+        ("worst_drawdown_duration_days", 3.0),
         ("performance_concentration_basis", "flat_gross_log_return"),
         ("largest_negative_contribution_periods", "not-json"),
         (
@@ -429,22 +438,35 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(
-        services,
-        "_run_backtest_compatibly",
-        lambda selected_config, selected_prices, **kwargs: run_backtest(
+    def mixed_availability_report(selected_config, selected_prices, **kwargs):
+        report = run_backtest(
             selected_config,
             selected_prices,
             rebalance_frequency_days=10,
             transaction_cost_bps=100_000.0,
             **kwargs,
-        ),
-    )
+        )
+        unavailable_strategy = "momentum_only"
+        report.equity_curves[unavailable_strategy] = 0.0
+        row_index = report.results.index[
+            report.results["strategy_name"] == unavailable_strategy
+        ].item()
+        diagnostics = tail_event_diagnostics(report.equity_curves[unavailable_strategy])
+        for field, value in diagnostics.items():
+            report.results.at[row_index, field] = value
+        report.results.at[row_index, "max_drawdown"] = services.max_drawdown(
+            report.equity_curves[unavailable_strategy]
+        )
+        return report
+
+    monkeypatch.setattr(services, "_run_backtest_compatibly", mixed_availability_report)
     service = services.BacktestService(config, universe_revision="test-revision")
 
     generated = service.run_backtest()
     counts = generated.results["high_volatility_loss_sessions"]
     assert counts.notna().any() and counts.isna().any()
+    durations = generated.results["worst_drawdown_duration_days"]
+    assert durations.notna().any() and durations.isna().any()
     monkeypatch.setattr(
         service,
         "run_backtest",
@@ -459,6 +481,9 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
     cached = service.load_or_run_backtest()
 
     assert cached.results["high_volatility_loss_sessions"].map(
+        lambda value: pd.isna(value) or type(value) is int
+    ).all()
+    assert cached.results["worst_drawdown_duration_days"].map(
         lambda value: pd.isna(value) or type(value) is int
     ).all()
 
