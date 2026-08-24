@@ -65,8 +65,8 @@ def _calendar_fields() -> dict[str, object]:
     fields, reason = _canonical_calendar_contract(
         projection,
         "VWCE",
-        "2026-06-01T00:00:00",
-        "2026-06-02T00:00:00",
+        "2026-06-01T16:00:00+00:00",
+        "2026-06-02T16:00:00+00:00",
         service=MarketCalendarService(),
     )
     assert reason is None
@@ -420,9 +420,9 @@ def test_operational_evidence_rejects_aggregate_and_contradictory_identity_rows(
         "evidence_reason": "canonical_local_backtest_evidence",
         "strategy": "signal_strategy",
         "signal_date": "2026-06-01",
-        "signal_timestamp": "2026-06-01T00:00:00",
+        "signal_timestamp": "2026-06-01T16:00:00+00:00",
         "execution_date": "2026-06-02",
-        "execution_timestamp": "2026-06-02T00:00:00",
+        "execution_timestamp": "2026-06-02T16:00:00+00:00",
         "decision_price": 100.0,
         "decision_price_basis": "adjusted_close",
         "decision_price_source_identity": "test-source|VWCE",
@@ -474,9 +474,9 @@ def test_operational_evidence_malformed_available_rows_fail_closed() -> None:
         "evidence_reason": "canonical_local_backtest_evidence",
         "strategy": "signal_strategy",
         "signal_date": "2026-06-01",
-        "signal_timestamp": "2026-06-01T00:00:00",
+        "signal_timestamp": "2026-06-01T16:00:00+00:00",
         "execution_date": "2026-06-02",
-        "execution_timestamp": "2026-06-02T00:00:00",
+        "execution_timestamp": "2026-06-02T16:00:00+00:00",
         "decision_price": 100.0,
         "decision_price_basis": "adjusted_close",
         "decision_price_source_identity": "test-source|VWCE",
@@ -585,8 +585,8 @@ def test_operational_evidence_malformed_available_rows_fail_closed() -> None:
             "identity_history": [{"source_id": "calendar-test-source"}],
         },
         "VWCE",
-        "2026-06-01T22:30:00+00:00",
-        "2026-06-02T22:30:00+00:00",
+        "2026-06-01T16:00:00+00:00",
+        "2026-06-02T16:00:00+00:00",
         service=MarketCalendarService(),
     )
     assert reason is None
@@ -654,8 +654,8 @@ corrections:
     evidence = _instrument_operational_evidence(
         instrument_id="VWCE",
         strategy="signal_strategy",
-        signal_timestamp="2024-01-02T16:00:00+00:00",
-        execution_timestamp="2024-01-04T16:00:00+00:00",
+        signal_timestamp="2024-01-02T17:00:00+00:00",
+        execution_timestamp="2024-01-04T17:00:00+00:00",
         signal_date=date(2024, 1, 2),
         execution_date=date(2024, 1, 4),
         decision_price=100.0,

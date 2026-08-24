@@ -363,6 +363,29 @@ def test_operational_evidence_fails_closed_for_partial_ohlc_and_same_bar() -> No
     assert later_same_session["evidence_status"] == "unavailable"
     assert later_same_session["execution_delay_sessions"] is None
 
+    mixed_timezone = _instrument_operational_evidence(
+        instrument_id="VWCE",
+        strategy="signal_strategy",
+        signal_timestamp="2026-06-01T00:00:00",
+        execution_timestamp="2026-06-02T00:00:00+00:00",
+        signal_date=date(2026, 6, 1),
+        execution_date=date(2026, 6, 2),
+        decision_price=100.0,
+        next_open=101.0,
+        next_period_close=102.0,
+        high=103.0,
+        low=99.0,
+        open_price=101.0,
+        cost_spread_assumption_bps=4.0,
+        cost_spread_assumption_source="execution-cost-v1",
+        canonical_session_dates=pd.to_datetime(["2026-06-01", "2026-06-02"]),
+        decision_price_source_identity="source|VWCE",
+        next_open_source_identity="source|VWCE",
+        next_period_source_identity="source|VWCE",
+    )
+    assert mixed_timezone["evidence_status"] == "available"
+    assert mixed_timezone["execution_allowed"] is False
+
 
 def test_operational_evidence_does_not_label_a_missing_or_non_next_session_as_one_delay() -> None:
     kwargs = dict(
@@ -471,15 +494,15 @@ def test_canonical_calendar_persists_listing_timezone_local_dates() -> None:
     fields, reason = _canonical_calendar_contract(
         projection,
         "X",
-        "2026-06-01T22:30:00+00:00",
-        "2026-06-02T22:30:00+00:00",
+        "2026-06-02T16:00:00+00:00",
+        "2026-06-03T16:00:00+00:00",
     )
     assert reason is None
     assert fields["signal_date"] == date(2026, 6, 2)
     assert fields["execution_date"] == date(2026, 6, 3)
 
 
-def test_operational_evidence_uses_listing_local_dates_for_forward_session() -> None:
+def test_operational_evidence_rejects_close_prices_before_session_close() -> None:
     projection = {
         "status": "available",
         "instrument_id": "X",
@@ -523,10 +546,11 @@ def test_operational_evidence_uses_listing_local_dates_for_forward_session() -> 
         calendar_service=MarketCalendarService(),
     )
 
-    assert evidence["evidence_status"] == "available"
+    assert evidence["evidence_status"] == "unavailable"
     assert evidence["signal_date"] == date(2026, 6, 2)
     assert evidence["execution_date"] == date(2026, 6, 3)
-    assert evidence["same_bar_execution_avoided"] is True
+    assert "decision_price_not_available_at_signal_timestamp" in evidence["evidence_reason"]
+    assert evidence["same_bar_execution_avoided"] is False
 
 
 def test_signals_select_latest_operational_row_by_decision_order() -> None:

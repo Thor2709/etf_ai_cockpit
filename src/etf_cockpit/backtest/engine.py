@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from collections.abc import Callable, Mapping
 import hashlib
 import json
@@ -403,6 +403,10 @@ def _canonical_calendar_contract(
         )
         if signal_state.certification != "certified" or execution_state.certification != "certified":
             return {}, "canonical_market_session_unavailable"
+        if signal_state.session_close is None or signal_instant < signal_state.session_close:
+            return {}, "decision_price_not_available_at_signal_timestamp"
+        if execution_state.session_close is None or execution_instant < execution_state.session_close:
+            return {}, "next_period_reference_not_available_at_execution_timestamp"
     except (MarketClockError, TypeError, ValueError, OverflowError):
         return {}, "canonical_market_session_unavailable"
     lineage_payload = {
@@ -431,6 +435,43 @@ def _canonical_calendar_contract(
         "signal_date": signal_day,
         "execution_date": execution_day,
     }, None
+
+
+def _canonical_session_close_timestamp(
+    identity: object,
+    instrument_id: str,
+    session_date: object,
+    *,
+    service: MarketCalendarService,
+    knowledge_cutoff: object,
+) -> datetime | None:
+    """Return a certified close instant using only knowledge available at the cutoff."""
+
+    if not isinstance(identity, Mapping):
+        return None
+    projection = _calendar_projection(identity, instrument_id)
+    if not projection:
+        return None
+    try:
+        listing = service.listing_from_identity_projection(projection)
+        day = pd.Timestamp(session_date).date()
+        cutoff = pd.Timestamp(knowledge_cutoff)
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.tz_localize(timezone.utc)
+        else:
+            cutoff = cutoff.tz_convert(timezone.utc)
+        probe = datetime.combine(day, time(23, 59), ZoneInfo(listing.timezone)).astimezone(
+            timezone.utc
+        )
+        state = service.market_state(
+            listing,
+            ClockContext.at(probe, knowledge_cutoff=cutoff.to_pydatetime()),
+        )
+    except (MarketClockError, TypeError, ValueError, OverflowError):
+        return None
+    if state.certification != "certified" or not state.is_session:
+        return None
+    return state.session_close
 
 
 def _calendar_identity_from_price_rows(prices: pd.DataFrame, instrument_id: object) -> Mapping[str, object] | None:
@@ -584,8 +625,8 @@ def _instrument_operational_evidence(
         return result if np.isfinite(result) else None
 
     identity = str(instrument_id).strip() if instrument_id is not None else ""
-    signal_ts = pd.to_datetime(signal_timestamp, errors="coerce")
-    execution_ts = pd.to_datetime(execution_timestamp, errors="coerce")
+    signal_ts = pd.to_datetime(signal_timestamp, errors="coerce", utc=True)
+    execution_ts = pd.to_datetime(execution_timestamp, errors="coerce", utc=True)
     reasons: list[str] = []
     if not identity:
         reasons.append("exact_instrument_identity_unavailable")
@@ -1139,12 +1180,43 @@ def run_backtest(
                     for instrument_id in diff.index[diff > 0]:
                         instrument_cost_matches = instrument_costs.get(str(instrument_id), [])
                         instrument_cost = instrument_cost_matches[0] if len(instrument_cost_matches) == 1 else None
+                        initial_calendar_identity = (
+                            calendar_identity_resolver(str(instrument_id), dt)
+                            if calendar_identity_resolver is not None
+                            else _calendar_identity_from_price_rows(prices, instrument_id)
+                        )
+                        signal_close = _canonical_session_close_timestamp(
+                            initial_calendar_identity,
+                            str(instrument_id),
+                            dt,
+                            service=calendar_service,
+                            knowledge_cutoff=dt,
+                        )
+                        calendar_identity = initial_calendar_identity
+                        if calendar_identity_resolver is not None and signal_close is not None:
+                            calendar_identity = calendar_identity_resolver(
+                                str(instrument_id), signal_close
+                            )
+                            signal_close = _canonical_session_close_timestamp(
+                                calendar_identity,
+                                str(instrument_id),
+                                dt,
+                                service=calendar_service,
+                                knowledge_cutoff=signal_close,
+                            )
+                        execution_close = _canonical_session_close_timestamp(
+                            calendar_identity,
+                            str(instrument_id),
+                            execution_dt,
+                            service=calendar_service,
+                            knowledge_cutoff=signal_close or dt,
+                        )
                         operational_evidence_rows.append(
                             _instrument_operational_evidence(
                                 instrument_id=instrument_id,
                                 strategy=name,
-                                signal_timestamp=pd.Timestamp(dt).isoformat(),
-                                execution_timestamp=pd.Timestamp(execution_dt).isoformat(),
+                                signal_timestamp=(signal_close or pd.Timestamp(dt)).isoformat(),
+                                execution_timestamp=(execution_close or pd.Timestamp(execution_dt)).isoformat(),
                                 signal_date=dt.date(),
                                 execution_date=execution_dt.date(),
                                 decision_price=pivot.iloc[i].get(instrument_id),
@@ -1193,11 +1265,7 @@ def run_backtest(
                                         else "explicit_transaction_cost_bps"
                                     )
                                 ),
-                                calendar_identity=(
-                                    calendar_identity_resolver(str(instrument_id), dt)
-                                    if calendar_identity_resolver is not None
-                                    else _calendar_identity_from_price_rows(prices, instrument_id)
-                                ),
+                                calendar_identity=calendar_identity,
                                 calendar_service=calendar_service,
                                 decision_price_source_identity=_price_source_identity(prices, instrument_id, dt),
                                 next_open_source_identity=_price_source_identity(prices, instrument_id, execution_dt),
