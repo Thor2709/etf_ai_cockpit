@@ -13,6 +13,7 @@ from etf_cockpit.app.pages.signals import _signals_operational_evidence
 from etf_cockpit.backtest.engine import (
     BacktestDataUnavailableError,
     _execution_evidence,
+    _corporate_action_adjusted_pivot,
     _instrument_operational_evidence,
     _log_equity_returns,
     _probabilistic_sharpe,
@@ -331,6 +332,72 @@ def test_operational_evidence_fails_closed_for_partial_ohlc_and_same_bar() -> No
     )
     assert same_bar["evidence_status"] == "unavailable"
     assert same_bar["same_bar_execution_avoided"] is False
+
+    later_same_session = _instrument_operational_evidence(
+        instrument_id="VWCE",
+        strategy="signal_strategy",
+        signal_timestamp="2026-06-02T09:00:00",
+        execution_timestamp="2026-06-02T10:00:00",
+        signal_date=pd.Timestamp("2026-06-02").date(),
+        execution_date=pd.Timestamp("2026-06-02").date(),
+        decision_price=100.0,
+        next_open=101.0,
+        next_period_close=102.0,
+        high=103.0,
+        low=99.0,
+        open_price=100.0,
+        cost_spread_assumption_bps=8.0,
+        cost_spread_assumption_source="execution-cost-v1",
+        canonical_session_dates=pd.to_datetime(["2026-06-02", "2026-06-03"]),
+        decision_price_source_identity="source|VWCE",
+        next_open_source_identity="source|VWCE",
+        next_period_source_identity="source|VWCE",
+    )
+    assert later_same_session["evidence_status"] == "unavailable"
+    assert later_same_session["execution_delay_sessions"] is None
+
+
+def test_operational_evidence_does_not_label_a_missing_or_non_next_session_as_one_delay() -> None:
+    kwargs = dict(
+        instrument_id="VWCE",
+        strategy="signal_strategy",
+        signal_timestamp="2026-06-05T00:00:00",
+        execution_timestamp="2026-06-09T00:00:00",
+        signal_date=pd.Timestamp("2026-06-05").date(),
+        execution_date=pd.Timestamp("2026-06-09").date(),
+        decision_price=100.0,
+        next_open=101.0,
+        next_period_close=102.0,
+        high=103.0,
+        low=99.0,
+        open_price=100.0,
+        cost_spread_assumption_bps=8.0,
+        cost_spread_assumption_source="execution-cost-v1",
+        decision_price_source_identity="source|VWCE",
+        next_open_source_identity="source|VWCE",
+        next_period_source_identity="source|VWCE",
+    )
+    missing_observation = _instrument_operational_evidence(
+        **kwargs, canonical_session_dates=pd.to_datetime(["2026-06-05", "2026-06-08", "2026-06-09"])
+    )
+    assert missing_observation["evidence_status"] == "unavailable"
+    assert missing_observation["execution_delay_sessions"] is None
+    assert "execution_not_next_canonical_market_session" in missing_observation["evidence_reason"]
+
+
+def test_operational_ohlc_is_scaled_from_the_same_row_adjustment_factor() -> None:
+    prices = pd.DataFrame(
+        [
+            {"date": "2026-06-01", "etf_id": "VWCE", "open": 50.0, "high": 55.0, "low": 45.0, "close": 50.0, "adjusted_close": 100.0},
+            {"date": "2026-06-02", "etf_id": "VWCE", "open": 51.0, "high": 56.0, "low": 46.0, "close": 51.0, "adjusted_close": 102.0},
+        ]
+    )
+    adjusted_open = _corporate_action_adjusted_pivot(prices, "open", ["VWCE"])
+    adjusted_high = _corporate_action_adjusted_pivot(prices, "high", ["VWCE"])
+    adjusted_low = _corporate_action_adjusted_pivot(prices, "low", ["VWCE"])
+    assert adjusted_open.loc[pd.Timestamp("2026-06-02"), "VWCE"] == pytest.approx(102.0)
+    assert adjusted_high.loc[pd.Timestamp("2026-06-02"), "VWCE"] == pytest.approx(112.0)
+    assert adjusted_low.loc[pd.Timestamp("2026-06-02"), "VWCE"] == pytest.approx(92.0)
 
 
 def test_backtest_operational_evidence_is_exactly_instrument_scoped() -> None:

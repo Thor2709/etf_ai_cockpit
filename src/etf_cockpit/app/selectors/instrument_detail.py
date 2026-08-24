@@ -1615,12 +1615,14 @@ def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: M
         message = "Backtest trust unavailable for this instrument."
         if tail_diagnostics:
             message += " Strategy-level tail diagnostics are shown as portfolio context only."
+        unavailable_operational = dict(operational_evidence)
+        unavailable_operational.pop("instrument_id", None)
         return _unavailable(message) | {
             "trust": "unavailable",
             "signal_rows": [],
             "trade_rows": [],
             "tail_diagnostics": tail_diagnostics,
-            "operational_evidence": operational_evidence,
+            "operational_evidence": unavailable_operational,
             **llm_backtest_fields,
         }
     metadata_source = scoreboard or (signal_log.iloc[-1] if not signal_log.empty else trade_log.iloc[-1])
@@ -1639,22 +1641,39 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
         ) | {"instrument_id": instrument_id, "rows": [], "scope": "instrument", "source": "simulated_backtest"}
     required = {
         "evidence_status",
+        "evidence_reason",
+        "strategy",
         "signal_date",
         "signal_timestamp",
         "execution_date",
         "execution_timestamp",
         "decision_price",
+        "decision_price_basis",
         "next_open_reference_price",
+        "next_open_reference_basis",
         "next_period_reference_price",
+        "next_period_reference_basis",
+        "close_to_next_open_gap",
+        "price_provenance",
+        "decision_price_source_identity",
+        "next_open_source_identity",
+        "next_period_source_identity",
         "arrival_price_assumption",
         "execution_delay_sessions",
         "same_bar_execution_avoided",
         "fill_source",
         "observed_range_spread_proxy",
+        "spread_proxy",
         "cost_spread_assumption_bps",
         "cost_spread_assumption_source",
         "estimated_cost_bps",
         "estimated_cost_bps_source",
+        "session_state",
+        "auction_state",
+        "expiry_state",
+        "order_lifecycle",
+        "paper_fill_source",
+        "reconciled_fill_source",
         "execution_allowed",
     }
     if not required.issubset(rows.columns):
@@ -1703,6 +1722,12 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
             and source.strip() == source
         )
 
+    def strict_text(value: object) -> bool:
+        return type(value) is str and bool(value) and value.strip() == value
+
+    def explicit_unavailable(value: object) -> bool:
+        return _is_missing_scalar(value)
+
     safe_rows: list[dict[str, Any]] = []
     for record in rows.to_dict("records"):
         signal_ts = strict_timestamp(record.get("signal_timestamp"))
@@ -1721,6 +1746,8 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
         safe = (
             type(record.get("evidence_status")) is str
             and record.get("evidence_status") == "available"
+            and strict_text(record.get("evidence_reason"))
+            and strict_text(record.get("strategy"))
             and type(record.get("instrument_id")) is str
             and record.get("instrument_id") == instrument_id
             and timestamp_ordered
@@ -1730,9 +1757,25 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
             and execution_ts is not None
             and signal_date == signal_ts.date()
             and execution_date == execution_ts.date()
+            and execution_date > signal_date
             and strict_number(record.get("decision_price"), positive=True) is not None
+            and record.get("decision_price_basis") == "adjusted_close"
             and strict_number(record.get("next_open_reference_price"), positive=True) is not None
+            and record.get("next_open_reference_basis") == "adjusted_ohlc_from_same_row_adjustment"
             and strict_number(record.get("next_period_reference_price"), positive=True) is not None
+            and record.get("next_period_reference_basis") == "adjusted_close"
+            and strict_number(record.get("close_to_next_open_gap"), positive=False) is not None
+            and math.isclose(
+                float(record.get("close_to_next_open_gap")),
+                float(record.get("next_open_reference_price")) / float(record.get("decision_price")) - 1.0,
+                rel_tol=1e-9,
+                abs_tol=1e-9,
+            )
+            and strict_text(record.get("price_provenance"))
+            and strict_text(record.get("decision_price_source_identity"))
+            and strict_text(record.get("next_open_source_identity"))
+            and strict_text(record.get("next_period_source_identity"))
+            and len({record.get("decision_price_source_identity"), record.get("next_open_source_identity"), record.get("next_period_source_identity")}) == 1
             and type(record.get("arrival_price_assumption")) is str
             and record.get("arrival_price_assumption") == "next_adjusted_close"
             and isinstance(record.get("execution_delay_sessions"), Integral)
@@ -1745,6 +1788,21 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
             and type(record.get("fill_source")) is str
             and record.get("fill_source") == "simulated_backtest"
             and optional_non_negative_number(record.get("observed_range_spread_proxy"))
+            and optional_non_negative_number(record.get("spread_proxy"))
+            and (
+                _is_missing_scalar(record.get("observed_range_spread_proxy"))
+                and _is_missing_scalar(record.get("spread_proxy"))
+                or (
+                    strict_number(record.get("observed_range_spread_proxy"), positive=False) is not None
+                    and strict_number(record.get("spread_proxy"), positive=False) is not None
+                    and math.isclose(
+                        float(record.get("observed_range_spread_proxy")),
+                        float(record.get("spread_proxy")),
+                        rel_tol=1e-9,
+                        abs_tol=1e-9,
+                    )
+                )
+            )
             and optional_number_with_source(
                 record.get("cost_spread_assumption_bps"),
                 record.get("cost_spread_assumption_source"),
@@ -1753,6 +1811,12 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
                 record.get("estimated_cost_bps"),
                 record.get("estimated_cost_bps_source"),
             )
+            and explicit_unavailable(record.get("session_state"))
+            and explicit_unavailable(record.get("auction_state"))
+            and explicit_unavailable(record.get("expiry_state"))
+            and explicit_unavailable(record.get("order_lifecycle"))
+            and explicit_unavailable(record.get("paper_fill_source"))
+            and explicit_unavailable(record.get("reconciled_fill_source"))
         )
         if safe:
             safe_rows.append(record)
@@ -1791,15 +1855,27 @@ def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) ->
     rows = _instrument_rows(source, instrument_id)
     if rows.empty:
         return _unavailable("Paper-trade history unavailable; no local paper-trade records are registered.") | {"rows": []}
-    source_is_paper = (
-        "fill_source" in rows.columns
-        and rows["fill_source"].map(lambda value: type(value) is str and value == "paper").all()
-    ) or (
-        "source_authority" in rows.columns
-        and rows["source_authority"].map(
-            lambda value: type(value) is str and value == "local_paper_ledger"
-        ).all()
-    )
+    def has_marker(column: str) -> bool:
+        return column in rows.columns and rows[column].map(lambda value: not _is_missing_scalar(value)).any()
+
+    has_fill_marker = has_marker("fill_source")
+    has_authority_marker = has_marker("source_authority")
+    fill_is_paper = "fill_source" in rows.columns and rows["fill_source"].map(
+        lambda value: type(value) is str and value == "paper"
+    ).all()
+    authority_is_paper = "source_authority" in rows.columns and rows["source_authority"].map(
+        lambda value: type(value) is str and value == "local_paper_ledger"
+    ).all()
+    if has_fill_marker and has_authority_marker:
+        source_is_paper = fill_is_paper and authority_is_paper
+    elif has_fill_marker:
+        source_is_paper = fill_is_paper
+    elif has_authority_marker:
+        source_is_paper = authority_is_paper
+    else:
+        # Older local rows may carry no source marker at all.  Preserve their
+        # record visibility, but never treat them as live or executable.
+        source_is_paper = True
     execution_is_disabled = (
         "execution_allowed" not in rows.columns
         or rows["execution_allowed"].map(lambda value: type(value) is bool and value is False).all()

@@ -211,6 +211,49 @@ def _optional_price_pivot(prices: pd.DataFrame, value: str, columns: list[str]) 
     return frame.pivot(index="date", columns="etf_id", values=value).sort_index().reindex(columns=columns)
 
 
+def _corporate_action_adjusted_pivot(
+    prices: pd.DataFrame, value: str, columns: list[str]
+) -> pd.DataFrame:
+    """Scale raw OHLC values with the same row's adjusted-close factor.
+
+    The vector backtest is calculated on adjusted closes.  Raw OHLC values are
+    only suitable for the operational range proxy after they have been bound
+    to that same row's corporate-action factor.  A missing close or adjustment
+    factor therefore remains missing instead of being guessed.
+    """
+
+    dates = pd.to_datetime(prices["date"], errors="coerce")
+    index = dates.dropna().drop_duplicates().sort_values()
+    if value not in prices.columns or "close" not in prices.columns:
+        return pd.DataFrame(index=index, columns=columns, dtype=float)
+    frame = prices.loc[:, ["date", "etf_id", value, "close", "adjusted_close"]].copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    for column in (value, "close", "adjusted_close"):
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    factor = frame["adjusted_close"].div(frame["close"])
+    valid_factor = frame["close"].gt(0) & frame["adjusted_close"].gt(0) & np.isfinite(factor)
+    frame[value] = frame[value].where(valid_factor) * factor.where(valid_factor)
+    return frame.pivot(index="date", columns="etf_id", values=value).sort_index().reindex(columns=columns)
+
+
+def _price_source_identity(prices: pd.DataFrame, instrument_id: object, observed_date: object) -> str | None:
+    """Return one source identity for one exact instrument/date row."""
+
+    if not isinstance(prices, pd.DataFrame) or "etf_id" not in prices.columns:
+        return None
+    day = pd.Timestamp(observed_date).normalize()
+    dates = pd.to_datetime(prices.get("date"), errors="coerce")
+    rows = prices.loc[(prices["etf_id"] == instrument_id) & (dates.dt.normalize() == day)]
+    if len(rows) != 1:
+        return None
+    row = rows.iloc[0]
+    source = str(row.get("source", "")).strip()
+    provider_symbol = str(row.get("provider_symbol", "")).strip()
+    if not source or not provider_symbol or source.casefold() in {"nan", "none"} or provider_symbol.casefold() in {"nan", "none"}:
+        return None
+    return f"{source}|{provider_symbol}"
+
+
 def _weighted_reference_price(values: pd.Series, weights: pd.Series) -> float | None:
     observed = pd.to_numeric(values, errors="coerce").reindex(weights.index)
     usable = observed.notna() & np.isfinite(observed)
@@ -254,6 +297,12 @@ def _execution_evidence(
         "decision_price": decision_price,
         "next_open_reference_price": next_open_reference,
         "next_period_reference_price": next_close_reference,
+        "decision_price_basis": "adjusted_close" if decision_price is not None else "unavailable",
+        "next_open_reference_basis": "adjusted_ohlc_from_same_row_adjustment" if next_open_reference is not None else "unavailable",
+        "next_period_reference_basis": "adjusted_close" if next_close_reference is not None else "unavailable",
+        "price_provenance": "row_bound_corporate_action_consistent" if all(
+            value is not None for value in (decision_price, next_open_reference, next_close_reference)
+        ) else "unavailable",
         "close_to_next_open_gap": close_to_next_open,
         "arrival_price_assumption": arrival_assumption,
         "spread_proxy": spread_proxy,
@@ -293,6 +342,14 @@ def _instrument_operational_evidence(
     cost_spread_assumption_source: object,
     estimated_cost_bps: object = None,
     estimated_cost_bps_source: object = None,
+    canonical_session_dates: object = None,
+    decision_price_basis: object = "adjusted_close",
+    next_open_reference_basis: object = "adjusted_ohlc_from_same_row_adjustment",
+    next_period_reference_basis: object = "adjusted_close",
+    price_provenance: object = "row_bound_corporate_action_consistent",
+    decision_price_source_identity: object = None,
+    next_open_source_identity: object = None,
+    next_period_source_identity: object = None,
 ) -> dict[str, object]:
     """Build one strict, instrument-scoped operational evidence record.
 
@@ -315,8 +372,39 @@ def _instrument_operational_evidence(
         reasons.append("exact_instrument_identity_unavailable")
     if pd.isna(signal_ts) or pd.isna(execution_ts):
         reasons.append("signal_or_execution_timestamp_unavailable")
-    elif execution_ts <= signal_ts:
-        reasons.append("same_bar_or_non_forward_execution")
+    elif execution_ts <= signal_ts or execution_ts.date() <= signal_ts.date():
+        reasons.append("same_session_or_non_forward_execution")
+
+    canonical_dates: list[date] = []
+    if canonical_session_dates is None:
+        reasons.append("canonical_market_session_unavailable")
+    else:
+        try:
+            canonical_dates = sorted(
+                {
+                    pd.Timestamp(value).date()
+                    for value in canonical_session_dates
+                    if not pd.isna(pd.Timestamp(value))
+                }
+            )
+        except (TypeError, ValueError, OverflowError):
+            canonical_dates = []
+        if not canonical_dates:
+            reasons.append("canonical_market_session_unavailable")
+        elif not pd.isna(signal_ts) and not pd.isna(execution_ts):
+            signal_day = signal_ts.date()
+            execution_day = execution_ts.date()
+            if signal_day not in canonical_dates or execution_day not in canonical_dates:
+                reasons.append("observed_business_date_unavailable")
+            elif canonical_dates.index(execution_day) != canonical_dates.index(signal_day) + 1:
+                reasons.append("execution_not_next_canonical_market_session")
+            elif signal_day.weekday() >= 5 or execution_day.weekday() >= 5:
+                reasons.append("non_business_session_date")
+            elif any(
+                day.date() not in canonical_dates
+                for day in pd.bdate_range(signal_day, execution_day)[1:-1]
+            ):
+                reasons.append("observed_business_date_unavailable")
 
     decision = finite(decision_price)
     next_open_value = finite(next_open)
@@ -341,6 +429,35 @@ def _instrument_operational_evidence(
         and (observed_open <= 0 or observed_high < observed_low)
     ):
         reasons.append("observed_ohlc_contradictory")
+    if (
+        observed_open is not None
+        and observed_high is not None
+        and observed_low is not None
+        and next_close is not None
+        and (
+            observed_high < max(observed_open, next_close)
+            or observed_low > min(observed_open, next_close)
+        )
+    ):
+        reasons.append("observed_ohlc_does_not_contain_adjusted_close")
+
+    source_identities = (
+        decision_price_source_identity,
+        next_open_source_identity,
+        next_period_source_identity,
+    )
+    if any(type(value) is not str or not value.strip() for value in source_identities):
+        reasons.append("price_source_identity_unavailable")
+    elif len(set(source_identities)) != 1:
+        reasons.append("price_source_identity_conflict")
+    if decision_price_basis != "adjusted_close":
+        reasons.append("decision_price_basis_unavailable")
+    if next_open_reference_basis != "adjusted_ohlc_from_same_row_adjustment":
+        reasons.append("next_open_reference_basis_unavailable")
+    if next_period_reference_basis != "adjusted_close":
+        reasons.append("next_period_reference_basis_unavailable")
+    if type(price_provenance) is not str or not price_provenance.strip():
+        reasons.append("price_provenance_unavailable")
 
     observed_spread = None
     if "observed_ohlc_incomplete" not in reasons:
@@ -359,6 +476,11 @@ def _instrument_operational_evidence(
         gap = float(next_open_value / decision - 1.0)
 
     status = "available" if not reasons else "unavailable"
+    valid_next_session = (
+        "execution_not_next_canonical_market_session" not in reasons
+        and "observed_business_date_unavailable" not in reasons
+        and "canonical_market_session_unavailable" not in reasons
+    )
     return {
         "evidence_status": status,
         "evidence_reason": ";".join(dict.fromkeys(reasons)) or "canonical_local_backtest_evidence",
@@ -369,9 +491,15 @@ def _instrument_operational_evidence(
         "execution_date": execution_date,
         "execution_timestamp": None if pd.isna(execution_ts) else execution_ts.isoformat(),
         "decision_price": decision,
-        "decision_price_basis": "adjusted_close" if decision is not None else None,
+        "decision_price_basis": decision_price_basis if decision is not None else None,
         "next_open_reference_price": next_open_value,
+        "next_open_reference_basis": next_open_reference_basis if next_open_value is not None else None,
         "next_period_reference_price": next_close,
+        "next_period_reference_basis": next_period_reference_basis if next_close is not None else None,
+        "price_provenance": price_provenance if price_provenance else None,
+        "decision_price_source_identity": decision_price_source_identity,
+        "next_open_source_identity": next_open_source_identity,
+        "next_period_source_identity": next_period_source_identity,
         "close_to_next_open_gap": gap,
         "observed_range_spread_proxy": observed_spread,
         "spread_proxy": observed_spread,
@@ -380,11 +508,13 @@ def _instrument_operational_evidence(
         "estimated_cost_bps": finite(estimated_cost_bps),
         "estimated_cost_bps_source": str(estimated_cost_bps_source).strip() if estimated_cost_bps_source else None,
         "arrival_price_assumption": "next_adjusted_close" if next_close is not None else "unavailable",
-        "execution_delay_sessions": 1,
+        "execution_delay_sessions": 1 if status == "available" and valid_next_session else None,
         "same_bar_execution_avoided": bool(
             not pd.isna(signal_ts)
             and not pd.isna(execution_ts)
             and execution_ts > signal_ts
+            and execution_ts.date() > signal_ts.date()
+            and valid_next_session
         ),
         "session_state": None,
         "auction_state": None,
@@ -469,9 +599,10 @@ def run_backtest(
             "not_enough_data: backtest requires at least 260 complete adjusted-price sessions; "
             f"available={len(pivot)}, missing_observation_rows={missing_observation_rows}"
         )
-    open_pivot = _optional_price_pivot(prices, "open", columns)
-    high_pivot = _optional_price_pivot(prices, "high", columns)
-    low_pivot = _optional_price_pivot(prices, "low", columns)
+    adjusted_open_pivot = _corporate_action_adjusted_pivot(prices, "open", columns)
+    adjusted_high_pivot = _corporate_action_adjusted_pivot(prices, "high", columns)
+    adjusted_low_pivot = _corporate_action_adjusted_pivot(prices, "low", columns)
+    canonical_market_dates = pd.to_datetime(prices["date"], errors="coerce").dropna().dt.normalize().drop_duplicates().sort_values().tolist()
     canonical_benchmark_id = _validated_benchmark_data_id(
         benchmark_data_id,
         benchmark_reference,
@@ -711,14 +842,14 @@ def run_backtest(
                     execution_evidence = _execution_evidence(
                         current_prices=pivot.iloc[i].reindex(columns),
                         next_adjusted_close=pivot.iloc[i + 1].reindex(columns),
-                        next_open=open_pivot.loc[execution_dt].reindex(columns)
-                        if execution_dt in open_pivot.index
+                        next_open=adjusted_open_pivot.loc[execution_dt].reindex(columns)
+                        if execution_dt in adjusted_open_pivot.index
                         else empty_reference,
-                        next_high=high_pivot.loc[execution_dt].reindex(columns)
-                        if execution_dt in high_pivot.index
+                        next_high=adjusted_high_pivot.loc[execution_dt].reindex(columns)
+                        if execution_dt in adjusted_high_pivot.index
                         else empty_reference,
-                        next_low=low_pivot.loc[execution_dt].reindex(columns)
-                        if execution_dt in low_pivot.index
+                        next_low=adjusted_low_pivot.loc[execution_dt].reindex(columns)
+                        if execution_dt in adjusted_low_pivot.index
                         else empty_reference,
                         changed_weights=diff,
                         signal_timestamp=pd.Timestamp(dt).isoformat(),
@@ -745,24 +876,24 @@ def run_backtest(
                                 execution_date=execution_dt.date(),
                                 decision_price=pivot.iloc[i].get(instrument_id),
                                 next_open=(
-                                    open_pivot.loc[execution_dt].get(instrument_id)
-                                    if execution_dt in open_pivot.index
+                                    adjusted_open_pivot.loc[execution_dt].get(instrument_id)
+                                    if execution_dt in adjusted_open_pivot.index
                                     else None
                                 ),
                                 next_period_close=pivot.iloc[i + 1].get(instrument_id),
                                 high=(
-                                    high_pivot.loc[execution_dt].get(instrument_id)
-                                    if execution_dt in high_pivot.index
+                                    adjusted_high_pivot.loc[execution_dt].get(instrument_id)
+                                    if execution_dt in adjusted_high_pivot.index
                                     else None
                                 ),
                                 low=(
-                                    low_pivot.loc[execution_dt].get(instrument_id)
-                                    if execution_dt in low_pivot.index
+                                    adjusted_low_pivot.loc[execution_dt].get(instrument_id)
+                                    if execution_dt in adjusted_low_pivot.index
                                     else None
                                 ),
                                 open_price=(
-                                    open_pivot.loc[execution_dt].get(instrument_id)
-                                    if execution_dt in open_pivot.index
+                                    adjusted_open_pivot.loc[execution_dt].get(instrument_id)
+                                    if execution_dt in adjusted_open_pivot.index
                                     else None
                                 ),
                                 cost_spread_assumption_bps=(
@@ -789,6 +920,10 @@ def run_backtest(
                                         else "explicit_transaction_cost_bps"
                                     )
                                 ),
+                                canonical_session_dates=canonical_market_dates,
+                                decision_price_source_identity=_price_source_identity(prices, instrument_id, dt),
+                                next_open_source_identity=_price_source_identity(prices, instrument_id, execution_dt),
+                                next_period_source_identity=_price_source_identity(prices, instrument_id, execution_dt),
                             )
                         )
                     trade_rows.append(

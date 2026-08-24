@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import flet as ft
+import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import metric_card, panel, section_header
@@ -16,6 +17,22 @@ from etf_cockpit.app.selectors.instrument_detail import _operational_evidence_pa
 
 def _signals_operational_evidence(scores: list[object], report: object) -> ft.Control:
     lines: list[str] = []
+    evidence_fields = (
+        "evidence_status", "evidence_reason", "signal_date", "signal_timestamp",
+        "execution_date", "execution_timestamp", "decision_price", "decision_price_basis",
+        "decision_price_source_identity", "next_open_reference_price", "next_open_reference_basis",
+        "next_open_source_identity", "next_period_reference_price", "next_period_reference_basis",
+        "next_period_source_identity", "close_to_next_open_gap", "price_provenance",
+        "arrival_price_assumption", "execution_delay_sessions", "same_bar_execution_avoided",
+        "observed_range_spread_proxy", "spread_proxy", "cost_spread_assumption_bps", "cost_spread_assumption_source",
+        "estimated_cost_bps", "estimated_cost_bps_source", "session_state", "auction_state",
+        "expiry_state", "order_lifecycle", "fill_source", "paper_fill_source",
+        "reconciled_fill_source", "execution_allowed",
+    )
+
+    def display(value: object) -> str:
+        return "unavailable" if value is None or (isinstance(value, float) and pd.isna(value)) else str(value)
+
     for score in scores:
         instrument_id = str(getattr(score, "display_id", "")).strip()
         if not instrument_id:
@@ -24,16 +41,13 @@ def _signals_operational_evidence(scores: list[object], report: object) -> ft.Co
         if projection.get("status") == "available":
             rows = projection.get("rows", [])
             latest = rows[-1] if isinstance(rows, list) and rows else {}
-            lines.append(
-                f"{instrument_id}: available; signal={latest.get('signal_timestamp', 'unavailable')}; "
-                f"decision={latest.get('decision_price', 'unavailable')}; "
-                f"next_open={latest.get('next_open_reference_price', 'unavailable')}; "
-                f"source={latest.get('fill_source', 'unavailable')}; execution_allowed=false"
-            )
+            lines.append(f"{instrument_id}: " + "; ".join(f"{field}={display(latest.get(field))}" for field in evidence_fields))
         else:
             lines.append(
-                f"{instrument_id}: unavailable/context-only ({projection.get('message', 'exact operational evidence unavailable')}); "
-                "aggregate aliases are excluded; execution_allowed=false"
+                f"{instrument_id}: unavailable/context-only (evidence_reason={display(projection.get('message', 'exact operational evidence unavailable'))}); "
+                + "; ".join(f"{field}=unavailable" for field in evidence_fields if field not in {"evidence_reason", "execution_allowed"})
+                + "; evidence_reason=" + display(projection.get("message", "exact operational evidence unavailable"))
+                + "; execution_allowed=false; aggregate aliases are excluded"
             )
     if not lines:
         lines = ["Instrument-scoped operational evidence unavailable; execution_allowed=false"]

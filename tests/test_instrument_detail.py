@@ -380,22 +380,39 @@ def test_operational_evidence_rejects_aggregate_and_contradictory_identity_rows(
     valid = {
         "instrument_id": "VWCE",
         "evidence_status": "available",
+        "evidence_reason": "canonical_local_backtest_evidence",
+        "strategy": "signal_strategy",
         "signal_date": "2026-06-01",
         "signal_timestamp": "2026-06-01T00:00:00",
         "execution_date": "2026-06-02",
         "execution_timestamp": "2026-06-02T00:00:00",
         "decision_price": 100.0,
+        "decision_price_basis": "adjusted_close",
+        "decision_price_source_identity": "test-source|VWCE",
         "next_open_reference_price": 101.0,
+        "next_open_reference_basis": "adjusted_ohlc_from_same_row_adjustment",
+        "next_open_source_identity": "test-source|VWCE",
         "next_period_reference_price": 102.0,
+        "next_period_reference_basis": "adjusted_close",
+        "next_period_source_identity": "test-source|VWCE",
+        "close_to_next_open_gap": 0.01,
+        "price_provenance": "row_bound_corporate_action_consistent",
         "arrival_price_assumption": "next_adjusted_close",
         "execution_delay_sessions": 1,
         "same_bar_execution_avoided": True,
         "fill_source": "simulated_backtest",
         "observed_range_spread_proxy": 0.03,
+        "spread_proxy": 0.03,
         "cost_spread_assumption_bps": 4.0,
         "cost_spread_assumption_source": "execution-cost-v1:CostEstimate.spread_bps",
         "estimated_cost_bps": 9.0,
         "estimated_cost_bps_source": "execution-cost-v1:CostEstimate.total_cost_bps",
+        "session_state": None,
+        "auction_state": None,
+        "expiry_state": None,
+        "order_lifecycle": None,
+        "paper_fill_source": None,
+        "reconciled_fill_source": None,
         "execution_allowed": False,
     }
     contradictory = dict(valid, etf_id="OTHER")
@@ -416,22 +433,39 @@ def test_operational_evidence_malformed_available_rows_fail_closed() -> None:
     valid = {
         "instrument_id": "VWCE",
         "evidence_status": "available",
+        "evidence_reason": "canonical_local_backtest_evidence",
+        "strategy": "signal_strategy",
         "signal_date": "2026-06-01",
         "signal_timestamp": "2026-06-01T00:00:00",
         "execution_date": "2026-06-02",
         "execution_timestamp": "2026-06-02T00:00:00",
         "decision_price": 100.0,
+        "decision_price_basis": "adjusted_close",
+        "decision_price_source_identity": "test-source|VWCE",
         "next_open_reference_price": 101.0,
+        "next_open_reference_basis": "adjusted_ohlc_from_same_row_adjustment",
+        "next_open_source_identity": "test-source|VWCE",
         "next_period_reference_price": 102.0,
+        "next_period_reference_basis": "adjusted_close",
+        "next_period_source_identity": "test-source|VWCE",
+        "close_to_next_open_gap": 0.01,
+        "price_provenance": "row_bound_corporate_action_consistent",
         "arrival_price_assumption": "next_adjusted_close",
         "execution_delay_sessions": 1,
         "same_bar_execution_avoided": True,
         "fill_source": "simulated_backtest",
         "observed_range_spread_proxy": 0.03,
+        "spread_proxy": 0.03,
         "cost_spread_assumption_bps": 4.0,
         "cost_spread_assumption_source": "execution-cost-v1:CostEstimate.spread_bps",
         "estimated_cost_bps": 9.0,
         "estimated_cost_bps_source": "execution-cost-v1:CostEstimate.total_cost_bps",
+        "session_state": None,
+        "auction_state": None,
+        "expiry_state": None,
+        "order_lifecycle": None,
+        "paper_fill_source": None,
+        "reconciled_fill_source": None,
         "execution_allowed": False,
     }
     malformed_values = (
@@ -439,9 +473,14 @@ def test_operational_evidence_malformed_available_rows_fail_closed() -> None:
         ("signal_timestamp", "not-a-timestamp"),
         ("signal_timestamp", "2026-06-01"),
         ("signal_date", "2026-06-02"),
+        ("execution_timestamp", "2026-06-01T01:00:00"),
+        ("execution_date", "2026-06-01"),
         ("execution_date", "2026-06-03"),
         ("execution_timestamp", "2026-06-01T00:00:00"),
         ("decision_price", "100.0"),
+        ("close_to_next_open_gap", 0.5),
+        ("price_provenance", None),
+        ("spread_proxy", 0.04),
         ("next_open_reference_price", 0.0),
         ("next_period_reference_price", float("inf")),
         ("arrival_price_assumption", "next_open"),
@@ -475,6 +514,11 @@ def test_operational_evidence_malformed_available_rows_fail_closed() -> None:
     panel = selector._operational_evidence_panel(report, "VWCE")
     assert panel["status"] == "available"
 
+    missing_required = dict(valid)
+    missing_required.pop("next_open_source_identity")
+    report = type("Report", (), {"operational_evidence": pd.DataFrame([missing_required])})()
+    assert selector._operational_evidence_panel(report, "VWCE")["status"] == "unavailable"
+
 
 def test_paper_trade_source_is_not_conflated_with_simulated_fill() -> None:
     from etf_cockpit.app.selectors import instrument_detail as selector
@@ -495,6 +539,22 @@ def test_paper_trade_source_is_not_conflated_with_simulated_fill() -> None:
     )
     assert contradictory["status"] == "unavailable"
     assert contradictory["execution_allowed"] is False
+
+    contradictory_markers = selector._paper_trade_panel(
+        "VWCE",
+        pd.DataFrame(
+            [
+                {
+                    "instrument_id": "VWCE",
+                    "fill_source": "paper",
+                    "source_authority": "live_broker",
+                    "paper_trade_id": "p-3",
+                }
+            ]
+        ),
+    )
+    assert contradictory_markers["status"] == "unavailable"
+    assert contradictory_markers["execution_allowed"] is False
 
 
 def test_missing_optional_stores_are_unavailable_not_crash() -> None:
