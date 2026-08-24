@@ -9,6 +9,7 @@ import math
 import json
 import hashlib
 import inspect
+from numbers import Integral, Real
 from pathlib import Path
 
 import pandas as pd
@@ -20,6 +21,7 @@ from etf_cockpit.backtest.engine import (
     quality_momentum_evidence_checksum,
     run_backtest,
 )
+from etf_cockpit.backtest.metrics import max_drawdown, tail_event_diagnostics
 from etf_cockpit.chatgpt_bridge.export_pack import export_review_pack
 from etf_cockpit.chatgpt_bridge.import_audit import import_audit_json
 from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit, ChatGPTAuditV2
@@ -1765,6 +1767,147 @@ def _config_with_optional_models_disabled(config: AppConfig) -> AppConfig:
     return quick_config
 
 
+def _decode_negative_contribution_periods(value: object) -> list[dict[str, object]] | None:
+    if type(value) is not str:
+        return None
+    try:
+        decoded = json.loads(value)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(decoded, list):
+        return None
+    records: list[dict[str, object]] = []
+    for record in decoded:
+        if not isinstance(record, dict) or set(record) != {"date", "return"}:
+            return None
+        raw_date = record["date"]
+        raw_return = record["return"]
+        if type(raw_date) is not str or type(raw_return) not in {int, float}:
+            return None
+        try:
+            contribution_date = date.fromisoformat(raw_date)
+            contribution_return = float(raw_return)
+        except (TypeError, ValueError):
+            return None
+        if contribution_date.isoformat() != raw_date:
+            return None
+        if not math.isfinite(contribution_return) or contribution_return >= 0:
+            return None
+        records.append({"date": contribution_date, "return": contribution_return})
+    return records
+
+
+_NULLABLE_INTEGER_DIAGNOSTIC_FIELDS = frozenset(
+    {
+        "high_volatility_loss_sessions",
+        "loss_sessions_observed",
+        "regime_stress_loss_sessions",
+        "regime_stress_sessions_observed",
+        "worst_drawdown_duration_days",
+        "worst_drawdown_duration_sessions",
+    }
+)
+
+
+def _encode_nullable_integer_diagnostic(value: object) -> object:
+    if pd.isna(value):
+        return pd.NA
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError("nullable diagnostic count must be an integer")
+    number = float(value)
+    if not math.isfinite(number) or number < 0 or not number.is_integer():
+        raise ValueError("nullable diagnostic count must be a non-negative integer")
+    return int(number)
+
+
+def _decode_nullable_integer_diagnostic(value: str) -> object:
+    if value == "":
+        return pd.NA
+    if not value.isascii() or not value.isdecimal() or (len(value) > 1 and value.startswith("0")):
+        raise ValueError("persisted diagnostic count is not a canonical integer")
+    return int(value)
+
+
+def _cached_value_matches(actual: object, expected: object) -> bool:
+    if isinstance(expected, list):
+        return (
+            isinstance(actual, list)
+            and len(actual) == len(expected)
+            and all(_cached_value_matches(actual_item, expected_item) for actual_item, expected_item in zip(actual, expected, strict=True))
+        )
+    if isinstance(expected, dict):
+        return (
+            isinstance(actual, dict)
+            and set(actual) == set(expected)
+            and all(_cached_value_matches(actual[key], value) for key, value in expected.items())
+        )
+    if isinstance(expected, date):
+        if isinstance(actual, date):
+            return actual == expected
+        return type(actual) is str and actual == expected.isoformat()
+    if expected is None:
+        return bool(pd.isna(actual))
+    if type(expected) is bool:
+        return type(actual) is bool and actual is expected
+    if type(expected) is int:
+        return isinstance(actual, Integral) and not isinstance(actual, bool) and int(actual) == expected
+    if type(expected) is float:
+        if not isinstance(actual, Real) or isinstance(actual, (Integral, bool)):
+            return False
+        number = float(actual)
+        return math.isfinite(number) and math.isclose(
+            number,
+            float(expected),
+            rel_tol=1e-12,
+            abs_tol=1e-12,
+        )
+    if type(expected) is str:
+        if expected == "" and pd.isna(actual):
+            return True
+        return type(actual) is str and actual == expected
+    return False
+
+
+def _cached_tail_diagnostics_are_valid(results: pd.DataFrame, equity_curves: pd.DataFrame) -> bool:
+    strategy_names = results["strategy_name"]
+    if (
+        strategy_names.duplicated().any()
+        or not strategy_names.map(lambda value: type(value) is str).all()
+        or set(strategy_names) != set(equity_curves.columns)
+    ):
+        return False
+    decoded_contributions = results["largest_negative_contribution_periods"].map(
+        _decode_negative_contribution_periods
+    )
+    if decoded_contributions.isna().any():
+        return False
+    results["largest_negative_contribution_periods"] = decoded_contributions
+    conditional_fields = {
+        "high_volatility_threshold",
+        "high_volatility_loss_sessions",
+        "loss_sessions_observed",
+        "regime_stress_loss_sessions",
+        "regime_stress_sessions_observed",
+    }
+    for _, row in results.iterrows():
+        strategy_name = row["strategy_name"]
+        if type(strategy_name) is not str or strategy_name not in equity_curves:
+            return False
+        expected = {
+            **tail_event_diagnostics(equity_curves[strategy_name]),
+            "max_drawdown": max_drawdown(equity_curves[strategy_name]),
+        }
+        for diagnostic_field, expected_value in expected.items():
+            if diagnostic_field not in results or not _cached_value_matches(
+                row[diagnostic_field], expected_value
+            ):
+                return False
+        for diagnostic_field in conditional_fields - set(expected):
+            if diagnostic_field in results and not pd.isna(row[diagnostic_field]):
+                return False
+    return True
+
+
 class BacktestService:
     REQUIRED_RESULT_COLUMNS = {
         "return_hit_rate",
@@ -1773,6 +1916,46 @@ class BacktestService:
         "payoff_ratio",
         "expected_value_per_period",
         "payoff_asymmetry_warning",
+        "gross_log_return",
+        "max_drawdown",
+        "diagnostic_method",
+        "diagnostic_status",
+        "execution_allowed",
+        "worst_1d_return",
+        "worst_5d_return",
+        "worst_10d_return",
+        "worst_drawdown_start",
+        "worst_drawdown_end",
+        "worst_drawdown_duration_days",
+        "worst_drawdown_duration_sessions",
+        "observed_session_count",
+        "loss_cluster_max_days",
+        "largest_negative_period_return",
+        "largest_negative_period_date",
+        "largest_negative_contribution_periods",
+        "negative_return_concentration_share",
+        "negative_return_concentration_status",
+        "negative_return_concentration_reason",
+        "negative_return_concentration_method",
+        "few_days_explain_most_performance",
+        "performance_concentration_basis",
+        "performance_concentration_method",
+        "performance_concentration_status",
+        "performance_concentration_share",
+        "positive_performance_concentration_share",
+        "positive_performance_concentration_status",
+        "positive_performance_few_sessions_explain_most",
+        "negative_performance_concentration_share",
+        "negative_performance_concentration_status",
+        "negative_performance_few_sessions_explain_most",
+        "losses_during_high_volatility",
+        "high_volatility_loss_status",
+        "high_volatility_loss_reason",
+        "high_volatility_loss_method",
+        "losses_during_regime_stress",
+        "regime_stress_loss_status",
+        "regime_stress_loss_reason",
+        "regime_stress_loss_method",
     }
 
     def __init__(
@@ -1852,9 +2035,18 @@ class BacktestService:
             )
         with publication_scope(publish_guard):
             BACKTESTS_DIR.mkdir(parents=True, exist_ok=True)
+        persisted_results = report.results.copy()
+        for diagnostic_field in _NULLABLE_INTEGER_DIAGNOSTIC_FIELDS & set(persisted_results):
+            persisted_results[diagnostic_field] = persisted_results[diagnostic_field].map(
+                _encode_nullable_integer_diagnostic
+            )
+        if "largest_negative_contribution_periods" in persisted_results:
+            persisted_results["largest_negative_contribution_periods"] = persisted_results[
+                "largest_negative_contribution_periods"
+            ].map(lambda value: json.dumps(value, default=str, separators=(",", ":")))
         payloads = {
             BACKTESTS_DIR / "backtest_results.csv": (
-                report.results.to_csv(index=False).encode("utf-8"),
+                persisted_results.to_csv(index=False).encode("utf-8"),
                 lambda path: _validate_csv(path),
             ),
             BACKTESTS_DIR / "equity_curves.csv": (
@@ -1951,7 +2143,13 @@ class BacktestService:
                     )
                 ):
                     return None
-            results = pd.read_csv(BytesIO(payload_bytes[results_path]))
+            results = pd.read_csv(
+                BytesIO(payload_bytes[results_path]),
+                converters={
+                    field: _decode_nullable_integer_diagnostic
+                    for field in _NULLABLE_INTEGER_DIAGNOSTIC_FIELDS
+                },
+            )
             if results.empty:
                 return None
             if not self.REQUIRED_RESULT_COLUMNS.issubset(results.columns):
@@ -1963,6 +2161,8 @@ class BacktestService:
                 if end_dates.empty or max(end_dates) != as_of_date:
                     return None
             equity_curves = pd.read_csv(BytesIO(payload_bytes[equity_path]), index_col=0, parse_dates=True)
+            if not _cached_tail_diagnostics_are_valid(results, equity_curves):
+                return None
             trade_log = pd.read_csv(BytesIO(payload_bytes[trade_path]))
             signal_log = pd.read_csv(BytesIO(payload_bytes[signal_path]))
             required_signal_columns = {

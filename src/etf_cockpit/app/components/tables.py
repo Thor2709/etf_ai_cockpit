@@ -42,9 +42,24 @@ def accessible_table(
     data = frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
     columns = tuple(str(column) for column in data.columns)
 
+    def _is_structured_cell(value: object) -> bool:
+        return isinstance(value, (dict, list, tuple, set))
+
+    sortable_columns = tuple(
+        column
+        for column in columns
+        if sortable and not data[column].map(_is_structured_cell).any()
+    )
+
+    def _cell_text(value: object) -> str:
+        if _is_structured_cell(value):
+            return str(value)
+        missing = pd.isna(value)
+        return "" if isinstance(missing, bool) and missing else str(value)
+
     def _rows(view: pd.DataFrame) -> list[ft.DataRow]:
         return [
-            ft.DataRow(cells=[ft.DataCell(ft.Text("" if pd.isna(value) else str(value), selectable=True)) for value in row])
+            ft.DataRow(cells=[ft.DataCell(ft.Text(_cell_text(value), selectable=True)) for value in row])
             for row in view.itertuples(index=False, name=None)
         ]
 
@@ -59,7 +74,7 @@ def accessible_table(
         return data.loc[mask].copy()
 
     def sort_callback(column: str, ascending: bool = True) -> pd.DataFrame:
-        if column not in columns or not sortable:
+        if column not in sortable_columns:
             return data.copy()
         return data.sort_values(column, ascending=bool(ascending), kind="stable", na_position="last").reset_index(drop=True)
 
@@ -113,13 +128,14 @@ def accessible_table(
 
     table_columns: list[ft.DataColumn] = []
     for column in columns:
-        callback = _sort_event(column) if sortable else None
+        callback = _sort_event(column) if column in sortable_columns else None
+        label = ft.Text(column, tooltip=f"Sort by {column}" if callback else None)
         try:
-            table_columns.append(ft.DataColumn(ft.Text(column, tooltip=f"Sort by {column}"), on_sort=callback))
+            table_columns.append(ft.DataColumn(label, on_sort=callback))
         except TypeError:
             # Keep compatibility with older Flet releases while preserving
             # truthful callback metadata for accessibility and tests.
-            data_column = ft.DataColumn(ft.Text(column, tooltip=f"Sort by {column}"))
+            data_column = ft.DataColumn(label)
             data_column.on_sort = callback
             table_columns.append(data_column)
 
@@ -135,7 +151,7 @@ def accessible_table(
         control=control,
         table_id=str(table_id),
         search_label=f"Search {table_id}" if searchable else "",
-        sortable_columns=columns if sortable else (),
+        sortable_columns=sortable_columns,
         status_text=f"{len(data)} rows; status is shown as text",
         frame=data,
         search_callback=search_callback,

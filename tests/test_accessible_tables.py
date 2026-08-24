@@ -22,6 +22,21 @@ def test_accessible_table_exposes_search_sort_and_non_colour_status() -> None:
     assert table.status_text == "2 rows; status is shown as text"
 
 
+def test_accessible_table_renders_structured_cells_without_scalar_missing_checks() -> None:
+    records = [{"date": "2026-06-03", "return": -0.08}]
+    other_records = [{"date": "2026-06-04", "return": -0.07}]
+    table = tables.accessible_table(
+        pd.DataFrame({"strategy": ["B", "A"], "largest_negative_contribution_periods": [records, other_records]}),
+        table_id="backtests.strategy-results",
+    )
+
+    assert table.control.rows[0].cells[1].content.value == str(records)
+    assert table.sortable_columns == ("strategy",)
+    assert table.control.columns[1].on_sort is None
+    assert table.control.columns[1].label.tooltip is None
+    pd.testing.assert_frame_equal(table.sort("largest_negative_contribution_periods"), table.frame)
+
+
 def test_price_and_backtest_charts_have_semantic_labels_and_unavailable_state() -> None:
     assert callable(getattr(charts, "history_chart", None))
     assert callable(getattr(charts, "equity_drawdown_chart", None))

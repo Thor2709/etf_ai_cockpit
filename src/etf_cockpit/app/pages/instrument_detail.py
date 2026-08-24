@@ -351,6 +351,7 @@ def _render_evidence_section(
             "entries",
             "signal_rows",
             "trade_rows",
+            "tail_diagnostics",
             "changes",
             "document_inventory",
             "statement_history",
@@ -656,7 +657,11 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             key="instrument-detail.etf-overlap",
         ),
         _render_evidence_section("Forecast evidence", model.sections.get("forecasts")),
-        _render_evidence_section("Backtest trust", model.sections.get("backtests")),
+        _render_evidence_section(
+            "Backtest trust",
+            model.sections.get("backtests"),
+            subtitle="Instrument-scoped signals and trades determine instrument trust; strategy-level tail diagnostics are portfolio context only. execution_allowed=false.",
+        ),
         _render_evidence_section("Paper-trade history", model.sections.get("paper_trades")),
         _render_evidence_section("Decision journal", model.sections.get("journal")),
         _render_evidence_section(

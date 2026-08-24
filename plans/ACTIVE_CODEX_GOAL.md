@@ -3638,3 +3638,119 @@ incompatible same-time rows. Direct adversarial, architecture, feature-driver,
 persistence and instrument-detail tests pass. Freeze one clean replacement
 head for final paired review and fresh hosted evidence; keep canonical status
 unchanged and preserve `execution_allowed=false`.
+
+## 2026-08-22 — ISSUE-0047 convergence and ISSUE-0049 product checkpoint
+
+ISSUE-0047 is integrated on exact `origin/main`
+`1cefadf51073f685411520453821f65597421e2c`. Ordered writer run
+`32565486385` finished `applied_and_verified` for GitHub issue #99, and an
+independent generic live readback projected effective status `integrated` with
+zero actions. The writer and readback both preserved
+`execution_allowed=false`.
+
+ISSUE-0049 is the next canonical dependency-ready product issue. Its isolated
+lane `codex/issue0049-product-20260822` starts from exact main
+`1cefadf51073f685411520453821f65597421e2c`. The bounded product scope is
+historical worst-window, drawdown, loss-cluster, negative-contribution,
+same-sign performance-concentration and volatility/regime-alignment evidence,
+rendered on Backtests and as explicitly strategy-scoped portfolio context on
+Instrument Detail. It does not change execution, provider, broker, lifecycle
+or release authority. Focused metric and Instrument Detail evidence is green;
+complete the current local validation, lifecycle preparation and exact-head
+review/hosted full release gate before merge.
+
+Initial ISSUE-0049 product head
+`345241dd2d4460939bd31b3fb2410ea51d1ef85a` was rejected by both exact-head
+reviewers. Hosted run `32566346217` was cancelled as stale after classifier,
+preflight and supply chain passed. The complete demonstrated correction set is
+limited to preserving explicit invalid-observation boundaries through rolling
+tail windows, loss clusters, drawdowns and inferred volatility, plus exposing
+the dedicated no-loss concentration status/reason instead of the unrelated
+performance-concentration status. Direct adversarial regressions and the
+complete affected local validation pass without retry. Freeze one replacement
+head for paired review and a fresh cadence-required full package gate;
+`execution_allowed=false` remains unchanged.
+
+The first corrected ISSUE-0049 head
+`480f7e53cde41f158841babf550b94c25c9e11a4` passed whole-diff review but was
+rejected by risk review after two production-path reproductions; hosted run
+`32567298371` is cancelled and stale. The final bounded correction preserves
+incomplete-session boundaries in the reported equity passed to diagnostics
+and makes aggregate maximum drawdown reset independently across each valid
+segment. Direct regressions, the complete affected application validation,
+offline smoke, registry, compile, Ruff and diff hygiene pass. Freeze the
+replacement exact head for paired final review and a fresh cadence-required
+full package gate; canonical status remains `implemented_initially` and
+`execution_allowed=false`.
+
+ISSUE-0049 head `10175910a2f1d94835e89a497a0faf0840872f40`
+is rejected by both final reviewers; hosted run `32568224697` is cancelled and
+stale. Their complete demonstrated set is limited to pre-v2 diagnostic caches
+remaining eligible, structured negative-contribution records degrading through
+CSV readback, and zero equity being omitted from aggregate drawdown. The
+consolidated correction now requires and validates the complete v2 cached
+diagnostic contract with strict `execution_allowed=false`, JSON round-trips and
+fail-closed malformed contribution evidence, invalidates legacy caches, and
+reports a 100% drawdown when equity reaches zero. Direct adversarial regressions
+and the complete affected application validation pass. Freeze one replacement
+head for paired final review and fresh full package evidence.
+
+Replacement head `55faf418aae18118c8032686d249f962979fc11f` is
+rejected by both final reviewers; run `32569076457` is cancelled and stale.
+The remaining reproduced readback cases are now closed in the same strict v2
+boundary: every always-emitted field is required, conditional stress fields
+are required when their status is available, numeric evidence must be finite
+and domain-consistent, dates must be canonical strings, and JSON contribution
+returns must be native finite negative numbers. Adversarial cache regressions
+cover omitted fields, infinity, positive loss evidence, zero-observation
+availability, numeric dates and string numerics. The complete affected suite
+passes; freeze the final replacement for paired review and fresh package gates.
+
+Head `6ac637ccaef45731b54f05429f9b2c7f71f5b543` is rejected by both
+final reviewers and run `32570294347` is cancelled/stale. Rather than extend a
+manual invariant checklist, cached v2 tail evidence is now recomputed from the
+persisted equity curve through the existing canonical diagnostic calculation
+and compared field-for-field with strict scalar, canonical-date and structured
+JSON types; unexpected conditional auxiliaries fail closed. This directly
+rejects every reproduced alias, bound, stress-count, availability and
+performance-basis contradiction. Cache round-trip/interleaving regressions and
+the complete affected application validation pass. Freeze the replacement for
+final paired review and fresh package evidence.
+
+Head `15359f556ccf922311c9d1e992af6891c3954246` is rejected by both
+final reviewers; exact-head run `32571265485` passed classifier, preflight and
+supply chain but failed both package gates on the same Backtests structured-cell
+crash. The complete correction set is now closed together: generic accessible
+tables render container cells without scalar missing-value evaluation, cached
+result strategy IDs must exactly equal persisted equity columns, canonical
+integer and floating diagnostics retain distinct replay types, and the coupled
+ISSUE-0104 fake producer emits a complete v2 snapshot. Direct regressions and
+the complete affected 100-test application selection pass with offline smoke,
+compile, registry, Ruff and diff hygiene. Freeze one replacement exact head for
+paired final review and fresh cross-platform evidence.
+
+Head `8062301466b793a509f466432cc33ca8a78e98c0` passed risk review and exact-head
+Linux, Windows and terminal run `32713795289`, but whole-diff review reproduced
+one remaining cache-integrity defect: Python accepted compact nested date
+`20260102` and normalized it before replay comparison. That evidence becomes
+stale. Require the persisted contribution date to equal its canonical ISO
+spelling and cover the exact malformed cache; make no adjacent changes before
+freezing the replacement head for both reviews and fresh hosted evidence.
+
+Replacement head `a709b0b2906fc7649083807ff6794f36282e45e2` is approved by
+whole-diff review but rejected by risk review; hosted run `32718089571` is
+cancelled and stale. The reproduced defect is limited to mixed-availability
+stress counts: pandas promoted valid nullable integers to floats, so strict
+readback rejected the writer's own snapshot. Preserve canonical integer CSV
+spelling for those conditional counts, decode only exact non-negative integer
+tokens, and prove a mixed available/unavailable cache is reused without
+recomputation or publication before freezing the replacement head.
+
+Head `71c932ce32a89ef84e00d3711693511b9ffa2a77` is rejected by both final
+reviewers; run `32720398860` is cancelled and stale. Their complete concrete
+set is limited to nullable drawdown durations omitted from the integer codec,
+structured Backtests cells still exposed as sortable, and probabilistic-Sharpe
+returns bridging preserved equity gaps. Extend the existing codec to the two
+duration fields, make only scalar table columns sortable, and compute log
+returns before dropping invalid observations. Add direct zero-publication,
+structured-sort and reported-metric regressions, then freeze one replacement.

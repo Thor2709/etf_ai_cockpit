@@ -143,6 +143,34 @@ _FEATURE_DRIVER_NUMERIC_BOUNDS: dict[str, tuple[float | None, float | None]] = {
 }
 _FEATURE_DRIVER_SCORE_BOUNDS = (0.0, 10.0)
 
+_TAIL_DIAGNOSTIC_FIELDS = (
+    "strategy_name",
+    "diagnostic_status",
+    "diagnostic_method",
+    "worst_1d_return",
+    "worst_5d_return",
+    "worst_10d_return",
+    "worst_drawdown_start",
+    "worst_drawdown_end",
+    "worst_drawdown_duration_sessions",
+    "loss_cluster_max_days",
+    "largest_negative_contribution_periods",
+    "negative_return_concentration_share",
+    "negative_return_concentration_status",
+    "negative_return_concentration_reason",
+    "negative_return_concentration_method",
+    "performance_concentration_basis",
+    "performance_concentration_status",
+    "performance_concentration_share",
+    "few_days_explain_most_performance",
+    "losses_during_high_volatility",
+    "high_volatility_loss_status",
+    "high_volatility_loss_reason",
+    "losses_during_regime_stress",
+    "regime_stress_loss_status",
+    "regime_stress_loss_reason",
+)
+
 
 def _unavailable(message: str) -> dict[str, Any]:
     """Return a consistent, non-authoritative unavailable panel."""
@@ -1533,6 +1561,27 @@ def _forecast_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[str, 
     return {"status": "available", "rows": rows.where(pd.notna(rows), None).to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
 
 
+def _strategy_tail_diagnostics(report: object) -> list[dict[str, Any]]:
+    results = _safe_frame(getattr(report, "results", None))
+    selected_fields = [field for field in _TAIL_DIAGNOSTIC_FIELDS if field in results.columns]
+    evidence_fields = [field for field in selected_fields if field != "strategy_name"]
+    if results.empty or not evidence_fields:
+        return []
+
+    records: list[dict[str, Any]] = []
+    for _, row in results.iterrows():
+        record: dict[str, Any] = {
+            "scope": "portfolio_strategy_backtest",
+            "scope_note": "Strategy-level tail diagnostics; not instrument-specific evidence.",
+        }
+        for field in selected_fields:
+            value = row[field]
+            record[field] = None if _is_missing_scalar(value) else value
+        record["execution_allowed"] = False
+        records.append(record)
+    return records
+
+
 def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: Mapping[str, Any]) -> dict[str, Any]:
     llm_backtest_fields = {
         "llm_backtest_validity": "unknown",
@@ -1542,6 +1591,7 @@ def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: M
     report = getattr(snapshot, "backtest", None)
     signal_log = _instrument_rows(getattr(report, "signal_log", None), instrument_id)
     trade_log = _instrument_rows(getattr(report, "trade_log", None), instrument_id)
+    tail_diagnostics = _strategy_tail_diagnostics(report)
     quality_raw = None
     quality_present = False
     scoreboard_quality_seen = False
@@ -1559,10 +1609,19 @@ def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: M
         quality_present = True
         quality = _safe_backtest_quality(report_quality_raw)
     if signal_log.empty and trade_log.empty and not quality_present:
-        return _unavailable("Backtest trust unavailable for this instrument.") | {"trust": "unavailable", "signal_rows": [], "trade_rows": [], **llm_backtest_fields}
+        message = "Backtest trust unavailable for this instrument."
+        if tail_diagnostics:
+            message += " Strategy-level tail diagnostics are shown as portfolio context only."
+        return _unavailable(message) | {
+            "trust": "unavailable",
+            "signal_rows": [],
+            "trade_rows": [],
+            "tail_diagnostics": tail_diagnostics,
+            **llm_backtest_fields,
+        }
     metadata_source = scoreboard or (signal_log.iloc[-1] if not signal_log.empty else trade_log.iloc[-1])
     trust = quality or "unavailable"
-    return {"status": "available" if quality is not None else "manual_review", "trust": trust, "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "execution_allowed": False, **llm_backtest_fields, **_provenance_fields(metadata_source)}
+    return {"status": "available" if quality is not None else "manual_review", "trust": trust, "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "tail_diagnostics": tail_diagnostics, "execution_allowed": False, **llm_backtest_fields, **_provenance_fields(metadata_source)}
 
 
 def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:

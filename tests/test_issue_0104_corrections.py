@@ -21,6 +21,7 @@ from etf_cockpit.app.selectors.instrument_detail import (
 )
 from etf_cockpit.app.pages.instrument_detail import render_etf_structure_panel
 from etf_cockpit.backtest.engine import BacktestReport, backtest_input_checksum, run_backtest
+from etf_cockpit.backtest.metrics import performance_metrics
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.sample_data import generate_sample_prices
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION
@@ -1249,25 +1250,24 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
         structural_hash = structural_caps.provenance[config_arg.universe.enabled_ids[0]]["structure_provenance_hash"]
         captured["structural_cap"] = structural_cap
         captured["structural_hash"] = structural_hash
+        strategies = ("momentum_only", "signal_strategy", "quality_momentum")
+        equity_curves = pd.DataFrame(
+            {strategy: [100.0, 99.0, 101.0] for strategy in strategies},
+            index=pd.to_datetime(["2026-07-08", "2026-07-09", "2026-07-10"]),
+        )
         results = pd.DataFrame(
             [
                 {
+                    **performance_metrics(equity_curves[strategy]),
                     "strategy_name": strategy,
-                    "calmar": 1.0,
                     "backtest_quality": "low",
-                    "return_hit_rate": 0.5,
-                    "average_win_return": 0.1,
-                    "average_loss_return": -0.1,
-                    "payoff_ratio": 1.0,
-                    "expected_value_per_period": 0.0,
-                    "payoff_asymmetry_warning": "none",
                 }
-                for strategy in ("momentum_only", "signal_strategy", "quality_momentum")
+                for strategy in strategies
             ]
         )
         return BacktestReport(
             results=results,
-            equity_curves=pd.DataFrame({"signal_strategy": [100.0]}, index=pd.to_datetime(["2026-07-10"])),
+            equity_curves=equity_curves,
             trade_log=pd.DataFrame(columns=["event"]),
             signal_log=pd.DataFrame([{
                 "date": "2026-07-10",
