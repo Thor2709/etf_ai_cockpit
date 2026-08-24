@@ -374,6 +374,129 @@ def test_instrument_detail_has_required_sections_for_primary_and_sparebanken() -
     assert model.instrument_id
 
 
+def test_operational_evidence_rejects_aggregate_and_contradictory_identity_rows() -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    valid = {
+        "instrument_id": "VWCE",
+        "evidence_status": "available",
+        "signal_date": "2026-06-01",
+        "signal_timestamp": "2026-06-01T00:00:00",
+        "execution_date": "2026-06-02",
+        "execution_timestamp": "2026-06-02T00:00:00",
+        "decision_price": 100.0,
+        "next_open_reference_price": 101.0,
+        "next_period_reference_price": 102.0,
+        "arrival_price_assumption": "next_adjusted_close",
+        "execution_delay_sessions": 1,
+        "same_bar_execution_avoided": True,
+        "fill_source": "simulated_backtest",
+        "observed_range_spread_proxy": 0.03,
+        "cost_spread_assumption_bps": 4.0,
+        "cost_spread_assumption_source": "execution-cost-v1:CostEstimate.spread_bps",
+        "estimated_cost_bps": 9.0,
+        "estimated_cost_bps_source": "execution-cost-v1:CostEstimate.total_cost_bps",
+        "execution_allowed": False,
+    }
+    contradictory = dict(valid, etf_id="OTHER")
+    aggregate = dict(valid)
+    aggregate.pop("instrument_id")
+    report = type("Report", (), {"operational_evidence": pd.DataFrame([aggregate, contradictory, valid])})()
+
+    panel = selector._operational_evidence_panel(report, "VWCE")
+
+    assert panel["status"] == "available"
+    assert [row["instrument_id"] for row in panel["rows"]] == ["VWCE"]
+    assert panel["execution_allowed"] is False
+
+
+def test_operational_evidence_malformed_available_rows_fail_closed() -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    valid = {
+        "instrument_id": "VWCE",
+        "evidence_status": "available",
+        "signal_date": "2026-06-01",
+        "signal_timestamp": "2026-06-01T00:00:00",
+        "execution_date": "2026-06-02",
+        "execution_timestamp": "2026-06-02T00:00:00",
+        "decision_price": 100.0,
+        "next_open_reference_price": 101.0,
+        "next_period_reference_price": 102.0,
+        "arrival_price_assumption": "next_adjusted_close",
+        "execution_delay_sessions": 1,
+        "same_bar_execution_avoided": True,
+        "fill_source": "simulated_backtest",
+        "observed_range_spread_proxy": 0.03,
+        "cost_spread_assumption_bps": 4.0,
+        "cost_spread_assumption_source": "execution-cost-v1:CostEstimate.spread_bps",
+        "estimated_cost_bps": 9.0,
+        "estimated_cost_bps_source": "execution-cost-v1:CostEstimate.total_cost_bps",
+        "execution_allowed": False,
+    }
+    malformed_values = (
+        ("evidence_status", True),
+        ("signal_timestamp", "not-a-timestamp"),
+        ("signal_timestamp", "2026-06-01"),
+        ("signal_date", "2026-06-02"),
+        ("execution_date", "2026-06-03"),
+        ("execution_timestamp", "2026-06-01T00:00:00"),
+        ("decision_price", "100.0"),
+        ("next_open_reference_price", 0.0),
+        ("next_period_reference_price", float("inf")),
+        ("arrival_price_assumption", "next_open"),
+        ("execution_delay_sessions", True),
+        ("execution_delay_sessions", "1"),
+        ("execution_delay_sessions", 1.0),
+        ("same_bar_execution_avoided", 1),
+        ("execution_allowed", 0),
+        ("fill_source", "SIMULATED_BACKTEST"),
+        ("observed_range_spread_proxy", "0.03"),
+        ("observed_range_spread_proxy", -0.01),
+        ("cost_spread_assumption_bps", "4.0"),
+        ("cost_spread_assumption_bps", -1.0),
+        ("cost_spread_assumption_source", None),
+        ("estimated_cost_bps", "9.0"),
+        ("estimated_cost_bps", -1.0),
+        ("estimated_cost_bps_source", None),
+    )
+    for field, malformed in malformed_values:
+        row = dict(valid)
+        row[field] = malformed
+        report = type("Report", (), {"operational_evidence": pd.DataFrame([row])})()
+
+        panel = selector._operational_evidence_panel(report, "VWCE")
+
+        assert panel["status"] == "unavailable", field
+        assert panel["execution_allowed"] is False
+
+    legacy = dict(valid, cost_spread_assumption_bps=None, cost_spread_assumption_source=None)
+    report = type("Report", (), {"operational_evidence": pd.DataFrame([legacy])})()
+    panel = selector._operational_evidence_panel(report, "VWCE")
+    assert panel["status"] == "available"
+
+
+def test_paper_trade_source_is_not_conflated_with_simulated_fill() -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    panel = selector._paper_trade_panel(
+        "VWCE",
+        pd.DataFrame([{"instrument_id": "VWCE", "fill_source": "paper", "paper_trade_id": "p-1"}]),
+    )
+
+    assert panel["status"] == "available"
+    assert panel["source"] == "paper_trade_ledger"
+    assert panel["fill_source"] == "paper"
+    assert panel["execution_allowed"] is False
+
+    contradictory = selector._paper_trade_panel(
+        "VWCE",
+        pd.DataFrame([{"instrument_id": "VWCE", "fill_source": "live", "paper_trade_id": "p-2"}]),
+    )
+    assert contradictory["status"] == "unavailable"
+    assert contradictory["execution_allowed"] is False
+
+
 def test_missing_optional_stores_are_unavailable_not_crash() -> None:
     snapshot = build_snapshot()
     model = build_instrument_detail(snapshot, "missing-instrument")

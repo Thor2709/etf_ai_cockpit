@@ -662,6 +662,14 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             model.sections.get("backtests"),
             subtitle="Instrument-scoped signals and trades determine instrument trust; strategy-level tail diagnostics are portfolio context only. execution_allowed=false.",
         ),
+        _render_evidence_section(
+            "Operational evidence",
+            (model.sections.get("backtests") or {}).get("operational_evidence", "unavailable")
+            if isinstance(model.sections.get("backtests"), dict)
+            else "unavailable",
+            subtitle="Exact-instrument simulated decision/next-open evidence; aggregate backtest rows remain context-only and paper/reconciled fills are separate. execution_allowed=false.",
+            key="instrument-detail.operational-evidence",
+        ),
         _render_evidence_section("Paper-trade history", model.sections.get("paper_trades")),
         _render_evidence_section("Decision journal", model.sections.get("journal")),
         _render_evidence_section(

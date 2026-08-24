@@ -10,6 +10,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import metric_card, panel, section_header
 from etf_cockpit.app.components.charts import equity_drawdown_chart, history_chart
 from etf_cockpit.app.components.tables import accessible_table
+from etf_cockpit.app.selectors.instrument_detail import _operational_evidence_panel
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.application.monthly_decision_template import (
@@ -25,7 +26,12 @@ from etf_cockpit.application.validation import build_validation_preview
 def _format_number(value: object, *, percent: bool = False, money: bool = False, decimals: int = 2) -> str:
     if value is None or value != value:
         return "n/a"
-    number = float(value)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "n/a"
+    if not math.isfinite(number):
+        return "n/a"
     if money:
         return f"EUR {number:,.0f}"
     if percent:
@@ -172,12 +178,55 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
         f"Losses during regime stress: {signal.get('losses_during_regime_stress', 'unavailable')} ({signal.get('regime_stress_loss_status', 'unavailable')}; {signal.get('regime_stress_loss_reason', '')})",
     ]
     operational_evidence = [
-        f"Signal timestamp: {report.metadata.get('lookahead_protection', 'n/a')}",
+        f"Signal timestamp source: price-panel timestamp (lookahead label: {report.metadata.get('lookahead_protection', 'unavailable')})",
         f"Execution delay: {report.metadata.get('execution_delay_sessions', 'n/a')} complete session",
         f"Same-bar execution avoided: {'yes' if report.metadata.get('same_bar_execution_avoided') else 'no'}",
-        "Decision price and next-open reference are shown in the simulated execution table.",
+        "Decision price, next-open reference, next-period adjusted close and close-to-next-open gap are shown per exact instrument below.",
+        "Observed high-low range proxy and configured/estimated cost spread assumption are separate fields.",
+        "Session, auction, expiry and order lifecycle are unavailable unless an event/order record evidences them.",
+        "Simulated backtest fills and paper/reconciled fills are separate sources; execution_allowed=false.",
         "No forward-fill is applied to incomplete adjusted-price rows.",
     ]
+    operational_frame = getattr(report, "operational_evidence", pd.DataFrame())
+    operational_instrument_ids = list(
+        getattr(getattr(state.snapshot.config, "universe", None), "enabled_ids", ()) or ()
+    )
+    validated_operational_rows: list[dict[str, object]] = []
+    if isinstance(operational_frame, pd.DataFrame) and not operational_frame.empty:
+        for instrument_id in operational_instrument_ids:
+            projection = _operational_evidence_panel(report, str(instrument_id))
+            if projection.get("status") == "available":
+                validated_operational_rows.extend(projection.get("rows", ()))
+            else:
+                validated_operational_rows.append(
+                    {
+                        "evidence_status": "unavailable",
+                        "evidence_reason": projection.get(
+                            "message", "exact operational evidence unavailable"
+                        ),
+                        "instrument_id": str(instrument_id),
+                    }
+                )
+    operational_rows = []
+    for row in validated_operational_rows[:12]:
+        operational_rows.append(
+            ft.DataRow(
+                cells=[
+                    ft.DataCell(ft.Text(str(row.get("evidence_status", "unavailable")), color=theme.TEXT, size=11)),
+                    ft.DataCell(ft.Text(str(row.get("evidence_reason", "unavailable")), color=theme.TEXT, size=11)),
+                    ft.DataCell(ft.Text(str(row.get("instrument_id", "unavailable")), color=theme.TEXT, size=11)),
+                    ft.DataCell(ft.Text(str(row.get("signal_timestamp", "unavailable")), color=theme.TEXT, size=11)),
+                    ft.DataCell(ft.Text(_format_number(row.get("decision_price")), color=theme.TEXT, size=11)),
+                    ft.DataCell(ft.Text(_format_number(row.get("next_open_reference_price")), color=theme.TEXT, size=11)),
+                    ft.DataCell(ft.Text(_format_number(row.get("next_period_reference_price")), color=theme.TEXT, size=11)),
+                    ft.DataCell(ft.Text(_format_number(row.get("close_to_next_open_gap"), percent=True), color=theme.TEXT, size=11)),
+                    ft.DataCell(ft.Text(_format_number(row.get("observed_range_spread_proxy"), percent=True), color=theme.TEXT, size=11)),
+                    ft.DataCell(ft.Text(_format_number(row.get("cost_spread_assumption_bps")), color=theme.TEXT, size=11)),
+                    ft.DataCell(ft.Text(_format_number(row.get("estimated_cost_bps")), color=theme.TEXT, size=11)),
+                    ft.DataCell(ft.Text(str(row.get("fill_source", "unavailable")), color=theme.TEXT, size=11)),
+                ]
+            )
+        )
     trade_rows = []
     if not report.trade_log.empty:
         for _, row in report.trade_log.head(8).iterrows():
@@ -230,6 +279,33 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                         ft.Text("\n".join(tail_diagnostics), color=theme.MUTED, selectable=True),
                     ],
                     spacing=6,
+                )
+            ),
+            panel(
+                ft.Column(
+                    [
+                        section_header("Instrument operational evidence", "Exact-instrument simulated backtest evidence; unavailable or aggregate-only evidence is not aliased. execution_allowed=false."),
+                        ft.DataTable(
+                            columns=[
+                                ft.DataColumn(ft.Text("Status")),
+                                ft.DataColumn(ft.Text("Reason")),
+                                ft.DataColumn(ft.Text("Instrument")),
+                                ft.DataColumn(ft.Text("Signal timestamp")),
+                                ft.DataColumn(ft.Text("Decision")),
+                                ft.DataColumn(ft.Text("Next open")),
+                                ft.DataColumn(ft.Text("Next-period close")),
+                                ft.DataColumn(ft.Text("Close→open gap")),
+                                ft.DataColumn(ft.Text("Observed H-L proxy")),
+                                ft.DataColumn(ft.Text("Cost spread bps")),
+                                ft.DataColumn(ft.Text("Estimated all-in cost bps")),
+                                ft.DataColumn(ft.Text("Fill source")),
+                            ],
+                            rows=operational_rows,
+                        )
+                        if operational_rows
+                        else ft.Text("Instrument operational evidence unavailable; no exact scoped rows were persisted.", color=theme.MUTED, selectable=True),
+                    ],
+                    scroll=ft.ScrollMode.AUTO,
                 )
             ),
             panel(

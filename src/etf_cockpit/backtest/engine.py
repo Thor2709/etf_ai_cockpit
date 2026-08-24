@@ -24,7 +24,7 @@ from etf_cockpit.data.validation import validate_prices
 from etf_cockpit.data.provenance import sha256_dataframe
 from etf_cockpit.data.etf_structure import structure_confidence_caps, structure_input_checksum
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
-from etf_cockpit.portfolio.costs import COST_MODEL_ID, estimate_rebalance_cost
+from etf_cockpit.portfolio.costs import COST_MODEL_ID, CostEstimate, estimate_rebalance_cost
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     CanonicalBenchmarkRegistry,
     unavailable_reference_projection,
@@ -45,6 +45,15 @@ class BacktestReport:
     quality_notes: list[str] | None = None
     metadata: dict[str, object] = field(default_factory=dict)
     quality_momentum_evidence: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    @property
+    def operational_evidence(self) -> pd.DataFrame:
+        """Return the persisted, exact-instrument operational projection."""
+
+        rows = self.metadata.get("operational_evidence_rows", [])
+        if not isinstance(rows, list):
+            return pd.DataFrame()
+        return pd.DataFrame(rows)
 
 
 class BacktestDataUnavailableError(ValueError):
@@ -223,6 +232,12 @@ def _execution_evidence(
     next_high: pd.Series,
     next_low: pd.Series,
     changed_weights: pd.Series,
+    signal_timestamp: object = None,
+    execution_timestamp: object = None,
+    cost_spread_assumption_bps: float | None = None,
+    cost_spread_assumption_source: str | None = None,
+    estimated_cost_bps: float | None = None,
+    estimated_cost_bps_source: str | None = None,
 ) -> dict[str, object]:
     decision_price = _weighted_reference_price(current_prices, changed_weights)
     next_open_reference = _weighted_reference_price(next_open, changed_weights)
@@ -242,8 +257,143 @@ def _execution_evidence(
         "close_to_next_open_gap": close_to_next_open,
         "arrival_price_assumption": arrival_assumption,
         "spread_proxy": spread_proxy,
+        "observed_range_spread_proxy": spread_proxy,
+        "cost_spread_assumption_bps": cost_spread_assumption_bps,
+        "cost_spread_assumption_source": cost_spread_assumption_source,
+        "estimated_cost_bps": estimated_cost_bps,
+        "estimated_cost_bps_source": estimated_cost_bps_source,
         "execution_delay_sessions": 1,
         "same_bar_execution_avoided": True,
+        "signal_timestamp": signal_timestamp,
+        "execution_timestamp": execution_timestamp,
+        "fill_source": "simulated_backtest",
+        "session_state": None,
+        "auction_state": None,
+        "expiry_state": None,
+        "order_lifecycle": None,
+        "execution_allowed": False,
+    }
+
+
+def _instrument_operational_evidence(
+    *,
+    instrument_id: object,
+    strategy: str,
+    signal_timestamp: object,
+    execution_timestamp: object,
+    signal_date: object,
+    execution_date: object,
+    decision_price: object,
+    next_open: object,
+    next_period_close: object,
+    high: object,
+    low: object,
+    open_price: object,
+    cost_spread_assumption_bps: object,
+    cost_spread_assumption_source: object,
+    estimated_cost_bps: object = None,
+    estimated_cost_bps_source: object = None,
+) -> dict[str, object]:
+    """Build one strict, instrument-scoped operational evidence record.
+
+    This is descriptive evidence only.  Missing OHLC, session/order lifecycle,
+    or contradictory timestamps never become a positive execution claim.
+    """
+
+    def finite(value: object) -> float | None:
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return None
+        return result if np.isfinite(result) else None
+
+    identity = str(instrument_id).strip() if instrument_id is not None else ""
+    signal_ts = pd.to_datetime(signal_timestamp, errors="coerce")
+    execution_ts = pd.to_datetime(execution_timestamp, errors="coerce")
+    reasons: list[str] = []
+    if not identity:
+        reasons.append("exact_instrument_identity_unavailable")
+    if pd.isna(signal_ts) or pd.isna(execution_ts):
+        reasons.append("signal_or_execution_timestamp_unavailable")
+    elif execution_ts <= signal_ts:
+        reasons.append("same_bar_or_non_forward_execution")
+
+    decision = finite(decision_price)
+    next_open_value = finite(next_open)
+    next_close = finite(next_period_close)
+    observed_open = finite(open_price)
+    observed_high = finite(high)
+    observed_low = finite(low)
+    if decision is None or decision <= 0:
+        reasons.append("decision_price_unavailable")
+    if next_open_value is None or next_open_value <= 0:
+        reasons.append("next_open_reference_unavailable")
+    if next_close is None or next_close <= 0:
+        reasons.append("next_period_reference_unavailable")
+    if observed_open is None or observed_high is None or observed_low is None:
+        reasons.append("observed_ohlc_incomplete")
+    if any(value is not None and value < 0 for value in (observed_open, observed_high, observed_low)):
+        reasons.append("observed_ohlc_invalid")
+    if (
+        observed_open is not None
+        and observed_high is not None
+        and observed_low is not None
+        and (observed_open <= 0 or observed_high < observed_low)
+    ):
+        reasons.append("observed_ohlc_contradictory")
+
+    observed_spread = None
+    if "observed_ohlc_incomplete" not in reasons:
+        if (
+            observed_open is not None
+            and observed_open > 0
+            and observed_high is not None
+            and observed_low is not None
+            and observed_high >= observed_low
+        ):
+            observed_spread = float((observed_high - observed_low) / observed_open)
+        else:
+            reasons.append("observed_range_spread_unavailable")
+    gap = None
+    if decision is not None and next_open_value is not None and decision != 0:
+        gap = float(next_open_value / decision - 1.0)
+
+    status = "available" if not reasons else "unavailable"
+    return {
+        "evidence_status": status,
+        "evidence_reason": ";".join(dict.fromkeys(reasons)) or "canonical_local_backtest_evidence",
+        "instrument_id": identity or None,
+        "strategy": strategy,
+        "signal_date": signal_date,
+        "signal_timestamp": None if pd.isna(signal_ts) else signal_ts.isoformat(),
+        "execution_date": execution_date,
+        "execution_timestamp": None if pd.isna(execution_ts) else execution_ts.isoformat(),
+        "decision_price": decision,
+        "decision_price_basis": "adjusted_close" if decision is not None else None,
+        "next_open_reference_price": next_open_value,
+        "next_period_reference_price": next_close,
+        "close_to_next_open_gap": gap,
+        "observed_range_spread_proxy": observed_spread,
+        "spread_proxy": observed_spread,
+        "cost_spread_assumption_bps": finite(cost_spread_assumption_bps),
+        "cost_spread_assumption_source": str(cost_spread_assumption_source).strip() if cost_spread_assumption_source else None,
+        "estimated_cost_bps": finite(estimated_cost_bps),
+        "estimated_cost_bps_source": str(estimated_cost_bps_source).strip() if estimated_cost_bps_source else None,
+        "arrival_price_assumption": "next_adjusted_close" if next_close is not None else "unavailable",
+        "execution_delay_sessions": 1,
+        "same_bar_execution_avoided": bool(
+            not pd.isna(signal_ts)
+            and not pd.isna(execution_ts)
+            and execution_ts > signal_ts
+        ),
+        "session_state": None,
+        "auction_state": None,
+        "expiry_state": None,
+        "order_lifecycle": None,
+        "fill_source": "simulated_backtest",
+        "paper_fill_source": None,
+        "reconciled_fill_source": None,
+        "execution_allowed": False,
     }
 
 
@@ -398,6 +548,7 @@ def run_backtest(
     pending_costs: dict[str, float] = {}
     pending_execution_date: pd.Timestamp | None = None
     trade_rows: list[dict[str, object]] = []
+    operational_evidence_rows: list[dict[str, object]] = []
     signal_rows: list[dict[str, object]] = []
     quality_evidence_rows: list[dict[str, object]] = []
 
@@ -500,6 +651,7 @@ def run_backtest(
                 signal_rows.append(
                     {
                         "date": dt.date(),
+                        "signal_timestamp": pd.Timestamp(dt).isoformat(),
                         "etf_id": signal.etf_id,
                         "action": signal.action,
                         "score": signal.total_score,
@@ -541,11 +693,15 @@ def run_backtest(
                     step_cost_bps = portfolio_cost.weighted_cost_bps
                     step_cost_quality = ", ".join(sorted({item.data_quality for item in portfolio_cost.estimates})) or "no_trade"
                     step_capacity_eur = portfolio_cost.capacity_eur
+                    instrument_costs: dict[str, list[CostEstimate]] = {}
+                    for item in portfolio_cost.estimates:
+                        instrument_costs.setdefault(item.instrument_id, []).append(item)
                 else:
                     step_cost = equity[name][-1] * step_turnover * max(0.0, transaction_cost_bps) / 10_000
                     step_cost_bps = max(0.0, transaction_cost_bps)
                     step_cost_quality = "legacy_explicit_override"
                     step_capacity_eur = None
+                    instrument_costs = {}
                 turnover[name] += step_turnover
                 cost_drag[name] += step_cost
                 pending_weights[name] = new_weight.reindex(columns).fillna(0)
@@ -565,7 +721,76 @@ def run_backtest(
                         if execution_dt in low_pivot.index
                         else empty_reference,
                         changed_weights=diff,
+                        signal_timestamp=pd.Timestamp(dt).isoformat(),
+                        execution_timestamp=pd.Timestamp(execution_dt).isoformat(),
+                        cost_spread_assumption_bps=None,
+                        cost_spread_assumption_source=None,
+                        estimated_cost_bps=step_cost_bps,
+                        estimated_cost_bps_source=(
+                            "PortfolioCostEstimate.weighted_cost_bps"
+                            if transaction_cost_bps is None
+                            else "explicit_transaction_cost_bps"
+                        ),
                     )
+                    for instrument_id in diff.index[diff > 0]:
+                        instrument_cost_matches = instrument_costs.get(str(instrument_id), [])
+                        instrument_cost = instrument_cost_matches[0] if len(instrument_cost_matches) == 1 else None
+                        operational_evidence_rows.append(
+                            _instrument_operational_evidence(
+                                instrument_id=instrument_id,
+                                strategy=name,
+                                signal_timestamp=pd.Timestamp(dt).isoformat(),
+                                execution_timestamp=pd.Timestamp(execution_dt).isoformat(),
+                                signal_date=dt.date(),
+                                execution_date=execution_dt.date(),
+                                decision_price=pivot.iloc[i].get(instrument_id),
+                                next_open=(
+                                    open_pivot.loc[execution_dt].get(instrument_id)
+                                    if execution_dt in open_pivot.index
+                                    else None
+                                ),
+                                next_period_close=pivot.iloc[i + 1].get(instrument_id),
+                                high=(
+                                    high_pivot.loc[execution_dt].get(instrument_id)
+                                    if execution_dt in high_pivot.index
+                                    else None
+                                ),
+                                low=(
+                                    low_pivot.loc[execution_dt].get(instrument_id)
+                                    if execution_dt in low_pivot.index
+                                    else None
+                                ),
+                                open_price=(
+                                    open_pivot.loc[execution_dt].get(instrument_id)
+                                    if execution_dt in open_pivot.index
+                                    else None
+                                ),
+                                cost_spread_assumption_bps=(
+                                    instrument_cost.spread_bps
+                                    if instrument_cost is not None
+                                    else None
+                                ),
+                                cost_spread_assumption_source=(
+                                    f"{instrument_cost.model_id}:CostEstimate.spread_bps"
+                                    if instrument_cost is not None
+                                    else None
+                                ),
+                                estimated_cost_bps=(
+                                    instrument_cost.total_cost_bps
+                                    if instrument_cost is not None
+                                    else step_cost_bps
+                                ),
+                                estimated_cost_bps_source=(
+                                    f"{instrument_cost.model_id}:CostEstimate.total_cost_bps"
+                                    if instrument_cost is not None
+                                    else (
+                                        "PortfolioCostEstimate.weighted_cost_bps"
+                                        if transaction_cost_bps is None
+                                        else "explicit_transaction_cost_bps"
+                                    )
+                                ),
+                            )
+                        )
                     trade_rows.append(
                         {
                             "date": execution_dt.date(),
@@ -606,6 +831,7 @@ def run_backtest(
     )
     quality_evidence_frame = pd.DataFrame(quality_evidence_rows, columns=FRAME_COLUMNS)
     metadata["quality_momentum_evidence_checksum"] = quality_momentum_evidence_checksum(quality_evidence_frame)
+    metadata["operational_evidence_rows"] = operational_evidence_rows
     for name in strategies:
         metrics = performance_metrics(equity_curves[name], benchmark=benchmark, turnover=turnover[name], cost_drag=cost_drag[name])
         metrics["benchmark_id"] = canonical_benchmark_id

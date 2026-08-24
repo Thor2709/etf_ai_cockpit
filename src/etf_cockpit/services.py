@@ -2044,6 +2044,9 @@ class BacktestService:
             persisted_results["largest_negative_contribution_periods"] = persisted_results[
                 "largest_negative_contribution_periods"
             ].map(lambda value: json.dumps(value, default=str, separators=(",", ":")))
+        metadata_payload = json.dumps(
+            report.metadata, default=str, sort_keys=True, indent=2
+        ).encode("utf-8")
         payloads = {
             BACKTESTS_DIR / "backtest_results.csv": (
                 persisted_results.to_csv(index=False).encode("utf-8"),
@@ -2065,6 +2068,10 @@ class BacktestService:
                 report.quality_momentum_evidence.to_csv(index=False).encode("utf-8"),
                 lambda path: _validate_csv(path),
             ),
+            BACKTESTS_DIR / "backtest_metadata.json": (
+                metadata_payload,
+                lambda path: json.loads(path.read_text(encoding="utf-8")),
+            ),
         }
         settings_revision = str(settings_identity["settings_revision"])
         requests = [
@@ -2083,13 +2090,6 @@ class BacktestService:
                 lambda path: json.loads(path.read_text(encoding="utf-8")),
             )
             for path, (payload, _validator) in payloads.items()
-        )
-        requests.append(
-            AtomicWriteRequest(
-                BACKTESTS_DIR / "backtest_metadata.json",
-                json.dumps(report.metadata, default=str, sort_keys=True, indent=2).encode("utf-8"),
-                lambda path: json.loads(path.read_text(encoding="utf-8")),
-            )
         )
         with timed_step("backtest", "write_outputs"):
             with publication_scope(publish_guard):
@@ -2117,9 +2117,10 @@ class BacktestService:
             trade_path,
             signal_path,
             quality_evidence_path,
+            metadata_path,
         )
         sidecar_paths = tuple(_universe_cache_meta_path(path) for path in payload_paths)
-        snapshot_paths = payload_paths + sidecar_paths + (metadata_path,)
+        snapshot_paths = payload_paths + sidecar_paths
         if any(not path.is_file() for path in snapshot_paths):
             return None
         try:
@@ -2182,7 +2183,7 @@ class BacktestService:
             if structural_hashes.eq("").any() or structural_hashes.str.casefold().isin({"nan", "none"}).any():
                 return None
             quality_momentum_evidence = pd.read_csv(BytesIO(payload_bytes[quality_evidence_path]))
-            metadata = json.loads(snapshot[metadata_path].decode("utf-8"))
+            metadata = json.loads(payload_bytes[metadata_path].decode("utf-8"))
             if not isinstance(metadata, dict) or not _cached_backtest_binding_matches(
                 metadata, reference_context
             ):

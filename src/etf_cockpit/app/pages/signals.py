@@ -11,6 +11,44 @@ from etf_cockpit.app.components.governance_badges import build_gate_summary
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.application.ui_facade import build_simple_instrument_scores
+from etf_cockpit.app.selectors.instrument_detail import _operational_evidence_panel
+
+
+def _signals_operational_evidence(scores: list[object], report: object) -> ft.Control:
+    lines: list[str] = []
+    for score in scores:
+        instrument_id = str(getattr(score, "display_id", "")).strip()
+        if not instrument_id:
+            continue
+        projection = _operational_evidence_panel(report, instrument_id)
+        if projection.get("status") == "available":
+            rows = projection.get("rows", [])
+            latest = rows[-1] if isinstance(rows, list) and rows else {}
+            lines.append(
+                f"{instrument_id}: available; signal={latest.get('signal_timestamp', 'unavailable')}; "
+                f"decision={latest.get('decision_price', 'unavailable')}; "
+                f"next_open={latest.get('next_open_reference_price', 'unavailable')}; "
+                f"source={latest.get('fill_source', 'unavailable')}; execution_allowed=false"
+            )
+        else:
+            lines.append(
+                f"{instrument_id}: unavailable/context-only ({projection.get('message', 'exact operational evidence unavailable')}); "
+                "aggregate aliases are excluded; execution_allowed=false"
+            )
+    if not lines:
+        lines = ["Instrument-scoped operational evidence unavailable; execution_allowed=false"]
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Operational evidence",
+                    "Exact-instrument backtest evidence only. Decision price, next-open reference, source and timestamp are descriptive; paper/reconciled fills remain separate.",
+                ),
+                ft.Text("\n".join(lines), color=theme.MUTED, selectable=True),
+            ],
+            spacing=6,
+        )
+    )
 
 
 def signals_page(_page: ft.Page, state: AppState) -> ft.Control:
@@ -68,6 +106,7 @@ def signals_page(_page: ft.Page, state: AppState) -> ft.Control:
     ]
     if gate_summary is not None:
         controls.append(gate_summary)
+    controls.append(_signals_operational_evidence(scores, getattr(state.snapshot, "backtest", None)))
     controls.append(
         panel(
             ft.Column(

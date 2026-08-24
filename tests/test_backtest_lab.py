@@ -9,9 +9,11 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.app.pages.backtests import backtests_page
+from etf_cockpit.app.pages.signals import _signals_operational_evidence
 from etf_cockpit.backtest.engine import (
     BacktestDataUnavailableError,
     _execution_evidence,
+    _instrument_operational_evidence,
     _log_equity_returns,
     _probabilistic_sharpe,
     quality_momentum_evidence_checksum,
@@ -21,6 +23,7 @@ from etf_cockpit.backtest.metrics import performance_metrics, tail_event_diagnos
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.atomic_io import AtomicWriteRequest
 from etf_cockpit.data.sample_data import generate_sample_prices
+from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit import services
 
 
@@ -269,6 +272,118 @@ def test_execution_evidence_uses_next_session_adjusted_close() -> None:
     assert evidence["next_period_reference_price"] != evidence["decision_price"]
 
 
+def test_operational_evidence_fails_closed_for_partial_ohlc_and_same_bar() -> None:
+    partial = _instrument_operational_evidence(
+        instrument_id="VWCE",
+        strategy="signal_strategy",
+        signal_timestamp="2026-06-01T00:00:00",
+        execution_timestamp="2026-06-02T00:00:00",
+        signal_date=pd.Timestamp("2026-06-01").date(),
+        execution_date=pd.Timestamp("2026-06-02").date(),
+        decision_price=100.0,
+        next_open=101.0,
+        next_period_close=102.0,
+        high=None,
+        low=99.0,
+        open_price=100.0,
+        cost_spread_assumption_bps=8.0,
+        cost_spread_assumption_source="execution-cost-v1",
+    )
+    assert partial["evidence_status"] == "unavailable"
+    assert partial["observed_range_spread_proxy"] is None
+    assert partial["fill_source"] == "simulated_backtest"
+    assert partial["execution_allowed"] is False
+
+    missing_open = _instrument_operational_evidence(
+        instrument_id="VWCE",
+        strategy="signal_strategy",
+        signal_timestamp="2026-06-01T00:00:00",
+        execution_timestamp="2026-06-02T00:00:00",
+        signal_date=pd.Timestamp("2026-06-01").date(),
+        execution_date=pd.Timestamp("2026-06-02").date(),
+        decision_price=100.0,
+        next_open=None,
+        next_period_close=102.0,
+        high=103.0,
+        low=99.0,
+        open_price=101.0,
+        cost_spread_assumption_bps=8.0,
+        cost_spread_assumption_source="execution-cost-v1",
+    )
+    assert missing_open["evidence_status"] == "unavailable"
+    assert "next_open_reference_unavailable" in missing_open["evidence_reason"]
+
+    same_bar = _instrument_operational_evidence(
+        instrument_id="VWCE",
+        strategy="signal_strategy",
+        signal_timestamp="2026-06-02T00:00:00",
+        execution_timestamp="2026-06-02T00:00:00",
+        signal_date=pd.Timestamp("2026-06-02").date(),
+        execution_date=pd.Timestamp("2026-06-02").date(),
+        decision_price=100.0,
+        next_open=101.0,
+        next_period_close=102.0,
+        high=102.0,
+        low=99.0,
+        open_price=100.0,
+        cost_spread_assumption_bps=8.0,
+        cost_spread_assumption_source="execution-cost-v1",
+    )
+    assert same_bar["evidence_status"] == "unavailable"
+    assert same_bar["same_bar_execution_avoided"] is False
+
+
+def test_backtest_operational_evidence_is_exactly_instrument_scoped() -> None:
+    config = load_config()
+    prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
+    report = run_backtest(config, prices, rebalance_frequency_days=42)
+
+    evidence = report.operational_evidence
+    expected_spreads = {
+        instrument_id: estimate_execution_cost(config, instrument_id, 1.0).spread_bps
+        for instrument_id in evidence["instrument_id"].unique()
+    }
+    assert not evidence.empty
+    assert evidence["instrument_id"].notna().all()
+    assert evidence["fill_source"].eq("simulated_backtest").all()
+    assert evidence["execution_allowed"].eq(False).all()
+    assert evidence["session_state"].isna().all()
+    assert evidence["auction_state"].isna().all()
+    assert evidence["order_lifecycle"].isna().all()
+    assert evidence["observed_range_spread_proxy"].notna().all()
+    assert evidence["cost_spread_assumption_bps"].notna().all()
+    assert evidence["cost_spread_assumption_source"].str.endswith(":CostEstimate.spread_bps").all()
+    assert evidence.apply(
+        lambda row: row["cost_spread_assumption_bps"] == expected_spreads[row["instrument_id"]],
+        axis=1,
+    ).all()
+    assert evidence["estimated_cost_bps_source"].str.endswith(":CostEstimate.total_cost_bps").all()
+    assert (evidence["estimated_cost_bps"] >= evidence["cost_spread_assumption_bps"]).all()
+    assert (evidence["estimated_cost_bps"] > evidence["cost_spread_assumption_bps"]).any()
+    assert (pd.to_datetime(evidence["execution_timestamp"]) > pd.to_datetime(evidence["signal_timestamp"])).all()
+    assert "lookahead_protection" not in set(evidence["signal_timestamp"].astype(str))
+
+
+def test_explicit_all_in_cost_does_not_masquerade_as_spread() -> None:
+    config = load_config()
+    prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
+
+    report = run_backtest(
+        config,
+        prices,
+        rebalance_frequency_days=42,
+        transaction_cost_bps=23.0,
+    )
+
+    evidence = report.operational_evidence
+    assert not evidence.empty
+    assert evidence["cost_spread_assumption_bps"].isna().all()
+    assert evidence["cost_spread_assumption_source"].isna().all()
+    assert evidence["estimated_cost_bps"].eq(23.0).all()
+    assert evidence["estimated_cost_bps_source"].eq("explicit_transaction_cost_bps").all()
+    assert report.trade_log["estimated_cost_bps"].eq(23.0).all()
+
+
 def test_backtests_page_exposes_lab_evidence_sections() -> None:
     source = inspect.getsource(backtests_page)
 
@@ -283,6 +398,15 @@ def test_backtests_page_exposes_lab_evidence_sections() -> None:
     assert "Few sessions explain most performance" in source
     assert "Losses during high volatility" in source
     assert "Losses during regime stress" in source
+    assert "Instrument operational evidence" in source
+    assert "Observed H-L proxy" in source
+    assert "Cost spread bps" in source
+    assert "Estimated all-in cost bps" in source
+    assert "evidence_status" in source
+    assert "evidence_reason" in source
+    assert "fill_source" in source
+    assert "Operational evidence" in inspect.getsource(_signals_operational_evidence)
+    assert "aggregate aliases are excluded" in inspect.getsource(_signals_operational_evidence)
 
 
 def test_backtest_registers_quality_momentum_and_quality_only_baselines() -> None:
@@ -354,13 +478,28 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     assert cached.metadata["quality_momentum_evidence_checksum"] == generated.metadata[
         "quality_momentum_evidence_checksum"
     ]
+    assert len(cached.operational_evidence) == len(generated.operational_evidence)
+    assert cached.operational_evidence["fill_source"].eq("simulated_backtest").all()
     metadata_path = tmp_path / "backtest_metadata.json"
+    metadata_sidecar_path = services._universe_cache_meta_path(metadata_path)
     original_metadata = metadata_path.read_bytes()
+    original_metadata_sidecar = metadata_sidecar_path.read_bytes()
     metadata = json.loads(original_metadata)
-    metadata["reference_identity"]["execution_allowed"] = 0
+    metadata["operational_evidence_rows"][0]["decision_price"] = 999_999.0
     metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
     assert service._load_cached_backtest() is None
     metadata_path.write_bytes(original_metadata)
+
+    metadata = json.loads(original_metadata)
+    metadata["reference_identity"]["execution_allowed"] = 0
+    malformed_metadata = json.dumps(metadata).encode("utf-8")
+    metadata_sidecar = json.loads(original_metadata_sidecar)
+    metadata_sidecar["payload_sha256"] = hashlib.sha256(malformed_metadata).hexdigest()
+    metadata_path.write_bytes(malformed_metadata)
+    metadata_sidecar_path.write_text(json.dumps(metadata_sidecar), encoding="utf-8")
+    assert service._load_cached_backtest() is None
+    metadata_path.write_bytes(original_metadata)
+    metadata_sidecar_path.write_bytes(original_metadata_sidecar)
 
     results_path = tmp_path / "backtest_results.csv"
     sidecar_path = services._universe_cache_meta_path(results_path)
@@ -554,5 +693,6 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
         "quality_momentum_evidence.csv",
         "quality_momentum_evidence.csv.meta.json",
         "backtest_metadata.json",
+        "backtest_metadata.json.meta.json",
     }
     assert cached.results.loc[cached.results["strategy_name"] == "signal_strategy", "calmar"].iloc[0] != 999.0

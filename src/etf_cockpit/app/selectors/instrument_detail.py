@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 import math
+from numbers import Integral, Real
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -1591,6 +1593,7 @@ def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: M
     report = getattr(snapshot, "backtest", None)
     signal_log = _instrument_rows(getattr(report, "signal_log", None), instrument_id)
     trade_log = _instrument_rows(getattr(report, "trade_log", None), instrument_id)
+    operational_evidence = _operational_evidence_panel(report, instrument_id)
     tail_diagnostics = _strategy_tail_diagnostics(report)
     quality_raw = None
     quality_present = False
@@ -1617,11 +1620,168 @@ def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: M
             "signal_rows": [],
             "trade_rows": [],
             "tail_diagnostics": tail_diagnostics,
+            "operational_evidence": operational_evidence,
             **llm_backtest_fields,
         }
     metadata_source = scoreboard or (signal_log.iloc[-1] if not signal_log.empty else trade_log.iloc[-1])
     trust = quality or "unavailable"
-    return {"status": "available" if quality is not None else "manual_review", "trust": trust, "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "tail_diagnostics": tail_diagnostics, "execution_allowed": False, **llm_backtest_fields, **_provenance_fields(metadata_source)}
+    return {"status": "available" if quality is not None else "manual_review", "trust": trust, "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "tail_diagnostics": tail_diagnostics, "operational_evidence": operational_evidence, "execution_allowed": False, **llm_backtest_fields, **_provenance_fields(metadata_source)}
+
+
+def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str, Any]:
+    """Project only strict exact-instrument simulated evidence."""
+
+    source = getattr(report, "operational_evidence", None)
+    rows = _instrument_rows(source, instrument_id)
+    if rows.empty:
+        return _unavailable(
+            "Operational evidence unavailable for this instrument; aggregate backtest rows are context-only."
+        ) | {"instrument_id": instrument_id, "rows": [], "scope": "instrument", "source": "simulated_backtest"}
+    required = {
+        "evidence_status",
+        "signal_date",
+        "signal_timestamp",
+        "execution_date",
+        "execution_timestamp",
+        "decision_price",
+        "next_open_reference_price",
+        "next_period_reference_price",
+        "arrival_price_assumption",
+        "execution_delay_sessions",
+        "same_bar_execution_avoided",
+        "fill_source",
+        "observed_range_spread_proxy",
+        "cost_spread_assumption_bps",
+        "cost_spread_assumption_source",
+        "estimated_cost_bps",
+        "estimated_cost_bps_source",
+        "execution_allowed",
+    }
+    if not required.issubset(rows.columns):
+        return _unavailable(
+            "Operational evidence schema is incomplete; no partial execution claim is shown."
+        ) | {"instrument_id": instrument_id, "rows": [], "scope": "instrument", "source": "simulated_backtest"}
+
+    def strict_timestamp(value: object) -> pd.Timestamp | None:
+        if type(value) is not str or not value or value.strip() != value or "T" not in value:
+            return None
+        try:
+            parsed = pd.Timestamp(datetime.fromisoformat(value.replace("Z", "+00:00")))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return None if pd.isna(parsed) else parsed
+
+    def strict_date(value: object) -> date | None:
+        if isinstance(value, date) and not isinstance(value, datetime):
+            return value
+        if type(value) is not str or len(value) != 10 or value.strip() != value:
+            return None
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError:
+            return None
+        return parsed if parsed.isoformat() == value else None
+
+    def strict_number(value: object, *, positive: bool) -> float | None:
+        if isinstance(value, bool) or not isinstance(value, Real):
+            return None
+        number = float(value)
+        if not math.isfinite(number) or (number <= 0 if positive else number < 0):
+            return None
+        return number
+
+    def optional_non_negative_number(value: object) -> bool:
+        return _is_missing_scalar(value) or strict_number(value, positive=False) is not None
+
+    def optional_number_with_source(value: object, source: object) -> bool:
+        if _is_missing_scalar(value):
+            return _is_missing_scalar(source)
+        return (
+            strict_number(value, positive=False) is not None
+            and type(source) is str
+            and bool(source)
+            and source.strip() == source
+        )
+
+    safe_rows: list[dict[str, Any]] = []
+    for record in rows.to_dict("records"):
+        signal_ts = strict_timestamp(record.get("signal_timestamp"))
+        execution_ts = strict_timestamp(record.get("execution_timestamp"))
+        signal_date = strict_date(record.get("signal_date"))
+        execution_date = strict_date(record.get("execution_date"))
+        timestamp_ordered = False
+        try:
+            timestamp_ordered = bool(
+                signal_ts is not None
+                and execution_ts is not None
+                and execution_ts > signal_ts
+            )
+        except TypeError:
+            timestamp_ordered = False
+        safe = (
+            type(record.get("evidence_status")) is str
+            and record.get("evidence_status") == "available"
+            and type(record.get("instrument_id")) is str
+            and record.get("instrument_id") == instrument_id
+            and timestamp_ordered
+            and signal_date is not None
+            and execution_date is not None
+            and signal_ts is not None
+            and execution_ts is not None
+            and signal_date == signal_ts.date()
+            and execution_date == execution_ts.date()
+            and strict_number(record.get("decision_price"), positive=True) is not None
+            and strict_number(record.get("next_open_reference_price"), positive=True) is not None
+            and strict_number(record.get("next_period_reference_price"), positive=True) is not None
+            and type(record.get("arrival_price_assumption")) is str
+            and record.get("arrival_price_assumption") == "next_adjusted_close"
+            and isinstance(record.get("execution_delay_sessions"), Integral)
+            and not isinstance(record.get("execution_delay_sessions"), bool)
+            and int(record.get("execution_delay_sessions")) == 1
+            and type(record.get("same_bar_execution_avoided")) is bool
+            and record.get("same_bar_execution_avoided") is True
+            and type(record.get("execution_allowed")) is bool
+            and record.get("execution_allowed") is False
+            and type(record.get("fill_source")) is str
+            and record.get("fill_source") == "simulated_backtest"
+            and optional_non_negative_number(record.get("observed_range_spread_proxy"))
+            and optional_number_with_source(
+                record.get("cost_spread_assumption_bps"),
+                record.get("cost_spread_assumption_source"),
+            )
+            and optional_number_with_source(
+                record.get("estimated_cost_bps"),
+                record.get("estimated_cost_bps_source"),
+            )
+        )
+        if safe:
+            safe_rows.append(record)
+        elif record.get("evidence_status") == "available":
+            return _unavailable(
+                "Operational evidence is malformed, partial or contradictory; no execution claim is shown."
+            ) | {
+                "instrument_id": instrument_id,
+                "rows": rows.to_dict("records"),
+                "scope": "instrument",
+                "source": "simulated_backtest",
+            }
+    if not safe_rows:
+        return _unavailable(
+            "Operational evidence is malformed, partial or contradictory; no execution claim is shown."
+        ) | {
+            "instrument_id": instrument_id,
+            "rows": rows.to_dict("records"),
+            "scope": "instrument",
+            "source": "simulated_backtest",
+        }
+    return {
+        "status": "available",
+        "instrument_id": instrument_id,
+        "scope": "instrument",
+        "source": "simulated_backtest",
+        "rows": safe_rows,
+        "execution_allowed": False,
+    }
 
 
 def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
@@ -1631,7 +1791,22 @@ def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) ->
     rows = _instrument_rows(source, instrument_id)
     if rows.empty:
         return _unavailable("Paper-trade history unavailable; no local paper-trade records are registered.") | {"rows": []}
-    return {"status": "available", "rows": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
+    source_is_paper = (
+        "fill_source" in rows.columns
+        and rows["fill_source"].map(lambda value: type(value) is str and value == "paper").all()
+    ) or (
+        "source_authority" in rows.columns
+        and rows["source_authority"].map(
+            lambda value: type(value) is str and value == "local_paper_ledger"
+        ).all()
+    )
+    execution_is_disabled = (
+        "execution_allowed" not in rows.columns
+        or rows["execution_allowed"].map(lambda value: type(value) is bool and value is False).all()
+    )
+    if not source_is_paper or not execution_is_disabled:
+        return _unavailable("Paper-trade source is contradictory; only local paper-ledger fills are shown.") | {"rows": []}
+    return {"status": "available", "source": "paper_trade_ledger", "fill_source": "paper", "rows": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
 
 
 def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:
