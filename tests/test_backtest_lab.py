@@ -595,6 +595,34 @@ def test_canonical_calendar_rejects_unknown_timezone_without_crashing() -> None:
     ) is None
 
 
+def test_canonical_close_rejects_naive_knowledge_cutoff() -> None:
+    projection = {
+        "status": "available",
+        "instrument_id": "X",
+        "identity_decision_id": "calendar-test-decision",
+        "identity_decision_time": "2026-01-01T00:00:00+00:00",
+        "identity_effective_at": "2020-01-01",
+        "identity_objects": [{
+            "object_type": "listing",
+            "object_id": "listing:X:XETR",
+            "fields": {
+                "mic": "XETR",
+                "calendar_id": "XETR",
+                "timezone": "Europe/Berlin",
+            },
+        }],
+        "identity_history": [{"source_id": "calendar-test-source"}],
+    }
+
+    assert _canonical_session_close_timestamp(
+        projection,
+        "X",
+        date(2026, 6, 2),
+        service=MarketCalendarService(),
+        knowledge_cutoff="2026-06-02T00:00:00",
+    ) is None
+
+
 def test_operational_evidence_rejects_close_prices_before_session_close() -> None:
     projection = {
         "status": "available",
@@ -887,6 +915,73 @@ def test_unreadable_identity_store_never_uses_sample_calendar_fallback(
 
     assert not report.operational_evidence["evidence_status"].eq("available").any()
     assert report.operational_evidence["execution_allowed"].eq(False).all()
+
+
+def test_identity_resolver_rejects_naive_point_in_time(monkeypatch) -> None:
+    class Store:
+        def projection(self, *_args, **_kwargs):
+            raise AssertionError("naive cutoff must not query canonical identity")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(services, "identity_master_exists", lambda _root: True)
+    monkeypatch.setattr(services, "IdentityMasterStore", lambda _root: Store())
+    store, resolver = services._open_backtest_calendar_identity_resolver()
+    assert store is not None
+    assert resolver is not None
+
+    projection = resolver("VWCE", "2026-06-01T00:00:00")
+
+    assert projection == {
+        "status": "unavailable",
+        "instrument_id": "VWCE",
+        "reason": "canonical_identity_point_in_time_unavailable",
+        "execution_allowed": False,
+    }
+
+
+def test_backtest_resolves_canonical_identity_at_aware_signal_close() -> None:
+    config = load_config()
+    prices = generate_sample_prices(
+        config, periods=360, end_date=pd.Timestamp("2026-06-26").date()
+    )
+    identities = {
+        instrument_id: prices.loc[
+            prices["etf_id"].eq(instrument_id), "calendar_identity"
+        ].iloc[0]
+        for instrument_id in config.universe.enabled_ids
+    }
+    cutoffs: list[pd.Timestamp] = []
+
+    def resolve(instrument_id: str, signal_timestamp: object):
+        cutoff = pd.Timestamp(signal_timestamp)
+        cutoffs.append(cutoff)
+        return identities[instrument_id]
+
+    report = run_backtest(
+        config,
+        prices,
+        rebalance_frequency_days=42,
+        calendar_identity_resolver=resolve,
+    )
+
+    assert cutoffs
+    assert all(cutoff.tzinfo is not None and cutoff.utcoffset() is not None for cutoff in cutoffs)
+    assert report.operational_evidence["evidence_status"].eq("available").any()
+
+
+def test_sample_calendar_identity_config_rejects_non_mapping_yaml(
+    tmp_path, monkeypatch
+) -> None:
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    (config_dir / "sample_calendar_identities.yaml").write_text(
+        "- malformed\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(sample_data, "CONFIG_DIR", config_dir)
+
+    assert sample_data._sample_calendar_identities() == {}
 
 
 def test_explicit_all_in_cost_does_not_masquerade_as_spread() -> None:

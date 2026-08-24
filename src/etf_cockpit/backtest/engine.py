@@ -471,11 +471,9 @@ def _canonical_session_close_timestamp(
     try:
         listing = service.listing_from_identity_projection(projection)
         day = pd.Timestamp(session_date).date()
-        cutoff = pd.Timestamp(knowledge_cutoff)
-        if cutoff.tzinfo is None:
-            cutoff = cutoff.tz_localize(timezone.utc)
-        else:
-            cutoff = cutoff.tz_convert(timezone.utc)
+        cutoff = _explicit_utc_timestamp(knowledge_cutoff)
+        if cutoff is None:
+            return None
         probe = datetime.combine(day, time(23, 59), ZoneInfo(listing.timezone)).astimezone(
             timezone.utc
         )
@@ -1206,26 +1204,32 @@ def run_backtest(
                     for instrument_id in diff.index[diff > 0]:
                         instrument_cost_matches = instrument_costs.get(str(instrument_id), [])
                         instrument_cost = instrument_cost_matches[0] if len(instrument_cost_matches) == 1 else None
-                        initial_calendar_identity = (
-                            calendar_identity_resolver(str(instrument_id), dt)
-                            if calendar_identity_resolver is not None
-                            else None
+                        initial_calendar_identity = _calendar_identity_from_price_rows(
+                            prices, instrument_id
                         )
-                        if initial_calendar_identity is None:
-                            initial_calendar_identity = _calendar_identity_from_price_rows(
-                                prices, instrument_id
-                            )
+                        explicit_daily_cutoff = pd.Timestamp(dt)
+                        explicit_daily_cutoff = (
+                            explicit_daily_cutoff.tz_localize(timezone.utc)
+                            if explicit_daily_cutoff.tzinfo is None
+                            else explicit_daily_cutoff.tz_convert(timezone.utc)
+                        )
                         signal_close = _canonical_session_close_timestamp(
                             initial_calendar_identity,
                             str(instrument_id),
                             dt,
                             service=calendar_service,
-                            knowledge_cutoff=dt,
+                            knowledge_cutoff=explicit_daily_cutoff,
                         )
                         calendar_identity = initial_calendar_identity
-                        if calendar_identity_resolver is not None and signal_close is not None:
-                            calendar_identity = calendar_identity_resolver(
-                                str(instrument_id), signal_close
+                        if calendar_identity_resolver is not None:
+                            calendar_identity = (
+                                calendar_identity_resolver(str(instrument_id), signal_close)
+                                if signal_close is not None
+                                else {
+                                    "status": "unavailable",
+                                    "instrument_id": str(instrument_id),
+                                    "execution_allowed": False,
+                                }
                             )
                             signal_close = _canonical_session_close_timestamp(
                                 calendar_identity,
@@ -1239,7 +1243,7 @@ def run_backtest(
                             str(instrument_id),
                             execution_dt,
                             service=calendar_service,
-                            knowledge_cutoff=signal_close or dt,
+                            knowledge_cutoff=signal_close or explicit_daily_cutoff,
                         )
                         operational_evidence_rows.append(
                             _instrument_operational_evidence(

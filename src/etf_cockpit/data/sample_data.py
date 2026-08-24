@@ -19,7 +19,9 @@ def _sample_calendar_identities() -> dict[str, dict[str, object]]:
         payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except (OSError, UnicodeError, yaml.YAMLError):
         return {}
-    identities = payload.get("identities") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        return {}
+    identities = payload.get("identities")
     if payload.get("schema_version") != "sample-calendar-identities.v1" or not isinstance(
         identities, dict
     ):

@@ -296,13 +296,16 @@ def _open_backtest_calendar_identity_resolver() -> tuple[
 ]:
     """Open one read-only logical identity view for the complete backtest run."""
 
-    def unavailable(instrument_id: str, _signal_timestamp: object) -> Mapping[str, object]:
+    def unavailable_projection(instrument_id: str, reason: str) -> Mapping[str, object]:
         return {
             "status": "unavailable",
             "instrument_id": instrument_id,
-            "reason": "canonical_identity_store_unreadable",
+            "reason": reason,
             "execution_allowed": False,
         }
+
+    def unavailable(instrument_id: str, _signal_timestamp: object) -> Mapping[str, object]:
+        return unavailable_projection(instrument_id, "canonical_identity_store_unreadable")
 
     identity_path = Path(IDENTITY_PATH).resolve()
     if len(identity_path.parents) < 3:
@@ -319,12 +322,11 @@ def _open_backtest_calendar_identity_resolver() -> tuple[
     def resolve(instrument_id: str, signal_timestamp: object) -> Mapping[str, object] | None:
         try:
             timestamp = pd.Timestamp(signal_timestamp)
-            if pd.isna(timestamp):
-                return None
-            if timestamp.tzinfo is None:
-                timestamp = timestamp.tz_localize("UTC")
-            else:
-                timestamp = timestamp.tz_convert("UTC")
+            if pd.isna(timestamp) or timestamp.tzinfo is None or timestamp.utcoffset() is None:
+                return unavailable_projection(
+                    instrument_id, "canonical_identity_point_in_time_unavailable"
+                )
+            timestamp = timestamp.tz_convert("UTC")
             point_in_time = timestamp.isoformat()
             key = (instrument_id, point_in_time)
             if key not in cache:
