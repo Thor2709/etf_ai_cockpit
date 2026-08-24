@@ -1242,17 +1242,45 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0049": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #696 merged exact independently approved head 1efa61fa0d1c49a2a0d5cbaa8c234175b29d1a59 as 19b3157f5033e82b68fd1618785b6b5d96d000b0",
+            "Release run 32722220381 passed classifier, product/protected preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Acceptance evidence verifies deterministic tail diagnostics, preserved-gap financial metrics, strict canonical persistence and zero-action readback, strategy-scoped UI evidence, and execution_allowed=false"
+          ],
+          "review_reference": "PR #696 exact-head whole-diff and risk reviews plus O-tier validation",
+          "reviewed_date": "2026-08-24",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-01-governance-scope",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "PR #696 exact-head whole-diff and risk reviews plus O-tier validation",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #696 merged exact independently approved head 1efa61fa0d1c49a2a0d5cbaa8c234175b29d1a59 as 19b3157f5033e82b68fd1618785b6b5d96d000b0",
+            "Release run 32722220381 passed classifier, product/protected preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Acceptance evidence verifies deterministic tail diagnostics, preserved-gap financial metrics, strict canonical persistence and zero-action readback, strategy-scoped UI evidence, and execution_allowed=false"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #696 exact-head whole-diff and risk reviews plus O-tier validation",
+          "reviewed_date": "2026-08-24",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "to": "integrated",
+          "verified_commit": "1efa61fa0d1c49a2a0d5cbaa8c234175b29d1a59"
+        }
+      ],
+      "verified_commit": "1efa61fa0d1c49a2a0d5cbaa8c234175b29d1a59",
+      "verified_date": "2026-08-24"
     },
     "ISSUE-0050": {
       "acceptance_evidence": [],

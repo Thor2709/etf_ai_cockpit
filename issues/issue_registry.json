@@ -11817,7 +11817,19 @@
       "write_conflict_group": "data-and-evidence"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #696 merged exact independently approved head 1efa61fa0d1c49a2a0d5cbaa8c234175b29d1a59 as 19b3157f5033e82b68fd1618785b6b5d96d000b0",
+            "Release run 32722220381 passed classifier, product/protected preflight, supply chain, authoritative Linux and Windows package gates and terminal validation; both independent reviewers approved the exact head",
+            "Acceptance evidence verifies deterministic tail diagnostics, preserved-gap financial metrics, strict canonical persistence and zero-action readback, strategy-scoped UI evidence, and execution_allowed=false"
+          ],
+          "review_reference": "PR #696 exact-head whole-diff and risk reviews plus O-tier validation",
+          "reviewed_date": "2026-08-24",
+          "reviewer": "Codex independent whole-diff and risk reviewers and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0049",
@@ -11841,7 +11853,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P1",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -11866,8 +11878,8 @@
       "source_record_id": "ISSUE-0049",
       "source_title": "Worst-day, loss-cluster and tail-event diagnostics",
       "title": "Worst-day, loss-cluster and tail-event diagnostics",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "1efa61fa0d1c49a2a0d5cbaa8c234175b29d1a59",
+      "verified_date": "2026-08-24",
       "why": "Long-term strategies can be dominated by a few crisis periods even when average metrics look acceptable.",
       "write_conflict_group": "programme-governance"
     },
@@ -28053,7 +28065,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "97cffb48a4143873cd76a170e8c709d014cd934fa6d9e9e462d086d97091b046",
+    "programme_control_state_sha256": "320a9f400fdae1a05dd30c3b3366063f8fee22d3ff1f837e0166ad0211a28253",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

@@ -3754,3 +3754,15 @@ returns bridging preserved equity gaps. Extend the existing codec to the two
 duration fields, make only scalar table columns sortable, and compute log
 returns before dropping invalid observations. Add direct zero-publication,
 structured-sort and reported-metric regressions, then freeze one replacement.
+
+ISSUE-0049 product PR #696 is merged at exact reviewed head
+`1efa61fa0d1c49a2a0d5cbaa8c234175b29d1a59` as exact main
+`19b3157f5033e82b68fd1618785b6b5d96d000b0`. Both final reviews approved and
+release run `32722220381` passed classifier, protected preflight, supply chain,
+Linux, Windows and terminal validation. In clean lifecycle branch
+`codex/issue0049-lifecycle-20260824`, advance only ISSUE-0049 from
+`implemented_initially` to `integrated`; generated projections are byte-clean
+and the fresh live plan contains exactly one update for GitHub issue #103.
+Prepare checksum-bound writer authority, require exact-head E-tier evidence,
+merge, then require an applied-and-verified writer and zero-action readback.
+`execution_allowed=false` remains unchanged.
