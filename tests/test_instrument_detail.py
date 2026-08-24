@@ -560,6 +560,44 @@ def test_operational_evidence_malformed_available_rows_fail_closed() -> None:
     report = type("Report", (), {"operational_evidence": pd.DataFrame([missing_required])})()
     assert selector._operational_evidence_panel(report, "VWCE")["status"] == "unavailable"
 
+    rollover_fields, reason = _canonical_calendar_contract(
+        {
+            "status": "available",
+            "instrument_id": "VWCE",
+            "identity_decision_id": "calendar-test-decision",
+            "identity_decision_time": "2026-01-01T00:00:00+00:00",
+            "identity_effective_at": "2020-01-01",
+            "identity_objects": [{
+                "object_type": "listing",
+                "object_id": "listing:VWCE:XETR",
+                "fields": {
+                    "mic": "XETR",
+                    "calendar_id": "XETR",
+                    "timezone": "Europe/Berlin",
+                    "calendar_source_version": "identity-master.v1",
+                },
+            }],
+            "identity_history": [{"source_id": "calendar-test-source"}],
+        },
+        "VWCE",
+        "2026-06-01T22:30:00+00:00",
+        "2026-06-02T22:30:00+00:00",
+        service=MarketCalendarService(),
+    )
+    assert reason is None
+    rollover = dict(
+        valid,
+        signal_timestamp="2026-06-01T22:30:00+00:00",
+        execution_timestamp="2026-06-02T22:30:00+00:00",
+        **rollover_fields,
+    )
+    rollover["signal_date"] = "2026-06-01"
+    rollover["execution_date"] = "2026-06-02"
+    rollover_report = type("Report", (), {"operational_evidence": pd.DataFrame([rollover])})()
+    rollover_panel = selector._operational_evidence_panel(rollover_report, "VWCE")
+    assert rollover_panel["status"] == "unavailable"
+    assert rollover_panel["rows"] == []
+
 
 def test_paper_trade_source_is_not_conflated_with_simulated_fill() -> None:
     from etf_cockpit.app.selectors import instrument_detail as selector
@@ -597,7 +635,12 @@ def test_paper_trade_source_is_not_conflated_with_simulated_fill() -> None:
     assert contradictory_markers["status"] == "unavailable"
     assert contradictory_markers["execution_allowed"] is False
 
-    for field, value in (("source", "live_broker"), ("mode", "live")):
+    for field, value in (
+        ("source", "live_broker"),
+        ("mode", "live"),
+        ("paper_fill_source", "live"),
+        ("reconciled_fill_source", "live_broker"),
+    ):
         contradictory_alias = selector._paper_trade_panel(
             "VWCE",
             pd.DataFrame([{"instrument_id": "VWCE", field: value, "paper_trade_id": f"p-{field}"}]),

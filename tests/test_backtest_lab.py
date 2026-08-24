@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 import hashlib
+from datetime import date, datetime, timezone
 from io import BytesIO
 
 import pandas as pd
@@ -25,6 +26,8 @@ from etf_cockpit.backtest.metrics import performance_metrics, tail_event_diagnos
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.atomic_io import AtomicWriteRequest
 from etf_cockpit.data.sample_data import generate_sample_prices
+from etf_cockpit.data.market_calendar import ListingCalendarEvidence
+from etf_cockpit.app.pages.signals import _latest_operational_row
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit import services
 
@@ -407,6 +410,89 @@ def test_canonical_calendar_rejects_xetr_holiday_as_next_session() -> None:
         "2026-12-25T00:00:00",
     )
     assert reason == "canonical_execution_session_unavailable"
+
+
+def test_canonical_calendar_requires_explicit_listing_and_requested_instrument() -> None:
+    missing_listing = {
+        "status": "available",
+        "instrument_id": "X",
+        "mic": "XETR",
+        "calendar_id": "XETR",
+        "timezone": "Europe/Berlin",
+        "source_id": "calendar-test-source",
+        "known_at": "2026-01-01T00:00:00+00:00",
+        "valid_from": "2020-01-01",
+    }
+    _, reason = _canonical_calendar_contract(
+        missing_listing,
+        "X",
+        "2026-06-01T00:00:00",
+        "2026-06-02T00:00:00",
+    )
+    assert reason == "canonical_market_calendar_identity_unavailable"
+
+    other_listing = ListingCalendarEvidence(
+        listing_id="listing:OTHER:XETR",
+        instrument_id="OTHER",
+        mic="XETR",
+        calendar_id="XETR",
+        timezone="Europe/Berlin",
+        source_id="calendar-test-source",
+        source_checksum="a" * 64,
+        valid_from=date(2020, 1, 1),
+        known_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    _, reason = _canonical_calendar_contract(
+        other_listing,
+        "X",
+        "2026-06-01T00:00:00",
+        "2026-06-02T00:00:00",
+    )
+    assert reason == "canonical_market_calendar_identity_unavailable"
+
+
+def test_canonical_calendar_persists_listing_timezone_local_dates() -> None:
+    projection = {
+        "status": "available",
+        "instrument_id": "X",
+        "identity_decision_id": "calendar-test-decision",
+        "identity_decision_time": "2026-01-01T00:00:00+00:00",
+        "identity_effective_at": "2020-01-01",
+        "identity_objects": [{
+            "object_type": "listing",
+            "object_id": "listing:X:XETR",
+            "fields": {"mic": "XETR", "calendar_id": "XETR", "timezone": "Europe/Berlin"},
+        }],
+        "identity_history": [{"source_id": "calendar-test-source"}],
+    }
+    fields, reason = _canonical_calendar_contract(
+        projection,
+        "X",
+        "2026-06-01T22:30:00+00:00",
+        "2026-06-02T22:30:00+00:00",
+    )
+    assert reason is None
+    assert fields["signal_date"] == date(2026, 6, 2)
+    assert fields["execution_date"] == date(2026, 6, 3)
+
+
+def test_signals_select_latest_operational_row_by_decision_order() -> None:
+    rows = [
+        {
+            "execution_timestamp": "2026-06-03T00:00:00",
+            "signal_timestamp": "2026-06-02T00:00:00",
+            "strategy": "signal_strategy",
+            "decision_price": 103.0,
+        },
+        {
+            "execution_timestamp": "2026-06-02T00:00:00",
+            "signal_timestamp": "2026-06-01T00:00:00",
+            "strategy": "signal_strategy",
+            "decision_price": 102.0,
+        },
+    ]
+
+    assert _latest_operational_row(rows)["decision_price"] == 103.0
 
 
 def test_operational_producer_rejects_negative_or_unpaired_costs() -> None:

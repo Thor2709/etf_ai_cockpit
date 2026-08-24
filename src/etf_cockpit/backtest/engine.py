@@ -281,6 +281,8 @@ def _price_source_identity(prices: pd.DataFrame, instrument_id: object, observed
 def _calendar_projection(identity: Mapping[str, object], instrument_id: str) -> dict[str, object]:
     """Normalise the existing identity-master listing projection shape."""
 
+    if identity.get("instrument_id") != instrument_id:
+        return {}
     if isinstance(identity.get("identity_objects"), list):
         return dict(identity)
     fields = identity.get("fields")
@@ -289,7 +291,7 @@ def _calendar_projection(identity: Mapping[str, object], instrument_id: str) -> 
     required = ("mic", "calendar_id", "timezone")
     if not all(type(fields.get(key)) is str and fields.get(key).strip() for key in required):
         return {}
-    listing_id = fields.get("listing_id") or fields.get("listing") or f"listing:{instrument_id}"
+    listing_id = fields.get("listing_id") or fields.get("listing")
     source_id = fields.get("source_id") or fields.get("calendar_source_id")
     known_at = fields.get("known_at") or fields.get("calendar_known_at")
     valid_from = fields.get("valid_from") or fields.get("calendar_valid_from")
@@ -333,6 +335,8 @@ def _canonical_calendar_contract(
 
     if isinstance(identity, ListingCalendarEvidence):
         listing = identity
+        if listing.instrument_id != instrument_id:
+            return {}, "canonical_market_calendar_identity_unavailable"
         persisted: Mapping[str, object] = {}
         decision_id = listing.source_id
     elif isinstance(identity, Mapping):
@@ -419,6 +423,8 @@ def _canonical_calendar_contract(
         "calendar_known_at": listing.known_at.astimezone(timezone.utc).isoformat(),
         "calendar_identity_lineage_hash": listing.lineage_hash,
         "calendar_session_lineage_hash": lineage,
+        "signal_date": signal_day,
+        "execution_date": execution_day,
     }, None
 
 
@@ -443,6 +449,7 @@ def _calendar_identity_from_price_rows(prices: pd.DataFrame, instrument_id: obje
             return None
         values[column] = unique[0]
     return {
+        "instrument_id": str(instrument_id),
         "listing_id": values["calendar_listing_id"],
         "mic": values["calendar_mic"],
         "calendar_id": values["calendar_id"],

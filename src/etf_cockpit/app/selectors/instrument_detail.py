@@ -1803,6 +1803,8 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
             execution_state = service.market_state(listing, ClockContext.at(execution_instant, knowledge_cutoff=cutoff))
             if signal_state.certification != "certified" or execution_state.certification != "certified":
                 return False
+            if strict_date(record.get("signal_date")) != signal_day or strict_date(record.get("execution_date")) != execution_day:
+                return False
             lineage_payload = {
                 "listing": listing.lineage_hash,
                 "signal_state": signal_state.lineage_hash,
@@ -1842,8 +1844,6 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
             and execution_date is not None
             and signal_ts is not None
             and execution_ts is not None
-            and signal_date == signal_ts.date()
-            and execution_date == execution_ts.date()
             and execution_date > signal_date
             and strict_number(record.get("decision_price"), positive=True) is not None
             and record.get("decision_price_basis") == "adjusted_close"
@@ -1954,7 +1954,7 @@ def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) ->
     recognized_source_fields = (
         "source", "source_authority", "fill_source", "mode", "source_mode",
         "execution_mode", "provider", "provider_name", "execution_source",
-        "order_source", "broker",
+        "order_source", "broker", "paper_fill_source", "reconciled_fill_source",
     )
     for field in recognized_source_fields:
         if field not in rows.columns:
