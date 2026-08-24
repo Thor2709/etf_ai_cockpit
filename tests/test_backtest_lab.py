@@ -382,16 +382,40 @@ def test_operational_evidence_fails_closed_for_partial_ohlc_and_same_bar() -> No
         next_open_source_identity="source|VWCE",
         next_period_source_identity="source|VWCE",
     )
-    assert mixed_timezone["evidence_status"] == "available"
+    assert mixed_timezone["evidence_status"] == "unavailable"
+    assert "signal_or_execution_timestamp_unavailable" in mixed_timezone["evidence_reason"]
     assert mixed_timezone["execution_allowed"] is False
+
+    explicit_offsets = _instrument_operational_evidence(
+        instrument_id="VWCE",
+        strategy="signal_strategy",
+        signal_timestamp="2026-06-01T02:00:00+02:00",
+        execution_timestamp="2026-06-02T00:00:00+00:00",
+        signal_date=date(2026, 6, 1),
+        execution_date=date(2026, 6, 2),
+        decision_price=100.0,
+        next_open=101.0,
+        next_period_close=102.0,
+        high=103.0,
+        low=99.0,
+        open_price=101.0,
+        cost_spread_assumption_bps=4.0,
+        cost_spread_assumption_source="execution-cost-v1",
+        canonical_session_dates=pd.to_datetime(["2026-06-01", "2026-06-02"]),
+        decision_price_source_identity="source|VWCE",
+        next_open_source_identity="source|VWCE",
+        next_period_source_identity="source|VWCE",
+    )
+    assert explicit_offsets["evidence_status"] == "available"
+    assert explicit_offsets["execution_allowed"] is False
 
 
 def test_operational_evidence_does_not_label_a_missing_or_non_next_session_as_one_delay() -> None:
     kwargs = dict(
         instrument_id="VWCE",
         strategy="signal_strategy",
-        signal_timestamp="2026-06-05T00:00:00",
-        execution_timestamp="2026-06-09T00:00:00",
+        signal_timestamp="2026-06-05T00:00:00+00:00",
+        execution_timestamp="2026-06-09T00:00:00+00:00",
         signal_date=pd.Timestamp("2026-06-05").date(),
         execution_date=pd.Timestamp("2026-06-09").date(),
         decision_price=100.0,
@@ -431,8 +455,8 @@ def test_canonical_calendar_rejects_xetr_holiday_as_next_session() -> None:
     _, reason = _canonical_calendar_contract(
         projection,
         "X",
-        "2026-12-23T00:00:00",
-        "2026-12-25T00:00:00",
+        "2026-12-23T00:00:00+00:00",
+        "2026-12-25T00:00:00+00:00",
     )
     assert reason == "canonical_execution_session_unavailable"
 
@@ -524,6 +548,14 @@ def test_canonical_calendar_persists_listing_timezone_local_dates() -> None:
     assert reason is None
     assert fields["signal_date"] == date(2026, 6, 2)
     assert fields["execution_date"] == date(2026, 6, 3)
+
+    _, reason = _canonical_calendar_contract(
+        projection,
+        "X",
+        "2026-06-02T16:00:00",
+        "2026-06-03T16:00:00+00:00",
+    )
+    assert reason == "canonical_market_session_timestamp_unavailable"
 
 
 def test_operational_evidence_rejects_close_prices_before_session_close() -> None:
@@ -658,7 +690,11 @@ def test_backtest_operational_evidence_is_exactly_instrument_scoped() -> None:
     assert evidence["estimated_cost_bps_source"].str.endswith(":CostEstimate.total_cost_bps").all()
     assert (evidence["estimated_cost_bps"] >= evidence["cost_spread_assumption_bps"]).all()
     assert (evidence["estimated_cost_bps"] > evidence["cost_spread_assumption_bps"]).any()
-    assert (pd.to_datetime(evidence["execution_timestamp"]) > pd.to_datetime(evidence["signal_timestamp"])).all()
+    timestamped = evidence.dropna(subset=["signal_timestamp", "execution_timestamp"])
+    assert (
+        pd.to_datetime(timestamped["execution_timestamp"])
+        > pd.to_datetime(timestamped["signal_timestamp"])
+    ).all()
     assert "lookahead_protection" not in set(evidence["signal_timestamp"].astype(str))
     assert evidence["evidence_status"].eq("available").any()
 

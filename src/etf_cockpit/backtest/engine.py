@@ -340,6 +340,16 @@ def _calendar_projection(identity: Mapping[str, object], instrument_id: str) -> 
     }
 
 
+def _explicit_utc_timestamp(value: object) -> pd.Timestamp | None:
+    try:
+        parsed = pd.Timestamp(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if pd.isna(parsed) or parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.tz_convert(timezone.utc)
+
+
 def _canonical_calendar_contract(
     identity: object,
     instrument_id: str,
@@ -376,15 +386,8 @@ def _canonical_calendar_contract(
         return {}, "canonical_market_calendar_identity_unavailable"
 
     def instant(value: object) -> datetime | None:
-        try:
-            parsed = pd.Timestamp(value)
-        except (TypeError, ValueError, OverflowError):
-            return None
-        if pd.isna(parsed):
-            return None
-        if parsed.tzinfo is None:
-            parsed = parsed.tz_localize(timezone.utc)
-        return parsed.to_pydatetime().astimezone(timezone.utc)
+        parsed = _explicit_utc_timestamp(value)
+        return None if parsed is None else parsed.to_pydatetime()
 
     signal_instant = instant(signal_timestamp)
     execution_instant = instant(execution_timestamp)
@@ -649,12 +652,12 @@ def _instrument_operational_evidence(
         return result if np.isfinite(result) else None
 
     identity = str(instrument_id).strip() if instrument_id is not None else ""
-    signal_ts = pd.to_datetime(signal_timestamp, errors="coerce", utc=True)
-    execution_ts = pd.to_datetime(execution_timestamp, errors="coerce", utc=True)
+    signal_ts = _explicit_utc_timestamp(signal_timestamp)
+    execution_ts = _explicit_utc_timestamp(execution_timestamp)
     reasons: list[str] = []
     if not identity:
         reasons.append("exact_instrument_identity_unavailable")
-    if pd.isna(signal_ts) or pd.isna(execution_ts):
+    if signal_ts is None or execution_ts is None:
         reasons.append("signal_or_execution_timestamp_unavailable")
     elif execution_ts <= signal_ts:
         reasons.append("same_session_or_non_forward_execution")
@@ -699,7 +702,7 @@ def _instrument_operational_evidence(
             canonical_dates = []
         if not canonical_dates:
             reasons.append("canonical_market_session_unavailable")
-        elif not pd.isna(signal_ts) and not pd.isna(execution_ts):
+        elif signal_ts is not None and execution_ts is not None:
             signal_day = signal_ts.date()
             execution_day = execution_ts.date()
             if signal_day not in canonical_dates or execution_day not in canonical_dates:
@@ -819,9 +822,9 @@ def _instrument_operational_evidence(
         "instrument_id": identity or None,
         "strategy": strategy,
         "signal_date": signal_date,
-        "signal_timestamp": None if pd.isna(signal_ts) else signal_ts.isoformat(),
+        "signal_timestamp": None if signal_ts is None else signal_ts.isoformat(),
         "execution_date": execution_date,
-        "execution_timestamp": None if pd.isna(execution_ts) else execution_ts.isoformat(),
+        "execution_timestamp": None if execution_ts is None else execution_ts.isoformat(),
         "decision_price": decision,
         "decision_price_basis": decision_price_basis if decision is not None else None,
         "next_open_reference_price": next_open_value,
@@ -842,8 +845,8 @@ def _instrument_operational_evidence(
         "arrival_price_assumption": "next_adjusted_close" if next_close is not None else "unavailable",
         "execution_delay_sessions": 1 if status == "available" and valid_next_session else None,
         "same_bar_execution_avoided": bool(
-            not pd.isna(signal_ts)
-            and not pd.isna(execution_ts)
+            signal_ts is not None
+            and execution_ts is not None
             and execution_ts > signal_ts
             and canonical_signal_day is not None
             and canonical_execution_day is not None
