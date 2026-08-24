@@ -13,6 +13,37 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
+## Current ISSUE-0050 product checkpoint — 2026-08-24
+
+- ISSUE-0049 is fully integrated on exact `origin/main`
+  `73835d8fc913aaec180ce98be5de960b0ef6d628`. Product PR #696 merged reviewed
+  head `1efa61fa0d1c49a2a0d5cbaa8c234175b29d1a59`; lifecycle PR #697 merged
+  reviewed head `7d0b9bd00ba43a2ea5d6c9ee6052453f2c9386a1`. Release runs
+  `32722220381` and `32727398249`, status guard `32727398248`, and ordered
+  writer `32730851172` passed. GitHub issue #103 has effective status
+  `integrated`; the independent generic live readback is zero action and
+  `execution_allowed=false`.
+- ISSUE-0050 is the next canonical dependency-ready issue. Its clean isolated
+  lane `codex/issue0050-product-20260824` is based on that exact main. Product
+  checkpoint `f04b5a66b13ab46a3bb05b3cdd70e4ed20044442` adds only strict
+  exact-instrument decision/next-open/next-close/gap/spread/cost evidence,
+  Backtests/Signals/Instrument Detail projection, separate paper-fill source
+  handling, and cache-integrity readback through the existing atomic sidecars.
+- The bounded contract uses existing vector-backtest, cost, event-engine and
+  paper-ledger paths. It does not invent session, auction, expiry, order or
+  realised-fill claims when no canonical record is bound; those fields remain
+  explicitly unavailable. It preserves next-session/no-same-bar semantics and
+  `execution_allowed=false` without changing order, broker, provider, workflow
+  or release authority.
+- Focused backtest, instrument, event-engine and market-calendar validation is
+  green (80 tests), as are the 21 affected architecture/button tests, Ruff,
+  compile and diff hygiene. Complete changed application validation and
+  classification, freeze one exact head, then start paired whole-diff/risk
+  review and required hosted validation in parallel. Before product merge,
+  prepare the legal `implemented_initially -> integrated` completion evidence;
+  after merge bind it to the exact reviewed product merge, require ordered
+  writer acceptance and generic zero-action readback.
+
 ## Current ISSUE-0112 product checkpoint (supersedes older checkpoints below)
 
 - ISSUE-0059 integration PR #686 merged exact reviewed head

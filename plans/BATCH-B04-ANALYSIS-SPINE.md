@@ -9,6 +9,33 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
+## Current ISSUE-0050 product lane — 2026-08-24
+
+ISSUE-0049 product PR #696 and lifecycle PR #697 are merged through exact main
+`73835d8fc913aaec180ce98be5de960b0ef6d628`. All exact-head Linux, Windows,
+terminal, guard and review evidence passed; ordered writer `32730851172`
+applied and verified the sole GitHub #103 completion. Generic live reconciliation
+projects effective status `integrated` with zero actions and
+`execution_allowed=false`.
+
+ISSUE-0050 is dependency-ready and active in isolated branch
+`codex/issue0050-product-20260824` from that exact base. Product checkpoint
+`f04b5a66b13ab46a3bb05b3cdd70e4ed20044442` exposes strict instrument-scoped
+decision, next-open, next-period close, gap, observed range, configured spread
+and all-in cost evidence across Backtests, Signals and Instrument Detail. It
+keeps simulated and paper-ledger fills separate and leaves session, auction,
+expiry and order lifecycle unavailable unless canonical evidence exists. The
+existing cache snapshot now also checksum-binds metadata so persisted
+operational evidence cannot bypass the generic readback integrity path.
+
+The 80-test focused product/event/calendar suite and 21 architecture/button
+tests pass with Ruff, compile and diff hygiene. Run the changed application
+selection and classifier, complete all legal lifecycle preparation, then freeze
+one exact head for paired whole-diff/risk review and immediate hosted validation.
+Merge only that exact reviewed head, perform the sole legal
+`implemented_initially -> integrated` lifecycle transaction, and require writer
+success plus generic zero-action readback. Preserve `execution_allowed=false`.
+
 ## Current ISSUE-0016 product lane
 
 ISSUE-0015 product PR #669 and lifecycle PR #670 are merged through exact main
