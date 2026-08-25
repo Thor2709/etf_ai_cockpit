@@ -155,6 +155,20 @@ def test_operational_calendar_readback_rejects_unknown_timezone_without_crashing
     )
 
 
+def test_operational_calendar_readback_rejects_noncanonical_effective_date() -> None:
+    record = _calendar_fields()
+    record["calendar_valid_from"] = "2020-01-01garbage"
+
+    assert not operational_calendar_record_is_canonical(
+        record,
+        instrument_id="VWCE",
+        signal_timestamp="2026-06-01T16:00:00+00:00",
+        execution_timestamp="2026-06-02T16:00:00+00:00",
+        signal_date=date(2026, 6, 1),
+        execution_date=date(2026, 6, 2),
+    )
+
+
 def test_instrument_detail_scoreboard_reader_hides_classification_invalidated_score(
     tmp_path,
     monkeypatch,
@@ -772,7 +786,12 @@ def test_paper_trade_source_is_not_conflated_with_simulated_fill() -> None:
 
     panel = selector._paper_trade_panel(
         "VWCE",
-        pd.DataFrame([{"instrument_id": "VWCE", "fill_source": "paper", "paper_trade_id": "p-1"}]),
+        pd.DataFrame([{
+            "instrument_id": "VWCE",
+            "fill_source": "paper",
+            "source_authority": "local_paper_ledger",
+            "paper_trade_id": "p-1",
+        }]),
     )
 
     assert panel["status"] == "available"
@@ -786,6 +805,19 @@ def test_paper_trade_source_is_not_conflated_with_simulated_fill() -> None:
     )
     assert contradictory["status"] == "unavailable"
     assert contradictory["execution_allowed"] is False
+
+    for field, value in (("source", "mystery_vendor"), ("provider_name", 123)):
+        unknown = selector._paper_trade_panel(
+            "VWCE",
+            pd.DataFrame([{
+                "instrument_id": "VWCE",
+                "source_authority": "local_paper_ledger",
+                field: value,
+                "paper_trade_id": f"p-{field}",
+            }]),
+        )
+        assert unknown["status"] == "unavailable"
+        assert unknown["rows"] == []
 
     contradictory_markers = selector._paper_trade_panel(
         "VWCE",

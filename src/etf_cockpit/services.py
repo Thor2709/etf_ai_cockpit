@@ -17,6 +17,7 @@ import pandas as pd
 from etf_cockpit.backtest.engine import (
     BacktestDataUnavailableError,
     BacktestReport,
+    _price_source_identity,
     backtest_input_checksum,
     quality_momentum_evidence_checksum,
     run_backtest,
@@ -288,6 +289,44 @@ def _run_backtest_compatibly(config: AppConfig, prices: pd.DataFrame, **kwargs: 
     accepts_kwargs = any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
     supported = kwargs if accepts_kwargs else {key: value for key, value in kwargs.items() if key in parameters}
     return run_backtest(config, prices, **supported)
+
+
+def _cached_operational_price_identities_match(
+    metadata: Mapping[str, object], prices: pd.DataFrame
+) -> bool:
+    rows = metadata.get("operational_evidence_rows")
+    if not isinstance(rows, list) or any(not isinstance(row, Mapping) for row in rows):
+        return False
+    for row in rows:
+        if row.get("evidence_status") != "available":
+            continue
+        instrument_id = row.get("instrument_id")
+        signal_date = row.get("signal_date")
+        execution_date = row.get("execution_date")
+        if (
+            type(instrument_id) is not str
+            or type(signal_date) is not str
+            or type(execution_date) is not str
+        ):
+            return False
+        try:
+            signal_day = date.fromisoformat(signal_date)
+            execution_day = date.fromisoformat(execution_date)
+        except ValueError:
+            return False
+        if signal_day.isoformat() != signal_date or execution_day.isoformat() != execution_date:
+            return False
+        expected_signal = _price_source_identity(prices, instrument_id, signal_day)
+        expected_execution = _price_source_identity(prices, instrument_id, execution_day)
+        if (
+            expected_signal is None
+            or expected_execution is None
+            or row.get("decision_price_source_identity") != expected_signal
+            or row.get("next_open_source_identity") != expected_execution
+            or row.get("next_period_source_identity") != expected_execution
+        ):
+            return False
+    return True
 
 
 def _open_backtest_calendar_identity_resolver() -> tuple[
@@ -2250,6 +2289,8 @@ class BacktestService:
             if not isinstance(metadata, dict) or not _cached_backtest_binding_matches(
                 metadata, reference_context
             ):
+                return None
+            if not _cached_operational_price_identities_match(metadata, checksum_prices):
                 return None
             expected_benchmark_strategy = metadata["benchmark_strategy"]
             if (

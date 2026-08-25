@@ -386,8 +386,16 @@ def _calendar_projection_is_well_typed(identity: Mapping[str, object]) -> bool:
             for key in ("mic", "calendar_id", "timezone")
         ):
             return False
-        source_version = fields.get("calendar_source_version", "identity-master.v1")
-        if type(source_version) is not str or not source_version.strip():
+        for alias in ("calendar_source_version", "source_version"):
+            if alias in fields and (
+                type(fields[alias]) is not str or not fields[alias].strip()
+            ):
+                return False
+        if (
+            "calendar_source_version" in fields
+            and "source_version" in fields
+            and fields["calendar_source_version"] != fields["source_version"]
+        ):
             return False
         for field_name in ("opening_auction_minutes", "closing_auction_minutes"):
             if field_name in fields:
@@ -441,10 +449,30 @@ def _canonical_calendar_contract(
             return {}, "canonical_market_calendar_identity_unavailable"
         persisted = identity
         decision_id = projection.get("identity_decision_id")
-        expected_source = persisted.get("_persisted_source_checksum") or persisted.get("calendar_source_checksum")
+        expected_source = (
+            persisted.get("_persisted_source_checksum")
+            if "_persisted_source_checksum" in persisted
+            else persisted.get("calendar_source_checksum")
+        )
+        if expected_source is not None and (
+            type(expected_source) is not str
+            or len(expected_source) != 64
+            or any(character not in "0123456789abcdef" for character in expected_source.casefold())
+        ):
+            return {}, "canonical_market_calendar_lineage_conflict"
         if expected_source not in {None, listing.source_checksum}:
             return {}, "canonical_market_calendar_lineage_conflict"
-        expected_lineage = persisted.get("_persisted_lineage_hash") or persisted.get("calendar_identity_lineage_hash")
+        expected_lineage = (
+            persisted.get("_persisted_lineage_hash")
+            if "_persisted_lineage_hash" in persisted
+            else persisted.get("calendar_identity_lineage_hash")
+        )
+        if expected_lineage is not None and (
+            type(expected_lineage) is not str
+            or len(expected_lineage) != 64
+            or any(character not in "0123456789abcdef" for character in expected_lineage.casefold())
+        ):
+            return {}, "canonical_market_calendar_lineage_conflict"
         if expected_lineage not in {None, listing.lineage_hash}:
             return {}, "canonical_market_calendar_lineage_conflict"
     else:

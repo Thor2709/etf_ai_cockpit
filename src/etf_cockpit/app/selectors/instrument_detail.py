@@ -1918,35 +1918,30 @@ def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) ->
         "execution_mode", "provider", "provider_name", "execution_source",
         "order_source", "broker", "paper_fill_source", "reconciled_fill_source",
     )
+    paper_aliases = {"paper", "local_paper_ledger", "paper_trade_ledger"}
     for field in recognized_source_fields:
         if field not in rows.columns:
             continue
         for value in rows[field].tolist():
             if _is_missing_scalar(value):
                 continue
-            normalized = str(value).strip().casefold().replace("-", "_").replace("/", "_")
+            if type(value) is not str:
+                return _unavailable("Paper-trade source is malformed; explicit local paper-ledger authority is required.") | {"rows": []}
+            normalized = value.strip().casefold().replace("-", "_").replace("/", "_")
             aliases = {token for token in normalized.split("_") if token}
             if normalized in live_aliases or aliases.intersection(live_aliases):
                 return _unavailable("Paper-trade source is contradictory; live or broker evidence is never presented as paper.") | {"rows": []}
+            if normalized not in paper_aliases:
+                return _unavailable("Paper-trade source is unknown; explicit local paper-ledger authority is required.") | {"rows": []}
 
     has_fill_marker = has_marker("fill_source")
-    has_authority_marker = has_marker("source_authority")
     fill_is_paper = "fill_source" in rows.columns and rows["fill_source"].map(
         lambda value: type(value) is str and value == "paper"
     ).all()
     authority_is_paper = "source_authority" in rows.columns and rows["source_authority"].map(
         lambda value: type(value) is str and value == "local_paper_ledger"
     ).all()
-    if has_fill_marker and has_authority_marker:
-        source_is_paper = fill_is_paper and authority_is_paper
-    elif has_fill_marker:
-        source_is_paper = fill_is_paper
-    elif has_authority_marker:
-        source_is_paper = authority_is_paper
-    else:
-        # Older local rows may carry no source marker at all.  Preserve their
-        # record visibility, but never treat them as live or executable.
-        source_is_paper = True
+    source_is_paper = authority_is_paper and (not has_fill_marker or fill_is_paper)
     execution_is_disabled = (
         "execution_allowed" not in rows.columns
         or rows["execution_allowed"].map(lambda value: type(value) is bool and value is False).all()

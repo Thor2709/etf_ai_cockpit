@@ -530,7 +530,11 @@ def test_canonical_calendar_rejects_unavailable_legacy_identity() -> None:
 
 @pytest.mark.parametrize(
     ("field_name", "malformed"),
-    (("calendar_source_version", 123), ("opening_auction_minutes", "5")),
+    (
+        ("calendar_source_version", 123),
+        ("source_version", 123),
+        ("opening_auction_minutes", "5"),
+    ),
 )
 def test_canonical_calendar_rejects_malformed_nested_types(
     field_name: str, malformed: object
@@ -552,6 +556,29 @@ def test_canonical_calendar_rejects_malformed_nested_types(
     )
 
     assert reason == "canonical_market_calendar_identity_unavailable"
+
+
+@pytest.mark.parametrize(
+    "field_name", ("_persisted_source_checksum", "_persisted_lineage_hash")
+)
+def test_canonical_calendar_rejects_malformed_persisted_hashes(field_name: str) -> None:
+    config = load_config()
+    prices = generate_sample_prices(
+        config, periods=20, end_date=pd.Timestamp("2026-06-26").date()
+    )
+    identity = json.loads(
+        json.dumps(prices.loc[prices["etf_id"].eq("VWCE"), "calendar_identity"].iloc[0])
+    )
+    identity[field_name] = []
+
+    _, reason = _canonical_calendar_contract(
+        identity,
+        "VWCE",
+        "2026-06-01T16:00:00+00:00",
+        "2026-06-02T16:00:00+00:00",
+    )
+
+    assert reason == "canonical_market_calendar_lineage_conflict"
 
 
 @pytest.mark.parametrize(("field_name", "malformed"), (("source", 123), ("provider_symbol", True)))
@@ -1013,6 +1040,24 @@ def test_backtest_resolves_canonical_identity_at_aware_signal_close() -> None:
     assert cutoffs
     assert all(cutoff.tzinfo is not None and cutoff.utcoffset() is not None for cutoff in cutoffs)
     assert report.operational_evidence["evidence_status"].eq("available").any()
+
+
+def test_cached_operational_provenance_is_rederived_from_prices() -> None:
+    config = load_config()
+    prices = generate_sample_prices(
+        config, periods=360, end_date=pd.Timestamp("2026-06-26").date()
+    )
+    report = run_backtest(config, prices, rebalance_frequency_days=42)
+    metadata = json.loads(json.dumps(report.metadata, default=str))
+    row = next(
+        item
+        for item in metadata["operational_evidence_rows"]
+        if item["evidence_status"] == "available"
+    )
+    assert services._cached_operational_price_identities_match(metadata, prices)
+    row["decision_price_source_identity"] = "forged|identity"
+
+    assert not services._cached_operational_price_identities_match(metadata, prices)
 
 
 def test_sample_calendar_identity_config_rejects_non_mapping_yaml(
