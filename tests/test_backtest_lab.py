@@ -1101,118 +1101,33 @@ def test_backtest_resolves_canonical_identity_at_aware_signal_close() -> None:
     assert report.operational_evidence["evidence_status"].eq("available").any()
 
 
-def test_cached_operational_provenance_is_rederived_from_prices() -> None:
-    config = load_config()
-    prices = generate_sample_prices(
-        config, periods=360, end_date=pd.Timestamp("2026-06-26").date()
+def test_cached_operational_replay_normalises_only_producer_dates() -> None:
+    replayed = [
+        {
+            "signal_date": date(2026, 6, 1),
+            "execution_date": date(2026, 6, 2),
+            "execution_delay_sessions": 1,
+            "execution_allowed": False,
+        }
+    ]
+    persisted = [
+        {
+            "signal_date": "2026-06-01",
+            "execution_date": "2026-06-02",
+            "execution_delay_sessions": 1,
+            "execution_allowed": False,
+        }
+    ]
+
+    assert services._operational_evidence_rows_match_replay(persisted, replayed)
+    assert not services._operational_evidence_rows_match_replay(
+        persisted,
+        [{**replayed[0], "execution_delay_sessions": True}],
     )
-    report = run_backtest(config, prices, rebalance_frequency_days=42)
-    metadata = json.loads(json.dumps(report.metadata, default=str))
-    row = next(
-        item
-        for item in metadata["operational_evidence_rows"]
-        if item["evidence_status"] == "available"
+    assert not services._operational_evidence_rows_match_replay(
+        persisted,
+        [replayed[0], replayed[0]],
     )
-    assert services._cached_operational_price_identities_match(metadata, prices)
-    row["decision_price_source_identity"] = "forged|identity"
-
-    assert not services._cached_operational_price_identities_match(metadata, prices)
-
-
-@pytest.mark.parametrize(
-    ("field", "forged_value"),
-    (
-        ("calendar_session_lineage_hash", "f" * 64),
-        ("decision_price", 999_999.0),
-        ("next_open_reference_price", 999_999.0),
-        ("next_period_reference_price", 999_999.0),
-        ("decision_price_basis", "close"),
-        ("next_open_reference_basis", "raw_ohlc"),
-        ("next_period_reference_basis", "close_to_close"),
-        ("close_to_next_open_gap", 123.0),
-        ("observed_range_spread_proxy", 123.0),
-        ("spread_proxy", 123.0),
-        ("signal_date", "2026-01-01"),
-    ),
-)
-def test_cached_operational_record_rejects_forged_producer_fields(
-    field: str, forged_value: object
-) -> None:
-    config = load_config()
-    prices = generate_sample_prices(
-        config, periods=360, end_date=pd.Timestamp("2026-06-26").date()
-    )
-    report = run_backtest(config, prices, rebalance_frequency_days=42)
-    metadata = json.loads(json.dumps(report.metadata, default=str))
-    row = next(
-        item
-        for item in metadata["operational_evidence_rows"]
-        if item["evidence_status"] == "available"
-    )
-    assert services._cached_operational_price_identities_match(metadata, prices)
-
-    row[field] = forged_value
-
-    assert not services._cached_operational_price_identities_match(metadata, prices)
-
-
-def test_cached_operational_empty_rows_remain_compatible() -> None:
-    assert services._cached_operational_price_identities_match(
-        {"operational_evidence_rows": []}, pd.DataFrame()
-    )
-
-
-def test_cached_operational_calendar_identity_is_rederived_from_current_pit_prices() -> None:
-    config = load_config()
-    prices = generate_sample_prices(
-        config, periods=360, end_date=pd.Timestamp("2026-06-26").date()
-    )
-    report = run_backtest(config, prices, rebalance_frequency_days=42)
-    metadata = json.loads(json.dumps(report.metadata, default=str))
-    row = next(
-        item
-        for item in metadata["operational_evidence_rows"]
-        if item["evidence_status"] == "available"
-    )
-    signal_day = date.fromisoformat(row["signal_date"])
-    other_index = prices.index[
-        prices["etf_id"].eq(row["instrument_id"])
-        & pd.to_datetime(prices["date"]).dt.date.ne(signal_day)
-    ][0]
-    other_identity = json.loads(json.dumps(prices.at[other_index, "calendar_identity"]))
-    other_identity["identity_objects"][0]["fields"][
-        "calendar_source_version"
-    ] = "other-date-calendar.v1"
-    prices.at[other_index, "calendar_identity"] = other_identity
-
-    assert services._cached_operational_price_identities_match(metadata, prices)
-
-    forged_identity = _flat_calendar_identity(
-        instrument_id=row["instrument_id"],
-        listing_id=row["calendar_listing_id"],
-        mic=row["calendar_mic"],
-        calendar_id=row["calendar_id"],
-        timezone=row["calendar_timezone"],
-        source_id=row["calendar_source_id"],
-        source_version="forged-calendar.v1",
-        known_at=row["calendar_known_at"],
-        valid_from=row["calendar_valid_from"],
-        decision_id=row["calendar_identity_decision_id"],
-        opening_auction_minutes=row["calendar_opening_auction_minutes"],
-        closing_auction_minutes=row["calendar_closing_auction_minutes"],
-    )
-    forged_fields, reason = _canonical_calendar_contract(
-        forged_identity,
-        row["instrument_id"],
-        row["signal_timestamp"],
-        row["execution_timestamp"],
-    )
-    assert reason is None
-    row["calendar_source_version"] = forged_fields["calendar_source_version"]
-    row["calendar_source_checksum"] = forged_fields["calendar_source_checksum"]
-    row["calendar_identity_lineage_hash"] = forged_fields["calendar_identity_lineage_hash"]
-
-    assert not services._cached_operational_price_identities_match(metadata, prices)
 
 
 def test_sample_calendar_identity_config_rejects_non_mapping_yaml(
@@ -1365,11 +1280,51 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     metadata_sidecar_path = services._universe_cache_meta_path(metadata_path)
     original_metadata = metadata_path.read_bytes()
     original_metadata_sidecar = metadata_sidecar_path.read_bytes()
+
+    def write_metadata(metadata: dict[str, object]) -> None:
+        payload = json.dumps(metadata, sort_keys=True, indent=2).encode("utf-8")
+        sidecar = json.loads(original_metadata_sidecar)
+        sidecar["payload_sha256"] = hashlib.sha256(payload).hexdigest()
+        metadata_path.write_bytes(payload)
+        metadata_sidecar_path.write_text(json.dumps(sidecar), encoding="utf-8")
+
     metadata = json.loads(original_metadata)
     metadata["operational_evidence_rows"][0]["decision_price"] = 999_999.0
     metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
     assert service._load_cached_backtest() is None
     metadata_path.write_bytes(original_metadata)
+
+    for field, forged_value in (
+        ("strategy", "forged_strategy"),
+        ("signal_timestamp", "2000-01-01T00:00:00+00:00"),
+        ("execution_timestamp", "2000-01-02T00:00:00+00:00"),
+        ("cost_spread_assumption_bps", 123.0),
+        ("cost_spread_assumption_source", "forged-cost-source"),
+        ("estimated_cost_bps", 456.0),
+        ("estimated_cost_bps_source", "forged-estimated-cost-source"),
+    ):
+        forged_metadata = json.loads(original_metadata)
+        forged_row = next(
+            item
+            for item in forged_metadata["operational_evidence_rows"]
+            if item["evidence_status"] == "available"
+        )
+        forged_row[field] = forged_value
+        write_metadata(forged_metadata)
+        assert service._load_cached_backtest() is None
+
+    downgraded_metadata = json.loads(original_metadata)
+    downgraded_row = next(
+        item
+        for item in downgraded_metadata["operational_evidence_rows"]
+        if item["evidence_status"] == "available"
+    )
+    downgraded_row["evidence_status"] = "unavailable"
+    downgraded_row["decision_price"] = 999_999.0
+    write_metadata(downgraded_metadata)
+    assert service._load_cached_backtest() is None
+    metadata_path.write_bytes(original_metadata)
+    metadata_sidecar_path.write_bytes(original_metadata_sidecar)
 
     forged_metadata = json.loads(original_metadata)
     forged_row = next(
@@ -1457,6 +1412,29 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
         sidecar_path.write_text(json.dumps(malformed_sidecar), encoding="utf-8")
         assert service._load_cached_backtest() is None
 
+    metadata_path.write_bytes(original_metadata)
+    metadata_sidecar_path.write_bytes(original_metadata_sidecar)
+    results_path.write_bytes(original_results)
+    sidecar_path.write_bytes(original_sidecar)
+    empty_replay = BacktestReport(
+        results=generated.results,
+        equity_curves=generated.equity_curves,
+        trade_log=generated.trade_log,
+        signal_log=generated.signal_log,
+        ai_added_value=generated.ai_added_value,
+        quality_label=generated.quality_label,
+        quality_notes=generated.quality_notes,
+        metadata={**generated.metadata, "operational_evidence_rows": []},
+        quality_momentum_evidence=generated.quality_momentum_evidence,
+    )
+    empty_metadata = json.loads(original_metadata)
+    empty_metadata["operational_evidence_rows"] = []
+    write_metadata(empty_metadata)
+    monkeypatch.setattr(services, "_run_backtest_compatibly", lambda *_args, **_kwargs: empty_replay)
+    assert service._load_cached_backtest() is not None
+    monkeypatch.setattr(services, "_run_backtest_compatibly", lambda *_args, **_kwargs: generated)
+    assert service._load_cached_backtest() is None
+
 
 def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
     tmp_path, monkeypatch
@@ -1465,6 +1443,11 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
 
     config = load_config()
     prices = generate_sample_prices(config, periods=420, end_date=pd.Timestamp("2026-06-26").date())
+    monkeypatch.setattr(
+        services,
+        "IDENTITY_PATH",
+        tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
+    )
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
@@ -1524,6 +1507,39 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
     ).all()
 
 
+def test_backtest_service_round_trips_genuinely_unavailable_operational_rows(
+    tmp_path, monkeypatch
+) -> None:
+    from etf_cockpit.data.etf_structure import LocalStructuralEvidence
+
+    config = load_config()
+    prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
+    prices["calendar_identity"] = None
+    monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(
+        services,
+        "IDENTITY_PATH",
+        tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
+    )
+    monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
+    monkeypatch.setattr(
+        services,
+        "_load_local_structural_evidence",
+        lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
+    )
+    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    service = services.BacktestService(config, universe_revision="test-revision")
+
+    generated = service.run_backtest()
+    assert not generated.operational_evidence["evidence_status"].eq("available").any()
+    cached = service._load_cached_backtest()
+
+    assert cached is not None
+    assert not cached.operational_evidence["evidence_status"].eq("available").any()
+    assert cached.operational_evidence["execution_allowed"].eq(False).all()
+
+
 def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
     tmp_path, monkeypatch
 ) -> None:
@@ -1532,6 +1548,11 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
     config = load_config()
     prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(
+        services,
+        "IDENTITY_PATH",
+        tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
+    )
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(

@@ -17,10 +17,6 @@ import pandas as pd
 from etf_cockpit.backtest.engine import (
     BacktestDataUnavailableError,
     BacktestReport,
-    _corporate_action_adjusted_pivot,
-    _instrument_operational_evidence,
-    _calendar_identity_from_price_rows,
-    _price_source_identity,
     backtest_input_checksum,
     quality_momentum_evidence_checksum,
     run_backtest,
@@ -39,7 +35,6 @@ from etf_cockpit.core.atomic_io import (
 from etf_cockpit.core.logging import append_jsonl, configure_logging
 from etf_cockpit.core.paths import (
     BACKTESTS_DIR,
-    CONFIG_DIR,
     ETF_BENCHMARK_TOTAL_RETURN_PATH,
     ETF_FUND_TOTAL_RETURN_PATH,
     FORECASTS_DIR,
@@ -74,7 +69,6 @@ from etf_cockpit.data.identity_master import (
     IdentityMasterStore,
     identity_master_exists,
 )
-from etf_cockpit.data.market_calendar import MarketCalendarService, MarketClockError
 from etf_cockpit.data.import_pipeline import commit_price_import, rollback_latest_price_import as rollback_price_store
 from etf_cockpit.data.manual_notes import commit_manual_news_import, load_manual_news, validate_manual_news
 from etf_cockpit.data.parsed_disclosures import read_etf_report_records
@@ -296,173 +290,88 @@ def _run_backtest_compatibly(config: AppConfig, prices: pd.DataFrame, **kwargs: 
     return run_backtest(config, prices, **supported)
 
 
-def _cached_operational_price_identities_match(
-    metadata: Mapping[str, object], prices: pd.DataFrame
-) -> bool:
-    rows = metadata.get("operational_evidence_rows")
+def _backtest_runner_kwargs(
+    reference_context: CanonicalReferenceContext,
+    fundamentals: pd.DataFrame,
+    *,
+    structure_document_registry: object,
+    structure_report_records: object,
+    structure_supplemental_rows: object,
+    structure_holdings: object,
+    calendar_identity_resolver: Callable[[str, object], Mapping[str, object] | None] | None,
+) -> dict[str, object]:
+    return {
+        "fundamentals": fundamentals,
+        "structure_document_registry": structure_document_registry,
+        "structure_report_records": structure_report_records,
+        "structure_supplemental_rows": structure_supplemental_rows,
+        "structure_holdings": structure_holdings,
+        "benchmark_data_id": reference_context.benchmark_data_id,
+        "benchmark_reference": reference_context.projection,
+        "reference_identity": reference_context.identity,
+        "benchmark_registry": reference_context.registry,
+        "calendar_identity_resolver": calendar_identity_resolver,
+    }
+
+
+def _normalise_operational_evidence_rows(rows: object) -> list[dict[str, object]] | None:
     if not isinstance(rows, list) or any(not isinstance(row, Mapping) for row in rows):
-        return False
-    if not rows:
-        return True
-    if not isinstance(prices, pd.DataFrame) or not {
-        "date",
-        "etf_id",
-        "adjusted_close",
-        "close",
-        "open",
-        "high",
-        "low",
-        "source",
-        "provider_symbol",
-    }.issubset(prices.columns):
+        return None
+    normalised: list[dict[str, object]] = []
+    for row in rows:
+        if any(type(key) is not str for key in row):
+            return None
+        normalised.append(
+            {
+                key: value.isoformat() if type(value) is date else value
+                for key, value in row.items()
+            }
+        )
+    return normalised
+
+
+def _operational_evidence_rows_match_replay(
+    cached_rows: object, replayed_rows: object
+) -> bool:
+    cached = _normalise_operational_evidence_rows(cached_rows)
+    replayed = _normalise_operational_evidence_rows(replayed_rows)
+    if cached is None or replayed is None or len(cached) != len(replayed):
         return False
     try:
-        price_dates = pd.to_datetime(prices["date"], errors="coerce").dt.date
-        instrument_columns = list(prices["etf_id"].dropna().unique())
-        adjusted_pivots = {
-            field: _corporate_action_adjusted_pivot(prices, field, instrument_columns)
-            for field in ("open", "high", "low")
-        }
-        calendar_service = MarketCalendarService.from_correction_ledger(
-            CONFIG_DIR / "market_calendar_corrections.yaml"
-        )
-    except (TypeError, ValueError, OSError, MarketClockError):
+        for cached_row, replayed_row in zip(cached, replayed, strict=True):
+            if set(cached_row) != set(replayed_row):
+                return False
+            for key in cached_row:
+                cached_value = cached_row[key]
+                replayed_value = replayed_row[key]
+                if type(cached_value) is not type(replayed_value) or cached_value != replayed_value:
+                    return False
+        return True
+    except (TypeError, ValueError):
         return False
 
-    def canonical_timestamp(value: object) -> str | None:
-        if type(value) is not str or value.strip() != value:
-            return None
-        try:
-            parsed = pd.Timestamp(value)
-        except (TypeError, ValueError, OverflowError):
-            return None
-        if pd.isna(parsed) or parsed.tzinfo is None or parsed.utcoffset() is None:
-            return None
-        return value if parsed.isoformat() == value else None
 
-    def finite_number(value: object) -> float | int | None:
-        if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+def _replay_backtest_for_cache(
+    config: AppConfig,
+    prices: pd.DataFrame,
+    runner_kwargs: Mapping[str, object],
+) -> BacktestReport | None:
+    identity_store: IdentityMasterStore | None = None
+    try:
+        identity_store, calendar_identity_resolver = _open_backtest_calendar_identity_resolver()
+        if identity_store is None and calendar_identity_resolver is not None:
             return None
-        number = float(value)
-        return value if math.isfinite(number) else None
-
-    def optional_source(value: object) -> str | None:
-        if value is None:
+        replay_kwargs = dict(runner_kwargs)
+        replay_kwargs["calendar_identity_resolver"] = calendar_identity_resolver
+        report = _run_backtest_compatibly(config, prices, **replay_kwargs)
+        if not isinstance(report, BacktestReport) or not isinstance(report.metadata, dict):
             return None
-        return value if type(value) is str and value and value.strip() == value else None
-
-    def adjusted(row: pd.Series, field: str, instrument_id: str) -> float | None:
-        try:
-            value = adjusted_pivots[field].loc[
-                pd.Timestamp(row["date"]), instrument_id
-            ]
-        except (KeyError, TypeError, ValueError):
-            return None
-        if pd.isna(value):
-            return None
-        value = float(value)
-        if not math.isfinite(value):
-            return None
-        return value
-
-    def exact_price_rows(instrument_id: str, observed_day: date) -> pd.DataFrame:
-        return prices.loc[prices["etf_id"].eq(instrument_id) & price_dates.eq(observed_day)]
-
-    def exact_record_value_matches(actual: object, expected: object) -> bool:
-        if isinstance(expected, date):
-            return type(actual) is str and actual == expected.isoformat()
-        if expected is None:
-            return actual is None
-        if type(expected) is bool:
-            return type(actual) is bool and actual is expected
-        if type(expected) is int:
-            return type(actual) is int and actual == expected
-        if type(expected) is float:
-            return type(actual) is float and math.isfinite(actual) and actual == expected
-        if type(expected) is str:
-            return type(actual) is str and actual == expected
-        return False
-
-    for row in rows:
-        if row.get("evidence_status") != "available":
-            continue
-        instrument_id = row.get("instrument_id")
-        signal_date = row.get("signal_date")
-        execution_date = row.get("execution_date")
-        strategy = row.get("strategy")
-        signal_timestamp = canonical_timestamp(row.get("signal_timestamp"))
-        execution_timestamp = canonical_timestamp(row.get("execution_timestamp"))
-        if (
-            type(instrument_id) is not str
-            or not instrument_id
-            or type(signal_date) is not str
-            or type(execution_date) is not str
-            or type(strategy) is not str
-            or not strategy
-            or signal_timestamp is None
-            or execution_timestamp is None
-        ):
-            return False
-        try:
-            signal_day = date.fromisoformat(signal_date)
-            execution_day = date.fromisoformat(execution_date)
-        except ValueError:
-            return False
-        if signal_day.isoformat() != signal_date or execution_day.isoformat() != execution_date:
-            return False
-        cost_spread = finite_number(row.get("cost_spread_assumption_bps"))
-        estimated_cost = finite_number(row.get("estimated_cost_bps"))
-        cost_source = optional_source(row.get("cost_spread_assumption_source"))
-        estimated_source = optional_source(row.get("estimated_cost_bps_source"))
-        if (
-            row.get("cost_spread_assumption_bps") is not None and cost_spread is None
-            or row.get("estimated_cost_bps") is not None and estimated_cost is None
-            or row.get("cost_spread_assumption_source") is not None and cost_source is None
-            or row.get("estimated_cost_bps_source") is not None and estimated_source is None
-        ):
-            return False
-        signal_rows = exact_price_rows(instrument_id, signal_day)
-        execution_rows = exact_price_rows(instrument_id, execution_day)
-        if len(signal_rows) != 1 or len(execution_rows) != 1:
-            return False
-        signal_row = signal_rows.iloc[0]
-        execution_row = execution_rows.iloc[0]
-        current_calendar_identity = _calendar_identity_from_price_rows(
-            signal_rows, instrument_id
-        )
-        expected_signal = _price_source_identity(prices, instrument_id, signal_day)
-        expected_execution = _price_source_identity(prices, instrument_id, execution_day)
-        if current_calendar_identity is None or expected_signal is None or expected_execution is None:
-            return False
-        expected = _instrument_operational_evidence(
-            instrument_id=instrument_id,
-            strategy=strategy,
-            signal_timestamp=signal_timestamp,
-            execution_timestamp=execution_timestamp,
-            signal_date=signal_day,
-            execution_date=execution_day,
-            decision_price=pd.to_numeric(signal_row.get("adjusted_close"), errors="coerce"),
-            next_open=adjusted(execution_row, "open", instrument_id),
-            next_period_close=pd.to_numeric(execution_row.get("adjusted_close"), errors="coerce"),
-            high=adjusted(execution_row, "high", instrument_id),
-            low=adjusted(execution_row, "low", instrument_id),
-            open_price=adjusted(execution_row, "open", instrument_id),
-            cost_spread_assumption_bps=cost_spread,
-            cost_spread_assumption_source=cost_source,
-            estimated_cost_bps=estimated_cost,
-            estimated_cost_bps_source=estimated_source,
-            calendar_identity=current_calendar_identity,
-            calendar_service=calendar_service,
-            decision_price_source_identity=expected_signal,
-            next_open_source_identity=expected_execution,
-            next_period_source_identity=expected_execution,
-        )
-        if set(row) != set(expected) or not all(
-            exact_record_value_matches(row[field], value)
-            for field, value in expected.items()
-        ):
-            return False
-    return True
+        return report
+    except Exception:
+        return None
+    finally:
+        if identity_store is not None:
+            identity_store.close()
 
 
 def _open_backtest_calendar_identity_resolver() -> tuple[
@@ -2232,19 +2141,19 @@ class BacktestService:
             structure_evidence = None
         identity_store, calendar_identity_resolver = _open_backtest_calendar_identity_resolver()
         try:
-            report = _run_backtest_compatibly(
-                self.config,
-                prices,
-                fundamentals=fundamentals,
+            runner_kwargs = _backtest_runner_kwargs(
+                reference_context,
+                fundamentals,
                 structure_document_registry=(structure_evidence.document_registry if structure_evidence else None),
                 structure_report_records=(structure_evidence.report_records if structure_evidence else None),
                 structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),
                 structure_holdings=(structure_evidence.holdings if structure_evidence else None),
-                benchmark_data_id=reference_context.benchmark_data_id,
-                benchmark_reference=reference_context.projection,
-                reference_identity=reference_context.identity,
-                benchmark_registry=reference_context.registry,
                 calendar_identity_resolver=calendar_identity_resolver,
+            )
+            report = _run_backtest_compatibly(
+                self.config,
+                prices,
+                **runner_kwargs,
             )
             # Bind every runner result to the freshly resolved readback context
             # before publication, including older local runner seams.
@@ -2422,11 +2331,28 @@ class BacktestService:
                 return None
             quality_momentum_evidence = pd.read_csv(BytesIO(payload_bytes[quality_evidence_path]))
             metadata = json.loads(payload_bytes[metadata_path].decode("utf-8"))
-            if not isinstance(metadata, dict) or not _cached_backtest_binding_matches(
-                metadata, reference_context
+            if not isinstance(metadata, dict):
+                return None
+            fundamentals = load_fundamental_evidence()
+            replay = _replay_backtest_for_cache(
+                self.config,
+                prices,
+                _backtest_runner_kwargs(
+                    reference_context,
+                    fundamentals,
+                    structure_document_registry=(structure_evidence.document_registry if structure_evidence else None),
+                    structure_report_records=(structure_evidence.report_records if structure_evidence else None),
+                    structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),
+                    structure_holdings=(structure_evidence.holdings if structure_evidence else None),
+                    calendar_identity_resolver=None,
+                ),
+            )
+            if replay is None or not _operational_evidence_rows_match_replay(
+                metadata.get("operational_evidence_rows"),
+                replay.metadata.get("operational_evidence_rows"),
             ):
                 return None
-            if not _cached_operational_price_identities_match(metadata, checksum_prices):
+            if not _cached_backtest_binding_matches(metadata, reference_context):
                 return None
             expected_benchmark_strategy = metadata["benchmark_strategy"]
             if (
@@ -2449,7 +2375,7 @@ class BacktestService:
             if metadata.get("input_checksum") != backtest_input_checksum(
                 self.config,
                 checksum_prices,
-                load_fundamental_evidence(),
+                fundamentals,
                 structure_document_registry=(structure_evidence.document_registry if structure_evidence else None),
                 structure_report_records=(structure_evidence.report_records if structure_evidence else None),
                 structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),
