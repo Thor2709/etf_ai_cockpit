@@ -97,7 +97,7 @@ jobs:
   preflight:
     needs: classifier
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       ETF_COCKPIT_VALIDATION_BASE_SHA: ${{ needs.classifier.outputs.base_sha }}
       ETF_COCKPIT_VALIDATION_HEAD_SHA: ${{ needs.classifier.outputs.head_sha }}

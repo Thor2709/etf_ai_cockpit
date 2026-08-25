@@ -367,6 +367,9 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github" / "workflows" / "release-gate.yml").read_text(encoding="utf-8")
     trigger = workflow.split("permissions:", maxsplit=1)[0]
+    preflight = workflow[
+        workflow.index("  preflight:") : workflow.index("  supply-chain:")
+    ]
 
     assert "\n  pull_request:\n" in trigger
     assert "\n  push:" not in trigger
@@ -374,6 +377,7 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "ubuntu-latest" in workflow
     assert "fail-fast: false" in workflow
     assert "timeout-minutes: 50" in workflow
+    assert "timeout-minutes: 30" in preflight
     assert "Configure isolated user profile" in workflow
     assert "Pin reviewed canonical generation base" in workflow
     assert "PR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}" in workflow
