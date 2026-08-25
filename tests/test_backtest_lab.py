@@ -1372,6 +1372,13 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     service = services.BacktestService(config, universe_revision="test-revision")
 
     generated = service.run_backtest()
+    # This test owns persistence/type round-trip behavior. Dedicated replay
+    # adversarial tests exercise independent full derivation.
+    monkeypatch.setattr(
+        services,
+        "_replay_backtest_for_cache",
+        lambda *_args, **_kwargs: generated,
+    )
     monkeypatch.setattr(
         services,
         "structure_confidence_caps",
@@ -1554,9 +1561,17 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     empty_metadata = json.loads(original_metadata)
     empty_metadata["operational_evidence_rows"] = []
     write_metadata(empty_metadata)
-    monkeypatch.setattr(services, "_run_backtest_compatibly", lambda *_args, **_kwargs: empty_replay)
+    monkeypatch.setattr(
+        services,
+        "_replay_backtest_for_cache",
+        lambda *_args, **_kwargs: empty_replay,
+    )
     assert service._load_cached_backtest() is not None
-    monkeypatch.setattr(services, "_run_backtest_compatibly", lambda *_args, **_kwargs: generated)
+    monkeypatch.setattr(
+        services,
+        "_replay_backtest_for_cache",
+        lambda *_args, **_kwargs: generated,
+    )
     assert service._load_cached_backtest() is None
 
 
@@ -1606,6 +1621,13 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
     service = services.BacktestService(config, universe_revision="test-revision")
 
     generated = service.run_backtest()
+    # Preserve the real persisted diagnostics while avoiding a second full
+    # backtest in this type-round-trip test; replay has separate coverage.
+    monkeypatch.setattr(
+        services,
+        "_replay_backtest_for_cache",
+        lambda *_args, **_kwargs: generated,
+    )
     counts = generated.results["high_volatility_loss_sessions"]
     assert counts.notna().any() and counts.isna().any()
     durations = generated.results["worst_drawdown_duration_days"]
@@ -1686,7 +1708,14 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
     )
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
     service = services.BacktestService(config, universe_revision="test-revision")
-    service.run_backtest()
+    generated = service.run_backtest()
+    # This test isolates one atomic cache-file snapshot. Full operational
+    # evidence replay is validated independently.
+    monkeypatch.setattr(
+        services,
+        "_replay_backtest_for_cache",
+        lambda *_args, **_kwargs: generated,
+    )
 
     real_read = services.read_atomic_group
     real_write = services.atomic_write_group
