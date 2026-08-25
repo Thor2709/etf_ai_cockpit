@@ -234,12 +234,13 @@ class CalendarCorrection:
                 self.mic,
                 self.reason,
                 self.source_id,
-                self.source_version,
             )
         ):
             raise MarketClockError(
-                "calendar correction identity, MIC, reason, source and version are required"
+                "calendar correction identity, MIC, reason and source are required"
             )
+        if type(self.source_version) is not str or not self.source_version.strip():
+            raise MarketClockError("calendar correction source_version must be non-empty text")
         if not _SHA256.fullmatch(self.source_checksum.casefold()):
             raise MarketClockError(
                 "calendar correction source_checksum must be a SHA-256 digest"
@@ -1278,12 +1279,26 @@ def _parse_datetime(value: object) -> datetime:
 
 
 def _parse_date(value: object) -> date:
+    if type(value) is datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise MarketClockError("identity effective datetime must be timezone-aware")
+        return value.astimezone(UTC).date()
     if type(value) is date:
         return value
     if type(value) is not str or value.strip() != value:
         raise MarketClockError("identity effective date must be canonical ISO text")
     if len(value) != 10:
-        return _parse_datetime(value).date()
+        canonical_input = value[:-1] + "+00:00" if value.endswith("Z") else value
+        try:
+            parsed = datetime.fromisoformat(canonical_input)
+        except ValueError as exc:
+            raise MarketClockError("identity effective timestamp is invalid") from exc
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise MarketClockError("identity effective datetime must be timezone-aware")
+        canonical = parsed.isoformat()
+        if canonical_input != canonical:
+            raise MarketClockError("identity effective timestamp must be canonical ISO")
+        return parsed.astimezone(UTC).date()
     try:
         parsed = date.fromisoformat(value)
     except ValueError as exc:
@@ -1329,7 +1344,7 @@ def load_calendar_corrections(path: str | Path) -> tuple[CalendarCorrection, ...
                     source_id=str(row["source_id"]),
                     source_checksum=str(row["source_checksum"]),
                     timezone=str(row["timezone"]),
-                    source_version=str(row["source_version"]),
+                    source_version=row["source_version"],
                     valid_from=_parse_date(row["valid_from"]),
                     known_at=_parse_datetime(row["known_at"]),
                     open_time=_parse_time(row.get("open_time")),

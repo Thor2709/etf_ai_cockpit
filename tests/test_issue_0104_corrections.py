@@ -1281,6 +1281,7 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
                 "input_checksum": checksum,
                 "quality_momentum_strategy_version": QUALITY_MOMENTUM_VERSION,
                 "quality_momentum_evidence_checksum": services.quality_momentum_evidence_checksum(evidence),
+                "operational_evidence_rows": [],
             },
             quality_momentum_evidence=evidence,
         )

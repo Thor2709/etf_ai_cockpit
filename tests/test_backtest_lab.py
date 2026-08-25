@@ -14,6 +14,7 @@ from etf_cockpit.app.pages.signals import _signals_operational_evidence
 from etf_cockpit.backtest.engine import (
     BacktestReport,
     BacktestDataUnavailableError,
+    _calendar_projection,
     _execution_evidence,
     _canonical_calendar_contract,
     _canonical_session_close_timestamp,
@@ -35,6 +36,22 @@ from etf_cockpit.app.pages.signals import _latest_operational_row
 from etf_cockpit.app.selectors.instrument_detail import _operational_evidence_panel
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit import services
+
+
+def _flat_calendar_identity(**updates: object) -> dict[str, object]:
+    identity: dict[str, object] = {
+        "status": "available",
+        "instrument_id": "X",
+        "listing_id": "listing:X:XETR",
+        "mic": "XETR",
+        "calendar_id": "XETR",
+        "timezone": "Europe/Berlin",
+        "source_id": "calendar-test-source",
+        "known_at": "2026-01-01T00:00:00+00:00",
+        "valid_from": "2020-01-01",
+    }
+    identity.update(updates)
+    return identity
 
 
 def test_tail_event_diagnostics_expose_worst_windows_and_loss_clustering() -> None:
@@ -559,6 +576,48 @@ def test_canonical_calendar_rejects_malformed_nested_types(
 
 
 @pytest.mark.parametrize(
+    ("field_name", "malformed"),
+    (
+        ("source_version", ""),
+        ("calendar_source_version", 0),
+        ("source_checksum", ""),
+        ("calendar_source_checksum", 0),
+        ("identity_lineage_hash", "not-a-digest"),
+        ("calendar_identity_lineage_hash", False),
+    ),
+)
+def test_flat_calendar_projection_rejects_present_falsey_or_malformed_aliases(
+    field_name: str, malformed: object
+) -> None:
+    identity = _flat_calendar_identity(**{field_name: malformed})
+
+    assert _calendar_projection(identity, "X") == {}
+
+
+@pytest.mark.parametrize(
+    ("aliases", "values"),
+    (
+        (("source_version", "calendar_source_version"), ("v1", "v2")),
+        (("source_checksum", "calendar_source_checksum"), ("a" * 64, "b" * 64)),
+        (("identity_lineage_hash", "calendar_identity_lineage_hash"), ("a" * 64, "b" * 64)),
+    ),
+)
+def test_flat_calendar_projection_rejects_conflicting_aliases(
+    aliases: tuple[str, str], values: tuple[str, str]
+) -> None:
+    identity = _flat_calendar_identity(**dict(zip(aliases, values, strict=True)))
+
+    assert _calendar_projection(identity, "X") == {}
+
+
+def test_flat_calendar_projection_defaults_version_only_when_both_aliases_absent() -> None:
+    identity = _flat_calendar_identity()
+    projection = _calendar_projection(identity, "X")
+
+    assert projection["identity_objects"][0]["fields"]["calendar_source_version"] == "identity-master.v1"
+
+
+@pytest.mark.parametrize(
     "field_name", ("_persisted_source_checksum", "_persisted_lineage_hash")
 )
 def test_canonical_calendar_rejects_malformed_persisted_hashes(field_name: str) -> None:
@@ -1056,6 +1115,59 @@ def test_cached_operational_provenance_is_rederived_from_prices() -> None:
     )
     assert services._cached_operational_price_identities_match(metadata, prices)
     row["decision_price_source_identity"] = "forged|identity"
+
+    assert not services._cached_operational_price_identities_match(metadata, prices)
+
+
+def test_cached_operational_calendar_identity_is_rederived_from_current_pit_prices() -> None:
+    config = load_config()
+    prices = generate_sample_prices(
+        config, periods=360, end_date=pd.Timestamp("2026-06-26").date()
+    )
+    report = run_backtest(config, prices, rebalance_frequency_days=42)
+    metadata = json.loads(json.dumps(report.metadata, default=str))
+    row = next(
+        item
+        for item in metadata["operational_evidence_rows"]
+        if item["evidence_status"] == "available"
+    )
+    signal_day = date.fromisoformat(row["signal_date"])
+    other_index = prices.index[
+        prices["etf_id"].eq(row["instrument_id"])
+        & pd.to_datetime(prices["date"]).dt.date.ne(signal_day)
+    ][0]
+    other_identity = json.loads(json.dumps(prices.at[other_index, "calendar_identity"]))
+    other_identity["identity_objects"][0]["fields"][
+        "calendar_source_version"
+    ] = "other-date-calendar.v1"
+    prices.at[other_index, "calendar_identity"] = other_identity
+
+    assert services._cached_operational_price_identities_match(metadata, prices)
+
+    forged_identity = _flat_calendar_identity(
+        instrument_id=row["instrument_id"],
+        listing_id=row["calendar_listing_id"],
+        mic=row["calendar_mic"],
+        calendar_id=row["calendar_id"],
+        timezone=row["calendar_timezone"],
+        source_id=row["calendar_source_id"],
+        source_version="forged-calendar.v1",
+        known_at=row["calendar_known_at"],
+        valid_from=row["calendar_valid_from"],
+        decision_id=row["calendar_identity_decision_id"],
+        opening_auction_minutes=row["calendar_opening_auction_minutes"],
+        closing_auction_minutes=row["calendar_closing_auction_minutes"],
+    )
+    forged_fields, reason = _canonical_calendar_contract(
+        forged_identity,
+        row["instrument_id"],
+        row["signal_timestamp"],
+        row["execution_timestamp"],
+    )
+    assert reason is None
+    row["calendar_source_version"] = forged_fields["calendar_source_version"]
+    row["calendar_source_checksum"] = forged_fields["calendar_source_checksum"]
+    row["calendar_identity_lineage_hash"] = forged_fields["calendar_identity_lineage_hash"]
 
     assert not services._cached_operational_price_identities_match(metadata, prices)
 

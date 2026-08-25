@@ -17,6 +17,8 @@ import pandas as pd
 from etf_cockpit.backtest.engine import (
     BacktestDataUnavailableError,
     BacktestReport,
+    _calendar_identity_from_price_rows,
+    _canonical_calendar_contract,
     _price_source_identity,
     backtest_input_checksum,
     quality_momentum_evidence_checksum,
@@ -294,6 +296,21 @@ def _run_backtest_compatibly(config: AppConfig, prices: pd.DataFrame, **kwargs: 
 def _cached_operational_price_identities_match(
     metadata: Mapping[str, object], prices: pd.DataFrame
 ) -> bool:
+    calendar_fields = (
+        "calendar_listing_id",
+        "calendar_mic",
+        "calendar_id",
+        "calendar_timezone",
+        "calendar_source_id",
+        "calendar_source_checksum",
+        "calendar_source_version",
+        "calendar_opening_auction_minutes",
+        "calendar_closing_auction_minutes",
+        "calendar_identity_decision_id",
+        "calendar_valid_from",
+        "calendar_known_at",
+        "calendar_identity_lineage_hash",
+    )
     rows = metadata.get("operational_evidence_rows")
     if not isinstance(rows, list) or any(not isinstance(row, Mapping) for row in rows):
         return False
@@ -318,12 +335,31 @@ def _cached_operational_price_identities_match(
             return False
         expected_signal = _price_source_identity(prices, instrument_id, signal_day)
         expected_execution = _price_source_identity(prices, instrument_id, execution_day)
+        if not isinstance(prices, pd.DataFrame) or not {"date", "etf_id"}.issubset(
+            prices.columns
+        ):
+            return False
+        price_dates = pd.to_datetime(prices["date"], errors="coerce").dt.date
+        signal_prices = prices.loc[
+            prices["etf_id"].eq(instrument_id) & price_dates.eq(signal_day)
+        ]
+        current_calendar_identity = _calendar_identity_from_price_rows(
+            signal_prices, instrument_id
+        )
+        canonical_calendar, calendar_reason = _canonical_calendar_contract(
+            current_calendar_identity,
+            instrument_id,
+            row.get("signal_timestamp"),
+            row.get("execution_timestamp"),
+        )
         if (
             expected_signal is None
             or expected_execution is None
             or row.get("decision_price_source_identity") != expected_signal
             or row.get("next_open_source_identity") != expected_execution
             or row.get("next_period_source_identity") != expected_execution
+            or calendar_reason is not None
+            or any(row.get(field) != canonical_calendar.get(field) for field in calendar_fields)
         ):
             return False
     return True

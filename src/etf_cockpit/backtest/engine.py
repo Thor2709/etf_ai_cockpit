@@ -298,6 +298,34 @@ def _price_source_identity(prices: pd.DataFrame, instrument_id: object, observed
     return f"{source}|{provider_symbol}"
 
 
+def _calendar_alias_value(
+    fields: Mapping[str, object],
+    aliases: tuple[str, ...],
+    *,
+    digest: bool = False,
+    default: object = None,
+) -> tuple[bool, object]:
+    """Validate one persisted calendar alias set without truthiness fallback."""
+
+    present = [fields[name] for name in aliases if name in fields]
+    if not present:
+        return True, default
+    for value in present:
+        if digest:
+            if (
+                type(value) is not str
+                or len(value) != 64
+                or any(character not in "0123456789abcdef" for character in value.casefold())
+            ):
+                return False, None
+        elif type(value) is not str or not value.strip():
+            return False, None
+    normalised = [value.casefold() if digest else value for value in present]
+    if len(set(normalised)) != 1:
+        return False, None
+    return True, normalised[0]
+
+
 def _calendar_projection(identity: Mapping[str, object], instrument_id: str) -> dict[str, object]:
     """Normalise the existing identity-master listing projection shape."""
 
@@ -319,12 +347,22 @@ def _calendar_projection(identity: Mapping[str, object], instrument_id: str) -> 
     valid_from = fields.get("valid_from") or fields.get("calendar_valid_from")
     if not all(isinstance(value, str) and value.strip() for value in (listing_id, source_id, known_at, valid_from)):
         return {}
-    source_version = (
-        fields.get("source_version")
-        or fields.get("calendar_source_version")
-        or "identity-master.v1"
+    source_version_valid, source_version = _calendar_alias_value(
+        fields,
+        ("source_version", "calendar_source_version"),
+        default="identity-master.v1",
     )
-    if type(source_version) is not str or not source_version.strip():
+    source_checksum_valid, source_checksum = _calendar_alias_value(
+        fields,
+        ("source_checksum", "calendar_source_checksum"),
+        digest=True,
+    )
+    lineage_valid, lineage_hash = _calendar_alias_value(
+        fields,
+        ("identity_lineage_hash", "calendar_identity_lineage_hash"),
+        digest=True,
+    )
+    if not source_version_valid or not source_checksum_valid or not lineage_valid:
         return {}
     for field_name in ("opening_auction_minutes", "closing_auction_minutes"):
         if field_name in fields:
@@ -352,12 +390,20 @@ def _calendar_projection(identity: Mapping[str, object], instrument_id: str) -> 
             }
         ],
         "identity_history": [{"source_id": source_id}],
-        "_persisted_source_checksum": fields.get("source_checksum") or fields.get("calendar_source_checksum"),
-        "_persisted_lineage_hash": fields.get("identity_lineage_hash") or fields.get("calendar_identity_lineage_hash"),
+        "_persisted_source_checksum": source_checksum,
+        "_persisted_lineage_hash": lineage_hash,
     }
 
 
 def _calendar_projection_is_well_typed(identity: Mapping[str, object]) -> bool:
+    for aliases, digest in (
+        (("source_version", "calendar_source_version"), False),
+        (("source_checksum", "calendar_source_checksum"), True),
+        (("identity_lineage_hash", "calendar_identity_lineage_hash"), True),
+    ):
+        valid, _ = _calendar_alias_value(identity, aliases, digest=digest)
+        if not valid:
+            return False
     for field_name in (
         "identity_decision_id",
         "identity_decision_time",
@@ -386,17 +432,14 @@ def _calendar_projection_is_well_typed(identity: Mapping[str, object]) -> bool:
             for key in ("mic", "calendar_id", "timezone")
         ):
             return False
-        for alias in ("calendar_source_version", "source_version"):
-            if alias in fields and (
-                type(fields[alias]) is not str or not fields[alias].strip()
-            ):
-                return False
-        if (
-            "calendar_source_version" in fields
-            and "source_version" in fields
-            and fields["calendar_source_version"] != fields["source_version"]
+        for aliases, digest in (
+            (("source_version", "calendar_source_version"), False),
+            (("source_checksum", "calendar_source_checksum"), True),
+            (("identity_lineage_hash", "calendar_identity_lineage_hash"), True),
         ):
-            return False
+            valid, _ = _calendar_alias_value(fields, aliases, digest=digest)
+            if not valid:
+                return False
         for field_name in ("opening_auction_minutes", "closing_auction_minutes"):
             if field_name in fields:
                 value = fields[field_name]
@@ -449,31 +492,35 @@ def _canonical_calendar_contract(
             return {}, "canonical_market_calendar_identity_unavailable"
         persisted = identity
         decision_id = projection.get("identity_decision_id")
-        expected_source = (
-            persisted.get("_persisted_source_checksum")
-            if "_persisted_source_checksum" in persisted
-            else persisted.get("calendar_source_checksum")
+        source_aliases_valid, source_alias = _calendar_alias_value(
+            persisted,
+            ("source_checksum", "calendar_source_checksum"),
+            digest=True,
         )
+        lineage_aliases_valid, lineage_alias = _calendar_alias_value(
+            persisted,
+            ("identity_lineage_hash", "calendar_identity_lineage_hash"),
+            digest=True,
+        )
+        if not source_aliases_valid or not lineage_aliases_valid:
+            return {}, "canonical_market_calendar_lineage_conflict"
+        expected_source = persisted.get("_persisted_source_checksum", source_alias)
         if expected_source is not None and (
             type(expected_source) is not str
             or len(expected_source) != 64
             or any(character not in "0123456789abcdef" for character in expected_source.casefold())
         ):
             return {}, "canonical_market_calendar_lineage_conflict"
-        if expected_source not in {None, listing.source_checksum}:
+        if expected_source is not None and expected_source.casefold() != listing.source_checksum.casefold():
             return {}, "canonical_market_calendar_lineage_conflict"
-        expected_lineage = (
-            persisted.get("_persisted_lineage_hash")
-            if "_persisted_lineage_hash" in persisted
-            else persisted.get("calendar_identity_lineage_hash")
-        )
+        expected_lineage = persisted.get("_persisted_lineage_hash", lineage_alias)
         if expected_lineage is not None and (
             type(expected_lineage) is not str
             or len(expected_lineage) != 64
             or any(character not in "0123456789abcdef" for character in expected_lineage.casefold())
         ):
             return {}, "canonical_market_calendar_lineage_conflict"
-        if expected_lineage not in {None, listing.lineage_hash}:
+        if expected_lineage is not None and expected_lineage.casefold() != listing.lineage_hash.casefold():
             return {}, "canonical_market_calendar_lineage_conflict"
     else:
         return {}, "canonical_market_calendar_identity_unavailable"
