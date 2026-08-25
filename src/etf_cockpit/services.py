@@ -398,7 +398,7 @@ def _open_backtest_calendar_identity_resolver() -> tuple[
     try:
         if not identity_master_exists(root):
             return None, None
-        store = IdentityMasterStore(root)
+        store = IdentityMasterStore(root, read_only=True)
     except (IdentityMasterSchemaError, OSError, ValueError):
         return None, unavailable
     cache: dict[tuple[str, str], Mapping[str, object] | None] = {}

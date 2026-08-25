@@ -132,10 +132,11 @@ class IdentityImportResult:
 class IdentityMasterStore:
     """Append-only identity repository sharing the canonical local store."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, read_only: bool = False):
         self.root = Path(root).resolve()
+        self.read_only = read_only
         try:
-            self._store = TransactionalStore(self.root)
+            self._store = TransactionalStore(self.root, read_only=read_only)
         except (StorageSchemaError, sqlite3.DatabaseError, OSError) as exc:
             raise IdentityMasterSchemaError(f"identity master storage is unavailable: {exc}") from exc
         try:
@@ -379,6 +380,8 @@ class IdentityMasterStore:
         except (sqlite3.DatabaseError, json.JSONDecodeError, TypeError, ValueError) as exc:
             raise IdentityMasterSchemaError(f"identity master schema marker is corrupt: {exc}") from exc
         if record is None:
+            if self.read_only:
+                raise IdentityMasterSchemaError("identity master schema marker is unavailable")
             try:
                 self._store.put_many(((_META_TYPE, _META_ID, expected),), immutable=True)
                 record = self._store.get(_META_TYPE, _META_ID)

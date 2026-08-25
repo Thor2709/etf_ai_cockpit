@@ -1236,6 +1236,12 @@ def run_backtest(
             report = validate_prices(truncated_prices, as_of_date=dt.date(), min_history_days=180)
             if report.status == "Blocked":
                 report = DataQualityReport(as_of_date=dt.date(), issues=[issue for issue in report.issues if issue.code != "insufficient_history"])
+            decision_timestamp = pd.Timestamp(dt)
+            decision_timestamp = (
+                decision_timestamp.tz_localize(timezone.utc)
+                if decision_timestamp.tzinfo is None
+                else decision_timestamp.tz_convert(timezone.utc)
+            )
             structure_caps = structure_confidence_caps(
                 columns,
                 document_registry=structure_document_registry,
@@ -1251,6 +1257,8 @@ def run_backtest(
                 report,
                 as_of_date=dt.date(),
                 run_id=f"backtest_{dt:%Y%m%d}",
+                decision_timestamp=decision_timestamp,
+                publish=False,
                 structure_confidence_caps=structure_caps,
             )
             signal_weight = weights["signal_strategy"].copy()

@@ -1056,7 +1056,7 @@ def test_identity_resolver_rejects_naive_point_in_time(monkeypatch) -> None:
             pass
 
     monkeypatch.setattr(services, "identity_master_exists", lambda _root: True)
-    monkeypatch.setattr(services, "IdentityMasterStore", lambda _root: Store())
+    monkeypatch.setattr(services, "IdentityMasterStore", lambda _root, **_kwargs: Store())
     store, resolver = services._open_backtest_calendar_identity_resolver()
     assert store is not None
     assert resolver is not None
@@ -1069,6 +1069,62 @@ def test_identity_resolver_rejects_naive_point_in_time(monkeypatch) -> None:
         "reason": "canonical_identity_point_in_time_unavailable",
         "execution_allowed": False,
     }
+
+
+def test_missing_identity_store_remains_read_only_and_explicitly_absent(monkeypatch) -> None:
+    monkeypatch.setattr(services, "identity_master_exists", lambda _root: False)
+
+    store, resolver = services._open_backtest_calendar_identity_resolver()
+
+    assert store is None
+    assert resolver is None
+
+
+def test_backtest_signal_replay_is_nonpublishing_and_deterministically_timestamped(monkeypatch) -> None:
+    from etf_cockpit.backtest import engine as backtest_engine
+    from etf_cockpit.signals import signal_pipeline
+
+    published: list[object] = []
+    observed: list[tuple[date, datetime | None]] = []
+    original_generate_signals = backtest_engine.generate_signals
+
+    def capture_signals(*args, **kwargs):
+        signals = original_generate_signals(*args, **kwargs)
+        observed.extend((signal.signal_date, signal.timestamp) for signal in signals)
+        return signals
+
+    monkeypatch.setattr(signal_pipeline, "append_jsonl", lambda *args, **kwargs: published.append((args, kwargs)))
+    monkeypatch.setattr(backtest_engine, "generate_signals", capture_signals)
+    config = load_config()
+    prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
+    identities = {
+        instrument_id: prices.loc[prices["etf_id"].eq(instrument_id), "calendar_identity"].iloc[0]
+        for instrument_id in config.universe.enabled_ids
+    }
+
+    report = run_backtest(config, prices, rebalance_frequency_days=42)
+    class Store:
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        services,
+        "_open_backtest_calendar_identity_resolver",
+        lambda: (
+            Store(),
+            lambda instrument_id, _timestamp: identities[instrument_id],
+        ),
+    )
+    replay = services._replay_backtest_for_cache(config, prices, {})
+
+    assert isinstance(report, BacktestReport)
+    assert isinstance(replay, BacktestReport)
+    assert published == []
+    assert observed
+    assert all(
+        timestamp == datetime.combine(signal_date, datetime.min.time(), tzinfo=timezone.utc)
+        for signal_date, timestamp in observed
+    )
 
 
 def test_backtest_resolves_canonical_identity_at_aware_signal_close() -> None:

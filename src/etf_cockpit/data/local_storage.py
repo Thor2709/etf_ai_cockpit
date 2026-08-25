@@ -97,6 +97,27 @@ def connect_storage(root: Path) -> sqlite3.Connection:
     return connection
 
 
+def connect_storage_read_only(root: Path) -> sqlite3.Connection:
+    """Open an existing transactional store without any storage setup."""
+
+    layout = storage_layout(root)
+    if not layout.transactional_path.is_file():
+        raise StorageSchemaError(f"transactional store is missing: {layout.transactional_path}")
+    connection = sqlite3.connect(
+        f"file:{layout.transactional_path.as_posix()}?mode=ro",
+        timeout=30.0,
+        uri=True,
+    )
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA busy_timeout = 30000")
+        connection.execute("PRAGMA foreign_keys = ON")
+    except Exception:
+        connection.close()
+        raise
+    return connection
+
+
 def _enable_wal(connection: sqlite3.Connection) -> None:
     """Enable WAL with a bounded retry for SQLite's journal-mode lock race."""
 
@@ -389,9 +410,14 @@ def _migration_v4(connection: sqlite3.Connection) -> None:
 class TransactionalStore:
     """Small ACID store for user-owned state; analytical data remains Parquet."""
 
-    def __init__(self, root: Path):
-        self.layout = initialise_storage(root)
-        self.connection = connect_storage(self.layout.root)
+    def __init__(self, root: Path, *, read_only: bool = False):
+        self.read_only = read_only
+        if read_only:
+            self.layout = storage_layout(root)
+            self.connection = connect_storage_read_only(self.layout.root)
+        else:
+            self.layout = initialise_storage(root)
+            self.connection = connect_storage(self.layout.root)
 
     def close(self) -> None:
         self.connection.close()
@@ -425,7 +451,10 @@ class TransactionalStore:
             self.connection.rollback()
             raise
         else:
-            self.connection.commit()
+            if self.read_only:
+                self.connection.rollback()
+            else:
+                self.connection.commit()
 
     def put(
         self,

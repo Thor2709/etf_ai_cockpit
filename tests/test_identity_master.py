@@ -21,6 +21,7 @@ from etf_cockpit.data.identity_master import (
     IdentitySourceRow,
     identity_master_exists,
 )
+from etf_cockpit.data import local_storage
 from etf_cockpit.data.local_storage import storage_layout
 
 
@@ -144,6 +145,42 @@ def test_existing_partial_identity_store_is_invalid_not_absent(tmp_path: Path) -
 
     with pytest.raises(IdentityMasterSchemaError, match="without the transactional schema"):
         identity_master_exists(tmp_path)
+
+
+def test_read_only_identity_store_uses_sqlite_read_only_without_storage_setup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with IdentityMasterStore(tmp_path) as store:
+        store.append_claims(_claims("SEC-READ-ONLY", "read-only"))
+    database = storage_layout(tmp_path).transactional_path
+    before = database.read_bytes()
+    connect_calls: list[tuple[object, dict[str, object]]] = []
+    real_connect = local_storage.sqlite3.connect
+
+    def capture_connect(database_arg, *args, **kwargs):
+        connect_calls.append((database_arg, dict(kwargs)))
+        return real_connect(database_arg, *args, **kwargs)
+
+    monkeypatch.setattr(local_storage.sqlite3, "connect", capture_connect)
+    monkeypatch.setattr(local_storage, "initialise_storage", lambda *_args, **_kwargs: pytest.fail("read-only open initialised storage"))
+    monkeypatch.setattr(local_storage, "_enable_wal", lambda *_args, **_kwargs: pytest.fail("read-only open configured WAL"))
+
+    with IdentityMasterStore(tmp_path, read_only=True) as store:
+        assert store.projection("SEC-READ-ONLY")["execution_allowed"] is False
+
+    assert database.read_bytes() == before
+    assert any(
+        isinstance(database_arg, str)
+        and "mode=ro" in database_arg
+        and options.get("uri") is True
+        for database_arg, options in connect_calls
+    )
+
+
+def test_read_only_identity_store_rejects_missing_schema_without_creating_storage(tmp_path: Path) -> None:
+    with pytest.raises(IdentityMasterSchemaError):
+        IdentityMasterStore(tmp_path, read_only=True)
+    assert not storage_layout(tmp_path).transactional_path.exists()
 
 
 def test_cross_instrument_duplicate_isin_quarantines_candidates_and_retains_conflict(tmp_path: Path) -> None:
