@@ -98,20 +98,40 @@ def connect_storage(root: Path) -> sqlite3.Connection:
 
 
 def connect_storage_read_only(root: Path) -> sqlite3.Connection:
-    """Open an existing transactional store without any storage setup."""
+    """Open one verified in-memory snapshot without touching source storage."""
 
     layout = storage_layout(root)
-    if not layout.transactional_path.is_file():
-        raise StorageSchemaError(f"transactional store is missing: {layout.transactional_path}")
-    connection = sqlite3.connect(
-        f"file:{layout.transactional_path.as_posix()}?mode=ro",
-        timeout=30.0,
-        uri=True,
-    )
+    source = layout.transactional_path
+    if not source.is_file():
+        raise StorageSchemaError(f"transactional store is missing: {source}")
+    sidecars = tuple(Path(f"{source}{suffix}") for suffix in ("-wal", "-shm"))
+    if any(path.exists() for path in sidecars):
+        raise StorageSchemaError("transactional store has an active SQLite journal")
     try:
+        snapshot = source.read_bytes()
+        verified = source.read_bytes()
+    except OSError as exc:
+        raise StorageSchemaError(f"transactional store snapshot is unavailable: {exc}") from exc
+    if snapshot != verified or any(path.exists() for path in sidecars):
+        raise StorageSchemaError("transactional store changed while its snapshot was read")
+    if len(snapshot) < 100 or snapshot[:16] != b"SQLite format 3\x00":
+        raise StorageSchemaError("transactional store snapshot has an invalid SQLite header")
+    memory_image = bytearray(snapshot)
+    if memory_image[18] not in {1, 2} or memory_image[19] not in {1, 2}:
+        raise StorageSchemaError("transactional store snapshot has invalid journal metadata")
+    # The source store uses WAL.  The detached image has no WAL file by
+    # construction, so mark only the in-memory copy as a rollback-journal
+    # image before deserialising it.
+    memory_image[18] = 1
+    memory_image[19] = 1
+
+    connection = sqlite3.connect(":memory:", timeout=30.0)
+    try:
+        connection.deserialize(bytes(memory_image))
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA busy_timeout = 30000")
         connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA query_only = ON")
     except Exception:
         connection.close()
         raise

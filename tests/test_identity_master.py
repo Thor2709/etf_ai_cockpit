@@ -147,13 +147,14 @@ def test_existing_partial_identity_store_is_invalid_not_absent(tmp_path: Path) -
         identity_master_exists(tmp_path)
 
 
-def test_read_only_identity_store_uses_sqlite_read_only_without_storage_setup(
+def test_read_only_identity_store_uses_verified_memory_snapshot_without_storage_setup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with IdentityMasterStore(tmp_path) as store:
         store.append_claims(_claims("SEC-READ-ONLY", "read-only"))
     database = storage_layout(tmp_path).transactional_path
     before = database.read_bytes()
+    before_paths = {path.name for path in database.parent.iterdir()}
     connect_calls: list[tuple[object, dict[str, object]]] = []
     real_connect = local_storage.sqlite3.connect
 
@@ -169,18 +170,40 @@ def test_read_only_identity_store_uses_sqlite_read_only_without_storage_setup(
         assert store.projection("SEC-READ-ONLY")["execution_allowed"] is False
 
     assert database.read_bytes() == before
-    assert any(
-        isinstance(database_arg, str)
-        and "mode=ro" in database_arg
-        and options.get("uri") is True
-        for database_arg, options in connect_calls
-    )
+    assert {path.name for path in database.parent.iterdir()} == before_paths
+    assert any(database_arg == ":memory:" for database_arg, _options in connect_calls)
 
 
 def test_read_only_identity_store_rejects_missing_schema_without_creating_storage(tmp_path: Path) -> None:
     with pytest.raises(IdentityMasterSchemaError):
         IdentityMasterStore(tmp_path, read_only=True)
     assert not storage_layout(tmp_path).transactional_path.exists()
+
+
+def test_read_only_identity_store_rejects_active_journal(tmp_path: Path) -> None:
+    with IdentityMasterStore(tmp_path) as store:
+        store.append_claims(_claims("SEC-JOURNAL", "seed"))
+    database = storage_layout(tmp_path).transactional_path
+    journal = Path(f"{database}-wal")
+    journal.write_bytes(b"active")
+
+    with pytest.raises(IdentityMasterSchemaError, match="active SQLite journal"):
+        IdentityMasterStore(tmp_path, read_only=True)
+
+
+def test_read_only_identity_store_is_one_snapshot_across_concurrent_commits(tmp_path: Path) -> None:
+    with IdentityMasterStore(tmp_path) as store:
+        store.append_claims(_claims("SEC-SNAPSHOT", "seed"))
+
+    with IdentityMasterStore(tmp_path, read_only=True) as snapshot:
+        assert snapshot.projection("SEC-SNAPSHOT")["status"] == "available"
+        with IdentityMasterStore(tmp_path) as writer:
+            writer.append_claims(_claims("SEC-LATE", "late"))
+        with pytest.raises(KeyError):
+            snapshot.projection("SEC-LATE")
+
+    with IdentityMasterStore(tmp_path, read_only=True) as latest:
+        assert latest.projection("SEC-LATE")["status"] == "available"
 
 
 def test_cross_instrument_duplicate_isin_quarantines_candidates_and_retains_conflict(tmp_path: Path) -> None:
