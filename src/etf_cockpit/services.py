@@ -17,8 +17,9 @@ import pandas as pd
 from etf_cockpit.backtest.engine import (
     BacktestDataUnavailableError,
     BacktestReport,
+    _corporate_action_adjusted_pivot,
+    _instrument_operational_evidence,
     _calendar_identity_from_price_rows,
-    _canonical_calendar_contract,
     _price_source_identity,
     backtest_input_checksum,
     quality_momentum_evidence_checksum,
@@ -38,6 +39,7 @@ from etf_cockpit.core.atomic_io import (
 from etf_cockpit.core.logging import append_jsonl, configure_logging
 from etf_cockpit.core.paths import (
     BACKTESTS_DIR,
+    CONFIG_DIR,
     ETF_BENCHMARK_TOTAL_RETURN_PATH,
     ETF_FUND_TOTAL_RETURN_PATH,
     FORECASTS_DIR,
@@ -72,6 +74,7 @@ from etf_cockpit.data.identity_master import (
     IdentityMasterStore,
     identity_master_exists,
 )
+from etf_cockpit.data.market_calendar import MarketCalendarService, MarketClockError
 from etf_cockpit.data.import_pipeline import commit_price_import, rollback_latest_price_import as rollback_price_store
 from etf_cockpit.data.manual_notes import commit_manual_news_import, load_manual_news, validate_manual_news
 from etf_cockpit.data.parsed_disclosures import read_etf_report_records
@@ -296,34 +299,108 @@ def _run_backtest_compatibly(config: AppConfig, prices: pd.DataFrame, **kwargs: 
 def _cached_operational_price_identities_match(
     metadata: Mapping[str, object], prices: pd.DataFrame
 ) -> bool:
-    calendar_fields = (
-        "calendar_listing_id",
-        "calendar_mic",
-        "calendar_id",
-        "calendar_timezone",
-        "calendar_source_id",
-        "calendar_source_checksum",
-        "calendar_source_version",
-        "calendar_opening_auction_minutes",
-        "calendar_closing_auction_minutes",
-        "calendar_identity_decision_id",
-        "calendar_valid_from",
-        "calendar_known_at",
-        "calendar_identity_lineage_hash",
-    )
     rows = metadata.get("operational_evidence_rows")
     if not isinstance(rows, list) or any(not isinstance(row, Mapping) for row in rows):
         return False
+    if not rows:
+        return True
+    if not isinstance(prices, pd.DataFrame) or not {
+        "date",
+        "etf_id",
+        "adjusted_close",
+        "close",
+        "open",
+        "high",
+        "low",
+        "source",
+        "provider_symbol",
+    }.issubset(prices.columns):
+        return False
+    try:
+        price_dates = pd.to_datetime(prices["date"], errors="coerce").dt.date
+        instrument_columns = list(prices["etf_id"].dropna().unique())
+        adjusted_pivots = {
+            field: _corporate_action_adjusted_pivot(prices, field, instrument_columns)
+            for field in ("open", "high", "low")
+        }
+        calendar_service = MarketCalendarService.from_correction_ledger(
+            CONFIG_DIR / "market_calendar_corrections.yaml"
+        )
+    except (TypeError, ValueError, OSError, MarketClockError):
+        return False
+
+    def canonical_timestamp(value: object) -> str | None:
+        if type(value) is not str or value.strip() != value:
+            return None
+        try:
+            parsed = pd.Timestamp(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if pd.isna(parsed) or parsed.tzinfo is None or parsed.utcoffset() is None:
+            return None
+        return value if parsed.isoformat() == value else None
+
+    def finite_number(value: object) -> float | int | None:
+        if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        number = float(value)
+        return value if math.isfinite(number) else None
+
+    def optional_source(value: object) -> str | None:
+        if value is None:
+            return None
+        return value if type(value) is str and value and value.strip() == value else None
+
+    def adjusted(row: pd.Series, field: str, instrument_id: str) -> float | None:
+        try:
+            value = adjusted_pivots[field].loc[
+                pd.Timestamp(row["date"]), instrument_id
+            ]
+        except (KeyError, TypeError, ValueError):
+            return None
+        if pd.isna(value):
+            return None
+        value = float(value)
+        if not math.isfinite(value):
+            return None
+        return value
+
+    def exact_price_rows(instrument_id: str, observed_day: date) -> pd.DataFrame:
+        return prices.loc[prices["etf_id"].eq(instrument_id) & price_dates.eq(observed_day)]
+
+    def exact_record_value_matches(actual: object, expected: object) -> bool:
+        if isinstance(expected, date):
+            return type(actual) is str and actual == expected.isoformat()
+        if expected is None:
+            return actual is None
+        if type(expected) is bool:
+            return type(actual) is bool and actual is expected
+        if type(expected) is int:
+            return type(actual) is int and actual == expected
+        if type(expected) is float:
+            return type(actual) is float and math.isfinite(actual) and actual == expected
+        if type(expected) is str:
+            return type(actual) is str and actual == expected
+        return False
+
     for row in rows:
         if row.get("evidence_status") != "available":
             continue
         instrument_id = row.get("instrument_id")
         signal_date = row.get("signal_date")
         execution_date = row.get("execution_date")
+        strategy = row.get("strategy")
+        signal_timestamp = canonical_timestamp(row.get("signal_timestamp"))
+        execution_timestamp = canonical_timestamp(row.get("execution_timestamp"))
         if (
             type(instrument_id) is not str
+            or not instrument_id
             or type(signal_date) is not str
             or type(execution_date) is not str
+            or type(strategy) is not str
+            or not strategy
+            or signal_timestamp is None
+            or execution_timestamp is None
         ):
             return False
         try:
@@ -333,33 +410,56 @@ def _cached_operational_price_identities_match(
             return False
         if signal_day.isoformat() != signal_date or execution_day.isoformat() != execution_date:
             return False
-        expected_signal = _price_source_identity(prices, instrument_id, signal_day)
-        expected_execution = _price_source_identity(prices, instrument_id, execution_day)
-        if not isinstance(prices, pd.DataFrame) or not {"date", "etf_id"}.issubset(
-            prices.columns
+        cost_spread = finite_number(row.get("cost_spread_assumption_bps"))
+        estimated_cost = finite_number(row.get("estimated_cost_bps"))
+        cost_source = optional_source(row.get("cost_spread_assumption_source"))
+        estimated_source = optional_source(row.get("estimated_cost_bps_source"))
+        if (
+            row.get("cost_spread_assumption_bps") is not None and cost_spread is None
+            or row.get("estimated_cost_bps") is not None and estimated_cost is None
+            or row.get("cost_spread_assumption_source") is not None and cost_source is None
+            or row.get("estimated_cost_bps_source") is not None and estimated_source is None
         ):
             return False
-        price_dates = pd.to_datetime(prices["date"], errors="coerce").dt.date
-        signal_prices = prices.loc[
-            prices["etf_id"].eq(instrument_id) & price_dates.eq(signal_day)
-        ]
+        signal_rows = exact_price_rows(instrument_id, signal_day)
+        execution_rows = exact_price_rows(instrument_id, execution_day)
+        if len(signal_rows) != 1 or len(execution_rows) != 1:
+            return False
+        signal_row = signal_rows.iloc[0]
+        execution_row = execution_rows.iloc[0]
         current_calendar_identity = _calendar_identity_from_price_rows(
-            signal_prices, instrument_id
+            signal_rows, instrument_id
         )
-        canonical_calendar, calendar_reason = _canonical_calendar_contract(
-            current_calendar_identity,
-            instrument_id,
-            row.get("signal_timestamp"),
-            row.get("execution_timestamp"),
+        expected_signal = _price_source_identity(prices, instrument_id, signal_day)
+        expected_execution = _price_source_identity(prices, instrument_id, execution_day)
+        if current_calendar_identity is None or expected_signal is None or expected_execution is None:
+            return False
+        expected = _instrument_operational_evidence(
+            instrument_id=instrument_id,
+            strategy=strategy,
+            signal_timestamp=signal_timestamp,
+            execution_timestamp=execution_timestamp,
+            signal_date=signal_day,
+            execution_date=execution_day,
+            decision_price=pd.to_numeric(signal_row.get("adjusted_close"), errors="coerce"),
+            next_open=adjusted(execution_row, "open", instrument_id),
+            next_period_close=pd.to_numeric(execution_row.get("adjusted_close"), errors="coerce"),
+            high=adjusted(execution_row, "high", instrument_id),
+            low=adjusted(execution_row, "low", instrument_id),
+            open_price=adjusted(execution_row, "open", instrument_id),
+            cost_spread_assumption_bps=cost_spread,
+            cost_spread_assumption_source=cost_source,
+            estimated_cost_bps=estimated_cost,
+            estimated_cost_bps_source=estimated_source,
+            calendar_identity=current_calendar_identity,
+            calendar_service=calendar_service,
+            decision_price_source_identity=expected_signal,
+            next_open_source_identity=expected_execution,
+            next_period_source_identity=expected_execution,
         )
-        if (
-            expected_signal is None
-            or expected_execution is None
-            or row.get("decision_price_source_identity") != expected_signal
-            or row.get("next_open_source_identity") != expected_execution
-            or row.get("next_period_source_identity") != expected_execution
-            or calendar_reason is not None
-            or any(row.get(field) != canonical_calendar.get(field) for field in calendar_fields)
+        if set(row) != set(expected) or not all(
+            exact_record_value_matches(row[field], value)
+            for field, value in expected.items()
         ):
             return False
     return True

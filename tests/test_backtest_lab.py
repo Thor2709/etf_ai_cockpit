@@ -1119,6 +1119,49 @@ def test_cached_operational_provenance_is_rederived_from_prices() -> None:
     assert not services._cached_operational_price_identities_match(metadata, prices)
 
 
+@pytest.mark.parametrize(
+    ("field", "forged_value"),
+    (
+        ("calendar_session_lineage_hash", "f" * 64),
+        ("decision_price", 999_999.0),
+        ("next_open_reference_price", 999_999.0),
+        ("next_period_reference_price", 999_999.0),
+        ("decision_price_basis", "close"),
+        ("next_open_reference_basis", "raw_ohlc"),
+        ("next_period_reference_basis", "close_to_close"),
+        ("close_to_next_open_gap", 123.0),
+        ("observed_range_spread_proxy", 123.0),
+        ("spread_proxy", 123.0),
+        ("signal_date", "2026-01-01"),
+    ),
+)
+def test_cached_operational_record_rejects_forged_producer_fields(
+    field: str, forged_value: object
+) -> None:
+    config = load_config()
+    prices = generate_sample_prices(
+        config, periods=360, end_date=pd.Timestamp("2026-06-26").date()
+    )
+    report = run_backtest(config, prices, rebalance_frequency_days=42)
+    metadata = json.loads(json.dumps(report.metadata, default=str))
+    row = next(
+        item
+        for item in metadata["operational_evidence_rows"]
+        if item["evidence_status"] == "available"
+    )
+    assert services._cached_operational_price_identities_match(metadata, prices)
+
+    row[field] = forged_value
+
+    assert not services._cached_operational_price_identities_match(metadata, prices)
+
+
+def test_cached_operational_empty_rows_remain_compatible() -> None:
+    assert services._cached_operational_price_identities_match(
+        {"operational_evidence_rows": []}, pd.DataFrame()
+    )
+
+
 def test_cached_operational_calendar_identity_is_rederived_from_current_pit_prices() -> None:
     config = load_config()
     prices = generate_sample_prices(
@@ -1327,6 +1370,22 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
     assert service._load_cached_backtest() is None
     metadata_path.write_bytes(original_metadata)
+
+    forged_metadata = json.loads(original_metadata)
+    forged_row = next(
+        item
+        for item in forged_metadata["operational_evidence_rows"]
+        if item["evidence_status"] == "available"
+    )
+    forged_row["calendar_session_lineage_hash"] = "f" * 64
+    forged_payload = json.dumps(forged_metadata).encode("utf-8")
+    forged_sidecar = json.loads(original_metadata_sidecar)
+    forged_sidecar["payload_sha256"] = hashlib.sha256(forged_payload).hexdigest()
+    metadata_path.write_bytes(forged_payload)
+    metadata_sidecar_path.write_text(json.dumps(forged_sidecar), encoding="utf-8")
+    assert service._load_cached_backtest() is None
+    metadata_path.write_bytes(original_metadata)
+    metadata_sidecar_path.write_bytes(original_metadata_sidecar)
 
     metadata = json.loads(original_metadata)
     metadata["reference_identity"]["execution_allowed"] = 0

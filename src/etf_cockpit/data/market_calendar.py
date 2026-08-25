@@ -1269,11 +1269,14 @@ def _parse_datetime(value: object) -> datetime:
     else:
         if type(value) is not str or value.strip() != value:
             raise MarketClockError("identity decision time must be canonical text")
+        canonical_input = value[:-1] + "+00:00" if value.endswith("Z") else value
         try:
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(canonical_input)
         except ValueError as exc:
             raise MarketClockError("identity decision time is invalid") from exc
-    if parsed.tzinfo is None:
+        if parsed.isoformat() != canonical_input:
+            raise MarketClockError("identity decision time must be canonical ISO")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise MarketClockError("identity decision time must be timezone-aware")
     return parsed.astimezone(UTC)
 
