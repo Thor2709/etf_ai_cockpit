@@ -180,11 +180,12 @@ def test_read_only_identity_store_rejects_missing_schema_without_creating_storag
     assert not storage_layout(tmp_path).transactional_path.exists()
 
 
-def test_read_only_identity_store_rejects_active_journal(tmp_path: Path) -> None:
+@pytest.mark.parametrize("suffix", ["-wal", "-journal"])
+def test_read_only_identity_store_rejects_active_journal(tmp_path: Path, suffix: str) -> None:
     with IdentityMasterStore(tmp_path) as store:
         store.append_claims(_claims("SEC-JOURNAL", "seed"))
     database = storage_layout(tmp_path).transactional_path
-    journal = Path(f"{database}-wal")
+    journal = Path(f"{database}{suffix}")
     journal.write_bytes(b"active")
 
     with pytest.raises(IdentityMasterSchemaError, match="active SQLite journal"):

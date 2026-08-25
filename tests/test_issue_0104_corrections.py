@@ -1302,6 +1302,11 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
         return None
 
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path / "backtests")
+    monkeypatch.setattr(
+        services,
+        "IDENTITY_PATH",
+        tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
+    )
     monkeypatch.setattr(services, "FUND_HOLDINGS_PATH", holdings_path)
     monkeypatch.setattr(services, "ETF_METADATA_CLEAN_PATH", factsheet_path)
     monkeypatch.setattr(services, "load_prices", lambda: prices)

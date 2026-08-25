@@ -104,7 +104,7 @@ def connect_storage_read_only(root: Path) -> sqlite3.Connection:
     source = layout.transactional_path
     if not source.is_file():
         raise StorageSchemaError(f"transactional store is missing: {source}")
-    sidecars = tuple(Path(f"{source}{suffix}") for suffix in ("-wal", "-shm"))
+    sidecars = tuple(Path(f"{source}{suffix}") for suffix in ("-wal", "-shm", "-journal"))
     if any(path.exists() for path in sidecars):
         raise StorageSchemaError("transactional store has an active SQLite journal")
     try:

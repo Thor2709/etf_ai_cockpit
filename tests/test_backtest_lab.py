@@ -5,6 +5,7 @@ import json
 import hashlib
 from datetime import date, datetime, timezone
 from io import BytesIO
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -1022,12 +1023,16 @@ def test_sample_calendar_identity_survives_persisted_backtest_without_identity_m
 
 
 def test_unreadable_identity_store_never_uses_sample_calendar_fallback(
-    monkeypatch,
+    tmp_path, monkeypatch,
 ) -> None:
-    def unreadable(_root):
-        raise services.IdentityMasterSchemaError("identity store is corrupt")
-
-    monkeypatch.setattr(services, "identity_master_exists", unreadable)
+    monkeypatch.setattr(
+        services,
+        "IDENTITY_PATH",
+        tmp_path / "data" / "clean" / "instrument_identity.parquet",
+    )
+    database = services.storage_layout(tmp_path).transactional_path
+    database.parent.mkdir(parents=True)
+    database.write_bytes(b"corrupt identity store")
     store, resolver = services._open_backtest_calendar_identity_resolver()
     assert store is None
     assert resolver is not None
@@ -1047,7 +1052,7 @@ def test_unreadable_identity_store_never_uses_sample_calendar_fallback(
     assert report.operational_evidence["execution_allowed"].eq(False).all()
 
 
-def test_identity_resolver_rejects_naive_point_in_time(monkeypatch) -> None:
+def test_identity_resolver_rejects_naive_point_in_time(tmp_path, monkeypatch) -> None:
     class Store:
         def projection(self, *_args, **_kwargs):
             raise AssertionError("naive cutoff must not query canonical identity")
@@ -1055,7 +1060,14 @@ def test_identity_resolver_rejects_naive_point_in_time(monkeypatch) -> None:
         def close(self) -> None:
             pass
 
-    monkeypatch.setattr(services, "identity_master_exists", lambda _root: True)
+    monkeypatch.setattr(
+        services,
+        "IDENTITY_PATH",
+        tmp_path / "data" / "clean" / "instrument_identity.parquet",
+    )
+    database = services.storage_layout(tmp_path).transactional_path
+    database.parent.mkdir(parents=True)
+    database.write_bytes(b"store existence only")
     monkeypatch.setattr(services, "IdentityMasterStore", lambda _root, **_kwargs: Store())
     store, resolver = services._open_backtest_calendar_identity_resolver()
     assert store is not None
@@ -1071,13 +1083,69 @@ def test_identity_resolver_rejects_naive_point_in_time(monkeypatch) -> None:
     }
 
 
-def test_missing_identity_store_remains_read_only_and_explicitly_absent(monkeypatch) -> None:
-    monkeypatch.setattr(services, "identity_master_exists", lambda _root: False)
+def test_missing_identity_store_remains_read_only_and_explicitly_absent(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        services,
+        "IDENTITY_PATH",
+        tmp_path / "data" / "clean" / "instrument_identity.parquet",
+    )
 
     store, resolver = services._open_backtest_calendar_identity_resolver()
 
     assert store is None
     assert resolver is None
+
+
+def test_identity_resolver_service_probe_never_mutates_source_storage(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        services,
+        "IDENTITY_PATH",
+        tmp_path / "data" / "clean" / "instrument_identity.parquet",
+    )
+    with services.IdentityMasterStore(tmp_path):
+        pass
+    database = services.storage_layout(tmp_path).transactional_path
+
+    def source_state() -> dict[str, tuple[bytes, int]]:
+        return {
+            path.name: (path.read_bytes(), path.stat().st_mtime_ns)
+            for path in database.parent.iterdir()
+            if path.is_file()
+        }
+
+    before = source_state()
+    store, resolver = services._open_backtest_calendar_identity_resolver()
+    try:
+        assert store is not None
+        assert resolver is not None
+        assert source_state() == before
+    finally:
+        if store is not None:
+            store.close()
+    assert source_state() == before
+
+
+@pytest.mark.parametrize("suffix", ["-wal", "-shm", "-journal"])
+def test_identity_resolver_service_rejects_active_journal_without_mutation(
+    tmp_path, monkeypatch, suffix
+) -> None:
+    monkeypatch.setattr(
+        services,
+        "IDENTITY_PATH",
+        tmp_path / "data" / "clean" / "instrument_identity.parquet",
+    )
+    with services.IdentityMasterStore(tmp_path):
+        pass
+    database = services.storage_layout(tmp_path).transactional_path
+    journal = Path(f"{database}{suffix}")
+    journal.write_bytes(b"active journal evidence")
+    before = {path.name: path.read_bytes() for path in database.parent.iterdir() if path.is_file()}
+
+    store, resolver = services._open_backtest_calendar_identity_resolver()
+
+    assert store is None
+    assert resolver is not None
+    assert {path.name: path.read_bytes() for path in database.parent.iterdir() if path.is_file()} == before
 
 
 def test_backtest_signal_replay_is_nonpublishing_and_deterministically_timestamped(monkeypatch) -> None:

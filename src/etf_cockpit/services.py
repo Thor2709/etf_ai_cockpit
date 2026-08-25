@@ -67,8 +67,8 @@ from etf_cockpit.data.fundamentals import load_fundamental_evidence
 from etf_cockpit.data.identity_master import (
     IdentityMasterSchemaError,
     IdentityMasterStore,
-    identity_master_exists,
 )
+from etf_cockpit.data.local_storage import storage_layout
 from etf_cockpit.data.import_pipeline import commit_price_import, rollback_latest_price_import as rollback_price_store
 from etf_cockpit.data.manual_notes import commit_manual_news_import, load_manual_news, validate_manual_news
 from etf_cockpit.data.parsed_disclosures import read_etf_report_records
@@ -396,7 +396,7 @@ def _open_backtest_calendar_identity_resolver() -> tuple[
         return None, None
     root = identity_path.parents[2]
     try:
-        if not identity_master_exists(root):
+        if not storage_layout(root).transactional_path.is_file():
             return None, None
         store = IdentityMasterStore(root, read_only=True)
     except (IdentityMasterSchemaError, OSError, ValueError):

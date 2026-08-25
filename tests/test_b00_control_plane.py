@@ -930,7 +930,7 @@ def test_validator_modes_compose_existing_release_gate_without_reimplementation(
     smoke = next(check for check in offline if check.name == "source_smoke")
     assert dict(smoke.environment) == {"ETF_COCKPIT_OFFLINE": "1"}
     changed_tests = next(check for check in changed if check.name == "changed_tests")
-    assert changed_tests.timeout_seconds == validate_app.CHANGED_TEST_TIMEOUT_SECONDS == 900
+    assert changed_tests.timeout_seconds == validate_app.CHANGED_TEST_TIMEOUT_SECONDS == 1200
 
 
 def test_package_parity_detects_mismatch(tmp_path: Path) -> None:
