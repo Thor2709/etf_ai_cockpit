@@ -9,7 +9,50 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
-## Current ISSUE-0050 product lane — 2026-08-24
+## Current ISSUE-0050 validation recovery — 2026-08-31
+
+Exact main is `73835d8fc913aaec180ce98be5de960b0ef6d628`. Both independent
+reviews approve PR #698 head `6dabdc3f6f6c555c24ff7cf8ff06438a94d79f81`, but
+run `32821067192` timed out after 1,200 seconds in the unchanged 326-test
+selection. Linux, Windows and terminal acceptance remain unproven. The
+original product and authority-preparation worktrees retain unrelated user
+edits and are preserved; clean lane `codex/issue0050-finish-20260831` starts at
+the same product head.
+
+Bound this recovery to the measured repeated canonical backtest computation
+in cached snapshot reads. The corrected warm-cache profile has two real hits
+at 23.532 and 21.453 seconds with identical result/equity/input fingerprints.
+Reuse only causal feature calculations and exact validated price-source
+identities within one run, prove exact prefix/report parity with focused
+regressions, freeze one new head, and start both reviews plus all required
+H-tier hosted gates concurrently. No cross-request cache is introduced.
+Do not raise timeouts, bypass replay, reduce test selection, or weaken financial,
+PIT, persistence, authority or `execution_allowed=false` safeguards.
+
+The independent exact-output comparison now passes for production engine blob
+`7cad431f8ad699229df798c430d42b255197eaea`: both actual replay reports match
+baseline results, equity, trade/signal/quality evidence, metadata and operational
+rows with exact values. Replay time improves 21.748%; complete cached snapshots
+improve 17.851%. Only repeated feature computations and run-local source lookup
+work are reused; replay, signal, validation and calendar/evidence counts remain
+unchanged. Evidence is preserved under the goal attachment's
+`issue0050-replay-benchmark/comparison`. All five exact cutoff/reuse regressions
+and seven affected cost/reference integration tests pass, as do the prior full
+backtest-lab run, Ruff, compile, registry, architecture, diff hygiene and byte-clean
+generation. The corrected freeze is the commit containing this checkpoint on
+`codex/issue0050-finish-20260831`; record its literal SHA in PR #698 and the
+attachment checkpoint. Both fresh reviews and H-tier hosted validation remain
+required; do not amend the frozen head for chronology or rerun unchanged checks.
+
+Before product merge, validate the legal lifecycle shape; after the reviewed
+product is exact main, prepare its sole `implemented_initially -> integrated`
+authority transaction for GitHub #105, leaving historical duplicate #54 untouched,
+and require the ordered writer plus generic zero-action readback. Canonical phase
+order takes precedence over the handoff's proposed
+ISSUE-0052: prepare the earlier dependency-ready ISSUE-0019 research-detail gaps
+without overlapping this lane's writers or declaring unproven acceptance.
+
+## Previous ISSUE-0050 product lane — 2026-08-24
 
 ISSUE-0049 product PR #696 and lifecycle PR #697 are merged through exact main
 `73835d8fc913aaec180ce98be5de960b0ef6d628`. All exact-head Linux, Windows,

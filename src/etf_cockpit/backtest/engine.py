@@ -1136,6 +1136,53 @@ def run_backtest(
     log_returns = np.log(pivot / pivot.shift(1)).fillna(0.0)
     start_index = 220
     rebalance_indexes = set(range(start_index, len(pivot), rebalance_frequency_days))
+    # Signal features are causal, but computing the complete historical frame
+    # for every rebalance repeats the same prefix work.  Hoist that pure work
+    # only for the ordinary daily-price shape; intraday rows retain the exact
+    # prefix path because ``compute_features`` deliberately normalises their
+    # dates and would otherwise lose the timestamp cutoff.
+    last_rebalance_index = max(
+        (
+            index
+            for index in rebalance_indexes
+            if start_index < index and index + 1 < len(pivot)
+        ),
+        default=None,
+    )
+    reusable_default_features: pd.DataFrame | None = None
+    reusable_benchmark_features: pd.DataFrame | None = None
+    reusable_benchmark_first_date: pd.Timestamp | None = None
+    price_dates: pd.Series | None = None
+    if last_rebalance_index is not None:
+        price_dates = pd.to_datetime(prices["date"])
+        last_rebalance_cutoff = pivot.index[last_rebalance_index]
+        feature_mask = price_dates <= last_rebalance_cutoff
+        feature_mask &= price_dates.notna()
+        if calculation_window is not None:
+            feature_mask &= price_dates >= calculation_window[0]
+            feature_mask &= price_dates <= calculation_window[1]
+        feature_prices = prices.loc[feature_mask].copy()
+        feature_dates = price_dates.loc[feature_mask]
+        daily_feature_rows = bool(
+            feature_dates.empty
+            or (feature_dates == feature_dates.dt.normalize()).all()
+        )
+        if daily_feature_rows:
+            reusable_default_features = compute_features(
+                feature_prices,
+                benchmark_etf_id=None,
+            )
+            if canonical_benchmark_id is None:
+                reusable_default_features.loc[:, ["relative_strength_60d", "relative_strength_120d"]] = np.nan
+            if canonical_benchmark_id is not None:
+                benchmark_mask = feature_prices["etf_id"] == canonical_benchmark_id
+                benchmark_dates = feature_dates.loc[benchmark_mask]
+                if not benchmark_dates.empty:
+                    reusable_benchmark_features = compute_features(
+                        feature_prices,
+                        benchmark_etf_id=canonical_benchmark_id,
+                    )
+                    reusable_benchmark_first_date = benchmark_dates.min()
     strategies = [
         "buy_and_hold",
         "equal_weight",
@@ -1161,6 +1208,21 @@ def run_backtest(
     operational_evidence_rows: list[dict[str, object]] = []
     signal_rows: list[dict[str, object]] = []
     quality_evidence_rows: list[dict[str, object]] = []
+    price_source_identity_cache: dict[tuple[object, pd.Timestamp], str | None] = {}
+
+    def cached_price_source_identity(
+        instrument_id: object,
+        observed_date: object,
+    ) -> str | None:
+        observed_timestamp = pd.Timestamp(observed_date).normalize()
+        key = (instrument_id, observed_timestamp)
+        if key not in price_source_identity_cache:
+            price_source_identity_cache[key] = _price_source_identity(
+                prices,
+                instrument_id,
+                observed_date,
+            )
+        return price_source_identity_cache[key]
 
     for i in range(start_index + 1, len(pivot)):
         dt = pivot.index[i]
@@ -1221,16 +1283,33 @@ def run_backtest(
             elif metadata.get("quality_momentum_evidence") != "available":
                 metadata["quality_momentum_evidence"] = "unavailable"
             # The signal strategy uses the same live signal pipeline, then tilts around targets.
-            truncated_prices = prices[pd.to_datetime(prices["date"]) <= dt].copy()
-            if calculation_window is not None:
-                truncated_dates = pd.to_datetime(truncated_prices["date"])
-                truncated_prices = truncated_prices.loc[
-                    (truncated_dates >= calculation_window[0])
-                    & (truncated_dates <= calculation_window[1])
-                ].copy()
-            features = compute_features(truncated_prices, benchmark_etf_id=canonical_benchmark_id)
-            if canonical_benchmark_id is None:
-                features.loc[:, ["relative_strength_60d", "relative_strength_120d"]] = np.nan
+            assert price_dates is not None
+            if reusable_default_features is not None:
+                features = reusable_default_features
+                if (
+                    reusable_benchmark_features is not None
+                    and reusable_benchmark_first_date is not None
+                    and dt >= reusable_benchmark_first_date
+                ):
+                    features = reusable_benchmark_features
+                truncated_prices = prices[price_dates <= dt].copy()
+                if calculation_window is not None:
+                    truncated_dates = pd.to_datetime(truncated_prices["date"])
+                    truncated_prices = truncated_prices.loc[
+                        (truncated_dates >= calculation_window[0])
+                        & (truncated_dates <= calculation_window[1])
+                    ].copy()
+            else:
+                truncated_prices = prices[price_dates <= dt].copy()
+                if calculation_window is not None:
+                    truncated_dates = pd.to_datetime(truncated_prices["date"])
+                    truncated_prices = truncated_prices.loc[
+                        (truncated_dates >= calculation_window[0])
+                        & (truncated_dates <= calculation_window[1])
+                    ].copy()
+                features = compute_features(truncated_prices, benchmark_etf_id=canonical_benchmark_id)
+                if canonical_benchmark_id is None:
+                    features.loc[:, ["relative_strength_60d", "relative_strength_120d"]] = np.nan
             latest = latest_features(features, as_of_date=dt.date())
             holdings = _holdings_from_weights(weights["signal_strategy"], pivot.iloc[i], equity["signal_strategy"][-1], dt.date())
             report = validate_prices(truncated_prices, as_of_date=dt.date(), min_history_days=180)
@@ -1450,9 +1529,12 @@ def run_backtest(
                                 ),
                                 calendar_identity=calendar_identity,
                                 calendar_service=calendar_service,
-                                decision_price_source_identity=_price_source_identity(prices, instrument_id, dt),
-                                next_open_source_identity=_price_source_identity(prices, instrument_id, execution_dt),
-                                next_period_source_identity=_price_source_identity(prices, instrument_id, pivot.index[i + 1]),
+                                decision_price_source_identity=cached_price_source_identity(instrument_id, dt),
+                                next_open_source_identity=cached_price_source_identity(instrument_id, execution_dt),
+                                next_period_source_identity=cached_price_source_identity(
+                                    instrument_id,
+                                    pivot.index[i + 1],
+                                ),
                             )
                         )
                     trade_rows.append(

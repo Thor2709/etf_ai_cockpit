@@ -1195,6 +1195,251 @@ def test_backtest_signal_replay_is_nonpublishing_and_deterministically_timestamp
     )
 
 
+def test_backtest_reuses_causal_features_and_exact_price_source_keys(monkeypatch) -> None:
+    from etf_cockpit.backtest import engine as backtest_engine
+    from etf_cockpit.features.feature_pipeline import latest_features
+
+    config = load_config()
+    prices = generate_sample_prices(
+        config,
+        periods=500,
+        end_date=pd.Timestamp("2026-06-26").date(),
+    )
+    original_compute_features = backtest_engine.compute_features
+    original_price_source_identity = backtest_engine._price_source_identity
+    feature_calls: list[tuple[int, object]] = []
+    source_calls: list[tuple[object, pd.Timestamp]] = []
+    captured_latest: list[tuple[date, pd.DataFrame]] = []
+
+    def capture_features(frame, benchmark_etf_id=None):
+        feature_calls.append((len(frame), benchmark_etf_id))
+        return original_compute_features(frame, benchmark_etf_id=benchmark_etf_id)
+
+    def capture_source_identity(frame, instrument_id, observed_date):
+        source_calls.append((instrument_id, pd.Timestamp(observed_date).normalize()))
+        return original_price_source_identity(frame, instrument_id, observed_date)
+
+    original_generate_signals = backtest_engine.generate_signals
+
+    def capture_latest(config_arg, latest, *args, **kwargs):
+        captured_latest.append((kwargs["as_of_date"], latest.copy()))
+        return original_generate_signals(config_arg, latest, *args, **kwargs)
+
+    monkeypatch.setattr(backtest_engine, "compute_features", capture_features)
+    monkeypatch.setattr(backtest_engine, "_price_source_identity", capture_source_identity)
+    monkeypatch.setattr(backtest_engine, "generate_signals", capture_latest)
+
+    report = run_backtest(config, prices, rebalance_frequency_days=42)
+
+    assert isinstance(report, BacktestReport)
+    assert len(feature_calls) == 1
+    assert len(source_calls) == len(set(source_calls))
+    assert len(captured_latest) > 1
+    expected_feature_rows = int(
+        (
+            pd.to_datetime(prices["date"])
+            <= pd.Timestamp(captured_latest[-1][0])
+        ).sum()
+    )
+    assert feature_calls[0][0] == expected_feature_rows
+
+    for as_of_date, latest in captured_latest:
+        prefix = prices.loc[
+            pd.to_datetime(prices["date"]) <= pd.Timestamp(as_of_date)
+        ]
+        expected = original_compute_features(prefix, benchmark_etf_id=None)
+        expected.loc[:, ["relative_strength_60d", "relative_strength_120d"]] = float("nan")
+        expected_latest = latest_features(expected, as_of_date=as_of_date)
+        pd.testing.assert_frame_equal(latest, expected_latest, check_exact=True)
+
+
+def test_backtest_reuses_daily_canonical_benchmark_features(monkeypatch) -> None:
+    from etf_cockpit.backtest import engine as backtest_engine
+    from etf_cockpit.features.feature_pipeline import latest_features
+
+    config = load_config()
+    prices = generate_sample_prices(
+        config,
+        periods=264,
+        end_date=pd.Timestamp("2026-06-26").date(),
+    )
+    before = prices.copy(deep=True)
+    original_compute_features = backtest_engine.compute_features
+    original_generate_signals = backtest_engine.generate_signals
+    feature_calls: list[tuple[pd.DataFrame, object]] = []
+    captured_latest: list[tuple[date, pd.DataFrame]] = []
+
+    def capture_features(frame, benchmark_etf_id=None):
+        feature_calls.append((frame.copy(), benchmark_etf_id))
+        return original_compute_features(frame, benchmark_etf_id=benchmark_etf_id)
+
+    def capture_latest(config_arg, latest, *args, **kwargs):
+        captured_latest.append((kwargs["as_of_date"], latest.copy()))
+        return original_generate_signals(config_arg, latest, *args, **kwargs)
+
+    monkeypatch.setattr(backtest_engine, "compute_features", capture_features)
+    monkeypatch.setattr(backtest_engine, "generate_signals", capture_latest)
+    monkeypatch.setattr(
+        backtest_engine,
+        "_validated_benchmark_data_id",
+        lambda *args, **kwargs: "VWCE",
+    )
+
+    report = run_backtest(config, prices, rebalance_frequency_days=42)
+
+    assert isinstance(report, BacktestReport)
+    assert [benchmark_id for _, benchmark_id in feature_calls] == [None, "VWCE"]
+    assert len(captured_latest) == 1
+    as_of_date, latest = captured_latest[0]
+    prefix = prices.loc[
+        pd.to_datetime(prices["date"]) <= pd.Timestamp(as_of_date)
+    ]
+    expected = original_compute_features(prefix, benchmark_etf_id="VWCE")
+    expected_latest = latest_features(expected, as_of_date=as_of_date)
+    pd.testing.assert_frame_equal(latest, expected_latest, check_exact=True)
+    pd.testing.assert_frame_equal(prices, before, check_exact=True)
+
+
+def test_backtest_intraday_prefix_fallback_excludes_same_day_future_rows(
+    monkeypatch,
+) -> None:
+    from etf_cockpit.backtest import engine as backtest_engine
+
+    config = load_config()
+    prices = generate_sample_prices(
+        config,
+        periods=306,
+        end_date=pd.Timestamp("2026-06-26").date(),
+    )
+    prices = prices.copy()
+    prices["date"] = pd.to_datetime(prices["date"])
+    dates = pd.to_datetime(prices["date"])
+    unique_dates = dates.drop_duplicates().sort_values().reset_index(drop=True)
+    intraday_day = unique_dates.iloc[262]
+    future_row = prices.loc[
+        (prices["etf_id"] == "VWCE") & (dates == intraday_day)
+    ].iloc[[0]].copy()
+    future_row.loc[:, "etf_id"] = "INTRADAY_EXTRA"
+    future_row.loc[:, "date"] = intraday_day + pd.Timedelta(hours=12)
+    prices = pd.concat([prices, future_row], ignore_index=True)
+    before = prices.copy(deep=True)
+    original_compute_features = backtest_engine.compute_features
+    feature_calls: list[tuple[pd.DataFrame, object]] = []
+
+    def capture_features(frame, benchmark_etf_id=None):
+        feature_calls.append((frame.copy(), benchmark_etf_id))
+        return original_compute_features(frame, benchmark_etf_id=benchmark_etf_id)
+
+    monkeypatch.setattr(backtest_engine, "compute_features", capture_features)
+
+    report = run_backtest(config, prices, rebalance_frequency_days=42)
+
+    assert isinstance(report, BacktestReport)
+    assert len(feature_calls) == 2
+    assert [benchmark_id for _, benchmark_id in feature_calls] == [None] * 2
+    expected_cutoffs = [
+        unique_dates.iloc[262],
+        unique_dates.iloc[304],
+    ]
+    for (feature_frame, _), cutoff in zip(feature_calls, expected_cutoffs):
+        expected = prices.loc[pd.to_datetime(prices["date"]) <= cutoff]
+        pd.testing.assert_frame_equal(feature_frame, expected, check_exact=True)
+    first_frame = feature_calls[0][0]
+    assert not (pd.to_datetime(first_frame["date"]) > intraday_day).any()
+    assert len(feature_calls[-1][0]) > len(first_frame)
+    pd.testing.assert_frame_equal(prices, before, check_exact=True)
+
+
+def test_backtest_feature_reuse_respects_reference_window_and_last_cutoff(
+    monkeypatch,
+) -> None:
+    from etf_cockpit.backtest import engine as backtest_engine
+
+    config = load_config()
+    prices = generate_sample_prices(
+        config,
+        periods=300,
+        end_date=pd.Timestamp("2026-06-26").date(),
+    )
+    dates = pd.to_datetime(prices["date"])
+    window_start = dates.drop_duplicates().sort_values().iloc[0]
+    window_end = dates.drop_duplicates().sort_values().iloc[269]
+    reference_identity = {
+        "status": "available",
+        "execution_allowed": False,
+        "analysis": {
+            "start_date": window_start.date().isoformat(),
+            "end_date": window_end.date().isoformat(),
+            "decision_time": f"{window_end.date().isoformat()}T23:59:59Z",
+        },
+    }
+    before = prices.copy(deep=True)
+    original_compute_features = backtest_engine.compute_features
+    feature_calls: list[pd.DataFrame] = []
+    cutoffs: list[date] = []
+
+    def capture_features(frame, benchmark_etf_id=None):
+        feature_calls.append(frame.copy())
+        return original_compute_features(frame, benchmark_etf_id=benchmark_etf_id)
+
+    original_generate_signals = backtest_engine.generate_signals
+
+    def capture_latest(config_arg, latest, *args, **kwargs):
+        cutoffs.append(kwargs["as_of_date"])
+        return original_generate_signals(config_arg, latest, *args, **kwargs)
+
+    monkeypatch.setattr(backtest_engine, "compute_features", capture_features)
+    monkeypatch.setattr(backtest_engine, "generate_signals", capture_latest)
+
+    report = run_backtest(
+        config,
+        prices,
+        rebalance_frequency_days=42,
+        reference_identity=reference_identity,
+    )
+
+    assert isinstance(report, BacktestReport)
+    assert len(feature_calls) == 1
+    assert len(cutoffs) == 1
+    last_cutoff = pd.Timestamp(cutoffs[0])
+    feature_dates = pd.to_datetime(feature_calls[0]["date"])
+    assert feature_dates.min() >= window_start
+    assert feature_dates.max() <= last_cutoff
+    assert last_cutoff < window_end
+    expected = prices.loc[
+        (dates >= window_start) & (dates <= last_cutoff)
+    ]
+    pd.testing.assert_frame_equal(feature_calls[0], expected, check_exact=True)
+    pd.testing.assert_frame_equal(prices, before, check_exact=True)
+
+
+def test_backtest_without_rebalance_skips_feature_computation(monkeypatch) -> None:
+    from etf_cockpit.backtest import engine as backtest_engine
+
+    config = load_config()
+    prices = generate_sample_prices(
+        config,
+        periods=260,
+        end_date=pd.Timestamp("2026-06-26").date(),
+    )
+    before = prices.copy(deep=True)
+    original_compute_features = backtest_engine.compute_features
+    feature_calls = 0
+
+    def capture_features(frame, benchmark_etf_id=None):
+        nonlocal feature_calls
+        feature_calls += 1
+        return original_compute_features(frame, benchmark_etf_id=benchmark_etf_id)
+
+    monkeypatch.setattr(backtest_engine, "compute_features", capture_features)
+
+    report = run_backtest(config, prices, rebalance_frequency_days=42)
+
+    assert isinstance(report, BacktestReport)
+    assert feature_calls == 0
+    pd.testing.assert_frame_equal(prices, before, check_exact=True)
+
+
 def test_backtest_resolves_canonical_identity_at_aware_signal_close() -> None:
     config = load_config()
     prices = generate_sample_prices(
