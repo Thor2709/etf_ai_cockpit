@@ -706,10 +706,20 @@ def _portfolio_service_coverage(analysis: PortfolioAnalysis) -> str:
     factor_coverage = factor.get("coverage", {}) if isinstance(factor, dict) else {}
     risk_coverage = risk.get("coverage", {}) if isinstance(risk, dict) else {}
     scenario_count = len(scenario.get("results", ())) if isinstance(scenario, dict) else 0
+    factor_status = (
+        factor_coverage.get("status", factor.get("status", "unavailable"))
+        if isinstance(factor_coverage, dict) and isinstance(factor, dict)
+        else "unavailable"
+    )
+    risk_status = (
+        risk_coverage.get("status", risk.get("status", "unavailable"))
+        if isinstance(risk_coverage, dict) and isinstance(risk, dict)
+        else "unavailable"
+    )
     return (
         f"methods={len(methods) if isinstance(methods, (list, tuple)) else 0} | "
-        f"factor_coverage={factor_coverage.get('status', factor.get('status', 'unavailable')) if isinstance(factor_coverage, dict) else factor.get('status', 'unavailable') if isinstance(factor, dict) else 'unavailable'} | "
-        f"covariance_coverage={risk_coverage.get('status', risk.get('status', 'unavailable')) if isinstance(risk_coverage, dict) else risk.get('status', 'unavailable') if isinstance(risk, dict) else 'unavailable'} | "
+        f"factor_coverage={factor_status} | "
+        f"covariance_coverage={risk_status} | "
         f"scenarios={scenario_count} | attribution={attribution.get('status', 'unavailable') if isinstance(attribution, dict) else 'unavailable'} | execution_allowed=false"
     )
 

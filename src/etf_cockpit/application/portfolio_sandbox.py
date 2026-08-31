@@ -45,7 +45,10 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
 )
 from etf_cockpit.application.overlap import build_direct_overlap_view, direct_overlap_payload
 from etf_cockpit.application.portfolio_optimiser import build_portfolio_optimiser
-from etf_cockpit.application.benchmark_reference import context_from_snapshot
+from etf_cockpit.application.benchmark_reference import (
+    CanonicalReferenceContext,
+    clip_to_decision_window,
+)
 from etf_cockpit.portfolio.attribution import build_performance_attribution
 from etf_cockpit.portfolio.factor_risk import build_factor_risk_report
 from etf_cockpit.portfolio.optimiser import OptimiserConstraints
@@ -207,12 +210,11 @@ def analyse_portfolio_candidate(
             source_stale=True,
             warnings=tuple(dict.fromkeys(("Saved source binding changed; all derived values were re-evaluated from the current snapshot.", *analysis.warnings))),
         )
-    services = _service_evidence(snapshot, analysis)
-    services["capability_matrix"] = _capability_matrix_evidence(governed_holdings, target_capabilities)
     reference_resolution: AnalysisResolution | None = None
     selected_vwce_anchor_digest = None if vwce_anchor is None else vwce_anchor.digest()
+    benchmark_reference: dict[str, object]
     if reference_registry is not None:
-        services["benchmark_reference"], reference_resolution = _resolve_reference_evidence(
+        benchmark_reference, reference_resolution = _resolve_reference_evidence(
             reference_registry,
             analysis_id=candidate.candidate_id,
             instrument_id=candidate.candidate_id,
@@ -225,9 +227,16 @@ def analyse_portfolio_candidate(
             reference_portfolio_ids=reference_portfolio_ids,
             selected_vwce_anchor_digest=selected_vwce_anchor_digest,
         )
+    else:
+        benchmark_reference = unavailable_reference_projection(blocker="reference_registry_unavailable")
+    reference_context = _reference_context_from_resolution(reference_registry, reference_resolution, benchmark_reference)
+    binding = replace(binding, price_source_checksum=_service_input_checksum(snapshot, binding, reference_context))
+    analysis = replace(analysis, snapshot_binding=binding)
+    services = _service_evidence(snapshot, analysis, reference_context=reference_context)
+    services["capability_matrix"] = _capability_matrix_evidence(governed_holdings, target_capabilities)
+    services["benchmark_reference"] = benchmark_reference
     if vwce_anchor is not None:
         anchor_digest = vwce_anchor.digest()
-        benchmark_reference = services["benchmark_reference"]
         registry_anchor_matches = sum(
             item.digest() == anchor_digest and item.status == "available"
             for item in reference_registry.vwce_anchors
@@ -901,7 +910,12 @@ def _default_notional(snapshot: object) -> float:
     return 100_000.0
 
 
-def _service_evidence(snapshot: object, analysis: PortfolioAnalysis) -> dict[str, object]:
+def _service_evidence(
+    snapshot: object,
+    analysis: PortfolioAnalysis,
+    *,
+    reference_context: CanonicalReferenceContext | None = None,
+) -> dict[str, object]:
     """Compose canonical portfolio services for one snapshot-bound what-if.
 
     This function is deliberately an orchestration boundary.  It does not
@@ -910,11 +924,13 @@ def _service_evidence(snapshot: object, analysis: PortfolioAnalysis) -> dict[str
     unavailable state is retained when an input is missing.
     """
 
-    prices = getattr(snapshot, "prices", pd.DataFrame())
+    prices = _bound_service_prices(snapshot, analysis, reference_context)
     allocation = _service_allocation(snapshot, analysis)
-    target = allocation.loc[allocation["target_weight"] > 0].copy() if not allocation.empty else allocation
+    target = _target_allocation(allocation)
     current_weights = {row.instrument_id: row.current_weight for row in analysis.allocations}
     target_weights = {row.instrument_id: row.target_weight for row in analysis.allocations}
+    priced_ids = set(prices["etf_id"].astype(str)) if isinstance(prices, pd.DataFrame) and "etf_id" in prices.columns else set()
+    missing_target_ids = tuple(sorted(identifier for identifier, weight in target_weights.items() if weight > 0 and identifier not in priced_ids))
     limits = getattr(getattr(snapshot, "config"), "risks").portfolio_limits
     constraints = OptimiserConstraints(
         cash_weight=analysis.candidate.cash_weight,
@@ -945,21 +961,25 @@ def _service_evidence(snapshot: object, analysis: PortfolioAnalysis) -> dict[str
     factor_report: dict[str, object] | None = None
     try:
         factor_report = build_factor_risk_report(
-            prices if isinstance(prices, pd.DataFrame) else pd.DataFrame(),
-            allocation,
-            getattr(snapshot, "latest_features", None),
+            prices,
+            target,
+            _bound_service_features(snapshot, reference_context),
             _bound_holdings(snapshot, analysis),
         )
-        evidence["factor_risk"] = _report_projection(factor_report, coverage_keys=("coverage",))
+        evidence["factor_risk"] = _add_missing_price_evidence(
+            _report_projection(factor_report, coverage_keys=("coverage",)), missing_target_ids
+        )
     except (ArithmeticError, KeyError, TypeError, ValueError):
         evidence["factor_risk"] = _unavailable_service("factor risk service evidence unavailable")
 
     try:
-        optimiser, returns = build_portfolio_optimiser(prices if isinstance(prices, pd.DataFrame) else pd.DataFrame())
+        if missing_target_ids:
+            raise ValueError(f"target instruments missing adjusted prices: {', '.join(missing_target_ids)}")
+        optimiser, returns = build_portfolio_optimiser(prices)
         comparison = optimiser.compare(
             tuple(OPTIMISER_METHODS),
             constraints=constraints,
-            current_weights=target_weights,
+            current_weights=current_weights,
         )
         comparison_rows = _comparison_rows(comparison, analysis, constraints)
         equal_weight = next(
@@ -991,7 +1011,7 @@ def _service_evidence(snapshot: object, analysis: PortfolioAnalysis) -> dict[str
             solution = optimiser.solve(
                 "minimum_variance",
                 constraints=constraints,
-                current_weights=target_weights,
+                current_weights=current_weights,
             )
             evidence["optimiser"] = _solution_projection(solution)
         except (ArithmeticError, KeyError, TypeError, ValueError, AttributeError):
@@ -1000,8 +1020,10 @@ def _service_evidence(snapshot: object, analysis: PortfolioAnalysis) -> dict[str
         # Older test doubles may only implement solve; retain compatibility
         # while production uses the complete comparison contract above.
         try:
-            optimiser, returns = build_portfolio_optimiser(prices if isinstance(prices, pd.DataFrame) else pd.DataFrame())
-            solution = optimiser.solve("minimum_variance", constraints=constraints, current_weights=target_weights)
+            if missing_target_ids:
+                raise ValueError(f"target instruments missing adjusted prices: {', '.join(missing_target_ids)}")
+            optimiser, returns = build_portfolio_optimiser(prices)
+            solution = optimiser.solve("minimum_variance", constraints=constraints, current_weights=current_weights)
             evidence["optimiser"] = _solution_projection(solution)
             evidence["optimiser_comparison"] = {
                 "status": "partial",
@@ -1019,53 +1041,70 @@ def _service_evidence(snapshot: object, analysis: PortfolioAnalysis) -> dict[str
                 "execution_allowed": False,
             }
         except (ArithmeticError, KeyError, TypeError, ValueError, AttributeError):
-            evidence["optimiser"] = _unavailable_service("portfolio optimiser service evidence unavailable")
+            evidence["optimiser"] = _unavailable_service(
+                f"target instruments missing adjusted prices: {', '.join(missing_target_ids)}"
+                if missing_target_ids
+                else "portfolio optimiser service evidence unavailable"
+            )
     except (ArithmeticError, KeyError, TypeError, ValueError):
-        evidence["optimiser"] = _unavailable_service("portfolio optimiser service evidence unavailable")
+        evidence["optimiser"] = _unavailable_service(
+            f"target instruments missing adjusted prices: {', '.join(missing_target_ids)}"
+            if missing_target_ids
+            else "portfolio optimiser service evidence unavailable"
+        )
 
     try:
         risk = build_robust_risk_report(
-            prices if isinstance(prices, pd.DataFrame) else pd.DataFrame(),
+            prices,
             target,
             factor_report=factor_report,
             bootstrap_reps=0,
         )
-        evidence["risk"] = _report_projection(risk, coverage_keys=("diagnostics", "coverage"))
+        evidence["risk"] = _add_missing_price_evidence(
+            _report_projection(risk, coverage_keys=("diagnostics", "coverage")), missing_target_ids
+        )
     except (ArithmeticError, KeyError, TypeError, ValueError):
         evidence["risk"] = _unavailable_service("robust risk service evidence unavailable")
 
-    try:
-        rebalance = build_rebalance_report(
-            getattr(snapshot, "config"),
-            _bound_holdings(snapshot, analysis),
-            target_weights,
-            target_cash_weight=analysis.candidate.cash_weight,
-            portfolio_value_eur=analysis.candidate.analysis_notional_eur,
-            constraints=RebalanceConstraints(
-                cash_buffer_weight=float(getattr(limits, "cash_min_weight", 0.0)),
-                min_trade_eur=float(getattr(limits, "min_trade_value_eur", 0.0)),
-            ),
-            tax_lots=_optional_frame(snapshot, "tax_lots"),
+    inapplicable = rebalance_inapplicable_instruments(
+        snapshot, _bound_holdings(snapshot, analysis), set(target_weights)
+    )
+    if inapplicable:
+        evidence["rebalancing"] = _unavailable_service(
+            f"ETF-only rebalance is inapplicable: {', '.join(inapplicable)}"
         )
-        evidence["rebalancing"] = {
-            "status": "available" if rebalance.feasible else "partial",
-            "model_version": rebalance.model_version,
-            "feasible": rebalance.feasible,
-            "trade_count": len(rebalance.trades),
-            "turnover_limit": float(getattr(limits, "max_monthly_turnover", 1.0)),
-            "tax_status": rebalance.tax_status,
-            "tax_jurisdiction": rebalance.tax_jurisdiction,
-            "warnings": list(rebalance.warnings),
-            "assumptions": dict(rebalance.assumptions),
-            "execution_allowed": False,
-        }
-    except (ArithmeticError, KeyError, TypeError, ValueError):
-        evidence["rebalancing"] = _unavailable_service("rebalance service evidence unavailable")
+    else:
+        try:
+            rebalance = build_rebalance_report(
+                getattr(snapshot, "config"),
+                _bound_holdings(snapshot, analysis),
+                target_weights,
+                target_cash_weight=analysis.candidate.cash_weight,
+                portfolio_value_eur=analysis.candidate.analysis_notional_eur,
+                constraints=RebalanceConstraints(
+                    cash_buffer_weight=float(getattr(limits, "cash_min_weight", 0.0)),
+                    min_trade_eur=float(getattr(limits, "min_trade_value_eur", 0.0)),
+                ),
+                tax_lots=_optional_frame(snapshot, "tax_lots"),
+            )
+            evidence["rebalancing"] = {
+                "status": "available" if rebalance.feasible else "partial",
+                "model_version": rebalance.model_version,
+                "feasible": rebalance.feasible,
+                "trade_count": len(rebalance.trades),
+                "turnover_limit": float(getattr(limits, "max_monthly_turnover", 1.0)),
+                "tax_status": rebalance.tax_status,
+                "tax_jurisdiction": rebalance.tax_jurisdiction,
+                "warnings": list(rebalance.warnings),
+                "assumptions": dict(rebalance.assumptions),
+                "execution_allowed": False,
+            }
+        except (ArithmeticError, KeyError, TypeError, ValueError):
+            evidence["rebalancing"] = _unavailable_service("rebalance service evidence unavailable")
 
-    reference_context = _reference_context(snapshot, analysis.candidate.candidate_id)
     try:
         attribution = build_performance_attribution(
-            prices if isinstance(prices, pd.DataFrame) else pd.DataFrame(),
+            prices,
             target,
             factor_returns=_frame_value(factor_report, "factor_returns"),
             factor_exposures=_frame_value(factor_report, "exposure_matrix"),
@@ -1074,11 +1113,13 @@ def _service_evidence(snapshot: object, analysis: PortfolioAnalysis) -> dict[str
             decisions=_optional_frame(snapshot, "decisions"),
             reference_context=reference_context,
         )
-        evidence["attribution"] = _report_projection(attribution, coverage_keys=("coverage",))
+        evidence["attribution"] = _add_missing_price_evidence(
+            _report_projection(attribution, coverage_keys=("coverage",)), missing_target_ids
+        )
     except (ArithmeticError, KeyError, TypeError, ValueError):
         evidence["attribution"] = _unavailable_service("portfolio attribution service evidence unavailable")
 
-    evidence["scenarios"] = _scenario_evidence(snapshot, allocation, factor_report, analysis)
+    evidence["scenarios"] = _scenario_evidence(snapshot, target, factor_report, analysis)
     evidence["execution_allowed"] = False
     return evidence
 
@@ -1112,6 +1153,88 @@ def _service_allocation(snapshot: object, analysis: PortfolioAnalysis) -> pd.Dat
             }
         )
     return pd.DataFrame(rows)
+
+
+def _target_allocation(allocation: pd.DataFrame) -> pd.DataFrame:
+    """Adapt the target to producers whose legacy weight column is current_weight."""
+
+    if allocation.empty:
+        return allocation.copy()
+    result = allocation.copy(deep=True)
+    if "weight" in result.columns:
+        result = result.drop(columns=["weight"])
+    result["current_weight"] = result["target_weight"]
+    return result
+
+
+def _bound_service_prices(
+    snapshot: object,
+    analysis: PortfolioAnalysis,
+    reference_context: CanonicalReferenceContext | None,
+) -> pd.DataFrame:
+    prices = getattr(snapshot, "prices", pd.DataFrame())
+    if not isinstance(prices, pd.DataFrame) or prices.empty:
+        return pd.DataFrame()
+    result = prices.copy(deep=True)
+    declaration = None if reference_context is None else reference_context.resolution
+    if declaration is not None:
+        window = declaration.declaration
+        result = clip_to_decision_window(
+            result,
+            start_date=window.start_date,
+            end_date=window.end_date,
+            decision_time=window.decision_time,
+        )
+    elif analysis.snapshot_binding is not None and analysis.snapshot_binding.as_of:
+        cutoff = pd.to_datetime(analysis.snapshot_binding.as_of, errors="coerce", utc=True)
+        if pd.notna(cutoff) and "date" in result.columns:
+            dates = pd.to_datetime(result["date"], errors="coerce", utc=True)
+            result = result.loc[dates <= cutoff].copy()
+    universe = set(_service_allocation(snapshot, analysis).get("etf_id", pd.Series(dtype=str)).astype(str))
+    if "etf_id" in result.columns:
+        result = result.loc[result["etf_id"].astype(str).isin(universe)].copy()
+    return result
+
+
+def _bound_service_features(
+    snapshot: object,
+    reference_context: CanonicalReferenceContext | None,
+) -> pd.DataFrame | None:
+    features = getattr(snapshot, "latest_features", None)
+    if not isinstance(features, pd.DataFrame):
+        return None
+    result = features.copy(deep=True)
+    resolution = None if reference_context is None else reference_context.resolution
+    date_column = "date" if "date" in result.columns else "as_of_date" if "as_of_date" in result.columns else None
+    if resolution is not None and date_column is not None:
+        window = resolution.declaration
+        if date_column != "date":
+            result = result.rename(columns={date_column: "date"})
+        result = clip_to_decision_window(
+            result,
+            start_date=window.start_date,
+            end_date=window.end_date,
+            decision_time=window.decision_time,
+        )
+        if date_column != "date":
+            result = result.rename(columns={"date": date_column})
+    return result
+
+
+def _add_missing_price_evidence(projection: dict[str, object], missing: tuple[str, ...]) -> dict[str, object]:
+    if not missing:
+        return projection
+    result = dict(projection)
+    warnings = [str(item) for item in result.get("warnings", ())]
+    warnings.append("positive_target_missing_adjusted_price:" + ",".join(missing))
+    result["warnings"] = list(dict.fromkeys(warnings))
+    result["status"] = "partial" if result.get("status") == "available" else result.get("status", "unavailable")
+    coverage = result.get("coverage")
+    if isinstance(coverage, Mapping):
+        coverage = dict(coverage)
+        coverage["missing_target_instruments"] = list(missing)
+        result["coverage"] = coverage
+    return result
 
 
 def _bound_holdings(snapshot: object, analysis: PortfolioAnalysis) -> pd.DataFrame:
@@ -1159,7 +1282,15 @@ def _projection_value(value: object) -> object:
     """Detach dataframe/numpy values so repeated analysis remains comparable."""
 
     if isinstance(value, pd.DataFrame):
-        return [_projection_value(row) for row in value.to_dict("records")]
+        return {
+            "columns": [str(column) for column in value.columns],
+            "index_name": None if value.index.name is None else str(value.index.name),
+            "index": [_projection_value(item) for item in value.index.tolist()],
+            "data": [
+                [_projection_value(item) for item in row]
+                for row in value.itertuples(index=False, name=None)
+            ],
+        }
     if isinstance(value, pd.Series):
         return {str(key): _projection_value(item) for key, item in value.items()}
     if isinstance(value, Mapping):
@@ -1257,16 +1388,49 @@ def _optimiser_constraint_projection(constraints: OptimiserConstraints) -> dict[
     }
 
 
-def _reference_context(snapshot: object, analysis_id: str) -> object | None:
-    try:
-        return context_from_snapshot(
-            snapshot,
-            purpose="comparison",
-            analysis_id=analysis_id,
-            instrument_id="VWCE",
-        )
-    except (ArithmeticError, KeyError, TypeError, ValueError, RecursionError):
+def _reference_context_from_resolution(
+    registry: CanonicalBenchmarkRegistry | None,
+    resolution: AnalysisResolution | None,
+    projection: Mapping[str, object],
+) -> CanonicalReferenceContext | None:
+    if not isinstance(registry, CanonicalBenchmarkRegistry):
         return None
+    if resolution is not None:
+        return CanonicalReferenceContext(registry, resolution)
+    return CanonicalReferenceContext(registry, None, legacy_projection=projection)
+
+
+def _service_input_checksum(
+    snapshot: object,
+    binding: PortfolioSnapshotBinding,
+    reference_context: CanonicalReferenceContext | None,
+) -> str:
+    optional_frames = {
+        name: _frame_checksum(getattr(snapshot, name, None))
+        for name in ("features", "latest_features", "tax_lots", "costs", "cashflows", "decisions")
+    }
+    scenario_payload = {
+        name: _jsonable(getattr(snapshot, name, None))
+        for name in ("portfolio_scenarios", "stress_scenarios", "scenarios", "scenario")
+        if getattr(snapshot, name, None) is not None
+    }
+    payload = {
+        "base_price_checksum": _prices_checksum(getattr(snapshot, "prices", pd.DataFrame())),
+        "price_source_revision": binding.price_source_revision,
+        "optional_frames": optional_frames,
+        "scenarios": scenario_payload,
+        "reference_identity": None if reference_context is None else reference_context.identity,
+        "holdings_view": binding.holdings_view,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str, allow_nan=False).encode("utf-8")).hexdigest()
+
+
+def _frame_checksum(value: object) -> str | None:
+    if not isinstance(value, pd.DataFrame):
+        return None
+    return hashlib.sha256(
+        value.to_json(orient="split", date_format="iso", date_unit="ns", double_precision=15, default_handler=str).encode("utf-8")
+    ).hexdigest()
 
 
 def _scenario_evidence(

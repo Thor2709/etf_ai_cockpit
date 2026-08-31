@@ -296,6 +296,7 @@ def test_portfolio_sandbox_empty_holdings_state_is_explicit() -> None:
     root = portfolio.portfolio_page(None, state)
     assert "No current holdings are available" in str(_by_key(root, "portfolio.status").value)
     assert "zero current exposure" in _text(_by_key(root, "portfolio.results"))
+    assert "factor_coverage=unavailable" in portfolio._portfolio_service_coverage(SimpleNamespace(service_evidence={}))
 
 
 def test_portfolio_reset_uses_current_weights() -> None:

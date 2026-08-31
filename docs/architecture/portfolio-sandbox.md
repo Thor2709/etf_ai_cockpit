@@ -47,10 +47,17 @@ capability bypass.
 Each result contains current/target weights, signed marginal weight effect,
 applicable constraint outcomes, explicit no-trade/inapplicable/blocked
 `why_not` reasons, before/after rows, direct/look-through holdings and source
-binding. Target weights are passed to the existing
-`PortfolioOptimiser.solve()`, `build_robust_risk_report()` and
-`estimate_rebalance_cost()` services. No optimiser, covariance, risk or cost
-calculation is duplicated in the UI.
+binding. The application attaches the selected holdings/reference binding
+before service composition. Target-based risk, factor, attribution and stress
+producers receive an adapter containing the candidate target weights; actual
+current weights remain separate for baselines and optimiser turnover limits.
+The existing optimiser comparison, factor-risk, robust-risk, rebalance,
+attribution and scenario producers retain their calculation authority. Prices
+and dated features use the resolved reference window and decision cutoff,
+and producers share the governed candidate universe. Missing positive-target
+prices, optional scenario inputs and unsupported mixed-asset rebalance cases
+remain explicit limitations, not invented zero exposure or available trades.
+No optimiser, covariance, risk or cost calculation is duplicated in the UI.
 
 The result is stored separately as `portfolio_sandbox_result` so the saved
 `portfolio_sandbox.v1` candidate remains intent-only and backward compatible.
@@ -67,6 +74,14 @@ readable when an unconfigured instrument later leaves current holdings; its
 derived result becomes stale and is recomputed under current capability rules.
 Candidate and result records are read in one SQLite read snapshot, preventing
 a mixed-revision pair.
+
+Service evidence identity additionally binds the consumed feature, tax-lot,
+cost, cashflow, decision and scenario inputs, reference identity and holdings
+view. Changed inputs invalidate derived evidence rather than being confused
+with tampering of an unchanged saved result. DataFrame projections retain
+columns, row indexes and values so dates and covariance/exposure axes survive
+the existing result/export serialization boundary. No general persistence or
+publication mechanism is introduced.
 
 ## Proposal and execution boundary
 
