@@ -1,0 +1,35 @@
+schema_version: codex-worktree-lane.v1
+train_id: T000
+lane_id: T000-ISSUE-0000
+issue_ids:
+  - ISSUE-0000
+base_sha: 0000000000000000000000000000000000000000
+branch: codex/T000/ISSUE-0000
+mode: writer  # writer | read_only | integration
+dependencies: []
+expected_tier: O
+owned_paths: []
+owned_symbols: []
+forbidden_paths:
+  - issues/
+  - docs/product-completion/
+  - plans/ACTIVE_CODEX_GOAL.md
+  - .github/
+shared_read_only_paths: []
+runtime:
+  namespace: T000_ISSUE_0000
+  temp_root: .lane/T000-ISSUE-0000/tmp
+  user_data_root: .lane/T000-ISSUE-0000/user-data
+  pytest_base_temp: .lane/T000-ISSUE-0000/pytest
+  artifact_root: .lane/T000-ISSUE-0000/artifacts
+  log_root: .lane/T000-ISSUE-0000/logs
+  port_range: [18000, 18049]
+verification:
+  focused_nodes: []
+  required_contracts:
+    - execution_allowed_false
+handoff:
+  source_commit_sha: null
+  integrated_commit_sha: null
+  evidence_manifest: null
+  status: pending
