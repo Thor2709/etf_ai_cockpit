@@ -1,0 +1,56 @@
+name: Fix Codex documentation whitespace once
+
+on:
+  push:
+    branches:
+      - docs/codex-throughput-sparebank-20260831
+    paths:
+      - .github/workflows/fix-codex-doc-whitespace-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: docs/codex-throughput-sparebank-20260831
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Remove trailing whitespace and self-delete
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          paths = (
+              Path("docs/development/CODEX_AGENT_PROMPT_GITHUB_OPTIMISATION.md"),
+              Path("docs/development/CODEX_PARALLEL_WORKTREE_PLAYBOOK.md"),
+              Path("docs/integrations/SPAREBANK_EXTERNAL_MODEL_BRIDGE.md"),
+          )
+          for path in paths:
+              lines = path.read_text(encoding="utf-8").splitlines()
+              path.write_text(
+                  "\n".join(line.rstrip() for line in lines) + "\n",
+                  encoding="utf-8",
+                  newline="\n",
+              )
+          PY
+          git rm .github/workflows/fix-codex-doc-whitespace-once.yml
+          git diff --check
+
+      - name: Commit exact fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/development/CODEX_AGENT_PROMPT_GITHUB_OPTIMISATION.md
+          git add docs/development/CODEX_PARALLEL_WORKTREE_PLAYBOOK.md
+          git add docs/integrations/SPAREBANK_EXTERNAL_MODEL_BRIDGE.md
+          git commit -m "Fix documentation whitespace"
+          git push origin HEAD:docs/codex-throughput-sparebank-20260831
