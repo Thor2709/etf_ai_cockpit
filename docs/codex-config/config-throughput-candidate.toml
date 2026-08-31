@@ -1,6 +1,7 @@
 # Candidate configuration for evaluation under GitHub issue #712.
 # Do not install as a blind replacement. Compare against the frozen task
 # evaluation set and preserve machine-specific plugin/path/notification fields.
+# The agent-thread value below is a hard ceiling, not a target allocation.
 
 model = "gpt-5.6-sol"
 model_reasoning_effort = "medium"
