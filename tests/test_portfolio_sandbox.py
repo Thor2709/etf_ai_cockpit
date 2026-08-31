@@ -1793,3 +1793,83 @@ def test_what_if_targets_are_composed_through_existing_services(monkeypatch) -> 
     assert calls["optimiser"][1]["VWCE"] == pytest.approx(0.6)
     assert analysis.service_evidence["optimiser"]["model_version"] == "test-optimiser"
     assert analysis.service_evidence["risk"]["model_version"] == "test-risk"
+
+
+def test_sandbox_composes_target_through_factor_risk_comparison_scenario_and_attribution(monkeypatch) -> None:
+    snapshot = _snapshot()
+    snapshot.prices = pd.DataFrame(
+        [
+            {"date": "2026-07-01", "etf_id": instrument_id, "adjusted_close": price}
+            for instrument_id, price in (("VWCE", 100.0), ("LYP6", 80.0))
+        ]
+    )
+    from etf_cockpit.portfolio.stress_testing import StressScenario
+
+    snapshot.portfolio_scenarios = (StressScenario("equity-down", "Equity down", {"equity": -0.1}),)
+    calls: dict[str, object] = {}
+
+    def fake_factor(prices, allocation, latest_features=None, holdings=None, **kwargs):
+        calls["factor"] = allocation.copy()
+        return {
+            "status": "partial",
+            "coverage": {"status": "partial", "instrument_count": 2},
+            "factor_exposures": pd.DataFrame([{"instrument_id": "VWCE", "factor": "market", "exposure": 1.0}]),
+            "exposure_matrix": pd.DataFrame(),
+            "factor_returns": pd.DataFrame(),
+            "warnings": ["fixture_warning"],
+            "execution_allowed": False,
+        }
+
+    class Optimiser:
+        def compare(self, methods, *, constraints, current_weights):
+            calls["comparison"] = (tuple(methods), dict(current_weights), constraints)
+            return pd.DataFrame([{"method": "equal_weight", "status": "success", "feasible": True, "weight_sum": 0.9}])
+
+    def fake_optimiser(prices):
+        return Optimiser(), pd.DataFrame({"VWCE": [0.01], "LYP6": [0.02]})
+
+    def fake_risk(prices, allocation, *, factor_report=None, **kwargs):
+        calls["risk"] = (allocation.copy(), factor_report)
+        return {"status": "partial", "selected_estimator": "factor_model", "warnings": [], "execution_allowed": False}
+
+    def fake_rebalance(config, holdings, targets, **kwargs):
+        calls["rebalancing"] = (holdings.copy(), dict(targets))
+        return SimpleNamespace(
+            feasible=True,
+            model_version="rebalance-fixture",
+            trades=(),
+            warnings=(),
+            tax_status="unavailable",
+            tax_jurisdiction="not_provided",
+            assumptions={},
+        )
+
+    def fake_attribution(prices, allocation, **kwargs):
+        calls["attribution"] = (allocation.copy(), kwargs)
+        return {"status": "available", "coverage": {"status": "available"}, "execution_allowed": False}
+
+    def fake_stress(scenario, allocation, **kwargs):
+        calls["scenario"] = (scenario, allocation.copy(), kwargs)
+        return SimpleNamespace(to_payload=lambda: {"scenario": scenario.to_payload(), "status": "available", "coverage": {}})
+
+    monkeypatch.setattr(sandbox_store, "build_factor_risk_report", fake_factor)
+    monkeypatch.setattr(sandbox_store, "build_portfolio_optimiser", fake_optimiser)
+    monkeypatch.setattr(sandbox_store, "build_robust_risk_report", fake_risk)
+    monkeypatch.setattr(sandbox_store, "build_rebalance_report", fake_rebalance)
+    monkeypatch.setattr(sandbox_store, "build_performance_attribution", fake_attribution)
+    monkeypatch.setattr(sandbox_store, "run_stress_scenario", fake_stress)
+
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+
+    assert calls["factor"].loc[calls["factor"]["etf_id"].eq("VWCE"), "target_weight"].iloc[0] == pytest.approx(0.6)
+    assert calls["risk"][0].set_index("etf_id").loc["VWCE", "target_weight"] == pytest.approx(0.6)
+    assert calls["risk"][1]["status"] == "partial"
+    assert calls["comparison"][1]["VWCE"] == pytest.approx(0.6)
+    assert calls["attribution"][0].set_index("etf_id").loc["VWCE", "target_weight"] == pytest.approx(0.6)
+    assert calls["scenario"][1].set_index("instrument_id").loc["VWCE", "weight"] == pytest.approx(0.6)
+    assert analysis.service_evidence["optimiser_comparison"]["methods"][0]["method"] == "equal_weight"
+    assert analysis.service_evidence["optimiser_comparison"]["baseline"]["equal_weight"]["method"] == "equal_weight"
+    assert analysis.service_evidence["optimiser_comparison"]["baseline"]["current"]["weights"]["VWCE"] == pytest.approx(0.4)
+    assert analysis.service_evidence["scenarios"]["status"] == "available"
+    assert analysis.service_evidence["attribution"]["status"] == "available"
+    assert analysis.service_evidence["execution_allowed"] is False
