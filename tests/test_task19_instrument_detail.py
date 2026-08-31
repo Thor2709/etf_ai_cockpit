@@ -127,6 +127,40 @@ def test_factor_risk_rejects_non_target_holdings_before_canonical_producer(monke
     assert panel["non_target_held_ids"] == ["EXTRA"]
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("etf_id", " VWCE "),
+        ("current_weight", float("nan")),
+        ("current_weight", float("inf")),
+        ("current_weight", -0.1),
+        ("current_weight", True),
+        ("market_value_eur", float("nan")),
+        ("market_value_eur", -1.0),
+    ],
+)
+def test_factor_risk_rejects_invalid_source_before_lossy_allocation(field, value, monkeypatch) -> None:
+    from etf_cockpit.app.selectors import instrument_detail
+
+    row = {"etf_id": "VWCE", "current_weight": 1.0, "market_value_eur": 100.0}
+    row[field] = value
+    snapshot = SimpleNamespace(
+        config=SimpleNamespace(),
+        prices=pd.DataFrame([{"date": "2026-07-13", "etf_id": "VWCE", "adjusted_close": 100.0}]),
+        latest_features=pd.DataFrame([{"etf_id": "VWCE", "momentum_120d": 0.1}]),
+        holdings=pd.DataFrame([row]),
+    )
+    monkeypatch.setattr(instrument_detail, "allocation_frame", lambda *_args: (_ for _ in ()).throw(AssertionError("invalid source reached lossy allocation")))
+    monkeypatch.setattr(instrument_detail, "build_factor_risk_report", lambda *_args: (_ for _ in ()).throw(AssertionError("invalid source reached factor producer")))
+
+    panel = instrument_detail._factor_risk_panel(snapshot, "VWCE")
+
+    assert panel["status"] == "unavailable"
+    assert panel["allocation_status"] == "invalid"
+    assert panel["instrument_contributions"] == []
+    assert panel["execution_allowed"] is False
+
+
 def test_instrument_detail_uses_canonical_id_for_stock_and_sparebanken_rows() -> None:
     snapshot = build_snapshot()
     stock = ETFConfig(

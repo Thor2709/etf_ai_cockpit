@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+from numbers import Real
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -1715,6 +1716,22 @@ def _factor_risk_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[st
             **unavailable_details
         }
     try:
+        required_columns = ("etf_id", "current_weight", "market_value_eur")
+        if any(list(holdings.columns).count(column) != 1 for column in required_columns):
+            return _unavailable("Factor-risk evidence unavailable; snapshot holdings lack unambiguous canonical allocation fields.") | {
+                **unavailable_details, "allocation_status": "invalid"
+            }
+        raw_ids = holdings["etf_id"].tolist()
+        if any(not isinstance(value, str) or not value or value != value.strip() for value in raw_ids) or any(
+            isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value) or value < 0
+            for column in ("current_weight", "market_value_eur")
+            for value in holdings[column].tolist()
+        ):
+            return _unavailable("Factor-risk evidence unavailable; exact source IDs and finite nonnegative holdings values are required.") | {
+                **unavailable_details, "allocation_status": "invalid"
+            }
+        # Validate source fields before the canonical allocation merge can
+        # replace missing values with its normal target-only zero defaults.
         allocation = allocation_frame(snapshot.config, holdings)
         enabled_ids = {
             str(item.id)
@@ -1722,12 +1739,7 @@ def _factor_risk_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[st
             if bool(getattr(item, "enabled", True))
         }
         target_ids = {str(value) for value in getattr(snapshot.config.targets, "positions", {}).keys()}
-        if "etf_id" not in holdings.columns:
-            return _unavailable("Factor-risk evidence unavailable; snapshot holdings have no canonical instrument IDs.") | {
-                **unavailable_details,
-                "allocation_status": "incomplete",
-            }
-        held_ids = {str(value).strip() for value in holdings["etf_id"].dropna().tolist() if str(value).strip()}
+        held_ids = set(raw_ids)
         allocation_ids = set(allocation["etf_id"].astype(str)) if "etf_id" in allocation.columns else set()
         if (
             not enabled_ids
