@@ -34,14 +34,21 @@ macro-to-order path.
 `application.macro_context.build_macro_context_binding` binds warehouse
 summary, observations, curves and adjusted-price context to the same explicit
 snapshot decision cutoff. A missing or invalid cutoff is unavailable; it does
-not select an arbitrary future date. The page renders source, observation
-vintage, country/currency, availability/timezone confidence and transformation
-identity alongside the contextual values.
+not select an arbitrary future date. Date-only price closes are effective at
+day end. Selected-row summaries use that decision cutoff rather than raw
+history counts. The page distinguishes observation, publication, availability,
+revision and ingestion timestamps, and renders country/currency, confidence,
+transformation/source identities and explicit limitations.
 
 Selected warehouse observations also pass through the existing
-`macro-scenario-context.v1` producer. Application-derived links are descriptive
-context, not a persisted scenario registry, portfolio shock result, validated
-causal relationship or forecast. Their source/evidence/link identities and
+`macro-scenario-context.v1` producer. Warehouse observations do not establish
+user-authored scenario links or financial driver semantics: derived links are
+explicitly unavailable under that existing contract. Missing authority,
+portfolio currency or a finite positive horizon is not replaced with guessed
+context. This is not a persisted scenario registry, portfolio shock result,
+validated causal relationship or forecast. Source/evidence/link identities and
 limitations remain visible; `context_only=true`, `score_eligible=false`,
 `forecast_authority=false` and `execution_allowed=false` remain unchanged.
 No warehouse, transformation, storage, provider or order authority is added.
+Existing warehouse initialization and availability-selection semantics remain
+unchanged; this view does not claim ingestion-bound historical replay.

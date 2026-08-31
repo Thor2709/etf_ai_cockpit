@@ -56,9 +56,16 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
     entries = [
         ft.Text(
             f"{row.dataset_id} | {row.series_id} | {row.period_start} | {row.value:g} {row.unit} | "
-            f"source={row.source_id} | vintage={row.observed_at} | available={row.available_at} | "
+            f"source={row.source_id} | authority={row.source_authority or 'unavailable'} | "
+            f"observed_at={row.observed_at} | published_at={row.published_at} | "
+            f"available_at={row.available_at} | revised_at={row.revised_at or 'unavailable'} | "
+            f"ingested_at={row.ingested_at} | revision={row.revision} | "
+            f"source_observation_ids={','.join(row.source_observation_ids) or 'unavailable'} | "
+            f"checksum={row.source_checksum} | "
             f"country={row.country or 'unavailable'} | currency={row.currency or 'unavailable'} | "
             f"uncertainty={row.availability_confidence}/{row.timezone_confidence} | "
+            f"freshness={row.freshness_status or 'unavailable'} | "
+            f"limitations={row.source_terms or 'unavailable'} | "
             f"transformation={row.transformation_version} | context={row.availability_status}",
             color=theme.TEXT,
             size=11,
@@ -89,7 +96,15 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
     inflation_entries = [
         ft.Text(
             f"{row['series_id']}: {row['value']} {row.get('unit') or ''} | "
-            f"source={row['source']} | available={row['available_at']} | freshness={row['freshness_status']}",
+            f"source={row['source']} | authority={row.get('source_authority') or 'unavailable'} | "
+            f"observed_at={row.get('observed_at') or 'unavailable'} | "
+            f"published_at={row.get('published_at') or 'unavailable'} | "
+            f"available_at={row.get('available_at') or 'unavailable'} | "
+            f"revised_at={row.get('revised_at') or 'unavailable'} | "
+            f"ingested_at={row.get('ingested_at') or 'unavailable'} | revision={row.get('revision', 'unavailable')} | "
+            f"source_observation_ids={','.join(row.get('source_observation_ids') or ()) or 'unavailable'} | "
+            f"checksum={row.get('source_checksum') or 'unavailable'} | freshness={row['freshness_status']} | "
+            f"reasons={','.join(row.get('reason_codes') or ()) or 'none'}",
             color=theme.TEXT,
             size=11,
             selectable=True,
@@ -103,7 +118,15 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
             f"{row.get('scenario', 'unavailable')} | driver={row.get('driver', 'unavailable')} | "
             f"link={row.get('link_id', 'unavailable')} | status={row.get('status', 'unavailable')} | "
             f"evidence={row.get('evidence_id') or 'unavailable'} | source={row.get('source_id') or 'unavailable'} | "
-            f"available={row.get('available_at') or 'unavailable'} | confidence={row.get('confidence', 'unavailable')}",
+            f"authority={row.get('authority') or 'unavailable'} | checksum={row.get('source_sha256') or 'unavailable'} | "
+            f"country={row.get('country') or 'unavailable'} | currency={row.get('currency') or 'unavailable'} | "
+            f"unit={row.get('unit') or 'unavailable'} | horizon_days={row.get('horizon_days', 'unavailable')} | "
+            f"observation_time={row.get('observation_time') or 'unavailable'} | "
+            f"effective_time={row.get('effective_time') or 'unavailable'} | "
+            f"available={row.get('available_at') or 'unavailable'} | revision={row.get('revision', 'unavailable')} | "
+            f"confidence={row.get('confidence', 'unavailable')} | "
+            f"reasons={','.join(row.get('reason_codes') or ()) or 'none'} | "
+            f"limitations={','.join(scenario_context.get('limitations') or ()) or 'none'}",
             color=theme.TEXT if row.get("status") == "available" else theme.MUTED,
             size=11,
             selectable=True,
@@ -197,6 +220,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
                         ),
                         ft.Text(
                             f"As of: {macro_context.get('as_of') or 'unavailable'} | "
+                            f"decision cutoff: {macro_context.get('decision_time', decision_time)} | "
                             f"freshness: {macro_context.get('freshness_status', 'unavailable')} | "
                             f"provenance: {macro_context.get('provenance', 'unavailable')}",
                             color=theme.MUTED,
@@ -237,8 +261,8 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
                         ft.Text(
                             f"Status: {scenario_context.get('status', 'unavailable')} | "
                             f"decision_time={scenario_context.get('decision_time', decision_time)} | "
-                            f"portfolio_currency={scenario_context.get('portfolio_currency', 'unavailable')} | "
-                            f"horizon_days={scenario_context.get('horizon_days', 'unavailable')} | "
+                            f"portfolio_currency={scenario_context.get('portfolio_currency') or 'unavailable'} | "
+                            f"horizon_days={scenario_context.get('horizon_days') or 'unavailable'} | "
                             f"context_only={scenario_context.get('context_only', False)} | "
                             f"score_eligible={scenario_context.get('score_eligible', False)} | "
                             f"execution_allowed={scenario_context.get('execution_allowed', False)}",

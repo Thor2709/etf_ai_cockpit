@@ -8,6 +8,7 @@ import pandas as pd
 
 from etf_cockpit.app.pages import macro_factors
 from etf_cockpit.app.router import PAGES
+from etf_cockpit.application import macro_context
 from etf_cockpit.core.config import load_config
 from etf_cockpit.data.macro_warehouse import MacroObservation
 
@@ -135,7 +136,14 @@ def test_macro_page_binds_every_producer_to_snapshot_cutoff_and_renders_lineage(
     expected = "2024-03-01T00:00:00+00:00"
     assert calls == [("summary", expected), ("observations", expected), ("curves", expected)]
     assert "source=fixture.csv" in text
-    assert "vintage=2024-01-01T00:00:00Z" in text
+    assert "observed_at=2024-01-01T00:00:00Z" in text
+    assert "published_at=2024-02-01T00:00:00Z" in text
+    assert "revised_at=unavailable" in text
+    assert "ingested_at=2024-02-02T00:00:00Z" in text
+    assert "revision=1" in text
+    assert "source_observation_ids=unavailable" in text
+    assert "authority=official_public_file" in text
+    assert "vintage=2024-01-01T00:00:00Z" not in text
     assert "country=US | currency=USD" in text
     assert "uncertainty=exact/exact" in text
     assert "transformation=identity.v1" in text
@@ -144,6 +152,73 @@ def test_macro_page_binds_every_producer_to_snapshot_cutoff_and_renders_lineage(
     assert "evidence=" in text
     assert "decision_time=2024-03-01T00:00:00Z" in text
     assert "9999" not in text
+
+
+def test_binding_rejects_guessed_currency_horizon_and_driver(monkeypatch) -> None:
+    observation = _observation()
+
+    class Warehouse:
+        def summary(self, **_kwargs):
+            return {"status": "available", "row_count": 99}
+
+        def observations_as_of(self, **_kwargs):
+            return [observation]
+
+        def curve_benchmark_coverage(self, **kwargs):
+            return {"status": "unavailable", "decision_time": kwargs["decision_time"]}
+
+    monkeypatch.setattr(macro_context, "build_macro_context", lambda *args, **kwargs: {})
+    binding = macro_context.build_macro_context_binding(
+        _snapshot(
+            benchmark_reference_currency=None,
+            benchmark_reference_horizon_years=float("nan"),
+        ),
+        warehouse=Warehouse(),
+        root=macro_context.Path("."),
+    )
+
+    assert binding.summary["row_count"] == 1
+    assert binding.summary["status"] == "available"
+    assert binding.scenario["status"] == "unavailable"
+    assert binding.scenario["portfolio_currency"] == "unavailable"
+    assert binding.scenario["horizon_days"] == "unavailable"
+
+
+def test_date_only_price_at_intraday_cutoff_is_not_used() -> None:
+    prices = pd.DataFrame(
+        {
+            "date": ["2024-02-29", "2024-03-01"],
+            "etf_id": ["VWCE", "VWCE"],
+            "adjusted_close": [100.0, 500.0],
+        }
+    )
+
+    selected = macro_context._prices_as_of(prices, "2024-03-01T12:00:00+00:00")
+
+    assert selected["date"].tolist() == ["2024-02-29"]
+
+
+def test_unknown_source_authority_is_not_reclassified_as_local_import(monkeypatch) -> None:
+    observation = _observation().model_copy(update={"source_authority": None})
+
+    class Warehouse:
+        def summary(self, **_kwargs):
+            return {"status": "available"}
+
+        def observations_as_of(self, **_kwargs):
+            return [observation]
+
+        def curve_benchmark_coverage(self, **kwargs):
+            return {"status": "unavailable", "decision_time": kwargs["decision_time"]}
+
+    monkeypatch.setattr(macro_context, "build_macro_context", lambda *args, **kwargs: {})
+    binding = macro_context.build_macro_context_binding(
+        _snapshot(), warehouse=Warehouse(), root=macro_context.Path(".")
+    )
+
+    assert binding.scenario["status"] == "unavailable"
+    assert "source_authority_invalid" in binding.scenario["limitations"]
+    assert "local_user_import" not in str(binding.scenario)
 
 
 def test_macro_page_fails_closed_with_explicit_unavailable_when_cutoff_missing(
