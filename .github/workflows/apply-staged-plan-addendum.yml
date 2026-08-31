@@ -1,0 +1,56 @@
+name: Apply staged plan addendum
+
+on:
+  push:
+    branches:
+      - docs/codex-throughput-sparebank-20260831
+    paths:
+      - .github/workflows/apply-staged-plan-addendum.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out exact branch head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: docs/codex-throughput-sparebank-20260831
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Insert addendum exactly once
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          plan_path = Path("plan.md")
+          addendum_path = Path("docs/development/PLAN_2026-08-31_ADDENDUM.md")
+          plan = plan_path.read_text(encoding="utf-8")
+          addendum = addendum_path.read_text(encoding="utf-8").strip()
+          marker = "## 2026-08-31 Codex throughput and Sparebank integration addendum"
+          needle = "This root plan is synchronised with `issues/open.md` and `issues/closed.md`.\n"
+          if marker not in plan:
+              if plan.count(needle) != 1:
+                  raise SystemExit("plan insertion anchor is missing or ambiguous")
+              plan = plan.replace(needle, needle + "\n\n" + addendum + "\n", 1)
+              plan_path.write_text(plan, encoding="utf-8", newline="\n")
+          PY
+          git diff --check -- plan.md
+
+      - name: Commit updated plan
+        shell: bash
+        run: |
+          if git diff --quiet -- plan.md; then
+            echo "plan.md already contains the staged addendum"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add plan.md
+          git commit -m "Update plan for Codex throughput and Sparebank integration"
+          git push origin HEAD:docs/codex-throughput-sparebank-20260831
