@@ -59,6 +59,16 @@ prices, optional scenario inputs and unsupported mixed-asset rebalance cases
 remain explicit limitations, not invented zero exposure or available trades.
 No optimiser, covariance, risk or cost calculation is duplicated in the UI.
 
+Usable adjusted returns, not the presence of a price row, determine input
+coverage. Positive current exits remain part of optimiser turnover coverage;
+an unpriced exit cannot disappear from the constraint. A cash-only target does
+not invoke an equal-weight invested fallback. Benchmark prices remain available
+to attribution separately from the investable universe, and scenario coverage
+retains unsupported positive candidate exposure as an explicit limitation.
+The reference window is intersected with the snapshot cutoff (date-only
+snapshots include that complete day); dated optional features, costs, cashflows
+and decisions are also bounded by their effective and knowledge times.
+
 The result is stored separately as `portfolio_sandbox_result` so the saved
 `portfolio_sandbox.v1` candidate remains intent-only and backward compatible.
 Candidate and result publication uses one local CAS transaction with
