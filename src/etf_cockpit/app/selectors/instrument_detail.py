@@ -44,12 +44,16 @@ from etf_cockpit.application.ui_facade import (
     load_simple_scoreboard,
     load_statement_evidence,
     load_paper_trade_rows,
+    load_paper_timeline,
     read_document_registry,
     read_etf_report_records,
     read_index_methodology_records,
     read_priips_kid_records,
     score_history_frame,
     sort_news_items,
+    allocation_frame,
+    build_factor_risk_report,
+    model_zoo_frame,
 )
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.core.paths import ETF_QUOTES_PATH
@@ -124,6 +128,8 @@ _SECTION_NAMES = (
     "forecasts",
     "backtests",
     "paper_trades",
+    "model_cards",
+    "factor_risk",
     "history",
     "journal",
     "thesis_diary",
@@ -1626,12 +1632,132 @@ def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: M
 
 def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
     source = frame if isinstance(frame, pd.DataFrame) else _load_parquet(PAPER_TRADES_PATH)
+    timeline: dict[str, object] | None = None
+    if not isinstance(frame, pd.DataFrame):
+        try:
+            timeline = load_paper_timeline(PAPER_TRADES_PATH.parents[1].parent, instrument_id)
+        except (OSError, TypeError, ValueError):
+            timeline = None
+        if timeline and timeline.get("status") == "available":
+            timeline_rows = timeline.get("rows")
+            if isinstance(timeline_rows, list):
+                return {
+                    "status": "available" if timeline_rows else "unavailable",
+                    "rows": timeline_rows,
+                    "timeline": timeline_rows,
+                    "message": timeline.get("message", "Recorded paper lifecycle history; this is not a historical account reconstruction."),
+                    "source_authority": "local_paper_ledger",
+                    "execution_allowed": False,
+                }
+        elif timeline and timeline.get("status") == "invalid":
+            return dict(timeline) | {"rows": [], "timeline": []}
     if not isinstance(frame, pd.DataFrame) and source.empty:
         source = pd.DataFrame(load_paper_trade_rows(PAPER_TRADES_PATH.parents[1].parent))
     rows = _instrument_rows(source, instrument_id)
     if rows.empty:
         return _unavailable("Paper-trade history unavailable; no local paper-trade records are registered.") | {"rows": []}
     return {"status": "available", "rows": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
+
+
+def _model_cards_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[str, Any]:
+    """Expose deterministic model capability cards, never forecast provenance."""
+
+    optional_status = getattr(snapshot, "model_status", None)
+    try:
+        frame = model_zoo_frame(
+            optional_status=optional_status if isinstance(optional_status, Mapping) else None,
+            horizons=(5, 20, 60, 120, 180),
+        )
+    except (TypeError, ValueError):
+        return _unavailable("Model catalogue unavailable; no deterministic local cards are registered.") | {"rows": [], "cards": [], "forecast_model_matches": []}
+    cards = frame.where(pd.notna(frame), None).to_dict("records")
+    forecasts = _instrument_rows(getattr(snapshot, "forecasts", None), instrument_id)
+    forecast_ids: list[str] = []
+    if not forecasts.empty:
+        for column in ("model_id", "model_name", "model"):
+            if column not in forecasts.columns:
+                continue
+            forecast_ids.extend(
+                str(value).strip()
+                for value in forecasts[column].tolist()
+                if not _is_missing_scalar(value) and str(value).strip()
+            )
+            if forecast_ids:
+                break
+    known = {str(item.get("model_id")) for item in cards}
+    matches = [
+        {"model_id": model_id, "matched": model_id in known, "forecast_rows": int(sum(1 for value in forecast_ids if value == model_id))}
+        for model_id in dict.fromkeys(forecast_ids)
+    ]
+    return {
+        "status": "available",
+        "instrument_id": instrument_id,
+        "rows": cards,
+        "cards": cards,
+        "catalogue_only": True,
+        "message": "Model cards describe deterministic catalogue capabilities; they do not prove a model produced this instrument's forecast.",
+        "forecast_model_matches": matches,
+        "unmatched_forecast_model_ids": [item["model_id"] for item in matches if not item["matched"]],
+        "execution_allowed": False,
+    }
+
+
+def _records_for_instrument(value: object, instrument_id: str) -> list[dict[str, object]]:
+    if not isinstance(value, pd.DataFrame) or value.empty or "instrument_id" not in value.columns:
+        return []
+    rows = value.loc[value["instrument_id"].astype(str).eq(str(instrument_id))]
+    return rows.where(pd.notna(rows), None).to_dict("records")
+
+
+def _factor_risk_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[str, Any]:
+    """Bind the canonical global factor report, then isolate one instrument."""
+
+    prices = getattr(snapshot, "prices", None)
+    features = getattr(snapshot, "latest_features", None)
+    if not isinstance(features, pd.DataFrame) or features.empty:
+        features = getattr(snapshot, "features", None)
+    holdings = getattr(snapshot, "holdings", None)
+    if not isinstance(prices, pd.DataFrame) or prices.empty or not isinstance(features, pd.DataFrame) or features.empty or not isinstance(holdings, pd.DataFrame):
+        return _unavailable("Factor-risk evidence unavailable; complete snapshot allocation, adjusted prices, features and holdings are required.") | {
+            "factor_exposures": [], "specific_risk": [], "instrument_contributions": [], "global_coverage": {}, "global_diagnostics": {}, "warnings": []
+        }
+    try:
+        allocation = allocation_frame(snapshot.config, holdings)
+        # The canonical snapshot cutoff is the only permissible observation
+        # bound; do not let presentation introduce future prices.
+        cutoff = getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
+        scoped_prices = prices
+        if cutoff is not None and "date" in prices.columns:
+            parsed = pd.to_datetime(prices["date"], errors="coerce")
+            scoped_prices = prices.loc[parsed <= pd.Timestamp(cutoff)].copy()
+        report = build_factor_risk_report(scoped_prices, allocation, features, holdings)
+    except (ArithmeticError, KeyError, OSError, TypeError, ValueError):
+        return _unavailable("Factor-risk evidence is invalid; manual review is required.") | {
+            "factor_exposures": [], "specific_risk": [], "instrument_contributions": [], "global_coverage": {}, "global_diagnostics": {}, "warnings": []
+        }
+    if not isinstance(report, Mapping):
+        return _unavailable("Factor-risk evidence is invalid; manual review is required.") | {
+            "factor_exposures": [], "specific_risk": [], "instrument_contributions": [], "global_coverage": {}, "global_diagnostics": {}, "warnings": []
+        }
+    diagnostics = report.get("diagnostics") if isinstance(report.get("diagnostics"), Mapping) else {}
+    coverage = report.get("coverage") if isinstance(report.get("coverage"), Mapping) else {}
+    return {
+        "status": report.get("status", "unavailable"),
+        "instrument_id": instrument_id,
+        "model_version": report.get("model_version", diagnostics.get("model_version", "unavailable")),
+        "factor_exposures": _records_for_instrument(report.get("factor_exposures"), instrument_id),
+        "specific_risk": _records_for_instrument(report.get("specific_risk"), instrument_id),
+        "instrument_contributions": _records_for_instrument(report.get("instrument_contributions"), instrument_id),
+        "global_coverage": coverage,
+        "global_diagnostics": diagnostics,
+        "coverage": coverage,
+        "diagnostics": diagnostics,
+        "coverage_scope": "global",
+        "diagnostics_scope": "global",
+        "warnings": list(report.get("warnings", ())) if isinstance(report.get("warnings", ()), (list, tuple)) else [],
+        "message": "Global factor-risk report calculated from the complete snapshot; instrument rows are filtered by exact ID. Historical point-in-time look-through selection is unavailable.",
+        "execution_allowed": False,
+    }
 
 
 def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:
@@ -1642,7 +1768,7 @@ def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> d
     rows = _instrument_rows(source, instrument_id)
     if rows.empty:
         return _unavailable("Score history unavailable; a second local score run is required.") | {"rows": []}
-    return {"status": "available", "rows": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
+    return {"status": "available", "rows": rows.where(pd.notna(rows), None).to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
 
 
 def _run_changes_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:
@@ -2020,6 +2146,8 @@ def build_instrument_detail(
             "forecasts": _forecast_panel(snapshot, instrument_id),
             "backtests": _backtest_panel(snapshot, instrument_id, scoreboard),
             "paper_trades": _paper_trade_panel(instrument_id, paper_trades),
+            "model_cards": _model_cards_panel(snapshot, instrument_id),
+            "factor_risk": _factor_risk_panel(snapshot, instrument_id),
             "history": _history_panel(instrument_id, score_history),
             "journal": _journal_panel(instrument_id, journal),
             "thesis_diary": _thesis_diary_panel(instrument_id, root=thesis_diary_root),

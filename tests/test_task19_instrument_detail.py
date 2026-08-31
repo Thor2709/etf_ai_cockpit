@@ -31,6 +31,8 @@ REQUIRED_SECTIONS = {
     "forecasts",
     "backtests",
     "paper_trades",
+    "model_cards",
+    "factor_risk",
     "journal",
     "run_changes",
 }
@@ -92,6 +94,10 @@ def test_instrument_detail_assembles_all_required_sections_and_derived_fields() 
     assert "blocked_gates" in model.sections["scores"]
     assert {"momentum", "trend", "relative_strength", "volatility", "drawdown", "liquidity", "cost"} <= set(model.sections["risk"])
     assert {"alpha", "beta", "correlation"} <= set(model.sections["attribution"])
+    assert model.sections["model_cards"]["catalogue_only"] is True
+    assert model.sections["model_cards"]["execution_allowed"] is False
+    assert all(row["execution_allowed"] is False for row in model.sections["model_cards"]["cards"])
+    assert model.sections["factor_risk"]["execution_allowed"] is False
 
 
 def test_instrument_detail_uses_canonical_id_for_stock_and_sparebanken_rows() -> None:
