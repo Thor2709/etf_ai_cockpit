@@ -705,6 +705,7 @@ class PaperLedger:
         assert isinstance(orders, dict)
         requested_key = requested.upper()
         rows: list[dict[str, object]] = []
+        event_orders: dict[str, dict[str, object]] = {}
 
         def text_id(value: object, field: str) -> str:
             result = str(value or "").strip()
@@ -783,6 +784,10 @@ class PaperLedger:
                 snapshot_instrument = text_id(proposal_snapshot.get("instrument_id"), "proposal_snapshot.instrument_id")
                 if snapshot_instrument.upper() != instrument.upper():
                     raise PaperLedgerIntegrityError("Paper timeline order has contradictory instrument associations.")
+                event_orders[order_id] = {
+                    "remaining_quantity": float(payload.get("quantity", 0.0)),
+                    "status": str(payload.get("status", "accepted")),
+                }
                 if instrument.upper() != requested_key:
                     continue
                 row.update(
@@ -811,6 +816,12 @@ class PaperLedger:
                 snapshot = order.get("proposal_snapshot")
                 if not isinstance(snapshot, Mapping):
                     raise PaperLedgerIntegrityError("Paper timeline order has no frozen proposal snapshot.")
+                event_order = event_orders.get(order_id)
+                if event_order is None:
+                    raise PaperLedgerIntegrityError("Paper timeline fill precedes its accepted order.")
+                remaining = float(event_order["remaining_quantity"]) - float(payload.get("quantity", 0.0))
+                event_status = "filled" if remaining <= 1e-8 else "partially_filled"
+                event_order.update({"remaining_quantity": remaining, "status": event_status})
                 row.update(
                     {
                         "instrument_id": instrument,
@@ -822,7 +833,9 @@ class PaperLedger:
                         "quantity": payload.get("quantity"),
                         "price": payload.get("price"),
                         "fee": payload.get("fee"),
-                        "status": order.get("status", "unknown"),
+                        "status": event_status,
+                        "event_time_status": event_status,
+                        "current_order_status": order.get("status", "unknown"),
                         "proposal_evidence_hashes": _json_copy(order.get("proposal_evidence_hashes")),
                         "run_id": frozen_run_id(snapshot),
                     }
@@ -840,6 +853,10 @@ class PaperLedger:
                 snapshot = order.get("proposal_snapshot")
                 if not isinstance(snapshot, Mapping):
                     raise PaperLedgerIntegrityError("Paper timeline order has no frozen proposal snapshot.")
+                event_order = event_orders.get(order_id)
+                if event_order is None:
+                    raise PaperLedgerIntegrityError("Paper timeline cancellation precedes its accepted order.")
+                event_order["status"] = "cancelled"
                 row.update(
                     {
                         "instrument_id": instrument,
@@ -847,6 +864,8 @@ class PaperLedger:
                         "order_id": order_id,
                         "reason": text_id(payload.get("reason"), "reason"),
                         "status": "cancelled",
+                        "event_time_status": "cancelled",
+                        "current_order_status": order.get("status", "unknown"),
                         "proposal_evidence_hashes": _json_copy(order.get("proposal_evidence_hashes")),
                         "run_id": frozen_run_id(snapshot),
                     }

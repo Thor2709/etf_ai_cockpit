@@ -43,7 +43,6 @@ from etf_cockpit.application.ui_facade import (
     load_manual_news,
     load_simple_scoreboard,
     load_statement_evidence,
-    load_paper_trade_rows,
     load_paper_timeline,
     read_document_registry,
     read_etf_report_records,
@@ -1631,28 +1630,19 @@ def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: M
 
 
 def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
-    source = frame if isinstance(frame, pd.DataFrame) else _load_parquet(PAPER_TRADES_PATH)
-    timeline: dict[str, object] | None = None
-    if not isinstance(frame, pd.DataFrame):
+    if isinstance(frame, pd.DataFrame):
+        source = frame
+    else:
         try:
             timeline = load_paper_timeline(PAPER_TRADES_PATH.parents[1].parent, instrument_id)
         except (OSError, TypeError, ValueError):
-            timeline = None
-        if timeline and timeline.get("status") == "available":
-            timeline_rows = timeline.get("rows")
-            if isinstance(timeline_rows, list):
-                return {
-                    "status": "available" if timeline_rows else "unavailable",
-                    "rows": timeline_rows,
-                    "timeline": timeline_rows,
-                    "message": timeline.get("message", "Recorded paper lifecycle history; this is not a historical account reconstruction."),
-                    "source_authority": "local_paper_ledger",
-                    "execution_allowed": False,
-                }
-        elif timeline and timeline.get("status") == "invalid":
-            return dict(timeline) | {"rows": [], "timeline": []}
-    if not isinstance(frame, pd.DataFrame) and source.empty:
-        source = pd.DataFrame(load_paper_trade_rows(PAPER_TRADES_PATH.parents[1].parent))
+            return _unavailable("Paper-trade history unavailable; the local paper ledger could not be read safely.") | {"rows": [], "timeline": []}
+        timeline_rows = timeline.get("rows")
+        if not isinstance(timeline_rows, list):
+            timeline_rows = []
+        # Timeline status is authoritative.  In particular, do not fall back
+        # to trade_rows(), whose write lock can create a missing ledger lock.
+        return dict(timeline) | {"rows": timeline_rows, "timeline": timeline_rows}
     rows = _instrument_rows(source, instrument_id)
     if rows.empty:
         return _unavailable("Paper-trade history unavailable; no local paper-trade records are registered.") | {"rows": []}
@@ -1717,12 +1707,45 @@ def _factor_risk_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[st
     if not isinstance(features, pd.DataFrame) or features.empty:
         features = getattr(snapshot, "features", None)
     holdings = getattr(snapshot, "holdings", None)
+    unavailable_details = {
+        "factor_exposures": [], "specific_risk": [], "instrument_contributions": [], "global_coverage": {}, "global_diagnostics": {}, "warnings": []
+    }
     if not isinstance(prices, pd.DataFrame) or prices.empty or not isinstance(features, pd.DataFrame) or features.empty or not isinstance(holdings, pd.DataFrame):
         return _unavailable("Factor-risk evidence unavailable; complete snapshot allocation, adjusted prices, features and holdings are required.") | {
-            "factor_exposures": [], "specific_risk": [], "instrument_contributions": [], "global_coverage": {}, "global_diagnostics": {}, "warnings": []
+            **unavailable_details
         }
     try:
         allocation = allocation_frame(snapshot.config, holdings)
+        enabled_ids = {
+            str(item.id)
+            for item in getattr(getattr(snapshot.config, "universe", None), "etfs", ())
+            if bool(getattr(item, "enabled", True))
+        }
+        target_ids = {str(value) for value in getattr(snapshot.config.targets, "positions", {}).keys()}
+        if "etf_id" not in holdings.columns:
+            return _unavailable("Factor-risk evidence unavailable; snapshot holdings have no canonical instrument IDs.") | {
+                **unavailable_details,
+                "allocation_status": "incomplete",
+            }
+        held_ids = {str(value).strip() for value in holdings["etf_id"].dropna().tolist() if str(value).strip()}
+        allocation_ids = set(allocation["etf_id"].astype(str)) if "etf_id" in allocation.columns else set()
+        if (
+            not enabled_ids
+            or not target_ids
+            or not target_ids.issubset(enabled_ids)
+            or held_ids != target_ids
+            or len(holdings) != len(held_ids)
+            or allocation_ids != target_ids
+        ):
+            return _unavailable("Factor-risk evidence unavailable; snapshot holdings, enabled universe and target allocation are incomplete or inconsistent.") | {
+                **unavailable_details,
+                "allocation_status": "incomplete",
+                "enabled_universe_count": len(enabled_ids),
+                "target_count": len(target_ids),
+                "held_count": len(held_ids),
+                "missing_target_ids": sorted(target_ids - held_ids),
+                "non_target_held_ids": sorted(held_ids - target_ids),
+            }
         # The canonical snapshot cutoff is the only permissible observation
         # bound; do not let presentation introduce future prices.
         cutoff = getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
@@ -1733,11 +1756,11 @@ def _factor_risk_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[st
         report = build_factor_risk_report(scoped_prices, allocation, features, holdings)
     except (ArithmeticError, KeyError, OSError, TypeError, ValueError):
         return _unavailable("Factor-risk evidence is invalid; manual review is required.") | {
-            "factor_exposures": [], "specific_risk": [], "instrument_contributions": [], "global_coverage": {}, "global_diagnostics": {}, "warnings": []
+            **unavailable_details
         }
     if not isinstance(report, Mapping):
         return _unavailable("Factor-risk evidence is invalid; manual review is required.") | {
-            "factor_exposures": [], "specific_risk": [], "instrument_contributions": [], "global_coverage": {}, "global_diagnostics": {}, "warnings": []
+            **unavailable_details
         }
     diagnostics = report.get("diagnostics") if isinstance(report.get("diagnostics"), Mapping) else {}
     coverage = report.get("coverage") if isinstance(report.get("coverage"), Mapping) else {}

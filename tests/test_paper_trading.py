@@ -189,7 +189,8 @@ def test_paper_timeline_projects_all_lifecycle_events_without_writing(tmp_path: 
     ledger = PaperLedger(tmp_path)
     ledger.open_account(initial_cash=1_000)
     accepted = ledger.accept_proposal(_proposal(source="timeline-fill"), execution_price=10)
-    ledger.record_fill(str(accepted["order_id"]), fill_id="timeline-fill-id", quantity=2, price=10)
+    ledger.record_fill(str(accepted["order_id"]), fill_id="timeline-fill-id", quantity=1, price=10)
+    ledger.cancel_order(str(accepted["order_id"]), reason="partial order cancelled")
     cancelled = ledger.accept_proposal(_proposal(source="timeline-cancel"), execution_price=10)
     ledger.cancel_order(str(cancelled["order_id"]), reason="manual review")
     rejected = _proposal(source="timeline-reject")
@@ -202,15 +203,19 @@ def test_paper_timeline_projects_all_lifecycle_events_without_writing(tmp_path: 
     rows = ledger.timeline_rows("VWCE")
     assert path.read_bytes() == before
     assert [row["event_type"] for row in rows] == [
-        "order_accepted", "fill_recorded", "order_accepted", "order_cancelled",
+        "order_accepted", "fill_recorded", "order_cancelled", "order_accepted", "order_cancelled",
         "proposal_rejected", "proposal_deferred",
     ]
     assert rows[0]["order_id"] == accepted["order_id"]
     assert rows[1]["fill_id"] == "timeline-fill-id"
-    assert rows[2]["order_id"] == cancelled["order_id"]
-    assert rows[3]["status"] == "cancelled"
-    assert rows[4]["rejection_id"] == "rejection_" + _digest({"account_id": "local-paper", "proposal_id": rejected["proposal_id"]})[:20]
-    assert rows[5]["deferred_id"] == "deferred_" + _digest({"account_id": "local-paper", "proposal_id": deferred["proposal_id"]})[:20]
+    assert rows[1]["status"] == "partially_filled"
+    assert rows[1]["current_order_status"] == "cancelled"
+    assert rows[2]["order_id"] == accepted["order_id"]
+    assert rows[2]["status"] == "cancelled"
+    assert rows[3]["order_id"] == cancelled["order_id"]
+    assert rows[4]["status"] == "cancelled"
+    assert rows[5]["rejection_id"] == "rejection_" + _digest({"account_id": "local-paper", "proposal_id": rejected["proposal_id"]})[:20]
+    assert rows[6]["deferred_id"] == "deferred_" + _digest({"account_id": "local-paper", "proposal_id": deferred["proposal_id"]})[:20]
     assert all(row["instrument_id"] == "VWCE" for row in rows)
     assert all(row["source_authority"] == "local_paper_ledger" for row in rows)
     assert all(row["execution_allowed"] is False for row in rows)
@@ -226,6 +231,18 @@ def test_paper_timeline_fails_closed_on_truncated_or_contradictory_event(tmp_pat
     path.write_bytes(original + b'{"truncated":')
     with pytest.raises(PaperLedgerIntegrityError):
         ledger.timeline_rows("VWCE")
+
+
+def test_instrument_detail_missing_timeline_does_not_fallback_to_locking_reader(tmp_path: Path, monkeypatch) -> None:
+    from etf_cockpit.app.selectors import instrument_detail
+
+    instrument_detail_path = tmp_path / "data" / "derived" / "paper_trades.parquet"
+    monkeypatch.setattr(instrument_detail, "PAPER_TRADES_PATH", instrument_detail_path)
+    monkeypatch.setattr(instrument_detail, "load_paper_timeline", lambda _root, _instrument: {"status": "unavailable", "rows": [], "reason_code": "paper_ledger_missing", "execution_allowed": False})
+    panel = instrument_detail._paper_trade_panel("VWCE")
+    assert panel["status"] == "unavailable"
+    assert panel["rows"] == []
+    assert not (tmp_path / "data" / "operations").exists()
 
 
 def test_paper_corporate_action_and_integrity_failure_are_explicit(tmp_path: Path) -> None:

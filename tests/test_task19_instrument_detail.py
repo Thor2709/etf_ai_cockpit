@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date
 import json
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -98,6 +99,32 @@ def test_instrument_detail_assembles_all_required_sections_and_derived_fields() 
     assert model.sections["model_cards"]["execution_allowed"] is False
     assert all(row["execution_allowed"] is False for row in model.sections["model_cards"]["cards"])
     assert model.sections["factor_risk"]["execution_allowed"] is False
+
+
+def test_factor_risk_rejects_non_target_holdings_before_canonical_producer(monkeypatch) -> None:
+    from etf_cockpit.app.selectors import instrument_detail
+
+    config = SimpleNamespace(
+        universe=SimpleNamespace(etfs=[SimpleNamespace(id="VWCE", enabled=True), SimpleNamespace(id="EXTRA", enabled=True)]),
+        targets=SimpleNamespace(positions={"VWCE": object()}),
+    )
+    snapshot = SimpleNamespace(
+        config=config,
+        prices=pd.DataFrame([{"date": "2026-07-13", "etf_id": "VWCE", "adjusted_close": 100.0}]),
+        latest_features=pd.DataFrame([{"etf_id": "VWCE", "momentum_120d": 0.1}]),
+        features=pd.DataFrame(),
+        holdings=pd.DataFrame([
+            {"etf_id": "VWCE", "current_weight": 1.0, "market_value_eur": 100.0},
+            {"etf_id": "EXTRA", "current_weight": 0.0, "market_value_eur": 0.0},
+        ]),
+        data_report=SimpleNamespace(as_of_date=None),
+    )
+    monkeypatch.setattr(instrument_detail, "allocation_frame", lambda _config, _holdings: pd.DataFrame({"etf_id": ["VWCE"]}))
+    monkeypatch.setattr(instrument_detail, "build_factor_risk_report", lambda *_args: (_ for _ in ()).throw(AssertionError("incomplete allocation reached producer")))
+    panel = instrument_detail._factor_risk_panel(snapshot, "VWCE")
+    assert panel["status"] == "unavailable"
+    assert panel["allocation_status"] == "incomplete"
+    assert panel["non_target_held_ids"] == ["EXTRA"]
 
 
 def test_instrument_detail_uses_canonical_id_for_stock_and_sparebanken_rows() -> None:
