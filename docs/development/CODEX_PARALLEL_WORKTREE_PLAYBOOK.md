@@ -1,7 +1,7 @@
 # Codex parallel worktree and certification-train playbook
 
-**Status:** proposed operating playbook for #713  
-**Date:** 31 August 2026  
+**Status:** proposed operating playbook for #713
+**Date:** 31 August 2026
 **Applies after:** #712 routing and #714 impact/admission are available
 
 ## 1. Decision

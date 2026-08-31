@@ -1,8 +1,8 @@
 # Sparebank Stochastic Intelligence Engine × ETF AI Cockpit integration
 
-**Status:** architecture and implementation handoff  
-**Date:** 31 August 2026  
-**Programme:** #715–#720  
+**Status:** architecture and implementation handoff
+**Date:** 31 August 2026
+**Programme:** #715–#720
 **Initial milestone:** local, immutable and paper-only; `execution_allowed=false`
 
 ## 1. Correct perspective

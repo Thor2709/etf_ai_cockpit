@@ -1,8 +1,8 @@
 # Codex agent, prompt and GitHub optimisation for ETF AI Cockpit
 
-**Status:** implementation guidance and research record, not current architecture or programme-state authority  
-**Date:** 31 August 2026  
-**Related issues:** #712, #713 and #714  
+**Status:** implementation guidance and research record, not current architecture or programme-state authority
+**Date:** 31 August 2026
+**Related issues:** #712, #713 and #714
 **Repository baseline audited:** `main@fffb8e00dd17b214654d19228601d5a623146970`
 
 ## 1. Purpose
