@@ -32,6 +32,9 @@ canonical dependencies, exclusive source/test ownership and isolated runtime
 resources. Root alone serializes merges and canonical/GitHub writes. Reserve
 required independent-review capacity instead of filling every slot with
 writers. Delegation depth is one and the V2 maximum is ten children.
+There is no fixed issue or writer quota: maximise complete dependency-valid
+lanes where file, contract and runtime ownership are genuinely independent.
+Separate worktrees alone do not establish that independence.
 
 Review a stable exact-head diff. Merge only the reviewed head after required
 gates. Update the canonical control source first; never hand-edit generated

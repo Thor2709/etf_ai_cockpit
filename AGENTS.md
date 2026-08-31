@@ -20,6 +20,8 @@ base/head, protected source/dependency/product/policy/environment/artifact and
 Use immutable integration/CI heads and isolated implementation worktrees.
 Concurrent writers require proven disjoint file and runtime ownership plus
 dependency readiness; root alone serializes merges and canonical/GitHub writes.
+Maximise safe, complete issue-level parallelism without a fixed issue/writer
+quota; retain review capacity within the ten-child V2 resource ceiling.
 Normally make one product issue per product PR; batch only inseparable,
 independent dependency edges. Lifecycle/status convergence is compact and
 automatic. Update canonical control first and regenerate projections; never

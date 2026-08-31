@@ -33,11 +33,13 @@ analysis and live GitHub inventory are preserved in the goal attachment's
 
 | Lane | Exact base / branch | Exclusive write boundary | Acceptance / next action |
 | --- | --- | --- | --- |
-| 0050 integration | `6d150aea1f123f80abc5679c5152c1733c50638c`; `codex/issue0050-note-recovery-20260831` | Bounded gateway correction and authority tests; root owns ADR/workflow/agent instructions and both checkpoint plans | Both prior product reviews approve. Run 33342791978 is cancelled/stale. Exact informational-note failure reproduced; 83 gateway + 144 completion tests pass. Freeze one combined head, paired review + fresh H gates, then exact-main lifecycle and zero-action readback. |
-| 0019 detail | main above; `codex/issue0019-parallel-20260831` | `app/selectors/instrument_detail.py`, `app/pages/instrument_detail.py`, `application/ui_facade.py`, `portfolio/paper_trading.py`, `test_task19_instrument_detail.py`, `test_paper_trading.py` | Six-file checkpoint finished; 16 paper + 47 detail tests pass. Root acceptance review must not count missing long-horizon production as satisfied merely because UI reports unavailable. Preserve existing 0050 detail changes when integrating. |
-| 0021 portfolio | main above; `codex/issue0021-parallel-20260831` | `application/portfolio_sandbox.py`, `portfolio/sandbox.py` only if necessary, `app/pages/portfolio.py`, `test_portfolio_sandbox.py` | Bind existing risk/factor/optimiser/scenario/attribution producers to the same what-if snapshot; no new formulas or real holdings mutation. H-tier acceptance. |
+| Note compatibility repair | main above; `codex/informational-note-repair-20260831` | Only the already-reviewed gateway correction and authority tests; root owns ADR/workflow/agent instructions and checkpoint plans | Same demonstrated note fix is transplanted out of slow 0050 selection; 83 gateway + 144 completion tests pass on identical code. Freeze one exact head, paired review and fresh full H Linux/Windows/terminal gates. No canonical issue status change. |
+| 0050 product diagnosis | `9ef0151c61626640565f6a80a4751825c0e0343a`; PR #698 and private `codex/issue0050-preflight-trace-20260831` | Immutable product head; read-only per-test trace in isolated runtime | Both reviews approve. Run 33344373262 failed unchanged aggregate changed-tests after 1,200 seconds; packages skipped. Identify the slow/hung test before any bounded correction, not another timeout increase or blind retry. |
+| 0019 detail | main above; `codex/issue0019-review-20260831`, head `e817c17dae0465cc6b4f81c6c48387d146ead039` | `app/selectors/instrument_detail.py`, `app/pages/instrument_detail.py`, `application/ui_facade.py`, `portfolio/paper_trading.py`, `test_task19_instrument_detail.py`, `test_paper_trading.py` | Consolidated three-finding correction: 65 focused tests pass; paired review on clean worktree. Preserve original runtime artifacts and existing 0050 detail changes when integrating; no invented long-horizon producer. |
+| 0021 portfolio | main above; `codex/issue0021-parallel-20260831` | `application/portfolio_sandbox.py`, `portfolio/sandbox.py` only if necessary, `app/pages/portfolio.py`, `test_portfolio_sandbox.py`, `ui/test_portfolio_sandbox_ui.py` | Consolidated twelve-group correction passes 114 focused tests. Root freezes after documentation, then paired review and required H evidence. No real holdings mutation or new financial producer. |
 | 0024 calendar audit | main above; `codex/issue0024-parallel-20260831` | Read-only calendar model, tests, detail/NewsContext consumers and prior merge evidence | Existing contract is largely complete. Audit actual acceptance and reusable evidence; no speculative provider or detail-page writer. |
-| 0026 next writer | main above; clean `codex/issue0026-parallel-20260831` | `app/pages/macro_factors.py`, dedicated application projection if needed, `test_macro_factors_ui.py` and dedicated projection tests | Reuse existing vintage warehouse and scenario producer; render cutoff/source/country/currency/uncertainty/scenario evidence with no future revisions or implicit fetch. No shared facade/state/services/storage writes. H if PIT selection changes. |
+| 0026 macro | main above; `codex/issue0026-parallel-20260831` | `app/pages/macro_factors.py`, `application/macro_context.py`, `test_macro_factors_ui.py` | Six-group correction passes 28 affected tests. Root syncs SDD, freezes and re-reviews; derived observations cannot invent user-authored scenario links. No warehouse/storage/financial producer rewrite. |
+| UPDATEV2-0020 SFDR | main above; `codex/updatev2-0020-parallel-20260831`, review checkpoint `45dd82ef4dd01f7be43aa0d674ed9d04bda6e0b6` | New parser/data/application SFDR modules, `app/pages/trust_evidence.py`, dedicated parser/store/UI tests; root owns UI action metadata and SDD | Paired review of claim truth, immutable provenance, PIT selection, conflict/manual-review and real UI acceptance. Legal planned-to-in-progress preparation precedes product PR; no score/return/execution authority. |
 | 0027 conditional writer | fresh verified main; dedicated `codex/` worktree | Forecast Lab page/features only as necessary, dedicated evidence adapter and tests | Authorise only after existing experiment/run/resource/challenger/promotion APIs are bound exactly. No invented evidence, automatic training or new promotion authority. |
 
 Source paths above are under `src/etf_cockpit/`; test paths are under `tests/`.
@@ -81,11 +83,15 @@ writer touches it. Never edit a frozen reviewed head for this chronology.
 
 ### Capacity and verification
 
-Use up to four genuinely disjoint product writers, not ten concurrent code
-writers. Reserve two independent review slots, read-only acceptance research
-and correction capacity within the V2 ten-child ceiling. The bounded authority
-correction counts as a writer until frozen. Stop adding writers when frozen
-heads queue for root integration; complete existing work instead.
+There is no fixed four-, five- or other issue/writer quota. Maximise complete,
+genuinely disjoint dependency-valid product lanes within the V2 ten-child
+resource ceiling, retaining independent review and correction capacity. Use
+actual file, contract and runtime boundaries, not agent count, as the admission
+test. Prioritise completing frozen heads when root integration is the limiting
+resource, without idling useful independent preparation or implementation.
+ISSUE-0105's completed scope audit found its full UI path overlaps 0021's
+Portfolio surface; its 0082 edge also needs review. It is not yet a disjoint
+writer. The stock 0092/0093/0096 family shares one stock-research writer.
 
 Separate source-writing concurrency from test concurrency. Every lane verifies
 its imported source and `ETF_COCKPIT_ROOT` before imports, and uses private

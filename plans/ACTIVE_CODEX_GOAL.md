@@ -29,15 +29,19 @@ unchanged. Do not reopen ISSUE-0101 recovery or ISSUE-0177–0180 optimisation.
   implementation candidates merely because their readiness projection is true.
   The live inventory has 194 open GitHub issues; open GitHub state alone does
   not override canonical integrated status or authorise duplicate work.
-- ISSUE-0050 PR #698 head `6d150aea1f123f80abc5679c5152c1733c50638c` is
-  approved by both independent reviewers. Exact actual-runner parity and the
-  21.748% replay improvement remain valid. H-tier run `33342791978` was
-  cancelled, not accepted, after a separate deterministic pre-merge generic
-  readback failure on unchanged current-main authority code. The frozen
-  finish worktree and all earlier failure/benchmark evidence are preserved.
-- The sole bounded convergence correction uses clean branch
-  `codex/issue0050-note-recovery-20260831`, based on that exact reviewed head,
-  at `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0050_note_recovery_20260831`.
+- ISSUE-0050 PR #698 remains frozen at
+  `9ef0151c61626640565f6a80a4751825c0e0343a`, approved by both reviewers.
+  H-tier run `33344373262` failed the unchanged aggregate changed-test command
+  after 1,200 seconds; Linux/Windows were correctly skipped. This is the same
+  timeout class as `32821067192`, not an evidenced note-reader regression.
+  Run `33342791978` was cancelled and is not acceptance evidence. Preserve all
+  checkpoints/logs and the measured 21.748% exact-parity replay improvement.
+  The private `codex/issue0050-preflight-trace-20260831` lane diagnoses the
+  exact unchanged selection with per-test progress; no timeout increase,
+  assertion change, blind retry or speculative optimisation is authorised.
+- The same bounded convergence correction is isolated from the slow product
+  selection on `codex/informational-note-repair-20260831`, exact main above,
+  at `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_note_repair_20260831`.
   It recognises only the strict non-authority `fundamental-release-link`
   informational note found on GitHub #227/comment 5432315922. Both generic
   readers preserve the note, existing authority and full snapshot hashes;
@@ -48,25 +52,34 @@ unchanged. Do not reopen ISSUE-0101 recovery or ISSUE-0177–0180 optimisation.
   has zero actions and zero blocked items; no remote issue was changed.
   ADR-0006 and the delivery contract
   document the lasting boundary. No ISSUE-0050 product calculation changed.
-  Freeze the commit containing this checkpoint, record
-  its literal SHA in PR #698 and the attachment checkpoint, then start both
-  exact-head reviews and fresh full H-tier hosted evidence concurrently.
-- ISSUE-0019 and ISSUE-0021 isolated lanes start from the exact main above.
-  ISSUE-0019's six-file implementation has 16 paper and 47 detail tests passing;
-  it remains pending complete acceptance/integration review, including the
-  distinction between unavailable long-horizon output and a real producer.
-  ISSUE-0021 continues canonical portfolio-sandbox bindings. ISSUE-0024 is an
-  acceptance/evidence audit because its calendar implementation is already
-  merged; do not manufacture another implementation.
-- After the correction freezes, expand to ISSUE-0026 macro-context projection
-  in clean `codex/issue0026-parallel-20260831` from the exact main above,
-  worktree `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0026_parallel_20260831`,
-  and, only after its existing-evidence contract is decision-complete,
-  ISSUE-0027 forecast-lab evidence. Its audit found no safe forecast-to-training
-  or measured-resource attribution yet; do not start a viewer and call all
-  acceptance criteria complete. Practical capacity is up to four disjoint
-  product writers, with paired review capacity reserved; reduce new starts
-  when accepted checkpoints queue for integration. Root alone owns plans,
+  This is a transplant of the existing fix, not another convergence design.
+  Freeze the commit containing this checkpoint, record its literal SHA in the
+  dedicated repair PR and attachment checkpoint, and launch both exact-head
+  reviews with fresh full H-tier CI. Do not merge without Linux, Windows and
+  terminal evidence; there is no lifecycle status change in this repair.
+- ISSUE-0019 is frozen for paired review at
+  `e817c17dae0465cc6b4f81c6c48387d146ead039` in clean
+  `codex/issue0019-review-20260831`. Its complete three-finding correction
+  passes 65 focused tests. Preserve the original lane's runtime artifacts;
+  unsupported long-horizon outputs remain explicit, not fabricated producers.
+- ISSUE-0021's consolidated twelve-group correction passes 114 focused tests;
+  root still must freeze and review its complete corrected diff. ISSUE-0026's
+  six-group correction passes 28 affected tests; sync its SDD, freeze and
+  independently re-review. Both retain their exclusive worktrees and files.
+- UPDATEV2-0020 SFDR has a separate internal review checkpoint
+  `45dd82ef4dd01f7be43aa0d674ed9d04bda6e0b6`; its UI action and architecture
+  checks pass, but claim/persistence/PIT acceptance is under paired review.
+  Do not publish it as accepted or omit its legal planned-to-in-progress
+  lifecycle preparation. ISSUE-0024's calendar product PR #678 and historical
+  H evidence are verified; use the existing integration transaction, not
+  another implementation or an invented claim of fresh current-main gates.
+- Maximise genuinely independent issue throughput without a fixed writer or
+  issue quota. The ten-child V2 resource ceiling and independent-review
+  capacity still apply. Admit new complete lanes only after dependency,
+  source/test and runtime ownership are proved; do not count stubs as issues.
+  ISSUE-0027 lacks the necessary forecast/training/resource identity contract;
+  ISSUE-0105 still needs its reviewed ISSUE-0082 edge and overlaps the active
+  portfolio UI. Keep those prerequisites explicit. Root alone owns plans,
   canonical/generated state, commits, PRs, merges and GitHub synchronisation.
   Runtime roots, temporary paths, stores and caches must also be disjoint.
 - Finish each legally permitted lifecycle package before product acceptance.
