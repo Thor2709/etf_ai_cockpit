@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import replace
 from datetime import date
 import hashlib
 import json
 
 import pandas as pd
+import pytest
 
 from etf_cockpit.app.pages.etf_detail import etf_detail_page
 from etf_cockpit.app.pages.instrument_detail import render_news_context_panel
@@ -31,6 +33,58 @@ from etf_cockpit.data.market_calendar import ClockContext, MarketCalendarService
 from etf_cockpit.services import build_snapshot
 from etf_cockpit.signals.feature_drivers import claim_binding_hash, deterministic_driver_claim
 from etf_cockpit.signals.simple_scores import load_simple_scoreboard
+
+
+@pytest.fixture(scope="module")
+def _canonical_snapshot():
+    return build_snapshot()
+
+
+@pytest.fixture
+def snapshot(_canonical_snapshot):
+    immutable_values = {
+        id(_canonical_snapshot.benchmark_reference_registry): _canonical_snapshot.benchmark_reference_registry,
+    }
+    if _canonical_snapshot.vwce_anchor_evidence is not None:
+        immutable_values[id(_canonical_snapshot.vwce_anchor_evidence)] = _canonical_snapshot.vwce_anchor_evidence
+    return copy.deepcopy(_canonical_snapshot, memo=immutable_values)
+
+
+def test_instrument_detail_snapshot_fixture_is_deep_isolated(
+    _canonical_snapshot,
+    snapshot,
+) -> None:
+    baseline_feature_columns = _canonical_snapshot.latest_features.columns.tolist()
+    baseline_first_name = _canonical_snapshot.config.universe.etfs[0].name
+    baseline_signal_count = len(_canonical_snapshot.signals)
+
+    snapshot.latest_features["_fixture_mutation"] = 1
+    snapshot.config.universe.etfs[0].name = "fixture mutation"
+    snapshot.signals.append(object())
+
+    immutable_values = {
+        id(_canonical_snapshot.benchmark_reference_registry): _canonical_snapshot.benchmark_reference_registry,
+    }
+    if _canonical_snapshot.vwce_anchor_evidence is not None:
+        immutable_values[id(_canonical_snapshot.vwce_anchor_evidence)] = _canonical_snapshot.vwce_anchor_evidence
+    next_snapshot = copy.deepcopy(_canonical_snapshot, memo=immutable_values)
+
+    assert snapshot.latest_features is not _canonical_snapshot.latest_features
+    assert snapshot.config is not _canonical_snapshot.config
+    assert snapshot.signals is not _canonical_snapshot.signals
+    assert snapshot.benchmark_reference_registry is _canonical_snapshot.benchmark_reference_registry
+    with pytest.raises(AttributeError):
+        _canonical_snapshot.benchmark_reference_registry.benchmarks = ()
+    if _canonical_snapshot.vwce_anchor_evidence is not None:
+        assert snapshot.vwce_anchor_evidence is _canonical_snapshot.vwce_anchor_evidence
+        with pytest.raises(AttributeError):
+            _canonical_snapshot.vwce_anchor_evidence.status = "fixture mutation"
+        with pytest.raises(TypeError):
+            _canonical_snapshot.vwce_anchor_evidence.fees["fixture"] = "mutation"
+    assert "_fixture_mutation" not in next_snapshot.latest_features.columns
+    assert next_snapshot.config.universe.etfs[0].name == baseline_first_name
+    assert len(next_snapshot.signals) == baseline_signal_count
+    assert _canonical_snapshot.latest_features.columns.tolist() == baseline_feature_columns
 
 
 def _walk_controls(control):
@@ -233,10 +287,9 @@ def test_instrument_detail_scoreboard_reader_hides_classification_invalidated_sc
     assert panel["execution_allowed"] is False
 
 
-def test_instrument_detail_exposes_identity_lineage_from_application_facade(monkeypatch) -> None:
+def test_instrument_detail_exposes_identity_lineage_from_application_facade(monkeypatch, snapshot) -> None:
     from etf_cockpit.app.selectors import instrument_detail as selector
 
-    snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]
     monkeypatch.setattr(
         selector,
@@ -368,6 +421,7 @@ def test_identity_master_migration_preserves_legacy_projection_until_imported(tm
 def test_classification_projection_loader_and_instrument_selector_expose_context(
     tmp_path,
     monkeypatch,
+    snapshot,
 ) -> None:
     available_at = "2026-07-21T00:00:00Z"
     with ClassificationStore(tmp_path) as store:
@@ -425,7 +479,6 @@ def test_classification_projection_loader_and_instrument_selector_expose_context
 
     from etf_cockpit.app.selectors import instrument_detail as selector
 
-    snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]
     monkeypatch.setattr(
         selector,
@@ -439,11 +492,10 @@ def test_classification_projection_loader_and_instrument_selector_expose_context
     assert model.identity["execution_allowed"] is False
 
 
-def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, monkeypatch) -> None:
+def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, monkeypatch, snapshot) -> None:
     from etf_cockpit.app.pages.instrument_detail import instrument_detail_page
     from etf_cockpit.app.selectors import instrument_detail as selector
 
-    snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]
     monkeypatch.setattr(selector, "FEATURE_DRIVERS_PATH", tmp_path / "feature_drivers.parquet")
     source_vintage_hash = "a" * 64
@@ -471,10 +523,9 @@ def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, m
     assert "{'instrument_id'" not in " ".join(texts)
 
 
-def test_instrument_detail_driver_panel_normalises_legacy_store_columns(tmp_path, monkeypatch) -> None:
+def test_instrument_detail_driver_panel_normalises_legacy_store_columns(tmp_path, monkeypatch, snapshot) -> None:
     from etf_cockpit.app.selectors import instrument_detail as selector
 
-    snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]
     monkeypatch.setattr(selector, "FEATURE_DRIVERS_PATH", tmp_path / "feature_drivers.parquet")
     pd.DataFrame(
@@ -498,8 +549,7 @@ def test_instrument_detail_driver_panel_normalises_legacy_store_columns(tmp_path
     assert panel["stale_or_partial"][0]["freshness_classification"] == "partial"
 
 
-def test_instrument_detail_has_required_sections_for_primary_and_sparebanken() -> None:
-    snapshot = build_snapshot()
+def test_instrument_detail_has_required_sections_for_primary_and_sparebanken(snapshot) -> None:
     model = build_instrument_detail(snapshot, snapshot.config.universe.enabled_ids[0])
     assert {"identity", "price", "scores", "risk", "attribution", "fundamentals", "etf_disclosures", "news", "forecasts", "backtests", "history", "journal", "run_changes"} <= set(model.sections)
     assert model.instrument_id
@@ -849,17 +899,15 @@ def test_paper_trade_source_is_not_conflated_with_simulated_fill() -> None:
         assert contradictory_alias["rows"] == []
 
 
-def test_missing_optional_stores_are_unavailable_not_crash() -> None:
-    snapshot = build_snapshot()
+def test_missing_optional_stores_are_unavailable_not_crash(snapshot) -> None:
     model = build_instrument_detail(snapshot, "missing-instrument")
     assert model.status == "unavailable"
     assert model.sections["identity"] == "unavailable"
 
 
-def test_instrument_detail_etf_disclosure_panel_shows_inventory_and_holdings_quality() -> None:
+def test_instrument_detail_etf_disclosure_panel_shows_inventory_and_holdings_quality(snapshot) -> None:
     from etf_cockpit.app.selectors.instrument_detail import build_etf_disclosure_panel
 
-    snapshot = build_snapshot()
     model = build_instrument_detail(
         snapshot,
         snapshot.config.universe.enabled_ids[0],
@@ -890,10 +938,9 @@ def test_instrument_detail_etf_disclosure_panel_shows_inventory_and_holdings_qua
     assert panel["holdings"]["confidence"] == 1.0
 
 
-def test_instrument_detail_disclosure_panel_is_honest_when_inventory_is_missing() -> None:
+def test_instrument_detail_disclosure_panel_is_honest_when_inventory_is_missing(snapshot) -> None:
     from etf_cockpit.app.selectors.instrument_detail import build_etf_disclosure_panel
 
-    snapshot = build_snapshot()
     model = build_instrument_detail(snapshot, snapshot.config.universe.enabled_ids[0], document_registry=pd.DataFrame(), holdings=pd.DataFrame())
     panel = build_etf_disclosure_panel(model)
     assert panel["status"] == "unavailable"
@@ -901,10 +948,9 @@ def test_instrument_detail_disclosure_panel_is_honest_when_inventory_is_missing(
     assert panel["holdings"]["status"] == "unavailable"
 
 
-def test_instrument_detail_disclosure_panel_surfaces_parsed_kid_and_methodology_provenance() -> None:
+def test_instrument_detail_disclosure_panel_surfaces_parsed_kid_and_methodology_provenance(snapshot) -> None:
     from etf_cockpit.app.selectors.instrument_detail import build_etf_disclosure_panel
 
-    snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]
     model = build_instrument_detail(
         snapshot,
@@ -964,8 +1010,7 @@ def test_instrument_detail_disclosure_panel_surfaces_parsed_kid_and_methodology_
     assert panel["methodology"]["provider"] == "FTSE Russell"
 
 
-def test_legacy_etf_detail_renders_controlled_empty_state_without_scores() -> None:
-    snapshot = build_snapshot()
+def test_legacy_etf_detail_renders_controlled_empty_state_without_scores(snapshot) -> None:
     empty_snapshot = replace(snapshot, signals=[], latest_features=pd.DataFrame())
     state = AppState(snapshot=empty_snapshot, selected_etf=empty_snapshot.config.ui.default_etf)
 
@@ -974,8 +1019,7 @@ def test_legacy_etf_detail_renders_controlled_empty_state_without_scores() -> No
     assert control is not None
 
 
-def test_instrument_detail_news_panel_renders_complete_provenance_and_authority_flags() -> None:
-    snapshot = build_snapshot()
+def test_instrument_detail_news_panel_renders_complete_provenance_and_authority_flags(snapshot) -> None:
     instrument_id = snapshot.config.universe.enabled_ids[0]
     model = build_instrument_detail(
         snapshot,
@@ -1029,8 +1073,7 @@ def test_instrument_detail_news_panel_renders_complete_provenance_and_authority_
         assert expected in rendered
 
 
-def test_instrument_detail_selects_latest_fundamentals_by_as_of_not_checksum() -> None:
-    snapshot = build_snapshot()
+def test_instrument_detail_selects_latest_fundamentals_by_as_of_not_checksum(snapshot) -> None:
     instrument_id = snapshot.config.universe.enabled_ids[0]
     model = build_instrument_detail(
         snapshot,
@@ -1060,8 +1103,7 @@ def test_instrument_detail_selects_latest_fundamentals_by_as_of_not_checksum() -
     assert model.sections["fundamentals"]["as_of"] == "2026-07-12"
 
 
-def test_instrument_detail_news_is_sorted_by_published_then_ingested_time() -> None:
-    snapshot = build_snapshot()
+def test_instrument_detail_news_is_sorted_by_published_then_ingested_time(snapshot) -> None:
     instrument_id = snapshot.config.universe.enabled_ids[0]
     model = build_instrument_detail(
         snapshot,
@@ -1091,10 +1133,9 @@ def test_instrument_detail_news_is_sorted_by_published_then_ingested_time() -> N
     assert [item["news_id"] for item in model.sections["news"]["items"]] == ["older", "newer"]
 
 
-def test_instrument_detail_surfaces_cost_edge_fields_and_unavailable_state(tmp_path, monkeypatch) -> None:
+def test_instrument_detail_surfaces_cost_edge_fields_and_unavailable_state(tmp_path, monkeypatch, snapshot) -> None:
     import etf_cockpit.app.selectors.instrument_detail as selector
 
-    snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]
     scoreboard_path = tmp_path / "scoreboard.parquet"
     pd.DataFrame(
