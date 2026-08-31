@@ -9,6 +9,178 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
+## Current parallel wave plan — 2026-08-31
+
+Owner-authorised parallel execution supersedes older single-lane selections
+below. Research uses exact canonical main
+`73835d8fc913aaec180ce98be5de960b0ef6d628`, issue requirements, implementation
+order, readiness, actual imports/callers/tests and historical branch ancestry.
+The 194 open GitHub issues comprise 111 incomplete canonical records, 74
+canonically integrated records and nine overlapping fundamental-release
+satellites. Open status does not create missing implementation or new canonical
+authority. Reuse merged product work; implement demonstrated gaps.
+
+All 111 incomplete canonical records were classified: 49 initially implemented,
+51 planned, four in progress, four needing hardening, two research-only and one
+blocked. There are 51 mechanically ready records, 13 blocked solely by missing
+edge evidence for integrated parents, and 47 with incomplete product parents.
+Do not treat research-only 0061/0062 or certification 0152 as ordinary ready
+product work. The complete per-phase inventory, dependency chains, conflict
+analysis and live GitHub inventory are preserved in the goal attachment's
+`parallel-research-20260831` directory.
+
+### Exclusive lanes and immediate sequence
+
+| Lane | Exact base / branch | Exclusive write boundary | Acceptance / next action |
+| --- | --- | --- | --- |
+| Note compatibility repair | main above; `codex/informational-note-repair-20260831` | Only the already-reviewed gateway correction and authority tests; root owns ADR/workflow/agent instructions and checkpoint plans | Same demonstrated note fix is transplanted out of slow 0050 selection; 83 gateway + 144 completion tests pass on identical code. Freeze one exact head, paired review and fresh full H Linux/Windows/terminal gates. No canonical issue status change. |
+| 0050 product diagnosis | `9ef0151c61626640565f6a80a4751825c0e0343a`; PR #698 and private `codex/issue0050-preflight-trace-20260831` | Immutable product head; read-only per-test trace in isolated runtime | Both reviews approve. Run 33344373262 failed unchanged aggregate changed-tests after 1,200 seconds; packages skipped. Identify the slow/hung test before any bounded correction, not another timeout increase or blind retry. |
+| 0019 detail | main above; `codex/issue0019-review-20260831`, head `e817c17dae0465cc6b4f81c6c48387d146ead039` | `app/selectors/instrument_detail.py`, `app/pages/instrument_detail.py`, `application/ui_facade.py`, `portfolio/paper_trading.py`, `test_task19_instrument_detail.py`, `test_paper_trading.py` | Consolidated three-finding correction: 65 focused tests pass; paired review on clean worktree. Preserve original runtime artifacts and existing 0050 detail changes when integrating; no invented long-horizon producer. |
+| 0021 portfolio | main above; `codex/issue0021-parallel-20260831` | `application/portfolio_sandbox.py`, `portfolio/sandbox.py` only if necessary, `app/pages/portfolio.py`, `test_portfolio_sandbox.py`, `ui/test_portfolio_sandbox_ui.py` | Consolidated twelve-group correction passes 114 focused tests. Root freezes after documentation, then paired review and required H evidence. No real holdings mutation or new financial producer. |
+| 0024 calendar audit | main above; `codex/issue0024-parallel-20260831` | Read-only calendar model, tests, detail/NewsContext consumers and prior merge evidence | Existing contract is largely complete. Audit actual acceptance and reusable evidence; no speculative provider or detail-page writer. |
+| 0026 macro | main above; `codex/issue0026-parallel-20260831` | `app/pages/macro_factors.py`, `application/macro_context.py`, `test_macro_factors_ui.py` | Six-group correction passes 28 affected tests. Root syncs SDD, freezes and re-reviews; derived observations cannot invent user-authored scenario links. No warehouse/storage/financial producer rewrite. |
+| UPDATEV2-0020 SFDR | main above; `codex/updatev2-0020-parallel-20260831`, review checkpoint `45dd82ef4dd01f7be43aa0d674ed9d04bda6e0b6` | New parser/data/application SFDR modules, `app/pages/trust_evidence.py`, dedicated parser/store/UI tests; root owns UI action metadata and SDD | Paired review of claim truth, immutable provenance, PIT selection, conflict/manual-review and real UI acceptance. Legal planned-to-in-progress preparation precedes product PR; no score/return/execution authority. |
+| 0027 conditional writer | fresh verified main; dedicated `codex/` worktree | Forecast Lab page/features only as necessary, dedicated evidence adapter and tests | Authorise only after existing experiment/run/resource/challenger/promotion APIs are bound exactly. No invented evidence, automatic training or new promotion authority. |
+
+Source paths above are under `src/etf_cockpit/`; test paths are under `tests/`.
+ISSUE-0050 corrected live plan
+`75294f06b668fd763c8cd8dedcb3c0614a3d56c181a88a823a07a305d4ed9bd8`
+is zero action and zero blocked, with no remote writes. ISSUE-0027's acceptance
+audit found missing safe read/forecast-to-training/resource attribution; keep
+it conditional rather than declaring a separated-evidence viewer complete.
+The 0019 writer exclusively owns `ui_facade.py`; another lane must not add even
+one export there. Shared services/state, router/UI acceptance metadata,
+conftest, storage/cache/scheduler APIs and canonical/generated files are not
+free parallel ownership. Root resolves a necessary seam explicitly before a
+writer touches it. Never edit a frozen reviewed head for this chronology.
+
+### Later dependency-safe groups
+
+- After 0019/0021 stabilise: audit 0067 score-history reuse; one of 0033 alerts
+  or 0053 digest owns the dashboard/caller boundary. Research 0034 run changes
+  and 0058 claim evidence without overlapping detail/history/manual-note
+  consumers. Alert generation exists but its normal-workflow caller must be
+  proved before acceptance; a test-only producer is not sufficient.
+- Remaining phase-01 work: one import/export/backup/recovery writer (0036 and
+  0044 serialized), one disjoint research/history writer, optional acquisition
+  UPDATEV2-0012 only after publication/source-policy ownership is proven.
+  Keep 0039 profiling isolated from heavy tests. Do not reopen 0177–0180.
+- Phase-02: independently prepare news/contradictions, holdings/statements and
+  catalogue/provider work, but serialize 0007/0025/0054 news records and
+  0022/0023 holdings/statement seams. 0181 retrieval is true concurrency/cache
+  work where applicable, not an inexpensive UI-only lane.
+- Existing integrated-parent evidence can unblock 0092/0093/0094/0096,
+  0105/0107, 0126/0128, 0137, 0143, 0147/0149/0151 using the existing root-owned
+  edge-only transaction; do not reimplement parents or combine forbidden edge
+  and lifecycle transitions. These are later readiness decisions, not blanket
+  authorisation to bypass the canonical implementation order.
+- Preserve prerequisite chains: `0096 + 0105 -> 0108 -> 0109`,
+  `0021 -> 0113 -> 0114`, `0027 -> 0117 -> 0119 -> 0120 -> 0121/0122`,
+  `0028 + 0050 -> 0125`, and `0066 + 0127 -> 0131 -> 0132 -> 0133`.
+  Design-system and later portfolio/fund/currency work retain their complete
+  canonical predecessor sets. No live/broker/provider/release authority follows
+  from readiness. Phase-11 certification waits for real programme acceptance.
+
+### Capacity and verification
+
+There is no fixed four-, five- or other issue/writer quota. Maximise complete,
+genuinely disjoint dependency-valid product lanes within the V2 ten-child
+resource ceiling, retaining independent review and correction capacity. Use
+actual file, contract and runtime boundaries, not agent count, as the admission
+test. Prioritise completing frozen heads when root integration is the limiting
+resource, without idling useful independent preparation or implementation.
+ISSUE-0105's completed scope audit found its full UI path overlaps 0021's
+Portfolio surface; its 0082 edge also needs review. It is not yet a disjoint
+writer. The stock 0092/0093/0096 family shares one stock-research writer.
+
+Separate source-writing concurrency from test concurrency. Every lane verifies
+its imported source and `ETF_COCKPIT_ROOT` before imports, and uses private
+runtime/config copies, caches, databases, logs, temporary paths and reserved
+ports. Do not assume separate worktrees alone isolate module-level path
+constants. One timing-sensitive benchmark or full local suite runs at a time;
+small focused tests can overlap only with proven independent resources.
+
+Freeze complete, locally green heads; start same-head whole-diff/risk review
+and required hosted CI concurrently, wait for all verdicts, then consolidate
+valid findings once. Root serializes accepted-head transplantation/merges and
+all canonical/GitHub authority changes. Reuse unchanged focused evidence only
+when its source/dependency/environment/policy identity remains valid. Fresh H
+Linux/Windows/terminal gates and all applicable cadence checks remain required.
+Complete legal lifecycle metadata before merge and require ordered writer
+acceptance plus generic zero-action readback. `execution_allowed=false` never
+changes. No workflow, classifier, agent-model or CI architecture redesign is
+part of this scheduling plan.
+
+## Previous ISSUE-0050 validation recovery — 2026-08-31
+
+Exact main is `73835d8fc913aaec180ce98be5de960b0ef6d628`. Both independent
+reviews approve PR #698 head `6dabdc3f6f6c555c24ff7cf8ff06438a94d79f81`, but
+run `32821067192` timed out after 1,200 seconds in the unchanged 326-test
+selection. Linux, Windows and terminal acceptance remain unproven. The
+original product and authority-preparation worktrees retain unrelated user
+edits and are preserved; clean lane `codex/issue0050-finish-20260831` starts at
+the same product head.
+
+Bound this recovery to the measured repeated canonical backtest computation
+in cached snapshot reads. The corrected warm-cache profile has two real hits
+at 23.532 and 21.453 seconds with identical result/equity/input fingerprints.
+Reuse only causal feature calculations and exact validated price-source
+identities within one run, prove exact prefix/report parity with focused
+regressions, freeze one new head, and start both reviews plus all required
+H-tier hosted gates concurrently. No cross-request cache is introduced.
+Do not raise timeouts, bypass replay, reduce test selection, or weaken financial,
+PIT, persistence, authority or `execution_allowed=false` safeguards.
+
+The independent exact-output comparison now passes for production engine blob
+`7cad431f8ad699229df798c430d42b255197eaea`: both actual replay reports match
+baseline results, equity, trade/signal/quality evidence, metadata and operational
+rows with exact values. Replay time improves 21.748%; complete cached snapshots
+improve 17.851%. Only repeated feature computations and run-local source lookup
+work are reused; replay, signal, validation and calendar/evidence counts remain
+unchanged. Evidence is preserved under the goal attachment's
+`issue0050-replay-benchmark/comparison`. All five exact cutoff/reuse regressions
+and seven affected cost/reference integration tests pass, as do the prior full
+backtest-lab run, Ruff, compile, registry, architecture, diff hygiene and byte-clean
+generation. The corrected freeze is the commit containing this checkpoint on
+`codex/issue0050-finish-20260831`; record its literal SHA in PR #698 and the
+attachment checkpoint. Both fresh reviews and H-tier hosted validation remain
+required; do not amend the frozen head for chronology or rerun unchanged checks.
+
+Before product merge, validate the legal lifecycle shape; after the reviewed
+product is exact main, prepare its sole `implemented_initially -> integrated`
+authority transaction for GitHub #105, leaving historical duplicate #54 untouched,
+and require the ordered writer plus generic zero-action readback. Canonical phase
+order takes precedence over the handoff's proposed
+ISSUE-0052: prepare the earlier dependency-ready ISSUE-0019 research-detail gaps
+without overlapping this lane's writers or declaring unproven acceptance.
+
+## Previous ISSUE-0050 product lane — 2026-08-24
+
+ISSUE-0049 product PR #696 and lifecycle PR #697 are merged through exact main
+`73835d8fc913aaec180ce98be5de960b0ef6d628`. All exact-head Linux, Windows,
+terminal, guard and review evidence passed; ordered writer `32730851172`
+applied and verified the sole GitHub #103 completion. Generic live reconciliation
+projects effective status `integrated` with zero actions and
+`execution_allowed=false`.
+
+ISSUE-0050 is dependency-ready and active in isolated branch
+`codex/issue0050-product-20260824` from that exact base. Product checkpoint
+`f04b5a66b13ab46a3bb05b3cdd70e4ed20044442` exposes strict instrument-scoped
+decision, next-open, next-period close, gap, observed range, configured spread
+and all-in cost evidence across Backtests, Signals and Instrument Detail. It
+keeps simulated and paper-ledger fills separate and leaves session, auction,
+expiry and order lifecycle unavailable unless canonical evidence exists. The
+existing cache snapshot now also checksum-binds metadata so persisted
+operational evidence cannot bypass the generic readback integrity path.
+
+The 80-test focused product/event/calendar suite and 21 architecture/button
+tests pass with Ruff, compile and diff hygiene. Run the changed application
+selection and classifier, complete all legal lifecycle preparation, then freeze
+one exact head for paired whole-diff/risk review and immediate hosted validation.
+Merge only that exact reviewed head, perform the sole legal
+`implemented_initially -> integrated` lifecycle transaction, and require writer
+success plus generic zero-action readback. Preserve `execution_allowed=false`.
+
 ## Current ISSUE-0016 product lane
 
 ISSUE-0015 product PR #669 and lifecycle PR #670 are merged through exact main
