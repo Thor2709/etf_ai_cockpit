@@ -9,9 +9,9 @@ from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.pages.dashboard import _run_action
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
-from etf_cockpit.application.ui_facade import MacroWarehouse, MacroWarehouseError
+from etf_cockpit.application.macro_context import build_macro_context_binding
+from etf_cockpit.application.ui_facade import MacroWarehouse
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.features.macro import build_macro_context
 
 
 def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
@@ -19,26 +19,26 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
         if page is not None:
             _run_action(page, state, "Refresh macro/news context", state.refresh_signals)
 
-    warehouse = MacroWarehouse()
-    try:
-        price_dates = state.snapshot.prices.get("date") if hasattr(state.snapshot.prices, "get") else None
-        decision_time = str(price_dates.max()) if price_dates is not None and not price_dates.empty else "9999-12-31T00:00:00+00:00"
-        summary = warehouse.summary(root=ROOT)
-        context_rows = warehouse.observations_as_of(root=ROOT, decision_time=decision_time)
-        curve_coverage = warehouse.curve_benchmark_coverage(
-            root=ROOT, decision_time=decision_time
-        )
-        error_text = ""
-    except (MacroWarehouseError, OSError) as exc:
-        summary = {"status": "unavailable", "row_count": 0}
-        context_rows = []
-        curve_coverage = {
-            "status": "unavailable",
-            "issuer_credit": "unavailable",
-            "source_ids": [],
-            "methodologies": [],
-        }
-        error_text = f"Manual review required: local macro warehouse could not be read ({type(exc).__name__})."
+    reference_context = context_from_snapshot(
+        state.snapshot,
+        purpose="comparison",
+        analysis_id=f"macro:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
+    )
+    binding = build_macro_context_binding(
+        state.snapshot,
+        warehouse=MacroWarehouse(),
+        root=ROOT,
+        benchmark_data_id=reference_context.benchmark_data_id,
+        benchmark_reference=reference_context.projection,
+        benchmark_registry=reference_context.registry,
+    )
+    summary = binding.summary
+    context_rows = binding.observations
+    curve_coverage = binding.curve_coverage
+    error_text = binding.error or ""
+    decision_time = binding.decision_time or "unavailable"
+    macro_context = binding.context
+    scenario_context = binding.scenario
 
     status = str(summary.get("status", "unavailable"))
     status_colour = theme.GREEN if status == "available" else theme.AMBER
@@ -56,7 +56,10 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
     entries = [
         ft.Text(
             f"{row.dataset_id} | {row.series_id} | {row.period_start} | {row.value:g} {row.unit} | "
-            f"available={row.available_at} | context={row.availability_status}",
+            f"source={row.source_id} | vintage={row.observed_at} | available={row.available_at} | "
+            f"country={row.country or 'unavailable'} | currency={row.currency or 'unavailable'} | "
+            f"uncertainty={row.availability_confidence}/{row.timezone_confidence} | "
+            f"transformation={row.transformation_version} | context={row.availability_status}",
             color=theme.TEXT,
             size=11,
             selectable=True,
@@ -66,19 +69,6 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
     if not entries:
         entries = [ft.Text("No local macro/factor observations have been ingested yet.", color=theme.MUTED, selectable=True)]
 
-    reference_context = context_from_snapshot(
-        state.snapshot,
-        purpose="comparison",
-        analysis_id=f"macro:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
-    )
-    macro_context = build_macro_context(
-        state.snapshot.prices,
-        state.snapshot.config.universe.etfs,
-        context_rows,
-        benchmark_data_id=reference_context.benchmark_data_id,
-        benchmark_reference=reference_context.projection,
-        benchmark_registry=reference_context.registry,
-    )
     regime = macro_context["regime"]
     breadth = macro_context["breadth"]
     volatility = macro_context["volatility"]
@@ -108,6 +98,20 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
     ]
     if not inflation_entries:
         inflation_entries = [ft.Text("No local inflation or rates series is available.", color=theme.MUTED, size=11, selectable=True)]
+    scenario_entries = [
+        ft.Text(
+            f"{row.get('scenario', 'unavailable')} | driver={row.get('driver', 'unavailable')} | "
+            f"link={row.get('link_id', 'unavailable')} | status={row.get('status', 'unavailable')} | "
+            f"evidence={row.get('evidence_id') or 'unavailable'} | source={row.get('source_id') or 'unavailable'} | "
+            f"available={row.get('available_at') or 'unavailable'} | confidence={row.get('confidence', 'unavailable')}",
+            color=theme.TEXT if row.get("status") == "available" else theme.MUTED,
+            size=11,
+            selectable=True,
+        )
+        for row in scenario_context.get("rows", [])
+    ]
+    if not scenario_entries:
+        scenario_entries = [ft.Text("No local macro scenario links are available.", color=theme.MUTED, size=11, selectable=True)]
 
     return ft.Column(
         [
@@ -128,6 +132,11 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
                         ft.Text(
                             "Decision-time vintages select only observations whose available_at is on or before the decision time. "
                             "Revisions remain append-only and transformations retain source observation IDs.",
+                            color=theme.MUTED,
+                            selectable=True,
+                        ),
+                        ft.Text(
+                            f"Shared snapshot decision cutoff: {decision_time}",
                             color=theme.MUTED,
                             selectable=True,
                         ),
@@ -220,6 +229,26 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
                     spacing=8,
                 ),
                 expand=True,
+            ),
+            panel(
+                ft.Column(
+                    [
+                        ft.Text("Scenario-linked macro evidence", color=theme.TEXT, weight=ft.FontWeight.BOLD),
+                        ft.Text(
+                            f"Status: {scenario_context.get('status', 'unavailable')} | "
+                            f"decision_time={scenario_context.get('decision_time', decision_time)} | "
+                            f"portfolio_currency={scenario_context.get('portfolio_currency', 'unavailable')} | "
+                            f"horizon_days={scenario_context.get('horizon_days', 'unavailable')} | "
+                            f"context_only={scenario_context.get('context_only', False)} | "
+                            f"score_eligible={scenario_context.get('score_eligible', False)} | "
+                            f"execution_allowed={scenario_context.get('execution_allowed', False)}",
+                            color=theme.TEXT if scenario_context.get("status") == "available" else theme.MUTED,
+                            selectable=True,
+                        ),
+                        ft.Column(scenario_entries, spacing=6),
+                    ],
+                    spacing=8,
+                )
             ),
         ],
         expand=True,
