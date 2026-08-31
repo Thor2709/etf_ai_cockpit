@@ -30,6 +30,29 @@ RUN_ATTESTATION = {
     "repository": gateway.REPO,
     "event_payload_sha256": "e" * 64,
 }
+FUNDAMENTAL_RELEASE_NOTE = """<!-- etf-ai-cockpit:fundamental-release-link=699 -->
+### Fundamental intermediate-release integration note
+
+Bounded release issue: #699 (`ISSUE-0087_fundamental_release`).
+
+Work merged through #699 is intended to substantially implement, harden and production-integrate the Norway/Sparebanken launch subset of this canonical parent. That implementation must be treated as already integrated and reused when normal programme execution resumes; do not rebuild it merely because this parent remains open for its wider multi-jurisdiction contract.
+
+The release copy does **not** close, supersede, satisfy or change the lifecycle state of this canonical issue. Re-audit the full parent specification later and implement only remaining reproduced gaps."""
+FUNDAMENTAL_RELEASE_NOTE_SHA256 = (
+    "b84fa40e17a7977ea9b9315321efbc1a956c970b00ce611072fb03f1b871135b"
+)
+
+
+def _fundamental_release_comment() -> dict[str, Any]:
+    return {
+        "id": "comment5432315922",
+        "node_id": "COMMENT_NODE_5432315922",
+        "body": FUNDAMENTAL_RELEASE_NOTE,
+        "author": {"login": "owner", "type": "User", "id": 123},
+        "createdAt": "2026-08-30T00:00:00Z",
+        "updatedAt": "2026-08-30T00:00:00Z",
+        "url": "https://example.invalid/comments/5432315922",
+    }
 
 
 def issue(status: str = "implemented_initially") -> dict[str, Any]:
@@ -298,6 +321,23 @@ def test_append_preserves_snapshot_and_projects_status() -> None:
     projection = gateway.project_status_events(transport.value)
     assert projection["accepted"] is True
     assert projection["status"] == "integrated"
+
+
+def test_informational_release_note_is_preserved_through_event_readback() -> None:
+    reviewed = issue()
+    note = _fundamental_release_comment()
+    reviewed["comments"].append(note)
+    assert len(note["body"].encode()) == 746
+    assert gateway._sha256(note["body"]) == FUNDAMENTAL_RELEASE_NOTE_SHA256
+    transport = MemoryTransport(reviewed)
+
+    evidence = append(reviewed, transport)
+
+    assert evidence["accepted"] is True
+    assert transport.value["comments"][1] == note
+    projection = gateway.project_status_events(transport.value)
+    assert projection["accepted"] is True
+    assert projection["event_count"] == 1
 
 
 def test_two_hop_replay_is_one_aggregate_pair_and_projects_both_hops() -> None:
@@ -909,6 +949,19 @@ def test_single_open_create_is_verified_without_retry(ambiguous: bool) -> None:
     assert "stable-id=ISSUE-0179" in transport.issues[0]["body"]
 
 
+def test_create_acceptance_preserves_informational_release_note() -> None:
+    transport = CreateTransport()
+    assert _apply_create(_create_plan(), transport)["accepted"] is True
+    note = _fundamental_release_comment()
+    transport.issues[0]["comments"].append(note)
+
+    acceptance = gateway.validate_create_acceptance(transport.issues[0])
+
+    assert acceptance["accepted"] is True
+    assert transport.issues[0]["comments"][-1] == note
+    assert gateway._sha256(note["body"]) == FUNDAMENTAL_RELEASE_NOTE_SHA256
+
+
 def test_create_receipt_rejects_foreign_user_attribution() -> None:
     transport = CreateTransport()
     assert _apply_create(_create_plan(), transport)["accepted"] is True
@@ -930,6 +983,41 @@ def test_create_receipt_rejects_foreign_app_attribution() -> None:
     assert gateway.validate_create_acceptance(transport.issues[0]) == {
         "accepted": False,
         "error": "invalid_create_acceptance",
+    }
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        FUNDAMENTAL_RELEASE_NOTE.replace("=699", "=0", 1),
+        FUNDAMENTAL_RELEASE_NOTE.replace("=699", "=0699", 1),
+        FUNDAMENTAL_RELEASE_NOTE.replace("=699", "=699.0", 1),
+        FUNDAMENTAL_RELEASE_NOTE.replace("=699", "=-699", 1),
+        FUNDAMENTAL_RELEASE_NOTE.replace(" -->\n", " --> trailing\n", 1),
+        FUNDAMENTAL_RELEASE_NOTE.replace(
+            "<!-- etf-ai-cockpit:fundamental-release-link=699 -->",
+            "<!-- etf-ai-cockpit:fundamental-release-link=699 -->\n"
+            + gateway.EVENT_PREFIX,
+            1,
+        ),
+        "<!-- etf-ai-cockpit:unknown=v1 -->\nordinary managed-looking note",
+    ],
+)
+def test_malformed_or_mixed_managed_notes_fail_closed_in_both_paths(body: str) -> None:
+    value = issue()
+    value["comments"] = [_fundamental_release_comment()]
+    value["comments"][0]["body"] = body
+
+    projection = gateway.project_status_events(value)
+    acceptance = gateway.validate_create_acceptance(value)
+
+    assert projection == {
+        "accepted": False,
+        "error": "unknown_or_malformed_managed_comment",
+    }
+    assert acceptance == {
+        "accepted": False,
+        "error": "unknown_or_malformed_managed_comment",
     }
 
 
@@ -1383,6 +1471,54 @@ def test_all_authorities_reconcile_and_complete_pair_deletion_blocks() -> None:
         [bootstrap, authority], [transport.value]
     )
     assert blocked["error"] == "missing_or_extra_status_authority_projection"
+
+
+def test_informational_note_is_non_authority_across_sync_and_convergence(
+    tmp_path: Path,
+) -> None:
+    reviewed = issue()
+    reviewed["comments"].append(_fundamental_release_comment())
+    bootstrap = _bootstrap_record()
+
+    reconciliation = gateway.reconcile_authority_ledger([bootstrap], [reviewed])
+    assert reconciliation["accepted"] is True
+    assert reconciliation["projections"][0]["authority_count"] == 0
+
+    record = {
+        "canonical_id": "ISSUE-0179",
+        "title": "Atomic programme generation",
+        "programme_status": "implemented_initially",
+    }
+    plan = sync.plan_actions(
+        {"records": [record]},
+        [reviewed],
+        authority_records=[bootstrap],
+    )
+    zero = {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0}
+    assert plan["summary"] == zero
+    assert plan["actions"] == []
+    assert plan["authority_reconciliation"]["accepted"] is True
+    assert plan["status_event_projections"][0]["accepted"] is True
+
+    approved = tmp_path / "approved.json"
+    final = tmp_path / "final.json"
+    mapping = tmp_path / "map.json"
+    output = tmp_path / "report.json"
+    approved.write_text(json.dumps(plan), encoding="utf-8")
+    final.write_text(json.dumps(plan), encoding="utf-8")
+    mapping.write_text("{}", encoding="utf-8")
+    assert convergence.main(
+        [
+            "--approved-plan",
+            str(approved),
+            "--final-plan",
+            str(final),
+            "--map",
+            str(mapping),
+            "--output",
+            str(output),
+        ]
+    ) == 0
 
 
 def test_trailing_human_comment_is_allowed_but_interposed_comment_blocks() -> None:

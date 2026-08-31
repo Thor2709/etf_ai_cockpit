@@ -13,6 +13,180 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
+## Current parallel execution checkpoint — 2026-08-31
+
+This checkpoint supersedes the historical single-lane selections below. The
+owner requests the largest reasonably safe parallel issue groups until that
+instruction is withdrawn, after researching all open issues. The execution
+plan and exclusive ownership table are in the current
+`plans/BATCH-B04-ANALYSIS-SPINE.md`; V2 roles, authority and validation are
+unchanged. Do not reopen ISSUE-0101 recovery or ISSUE-0177–0180 optimisation.
+
+- Exact main is `73835d8fc913aaec180ce98be5de960b0ef6d628`. Canonical research
+  covers all 111 incomplete records: 51 mechanically ready, 13 blocked only on
+  evidence for integrated parents, and 47 with incomplete product parents.
+  Research-only ISSUE-0061/0062 and final certification ISSUE-0152 are not
+  implementation candidates merely because their readiness projection is true.
+  The live inventory has 194 open GitHub issues; open GitHub state alone does
+  not override canonical integrated status or authorise duplicate work.
+- ISSUE-0050 PR #698 remains frozen at
+  `9ef0151c61626640565f6a80a4751825c0e0343a`, approved by both reviewers.
+  H-tier run `33344373262` failed the unchanged aggregate changed-test command
+  after 1,200 seconds; Linux/Windows were correctly skipped. This is the same
+  timeout class as `32821067192`, not an evidenced note-reader regression.
+  Run `33342791978` was cancelled and is not acceptance evidence. Preserve all
+  checkpoints/logs and the measured 21.748% exact-parity replay improvement.
+  The private `codex/issue0050-preflight-trace-20260831` lane diagnoses the
+  exact unchanged selection with per-test progress; no timeout increase,
+  assertion change, blind retry or speculative optimisation is authorised.
+- The same bounded convergence correction is isolated from the slow product
+  selection on `codex/informational-note-repair-20260831`, exact main above,
+  at `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_note_repair_20260831`.
+  It recognises only the strict non-authority `fundamental-release-link`
+  informational note found on GitHub #227/comment 5432315922. Both generic
+  readers preserve the note, existing authority and full snapshot hashes;
+  malformed/mixed markers and missing authority still fail closed. The two
+  changed authority/test files pass 83 gateway and 144 coupled completion
+  tests, Ruff, compile and diff checks. Fresh generic live plan
+  `75294f06b668fd763c8cd8dedcb3c0614a3d56c181a88a823a07a305d4ed9bd8`
+  has zero actions and zero blocked items; no remote issue was changed.
+  ADR-0006 and the delivery contract
+  document the lasting boundary. No ISSUE-0050 product calculation changed.
+  This is a transplant of the existing fix, not another convergence design.
+  Freeze the commit containing this checkpoint, record its literal SHA in the
+  dedicated repair PR and attachment checkpoint, and launch both exact-head
+  reviews with fresh full H-tier CI. Do not merge without Linux, Windows and
+  terminal evidence; there is no lifecycle status change in this repair.
+- ISSUE-0019 is frozen for paired review at
+  `e817c17dae0465cc6b4f81c6c48387d146ead039` in clean
+  `codex/issue0019-review-20260831`. Its complete three-finding correction
+  passes 65 focused tests. Preserve the original lane's runtime artifacts;
+  unsupported long-horizon outputs remain explicit, not fabricated producers.
+- ISSUE-0021's consolidated twelve-group correction passes 114 focused tests;
+  root still must freeze and review its complete corrected diff. ISSUE-0026's
+  six-group correction passes 28 affected tests; sync its SDD, freeze and
+  independently re-review. Both retain their exclusive worktrees and files.
+- UPDATEV2-0020 SFDR has a separate internal review checkpoint
+  `45dd82ef4dd01f7be43aa0d674ed9d04bda6e0b6`; its UI action and architecture
+  checks pass, but claim/persistence/PIT acceptance is under paired review.
+  Do not publish it as accepted or omit its legal planned-to-in-progress
+  lifecycle preparation. ISSUE-0024's calendar product PR #678 and historical
+  H evidence are verified; use the existing integration transaction, not
+  another implementation or an invented claim of fresh current-main gates.
+- Maximise genuinely independent issue throughput without a fixed writer or
+  issue quota. The ten-child V2 resource ceiling and independent-review
+  capacity still apply. Admit new complete lanes only after dependency,
+  source/test and runtime ownership are proved; do not count stubs as issues.
+  ISSUE-0027 lacks the necessary forecast/training/resource identity contract;
+  ISSUE-0105 still needs its reviewed ISSUE-0082 edge and overlaps the active
+  portfolio UI. Keep those prerequisites explicit. Root alone owns plans,
+  canonical/generated state, commits, PRs, merges and GitHub synchronisation.
+  Runtime roots, temporary paths, stores and caches must also be disjoint.
+- Finish each legally permitted lifecycle package before product acceptance.
+  ISSUE-0050's post-merge exact-main binding remains the single
+  `implemented_initially -> integrated` transaction for GitHub #105, with
+  duplicate #54 untouched. Require ordered writer acceptance, independent
+  generic zero-action readback and unchanged `execution_allowed=false`.
+  Integration remains exact-head and serial; implementation and read-only
+  preparation proceed concurrently where dependencies and ownership permit.
+
+## Previous ISSUE-0050 validation recovery — 2026-08-31
+
+- Exact fetched `origin/main` remains
+  `73835d8fc913aaec180ce98be5de960b0ef6d628`. PR #698 is draft/open at
+  `6dabdc3f6f6c555c24ff7cf8ff06438a94d79f81`. Both independent whole-diff and
+  risk reviews approve that product diff; the exact 326-test selection and 17
+  focused risk tests passed. It is not merge-ready: hosted run `32821067192`
+  failed `changed_tests` after 1,200 seconds and never ran the required Linux
+  and Windows package gates. Prior timeout-only attempts are exhausted.
+- Clean continuation lane `codex/issue0050-finish-20260831`, worktree
+  `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0050_finish_20260831`,
+  starts from that exact frozen head. The original product and authority-prep
+  lanes retain unrelated user `AGENTS.md` edits and remain untouched. Failed
+  preflight and terminal evidence is preserved in the goal attachment folder
+  under `issue0050-run32821067192`.
+- The demonstrated blocker is repeated full canonical seven-strategy backtest
+  computation during cached snapshot reads. A corrected warm-cache benchmark
+  confirms two real hits at 23.532 and 21.453 seconds, with identical result,
+  equity and input fingerprints; each replay recomputes features six times.
+  The bounded correction reuses causal features and exact validated price-source
+  identities within one run only, with strict prefix/report parity. Baseline
+  artifacts are preserved under `issue0050-replay-benchmark/baseline-6dabdc3f`
+  in the goal attachment folder. Do not introduce cross-request caching.
+  Preserve every replay/provenance check, snapshot/PIT boundary, test selection,
+  assertion, timeout and H-tier requirement. Freeze one corrected exact head,
+  then launch both independent reviews and fresh hosted validation in parallel.
+- The independent comparison of engine blob
+  `7cad431f8ad699229df798c430d42b255197eaea` against committed baseline blob
+  `4522004a8b5e40c01d7dcc33c7be4dbd1c27dffa` passes exact-value equality for
+  actual replay results, equity, trades, signals, quality-momentum evidence,
+  complete metadata and operational rows in both warm-cache samples. This is
+  actual runner parity, not merely unchanged cached outputs. Replay time falls
+  21.748% (39.754 to 31.108 seconds total); complete snapshot time falls 17.851%.
+  Feature computations fall from twelve to two across the two runs; all other
+  measured validation/evidence call counts are unchanged. Immutable comparison
+  evidence is in `issue0050-replay-benchmark/comparison` in the attachment
+  folder. The five focused regressions now pass with exact numeric equality,
+  daily benchmark reuse, intraday future-row exclusion, window/last-cutoff
+  bounds, no-rebalance behavior and caller-frame immutability. The production
+  blob is unchanged. The complete backtest-lab suite passed before the final
+  test-only additions; seven affected cost/reference integration tests, Ruff,
+  compile, registry, architecture (zero violations), diff hygiene and byte-clean
+  programme generation also pass. Do not rerun unchanged local evidence merely
+  because reviews finish. The corrected freeze is the commit containing this
+  checkpoint on `codex/issue0050-finish-20260831`; record its literal SHA in
+  PR #698 and the attachment checkpoint, then require both fresh exact-head
+  verdicts and the full hosted H-tier gates before merge.
+- Before product merge, validate the complete legally permitted lifecycle
+  preparation. The existing authority preparer requires its product source to
+  equal exact main; after product merge, bind the sole
+  `implemented_initially -> integrated` transaction to the reviewed product,
+  both verdicts and full H-tier evidence. The canonical mapping selects GitHub
+  #105; historical duplicate #54 is untouched. Require ordered writer
+  acceptance, generic zero-action readback and unchanged
+  `execution_allowed=false`.
+- The handoff's ISSUE-0052 lane remains preserved but is not next by canonical
+  phase order. ISSUE-0019 is an earlier ready/incomplete phase-01 candidate;
+  preparation found missing factor-risk/model-card bindings, unrendered metric
+  history and incomplete order-event timelines. Reuse existing canonical
+  research/scenario producers and the validated paper ledger, without new
+  financial formulas or fabricated historical/long-horizon evidence. Existing
+  sector bindings are already tested; unavailable canonical long-horizon
+  outputs do not by themselves certify that forecasting requirement. Satisfy
+  the complete required change rather than treating this as certification-only.
+  Select from freshly verified canonical order after ISSUE-0050 converges.
+
+## Previous ISSUE-0050 product checkpoint — 2026-08-24
+
+- ISSUE-0049 is fully integrated on exact `origin/main`
+  `73835d8fc913aaec180ce98be5de960b0ef6d628`. Product PR #696 merged reviewed
+  head `1efa61fa0d1c49a2a0d5cbaa8c234175b29d1a59`; lifecycle PR #697 merged
+  reviewed head `7d0b9bd00ba43a2ea5d6c9ee6052453f2c9386a1`. Release runs
+  `32722220381` and `32727398249`, status guard `32727398248`, and ordered
+  writer `32730851172` passed. GitHub issue #103 has effective status
+  `integrated`; the independent generic live readback is zero action and
+  `execution_allowed=false`.
+- ISSUE-0050 is the next canonical dependency-ready issue. Its clean isolated
+  lane `codex/issue0050-product-20260824` is based on that exact main. Product
+  checkpoint `f04b5a66b13ab46a3bb05b3cdd70e4ed20044442` adds only strict
+  exact-instrument decision/next-open/next-close/gap/spread/cost evidence,
+  Backtests/Signals/Instrument Detail projection, separate paper-fill source
+  handling, and cache-integrity readback through the existing atomic sidecars.
+- The bounded contract uses existing vector-backtest, cost, event-engine and
+  paper-ledger paths. It does not invent session, auction, expiry, order or
+  realised-fill claims when no canonical record is bound; those fields remain
+  explicitly unavailable. It preserves next-session/no-same-bar semantics and
+  `execution_allowed=false` without changing order, broker, provider, workflow
+  or release authority.
+- Focused backtest, instrument, event-engine and market-calendar validation is
+  green (80 tests), as are the 21 affected architecture/button tests, Ruff,
+  compile and diff hygiene. Complete changed application validation and
+  classification, freeze one exact head, then start paired whole-diff/risk
+  review and required hosted validation in parallel. Before product merge,
+  prepare the legal `implemented_initially -> integrated` completion evidence;
+  after merge bind it to the exact reviewed product merge, require ordered
+  writer acceptance and generic zero-action readback.
+
 ## Current ISSUE-0112 product checkpoint (supersedes older checkpoints below)
 
 - ISSUE-0059 integration PR #686 merged exact reviewed head

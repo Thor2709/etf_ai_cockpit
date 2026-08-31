@@ -58,6 +58,17 @@ acceptance markers as known authority comments. Their semantic validity still
 comes exclusively from the replay parser and ledger reconciliation; this
 recognition does not grant them create authority or tolerate malformed markers.
 
+Both generic status and create readers also recognise the single informational
+marker `<!-- etf-ai-cockpit:fundamental-release-link=<positive decimal> -->`.
+Its first line must match exactly, with a canonical nonzero decimal reference
+and no second managed marker anywhere in the comment. The note remains
+unchanged in the full hash-bound resource snapshot and grants no create,
+status, replay, release or execution authority. It does not satisfy a missing
+event/receipt pair or ledger entry. Malformed variants, mixed authority markers
+and every other unknown managed marker remain rejected. This bounded exception
+addresses the reproduced owner-authored issue #227 comment `5432315922`;
+it is not a general namespace allowance, history repair or new mutation path.
+
 The aggregate is semantically atomic: local validation replays both hops in
 memory and projection accepts the final status only when the proposal and its
 single receipt form a complete pair. This does not make GitHub transport

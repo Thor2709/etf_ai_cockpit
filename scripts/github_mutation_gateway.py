@@ -34,6 +34,9 @@ STABLE_ID_RE = re.compile(r"(?:ISSUE|UPDATEV2)-\d{4}")
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 HASH_RE = re.compile(r"[0-9a-f]{64}")
 STATUS_RE = re.compile(r"^- Programme status: `([^`]+)`$", re.MULTILINE)
+INFORMATIONAL_MARKER_RE = re.compile(
+    r"^<!-- etf-ai-cockpit:fundamental-release-link=[1-9][0-9]* -->(?:\n|$)"
+)
 SINGLE_HOP_STATUS_TARGETS = frozenset({"ready", "in_progress", "integrated"})
 RECOVERY_AUTHORITY_ID = (
     "db7622b54f8afd1ccdf24a6b356f3691aecb2e46b68c90136e8389aa2b9c08d8"
@@ -862,6 +865,15 @@ def claim_inventory_sha256(issues: list[dict[str, Any]]) -> str:
     return _sha256(_json_bytes(_claim_inventory(issues)))
 
 
+def _is_informational_comment(body: str) -> bool:
+    """Recognise the one non-authority managed comment shape we preserve."""
+
+    marker = INFORMATIONAL_MARKER_RE.match(body)
+    if marker is None:
+        return False
+    return "<!-- etf-ai-cockpit:" not in body[marker.end() :]
+
+
 def _legacy_anchor(stable_id: str, status: str) -> tuple[str, str]:
     event_id = f"legacy:{stable_id}"
     digest = _sha256(_json_bytes({"stable_id": stable_id, "status": status}))
@@ -1440,6 +1452,9 @@ def project_status_events(issue: dict[str, Any]) -> dict[str, Any]:
                 continue
             event = parse_event_comment(comment["body"])
             if event is None:
+                if _is_informational_comment(comment["body"]):
+                    index += 1
+                    continue
                 if comment["body"].startswith("<!-- etf-ai-cockpit:"):
                     if (
                         parse_create_receipt(comment["body"]) is None
@@ -1764,6 +1779,8 @@ def validate_create_acceptance(issue: dict[str, Any]) -> dict[str, Any]:
         if receipt is not None:
             receipts.append((index, receipt, comment))
         elif comment["body"].startswith("<!-- etf-ai-cockpit:"):
+            if _is_informational_comment(comment["body"]):
+                continue
             try:
                 status_event = parse_event_comment(comment["body"])
                 status_receipt = parse_event_receipt(comment["body"])
