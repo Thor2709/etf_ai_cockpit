@@ -13,7 +13,71 @@ former active-goal record and chronology are archived in
 `plans/archive/ATOMIC_FAST_PATH_ISSUE-0179-0180_2026-07-31.md`. Current delivery
 mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`.
 
-## Current ISSUE-0050 validation recovery — 2026-08-31
+## Current parallel execution checkpoint — 2026-08-31
+
+This checkpoint supersedes the historical single-lane selections below. The
+owner requests the largest reasonably safe parallel issue groups until that
+instruction is withdrawn, after researching all open issues. The execution
+plan and exclusive ownership table are in the current
+`plans/BATCH-B04-ANALYSIS-SPINE.md`; V2 roles, authority and validation are
+unchanged. Do not reopen ISSUE-0101 recovery or ISSUE-0177–0180 optimisation.
+
+- Exact main is `73835d8fc913aaec180ce98be5de960b0ef6d628`. Canonical research
+  covers all 111 incomplete records: 51 mechanically ready, 13 blocked only on
+  evidence for integrated parents, and 47 with incomplete product parents.
+  Research-only ISSUE-0061/0062 and final certification ISSUE-0152 are not
+  implementation candidates merely because their readiness projection is true.
+  The live inventory has 194 open GitHub issues; open GitHub state alone does
+  not override canonical integrated status or authorise duplicate work.
+- ISSUE-0050 PR #698 head `6d150aea1f123f80abc5679c5152c1733c50638c` is
+  approved by both independent reviewers. Exact actual-runner parity and the
+  21.748% replay improvement remain valid. H-tier run `33342791978` was
+  cancelled, not accepted, after a separate deterministic pre-merge generic
+  readback failure on unchanged current-main authority code. The frozen
+  finish worktree and all earlier failure/benchmark evidence are preserved.
+- The sole bounded convergence correction uses clean branch
+  `codex/issue0050-note-recovery-20260831`, based on that exact reviewed head,
+  at `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0050_note_recovery_20260831`.
+  It recognises only the strict non-authority `fundamental-release-link`
+  informational note found on GitHub #227/comment 5432315922. Both generic
+  readers preserve the note, existing authority and full snapshot hashes;
+  malformed/mixed markers and missing authority still fail closed. The two
+  changed authority/test files pass 83 gateway and 144 coupled completion
+  tests, Ruff, compile and diff checks. Fresh generic live plan
+  `75294f06b668fd763c8cd8dedcb3c0614a3d56c181a88a823a07a305d4ed9bd8`
+  has zero actions and zero blocked items; no remote issue was changed.
+  ADR-0006 and the delivery contract
+  document the lasting boundary. No ISSUE-0050 product calculation changed.
+  Freeze the commit containing this checkpoint, record
+  its literal SHA in PR #698 and the attachment checkpoint, then start both
+  exact-head reviews and fresh full H-tier hosted evidence concurrently.
+- ISSUE-0019 and ISSUE-0021 isolated lanes start from the exact main above.
+  ISSUE-0019's six-file implementation has 16 paper and 47 detail tests passing;
+  it remains pending complete acceptance/integration review, including the
+  distinction between unavailable long-horizon output and a real producer.
+  ISSUE-0021 continues canonical portfolio-sandbox bindings. ISSUE-0024 is an
+  acceptance/evidence audit because its calendar implementation is already
+  merged; do not manufacture another implementation.
+- After the correction freezes, expand to ISSUE-0026 macro-context projection
+  in clean `codex/issue0026-parallel-20260831` from the exact main above,
+  worktree `C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit_wt_issue0026_parallel_20260831`,
+  and, only after its existing-evidence contract is decision-complete,
+  ISSUE-0027 forecast-lab evidence. Its audit found no safe forecast-to-training
+  or measured-resource attribution yet; do not start a viewer and call all
+  acceptance criteria complete. Practical capacity is up to four disjoint
+  product writers, with paired review capacity reserved; reduce new starts
+  when accepted checkpoints queue for integration. Root alone owns plans,
+  canonical/generated state, commits, PRs, merges and GitHub synchronisation.
+  Runtime roots, temporary paths, stores and caches must also be disjoint.
+- Finish each legally permitted lifecycle package before product acceptance.
+  ISSUE-0050's post-merge exact-main binding remains the single
+  `implemented_initially -> integrated` transaction for GitHub #105, with
+  duplicate #54 untouched. Require ordered writer acceptance, independent
+  generic zero-action readback and unchanged `execution_allowed=false`.
+  Integration remains exact-head and serial; implementation and read-only
+  preparation proceed concurrently where dependencies and ownership permit.
+
+## Previous ISSUE-0050 validation recovery — 2026-08-31
 
 - Exact fetched `origin/main` remains
   `73835d8fc913aaec180ce98be5de960b0ef6d628`. PR #698 is draft/open at

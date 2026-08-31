@@ -26,10 +26,12 @@ Read the active goal and this workflow before changing code. Verify the exact
 current `origin/main`, dependency readiness, worktree and ownership. Normally
 deliver one bounded product issue in one product PR. Batch independent
 dependency edges only when their contracts are genuinely inseparable and the
-root records the reason. Product work may overlap an immutable CI lane only in
-a proven disjoint worktree. There is normally one workspace-writing child; a
-second child is limited to independent read-only work or a proven disjoint
-worktree. Delegation depth is one and the maximum is two children.
+root records the reason. Product work may overlap immutable CI only in proven
+disjoint worktrees. Concurrent product writers require an active-batch map of
+canonical dependencies, exclusive source/test ownership and isolated runtime
+resources. Root alone serializes merges and canonical/GitHub writes. Reserve
+required independent-review capacity instead of filling every slot with
+writers. Delegation depth is one and the V2 maximum is ten children.
 
 Review a stable exact-head diff. Merge only the reviewed head after required
 gates. Update the canonical control source first; never hand-edit generated
@@ -62,6 +64,12 @@ rather than a serial chain of administrative PRs.
 Generic live convergence executes the synchroniser as a module from the
 mechanically staged repository root, so its imports and generated inputs are
 the reviewed staged tree. Acceptance still requires a zero-action readback.
+The exact `fundamental-release-link=<positive decimal>` comment marker is
+informational only, never lifecycle or release authority. Both generic status
+and create readers preserve its complete hash-bound snapshot; malformed,
+mixed or other unknown managed markers still fail closed. No remote comment
+is edited or deleted to make reconciliation pass; ADR-0006 defines this narrow
+compatibility boundary.
 
 ## Stable-head throughput
 

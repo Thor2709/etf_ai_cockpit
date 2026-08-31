@@ -9,7 +9,103 @@ Current delivery mechanics are defined in
 to sole workers, Sol-low workers or old lifecycle PR chains describe past
 execution and are not current operational instructions.
 
-## Current ISSUE-0050 validation recovery — 2026-08-31
+## Current parallel wave plan — 2026-08-31
+
+Owner-authorised parallel execution supersedes older single-lane selections
+below. Research uses exact canonical main
+`73835d8fc913aaec180ce98be5de960b0ef6d628`, issue requirements, implementation
+order, readiness, actual imports/callers/tests and historical branch ancestry.
+The 194 open GitHub issues comprise 111 incomplete canonical records, 74
+canonically integrated records and nine overlapping fundamental-release
+satellites. Open status does not create missing implementation or new canonical
+authority. Reuse merged product work; implement demonstrated gaps.
+
+All 111 incomplete canonical records were classified: 49 initially implemented,
+51 planned, four in progress, four needing hardening, two research-only and one
+blocked. There are 51 mechanically ready records, 13 blocked solely by missing
+edge evidence for integrated parents, and 47 with incomplete product parents.
+Do not treat research-only 0061/0062 or certification 0152 as ordinary ready
+product work. The complete per-phase inventory, dependency chains, conflict
+analysis and live GitHub inventory are preserved in the goal attachment's
+`parallel-research-20260831` directory.
+
+### Exclusive lanes and immediate sequence
+
+| Lane | Exact base / branch | Exclusive write boundary | Acceptance / next action |
+| --- | --- | --- | --- |
+| 0050 integration | `6d150aea1f123f80abc5679c5152c1733c50638c`; `codex/issue0050-note-recovery-20260831` | Bounded gateway correction and authority tests; root owns ADR/workflow/agent instructions and both checkpoint plans | Both prior product reviews approve. Run 33342791978 is cancelled/stale. Exact informational-note failure reproduced; 83 gateway + 144 completion tests pass. Freeze one combined head, paired review + fresh H gates, then exact-main lifecycle and zero-action readback. |
+| 0019 detail | main above; `codex/issue0019-parallel-20260831` | `app/selectors/instrument_detail.py`, `app/pages/instrument_detail.py`, `application/ui_facade.py`, `portfolio/paper_trading.py`, `test_task19_instrument_detail.py`, `test_paper_trading.py` | Six-file checkpoint finished; 16 paper + 47 detail tests pass. Root acceptance review must not count missing long-horizon production as satisfied merely because UI reports unavailable. Preserve existing 0050 detail changes when integrating. |
+| 0021 portfolio | main above; `codex/issue0021-parallel-20260831` | `application/portfolio_sandbox.py`, `portfolio/sandbox.py` only if necessary, `app/pages/portfolio.py`, `test_portfolio_sandbox.py` | Bind existing risk/factor/optimiser/scenario/attribution producers to the same what-if snapshot; no new formulas or real holdings mutation. H-tier acceptance. |
+| 0024 calendar audit | main above; `codex/issue0024-parallel-20260831` | Read-only calendar model, tests, detail/NewsContext consumers and prior merge evidence | Existing contract is largely complete. Audit actual acceptance and reusable evidence; no speculative provider or detail-page writer. |
+| 0026 next writer | main above; clean `codex/issue0026-parallel-20260831` | `app/pages/macro_factors.py`, dedicated application projection if needed, `test_macro_factors_ui.py` and dedicated projection tests | Reuse existing vintage warehouse and scenario producer; render cutoff/source/country/currency/uncertainty/scenario evidence with no future revisions or implicit fetch. No shared facade/state/services/storage writes. H if PIT selection changes. |
+| 0027 conditional writer | fresh verified main; dedicated `codex/` worktree | Forecast Lab page/features only as necessary, dedicated evidence adapter and tests | Authorise only after existing experiment/run/resource/challenger/promotion APIs are bound exactly. No invented evidence, automatic training or new promotion authority. |
+
+Source paths above are under `src/etf_cockpit/`; test paths are under `tests/`.
+ISSUE-0050 corrected live plan
+`75294f06b668fd763c8cd8dedcb3c0614a3d56c181a88a823a07a305d4ed9bd8`
+is zero action and zero blocked, with no remote writes. ISSUE-0027's acceptance
+audit found missing safe read/forecast-to-training/resource attribution; keep
+it conditional rather than declaring a separated-evidence viewer complete.
+The 0019 writer exclusively owns `ui_facade.py`; another lane must not add even
+one export there. Shared services/state, router/UI acceptance metadata,
+conftest, storage/cache/scheduler APIs and canonical/generated files are not
+free parallel ownership. Root resolves a necessary seam explicitly before a
+writer touches it. Never edit a frozen reviewed head for this chronology.
+
+### Later dependency-safe groups
+
+- After 0019/0021 stabilise: audit 0067 score-history reuse; one of 0033 alerts
+  or 0053 digest owns the dashboard/caller boundary. Research 0034 run changes
+  and 0058 claim evidence without overlapping detail/history/manual-note
+  consumers. Alert generation exists but its normal-workflow caller must be
+  proved before acceptance; a test-only producer is not sufficient.
+- Remaining phase-01 work: one import/export/backup/recovery writer (0036 and
+  0044 serialized), one disjoint research/history writer, optional acquisition
+  UPDATEV2-0012 only after publication/source-policy ownership is proven.
+  Keep 0039 profiling isolated from heavy tests. Do not reopen 0177–0180.
+- Phase-02: independently prepare news/contradictions, holdings/statements and
+  catalogue/provider work, but serialize 0007/0025/0054 news records and
+  0022/0023 holdings/statement seams. 0181 retrieval is true concurrency/cache
+  work where applicable, not an inexpensive UI-only lane.
+- Existing integrated-parent evidence can unblock 0092/0093/0094/0096,
+  0105/0107, 0126/0128, 0137, 0143, 0147/0149/0151 using the existing root-owned
+  edge-only transaction; do not reimplement parents or combine forbidden edge
+  and lifecycle transitions. These are later readiness decisions, not blanket
+  authorisation to bypass the canonical implementation order.
+- Preserve prerequisite chains: `0096 + 0105 -> 0108 -> 0109`,
+  `0021 -> 0113 -> 0114`, `0027 -> 0117 -> 0119 -> 0120 -> 0121/0122`,
+  `0028 + 0050 -> 0125`, and `0066 + 0127 -> 0131 -> 0132 -> 0133`.
+  Design-system and later portfolio/fund/currency work retain their complete
+  canonical predecessor sets. No live/broker/provider/release authority follows
+  from readiness. Phase-11 certification waits for real programme acceptance.
+
+### Capacity and verification
+
+Use up to four genuinely disjoint product writers, not ten concurrent code
+writers. Reserve two independent review slots, read-only acceptance research
+and correction capacity within the V2 ten-child ceiling. The bounded authority
+correction counts as a writer until frozen. Stop adding writers when frozen
+heads queue for root integration; complete existing work instead.
+
+Separate source-writing concurrency from test concurrency. Every lane verifies
+its imported source and `ETF_COCKPIT_ROOT` before imports, and uses private
+runtime/config copies, caches, databases, logs, temporary paths and reserved
+ports. Do not assume separate worktrees alone isolate module-level path
+constants. One timing-sensitive benchmark or full local suite runs at a time;
+small focused tests can overlap only with proven independent resources.
+
+Freeze complete, locally green heads; start same-head whole-diff/risk review
+and required hosted CI concurrently, wait for all verdicts, then consolidate
+valid findings once. Root serializes accepted-head transplantation/merges and
+all canonical/GitHub authority changes. Reuse unchanged focused evidence only
+when its source/dependency/environment/policy identity remains valid. Fresh H
+Linux/Windows/terminal gates and all applicable cadence checks remain required.
+Complete legal lifecycle metadata before merge and require ordered writer
+acceptance plus generic zero-action readback. `execution_allowed=false` never
+changes. No workflow, classifier, agent-model or CI architecture redesign is
+part of this scheduling plan.
+
+## Previous ISSUE-0050 validation recovery — 2026-08-31
 
 Exact main is `73835d8fc913aaec180ce98be5de960b0ef6d628`. Both independent
 reviews approve PR #698 head `6dabdc3f6f6c555c24ff7cf8ff06438a94d79f81`, but
