@@ -166,10 +166,16 @@ def _scenario_horizon_days(snapshot: object) -> int | None:
     raw = getattr(snapshot, "benchmark_reference_horizon_years", None)
     if isinstance(raw, bool) or not isinstance(raw, Real):
         return None
-    value = float(raw)
+    try:
+        value = float(raw)
+    except (OverflowError, TypeError, ValueError):
+        return None
     if not math.isfinite(value) or value <= 0:
         return None
-    return max(1, round(value * 365))
+    days = value * 365
+    if not math.isfinite(days):
+        return None
+    return max(1, round(days))
 
 
 def _scenario_payload(
@@ -276,6 +282,8 @@ def _selected_summary(
     """Project summary fields from the exact rows selected at the cutoff."""
 
     summary = dict(supplied)
+    # Raw history size includes observations not known at this cutoff.
+    summary.pop("total_row_count", None)
     summary.update(
         {
             "status": "available" if observations else "unavailable",

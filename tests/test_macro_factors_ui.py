@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import flet as ft
 import pandas as pd
+import pytest
 
 from etf_cockpit.app.pages import macro_factors
 from etf_cockpit.app.router import PAGES
@@ -182,6 +183,32 @@ def test_binding_rejects_guessed_currency_horizon_and_driver(monkeypatch) -> Non
     assert binding.scenario["status"] == "unavailable"
     assert binding.scenario["portfolio_currency"] == "unavailable"
     assert binding.scenario["horizon_days"] == "unavailable"
+
+
+@pytest.mark.parametrize("horizon", [1e308, 10**400])
+def test_horizon_overflow_is_unavailable_even_with_missing_cutoff(horizon, tmp_path) -> None:
+    snapshot = SimpleNamespace(
+        benchmark_reference_horizon_years=horizon,
+        benchmark_reference_currency="USD",
+        benchmark_reference_decision_time=None,
+    )
+
+    assert macro_context._scenario_horizon_days(snapshot) is None
+    binding = macro_context.build_macro_context_binding(snapshot, warehouse=object(), root=tmp_path)
+    assert binding.scenario["status"] == "unavailable"
+    assert binding.scenario["horizon_days"] == "unavailable"
+    assert binding.scenario["execution_allowed"] is False
+
+
+def test_selected_summary_does_not_reveal_future_history_size() -> None:
+    observations = (_observation(),)
+    cutoff = "2024-03-01T00:00:00Z"
+    before = macro_context._selected_summary({"total_row_count": 1}, observations, cutoff)
+    after = macro_context._selected_summary({"total_row_count": 99}, observations, cutoff)
+
+    assert before == after
+    assert after["row_count"] == 1
+    assert "total_row_count" not in after
 
 
 def test_date_only_price_at_intraday_cutoff_is_not_used() -> None:
