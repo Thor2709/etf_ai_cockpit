@@ -1,5 +1,32 @@
 # B04 Analysis Spine
 
+## Local SEC product continuation — 2026-09-03
+
+UPDATEV2-0012 (P0, dependency-ready) has a bounded acquisition-provenance
+correction in `C:/dev/etf-sec-provenance-20260903`, branch
+`codex/sec-provenance-20260903`, from `fffb8e00dd17b214654d19228601d5a623146970`.
+The historical SEC branch is clean and already ancestral to main; current
+open PRs and the 20-issue/64-path Antigravity reservation do not own the SEC
+adapter or its dedicated test. Root owns this small correction directly:
+bind returned and persisted retrieval timestamps for one acquisition, with
+offline companyfacts/submissions and cache-revalidation regressions.
+Broader bulk/increment/statement integration acceptance remains open. Required
+independent review is still blocked by unverifiable effective child metadata;
+no issue acceptance, lifecycle transition or integration is authorised by this
+local checkpoint. Preserve `execution_allowed=false` and paused v5/runner work.
+
+Local evidence: both new timestamp cases failed before the correction and pass
+after it. The SEC provider/parser selection passes 40 tests; existing optional
+provider and SEC cancellation-before-publication checks pass another four.
+Ruff, compilation and diff hygiene pass. JUnit evidence is retained under
+`logs/sec-provenance-{red,focused,integration}.xml` in this isolated lane.
+The complete three-file diff has root review only. Full Linux/Windows packaged
+gates and independent review remain outstanding; do not merge or mark the issue
+complete. Next action is verified named-role review of this frozen correction,
+then H-tier certification through the existing workflow. Substantial remaining
+SEC bulk/increment integration requires the configured implementer and must not
+be replaced by this narrow provenance repair.
+
 The durable active objective, protected boundaries and exact continuation
 checkpoint are maintained in `plans/ACTIVE_CODEX_GOAL.md`; read it before
 continuing this batch.

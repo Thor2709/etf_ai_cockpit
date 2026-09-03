@@ -190,10 +190,11 @@ class SecEdgarProvider:
                 # responses cannot corrupt an already-good local cache.
                 with publication_scope(publish_guard):
                     atomic_write_bytes(cache_path, payload, lambda candidate: _validate_json_file(candidate, expected_cik))
+                retrieved_at = datetime.now(timezone.utc)
                 next_metadata = {
                     "schema_version": 1,
                     "source_url": url,
-                    "retrieved_at": datetime.now(timezone.utc).isoformat(),
+                    "retrieved_at": retrieved_at.isoformat(),
                     "sha256": payload_sha,
                     "raw_path": str(immutable_path),
                     "etag": response.headers.get("ETag", ""),
@@ -204,7 +205,7 @@ class SecEdgarProvider:
                 return RawDocument(
                     immutable_path,
                     url,
-                    datetime.now(timezone.utc),
+                    retrieved_at,
                     next_metadata["sha256"],
                     "sec_edgar",
                     document_type,
