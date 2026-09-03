@@ -1,5 +1,46 @@
 # B04 Analysis Spine
 
+## ISSUE-0026 Windows baseline-test correction — 2026-09-04
+
+The fresh Windows packaged retry at macro head
+`012441fcd6a515f8d9746ffe771071763cf0ed01` completed 4035 tests with two
+failures while every other mandatory check passed. The ISSUE-0014 workflow
+probe subsequently passes alone in 80.21 seconds and is classified as a
+full-suite load timeout. The remaining deterministic failure is the existing
+cache lifecycle ordering race described below. Integrate only its previously
+reviewed test synchronization correction on top of the unchanged macro product
+head, then require exact-head focused evidence, independent review and fresh
+serial Linux and Windows packaged gates. Do not change runner timeouts, product
+code, canonical status or execution authority.
+
+## SEC gate isolation checkpoint — 2026-09-03
+
+Frozen SEC ingestion head `eb1d73f03eea7c0d3b8e7fa2fdd507583bb77d79`
+remains under review and Linux packaged validation; current main is unchanged
+at `fffb8e00dd17b214654d19228601d5a623146970`. Parent `7c21a73e` Windows
+gate finished with one failure among 4029 tests (five skipped); package, smoke,
+parity and the remaining policy checks passed. No integration is authorised.
+The failed cache lifecycle test passes alone and reproduces the exact failure
+when run after `test_cache_cleanup_unavailable_is_failed_and_ui_uses_redacted_error`.
+A read-only diagnostician traced the predecessor ending before its background
+terminal refresh. These tests and their production paths are unchanged on main;
+the newly added SEC tests occur later in collection and had not run yet.
+
+The disjoint local branch `codex/sec-gate-isolation-20260903` at
+`C:/dev/etf-sec-gate-isolation-20260903` starts from the frozen ingestion head.
+Root owns one small test-only synchronization correction in
+`tests/test_issue_0012_progress.py`: retain all assertions and wait explicitly
+for the predecessor's terminal refresh before teardown. No production lifecycle,
+runner, timeout policy, reserved path or canonical status is changed. Focused
+reproduction, corrected-pair evidence and independent review are required before
+this correction joins the train. Older-head gates do not certify a changed head.
+UPDATEV2-0012 bulk/resume acceptance remains open; execution remains disabled.
+
+The corrected predecessor/target pair passes (two tests), with JUnit retained
+at `logs/sec-gate-pair-fixed.xml`; Ruff, compilation and diff hygiene pass.
+The original failure remains retained in the parent lane rather than retried
+away. Freeze the test/checkpoint change for independent whole-diff review.
+
 ## ISSUE-0026 current-main integration candidate — 2026-09-03
 
 PR710 remains open at protected product head
