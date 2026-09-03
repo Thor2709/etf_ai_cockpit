@@ -1,5 +1,24 @@
 # B04 Analysis Spine
 
+## ISSUE-0019 renderer review handoff — 2026-09-04
+
+The bounded correction is complete in the page renderer and focused test file.
+Nested mappings/sequences now render recursively as ordered labelled controls;
+top-level scalar record fields retain their compact labelled row. Factor
+exposures, specific risk, instrument contributions and nested instrument-beta
+records no longer expose Python dictionary/list representations, and empty
+groups remain explicitly unavailable. No selector, calculation, paper-trading,
+provenance producer or execution semantics changed.
+
+The exact historical cross-platform failure was reproduced before the edit.
+The corrected original regression plus focused nested controls pass3/3; the
+affected instrument-detail suites pass95/95 with zero errors or skips in
+`logs/issue0019-renderer-correction.xml`. Ruff, compile and diff hygiene pass.
+Root inspected the complete two-file correction diff. Freeze one exact product
+head for paired whole-diff/risk review and then fresh serial Linux/Windows H.
+Old PR #709 checks and body review claims remain unusable; the remote PR and
+unrelated runtime directories remain untouched.
+
 ## ISSUE-0019 current-main renderer correction — 2026-09-04
 
 PR #709 product head `3896f9e57ec341a467570d189f60e25b38fe9475`

@@ -289,6 +289,36 @@ def _format_record_value(value: object) -> str:
     return str(value)
 
 
+def _structured_record_lines(prefix: str, value: object) -> list[ft.Control]:
+    """Render nested evidence as labelled controls, never mapping reprs."""
+    lines: list[ft.Control] = []
+    if isinstance(value, Mapping):
+        if not value:
+            return [ft.Text(f"{prefix}: unavailable", color=theme.MUTED, size=11, selectable=True)]
+        for field, child in value.items():
+            child_prefix = f"{prefix} / {field}"
+            if isinstance(child, Mapping) or (
+                isinstance(child, Sequence) and not isinstance(child, (str, bytes))
+            ):
+                lines.extend(_structured_record_lines(child_prefix, child))
+            else:
+                lines.append(ft.Text(f"{child_prefix}: {_format_record_value(child)}", color=theme.MUTED, size=11, selectable=True))
+        return lines
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        if not value:
+            return [ft.Text(f"{prefix}: unavailable", color=theme.MUTED, size=11, selectable=True)]
+        for index, child in enumerate(value, start=1):
+            item_prefix = f"{prefix} [{index}]"
+            if isinstance(child, Mapping) or (
+                isinstance(child, Sequence) and not isinstance(child, (str, bytes))
+            ):
+                lines.extend(_structured_record_lines(item_prefix, child))
+            else:
+                lines.append(ft.Text(f"{item_prefix}: {_format_record_value(child)}", color=theme.MUTED, size=11, selectable=True))
+        return lines
+    return [ft.Text(f"{prefix}: {_format_record_value(value)}", color=theme.MUTED, size=11, selectable=True)]
+
+
 def _render_evidence_badges(value: Mapping[str, object]) -> ft.Control:
     """Render provenance metadata without treating missing values as evidence."""
 
@@ -314,7 +344,9 @@ def _render_evidence_badges(value: Mapping[str, object]) -> ft.Control:
 
 
 def _render_record_group(label: str, records: object) -> ft.Control:
-    if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
+    if isinstance(records, Mapping):
+        records = [records]
+    elif not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
         records = []
     if not records:
         return ft.Column(
@@ -327,10 +359,21 @@ def _render_record_group(label: str, records: object) -> ft.Control:
     lines: list[ft.Control] = [ft.Text(label, color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12)]
     for index, record in enumerate(records, start=1):
         if isinstance(record, Mapping):
-            details = " | ".join(f"{key}={_format_record_value(value)}" for key, value in record.items())
+            scalar_fields: list[str] = []
+            nested_fields: list[tuple[object, object]] = []
+            for field, value in record.items():
+                if isinstance(value, Mapping) or (
+                    isinstance(value, Sequence) and not isinstance(value, (str, bytes))
+                ):
+                    nested_fields.append((field, value))
+                else:
+                    scalar_fields.append(f"{field}={_format_record_value(value)}")
+            details = " | ".join(scalar_fields) or "unavailable"
+            lines.append(ft.Text(f"{label} {index}: {details}", color=theme.MUTED, size=11, selectable=True))
+            for field, value in nested_fields:
+                lines.extend(_structured_record_lines(f"{label} {index} / {field}", value))
         else:
-            details = _format_record_value(record)
-        lines.append(ft.Text(f"{label} {index}: {details or 'unavailable'}", color=theme.MUTED, size=11, selectable=True))
+            lines.extend(_structured_record_lines(f"{label} {index}", record))
     return ft.Column(lines, spacing=4, scroll=ft.ScrollMode.AUTO)
 
 
@@ -359,14 +402,21 @@ def _render_evidence_section(
             "pairs",
             "concentrations",
             "forecast_model_matches",
+            "factor_exposures",
+            "specific_risk",
+            "instrument_contributions",
+            "instrument_beta",
         }:
             lines.append(_render_record_group(str(field_name), item))
             continue
         if isinstance(item, dict):
-            compact = ", ".join(f"{child}={child_value if child_value is not None else 'N/A'}" for child, child_value in item.items())
-            lines.append(ft.Text(f"{field_name}: {compact or 'unavailable'}", color=theme.MUTED, size=11, selectable=True))
+            if any(isinstance(child_value, (Mapping, Sequence)) and not isinstance(child_value, (str, bytes)) for child_value in item.values()):
+                lines.append(_render_record_group(str(field_name), item))
+            else:
+                compact = ", ".join(f"{child}={_format_record_value(child_value)}" for child, child_value in item.items())
+                lines.append(ft.Text(f"{field_name}: {compact or 'unavailable'}", color=theme.MUTED, size=11, selectable=True))
         elif isinstance(item, (list, tuple)):
-            if any(isinstance(child, Mapping) for child in item):
+            if any(isinstance(child, (Mapping, Sequence)) and not isinstance(child, (str, bytes)) for child in item):
                 lines.append(_render_record_group(str(field_name), item))
             else:
                 lines.append(ft.Text(f"{field_name}: {', '.join(str(child) for child in item) or 'unavailable'}", color=theme.MUTED, size=11, selectable=True))
