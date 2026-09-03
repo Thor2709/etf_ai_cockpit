@@ -1,5 +1,27 @@
 # B04 Analysis Spine
 
+## ISSUE-0019 current-main renderer correction — 2026-09-04
+
+PR #709 product head `3896f9e57ec341a467570d189f60e25b38fe9475`
+is merged locally without conflict onto exact current main `fffb8e00` as
+`45237cdcdbb712de9b3f02aef1d1b5b57718fa63`; the remote PR remains unchanged.
+Historical run33348934106 failed the same changed-code test on Linux and
+Windows (4028tests, one failure each). Package, policy, smoke, supply-chain and
+SBOM checks passed, but the new Factor-risk page section stringifies nested
+record collections as Python dictionary literals. GitHub has no actual paired
+reviews and the old-base H artifacts are not reusable.
+
+Apply one bounded correction in
+`src/etf_cockpit/app/pages/instrument_detail.py` and focused renderer tests.
+Render `factor_exposures`, `specific_risk` and `instrument_contributions`,
+including their nested record lists, as stable labelled structured rows using
+the existing evidence renderer; do not stringify raw mappings or silently
+drop fields. Preserve ordering, explicit unavailable values, provenance badges,
+all selector/financial calculations, paper-trading behavior and
+`execution_allowed=false`. The exact reproduced test remains red before the
+correction. Freeze the current-main replacement for fresh paired reviews and
+serial Linux/Windows H; do not modify the original PR or Antigravity files.
+
 The durable active objective, protected boundaries and exact continuation
 checkpoint are maintained in `plans/ACTIVE_CODEX_GOAL.md`; read it before
 continuing this batch.
