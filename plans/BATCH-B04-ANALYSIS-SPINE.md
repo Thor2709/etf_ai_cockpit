@@ -1,5 +1,25 @@
 # B04 Analysis Spine
 
+## ISSUE-0019 current-main replacement rejected — 2026-09-04
+
+Both independent reviewers reject exact product head
+`cf54cd1154f7cb0b6fa4ec873f25093d170d32fe`. Preserve the 95-pass affected
+suite and the correctly repaired structured renderer, but do not integrate or
+run H certification. The complete product review found a P1 point-in-time
+violation in the new Factor-risk path: prices are bounded by the snapshot
+cutoff while fallback features and current holdings are passed unbounded to the
+producer. A private probe confirmed a feature dated after the historical
+cutoff reached the calculation. Numeric global factor availability can also be
+shown when the selected instrument has no factor rows.
+
+The current-main integration already consumed its bounded correction on the
+deterministic cross-platform renderer failure before paired review. Stop this
+replacement without another routine cycle, preserve the original PR and all
+evidence, and leave ISSUE-0019 unintegrated. A future separately authorised
+boundary must cutoff-bind every factor input or fail the numeric panel closed,
+and distinguish global report availability from selected-instrument coverage.
+No remote, Antigravity or execution authority changed.
+
 ## ISSUE-0019 renderer review handoff — 2026-09-04
 
 The bounded correction is complete in the page renderer and focused test file.
