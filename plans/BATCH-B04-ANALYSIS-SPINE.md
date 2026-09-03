@@ -2,6 +2,36 @@
 
 ## Local SEC product continuation — 2026-09-03
 
+Next dependent local component: preserve the actual fetched RawDocument through
+`AppState.fetch_sec_companyfacts` into `import_sec_companyfacts` and the
+canonical statement inventory. Current code drops the source URL and retrieval
+timestamp by passing only `document.path`. Isolated implementation branch
+`codex/sec-ingestion-provenance-20260903`, worktree
+`C:/dev/etf-sec-ingestion-20260903`, starts at frozen `7c21a73e927960bc2869a73d36fc72025a6ac616`.
+One implementer owns only those two AppState methods/necessary imports,
+`tests/test_sec_ingestion_provenance.py`, and implementation documentation
+`docs/architecture/sec-ingestion-provenance.md`. No other AppState symbols,
+UI facade, SFDR/trust page, reserved paths or shared test fixtures are writable.
+This is a component of UPDATEV2-0012, not whole-issue acceptance. Runtime
+metadata is now verifiable from the task-scoped app runtime records; effective
+host permissions are explicitly sandbox-disabled, not OS read-only confinement.
+Enforce role no-write/owned-write boundaries without changing configuration.
+
+Producer-consumer implementation is now complete locally. Root reviewed the
+finished diff and requested one docs/test-only correction: describe the actual
+inventory fields and independently cover checksum/path/CIK/status and
+mid-parse mutation rejection, including byte preservation of existing evidence.
+The corrected dedicated suite passes 14 tests in the pinned Python environment;
+19 provider, six parser/import and five cancellation/publication checks passed
+on unchanged applicable source. Ruff, compilation and diff hygiene pass.
+Freeze this four-file component for independent whole-diff and provenance-risk
+review. This does not close UPDATEV2-0012 or claim full bulk/resume acceptance.
+The prior component's two independent reviews accept `7c21a73e`; its Windows
+gate remains live and its exact-head Linux pinned environment is prepared.
+Do not conflate that older-head evidence with certification of this component.
+The earlier metadata blocker below is superseded by verified runtime records;
+no sandbox configuration, execution authority or financial gates were changed.
+
 UPDATEV2-0012 (P0, dependency-ready) has a bounded acquisition-provenance
 correction in `C:/dev/etf-sec-provenance-20260903`, branch
 `codex/sec-provenance-20260903`, from `fffb8e00dd17b214654d19228601d5a623146970`.
