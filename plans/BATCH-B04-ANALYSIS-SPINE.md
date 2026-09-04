@@ -46,6 +46,17 @@ snapshots and clears availability later than acquisition. Root's fresh complete
 existing Windows link-capability skip; Ruff, compileall and diff hygiene pass.
 Freeze one replacement head for fresh paired review before any H-tier gate.
 
+Replacement head `dc364aa66dbfef462ada7948b79ca4cb6ab5c8e6` is rejected by
+both final reviewers. The consolidated demonstrated set is: caller-authored
+documents can still claim official SEC acquisition authority; detached history
+can inherit an older parent acquisition time; local submissions rows can retain
+an `sec_edgar` source identity; absent `filings.files` can be reported complete;
+mutated local filing URLs can survive restart validation; the importer/documented
+206/304 boundary disagrees; and malformed caller mappings can escape controlled
+failure. Apply one bounded correction with direct adversarial regressions, then
+freeze one replacement head for paired review. Do not run H-tier gates on the
+rejected head, change lifecycle state, or broaden this component.
+
 Do not run H-tier gates or integrate until all focused cases pass and the stable
 complete diff receives independent whole-diff and provenance-risk acceptance.
 This train still does not close the full bulk/resumable/canonical-statements issue.
