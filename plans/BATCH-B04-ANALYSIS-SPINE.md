@@ -1,5 +1,22 @@
 # B04 Analysis Spine
 
+## SEC submissions parser current-main candidate — 2026-09-04
+
+UPDATEV2-0012 remains P0, dependency-ready and outside Antigravity's reserved
+queue. The bounded submissions-history parser from `5f2ccb98` is transplanted
+onto exact current main `bc9876c03b868a323da1d1f5904cad4e33375559` in
+`C:/dev/etf-sec-submissions-current-main-20260904`, branch
+`codex/sec-submissions-current-main-20260904`. The product candidate adds only
+the new parser, its dedicated tests and architecture note; the historical plan
+conflict was resolved in favour of current chronology and this checkpoint.
+
+Require focused current-main evidence and an independent whole-diff review
+before integration. This parser is one input to the remaining bulk/resumable
+SEC workflow and does not satisfy whole-issue acceptance by itself. Do not
+change canonical lifecycle state, Antigravity files, v5/custom-runner work,
+broker/provider write authority, release/deployment authority or
+`execution_allowed=false`.
+
 ## SEC current-main integration candidate — 2026-09-04
 
 The reviewed SEC provenance train at `e4c39c33404379ebe2512cbe94169fd62502f0b3`
