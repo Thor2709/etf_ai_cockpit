@@ -116,6 +116,20 @@ def test_invalid_or_missing_dates_remain_explicit_without_timestamp_guess(tmp_pa
     assert any(warning.code == "invalid_acceptance_timestamp" for warning in result.warnings)
 
 
+def test_missing_acceptance_column_retains_historical_row_as_unavailable(tmp_path: Path) -> None:
+    columns = _columns()
+    del columns["acceptanceDateTime"]
+    path = _write(tmp_path / "historical.json", _payload(columns))
+
+    result = parse_submissions(path, _identity())
+
+    assert result.success is True
+    assert len(result.records) == 1
+    assert result.records[0].accepted_at is None
+    assert result.records[0].available_at is None
+    assert any(warning.code == "missing_acceptance_timestamp" for warning in result.warnings)
+
+
 def test_wrong_cik_fails_closed(tmp_path: Path) -> None:
     path = _write(tmp_path / "submissions.json", _payload(_columns(), cik="0000000001"))
 
@@ -124,6 +138,18 @@ def test_wrong_cik_fails_closed(tmp_path: Path) -> None:
     assert result.success is False
     assert result.records == ()
     assert any(warning.code == "identity_mismatch" for warning in result.warnings)
+
+
+def test_mismatched_row_cik_is_not_stamped_with_expected_identity(tmp_path: Path) -> None:
+    columns = _columns()
+    columns["cik"] = ["0000000001"]
+    path = _write(tmp_path / "mixed.json", _payload(columns))
+
+    result = parse_submissions(path, _identity())
+
+    assert result.success is False
+    assert result.records == ()
+    assert any(warning.code == "row_identity_mismatch" for warning in result.warnings)
 
 
 def test_parallel_column_length_mismatch_fails_closed(tmp_path: Path) -> None:

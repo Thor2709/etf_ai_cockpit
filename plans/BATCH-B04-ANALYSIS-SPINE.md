@@ -17,6 +17,19 @@ change canonical lifecycle state, Antigravity files, v5/custom-runner work,
 broker/provider write authority, release/deployment authority or
 `execution_allowed=false`.
 
+The first independent current-main review rejected `c6b1c9a5`: missing
+`acceptanceDateTime` columns dropped historical rows, and bare historical
+column files lacked independently verifiable row-level issuer identity. The
+single focused correction now retains missing-time rows explicitly and rejects
+conflicting CIK fields. A proposed accession-prefix identity check was itself
+rejected by the unchanged official fixture: legitimate reporting-owner filings
+reduced the retained Microsoft feed from 1,004 records to 127. The valid
+corrected suite passes 25 tests and retains all 1,004 official rows. Keep this
+candidate unaccepted until the remaining history-file identity guarantee is
+bound through the acquisition/container contract; do not infer issuer identity
+from accession digits or legal display names. No H-tier gate or integration is
+authorised while this blocker remains.
+
 ## SEC current-main integration candidate — 2026-09-04
 
 The reviewed SEC provenance train at `e4c39c33404379ebe2512cbe94169fd62502f0b3`

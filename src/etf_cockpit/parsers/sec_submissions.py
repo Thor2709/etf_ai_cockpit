@@ -23,8 +23,9 @@ _REQUIRED_COLUMNS = (
     "filingDate",
     "reportDate",
     "primaryDocument",
-    "acceptanceDateTime",
 )
+_OPTIONAL_COLUMNS = ("acceptanceDateTime",)
+_ROW_CIK_COLUMNS = ("cik", "cik_str", "issuerCik", "issuer_cik", "issuerCIK")
 
 
 @dataclass(frozen=True)
@@ -75,14 +76,14 @@ def parse_submissions(
         return _failure(source_sha256, _warning("identity_missing", "SEC submissions requires a canonical identity CIK", "error"))
     if not isinstance(payload, dict):
         return _failure(source_sha256, _warning("schema_error", "SEC submissions root must be an object", "error"))
-    top_cik = _normalise_cik(payload.get("cik", payload.get("cik_str")))
-    if top_cik is None:
+    supplied_top_ciks = [payload[key] for key in ("cik", "cik_str") if key in payload]
+    normalised_top_ciks = {_normalise_cik(value) for value in supplied_top_ciks}
+    if not supplied_top_ciks or None in normalised_top_ciks:
         return _failure(source_sha256, _warning("identity_missing", "SEC submissions is missing a valid top-level CIK", "error"))
-    if top_cik != expected_cik:
-        return _failure(source_sha256, _warning("identity_mismatch", f"SEC CIK {top_cik} does not match requested identity", "error"))
+    if normalised_top_ciks != {expected_cik}:
+        return _failure(source_sha256, _warning("identity_mismatch", "SEC submissions top-level CIK does not match requested identity", "error"))
     if not isinstance(payload.get("name"), str) or not payload["name"].strip():
         return _failure(source_sha256, _warning("entity_invalid", "SEC submissions is missing a valid entity name", "error"))
-
     filings = payload.get("filings")
     if not isinstance(filings, dict):
         return _failure(source_sha256, _warning("schema_error", "SEC submissions filings object is missing", "error"))
@@ -160,15 +161,26 @@ def _validate_columns(columns: object, label: str, warnings: list[ParseWarning])
     if len(lengths) != 1:
         warnings.append(_warning("column_length_mismatch", f"SEC submissions {label} columns have different lengths", "error"))
         return None
-    return {str(key): value for key, value in columns.items()}
+    normalised = {str(key): value for key, value in columns.items()}
+    row_count = next(iter(lengths), 0)
+    for name in _OPTIONAL_COLUMNS:
+        if name not in normalised:
+            normalised[name] = [None] * row_count
+    return normalised
 
 
-def _history_columns(payload: object, name: str, expected_cik: str, warnings: list[ParseWarning]) -> dict[str, list[object]] | None:
+def _history_columns(
+    payload: object,
+    name: str,
+    expected_cik: str,
+    warnings: list[ParseWarning],
+) -> dict[str, list[object]] | None:
     if not isinstance(payload, dict):
         warnings.append(_warning("history_schema_error", f"SEC submissions history {name} must be an object"))
         return None
-    supplied_cik = payload.get("cik", payload.get("cik_str"))
-    if supplied_cik is not None and _normalise_cik(supplied_cik) != expected_cik:
+    supplied_ciks = [payload[key] for key in _ROW_CIK_COLUMNS if key in payload]
+    normalised_ciks = {_normalise_cik(value) for value in supplied_ciks}
+    if supplied_ciks and (None in normalised_ciks or normalised_ciks != {expected_cik}):
         warnings.append(_warning("history_identity_mismatch", f"SEC submissions history {name} does not match the requested CIK"))
         return None
     supplied_name = payload.get("name")
@@ -247,6 +259,11 @@ def _records_from_columns(
     result: list[SubmissionRecord] = []
     for index in range(count):
         raw_row = {key: values[index] for key, values in columns.items()}
+        row_ciks = [raw_row[key] for key in _ROW_CIK_COLUMNS if key in raw_row]
+        normalised_row_ciks = {_normalise_cik(value) for value in row_ciks}
+        if row_ciks and (None in normalised_row_ciks or normalised_row_ciks != {expected_cik}):
+            warnings.append(_warning("row_identity_mismatch", f"SEC submissions {source_label} row {index} does not match the requested CIK"))
+            continue
         accession = _text(raw_row.get("accessionNumber"))
         form = _text(raw_row.get("form"))
         if not accession or not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", accession) or not form:
