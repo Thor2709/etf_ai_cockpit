@@ -27,10 +27,24 @@ Successful `RawDocument` values retain the exact URL, aware acquisition time,
 full SHA-256, provider `sec_edgar`, dataset document type, `application/zip`
 media type, and actual HTTP status. A `304` revalidation reuses the prior
 artifact hash and acquisition timestamp rather than inventing a new time.
-Cache-only selection is explicit and reports unavailable when no validated
-artifact exists. No provider probe, background action, upload, broker write,
-or live execution is enabled; `execution_allowed` remains false at downstream
-boundaries.
+Cache-only selection is explicit, reads immutable objects without waiting on a
+live download, and reports unavailable when no strictly validated artifact
+exists. Partial state is generation-bound (dataset, exact URL, size, strong
+validator, byte count, and prefix hash), so a changed or tampered prefix cannot
+be spliced into a later response. Network reads happen outside publication
+authorization; each durable chunk/checkpoint and final promotion is guarded,
+fsynced, and cancellation-aware. No provider probe, background action, upload,
+broker write, or live execution is enabled; `execution_allowed` remains false
+at downstream boundaries.
+
+The bounded policy currently permits at most 2 GiB of archive bytes, 1,000,000
+members, and a 256 MiB central directory. The member ceiling has headroom over
+the 780,000+ submissions-member shape reported in this [SEC EDGAR issue
+comment](https://github.com/sec-edgar/sec-edgar/issues/257#issuecomment-1004777593);
+current nightly live sizes are not asserted. EOCD/ZIP64 metadata is checked
+before allocating the bounded member table. Validation covers structure, names,
+encryption, links, sizes, and compression ratios; member CRCs are not claimed
+until a downstream consumer reads the selected member.
 
 The SEC access references are the official [EDGAR API documentation](https://www.sec.gov/search-filings/edgar-application-programming-interfaces)
 and [EDGAR data access guidance](https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data).
