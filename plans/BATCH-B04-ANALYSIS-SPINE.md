@@ -1,5 +1,88 @@
 # B04 Analysis Spine
 
+## ISSUE-0026 Windows baseline-test correction — 2026-09-04
+
+The fresh Windows packaged retry at macro head
+`012441fcd6a515f8d9746ffe771071763cf0ed01` completed 4035 tests with two
+failures while every other mandatory check passed. The ISSUE-0014 workflow
+probe subsequently passes alone in 80.21 seconds and is classified as a
+full-suite load timeout. The remaining deterministic failure is the existing
+cache lifecycle ordering race described below. Integrate only its previously
+reviewed test synchronization correction on top of the unchanged macro product
+head, then require exact-head focused evidence, independent review and fresh
+serial Linux and Windows packaged gates. Do not change runner timeouts, product
+code, canonical status or execution authority.
+
+## SEC gate isolation checkpoint — 2026-09-03
+
+Frozen SEC ingestion head `eb1d73f03eea7c0d3b8e7fa2fdd507583bb77d79`
+remains under review and Linux packaged validation; current main is unchanged
+at `fffb8e00dd17b214654d19228601d5a623146970`. Parent `7c21a73e` Windows
+gate finished with one failure among 4029 tests (five skipped); package, smoke,
+parity and the remaining policy checks passed. No integration is authorised.
+The failed cache lifecycle test passes alone and reproduces the exact failure
+when run after `test_cache_cleanup_unavailable_is_failed_and_ui_uses_redacted_error`.
+A read-only diagnostician traced the predecessor ending before its background
+terminal refresh. These tests and their production paths are unchanged on main;
+the newly added SEC tests occur later in collection and had not run yet.
+
+The disjoint local branch `codex/sec-gate-isolation-20260903` at
+`C:/dev/etf-sec-gate-isolation-20260903` starts from the frozen ingestion head.
+Root owns one small test-only synchronization correction in
+`tests/test_issue_0012_progress.py`: retain all assertions and wait explicitly
+for the predecessor's terminal refresh before teardown. No production lifecycle,
+runner, timeout policy, reserved path or canonical status is changed. Focused
+reproduction, corrected-pair evidence and independent review are required before
+this correction joins the train. Older-head gates do not certify a changed head.
+UPDATEV2-0012 bulk/resume acceptance remains open; execution remains disabled.
+
+The corrected predecessor/target pair passes (two tests), with JUnit retained
+at `logs/sec-gate-pair-fixed.xml`; Ruff, compilation and diff hygiene pass.
+The original failure remains retained in the parent lane rather than retried
+away. Freeze the test/checkpoint change for independent whole-diff review.
+
+Combined macro/test head `9f1ac8a71ca1692153ad20758f383beec93742f6`
+preserves the reviewed test blob exactly (`8a9ee62f`) and passes the same
+predecessor/target pair at that head. JUnit is retained at
+`logs/issue0026-combined-cache-pair.xml`. The macro product paths are unchanged
+from accepted parent `012441fc`; exact-head review and both fresh packaged gates
+remain required before any integration or lifecycle action.
+
+## ISSUE-0026 current-main integration candidate — 2026-09-03
+
+PR710 remains open at protected product head
+ad13c4faabcf221429df45272947ef3be6edc3a4; hosted run33348993815 is terminal
+SUCCESS on Linux, Windows and validation-summary. The PR records paired
+approval, which an independent release verifier is auditing. No old review or
+gate claim alone authorises current-main acceptance or lifecycle completion.
+
+ISSUE-0026 is mechanically ready/activation-ready with no blocking inputs.
+Root prepared a clean, isolated integration of that existing product history
+with exact fetched mainfffb8e00dd17b214654d19228601d5a623146970 in
+C:\dev\etf-macro-integration-20260903, branch
+codex/issue0026-integration-20260903. Main advanced only through approved
+informational-note repair708 since PR base73835d8f; its eight changed paths
+do not overlap the four macro product paths. Merge-tree090ac6c5d7b303a17702b66ff86a88ce820c2386
+is conflict-free. The original product commits and all four macro blobs are
+preserved, not recreated. The original PR and original workspace are untouched.
+
+Changed current-main policy/source identities mean the older successful run is
+not claimed as a fresh certificate for this integration head. Freeze the local
+candidate, obtain paired exact-head review and required fresh serial H gates
+through the unchanged workflow. Keep canonical ISSUE-0026 implemented_initially
+until the complete accepted-product/lifecycle authority package is legal and
+verified; no premature closure or remote mutation. The PR's documented
+generation-base ancestry requirement remains in force.
+
+This is the sole immutable integration lane. Parallel ISSUE-0036 mapping
+correction and portable-backup regression work use disjoint files and runtime
+roots. Macro ownership is app/pages/macro_factors.py,
+application/macro_context.py, tests/test_macro_factors_ui.py and its existing
+architecture doc only; there is no new product writer or unrelated expansion.
+Root alone owns Git, chronology, canonical/generated state and eventual PR
+updates. AGY96reserved/26frozen boundaries and all other PRs are unchanged.
+execution_allowed=false, financial/PIT gates and local-first remain mandatory.
+
 The durable active objective, protected boundaries and exact continuation
 checkpoint are maintained in `plans/ACTIVE_CODEX_GOAL.md`; read it before
 continuing this batch.

@@ -849,6 +849,15 @@ def test_normal_return_unavailable_results_are_failed_activities(action_kind, tm
 
 def test_cache_cleanup_unavailable_is_failed_and_ui_uses_redacted_error(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "cache.jsonl")
+    terminal_refresh = threading.Event()
+    refresh_activity_shell = jobs_page_module._refresh_activity_shell
+
+    def refresh_and_signal(page, state) -> None:
+        refresh_activity_shell(page, state)
+        if state.current_activity is None:
+            terminal_refresh.set()
+
+    monkeypatch.setattr(jobs_page_module, "_refresh_activity_shell", refresh_and_signal)
     monkeypatch.setattr(
         jobs_page_module,
         "generated_cache_cleanup",
@@ -868,6 +877,9 @@ def test_cache_cleanup_unavailable_is_failed_and_ui_uses_redacted_error(tmp_path
     while state.current_activity is not None and time.time() < deadline:
         time.sleep(0.01)
 
+    # Activity completion precedes the worker's final UI callback. Do not let
+    # that callback escape into the next test's monkeypatched module globals.
+    assert terminal_refresh.wait(2)
     assert state.recent_activity[-1].status == "failed"
     assert "raw-cache-secret" not in " ".join(_texts(control))
     assert "***redacted***" in " ".join(_texts(control))
