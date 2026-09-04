@@ -41,6 +41,13 @@ at `logs/sec-gate-pair-fixed.xml`; Ruff, compilation and diff hygiene pass.
 The original failure remains retained in the parent lane rather than retried
 away. Freeze the test/checkpoint change for independent whole-diff review.
 
+Combined macro/test head `9f1ac8a71ca1692153ad20758f383beec93742f6`
+preserves the reviewed test blob exactly (`8a9ee62f`) and passes the same
+predecessor/target pair at that head. JUnit is retained at
+`logs/issue0026-combined-cache-pair.xml`. The macro product paths are unchanged
+from accepted parent `012441fc`; exact-head review and both fresh packaged gates
+remain required before any integration or lifecycle action.
+
 ## ISSUE-0026 current-main integration candidate — 2026-09-03
 
 PR710 remains open at protected product head
