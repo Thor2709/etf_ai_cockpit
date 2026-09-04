@@ -70,6 +70,26 @@ and provenance selection, Ruff, compileall and diff hygiene pass. Freeze the
 replacement commit for fresh paired whole-diff and provenance-risk review before
 running any H-tier gate.
 
+Paired review rejects replacement `60698f644c0b5266e088101880d028b0d8251d92`.
+The repeated authority-failure fingerprint is a caller-writable path plus
+predictable JSON sidecar being treated as provider acquisition evidence; a
+caller can recompute every checked field and obtain `sec_edgar` authority, while
+HTTP 200/206/304 lineage is not bound. This is the second failure of the same
+metadata-matching approach, so stop it rather than extending sidecar checks.
+The independent Windows-supported Python 3.13 run also rejects a valid adjacent
+ZIP64 archive because private `zipfile._EndRecData` location semantics changed,
+and review found that the acceptance-after-acquisition regression was weakened
+instead of preserved. No packaged gate or integration is authorised.
+
+Use a materially different bounded repair: only an opaque provider-issued
+acquisition capability may carry official authority through the importer; plain
+paths, public `RawDocument` values and manifests remain local/manual and cannot
+elevate authority. Replay must return through the provider boundary. Replace the
+private ZIP parser dependency with bounded APPNOTE EOCD/ZIP64 structure handling
+that is compatible with supported Python 3.11--3.13, and restore direct PIT
+coverage. Require focused 3.12 and 3.13 evidence plus fresh paired exact-head
+review before H-tier gates.
+
 Do not run H-tier gates or integrate until all focused cases pass and the stable
 complete diff receives independent whole-diff and provenance-risk acceptance.
 This train still does not close the full bulk/resumable/canonical-statements issue.
