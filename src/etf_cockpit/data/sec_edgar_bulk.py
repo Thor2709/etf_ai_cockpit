@@ -10,6 +10,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
+from http.client import IncompleteRead
 import io
 import json
 import os
@@ -29,7 +30,7 @@ from etf_cockpit.parsers.contracts import RawDocument
 
 COMPANYFACTS_BULK_URL = "https://www.sec.gov/Archives/edgar/daily-index/xbrl/companyfacts.zip"
 SUBMISSIONS_BULK_URL = "https://www.sec.gov/Archives/edgar/daily-index/bulkdata/submissions.zip"
-MAX_BULK_BYTES = 2 * 1024 * 1024 * 1024
+MAX_BULK_BYTES = 8 * 1024 * 1024 * 1024
 # The SEC has historically published more than 780,000 submissions JSON
 # members.  Keep a bounded ceiling with headroom for that known shape while
 # rejecting pathological central directories before ZipInfo allocation.
@@ -37,8 +38,20 @@ MAX_BULK_MEMBERS = 1_000_000
 MAX_CENTRAL_DIRECTORY_BYTES = 256 * 1024 * 1024
 MAX_BULK_COMPRESSION_RATIO = 200.0
 _CHUNK_BYTES = 1024 * 1024
-_EOCD_SCAN_BYTES = 8 * 1024 * 1024
+_MAX_METADATA_BYTES = 64 * 1024
 _PARTIAL_SCHEMA_VERSION = 2
+# Explicit local resource policy, not a claim about current SEC archive sizes.
+# Companyfacts matches the canonical local importer's existing 8 GiB ceiling;
+# submissions has separate directory/member headroom for its all-filer history.
+_DATASET_LIMITS = {
+    "companyfacts": (8 * 1024**3, 50_000, 32 * 1024**2),
+    "submissions": (8 * 1024**3, 1_000_000, 256 * 1024**2),
+}
+
+
+def _dataset_limits(dataset: str) -> tuple[int, int, int]:
+    byte_limit, members, directory_bytes = _DATASET_LIMITS[dataset]
+    return min(byte_limit, MAX_BULK_BYTES), min(members, MAX_BULK_MEMBERS), min(directory_bytes, MAX_CENTRAL_DIRECTORY_BYTES)
 
 
 class SecEdgarBulkError(RuntimeError):
@@ -148,7 +161,9 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
             finally:
                 response.close()
             payload_sha = _sha256_file(paths["part"])
-            _validate_zip(paths["part"])
+            if total is not None and paths["part"].stat().st_size != total:
+                raise SecEdgarBulkUnavailable("SEC bulk resource is not complete")
+            _validate_zip(paths["part"], dataset)
             final = paths["objects"] / f"{payload_sha}.zip"
             _publish_artifact(paths["part"], final, paths["part_meta"], publish_guard, paths["objects"])
             acquired_at = datetime.now(timezone.utc)
@@ -181,7 +196,7 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
             if attempt >= int(provider.max_retries):
                 raise
             provider._sleep(min(2.0, 0.25 * (2**attempt)))
-        except (OSError, IOError, TimeoutError, ValueError, TypeError, zipfile.BadZipFile) as exc:
+        except (OSError, IOError, TimeoutError, IncompleteRead, ValueError, TypeError, zipfile.BadZipFile) as exc:
             last_error = exc
             if attempt >= int(provider.max_retries):
                 raise SecEdgarBulkUnavailable(f"SEC bulk acquisition failed after {attempt + 1} attempt(s)") from exc
@@ -223,10 +238,13 @@ def _stream_response(
     """Read network bytes without the publication lock and checkpoint each write."""
 
     validator = _strong_validator(_header(headers, "etag"))
+    byte_limit, _, _ = _dataset_limits(dataset)
     if append and validator is None:
         raise SecEdgarBulkResumeError("resumed response does not repeat a strong ETag")
     if expected_length is not None and expected_length < 0:
         raise SecEdgarBulkUnavailable("SEC bulk response length is invalid")
+    if total is not None and total > byte_limit:
+        raise SecEdgarBulkUnavailable("SEC bulk declared size exceeds the dataset byte limit")
 
     if append:
         if generation is None:
@@ -261,10 +279,15 @@ def _stream_response(
             exception_partial = getattr(exc, "partial", None)
             if isinstance(exception_partial, (bytes, bytearray)) and exception_partial:
                 candidate = bytes(exception_partial)
-                if streamed + len(candidate) <= MAX_BULK_BYTES and (total is None or streamed + len(candidate) <= total):
+                if (
+                    streamed + len(candidate) <= byte_limit
+                    and (total is None or streamed + len(candidate) <= total)
+                    and (expected_length is None or received + len(candidate) <= expected_length)
+                ):
                     with publication_scope(publish_guard):
                         _append_chunk(paths, candidate)
                         streamed += len(candidate)
+                        received += len(candidate)
                         digest.update(candidate)
             _checkpoint_partial(paths, dataset, source_url, streamed, total, validator, generation, digest.hexdigest(), publish_guard)
             raise
@@ -275,7 +298,7 @@ def _stream_response(
             raise TypeError("SEC bulk response returned a non-bytes chunk")
         chunk_bytes = bytes(chunk)
         next_size = streamed + len(chunk_bytes)
-        if next_size > MAX_BULK_BYTES or (total is not None and next_size > total):
+        if next_size > byte_limit or (total is not None and next_size > total):
             _checkpoint_partial(paths, dataset, source_url, streamed, total, validator, generation, digest.hexdigest(), publish_guard)
             raise SecEdgarBulkUnavailable("SEC bulk response exceeds its bounded byte limit")
         if expected_length is not None and received + len(chunk_bytes) > expected_length:
@@ -297,7 +320,7 @@ def _stream_response(
                 _write_partial_file(paths, dataset, source_url, actual, total, validator, generation, actual_sha)
             raise
 
-    if expected_length is not None and received != expected_length:
+    if (expected_length is not None and received != expected_length) or (total is not None and streamed != total):
         with publication_scope(publish_guard):
             _checkpoint_partial_file(paths, dataset, source_url, streamed, total, validator, generation, digest.hexdigest())
         raise SecEdgarBulkUnavailable("SEC bulk response was truncated")
@@ -395,7 +418,7 @@ def _result(path: Path, url: str, metadata: dict[str, object], status: int, data
         raise SecEdgarBulkUnavailable("cached SEC bulk acquisition time is invalid") from exc
     if retrieved.tzinfo is None or retrieved.utcoffset() is None:
         raise SecEdgarBulkUnavailable("cached SEC bulk acquisition time is not timezone-aware")
-    _validate_zip(path)
+    _validate_zip(path, dataset)
     return RawDocument(path, url, retrieved, str(metadata["sha256"]), "sec_edgar", f"sec_{dataset}_bulk", "application/zip", status)
 
 
@@ -407,7 +430,8 @@ def _metadata_artifact(metadata: dict[str, object], paths: dict[str, Path], url:
     if set(metadata) != required:
         return None
     if (
-        metadata.get("schema_version") != 2
+        type(metadata.get("schema_version")) is not int
+        or metadata.get("schema_version") != 2
         or metadata.get("dataset") != paths["objects"].name
         or metadata.get("source_url") != url
         or metadata.get("complete") is not True
@@ -417,7 +441,7 @@ def _metadata_artifact(metadata: dict[str, object], paths: dict[str, Path], url:
     if isinstance(status, bool) or not isinstance(status, int) or status not in {200, 206}:
         return None
     size = metadata.get("bytes")
-    if isinstance(size, bool) or not isinstance(size, int) or size <= 0 or size > MAX_BULK_BYTES:
+    if isinstance(size, bool) or not isinstance(size, int) or size <= 0 or size > _dataset_limits(paths["objects"].name)[0]:
         return None
     sha256 = metadata.get("sha256")
     if not isinstance(sha256, str) or re.fullmatch(r"[0-9a-f]{64}", sha256) is None:
@@ -526,21 +550,31 @@ def _read_json(path: Path) -> dict[str, object]:
     try:
         if path.is_symlink() or _is_reparse(path):
             raise SecEdgarBulkUnavailable("SEC bulk metadata path is a link")
-        payload = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        if not path.is_file() or path.stat().st_size > _MAX_METADATA_BYTES:
+            return {}
+        with path.open("rb") as handle:
+            raw = handle.read(_MAX_METADATA_BYTES + 1)
+        if len(raw) > _MAX_METADATA_BYTES:
+            return {}
+        payload = json.loads(raw)
         return payload if isinstance(payload, dict) else {}
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+    except (OSError, ValueError, TypeError, RecursionError):
         return {}
 
 
 def _partial_state(paths: dict[str, Path], expected_url: str | None = None, expected_dataset: str | None = None) -> dict[str, object]:
     state = _read_json(paths["part_meta"])
+    byte_limit, _, _ = _dataset_limits(paths["objects"].name)
+    required = {"schema_version", "dataset", "source_url", "bytes", "total", "validator", "generation", "prefix_sha256", "complete"}
+    if set(state) != required or (paths["part"].is_file() and paths["part"].stat().st_size > byte_limit):
+        return {}
     if not paths["part"].is_file() or state.get("bytes") != paths["part"].stat().st_size:
         return {}
     if expected_url is not None and state.get("source_url") != expected_url:
         return {}
     if expected_dataset is not None and state.get("dataset") != expected_dataset:
         return {}
-    if state.get("schema_version") != _PARTIAL_SCHEMA_VERSION:
+    if type(state.get("schema_version")) is not int or state.get("schema_version") != _PARTIAL_SCHEMA_VERSION:
         return {}
     if state.get("complete") is not False:
         return {}
@@ -548,14 +582,14 @@ def _partial_state(paths: dict[str, Path], expected_url: str | None = None, expe
     if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
         return {}
     total = state.get("total")
-    if total is not None and (isinstance(total, bool) or not isinstance(total, int) or total < offset):
+    if total is not None and (isinstance(total, bool) or not isinstance(total, int) or total < offset or total > byte_limit):
         return {}
     validator = state.get("validator")
     if validator is not None and validator != "" and _strong_validator(validator) is None:
         return {}
     generation = state.get("generation")
     prefix_sha256 = state.get("prefix_sha256")
-    if not isinstance(generation, str) or not generation or not isinstance(prefix_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", prefix_sha256):
+    if not isinstance(generation, str) or not re.fullmatch(r"[0-9a-f]{32}", generation) or not isinstance(prefix_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", prefix_sha256):
         return {}
     if _sha256_file(paths["part"]) != prefix_sha256:
         return {}
@@ -580,12 +614,13 @@ def _write_partial_file(
     atomic_write_json(paths["part_meta"], payload)
 
 
-def _validate_zip(path: Path) -> None:
+def _validate_zip(path: Path, dataset: str) -> None:
     try:
-        _validate_zip_container(path)
+        byte_limit, member_limit, _ = _dataset_limits(dataset)
+        _validate_zip_container(path, dataset)
         with zipfile.ZipFile(path) as archive:
             members = archive.infolist()
-            if len(members) > MAX_BULK_MEMBERS:
+            if len(members) > member_limit:
                 raise SecEdgarBulkUnavailable("SEC bulk ZIP central directory is too large")
             compressed_total = 0
             names: set[str] = set()
@@ -599,7 +634,7 @@ def _validate_zip(path: Path) -> None:
                 if member.compress_size and member.file_size / member.compress_size > MAX_BULK_COMPRESSION_RATIO:
                     raise SecEdgarBulkUnavailable("SEC bulk ZIP compression ratio is unsafe")
                 compressed_total += member.compress_size
-                if compressed_total > MAX_BULK_BYTES:
+                if compressed_total > byte_limit:
                     raise SecEdgarBulkUnavailable("SEC bulk ZIP compressed bytes exceed the bound")
                 names.add(name)
     except SecEdgarBulkUnavailable:
@@ -610,57 +645,65 @@ def _validate_zip(path: Path) -> None:
         raise SecEdgarBulkUnavailable("SEC bulk ZIP structure could not be validated") from exc
 
 
-def _validate_zip_container(path: Path) -> None:
-    """Bound EOCD/ZIP64 metadata before asking ZipFile for all members."""
+def _validate_zip_container(path: Path, dataset: str) -> None:
+    """Bound the exact directory selected by the pinned stdlib ZIP reader.
 
+    _EndRecData reads only the bounded EOCD/comment and adjacent ZIP64 records,
+    not the member table. Reuse that selection so preflight cannot inspect a
+    different ZIP64 record than ZipFile. Count actual records with fixed-size
+    reads before allowing ZipFile to allocate its bounded table.
+    """
+
+    byte_limit, member_limit, directory_limit = _dataset_limits(dataset)
     file_size = path.stat().st_size
-    if file_size < 22:
-        raise SecEdgarBulkUnavailable("SEC bulk ZIP is smaller than its EOCD")
-    scan_size = min(file_size, _EOCD_SCAN_BYTES)
+    if not 22 <= file_size <= byte_limit:
+        raise SecEdgarBulkUnavailable("SEC bulk ZIP size is outside its bound")
     with path.open("rb") as handle:
-        handle.seek(file_size - scan_size)
-        tail = handle.read(scan_size)
-    eocd = -1
-    search_end = len(tail)
-    while True:
-        candidate = tail.rfind(b"PK\x05\x06", 0, search_end)
-        if candidate < 0 or candidate + 22 > len(tail):
-            break
-        comment_length = struct.unpack_from("<H", tail, candidate + 20)[0]
-        if candidate + 22 + comment_length == len(tail):
-            eocd = candidate
-            break
-        search_end = candidate
-    if eocd < 0:
+        end = getattr(zipfile, "_EndRecData")(handle)
+    if not isinstance(end, list) or len(end) != 10:
         raise SecEdgarBulkUnavailable("SEC bulk ZIP EOCD is missing or malformed")
-    disk, central_disk, entries_disk, entries, central_size, central_offset = struct.unpack_from(
-        "<HHHHII", tail, eocd + 4
-    )
+    signature, disk, central_disk, entries_disk, entries, central_size, central_offset, comment_size, comment, location = end
     if disk != 0 or central_disk != 0 or entries_disk != entries:
         raise SecEdgarBulkUnavailable("SEC bulk ZIP is multi-disk")
-    if entries == 0xFFFF or central_size == 0xFFFFFFFF or central_offset == 0xFFFFFFFF:
-        locator = tail.rfind(b"PK\x06\x07", 0, eocd)
-        if locator < 0 or locator + 20 > len(tail):
-            raise SecEdgarBulkUnavailable("SEC ZIP64 locator is missing")
-        locator_disk, zip64_offset, total_disks = struct.unpack_from("<IQI", tail, locator + 4)
-        if locator_disk != 0 or total_disks != 1:
-            raise SecEdgarBulkUnavailable("SEC ZIP64 is multi-disk")
-        record = _read_at(path, zip64_offset, 56)
-        if record[:4] != b"PK\x06\x06":
-            raise SecEdgarBulkUnavailable("SEC ZIP64 EOCD is malformed")
-        record_size = struct.unpack_from("<Q", record, 4)[0]
-        if record_size < 44:
-            raise SecEdgarBulkUnavailable("SEC ZIP64 EOCD size is invalid")
-        _, _, disk, central_disk, entries_disk64, entries64, central_size64, central_offset64 = struct.unpack_from(
-            "<2H2I4Q", record, 12
-        )
-        if disk != 0 or central_disk != 0 or entries_disk64 != entries64:
-            raise SecEdgarBulkUnavailable("SEC ZIP64 is multi-disk")
-        entries, central_size, central_offset = entries64, central_size64, central_offset64
-    if entries > MAX_BULK_MEMBERS:
-        raise SecEdgarBulkUnavailable("SEC bulk ZIP central directory is too large")
-    if central_size > MAX_CENTRAL_DIRECTORY_BYTES or central_offset > file_size or central_size > file_size - central_offset:
+    if location + 22 + comment_size != file_size or len(comment) != comment_size:
+        raise SecEdgarBulkUnavailable("SEC bulk ZIP EOCD comment is malformed")
+    if entries > member_limit or central_size > directory_limit:
         raise SecEdgarBulkUnavailable("SEC bulk ZIP central directory exceeds its bound")
+    is_zip64 = signature == b"PK\x06\x06"
+    directory_end = location - (76 if is_zip64 else 0)
+    directory_start = directory_end - central_size
+    concat = directory_start - central_offset
+    if directory_start < 0 or concat < 0:
+        raise SecEdgarBulkUnavailable("SEC bulk ZIP central directory offset is invalid")
+    if is_zip64:
+        record = _read_at(path, location - 76, 56)
+        locator = _read_at(path, location - 20, 20)
+        locator_disk, relative_offset, disks = struct.unpack_from("<IQI", locator, 4)
+        if (
+            locator[:4] != b"PK\x06\x07" or record[:4] != b"PK\x06\x06"
+            or struct.unpack_from("<Q", record, 4)[0] != 44
+            or locator_disk != 0 or disks != 1
+            or relative_offset + concat != location - 76
+        ):
+            raise SecEdgarBulkUnavailable("SEC ZIP64 adjacent records are inconsistent")
+    consumed = 0
+    actual_entries = 0
+    with path.open("rb") as handle:
+        handle.seek(directory_start)
+        while consumed < central_size:
+            if central_size - consumed < 46:
+                raise SecEdgarBulkUnavailable("SEC ZIP central directory is truncated")
+            header = handle.read(46)
+            if len(header) != 46 or header[:4] != b"PK\x01\x02":
+                raise SecEdgarBulkUnavailable("SEC ZIP central directory record is invalid")
+            record_size = 46 + sum(struct.unpack_from("<3H", header, 28))
+            consumed += record_size
+            actual_entries += 1
+            if consumed > central_size or actual_entries > member_limit or actual_entries > entries:
+                raise SecEdgarBulkUnavailable("SEC ZIP central directory records exceed declared bounds")
+            handle.seek(record_size - 46, os.SEEK_CUR)
+    if actual_entries != entries:
+        raise SecEdgarBulkUnavailable("SEC ZIP central directory count is inconsistent")
 
 
 def _read_at(path: Path, offset: int, length: int) -> bytes:

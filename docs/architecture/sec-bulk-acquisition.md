@@ -17,7 +17,11 @@ does not replace the last good artifact.
 Partial bytes are retained in a confined SEC namespace for a later explicit
 retry. A retry sends `Range` and `If-Range` only when a strong stable ETag and
 an exact stored offset are available. A `206` must repeat that ETag and provide
-an exact `Content-Range`; mismatches fail closed without splicing. A `200`
+an exact `Content-Range`; mismatches fail closed without splicing. A valid
+shorter range remains a resumable prefix: publication requires the complete
+resource length, even when the prefix itself happens to be a valid ZIP.
+Supported interrupted reads use the configured bounded retry allowance and
+retain only exception bytes within the declared response span. A `200`
 response safely restarts from byte zero, including when a server ignores or
 does not support ranges. Resumed artifacts preserve honest HTTP 206 provenance;
 the current canonical local ZIP importer accepts only validated HTTP 200
@@ -27,6 +31,8 @@ Successful `RawDocument` values retain the exact URL, aware acquisition time,
 full SHA-256, provider `sec_edgar`, dataset document type, `application/zip`
 media type, and actual HTTP status. A `304` revalidation reuses the prior
 artifact hash and acquisition timestamp rather than inventing a new time.
+Both ordinary responses and HTTP-error304 responses retain their effective
+URL for the same exact-endpoint check; redirected responses are not admitted.
 Cache-only selection is explicit, reads immutable objects without waiting on a
 live download, and reports unavailable when no strictly validated artifact
 exists. Partial state is generation-bound (dataset, exact URL, size, strong
@@ -37,12 +43,31 @@ fsynced, and cancellation-aware. No provider probe, background action, upload,
 broker write, or live execution is enabled; `execution_allowed` remains false
 at downstream boundaries.
 
-The bounded policy currently permits at most 2 GiB of archive bytes, 1,000,000
-members, and a 256 MiB central directory. The member ceiling has headroom over
+The explicit per-dataset local resource policy is:
+
+| Dataset | Archive bytes | Members | Central-directory bytes |
+| --- | ---: | ---: | ---: |
+| Companyfacts | 8 GiB | 50,000 | 32 MiB |
+| Submissions | 8 GiB | 1,000,000 | 256 MiB |
+
+Companyfacts uses the existing canonical local importer's8GiB archive ceiling;
+submissions has separate directory/member headroom. These are bounded product
+resource policies, not measurements or guarantees about today's archives.
+Declared over-limit downloads fail before streaming; local cache/imports stay
+available. The submissions member ceiling has headroom over
 the 780,000+ submissions-member shape reported in this [SEC EDGAR issue
 comment](https://github.com/sec-edgar/sec-edgar/issues/257#issuecomment-1004777593);
-current nightly live sizes are not asserted. EOCD/ZIP64 metadata is checked
-before allocating the bounded member table. Validation covers structure, names,
+current nightly live sizes are not asserted. Complete and partial sidecar reads
+are capped at64KiB before JSON parsing, with malformed/deeply nested data failing
+closed; oversized partials are rejected before hashing.
+
+EOCD selection deliberately uses the pinned Python standard-library reader's
+bounded `_EndRecData` helper, including its adjacent-ZIP64 and concatenation
+semantics. The selected adjacent records and actual central-directory record
+count/byte spans are checked with fixed-size reads before `ZipFile` may allocate
+its bounded member table. The compatibility regressions cover ordinary EOCD,
+ZIP64 without sentinels, inconsistent declarations, and preallocation limits.
+Validation covers structure, names,
 encryption, links, sizes, and compression ratios; member CRCs are not claimed
 until a downstream consumer reads the selected member.
 

@@ -3,9 +3,12 @@ from __future__ import annotations
 import hashlib
 from contextlib import contextmanager
 import http.client
+from io import BytesIO
 import json
 from pathlib import Path
+import struct
 import threading
+from urllib.error import HTTPError
 import zipfile
 
 import pytest
@@ -427,3 +430,157 @@ def test_concurrent_same_dataset_calls_are_guarded(tmp_path: Path) -> None:
         worker.join()
     assert errors == []
     assert len(results) == 2
+
+
+def test_short_206_retains_prefix_until_whole_resource_arrives(tmp_path: Path) -> None:
+    prefix = _zip_bytes()
+    payload = prefix + prefix
+    offset = 7
+    provider, calls = _provider(tmp_path, [
+        Response(payload[:offset], headers={"ETag": '"stable"', "Content-Length": str(len(payload))}),
+        Response(payload[offset:len(prefix)], 206, {"ETag": '"stable"', "Content-Range": f"bytes {offset}-{len(prefix)-1}/{len(payload)}"}),
+        Response(payload[len(prefix):], 206, {"ETag": '"stable"', "Content-Range": f"bytes {len(prefix)}-{len(payload)-1}/{len(payload)}"}),
+    ], max_retries=0)
+    with pytest.raises(SecEdgarBulkUnavailable):
+        provider.fetch_companyfacts_bulk()
+    with pytest.raises(SecEdgarBulkUnavailable, match="truncated"):
+        provider.fetch_companyfacts_bulk()
+    root = tmp_path / "sec_edgar_bulk"
+    assert not (root / "companyfacts.meta.json").exists()
+    assert not list((root / "objects/companyfacts").glob("*.zip"))
+    assert (root / "partials/companyfacts.part").read_bytes() == prefix
+    complete = provider.fetch_companyfacts_bulk()
+    assert calls[-1][1]["Range"] == f"bytes={len(prefix)}-"
+    assert complete.path.read_bytes() == payload
+    assert json.loads((root / "companyfacts.meta.json").read_text())["bytes"] == len(payload)
+
+
+def test_incomplete_read_retries_with_verified_exception_prefix(tmp_path: Path) -> None:
+    payload = _zip_bytes()
+
+    class Interrupted(Response):
+        def read(self, size: int = -1) -> bytes:
+            if self.offset:
+                raise http.client.IncompleteRead(payload[7:14], len(payload) - 14)
+            return super().read(size)
+
+    provider, calls = _provider(tmp_path, [
+        Interrupted(payload, headers={"ETag": '"stable"', "Content-Length": str(len(payload))}),
+        Response(payload[14:], 206, {"ETag": '"stable"', "Content-Range": f"bytes 14-{len(payload)-1}/{len(payload)}"}),
+    ], max_retries=1, sleep=lambda _delay: None)
+    result = provider.fetch_companyfacts_bulk()
+    assert len(calls) == 2
+    assert calls[1][1]["Range"] == "bytes=14-"
+    assert result.http_status == 206
+    assert result.path.read_bytes() == payload
+
+
+def test_incomplete_read_exception_cannot_overrun_206_span(tmp_path: Path) -> None:
+    payload = _zip_bytes()
+    provider, _ = _provider(tmp_path, [Response(payload[:7], headers={"ETag": '"stable"', "Content-Length": str(len(payload))})], max_retries=0)
+    with pytest.raises(SecEdgarBulkUnavailable):
+        provider.fetch_companyfacts_bulk()
+
+    class Interrupted(Response):
+        def read(self, size: int = -1) -> bytes:
+            raise http.client.IncompleteRead(payload[7:14], 0)
+
+    provider.transport = lambda _url, _headers: Interrupted(b"", 206, {"ETag": '"stable"', "Content-Range": f"bytes 7-8/{len(payload)}"})
+    with pytest.raises(SecEdgarBulkUnavailable):
+        provider.fetch_companyfacts_bulk()
+    assert (tmp_path / "sec_edgar_bulk/partials/companyfacts.part").read_bytes() == payload[:7]
+
+
+@pytest.mark.parametrize("final_url", [COMPANYFACTS_BULK_URL, "https://mirror.invalid/companyfacts.zip"])
+def test_real_http_error_304_preserves_endpoint_identity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, final_url: str) -> None:
+    provider, _ = _provider(tmp_path, [Response(_zip_bytes(), headers={"ETag": '"stable"'})], max_retries=0)
+    original = provider.fetch_companyfacts_bulk()
+    provider.transport = None
+
+    def revalidation(_request, **_kwargs):
+        raise HTTPError(final_url, 304, "not modified", {}, BytesIO(b""))
+
+    monkeypatch.setattr("etf_cockpit.data.sec_edgar_provider.urlopen", revalidation)
+    if final_url != COMPANYFACTS_BULK_URL:
+        with pytest.raises(SecEdgarBulkUnavailable, match="redirect"):
+            provider.fetch_companyfacts_bulk()
+    else:
+        cached = provider.fetch_companyfacts_bulk()
+        assert cached.http_status == 304
+        assert cached.retrieved_at == original.retrieved_at
+
+
+@pytest.mark.parametrize("payload", [b"x" * (64 * 1024 + 1), b"[" * 2000 + b"0" + b"]" * 2000], ids=["oversized", "deeply-nested"])
+def test_metadata_size_and_recursion_fail_closed(tmp_path: Path, payload: bytes) -> None:
+    from etf_cockpit.data import sec_edgar_bulk as bulk
+
+    path = tmp_path / "metadata.json"
+    path.write_bytes(payload)
+    assert bulk._read_json(path) == {}
+
+
+def test_oversized_partial_rejects_before_hashing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from etf_cockpit.data import sec_edgar_bulk as bulk
+
+    payload = _zip_bytes()
+    provider, _ = _provider(tmp_path, [Response(payload[:7], headers={"ETag": '"stable"', "Content-Length": str(len(payload))})], max_retries=0)
+    with pytest.raises(SecEdgarBulkUnavailable):
+        provider.fetch_companyfacts_bulk()
+    monkeypatch.setattr(bulk, "MAX_BULK_BYTES", 6)
+    monkeypatch.setattr(bulk, "_sha256_file", lambda _path: pytest.fail("oversized partial was hashed"))
+    assert bulk._partial_state(bulk._paths(tmp_path / "sec_edgar_bulk", "companyfacts"), COMPANYFACTS_BULK_URL, "companyfacts") == {}
+
+
+def _zip64_bytes(*, misleading_eocd: bool = False) -> bytes:
+    output = BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("CIK0000000001.json", b"{}")
+        archive.writestr("CIK0000000002.json", b"{}")
+    payload = output.getvalue()
+    eocd = bytearray(payload[-22:])
+    size, offset = struct.unpack_from("<II", eocd, 12)
+    record = struct.pack("<4sQ2H2I4Q", b"PK\x06\x06", 44, 45, 45, 0, 0, 2, 2, size, offset)
+    locator = struct.pack("<4sIQI", b"PK\x06\x07", 0, len(payload) - 22, 1)
+    if misleading_eocd:
+        struct.pack_into("<HHII", eocd, 8, 1, 1, 0, offset)
+    return payload[:-22] + record + locator + eocd
+
+
+def test_valid_adjacent_zip64_without_sentinels_is_supported(tmp_path: Path) -> None:
+    payload = _zip64_bytes()
+    provider, _ = _provider(tmp_path, [Response(payload)], max_retries=0)
+    assert provider.fetch_companyfacts_bulk().path.read_bytes() == payload
+
+
+@pytest.mark.parametrize("limit", ["MAX_BULK_MEMBERS", "MAX_CENTRAL_DIRECTORY_BYTES"])
+def test_actual_adjacent_zip64_is_bounded_before_zipfile_allocation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, limit: str) -> None:
+    from etf_cockpit.data import sec_edgar_bulk as bulk
+
+    payload = _zip64_bytes(misleading_eocd=True)
+    monkeypatch.setattr(bulk, limit, 1)
+    monkeypatch.setattr(bulk.zipfile, "ZipFile", lambda *_args, **_kwargs: pytest.fail("member table allocated before preflight"))
+    provider, _ = _provider(tmp_path, [Response(payload)], max_retries=0)
+    with pytest.raises(SecEdgarBulkUnavailable, match="central directory"):
+        provider.fetch_companyfacts_bulk()
+
+
+def test_actual_central_record_count_is_checked_before_allocation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from etf_cockpit.data import sec_edgar_bulk as bulk
+
+    payload = bytearray(_zip64_bytes())
+    # The selected ZIP64 declaration lies about the count, but not its size.
+    struct.pack_into("<QQ", payload, len(payload) - 98 + 24, 1, 1)
+    monkeypatch.setattr(bulk.zipfile, "ZipFile", lambda *_args, **_kwargs: pytest.fail("member table allocated before count validation"))
+    provider, _ = _provider(tmp_path, [Response(bytes(payload))], max_retries=0)
+    with pytest.raises(SecEdgarBulkUnavailable, match="central directory"):
+        provider.fetch_companyfacts_bulk()
+
+
+def test_dataset_policy_has_bounded_historical_submissions_headroom() -> None:
+    from etf_cockpit.data import sec_edgar_bulk as bulk
+
+    facts = bulk._dataset_limits("companyfacts")
+    submissions = bulk._dataset_limits("submissions")
+    assert facts == (8 * 1024**3, 50_000, 32 * 1024**2)
+    assert submissions == (8 * 1024**3, 1_000_000, 256 * 1024**2)
+    assert submissions[1] > 781_211

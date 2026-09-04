@@ -163,7 +163,9 @@ class SecEdgarProvider:
             return urlopen(request, timeout=self.timeout)
         except HTTPError as exc:
             if exc.code == 304:
-                return (b"", 304, dict(exc.headers.items()) if exc.headers is not None else {})
+                # Keep geturl(): redirects on error responses need the same
+                # endpoint admission check as ordinary streamed responses.
+                return exc
             raise
 
     def _fetch(
