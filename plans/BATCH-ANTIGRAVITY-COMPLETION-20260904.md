@@ -47,10 +47,18 @@ guidance, accessibility and contract suites pass; independent review approved
 the corrected stable diff. Canonical status remains open until final branch
 integration and checksum-controlled synchronisation.
 
-Current issue: dependency-ready `ISSUE-0032`. Complete its architecture and
-static-absence acceptance only, preserving `execution_allowed=false`, then
-obtain independent risk review. Follow it with the disjoint research-only
-records `ISSUE-0061` and `ISSUE-0062`. Only then admit the overlapping frontend sequence
+`ISSUE-0032` is complete on this branch: its future-only architecture defines
+the canonical paper-first stages, split local intent/audit authority from
+official broker operational truth, mandatory independent controls and
+fail-closed reconciliation. The static scanner covers direct and dynamic
+imports, enabled Python authority, constructed endpoints and generic broker
+transports. Ordinary and risk reviews approve the corrected diff. Its required
+cross-platform packaged gates remain the next exact-head checkpoint before the
+branch advances.
+
+After those gates, current issues are the disjoint research-only records
+`ISSUE-0061` and `ISSUE-0062`; implement documentation, System Map visibility
+and rejection tests only. Only then admit the overlapping frontend sequence
 `ISSUE-0041` -> `ISSUE-0042` -> `ISSUE-0045` -> `ISSUE-0137` -> `ISSUE-0140`.
 Defer final `ISSUE-0148` documentation until the product batches are stable.
 
