@@ -102,6 +102,20 @@ Python 3.13.14. Ruff, compileall and diff hygiene pass. Freeze the resulting
 commit for fresh paired whole-diff and provenance/PIT review; these focused
 results still do not authorise a packaged gate or integration.
 
+Paired H-tier review rejects capability head
+`c81dd9863d882efa47e51a7da88d6d6a1cb40265`. ZIP64 compatibility and the
+direct path/sidecar downgrade pass on Python 3.12 and 3.13, but the generic
+module-private mint function remains callable by an in-process caller. A cold
+304 can also promote caller-controlled cached bytes because its validator and
+metadata are not authenticated, and recomputed historical manifests can retain
+unproved `sec_edgar` claims. The ZIP64 parser additionally rejects valid records
+with APPNOTE extensible data. Do not iterate the exposed generic-mint or
+cold-304 admission approach. Require an adapter-bound acquisition/import
+boundary, an unconditional full response after registry loss, explicit
+reject/downgrade handling for unproved persisted authority, and variable-length
+ZIP64 record support before another paired review. No packaged gate or
+integration is authorised on this head.
+
 Do not run H-tier gates or integrate until all focused cases pass and the stable
 complete diff receives independent whole-diff and provenance-risk acceptance.
 This train still does not close the full bulk/resumable/canonical-statements issue.
