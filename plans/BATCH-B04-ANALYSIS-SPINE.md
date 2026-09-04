@@ -33,6 +33,19 @@ lineage and serialises same-CIK identity publication. Freeze the resulting head
 for independent whole-diff and provenance-risk review; these focused passes do
 not authorise integration or whole-issue completion.
 
+Both independent reviews rejected head `1c0ffbee`: first publication could
+parse bytes different from the retained source, caller-authored detached history
+could acquire false official SEC provenance, later manifest generations could
+change instrument identity, and post-acquisition acceptance timestamps remained
+apparently available. The single consolidated correction parses only a private
+bounded capture, self-validates the candidate snapshot under the publication
+lock, binds official history to retained archive membership, downgrades detached
+history to explicit local/manual partial evidence, enforces identity across all
+snapshots and clears availability later than acquisition. Root's fresh complete
+144-test SEC submissions/provider/bulk/provenance selection passes with one
+existing Windows link-capability skip; Ruff, compileall and diff hygiene pass.
+Freeze one replacement head for fresh paired review before any H-tier gate.
+
 Do not run H-tier gates or integrate until all focused cases pass and the stable
 complete diff receives independent whole-diff and provenance-risk acceptance.
 This train still does not close the full bulk/resumable/canonical-statements issue.

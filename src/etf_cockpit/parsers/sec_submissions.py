@@ -59,6 +59,7 @@ def parse_submissions(
     identity: CanonicalIdentity,
     *,
     history_paths: Mapping[str, Path] | None = None,
+    acquired_at: datetime | None = None,
 ) -> ParseResult[SubmissionRecord]:
     """Parse one SEC submissions snapshot and explicitly supplied history files.
 
@@ -93,7 +94,7 @@ def parse_submissions(
     recent_columns = _validate_columns(recent, "recent", warnings)
     if recent_columns is None:
         return ParseResult((), tuple(warnings), PARSER_NAME, PARSER_VERSION, source_sha256, False)
-    records = list(_records_from_columns(recent_columns, source_sha256, identity, expected_cik, warnings, "recent"))
+    records = list(_records_from_columns(recent_columns, source_sha256, identity, expected_cik, warnings, "recent", acquired_at))
 
     advertised = _advertised_history(filings, expected_cik, warnings)
     if advertised is None:
@@ -116,7 +117,7 @@ def parse_submissions(
         if history_columns is None:
             history_incomplete = True
             continue
-        history_records = _records_from_columns(history_columns, history_sha256, identity, expected_cik, warnings, name)
+        history_records = _records_from_columns(history_columns, history_sha256, identity, expected_cik, warnings, name, acquired_at)
         records.extend(history_records)
         history_incomplete |= len(history_records) != len(history_columns["accessionNumber"])
         advertisement = advertisements_by_name[name]
@@ -254,6 +255,7 @@ def _records_from_columns(
     expected_cik: str,
     warnings: list[ParseWarning],
     source_label: str,
+    acquired_at: datetime | None = None,
 ) -> tuple[SubmissionRecord, ...]:
     count = len(columns["accessionNumber"])
     result: list[SubmissionRecord] = []
@@ -273,6 +275,12 @@ def _records_from_columns(
         filing_date = _date_value(raw_row.get("filingDate"), "filing_date", source_label, index, warnings)
         report_date = _date_value(raw_row.get("reportDate"), "report_date", source_label, index, warnings)
         accepted_at = _accepted_value(raw_row.get("acceptanceDateTime"), source_label, index, warnings)
+        available_at = accepted_at
+        if accepted_at is not None and acquired_at is not None and acquired_at.tzinfo is not None and acquired_at.utcoffset() is not None:
+            accepted_timestamp = datetime.fromisoformat(accepted_at)
+            if accepted_timestamp > acquired_at:
+                warnings.append(_warning("acceptance_after_acquisition", f"SEC submissions {source_label} row {index} acceptanceDateTime is later than its bound acquisition time"))
+                available_at = None
         row_digest = hashlib.sha256(json.dumps(raw_row, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")).hexdigest()[:16]
         result.append(
             SubmissionRecord(
@@ -284,7 +292,7 @@ def _records_from_columns(
                 report_date=report_date,
                 primary_document=_optional_text(raw_row.get("primaryDocument")),
                 accepted_at=accepted_at,
-                available_at=accepted_at,
+                available_at=available_at,
                 is_amendment=form.upper().endswith("/A"),
                 source_sha256=source_sha256,
                 source_id=f"sec_edgar:{source_sha256[:16]}:submission:{index}:{row_digest}",

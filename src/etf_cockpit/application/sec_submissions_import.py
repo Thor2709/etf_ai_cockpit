@@ -118,14 +118,38 @@ def import_sec_submissions(
                         source_meta = _document_from_metadata(source_path, old_source)
                     break
         with tempfile.TemporaryDirectory(prefix="sec-submissions-import-") as temp_name:
+            capture_path = Path(temp_name) / source_path.name
+            captured_sha = _capture_input(source_path, capture_path, max_bytes=MAX_SOURCE_BYTES if is_zip else MAX_MEMBER_BYTES)
+            if captured_sha != source_sha:
+                raise ValueError("submissions source changed while being captured")
+            captured_history, history_metadata, history_warnings = _capture_history_inputs(
+                history_paths,
+                Path(temp_name) / "history",
+                history_provenance,
+                cik,
+                source_is_bulk=is_zip,
+                acquired_at=source_meta.retrieved_at,
+            )
             parse_path, history_for_parser, member_inputs = _prepare_parse_inputs(
-                source_path, cik, Path(temp_name), history_paths, source_meta
+                capture_path, cik, Path(temp_name), captured_history, source_meta
+            )
+            history_warnings = tuple(history_warnings) + tuple(
+                {
+                    "code": "history_provenance_manual",
+                    "message": f"SEC submissions history {role.removeprefix('history:')} was retained from a local archive without official acquisition provenance",
+                    "severity": "warning",
+                    "source_location": None,
+                }
+                for role, _, document in member_inputs
+                if role.startswith("history:") and document.provider_id != "sec_edgar"
             )
             parsed = parse_submissions(parse_path, CanonicalIdentity(
                 instrument_id, "Imported SEC entity", None, "needs_verification", "", None,
                 None, "stock", {}, "manual_review", (), cik,
-            ), history_paths=history_for_parser)
-            warnings = _warning_payload(parsed.warnings)
+            ), history_paths=history_for_parser, acquired_at=source_meta.retrieved_at)
+            if parsed.source_sha256 != _sha256_file(parse_path):
+                raise ValueError("submissions parser result is not bound to the immutable capture")
+            warnings = tuple(list(_warning_payload(parsed.warnings)) + list(history_warnings))
             if not parsed.success or not parsed.records:
                 return _failed(
                     "submissions parse failed: " + ", ".join(str(item["code"]) for item in warnings) if warnings else "submissions parse returned no records",
@@ -134,7 +158,7 @@ def import_sec_submissions(
                 )
             filing_inputs = _validate_filing_inputs(filing_documents, parsed.records)
             warnings = tuple(list(warnings) + list(filing_inputs[1]))
-            raw_inputs = [("snapshot", source_path, source_meta)]
+            raw_inputs = [("snapshot", capture_path, source_meta)]
             raw_inputs.extend(member_inputs)
             known_history = {role.removeprefix("history:") for role, _, _ in member_inputs if role.startswith("history:")}
             for name, history_path in history_for_parser.items():
@@ -143,11 +167,11 @@ def import_sec_submissions(
                 if history_path.name != name:
                     continue
                 if name not in known_history:
-                    history_source = (history_provenance or {}).get(name)
-                    history_digest = _sha256_file(history_path)
-                    history_meta = _validated_aux_provenance(
-                        history_source, history_path, history_digest, name, cik, source_is_bulk=is_zip
-                    )
+                    history_meta = history_metadata.get(name)
+                    if history_meta is None:
+                        history_meta = _local_document(
+                            history_path, "sec_submissions", retrieved_at=source_meta.retrieved_at
+                        )
                     raw_inputs.append((f"history:{name}", history_path, history_meta))
             raw_inputs.extend(filing_inputs[0])
             retained, raw_docs = _retain_inputs(
@@ -349,6 +373,77 @@ def _validate_filing_inputs(mapping: Mapping[str, Path | RawDocument] | None, re
     return inputs, tuple(warnings)
 
 
+def _capture_history_inputs(
+    supplied: Mapping[str, Path] | None,
+    temp_root: Path,
+    history_provenance: Mapping[str, RawDocument] | None,
+    cik: str,
+    *,
+    source_is_bulk: bool,
+    acquired_at: datetime,
+) -> tuple[dict[str, Path], dict[str, RawDocument], tuple[dict[str, object], ...]]:
+    """Capture caller-supplied history and strip unattested official claims."""
+
+    if supplied is None:
+        return {}, {}, ()
+    if not isinstance(supplied, Mapping):
+        raise ValueError("submissions history_paths must be a mapping")
+    captured: dict[str, Path] = {}
+    metadata: dict[str, RawDocument] = {}
+    warnings: list[dict[str, object]] = []
+    for raw_name, raw_path in supplied.items():
+        if not isinstance(raw_name, str) or PurePosixPath(raw_name).name != raw_name or re.fullmatch(rf"CIK{cik}-submissions-[0-9]+\.json", raw_name) is None:
+            # Let the parser retain its established warning for malformed
+            # advertisements, but never construct a path from an unsafe key.
+            raise ValueError("submissions history name is unsafe or not bound to the selected CIK")
+        source_path = Path(raw_path)
+        destination = temp_root / raw_name
+        captured_sha = _capture_input(source_path, destination, max_bytes=MAX_MEMBER_BYTES)
+        captured[raw_name] = destination
+        source_document = (history_provenance or {}).get(raw_name)
+        if source_document is not None and source_document.provider_id == "sec_edgar":
+            if source_document.source_url == SUBMISSIONS_URL.format(cik=cik):
+                raise ValueError("current SEC submissions endpoint cannot attest a named history file")
+            # A caller-authored RawDocument cannot establish that detached
+            # bytes came from SEC bulk acquisition.  Keep the bytes as a
+            # manual local import and make the resulting coverage partial.
+            metadata[raw_name] = _local_document(
+                destination, "sec_submissions", retrieved_at=acquired_at
+            )
+            warnings.append(
+                {
+                    "code": "history_provenance_unattested",
+                    "message": f"SEC submissions history {raw_name} was supplied outside a retained verified archive; retained as local manual evidence",
+                    "severity": "warning",
+                    "source_location": None,
+                }
+            )
+            continue
+        if source_document is not None:
+            validated = _validated_aux_provenance(
+                source_document,
+                source_path,
+                captured_sha,
+                raw_name,
+                cik,
+                source_is_bulk=source_is_bulk,
+            )
+            metadata[raw_name] = _rebind_document_path(validated, destination)
+        else:
+            metadata[raw_name] = _local_document(
+                destination, "sec_submissions", retrieved_at=acquired_at
+            )
+        warnings.append(
+            {
+                "code": "history_provenance_manual",
+                "message": f"SEC submissions history {raw_name} was supplied as local/manual evidence rather than an archive-bound member",
+                "severity": "warning",
+                "source_location": None,
+            }
+        )
+    return captured, metadata, tuple(warnings)
+
+
 def _retain_inputs(inputs: list[tuple[str, Path, RawDocument]], *, cache_dir: Path, publish_guard: PublicationScopeFactory | None) -> tuple[dict[str, dict[str, object]], list[RawDocument]]:
     _validate_namespace(cache_dir, cache_dir.parent)
     cache = ContentAddressedCache(cache_dir, relative_path=Path("sec_submissions_import"))
@@ -400,6 +495,8 @@ def _publish_manifest(path: Path, snapshot: dict[str, object], *, cache_dir: Pat
     with publication_scope(publish_guard):
         path.parent.mkdir(parents=True, exist_ok=True)
         with persistent_file_guard(guard_path):
+            if not _snapshot_valid(snapshot, cache_dir):
+                raise ValueError("submissions snapshot is not self-consistent with retained evidence")
             previous: dict[str, object] | None = None
             if path.is_file():
                 try:
@@ -460,7 +557,14 @@ def _manifest_valid_payload(payload: dict[str, object], cache_dir: Path) -> bool
     first = snapshots[0]
     if not isinstance(first, dict) or payload.get("identity") != first.get("identity") or payload.get("parser_name") != first.get("parser_name") or payload.get("parser_version") != first.get("parser_version"):
         return False
-    return all(isinstance(snapshot, dict) and _snapshot_valid(snapshot, cache_dir) for snapshot in snapshots)
+    return all(
+        isinstance(snapshot, dict)
+        and snapshot.get("identity") == payload.get("identity")
+        and snapshot.get("parser_name") == payload.get("parser_name")
+        and snapshot.get("parser_version") == payload.get("parser_version")
+        and _snapshot_valid(snapshot, cache_dir)
+        for snapshot in snapshots
+    )
 
 
 def _snapshot_valid(snapshot: dict[str, object], cache_dir: Path) -> bool:
@@ -520,6 +624,8 @@ def _snapshot_valid(snapshot: dict[str, object], cache_dir: Path) -> bool:
             expected_history_url = SUBMISSIONS_BULK_URL if source_type == "sec_submissions_bulk" else f"https://data.sec.gov/submissions/{name}"
             if item.get("source_url") != expected_history_url:
                 return False
+            if source_type == "sec_submissions_bulk" and not _zip_member_valid(source, item, name):
+                return False
         elif item.get("provider_id") != "sec_local_import" or urlparse(str(item.get("source_url", ""))).scheme != "file":
             return False
     for name, item in filings.items():
@@ -541,7 +647,12 @@ def _snapshot_valid(snapshot: dict[str, object], cache_dir: Path) -> bool:
                     return False
                 shutil.copyfile(Path(item["path"]), destination)
                 replay_history[name] = destination
-            replay = parse_submissions(replay_path, _manifest_identity(identity), history_paths=replay_history)
+            replay = parse_submissions(
+                replay_path,
+                _manifest_identity(identity),
+                history_paths=replay_history,
+                acquired_at=datetime.fromisoformat(str(source["retrieved_at"])),
+            )
     except (OSError, ValueError, TypeError):
         return False
     if [_json_safe(asdict(record)) for record in replay.records] != records:
@@ -588,6 +699,12 @@ def _snapshot_valid(snapshot: dict[str, object], cache_dir: Path) -> bool:
 def _zip_snapshot_member_valid(source: dict[str, object], member: dict[str, object], cik: str) -> bool:
     """Verify the retained selected member still comes from its archive."""
 
+    return _zip_member_valid(source, member, f"CIK{cik}.json")
+
+
+def _zip_member_valid(source: dict[str, object], member: dict[str, object], member_name: str) -> bool:
+    """Verify one retained JSON member still comes from its retained archive."""
+
     source_path, member_path = source.get("path"), member.get("path")
     member_digest = member.get("sha256")
     if (
@@ -599,7 +716,7 @@ def _zip_snapshot_member_valid(source: dict[str, object], member: dict[str, obje
         return False
     try:
         with zipfile.ZipFile(Path(source_path)) as archive:
-            info = archive.getinfo(f"CIK{cik}.json")
+            info = archive.getinfo(member_name)
             _validate_member(info)
             with archive.open(info) as stream:
                 digest = hashlib.sha256()
@@ -774,20 +891,33 @@ def _document_from_metadata(path: Path, item: dict[str, object]) -> RawDocument:
     )
 
 
+def _rebind_document_path(document: RawDocument, path: Path) -> RawDocument:
+    return RawDocument(
+        path,
+        document.source_url,
+        document.retrieved_at,
+        document.sha256,
+        document.provider_id,
+        document.document_type,
+        document.media_type,
+        document.http_status,
+    )
+
+
 def _derived_member_document(path: Path, provenance: RawDocument | None) -> RawDocument:
     if provenance is None:
         return _local_document(path, "sec_submissions")
     return RawDocument(path, provenance.source_url, provenance.retrieved_at, _sha256_file(path), provenance.provider_id, "sec_submissions", "application/json", provenance.http_status)
 
 
-def _local_document(path: Path, document_type: str) -> RawDocument:
+def _local_document(path: Path, document_type: str, *, retrieved_at: datetime | None = None) -> RawDocument:
     if document_type.endswith("bulk"):
         media = "application/zip"
     elif document_type == "sec_filing":
         media = "text/html" if path.suffix.lower() in {".htm", ".html"} else "application/octet-stream"
     else:
         media = "application/json"
-    return RawDocument(path, path.absolute().as_uri(), datetime.now(timezone.utc), _sha256_file(path), "sec_local_import", document_type, media, 200)
+    return RawDocument(path, path.absolute().as_uri(), retrieved_at or datetime.now(timezone.utc), _sha256_file(path), "sec_local_import", document_type, media, 200)
 
 
 def _validate_input_path(path: Path, *, max_bytes: int = MAX_SOURCE_BYTES) -> None:
@@ -850,6 +980,27 @@ def _sha256_file(path: Path) -> str:
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _capture_input(source: Path, destination: Path, *, max_bytes: int) -> str:
+    """Copy one admitted input to a private immutable parse capture."""
+
+    _validate_input_path(source, max_bytes=max_bytes)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256()
+    copied = 0
+    with source.open("rb") as source_handle, destination.open("xb") as capture_handle:
+        while True:
+            chunk = source_handle.read(1024 * 1024)
+            if not chunk:
+                break
+            copied += len(chunk)
+            if copied > max_bytes:
+                raise ValueError("submissions input exceeds the bounded capture size")
+            digest.update(chunk)
+            capture_handle.write(chunk)
+        capture_handle.flush()
     return digest.hexdigest()
 
 

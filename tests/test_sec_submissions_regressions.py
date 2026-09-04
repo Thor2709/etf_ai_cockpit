@@ -554,3 +554,107 @@ def test_local_generation_lineage_remains_meaningful_across_json_and_zip(tmp_pat
     assert first.raw_documents and second.raw_documents and zipped.raw_documents
     assert all(document.source_url.startswith("file:") for document in first.raw_documents + second.raw_documents + zipped.raw_documents)
     assert all(document.retrieved_at.tzinfo is not None for document in first.raw_documents + second.raw_documents + zipped.raw_documents)
+
+
+def test_a_to_b_to_a_mutation_cannot_publish_records_from_unbound_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = _write(tmp_path / "submissions.json", _payload())
+    source_a = source.read_bytes()
+    source_b = json.dumps(_payload(columns=_columns("0000789019-26-000002", "10-K/A"))).encode()
+    original_parse = submissions_module.parse_submissions
+
+    def mutate_during_parse(path: Path, *args: object, **kwargs: object):
+        source.write_bytes(source_b)
+        try:
+            return original_parse(path, *args, **kwargs)
+        finally:
+            source.write_bytes(source_a)
+
+    monkeypatch.setattr(submissions_module, "parse_submissions", mutate_during_parse)
+    result = import_sec_submissions(source, _identity(), cache_dir=tmp_path / "cache")
+
+    assert result.status == "partial"
+    assert [record.accession for record in result.records] == ["0000789019-26-000001"]
+    _, payload = _manifest(result)
+    snapshot = payload["snapshots"][0]
+    assert Path(snapshot["source_document"]["path"]).read_bytes() == source_a
+    assert snapshot["records"][0]["accession"] == "0000789019-26-000001"
+
+
+def test_detached_official_history_is_retained_as_manual_evidence(
+    tmp_path: Path,
+) -> None:
+    name = "CIK0000789019-submissions-001.json"
+    current = json.dumps(_payload([{"name": name, "filingCount": 1}])).encode()
+    archive = _archive(tmp_path / "submissions.zip", {"CIK0000789019.json": current})
+    history = _write(tmp_path / name, _payload(columns=_columns("0000789019-25-000001", "10-Q")))
+    archive_provenance = _official(archive, SUBMISSIONS_BULK_URL, "sec_submissions_bulk", "application/zip")
+    detached_provenance = _official(history, SUBMISSIONS_BULK_URL, "sec_submissions", "application/json")
+
+    result = import_sec_submissions(
+        archive,
+        _identity(),
+        cache_dir=tmp_path / "cache",
+        history_paths={name: history},
+        provenance=archive_provenance,
+        history_provenance={name: detached_provenance},
+    )
+
+    assert result.status == "partial"
+    assert any(item["code"] == "history_provenance_unattested" for item in result.warnings)
+    _, payload = _manifest(result)
+    history_item = payload["snapshots"][0]["history_documents"][name]
+    assert history_item["provider_id"] == "sec_local_import"
+    assert history_item["source_url"].startswith("file:")
+
+
+def test_manifest_identity_is_stable_across_msft_other_msft_replay(
+    tmp_path: Path,
+) -> None:
+    source = _write(tmp_path / "submissions.json", _payload())
+    cache = tmp_path / "cache"
+    first = import_sec_submissions(source, _identity(instrument="MSFT"), cache_dir=cache)
+    other = import_sec_submissions(source, _identity(instrument="OTHER"), cache_dir=cache)
+    third = import_sec_submissions(source, _identity(instrument="MSFT"), cache_dir=cache)
+
+    assert first.status == third.status == "partial"
+    assert other.status == "failed"
+    _, payload = _manifest(third)
+    assert all(snapshot["identity"] == {"cik": "0000789019", "instrument_id": "MSFT"} for snapshot in payload["snapshots"])
+
+
+def test_acceptance_after_acquisition_is_explicitly_unavailable(
+    tmp_path: Path,
+) -> None:
+    source = _write(tmp_path / "submissions.json", _payload())
+    filing = tmp_path / "annual.htm"
+    filing.write_text("<html>filing</html>", encoding="utf-8")
+    provenance = _official(
+        source,
+        SUBMISSIONS_URL.format(cik="0000789019"),
+        "sec_submissions",
+        "application/json",
+    )
+    provenance = RawDocument(
+        provenance.path,
+        provenance.source_url,
+        datetime(2025, 12, 31, tzinfo=timezone.utc),
+        provenance.sha256,
+        provenance.provider_id,
+        provenance.document_type,
+        provenance.media_type,
+        provenance.http_status,
+    )
+
+    result = import_sec_submissions(
+        source,
+        _identity(),
+        cache_dir=tmp_path / "cache",
+        provenance=provenance,
+        filing_documents={"0000789019-26-000001": filing},
+    )
+
+    assert result.status == "partial"
+    assert result.records[0].available_at is None
+    assert any(item["code"] == "acceptance_after_acquisition" for item in result.warnings)
