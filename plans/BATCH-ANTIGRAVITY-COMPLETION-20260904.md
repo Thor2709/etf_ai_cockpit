@@ -56,10 +56,16 @@ transports. Ordinary and risk reviews approve the corrected diff. Its required
 cross-platform packaged gates remain the next exact-head checkpoint before the
 branch advances.
 
-After those gates, current issues are the disjoint research-only records
-`ISSUE-0061` and `ISSUE-0062`; implement documentation, System Map visibility
-and rejection tests only. Only then admit the overlapping frontend sequence
-`ISSUE-0041` -> `ISSUE-0042` -> `ISSUE-0045` -> `ISSUE-0137` -> `ISSUE-0140`.
+`ISSUE-0061` and `ISSUE-0062` are complete on the successor branch as a
+research-only slice: the methodology notes cover their canonical limitations,
+the System Map resolves both dynamic scope rows to `research_only` with
+authority `none`, and AST/static rejection tests prove no classifier, scorer,
+signal, paper or execution integration was added. Independent review approved
+the corrected tests; focused scope, governance, UI, Ruff, compile and diff
+checks pass.
+
+Current issue: `ISSUE-0041`, beginning the single-writer overlapping frontend
+sequence `ISSUE-0041` -> `ISSUE-0042` -> `ISSUE-0045` -> `ISSUE-0137` -> `ISSUE-0140`.
 Defer final `ISSUE-0148` documentation until the product batches are stable.
 
 The remaining 39 issues stay unfinished in this lane. The three sensitive issues are

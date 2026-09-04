@@ -14,6 +14,20 @@ from etf_cockpit.core.paths import ROOT
 from etf_cockpit.governance.product_scope import load_authority_matrix, load_feature_registry, load_product_governance
 
 
+_RESEARCH_ONLY_BOUNDARIES: tuple[tuple[str, str, str], ...] = (
+    (
+        "Pair trading / cointegration",
+        "Point-in-time pair selection; cointegration and residual-stationarity checks; stationarity-break and regime monitoring; borrow availability and borrow-cost evidence; explicit spread, slippage and execution-cost assumptions; and a predeclared multiple-testing budget.",
+        "Research-only, authority=none, score_authority=false, paper_authority=false, execution_authority=none. Short legs and default scoring are outside the long-only product boundary. See docs/research/pair-trading.md.",
+    ),
+    (
+        "Triple-barrier labels / purged validation",
+        "Predeclared upper, lower and vertical barriers; minimum event/sample and regime-stability checks; transparent parameters; purged folds whose training label windows cannot overlap validation; an embargo at least as long as the label horizon; and leakage canaries.",
+        "Research-only, authority=none, score_authority=false, paper_authority=false, execution_authority=none. No classifier, runtime scorer, signal, portfolio or execution path is present; general purged validation is owned by ISSUE-0120. See docs/research/triple-barrier-validation.md.",
+    ),
+)
+
+
 def _feature_card(page: ft.Page | None, state: AppState, entry: object) -> ft.Container:
     lifecycle = str(getattr(entry, "lifecycle", "unavailable"))
     authority = str(getattr(entry, "authority", "none"))
@@ -122,6 +136,33 @@ def system_map_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 expand=True,
             )
         )
+    cards.append(
+        panel(
+            ft.Column(
+                [
+                    ft.Text("Research-only strategy boundaries", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
+                    ft.Text(
+                        "These optional research topics are visible for governance context only. They cannot change baseline scores, actions, paper state or execution authority.",
+                        color=theme.MUTED,
+                        selectable=True,
+                    ),
+                    *[
+                        ft.Column(
+                            [
+                                ft.Text(title, color=theme.TEXT, size=13, weight=ft.FontWeight.BOLD),
+                                ft.Text(requirements, color=theme.MUTED, size=11, selectable=True),
+                                ft.Text(boundary, color=theme.AMBER, size=11, selectable=True),
+                            ],
+                            spacing=5,
+                        )
+                        for title, requirements, boundary in _RESEARCH_ONLY_BOUNDARIES
+                    ],
+                ],
+                spacing=9,
+            ),
+            expand=True,
+        )
+    )
     if loaded.policy is not None and not loaded.diagnostic_mode:
         cards.extend(_feature_card(page, state, entry) for entry in loaded.policy.entries)
     else:
