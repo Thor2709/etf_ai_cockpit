@@ -57,6 +57,19 @@ failure. Apply one bounded correction with direct adversarial regressions, then
 freeze one replacement head for paired review. Do not run H-tier gates on the
 rejected head, change lifecycle state, or broaden this component.
 
+The bounded review correction now requires durable SEC provider receipt evidence
+before retaining official authority and downgrades unattested caller metadata to
+local/manual evidence. Detached history receives its own capture and availability
+time, and mixed-source history records carry their admitted provider rather than
+inheriting the parent snapshot authority. Missing `filings.files`, mutated local
+filing URLs, 206/304 admission and malformed mappings now fail closed or remain
+explicitly partial as appropriate. Root's fresh six-module SEC selection passes
+158 cases with one existing Windows link-capability skip; the implementer's wider
+focused selection passes 119 cases with the same skip, while the 37-case provider
+and provenance selection, Ruff, compileall and diff hygiene pass. Freeze the
+replacement commit for fresh paired whole-diff and provenance-risk review before
+running any H-tier gate.
+
 Do not run H-tier gates or integrate until all focused cases pass and the stable
 complete diff receives independent whole-diff and provenance-risk acceptance.
 This train still does not close the full bulk/resumable/canonical-statements issue.

@@ -60,6 +60,9 @@ def parse_submissions(
     *,
     history_paths: Mapping[str, Path] | None = None,
     acquired_at: datetime | None = None,
+    history_acquired_at: Mapping[str, datetime] | None = None,
+    source_provider: str = "sec_edgar",
+    history_source_providers: Mapping[str, str] | None = None,
 ) -> ParseResult[SubmissionRecord]:
     """Parse one SEC submissions snapshot and explicitly supplied history files.
 
@@ -94,7 +97,7 @@ def parse_submissions(
     recent_columns = _validate_columns(recent, "recent", warnings)
     if recent_columns is None:
         return ParseResult((), tuple(warnings), PARSER_NAME, PARSER_VERSION, source_sha256, False)
-    records = list(_records_from_columns(recent_columns, source_sha256, identity, expected_cik, warnings, "recent", acquired_at))
+    records = list(_records_from_columns(recent_columns, source_sha256, identity, expected_cik, warnings, "recent", acquired_at, source_provider))
 
     advertised = _advertised_history(filings, expected_cik, warnings)
     if advertised is None:
@@ -103,7 +106,7 @@ def parse_submissions(
     if selected_history is None:
         return ParseResult((), tuple(warnings), PARSER_NAME, PARSER_VERSION, source_sha256, False)
     advertisements_by_name = {advertisement.name: advertisement for advertisement in advertised}
-    history_incomplete = bool(advertised and len(selected_history) < len(advertised))
+    history_incomplete = "files" not in filings or bool(advertised and len(selected_history) < len(advertised))
     for name in (advertisement.name for advertisement in advertised):
         history_path = selected_history.get(name)
         if history_path is None:
@@ -117,7 +120,9 @@ def parse_submissions(
         if history_columns is None:
             history_incomplete = True
             continue
-        history_records = _records_from_columns(history_columns, history_sha256, identity, expected_cik, warnings, name, acquired_at)
+        history_time = history_acquired_at.get(name, acquired_at) if isinstance(history_acquired_at, Mapping) else acquired_at
+        history_provider = history_source_providers.get(name, source_provider) if isinstance(history_source_providers, Mapping) else source_provider
+        history_records = _records_from_columns(history_columns, history_sha256, identity, expected_cik, warnings, name, history_time, history_provider)
         records.extend(history_records)
         history_incomplete |= len(history_records) != len(history_columns["accessionNumber"])
         advertisement = advertisements_by_name[name]
@@ -195,7 +200,10 @@ def _history_columns(
 
 
 def _advertised_history(filings: dict[str, object], expected_cik: str, warnings: list[ParseWarning]) -> tuple[_HistoryAdvertisement, ...] | None:
-    files = filings.get("files", [])
+    if "files" not in filings:
+        warnings.append(_warning("history_advertisement_missing", "SEC submissions filings.files is absent; historical coverage is unknown and remains partial"))
+        return ()
+    files = filings["files"]
     if not isinstance(files, list):
         warnings.append(_warning("history_advertisement_invalid", "SEC submissions filings.files must be an array", "error"))
         return None
@@ -256,6 +264,7 @@ def _records_from_columns(
     warnings: list[ParseWarning],
     source_label: str,
     acquired_at: datetime | None = None,
+    source_provider: str = "sec_edgar",
 ) -> tuple[SubmissionRecord, ...]:
     count = len(columns["accessionNumber"])
     result: list[SubmissionRecord] = []
@@ -295,7 +304,7 @@ def _records_from_columns(
                 available_at=available_at,
                 is_amendment=form.upper().endswith("/A"),
                 source_sha256=source_sha256,
-                source_id=f"sec_edgar:{source_sha256[:16]}:submission:{index}:{row_digest}",
+                source_id=f"{source_provider}:{source_sha256[:16]}:submission:{index}:{row_digest}",
                 raw_row=raw_row,
             )
         )

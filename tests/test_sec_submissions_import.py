@@ -48,6 +48,7 @@ def test_local_import_retains_snapshot_and_actual_filing_bytes(tmp_path: Path) -
     assert len(result.records) == 1
     assert len(result.raw_documents) == 2
     assert all(document.provider_id == "sec_local_import" for document in result.raw_documents)
+    assert result.records[0].source_id.startswith("sec_local_import:")
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
     snapshot = manifest["snapshots"][0]
     assert Path(snapshot["source_document"]["path"]).read_bytes() == source.read_bytes()
@@ -63,7 +64,8 @@ def test_official_fixture_retains_full_snapshot_with_explicit_provenance(tmp_pat
 
     assert result.status == "partial"
     assert len(result.records) == 1004
-    assert result.raw_documents[0].provider_id == "sec_edgar"
+    assert result.raw_documents[0].provider_id == "sec_local_import"
+    assert any(warning["code"] == "provenance_unattested" for warning in result.warnings)
     assert any(warning["code"] == "history_incomplete" for warning in result.warnings)
     assert any(warning["code"] == "filing_documents_missing" for warning in result.warnings)
 
@@ -232,7 +234,8 @@ def test_changed_filing_bytes_append_revision_without_overwrite(tmp_path: Path) 
     assert Path(manifest["snapshots"][1]["filing_documents"]["0000789019-26-000001"]["path"]).read_bytes() == b"revision two"
 
 
-def test_official_filing_provenance_binds_record_url_and_media(tmp_path: Path) -> None:
+@pytest.mark.parametrize("status", [200, 206, 304])
+def test_unbound_filing_provenance_is_local_sec_filing(tmp_path: Path, status: int) -> None:
     source = _write(tmp_path / "submissions.json", _payload())
     filing = tmp_path / "annual.htm"
     filing.write_text("<html>filing</html>", encoding="utf-8")
@@ -244,11 +247,14 @@ def test_official_filing_provenance_binds_record_url_and_media(tmp_path: Path) -
         "sec_edgar",
         "sec_filing",
         "text/html",
-        200,
+        status,
     )
     result = import_sec_submissions(source, _identity(), cache_dir=tmp_path / "cache", filing_documents={"0000789019-26-000001": document})
     assert result.status == "complete"
-    assert result.raw_documents[-1].source_url == document.source_url
+    assert result.raw_documents[-1].provider_id == "sec_local_import"
+    assert result.raw_documents[-1].document_type == "sec_filing"
+    assert result.raw_documents[-1].media_type == "text/html"
+    assert result.raw_documents[-1].source_url.startswith("file:")
 
 
 def test_official_filing_foreign_url_is_rejected_without_cache(tmp_path: Path) -> None:
@@ -314,3 +320,104 @@ def test_unsafe_zip_member_is_rejected_before_selected_extraction(tmp_path: Path
     result = import_sec_submissions(archive, _identity(), cache_dir=tmp_path / "cache")
     assert result.status == "failed"
     assert not (tmp_path / "outside.json").exists()
+
+
+def test_provider_receipt_is_required_before_official_submissions_admission(tmp_path: Path) -> None:
+    source = _write(tmp_path / "submissions_0000789019_abcdef0123456789.json", _payload())
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    acquired_at = datetime(2026, 9, 3, 5, tzinfo=timezone.utc)
+    (tmp_path / "submissions_0000789019.json.meta.json").write_text(json.dumps({
+        "schema_version": 1,
+        "source_url": SUBMISSIONS_URL.format(cik="0000789019"),
+        "retrieved_at": acquired_at.isoformat(),
+        "sha256": digest,
+        "raw_path": str(source.absolute()),
+        "etag": "",
+        "last_modified": "",
+    }), encoding="utf-8")
+    provenance = RawDocument(source, SUBMISSIONS_URL.format(cik="0000789019"), acquired_at, digest, "sec_edgar", "sec_submissions", "application/json", 200)
+
+    result = import_sec_submissions(source, _identity(), cache_dir=tmp_path / "cache", provenance=provenance)
+
+    assert result.status == "partial"
+    assert result.raw_documents[0].provider_id == "sec_edgar"
+    assert not any(warning["code"] == "provenance_unattested" for warning in result.warnings)
+
+
+def test_receipt_attested_parent_keeps_local_detached_history_source_id(tmp_path: Path) -> None:
+    name = "CIK0000789019-submissions-001.json"
+    source = _write(tmp_path / "submissions_0000789019_abcdef0123456789.json", _payload([{"name": name, "filingCount": 1}]))
+    history = _write(tmp_path / name, _payload(columns=_columns("0000789019-25-000001", "10-Q")))
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    acquired_at = datetime(2025, 12, 31, tzinfo=timezone.utc)
+    (tmp_path / "submissions_0000789019.json.meta.json").write_text(json.dumps({
+        "schema_version": 1,
+        "source_url": SUBMISSIONS_URL.format(cik="0000789019"),
+        "retrieved_at": acquired_at.isoformat(),
+        "sha256": digest,
+        "raw_path": str(source.absolute()),
+        "etag": "",
+        "last_modified": "",
+    }), encoding="utf-8")
+    provenance = RawDocument(source, SUBMISSIONS_URL.format(cik="0000789019"), acquired_at, digest, "sec_edgar", "sec_submissions", "application/json", 200)
+
+    result = import_sec_submissions(
+        source,
+        _identity(),
+        cache_dir=tmp_path / "cache",
+        history_paths={name: history},
+        provenance=provenance,
+    )
+
+    assert result.status == "partial"
+    assert result.records[0].source_id.startswith("sec_edgar:")
+    assert result.records[1].source_id.startswith("sec_local_import:")
+
+
+def test_missing_filings_files_stays_partial_even_with_filing_bytes(tmp_path: Path) -> None:
+    payload = _payload()
+    del payload["filings"]["files"]
+    source = _write(tmp_path / "submissions.json", payload)
+    filing = _write(tmp_path / "annual.htm", "<html>filing</html>")
+
+    result = import_sec_submissions(source, _identity(), cache_dir=tmp_path / "cache", filing_documents={"0000789019-26-000001": filing})
+
+    assert result.status == "partial"
+    assert any(warning["code"] == "history_advertisement_missing" for warning in result.warnings)
+
+
+def test_detached_history_has_independent_capture_time(tmp_path: Path) -> None:
+    name = "CIK0000789019-submissions-001.json"
+    source = _write(tmp_path / "submissions.json", _payload([{"name": name, "filingCount": 1}]))
+    history = _write(tmp_path / name, _payload(columns=_columns("0000789019-25-000001", "10-Q")))
+
+    result = import_sec_submissions(source, _identity(), cache_dir=tmp_path / "cache", history_paths={name: history})
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    snapshot = manifest["snapshots"][0]
+
+    assert snapshot["history_documents"][name]["retrieved_at"] != snapshot["source_document"]["retrieved_at"]
+    assert result.records[1].available_at == result.records[1].accepted_at
+
+
+@pytest.mark.parametrize("status", [206, 304])
+def test_unbound_partial_or_revalidated_provenance_is_downgraded(tmp_path: Path, status: int) -> None:
+    source = _write(tmp_path / "submissions.json", _payload())
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    provenance = RawDocument(source, SUBMISSIONS_URL.format(cik="0000789019"), datetime(2026, 9, 3, 5, tzinfo=timezone.utc), digest, "sec_edgar", "sec_submissions", "application/json", status)
+
+    result = import_sec_submissions(source, _identity(), cache_dir=tmp_path / "cache", provenance=provenance)
+
+    assert result.status == "partial"
+    assert result.raw_documents[0].provider_id == "sec_local_import"
+    assert any(warning["code"] == "provenance_unattested" for warning in result.warnings)
+
+
+@pytest.mark.parametrize("field", ["filing_documents", "history_provenance"])
+def test_malformed_mapping_inputs_return_controlled_failure(tmp_path: Path, field: str) -> None:
+    source = _write(tmp_path / "submissions.json", _payload())
+    kwargs: dict[str, object] = {field: []}
+
+    result = import_sec_submissions(source, _identity(), cache_dir=tmp_path / "cache", **kwargs)  # type: ignore[arg-type]
+
+    assert result.status == "failed"
+    assert "mapping" in result.detail

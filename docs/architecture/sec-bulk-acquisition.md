@@ -23,9 +23,11 @@ resource length, even when the prefix itself happens to be a valid ZIP.
 Supported interrupted reads use the configured bounded retry allowance and
 retain only exception bytes within the declared response span. A `200`
 response safely restarts from byte zero, including when a server ignores or
-does not support ranges. Resumed artifacts preserve honest HTTP 206 provenance;
-the current canonical local ZIP importer accepts only validated HTTP 200
-provenance, so resumed-document admission remains a later integration step.
+does not support ranges. Resumed artifacts preserve honest HTTP 206 provenance.
+The local submissions importer admits 206 and 304 provenance only when the
+provider receipt binds the status-bearing document to the retained immutable
+artifact; caller-authored 206/304 values without that lineage are downgraded
+or rejected as local/manual evidence.
 
 Successful `RawDocument` values retain the exact URL, aware acquisition time,
 full SHA-256, provider `sec_edgar`, dataset document type, `application/zip`

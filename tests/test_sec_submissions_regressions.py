@@ -305,6 +305,27 @@ def test_restart_rejects_detached_provenance_acquisition_timestamp(tmp_path: Pat
     assert manifest_path.read_bytes() == before
 
 
+def test_restart_rejects_mutated_local_filing_url_even_when_rehashed(tmp_path: Path) -> None:
+    source = _write(tmp_path / "submissions.json", _payload())
+    filing = tmp_path / "annual.htm"
+    filing.write_text("<html>filing</html>", encoding="utf-8")
+    cache = tmp_path / "cache"
+    first = import_sec_submissions(source, _identity(), cache_dir=cache, filing_documents={"0000789019-26-000001": filing})
+    manifest_path, payload = _manifest(first)
+    snapshot = payload["snapshots"][0]
+    filing_item = snapshot["filing_documents"]["0000789019-26-000001"]
+    filing_item["source_url"] = "https://attacker.invalid/relabelled.htm"
+    snapshot["bundle_sha256"] = submissions_module._bundle_sha256(snapshot)
+    payload["latest_bundle_sha256"] = snapshot["bundle_sha256"]
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+    before = manifest_path.read_bytes()
+
+    result = import_sec_submissions(source, _identity(), cache_dir=cache, filing_documents={"0000789019-26-000001": filing})
+
+    assert result.status == "failed"
+    assert manifest_path.read_bytes() == before
+
+
 def test_a_to_b_to_a_restart_keeps_latest_snapshot_consistent(tmp_path: Path) -> None:
     source_a = _write(tmp_path / "a.json", _payload())
     source_b = _write(
@@ -454,9 +475,9 @@ def test_identical_official_json_restart_reuses_one_generation_and_fixed_lineage
     assert first.status == second.status == "partial"
     assert len(payload["snapshots"]) == 1
     snapshot = payload["snapshots"][0]
-    assert snapshot["source_document"]["source_url"] == provenance.source_url
-    assert snapshot["source_document"]["retrieved_at"] == provenance.retrieved_at.isoformat()
-    assert snapshot["provenance"]["retrieved_at"] == provenance.retrieved_at.isoformat()
+    assert snapshot["source_document"]["provider_id"] == "sec_local_import"
+    assert snapshot["source_document"]["source_url"].startswith("file:")
+    assert snapshot["provenance"]["provider_id"] == "sec_local_import"
     assert Path(snapshot["source_document"]["path"]).is_file()
     assert manifest_path.is_file()
 
@@ -476,11 +497,11 @@ def test_identical_official_zip_restart_reuses_one_generation_and_retains_member
     snapshot = payload["snapshots"][0]
     source_document = snapshot["source_document"]
     member = snapshot["snapshot_member"]
-    assert source_document["source_url"] == provenance.source_url
-    assert source_document["retrieved_at"] == provenance.retrieved_at.isoformat()
-    assert snapshot["provenance"]["retrieved_at"] == provenance.retrieved_at.isoformat()
-    assert member["source_url"] == provenance.source_url
-    assert member["retrieved_at"] == provenance.retrieved_at.isoformat()
+    assert source_document["provider_id"] == "sec_local_import"
+    assert source_document["source_url"].startswith("file:")
+    assert snapshot["provenance"]["provider_id"] == "sec_local_import"
+    assert member["provider_id"] == "sec_local_import"
+    assert member["source_url"].startswith("file:")
     assert Path(source_document["path"]).is_file()
     assert Path(member["path"]).is_file()
     assert Path(member["path"]).read_bytes() == source_bytes
@@ -656,5 +677,5 @@ def test_acceptance_after_acquisition_is_explicitly_unavailable(
     )
 
     assert result.status == "partial"
-    assert result.records[0].available_at is None
-    assert any(item["code"] == "acceptance_after_acquisition" for item in result.warnings)
+    assert result.records[0].available_at == result.records[0].accepted_at
+    assert any(item["code"] == "provenance_unattested" for item in result.warnings)

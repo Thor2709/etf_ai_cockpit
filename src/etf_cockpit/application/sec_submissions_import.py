@@ -91,6 +91,14 @@ def import_sec_submissions(
         _validate_input_path(source_path, max_bytes=MAX_SOURCE_BYTES if is_zip else MAX_MEMBER_BYTES)
         source_sha = _sha256_file(source_path)
         source_meta = _validated_provenance(provenance, source_path, source_sha, cik, is_zip)
+        provenance_warning = () if provenance is None or source_meta.provider_id == provenance.provider_id else (
+            {
+                "code": "provenance_unattested",
+                "message": "caller-supplied SEC provenance lacked provider-owned acquisition evidence; retained as local/manual evidence",
+                "severity": "warning",
+                "source_location": None,
+            },
+        )
         manifest_path = _manifest_path(Path(cache_dir), cik)
         cache = ContentAddressedCache(Path(cache_dir), relative_path=Path("sec_submissions_import"))
         # Admission must prove the complete cache namespace before inspecting
@@ -109,12 +117,14 @@ def import_sec_submissions(
                 raise ValueError("existing submissions manifest is unreadable; refusing replacement") from exc
             if not isinstance(candidate, dict):
                 raise ValueError("existing submissions manifest is not an object")
-            if provenance is None:
+            if provenance is None or source_meta.provider_id == "sec_local_import":
                 for old_snapshot in candidate.get("snapshots", []):
                     if not isinstance(old_snapshot, dict) or old_snapshot.get("source_sha256") != source_sha:
                         continue
                     old_source = old_snapshot.get("source_document")
-                    if isinstance(old_source, dict):
+                    if isinstance(old_source, dict) and (
+                        provenance is None or old_source.get("provider_id") == "sec_local_import"
+                    ):
                         source_meta = _document_from_metadata(source_path, old_source)
                     break
         with tempfile.TemporaryDirectory(prefix="sec-submissions-import-") as temp_name:
@@ -146,10 +156,26 @@ def import_sec_submissions(
             parsed = parse_submissions(parse_path, CanonicalIdentity(
                 instrument_id, "Imported SEC entity", None, "needs_verification", "", None,
                 None, "stock", {}, "manual_review", (), cik,
-            ), history_paths=history_for_parser, acquired_at=source_meta.retrieved_at)
+            ), history_paths=history_for_parser, acquired_at=source_meta.retrieved_at,
+                history_acquired_at={
+                    role.removeprefix("history:"): document.retrieved_at
+                    for role, _, document in member_inputs
+                    if role.startswith("history:")
+                } | {
+                    name: document.retrieved_at
+                    for name, document in history_metadata.items()
+                }, source_provider=source_meta.provider_id,
+                history_source_providers={
+                    role.removeprefix("history:"): document.provider_id
+                    for role, _, document in member_inputs
+                    if role.startswith("history:")
+                } | {
+                    name: document.provider_id
+                    for name, document in history_metadata.items()
+                })
             if parsed.source_sha256 != _sha256_file(parse_path):
                 raise ValueError("submissions parser result is not bound to the immutable capture")
-            warnings = tuple(list(_warning_payload(parsed.warnings)) + list(history_warnings))
+            warnings = tuple(list(_warning_payload(parsed.warnings)) + list(history_warnings) + list(provenance_warning))
             if not parsed.success or not parsed.records:
                 return _failed(
                     "submissions parse failed: " + ", ".join(str(item["code"]) for item in warnings) if warnings else "submissions parse returned no records",
@@ -169,9 +195,7 @@ def import_sec_submissions(
                 if name not in known_history:
                     history_meta = history_metadata.get(name)
                     if history_meta is None:
-                        history_meta = _local_document(
-                            history_path, "sec_submissions", retrieved_at=source_meta.retrieved_at
-                        )
+                        history_meta = _local_document(history_path, "sec_submissions")
                     raw_inputs.append((f"history:{name}", history_path, history_meta))
             raw_inputs.extend(filing_inputs[0])
             retained, raw_docs = _retain_inputs(
@@ -200,7 +224,7 @@ def import_sec_submissions(
             return SubmissionsImportResult(status, cik, instrument_id, parsed.records, warnings, tuple(raw_docs), manifest_path, detail, False)
     except WorkflowTransitionError:
         raise
-    except (OSError, ValueError, TypeError, KeyError, RecursionError, zipfile.BadZipFile, BulkCacheError, SecEdgarBulkError) as exc:
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError, zipfile.BadZipFile, BulkCacheError, SecEdgarBulkError) as exc:
         return _failed(f"submissions import unavailable: {type(exc).__name__}: {str(exc)[:180]}", identity)
 
 
@@ -355,6 +379,8 @@ def _validate_filing_inputs(mapping: Mapping[str, Path | RawDocument] | None, re
     expected = {record.accession for record in records}
     if mapping is None:
         return [], ({"code": "filing_documents_missing", "message": "no filing document bytes were supplied; submissions coverage is partial", "severity": "warning", "source_location": None},)
+    if not isinstance(mapping, Mapping):
+        raise ValueError("submissions filing_documents must be a mapping")
     inputs: list[tuple[str, Path, RawDocument]] = []
     warnings: list[dict[str, object]] = []
     records_by_accession = {record.accession: record for record in records}
@@ -384,6 +410,8 @@ def _capture_history_inputs(
 ) -> tuple[dict[str, Path], dict[str, RawDocument], tuple[dict[str, object], ...]]:
     """Capture caller-supplied history and strip unattested official claims."""
 
+    if history_provenance is not None and not isinstance(history_provenance, Mapping):
+        raise ValueError("submissions history_provenance must be a mapping")
     if supplied is None:
         return {}, {}, ()
     if not isinstance(supplied, Mapping):
@@ -400,25 +428,24 @@ def _capture_history_inputs(
         destination = temp_root / raw_name
         captured_sha = _capture_input(source_path, destination, max_bytes=MAX_MEMBER_BYTES)
         captured[raw_name] = destination
+        # Detached files are newly captured inputs.  Their availability must
+        # be anchored to this capture, never copied from the parent snapshot.
+        captured_at = datetime.now(timezone.utc)
         source_document = (history_provenance or {}).get(raw_name)
         if source_document is not None and source_document.provider_id == "sec_edgar":
             if source_document.source_url == SUBMISSIONS_URL.format(cik=cik):
                 raise ValueError("current SEC submissions endpoint cannot attest a named history file")
-            # A caller-authored RawDocument cannot establish that detached
-            # bytes came from SEC bulk acquisition.  Keep the bytes as a
-            # manual local import and make the resulting coverage partial.
-            metadata[raw_name] = _local_document(
-                destination, "sec_submissions", retrieved_at=acquired_at
-            )
-            warnings.append(
-                {
-                    "code": "history_provenance_unattested",
-                    "message": f"SEC submissions history {raw_name} was supplied outside a retained verified archive; retained as local manual evidence",
-                    "severity": "warning",
-                    "source_location": None,
-                }
-            )
-            continue
+            if source_is_bulk or not _provider_receipt_matches(source_document, captured_sha, source_document.document_type, source_document.http_status):
+                metadata[raw_name] = _local_document(destination, "sec_submissions", retrieved_at=captured_at)
+                warnings.append(
+                    {
+                        "code": "history_provenance_unattested",
+                        "message": f"SEC submissions history {raw_name} lacked provider-owned acquisition evidence; retained as local manual evidence",
+                        "severity": "warning",
+                        "source_location": None,
+                    }
+                )
+                continue
         if source_document is not None:
             validated = _validated_aux_provenance(
                 source_document,
@@ -428,19 +455,21 @@ def _capture_history_inputs(
                 cik,
                 source_is_bulk=source_is_bulk,
             )
-            metadata[raw_name] = _rebind_document_path(validated, destination)
+            if validated.provider_id == "sec_local_import":
+                metadata[raw_name] = _local_document(destination, "sec_submissions", retrieved_at=captured_at)
+            else:
+                metadata[raw_name] = _rebind_document_path(validated, destination)
         else:
-            metadata[raw_name] = _local_document(
-                destination, "sec_submissions", retrieved_at=acquired_at
+            metadata[raw_name] = _local_document(destination, "sec_submissions", retrieved_at=captured_at)
+        if metadata[raw_name].provider_id != "sec_edgar":
+            warnings.append(
+                {
+                    "code": "history_provenance_manual",
+                    "message": f"SEC submissions history {raw_name} was supplied as local/manual evidence rather than an archive-bound member",
+                    "severity": "warning",
+                    "source_location": None,
+                }
             )
-        warnings.append(
-            {
-                "code": "history_provenance_manual",
-                "message": f"SEC submissions history {raw_name} was supplied as local/manual evidence rather than an archive-bound member",
-                "severity": "warning",
-                "source_location": None,
-            }
-        )
     return captured, metadata, tuple(warnings)
 
 
@@ -652,6 +681,17 @@ def _snapshot_valid(snapshot: dict[str, object], cache_dir: Path) -> bool:
                 _manifest_identity(identity),
                 history_paths=replay_history,
                 acquired_at=datetime.fromisoformat(str(source["retrieved_at"])),
+                history_acquired_at={
+                    name: datetime.fromisoformat(str(item["retrieved_at"]))
+                    for name, item in histories.items()
+                    if isinstance(item, dict)
+                },
+                source_provider=str(source.get("provider_id", "sec_local_import")),
+                history_source_providers={
+                    name: str(item.get("provider_id", "sec_local_import"))
+                    for name, item in histories.items()
+                    if isinstance(item, dict)
+                },
             )
     except (OSError, ValueError, TypeError):
         return False
@@ -672,6 +712,11 @@ def _snapshot_valid(snapshot: dict[str, object], cache_dir: Path) -> bool:
             parsed_url = urlparse(str(item.get("source_url", "")))
             if parsed_url.scheme != "https" or parsed_url.hostname != "www.sec.gov" or parsed_url.path not in expected_paths:
                 return False
+        elif item.get("provider_id") == "sec_local_import":
+            if urlparse(str(item.get("source_url", ""))).scheme != "file":
+                return False
+        else:
+            return False
     parser_warnings = _warning_payload(replay.warnings)
     if not all(item in warnings for item in parser_warnings) or (snapshot.get("coverage_status") == "complete" and warnings):
         return False
@@ -779,6 +824,8 @@ def _retained_meta_valid(item: object, source: object | None, role: str) -> bool
     provider, doc_type = item["provider_id"], item["document_type"]
     if not isinstance(provider, str) or not isinstance(doc_type, str) or provider not in {"sec_edgar", "sec_local_import"}:
         return False
+    if provider == "sec_local_import" and status != 200:
+        return False
     media = item["media_type"]
     if doc_type == "sec_submissions_bulk" and media != "application/zip":
         return False
@@ -804,6 +851,13 @@ def _validated_provenance(document: RawDocument | None, path: Path, digest: str,
     if type(document.http_status) is not int or document.http_status not in {200, 206, 304}:
         raise ValueError("submissions provenance HTTP status is invalid")
     expected_type = "sec_submissions_bulk" if bulk else "sec_submissions"
+    if document.provider_id == "sec_local_import":
+        if document.document_type != expected_type or document.media_type != ("application/zip" if bulk else "application/json"):
+            raise ValueError("local submissions provenance provider or document type is invalid")
+        parsed = urlparse(document.source_url)
+        if parsed.scheme != "file" or parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError("local submissions provenance must use a plain file URL")
+        return document if document.http_status == 200 else _local_document(path, expected_type)
     if document.provider_id != "sec_edgar" or document.document_type != expected_type or document.media_type != ("application/zip" if bulk else "application/json"):
         raise ValueError("submissions provenance provider or document type is invalid")
     parsed = urlparse(document.source_url)
@@ -814,6 +868,8 @@ def _validated_provenance(document: RawDocument | None, path: Path, digest: str,
         raise ValueError("submissions provenance URL does not match the selected CIK")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("submissions provenance URL contains unexpected credentials or components")
+    if not _provider_receipt_matches(document, digest, expected_type, document.http_status):
+        return _local_document(path, expected_type)
     return document
 
 
@@ -832,7 +888,7 @@ def _validated_filing_provenance(document: RawDocument, path: Path, digest: str,
             raise ValueError("local filing provenance type or media is invalid")
         if parsed.scheme != "file":
             raise ValueError("local filing provenance must use a file URL")
-        return document
+        return document if document.http_status == 200 else _local_document(path, "sec_filing")
     if document.provider_id != "sec_edgar" or document.document_type != "sec_filing" or document.media_type not in {"text/html", "text/plain", "application/pdf", "application/octet-stream"}:
         raise ValueError("filing provenance provider, type, or media is invalid")
     if parsed.scheme != "https" or parsed.hostname != "www.sec.gov":
@@ -847,7 +903,9 @@ def _validated_filing_provenance(document: RawDocument, path: Path, digest: str,
     }
     if parsed.path not in expected_paths:
         raise ValueError("filing provenance URL does not match the selected CIK, accession, and primary document")
-    return document
+    if not _provider_receipt_matches(document, digest, "sec_filing", document.http_status):
+        return _local_document(path, "sec_filing")
+    return document if document.http_status == 200 else _local_document(path, "sec_filing")
 
 
 def _validated_aux_provenance(document: RawDocument | None, path: Path, digest: str, name: str, cik: str, *, source_is_bulk: bool = False) -> RawDocument:
@@ -866,6 +924,8 @@ def _validated_aux_provenance(document: RawDocument | None, path: Path, digest: 
         expected_url = SUBMISSIONS_BULK_URL if source_is_bulk else f"https://data.sec.gov/submissions/{name}"
         if document.source_url != expected_url:
             raise ValueError("submissions history provenance URL is not the advertised SEC source")
+        if source_is_bulk or not _provider_receipt_matches(document, digest, "sec_submissions", document.http_status):
+            return _local_document(path, "sec_submissions")
     elif document.provider_id != "sec_local_import":
         raise ValueError("submissions history provenance provider is invalid")
     elif document.document_type != "sec_submissions" or document.media_type != "application/json" or parsed.scheme != "file":
@@ -889,6 +949,59 @@ def _document_from_metadata(path: Path, item: dict[str, object]) -> RawDocument:
         str(item["media_type"]),
         int(item["http_status"]),
     )
+
+
+def _provider_receipt_matches(document: RawDocument, digest: str, document_type: str, status: int) -> bool:
+    """Require the provider's durable receipt before retaining SEC authority.
+
+    A caller can construct any ``RawDocument`` value, so matching URL/hash
+    fields alone are not an acquisition proof.  The SEC adapters write a
+    sidecar receipt alongside their mutable cache (or at the bulk dataset
+    root); this check binds the caller's value to that receipt and immutable
+    payload.  Missing receipts intentionally downgrade callers to local
+    evidence at the importer boundary.
+    """
+
+    if document.provider_id != "sec_edgar" or document.document_type != document_type:
+        return False
+    path = document.path.absolute()
+    if document_type == "sec_submissions":
+        match = re.fullmatch(r"submissions_([0-9]{10})_[0-9a-f]{16}\.json", path.name)
+        if match is None:
+            return False
+        receipt_path = path.parent / f"submissions_{match.group(1)}.json.meta.json"
+    elif document_type == "sec_submissions_bulk":
+        if path.suffix.lower() != ".zip" or path.parent.parent.name != "objects":
+            return False
+        dataset_root = path.parent.parent.parent
+        receipt_path = dataset_root / f"{path.parent.name}.meta.json"
+    elif document_type == "sec_filing":
+        receipt_path = path.with_name(f"{path.name}.meta.json")
+    else:
+        return False
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, RecursionError):
+        return False
+    if not isinstance(receipt, dict):
+        return False
+    if receipt.get("sha256") != digest or receipt.get("source_url") != document.source_url:
+        return False
+    raw_path = receipt.get("raw_path")
+    if not isinstance(raw_path, str) or Path(raw_path).absolute() != path:
+        return False
+    try:
+        receipt_time = datetime.fromisoformat(str(receipt.get("retrieved_at", "")))
+    except (TypeError, ValueError):
+        return False
+    if receipt_time.tzinfo is None or receipt_time.utcoffset() is None or receipt_time != document.retrieved_at:
+        return False
+    recorded_status = receipt.get("status")
+    if recorded_status is not None and (type(recorded_status) is not int or recorded_status not in {200, 206}):
+        return False
+    if status not in {200, 206, 304}:
+        return False
+    return True
 
 
 def _rebind_document_path(document: RawDocument, path: Path) -> RawDocument:

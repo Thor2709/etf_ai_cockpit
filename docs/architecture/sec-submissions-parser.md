@@ -8,7 +8,9 @@ conflicting accessions—as an independent `SubmissionRecord`.
 
 Each record carries its canonical instrument/CIK, accession, form, filing and
 report dates, primary document, amendment flag, source SHA-256, deterministic
-source ID, and the complete raw row. `accepted_at` and `available_at` are
+source ID, and the complete raw row. The importer supplies the admitted source
+provider so local/manual rows use a `sec_local_import` source ID and never
+claim `sec_edgar` authority. `accepted_at` and `available_at` are
 populated only when `acceptanceDateTime` parses as a timezone-aware timestamp;
 missing or invalid values remain `None` with an explicit warning. Filing and
 report dates are never used as availability timestamps.
@@ -25,7 +27,9 @@ filings use a reporting owner's CIK. SEC display names likewise remain
 descriptive rather than identity authority because legal-name variants can
 differ from the canonical instrument name.
 
-SEC `filings.files` advertisements are treated as explicit boundaries. A
+SEC `filings.files` advertisements are treated as explicit boundaries. An
+absent `filings.files` field is an explicit unknown historical-coverage state,
+not an empty complete inventory. A
 historical columnar file is read only when the caller supplies a path under its
 exact advertised CIK-bound filename. Unadvertised or unsafe names fail closed;
 advertised files that are absent, malformed, have invalid/skipped rows, or do

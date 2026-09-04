@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -128,6 +129,34 @@ def test_missing_acceptance_column_retains_historical_row_as_unavailable(tmp_pat
     assert result.records[0].accepted_at is None
     assert result.records[0].available_at is None
     assert any(warning.code == "missing_acceptance_timestamp" for warning in result.warnings)
+
+
+def test_history_availability_uses_its_own_acquisition_time(tmp_path: Path) -> None:
+    name = "CIK0000789019-submissions-001.json"
+    current_path = _write(tmp_path / "current.json", _payload(_columns(), files=[{"name": name, "filingCount": 1}]))
+    history_path = _write(tmp_path / name, _columns(accession="0000789019-25-000001", form="10-Q"))
+    parent_time = datetime(2025, 12, 31, tzinfo=timezone.utc)
+    history_time = datetime(2026, 9, 3, tzinfo=timezone.utc)
+
+    result = parse_submissions(
+        current_path,
+        _identity(),
+        history_paths={name: history_path},
+        acquired_at=parent_time,
+        history_acquired_at={name: history_time},
+    )
+
+    assert result.records[0].available_at is None
+    assert result.records[1].available_at == result.records[1].accepted_at
+
+
+def test_missing_filings_files_is_unknown_history_coverage(tmp_path: Path) -> None:
+    payload = _payload(_columns())
+    del payload["filings"]["files"]
+    result = parse_submissions(_write(tmp_path / "current.json", payload), _identity())
+
+    assert result.success is True
+    assert any(warning.code == "history_advertisement_missing" for warning in result.warnings)
 
 
 def test_wrong_cik_fails_closed(tmp_path: Path) -> None:

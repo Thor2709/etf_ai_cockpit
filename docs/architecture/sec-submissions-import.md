@@ -24,14 +24,20 @@ outside the immutable object layout are rejected without replacement.
 
 Official `RawDocument` provenance is admitted only when its path, checksum,
 timezone-aware timestamp, provider, exact SEC URL, document type, media type,
-and integer HTTP status are consistent. Filing URLs are bound to the selected
-company CIK, accession directory, and primary document; a third-party accession
-prefix is permitted. Local inputs are marked `sec_local_import` and remain
-manual-review evidence, with HTML retained as `text/html` (other unsupported
-local filing formats use an explicit binary media type). ZIP selection validates
+and integer HTTP status are consistent with the SEC provider's durable
+acquisition receipt and immutable payload. Caller-created metadata without
+that receipt is downgraded to `sec_local_import` manual evidence; matching
+fields alone never establish official authority. Filing URLs are bound to the
+selected company CIK, accession directory, and primary document; a third-party
+accession prefix is permitted. Local inputs are marked `sec_local_import` and
+remain manual-review evidence, with HTML retained as `text/html` (other
+unsupported local filing formats use an explicit binary media type). ZIP selection validates
 the central directory before allocation, then bounds each selected member to
 256 MiB and the selected aggregate to 512 MiB; the archive itself is bounded to
-8 GiB. Missing history or filing bytes and parser row warnings remain
+8 GiB. Detached history files receive their own capture timestamp and
+per-input availability bound; they never inherit the parent snapshot time.
+Missing or malformed `filings.files` coverage, history or filing bytes, and
+parser row warnings remain
 `partial`, never `complete`. Cancellation or publication failure propagates
 through the caller's publication scope and does not replace the prior import
 manifest. Every result keeps `execution_allowed=false` and this component never
