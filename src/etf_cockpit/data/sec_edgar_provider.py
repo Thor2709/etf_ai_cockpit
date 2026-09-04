@@ -129,6 +129,43 @@ class SecEdgarProvider:
             publish_guard=publish_guard,
         )
 
+    def fetch_companyfacts_bulk(
+        self,
+        *,
+        publish_guard: PublicationScopeFactory | None = None,
+        cache_only: bool = False,
+    ) -> RawDocument:
+        """Explicitly acquire the SEC companyfacts bulk ZIP."""
+
+        from etf_cockpit.data.sec_edgar_bulk import fetch_bulk
+
+        return fetch_bulk(self, "companyfacts", publish_guard=publish_guard, cache_only=cache_only)
+
+    def fetch_submissions_bulk(
+        self,
+        *,
+        publish_guard: PublicationScopeFactory | None = None,
+        cache_only: bool = False,
+    ) -> RawDocument:
+        """Explicitly acquire the SEC submissions bulk ZIP."""
+
+        from etf_cockpit.data.sec_edgar_bulk import fetch_bulk
+
+        return fetch_bulk(self, "submissions", publish_guard=publish_guard, cache_only=cache_only)
+
+    def _request_bulk_stream(self, url: str, headers: dict[str, str]) -> Any:
+        """Return a response with bounded ``read(size)`` access for bulk ZIPs."""
+
+        if self.transport is not None:
+            return self.transport(url, headers)
+        request = Request(url, headers=headers)
+        try:
+            return urlopen(request, timeout=self.timeout)
+        except HTTPError as exc:
+            if exc.code == 304:
+                return (b"", 304, dict(exc.headers.items()) if exc.headers is not None else {})
+            raise
+
     def _fetch(
         self,
         url: str,
