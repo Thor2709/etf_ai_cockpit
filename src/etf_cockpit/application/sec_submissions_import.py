@@ -91,9 +91,35 @@ def import_sec_submissions(
         _validate_input_path(source_path, max_bytes=MAX_SOURCE_BYTES if is_zip else MAX_MEMBER_BYTES)
         source_sha = _sha256_file(source_path)
         source_meta = _validated_provenance(provenance, source_path, source_sha, cik, is_zip)
+        manifest_path = _manifest_path(Path(cache_dir), cik)
+        cache = ContentAddressedCache(Path(cache_dir), relative_path=Path("sec_submissions_import"))
+        # Admission must prove the complete cache namespace before inspecting
+        # whether a manifest exists.  This prevents a link/reparse alias from
+        # redirecting even a read outside the selected cache root.
+        _validate_cache_targets(cache, source_id=None)
+        _validate_namespace(manifest_path, cache.base)
+        if manifest_path.is_file():
+            if not _manifest_valid(manifest_path, Path(cache_dir)):
+                return _failed("existing submissions manifest is invalid; refusing to mutate retained evidence", identity)
+            if not _manifest_matches_selection(manifest_path, cik, instrument_id):
+                return _failed("existing submissions manifest identity conflicts with the selected canonical identity", identity)
+            try:
+                candidate = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError, json.JSONDecodeError, RecursionError) as exc:
+                raise ValueError("existing submissions manifest is unreadable; refusing replacement") from exc
+            if not isinstance(candidate, dict):
+                raise ValueError("existing submissions manifest is not an object")
+            if provenance is None:
+                for old_snapshot in candidate.get("snapshots", []):
+                    if not isinstance(old_snapshot, dict) or old_snapshot.get("source_sha256") != source_sha:
+                        continue
+                    old_source = old_snapshot.get("source_document")
+                    if isinstance(old_source, dict):
+                        source_meta = _document_from_metadata(source_path, old_source)
+                    break
         with tempfile.TemporaryDirectory(prefix="sec-submissions-import-") as temp_name:
             parse_path, history_for_parser, member_inputs = _prepare_parse_inputs(
-                source_path, cik, Path(temp_name), history_paths, provenance
+                source_path, cik, Path(temp_name), history_paths, source_meta
             )
             parsed = parse_submissions(parse_path, CanonicalIdentity(
                 instrument_id, "Imported SEC entity", None, "needs_verification", "", None,
@@ -108,12 +134,6 @@ def import_sec_submissions(
                 )
             filing_inputs = _validate_filing_inputs(filing_documents, parsed.records)
             warnings = tuple(list(warnings) + list(filing_inputs[1]))
-            manifest_path = _manifest_path(Path(cache_dir), cik)
-            if manifest_path.is_file():
-                if not _manifest_valid(manifest_path, Path(cache_dir)):
-                    return _failed("existing submissions manifest is invalid; refusing to mutate retained evidence", identity)
-                if not _manifest_matches_selection(manifest_path, cik, instrument_id):
-                    return _failed("existing submissions manifest identity conflicts with the selected canonical identity", identity)
             raw_inputs = [("snapshot", source_path, source_meta)]
             raw_inputs.extend(member_inputs)
             known_history = {role.removeprefix("history:") for role, _, _ in member_inputs if role.startswith("history:")}
@@ -125,7 +145,9 @@ def import_sec_submissions(
                 if name not in known_history:
                     history_source = (history_provenance or {}).get(name)
                     history_digest = _sha256_file(history_path)
-                    history_meta = _validated_aux_provenance(history_source, history_path, history_digest, name, cik)
+                    history_meta = _validated_aux_provenance(
+                        history_source, history_path, history_digest, name, cik, source_is_bulk=is_zip
+                    )
                     raw_inputs.append((f"history:{name}", history_path, history_meta))
             raw_inputs.extend(filing_inputs[0])
             retained, raw_docs = _retain_inputs(
@@ -250,12 +272,12 @@ def _prepare_parse_inputs(source: Path, cik: str, temp_root: Path, supplied: Map
         except (OSError, UnicodeError, json.JSONDecodeError, AttributeError, KeyError, TypeError, RecursionError):
             advertised_names = []
         selected_names = set((supplied or {}).keys())
-        selected_names.update(name for name in advertised_names if name in members)
+        selected_names.update(name for name in advertised_names if name in members and name not in selected_names)
         for name in selected_names:
             candidate_info: zipfile.ZipInfo | None = members.get(name)
             if candidate_info is not None:
                 selected_infos.append(candidate_info)
-        selected_total = 0
+        selected_total = selected_external_size
         for info in selected_infos:
             if info.file_size > MAX_MEMBER_BYTES:
                 raise ValueError("selected submissions member exceeds its bounded size")
@@ -333,6 +355,10 @@ def _retain_inputs(inputs: list[tuple[str, Path, RawDocument]], *, cache_dir: Pa
     _validate_namespace(cache.base, cache_dir)
     retained: dict[str, dict[str, object]] = {}
     documents: list[RawDocument] = []
+    # Validate all fixed targets, including the guard, before opening any
+    # synchronization primitive.  A reparse/link guard must fail closed at
+    # admission rather than after the OS has opened it.
+    _validate_cache_targets(cache, source_id=None)
     with publication_scope(publish_guard):
         with persistent_file_guard(cache.base / "import.guard"):
             for role, path, source in inputs:
@@ -344,6 +370,9 @@ def _retain_inputs(inputs: list[tuple[str, Path, RawDocument]], *, cache_dir: Pa
                     raise ValueError(f"{role} changed while submissions evidence was being retained")
                 source_id = _safe_source_id(role, digest)
                 _validate_cache_targets(cache, source_id=source_id)
+                _validate_namespace(cache.objects / digest[:2], cache.base)
+                if (cache.objects / digest[:2]).exists() and (cache.objects / digest[:2]).is_symlink():
+                    raise BulkCacheError("existing SEC submissions object prefix is a link")
                 object_target = cache.objects / digest[:2] / digest
                 if object_target.exists():
                     _validate_namespace(object_target, cache.base)
@@ -383,11 +412,23 @@ def _publish_manifest(path: Path, snapshot: dict[str, object], *, cache_dir: Pat
                         raise ValueError("existing submissions manifest is invalid; refusing replacement")
                 except (OSError, ValueError, TypeError):
                     raise ValueError("existing submissions manifest is unreadable or invalid; refusing replacement")
+            if previous is not None and previous.get("identity") != snapshot.get("identity"):
+                raise ValueError("existing submissions manifest identity conflicts with the selected canonical identity")
             previous_snapshots = previous.get("snapshots") if previous else None
             snapshots: list[dict[str, object]] = [item for item in previous_snapshots if isinstance(item, dict)] if isinstance(previous_snapshots, list) else []
-            if not any(isinstance(item, dict) and item.get("bundle_sha256") == snapshot["bundle_sha256"] for item in snapshots):
+            matching = next((item for item in snapshots if item.get("bundle_sha256") == snapshot["bundle_sha256"]), None)
+            if matching is not None:
+                # Move an already admitted snapshot to the tail when it is
+                # observed again, so latest_* always names the final snapshot
+                # without manufacturing an A-B-A duplicate generation.
+                snapshots.remove(matching)
+                snapshots.append(matching)
+            else:
                 snapshots.append(snapshot)
             payload = {"schema_version": MANIFEST_SCHEMA, "identity": snapshot["identity"], "parser_name": snapshot["parser_name"], "parser_version": snapshot["parser_version"], "snapshots": snapshots, "latest_source_sha256": snapshot["source_sha256"], "latest_bundle_sha256": snapshot["bundle_sha256"], "execution_allowed": False}
+            encoded = (json.dumps(payload, indent=2, default=str) + "\n").encode("utf-8")
+            if len(encoded) > MAX_MANIFEST_BYTES:
+                raise ValueError("submissions manifest exceeds its size bound")
             atomic_write_json(path, payload)
             return "verified" if previous and previous.get("latest_bundle_sha256") == snapshot["bundle_sha256"] else "new"
 
@@ -449,16 +490,37 @@ def _snapshot_valid(snapshot: dict[str, object], cache_dir: Path) -> bool:
     if not _retained_item_valid(source, cache_dir) or (member is not None and not _retained_item_valid(member, cache_dir)):
         return False
     source_url = source.get("source_url")
-    if source.get("provider_id") == "sec_edgar":
-        expected_url = SUBMISSIONS_BULK_URL if source.get("document_type") == "sec_submissions_bulk" else SUBMISSIONS_URL.format(cik=identity_cik)
+    source_type = source.get("document_type")
+    source_provider = source.get("provider_id")
+    if source_provider == "sec_edgar":
+        expected_url = SUBMISSIONS_BULK_URL if source_type == "sec_submissions_bulk" else SUBMISSIONS_URL.format(cik=identity_cik)
         if source_url != expected_url:
             return False
-    elif source.get("provider_id") != "sec_local_import" or not isinstance(source_url, str) or urlparse(source_url).scheme != "file":
+    elif source_provider != "sec_local_import" or not isinstance(source_url, str) or urlparse(source_url).scheme != "file":
+        return False
+    if source_type == "sec_submissions_bulk":
+        if member is None or not _zip_snapshot_member_valid(source, member, identity_cik):
+            return False
+    elif source_type == "sec_submissions":
+        if member is not None:
+            return False
+    else:
         return False
     for name, item in histories.items():
-        if not isinstance(name, str) or not isinstance(item, dict) or item.get("document_type") not in {"sec_submissions", "sec_submissions_bulk"} or not _retained_item_valid(item, cache_dir):
+        if (
+            not isinstance(name, str)
+            or PurePosixPath(name).name != name
+            or re.fullmatch(rf"CIK{identity_cik}-submissions-[0-9]+\.json", name) is None
+            or not isinstance(item, dict)
+            or item.get("document_type") != "sec_submissions"
+            or not _retained_item_valid(item, cache_dir)
+        ):
             return False
-        if item.get("provider_id") == "sec_edgar" and item.get("source_url") not in {SUBMISSIONS_URL.format(cik=identity["cik"]), SUBMISSIONS_BULK_URL}:
+        if item.get("provider_id") == "sec_edgar":
+            expected_history_url = SUBMISSIONS_BULK_URL if source_type == "sec_submissions_bulk" else f"https://data.sec.gov/submissions/{name}"
+            if item.get("source_url") != expected_history_url:
+                return False
+        elif item.get("provider_id") != "sec_local_import" or urlparse(str(item.get("source_url", ""))).scheme != "file":
             return False
     for name, item in filings.items():
         if not isinstance(name, str) or re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", name) is None or not isinstance(item, dict) or item.get("document_type") != "sec_filing" or not _retained_item_valid(item, cache_dir):
@@ -475,6 +537,8 @@ def _snapshot_valid(snapshot: dict[str, object], cache_dir: Path) -> bool:
                 if not isinstance(item, dict) or not isinstance(item.get("path"), str):
                     return False
                 destination = Path(replay_root) / name
+                if not destination.is_relative_to(Path(replay_root)):
+                    return False
                 shutil.copyfile(Path(item["path"]), destination)
                 replay_history[name] = destination
             replay = parse_submissions(replay_path, _manifest_identity(identity), history_paths=replay_history)
@@ -489,17 +553,28 @@ def _snapshot_valid(snapshot: dict[str, object], cache_dir: Path) -> bool:
         if item.get("provider_id") == "sec_edgar":
             record = records_by_accession[accession]
             primary = record.primary_document
-            expected = f"/Archives/edgar/data/{record.cik}/{accession.replace('-', '')}/{primary}" if isinstance(primary, str) and primary else ""
+            archive_cik = str(int(record.cik)) if record.cik.isdigit() else ""
+            expected_paths = {
+                f"/Archives/edgar/data/{record.cik}/{accession.replace('-', '')}/{primary}",
+                f"/Archives/edgar/data/{archive_cik}/{accession.replace('-', '')}/{primary}",
+            } if isinstance(primary, str) and primary else set()
             parsed_url = urlparse(str(item.get("source_url", "")))
-            if parsed_url.scheme != "https" or parsed_url.hostname != "www.sec.gov" or parsed_url.path != expected:
+            if parsed_url.scheme != "https" or parsed_url.hostname != "www.sec.gov" or parsed_url.path not in expected_paths:
                 return False
     parser_warnings = _warning_payload(replay.warnings)
     if not all(item in warnings for item in parser_warnings) or (snapshot.get("coverage_status") == "complete" and warnings):
         return False
-    if snapshot.get("coverage_status") == "complete" and filings and len(filings) != len(replay.records):
+    if snapshot.get("coverage_status") == "complete" and len(filings) != len(replay.records):
         return False
     provenance = snapshot.get("provenance")
-    if not isinstance(provenance, dict) or provenance.get("sha256") != source.get("sha256") or provenance.get("source_url") != source.get("source_url") or not _retained_meta_valid(provenance, source, "snapshot"):
+    if (
+        not isinstance(provenance, dict)
+        or any(
+            provenance.get(key) != source.get(key)
+            for key in ("sha256", "source_url", "retrieved_at", "provider_id", "document_type", "media_type", "http_status")
+        )
+        or not _retained_meta_valid(provenance, source, "snapshot")
+    ):
         return False
     items = [source, member, *histories.values(), *filings.values()]
     for item in items:
@@ -508,6 +583,31 @@ def _snapshot_valid(snapshot: dict[str, object], cache_dir: Path) -> bool:
         if not isinstance(item, dict):
             return False
     return True
+
+
+def _zip_snapshot_member_valid(source: dict[str, object], member: dict[str, object], cik: str) -> bool:
+    """Verify the retained selected member still comes from its archive."""
+
+    source_path, member_path = source.get("path"), member.get("path")
+    member_digest = member.get("sha256")
+    if (
+        not isinstance(source_path, str)
+        or not isinstance(member_path, str)
+        or not isinstance(member_digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", member_digest) is None
+    ):
+        return False
+    try:
+        with zipfile.ZipFile(Path(source_path)) as archive:
+            info = archive.getinfo(f"CIK{cik}.json")
+            _validate_member(info)
+            with archive.open(info) as stream:
+                digest = hashlib.sha256()
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            return digest.hexdigest() == member_digest and _sha256_file(Path(member_path)) == member_digest
+    except (OSError, KeyError, RuntimeError, ValueError, zipfile.BadZipFile):
+        return False
 
 
 def _manifest_identity(identity: dict[str, object]) -> CanonicalIdentity:
@@ -623,13 +723,17 @@ def _validated_filing_provenance(document: RawDocument, path: Path, digest: str,
     primary = record.primary_document
     if not isinstance(primary, str) or not primary or PurePosixPath(primary).name != primary or ".." in PurePosixPath(primary).parts:
         raise ValueError("filing record has no safe primary document for provenance binding")
-    expected = f"/Archives/edgar/data/{record.cik}/{record.accession.replace('-', '')}/{primary}"
-    if parsed.path != expected:
+    archive_cik = str(int(record.cik)) if record.cik.isdigit() else ""
+    expected_paths = {
+        f"/Archives/edgar/data/{record.cik}/{record.accession.replace('-', '')}/{primary}",
+        f"/Archives/edgar/data/{archive_cik}/{record.accession.replace('-', '')}/{primary}",
+    }
+    if parsed.path not in expected_paths:
         raise ValueError("filing provenance URL does not match the selected CIK, accession, and primary document")
     return document
 
 
-def _validated_aux_provenance(document: RawDocument | None, path: Path, digest: str, name: str, cik: str) -> RawDocument:
+def _validated_aux_provenance(document: RawDocument | None, path: Path, digest: str, name: str, cik: str, *, source_is_bulk: bool = False) -> RawDocument:
     if document is None:
         return _local_document(path, "sec_submissions")
     if not isinstance(document.path, Path) or document.path.absolute() != path.absolute() or document.sha256 != digest:
@@ -642,8 +746,9 @@ def _validated_aux_provenance(document: RawDocument | None, path: Path, digest: 
     if document.provider_id == "sec_edgar":
         if document.document_type != "sec_submissions" or document.media_type != "application/json":
             raise ValueError("submissions history provenance document type or media type is invalid")
-        if document.source_url not in {SUBMISSIONS_URL.format(cik=cik), SUBMISSIONS_BULK_URL}:
-            raise ValueError("submissions history provenance URL is not an SEC source for the selected CIK")
+        expected_url = SUBMISSIONS_BULK_URL if source_is_bulk else f"https://data.sec.gov/submissions/{name}"
+        if document.source_url != expected_url:
+            raise ValueError("submissions history provenance URL is not the advertised SEC source")
     elif document.provider_id != "sec_local_import":
         raise ValueError("submissions history provenance provider is invalid")
     elif document.document_type != "sec_submissions" or document.media_type != "application/json" or parsed.scheme != "file":
@@ -651,6 +756,22 @@ def _validated_aux_provenance(document: RawDocument | None, path: Path, digest: 
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("submissions history provenance URL contains unexpected components")
     return document
+
+
+def _document_from_metadata(path: Path, item: dict[str, object]) -> RawDocument:
+    """Re-bind a local input to its previously admitted acquisition lineage."""
+
+    timestamp = datetime.fromisoformat(str(item["retrieved_at"]))
+    return RawDocument(
+        path,
+        str(item["source_url"]),
+        timestamp,
+        str(item["sha256"]),
+        str(item["provider_id"]),
+        str(item["document_type"]),
+        str(item["media_type"]),
+        int(item["http_status"]),
+    )
 
 
 def _derived_member_document(path: Path, provenance: RawDocument | None) -> RawDocument:
@@ -708,7 +829,8 @@ def _is_reparse(path: Path) -> bool:
 def _validate_cache_targets(cache: ContentAddressedCache, source_id: str | None) -> None:
     targets = [
         cache.root, cache.base, cache.objects, cache.manifests, cache.staging,
-        cache.staging / "downloads", cache.generations, cache.base / "import.guard",
+        cache.staging / "downloads", cache.generations, cache.base / "records",
+        cache.base / "import.guard",
         cache.manifests / "invalidations.jsonl",
     ]
     if source_id is not None:

@@ -1,5 +1,44 @@
 # B04 Analysis Spine
 
+## UPDATEV2-0012 submissions-import current-main train — 2026-09-04
+
+The parser-only candidate remains unaccepted because bare historical submission
+files need identity authority from their acquisition/container evidence rather
+than accession prefixes or display names. Continue the highest-priority P0 train
+on exact main `bc9876c03b868a323da1d1f5904cad4e33375559` in isolated branch
+`codex/sec-submissions-current-main-20260904`. The lane now contains the
+historical submissions evidence importer and reviewed bulk-acquisition dependency
+through `d8d56c6f`; no application UI, canonical lifecycle state or provider
+write authority is included.
+
+Fresh current-main regression capture collected 103 cases: 85 passed, 17 failed,
+one platform link case skipped, with no errors. The failures are the preserved
+admission/replay contract: link/path mutation before validation, history/member
+provenance binding, truthful complete coverage, acquisition-time and A-B-A
+restart identity, concurrent same-CIK publication, bounded manifests/aggregate
+inputs, official history URL compatibility, filing URL compatibility, and stable
+local JSON/ZIP lineage. One implementer owns the existing submissions importer,
+parser, their dedicated tests and architecture notes to close this complete
+failure set without weakening assertions. Root alone owns this chronology.
+
+The bounded importer correction now closes all 17 preserved failures. Root's
+fresh exact-tree run passes 102 of 103 focused parser/import/acquisition cases;
+the remaining case is the existing explicit Windows link-capability skip. Ruff,
+compilation and diff hygiene pass, with initial red evidence retained at
+`logs/sec-submissions-current-main-red.xml` and corrected evidence at
+`logs/sec-submissions-current-main-green.xml`. The correction validates cache
+links before reads/guard opens, binds selected ZIP members and history provenance,
+enforces truthful coverage and aggregate bounds, preserves stable local restart
+lineage and serialises same-CIK identity publication. Freeze the resulting head
+for independent whole-diff and provenance-risk review; these focused passes do
+not authorise integration or whole-issue completion.
+
+Do not run H-tier gates or integrate until all focused cases pass and the stable
+complete diff receives independent whole-diff and provenance-risk acceptance.
+This train still does not close the full bulk/resumable/canonical-statements issue.
+Antigravity reservations, v5/custom-runner work, broker/provider writes, release
+authority and `execution_allowed=false` remain unchanged.
+
 ## SEC submissions parser current-main candidate — 2026-09-04
 
 UPDATEV2-0012 remains P0, dependency-ready and outside Antigravity's reserved
