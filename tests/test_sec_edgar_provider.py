@@ -1,10 +1,49 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import pytest
 
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
+
+
+@pytest.mark.parametrize("document_type", ["companyfacts", "submissions"])
+def test_sec_retrieval_timestamp_matches_persisted_and_revalidated_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, document_type: str
+) -> None:
+    import etf_cockpit.data.sec_edgar_provider as sec_provider
+
+    class AdvancingClock(datetime):
+        ticks = 0
+
+        @classmethod
+        def now(cls, tz=None):
+            cls.ticks += 1
+            return datetime(2026, 9, 3, tzinfo=timezone.utc) + timedelta(seconds=cls.ticks)
+
+    monkeypatch.setattr(sec_provider, "datetime", AdvancingClock)
+    payload = json.dumps({"cik": "0000789019", "facts": {}}).encode()
+    responses = [(payload, 200, {"ETag": '"v1"'}), (b"", 304, {})]
+    provider = SecEdgarProvider(
+        "ETF AI Cockpit tests research@company.org",
+        cache_dir=tmp_path,
+        transport=lambda _url, _headers: responses.pop(0),
+        rate_limit_seconds=0,
+    )
+    fetch = getattr(provider, f"fetch_{document_type}")
+    first = fetch("789019")
+    metadata = json.loads(
+        (tmp_path / f"{document_type}_0000789019.json.meta.json").read_text(encoding="utf-8")
+    )
+    revalidated = fetch("789019")
+
+    assert first.retrieved_at.isoformat() == metadata["retrieved_at"]
+    assert revalidated.retrieved_at == first.retrieved_at
+    assert first.retrieved_at.utcoffset() == timedelta(0)
+    assert revalidated.path == first.path
+    assert revalidated.sha256 == first.sha256
+    assert revalidated.http_status == 304
 
 
 @pytest.mark.parametrize(

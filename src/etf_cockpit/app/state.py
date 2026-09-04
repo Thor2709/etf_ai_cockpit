@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import threading
 from typing import Any, Callable, TypeVar, cast
+from urllib.parse import urlparse
 
 from etf_cockpit.core.config import AppConfig, save_provider_settings
 from etf_cockpit.core.atomic_io import atomic_write_bytes, sha256_file
@@ -875,12 +876,16 @@ class AppState:
         path: Path,
         *,
         instrument_id: str | None = None,
+        document: RawDocument | None = None,
         publish_guard: PublicationScopeFactory | None = None,
     ) -> str:
         """Import an offline SEC companyfacts JSON and publish clean facts/inventory."""
 
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            source_path = Path(path)
+            if document is not None:
+                _validate_sec_raw_document(document, source_path)
+            payload = json.loads(source_path.read_text(encoding="utf-8"))
             cik = str(payload.get("cik") or payload.get("cik_str") or "").strip()
             if not cik:
                 raise ValueError("SEC companyfacts is missing a CIK")
@@ -908,12 +913,16 @@ class AppState:
                 () if resolved_from_identity else ("cik_not_resolved_to_instrument",),
                 cik,
             )
-            parsed = parse_companyfacts(path, identity)
+            parsed = parse_companyfacts(source_path, identity)
             if not parsed.success:
                 warning_codes = ", ".join(warning.code for warning in parsed.warnings)
                 self.last_message = f"SEC import unavailable: {warning_codes or 'validation failed'}. No data changed."
                 return _legacy_unavailable(self, self.last_message)
-            source = RawDocument(path, path.resolve().as_uri(), datetime.now(timezone.utc), parsed.source_sha256, "sec_edgar", "sec_companyfacts", "application/json", 200)
+            if document is not None:
+                _validate_sec_raw_document(document, source_path, normalised_cik, parsed.source_sha256)
+                source = document
+            else:
+                source = RawDocument(source_path, source_path.resolve().as_uri(), datetime.now(timezone.utc), parsed.source_sha256, "sec_edgar", "sec_companyfacts", "application/json", 200)
             with publication_scope(publish_guard):
                 write_statement_evidence(
                     source,
@@ -957,6 +966,7 @@ class AppState:
             return self.import_sec_companyfacts(
                 document.path,
                 instrument_id=instrument_id,
+                document=document,
                 publish_guard=publish_guard,
             )
         except (ActivityUnavailableError, WorkflowTransitionError):
@@ -1360,6 +1370,56 @@ def _resolve_sec_instrument(cik: str) -> str | None:
         return matches[0] if len(matches) == 1 else None
     except (OSError, ValueError, TypeError, ImportError):
         return None
+
+
+def _validate_sec_raw_document(
+    document: RawDocument,
+    path: Path,
+    expected_cik: str | None = None,
+    parsed_sha256: str | None = None,
+) -> None:
+    """Fail closed when fetched SEC provenance is not bound to the parsed file."""
+
+    if not isinstance(document, RawDocument):
+        raise ValueError("SEC source evidence must be a RawDocument")
+    if not isinstance(document.path, Path):
+        raise ValueError("SEC source evidence path must be a Path")
+    source_path = Path(path)
+    if document.path.resolve() != source_path.resolve():
+        raise ValueError("SEC source evidence path does not match the parsed file")
+    if document.path.is_symlink() or not document.path.is_file():
+        raise ValueError("SEC source evidence file is missing or not immutable")
+    if document.provider_id != "sec_edgar" or document.document_type != "sec_companyfacts":
+        raise ValueError("SEC source evidence provider or document type is invalid")
+    if document.media_type != "application/json" or type(document.http_status) is not int or document.http_status not in {200, 304}:
+        raise ValueError("SEC source evidence media type or HTTP status is invalid")
+    retrieved_at = document.retrieved_at
+    if not isinstance(retrieved_at, datetime) or retrieved_at.tzinfo is None or retrieved_at.utcoffset() is None:
+        raise ValueError("SEC source evidence retrieved_at must be timezone-aware")
+    source_url = urlparse(document.source_url) if isinstance(document.source_url, str) else None
+    if (
+        source_url is None
+        or source_url.scheme != "https"
+        or source_url.hostname != "data.sec.gov"
+        or source_url.username is not None
+        or source_url.password is not None
+        or source_url.port is not None
+        or source_url.query
+        or source_url.fragment
+        or not source_url.path.startswith("/api/xbrl/companyfacts/CIK")
+    ):
+        raise ValueError("SEC source evidence URL is invalid")
+    if not isinstance(document.sha256, str) or len(document.sha256) != 64 or document.sha256 != document.sha256.lower() or any(character not in "0123456789abcdef" for character in document.sha256):
+        raise ValueError("SEC source evidence checksum is invalid")
+    actual_sha256 = sha256_file(document.path)
+    if actual_sha256 != document.sha256:
+        raise ValueError("SEC source evidence checksum does not match the file")
+    if parsed_sha256 is not None and parsed_sha256 != actual_sha256:
+        raise ValueError("SEC parsed source checksum does not match the fetched document")
+    if expected_cik is not None:
+        expected_url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{expected_cik}.json"
+        if document.source_url != expected_url:
+            raise ValueError("SEC source evidence URL does not match the fetched CIK")
 
 
 def _sec_identity_matches(cik: str, instrument_id: str) -> bool:
