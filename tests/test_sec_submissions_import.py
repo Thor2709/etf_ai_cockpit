@@ -322,7 +322,7 @@ def test_unsafe_zip_member_is_rejected_before_selected_extraction(tmp_path: Path
     assert not (tmp_path / "outside.json").exists()
 
 
-def test_provider_receipt_is_required_before_official_submissions_admission(tmp_path: Path) -> None:
+def test_caller_authored_receipt_cannot_admit_official_submissions(tmp_path: Path) -> None:
     source = _write(tmp_path / "submissions_0000789019_abcdef0123456789.json", _payload())
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     acquired_at = datetime(2026, 9, 3, 5, tzinfo=timezone.utc)
@@ -340,11 +340,11 @@ def test_provider_receipt_is_required_before_official_submissions_admission(tmp_
     result = import_sec_submissions(source, _identity(), cache_dir=tmp_path / "cache", provenance=provenance)
 
     assert result.status == "partial"
-    assert result.raw_documents[0].provider_id == "sec_edgar"
-    assert not any(warning["code"] == "provenance_unattested" for warning in result.warnings)
+    assert result.raw_documents[0].provider_id == "sec_local_import"
+    assert any(warning["code"] == "provenance_unattested" for warning in result.warnings)
 
 
-def test_receipt_attested_parent_keeps_local_detached_history_source_id(tmp_path: Path) -> None:
+def test_caller_authored_receipt_downgrades_parent_and_detached_history(tmp_path: Path) -> None:
     name = "CIK0000789019-submissions-001.json"
     source = _write(tmp_path / "submissions_0000789019_abcdef0123456789.json", _payload([{"name": name, "filingCount": 1}]))
     history = _write(tmp_path / name, _payload(columns=_columns("0000789019-25-000001", "10-Q")))
@@ -370,7 +370,7 @@ def test_receipt_attested_parent_keeps_local_detached_history_source_id(tmp_path
     )
 
     assert result.status == "partial"
-    assert result.records[0].source_id.startswith("sec_edgar:")
+    assert result.records[0].source_id.startswith("sec_local_import:")
     assert result.records[1].source_id.startswith("sec_local_import:")
 
 

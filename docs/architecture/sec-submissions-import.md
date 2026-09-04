@@ -24,10 +24,12 @@ outside the immutable object layout are rejected without replacement.
 
 Official `RawDocument` provenance is admitted only when its path, checksum,
 timezone-aware timestamp, provider, exact SEC URL, document type, media type,
-and integer HTTP status are consistent with the SEC provider's durable
-acquisition receipt and immutable payload. Caller-created metadata without
-that receipt is downgraded to `sec_local_import` manual evidence; matching
-fields alone never establish official authority. Filing URLs are bound to the
+and integer HTTP status are consistent with a process-bound capability minted
+by the SEC provider and its immutable payload. Caller-created metadata,
+sidecars, or manifests cannot construct or rehydrate that capability and are
+downgraded to `sec_local_import` manual evidence; matching fields alone never
+establish official authority. ZIP members may derive authority only from an
+admitted bulk capability. Filing URLs are bound to the
 selected company CIK, accession directory, and primary document; a third-party
 accession prefix is permitted. Local inputs are marked `sec_local_import` and
 remain manual-review evidence, with HTML retained as `text/html` (other

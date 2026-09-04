@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
+from etf_cockpit.data.sec_edgar_capability import _admitted
 
 
 @pytest.mark.parametrize("document_type", ["companyfacts", "submissions"])
@@ -110,6 +111,35 @@ def test_sec_provider_uses_conditional_cache_and_bounded_rate(tmp_path: Path) ->
     assert requests[1][1]["If-None-Match"] == '"facts-v1"'
     assert clock[0] >= 1.0
     assert (tmp_path / "companyfacts_0000789019.json.meta.json").exists()
+
+
+def test_sec_provider_304_after_process_registry_loss_mints_new_admission(tmp_path: Path) -> None:
+    import etf_cockpit.data.sec_edgar_capability as capability
+
+    payload = json.dumps({"cik": "0000789019", "facts": {}}).encode()
+    first_provider = SecEdgarProvider(
+        "ETF AI Cockpit tests research@company.org",
+        cache_dir=tmp_path,
+        transport=lambda _url, _headers: (payload, 200, {"ETag": '"facts-v1"'}),
+        rate_limit_seconds=0,
+    )
+    first = first_provider.fetch_companyfacts("789019")
+    capability._ADMISSIONS.clear()
+    capability._CACHE_ADMISSIONS.clear()
+    second_provider = SecEdgarProvider(
+        "ETF AI Cockpit tests research@company.org",
+        cache_dir=tmp_path,
+        transport=lambda _url, _headers: (b"", 304, {"ETag": '"facts-v1"'}),
+        rate_limit_seconds=0,
+    )
+
+    revalidated_after = datetime.now(timezone.utc)
+    second = second_provider.fetch_companyfacts("789019")
+
+    assert second.http_status == 304
+    assert second.retrieved_at >= revalidated_after
+    assert second.retrieved_at != first.retrieved_at
+    assert _admitted(second, digest=second.sha256, document_type="sec_companyfacts")
 
 
 @pytest.mark.parametrize("retrieved_at", [None, "2026-09-03T12:00:00", "not-a-timestamp"])

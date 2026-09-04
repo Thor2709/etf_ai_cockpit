@@ -22,6 +22,7 @@ from urllib.request import Request, urlopen
 from etf_cockpit.core.atomic_io import atomic_write_bytes, atomic_write_json
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority
+from etf_cockpit.data.sec_edgar_capability import _mint, _replay
 from etf_cockpit.parsers.contracts import RawDocument
 
 
@@ -205,7 +206,7 @@ class SecEdgarProvider:
                     immutable_path = _immutable_cache_path(cache_path, cached_sha)
                     with publication_scope(publish_guard):
                         _ensure_immutable_payload(immutable_path, cached_payload, expected_cik)
-                    return RawDocument(
+                    document = RawDocument(
                         immutable_path,
                         url,
                         retrieved_at,
@@ -215,6 +216,25 @@ class SecEdgarProvider:
                         "application/json",
                         304,
                     )
+                    try:
+                        return _replay(document, status=304)
+                    except ValueError:
+                        # A live 304 proves the cached generation is still the
+                        # official endpoint's current representation, but a
+                        # prior-process timestamp is only caller-writable
+                        # metadata.  Re-anchor availability to this validation.
+                        revalidated = RawDocument(
+                            immutable_path,
+                            url,
+                            datetime.now(timezone.utc),
+                            cached_sha,
+                            "sec_edgar",
+                            document_type,
+                            "application/json",
+                            304,
+                        )
+                        acquisition_status = _cached_acquisition_status(metadata)
+                        return _mint(revalidated, acquisition_status=acquisition_status, lineage=(acquisition_status, 304))
                 if response.status == 429 or response.status >= 500:
                     raise SecEdgarUnavailable(f"SEC endpoint returned HTTP {response.status}")
                 if response.status < 200 or response.status >= 300:
@@ -237,12 +257,13 @@ class SecEdgarProvider:
                     "retrieved_at": retrieved_at.isoformat(),
                     "sha256": payload_sha,
                     "raw_path": str(immutable_path),
+                    "status": response.status,
                     "etag": response.headers.get("ETag", ""),
                     "last_modified": response.headers.get("Last-Modified", ""),
                 }
                 with publication_scope(publish_guard):
                     atomic_write_json(metadata_path, next_metadata)
-                return RawDocument(
+                document = RawDocument(
                     immutable_path,
                     url,
                     retrieved_at,
@@ -252,6 +273,7 @@ class SecEdgarProvider:
                     "application/json",
                     response.status,
                 )
+                return _mint(document, acquisition_status=response.status, lineage=(response.status,))
             except (HTTPError, URLError, TimeoutError, OSError, SecEdgarUnavailable) as exc:
                 last_error = exc
                 if attempt >= self.max_retries:
@@ -399,6 +421,15 @@ def _retrieved_at(metadata: Mapping[str, Any]) -> datetime:
     # Preserve the persisted aware instant and its original offset; 304 is a
     # revalidation, not a new acquisition timestamp.
     return parsed
+
+
+def _cached_acquisition_status(metadata: Mapping[str, Any]) -> int:
+    """Read only a validated acquisition status from the cache metadata."""
+
+    status = metadata.get("status", 200)
+    if type(status) is not int or status not in {200, 206}:
+        raise ValueError("SEC cached metadata acquisition status is invalid")
+    return status
 
 
 def _sha256(payload: bytes) -> str:

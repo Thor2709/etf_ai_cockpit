@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import http.client
 from io import BytesIO
 import json
@@ -20,6 +21,7 @@ from etf_cockpit.data.sec_edgar_bulk import (
     SecEdgarBulkUnavailable,
 )
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
+from etf_cockpit.data.sec_edgar_capability import _admitted
 
 
 class Response:
@@ -289,6 +291,65 @@ def test_cache_only_is_explicit_and_does_not_invoke_transport(tmp_path: Path) ->
 
     provider = SecEdgarProvider("ETF Research owner@company.eu", cache_dir=tmp_path, transport=unexpected, rate_limit_seconds=0)
     with pytest.raises(SecEdgarBulkUnavailable, match="no cached"):
+        provider.fetch_companyfacts_bulk(cache_only=True)
+
+
+def test_cache_only_replay_reuses_process_bound_admission(tmp_path: Path) -> None:
+    payload = _zip_bytes()
+    provider, _ = _provider(tmp_path, [Response(payload)], max_retries=0)
+    first = provider.fetch_companyfacts_bulk()
+    replay = provider.fetch_companyfacts_bulk(cache_only=True)
+    forged = type(first)(
+        first.path,
+        first.source_url,
+        first.retrieved_at,
+        first.sha256,
+        first.provider_id,
+        first.document_type,
+        first.media_type,
+        first.http_status,
+    )
+
+    assert replay is not first
+    assert _admitted(first, digest=first.sha256, document_type="sec_companyfacts_bulk")
+    assert _admitted(replay, digest=replay.sha256, document_type="sec_companyfacts_bulk")
+    assert not _admitted(forged, digest=forged.sha256, document_type="sec_companyfacts_bulk")
+
+
+def test_bulk_304_after_process_registry_loss_mints_new_admission(tmp_path: Path) -> None:
+    import etf_cockpit.data.sec_edgar_capability as capability
+
+    payload = _zip_bytes()
+    provider, _ = _provider(tmp_path, [Response(payload)], max_retries=0)
+    first = provider.fetch_companyfacts_bulk()
+    capability._ADMISSIONS.clear()
+    capability._CACHE_ADMISSIONS.clear()
+    revalidator = SecEdgarProvider(
+        "ETF Research owner@company.eu",
+        cache_dir=tmp_path,
+        transport=lambda _url, _headers: Response(b"", status=304),
+        max_retries=0,
+        rate_limit_seconds=0,
+    )
+
+    revalidated_after = datetime.now(timezone.utc)
+    second = revalidator.fetch_companyfacts_bulk()
+
+    assert second.http_status == 304
+    assert second.retrieved_at >= revalidated_after
+    assert second.retrieved_at != first.retrieved_at
+    assert _admitted(second, digest=second.sha256, document_type="sec_companyfacts_bulk")
+
+
+def test_cache_only_after_process_registry_loss_fails_closed(tmp_path: Path) -> None:
+    import etf_cockpit.data.sec_edgar_capability as capability
+
+    provider, _ = _provider(tmp_path, [Response(_zip_bytes())], max_retries=0)
+    provider.fetch_companyfacts_bulk()
+    capability._ADMISSIONS.clear()
+    capability._CACHE_ADMISSIONS.clear()
+
+    with pytest.raises(SecEdgarBulkUnavailable, match="provider-owned acquisition proof"):
         provider.fetch_companyfacts_bulk(cache_only=True)
 
 

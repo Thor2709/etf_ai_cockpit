@@ -90,6 +90,18 @@ that is compatible with supported Python 3.11--3.13, and restore direct PIT
 coverage. Require focused 3.12 and 3.13 evidence plus fresh paired exact-head
 review before H-tier gates.
 
+The capability/ZIP64 replacement is implemented without sidecar authority.
+Provider and bulk adapters mint bounded process-local acquisition proofs; plain
+paths, public `RawDocument` values and recomputed manifests cannot promote the
+current import, cache-only replay without a live proof fails closed, and a fresh
+HTTP 304 re-anchors availability when prior-process acquisition time cannot be
+proved. Explicit APPNOTE EOCD/ZIP64 parsing replaces private standard-library
+internals. Root's fresh six-module selection passes 266 tests with one Windows
+link-capability skip on both Python 3.12.10 and the packaged-runtime family
+Python 3.13.14. Ruff, compileall and diff hygiene pass. Freeze the resulting
+commit for fresh paired whole-diff and provenance/PIT review; these focused
+results still do not authorise a packaged gate or integration.
+
 Do not run H-tier gates or integrate until all focused cases pass and the stable
 complete diff receives independent whole-diff and provenance-risk acceptance.
 This train still does not close the full bulk/resumable/canonical-statements issue.

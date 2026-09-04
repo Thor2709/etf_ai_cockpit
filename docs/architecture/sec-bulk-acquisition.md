@@ -24,10 +24,11 @@ Supported interrupted reads use the configured bounded retry allowance and
 retain only exception bytes within the declared response span. A `200`
 response safely restarts from byte zero, including when a server ignores or
 does not support ranges. Resumed artifacts preserve honest HTTP 206 provenance.
-The local submissions importer admits 206 and 304 provenance only when the
-provider receipt binds the status-bearing document to the retained immutable
-artifact; caller-authored 206/304 values without that lineage are downgraded
-or rejected as local/manual evidence.
+The local submissions importer admits 206 and 304 provenance only when a
+process-bound capability minted by this provider binds the status-bearing
+document to the retained immutable artifact. Caller-authored 206/304 values,
+sidecars, and manifests cannot recreate that capability and are downgraded or
+rejected as local/manual evidence.
 
 Successful `RawDocument` values retain the exact URL, aware acquisition time,
 full SHA-256, provider `sec_edgar`, dataset document type, `application/zip`
@@ -37,7 +38,13 @@ Both ordinary responses and HTTP-error304 responses retain their effective
 URL for the same exact-endpoint check; redirected responses are not admitted.
 Cache-only selection is explicit, reads immutable objects without waiting on a
 live download, and reports unavailable when no strictly validated artifact
-exists. Partial state is generation-bound (dataset, exact URL, size, strong
+exists or when the process-local acquisition proof is absent; sidecars alone
+cannot authorize an offline replay. A fresh provider HTTP 304 may establish a
+new capability after validating the cached bytes and acquisition metadata. It
+re-anchors availability to the fresh validation time because a prior-process
+timestamp is not itself authoritative; same-process revalidation retains the
+proved original acquisition time with a 304 lineage. Partial
+state is generation-bound (dataset, exact URL, size, strong
 validator, byte count, and prefix hash), so a changed or tampered prefix cannot
 be spliced into a later response. Network reads happen outside publication
 authorization; each durable chunk/checkpoint and final promotion is guarded,
@@ -63,12 +70,13 @@ current nightly live sizes are not asserted. Complete and partial sidecar reads
 are capped at64KiB before JSON parsing, with malformed/deeply nested data failing
 closed; oversized partials are rejected before hashing.
 
-EOCD selection deliberately uses the pinned Python standard-library reader's
-bounded `_EndRecData` helper, including its adjacent-ZIP64 and concatenation
-semantics. The selected adjacent records and actual central-directory record
-count/byte spans are checked with fixed-size reads before `ZipFile` may allocate
-its bounded member table. The compatibility regressions cover ordinary EOCD,
-ZIP64 without sentinels, inconsistent declarations, and preallocation limits.
+EOCD selection uses the APPNOTE-bounded comment window and explicit EOCD,
+ZIP64 locator, and ZIP64 record structures; it does not depend on private
+`zipfile` helpers. The selected adjacent records and actual central-directory
+record count/byte spans are checked with fixed-size reads before `ZipFile` may
+allocate its bounded member table. The compatibility regressions cover
+ordinary EOCD, ZIP64 without sentinels, inconsistent declarations, and
+preallocation limits across supported Python runtimes.
 Validation covers structure, names,
 encryption, links, sizes, and compression ratios; member CRCs are not claimed
 until a downstream consumer reads the selected member.

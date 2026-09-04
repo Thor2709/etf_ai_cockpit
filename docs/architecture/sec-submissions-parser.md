@@ -15,6 +15,11 @@ populated only when `acceptanceDateTime` parses as a timezone-aware timestamp;
 missing or invalid values remain `None` with an explicit warning. Filing and
 report dates are never used as availability timestamps.
 
+When an admitted acquisition timestamp precedes a row's acceptance timestamp,
+the row remains retained for audit but `available_at` is explicitly `None`
+with an `acceptance_after_acquisition` warning. This preserves point-in-time
+semantics even for a genuinely provider-admitted document.
+
 The acceptance-time column is optional for older SEC columnar history files.
 When it is absent, rows are retained with unavailable acceptance/availability
 and a `missing_acceptance_timestamp` warning. The top-level issuer CIK binds

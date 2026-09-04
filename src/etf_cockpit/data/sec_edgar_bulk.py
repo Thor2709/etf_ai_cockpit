@@ -25,6 +25,7 @@ import zipfile
 from etf_cockpit.core.atomic_io import atomic_write_json
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
+from etf_cockpit.data.sec_edgar_capability import _mint, _replay
 from etf_cockpit.parsers.contracts import RawDocument
 
 
@@ -129,7 +130,7 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
                 if response.status == 304:
                     if artifact is None:
                         raise SecEdgarBulkUnavailable("SEC returned 304 without a cached artifact")
-                    return _result(artifact, url, metadata, 304, dataset)
+                    return _result(artifact, url, metadata, 304, dataset, revalidated=True)
                 if response.status in {429} or response.status >= 500:
                     raise SecEdgarBulkUnavailable(f"SEC endpoint returned HTTP {response.status}")
                 total: int | None
@@ -183,7 +184,8 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
             }
             with publication_scope(publish_guard):
                 atomic_write_json(paths["metadata"], next_metadata)
-            return RawDocument(final, url, acquired_at, payload_sha, "sec_edgar", f"sec_{dataset}_bulk", "application/zip", response.status)
+            document = RawDocument(final, url, acquired_at, payload_sha, "sec_edgar", f"sec_{dataset}_bulk", "application/zip", response.status)
+            return _mint(document, acquisition_status=response.status, lineage=(response.status,))
         except WorkflowTransitionError:
             raise
         except SecEdgarBulkEndpointError:
@@ -409,7 +411,15 @@ def _cached_result(metadata: dict[str, object], paths: dict[str, Path], url: str
     return _result(artifact, url, metadata, _int_value(metadata.get("status"), 200), dataset)
 
 
-def _result(path: Path, url: str, metadata: dict[str, object], status: int, dataset: str) -> RawDocument:
+def _result(
+    path: Path,
+    url: str,
+    metadata: dict[str, object],
+    status: int,
+    dataset: str,
+    *,
+    revalidated: bool = False,
+) -> RawDocument:
     if not path.is_file() or _sha256_file(path) != str(metadata.get("sha256", "")):
         raise SecEdgarBulkUnavailable("cached SEC bulk artifact checksum is invalid")
     try:
@@ -419,7 +429,29 @@ def _result(path: Path, url: str, metadata: dict[str, object], status: int, data
     if retrieved.tzinfo is None or retrieved.utcoffset() is None:
         raise SecEdgarBulkUnavailable("cached SEC bulk acquisition time is not timezone-aware")
     _validate_zip(path, dataset)
-    return RawDocument(path, url, retrieved, str(metadata["sha256"]), "sec_edgar", f"sec_{dataset}_bulk", "application/zip", status)
+    document = RawDocument(path, url, retrieved, str(metadata["sha256"]), "sec_edgar", f"sec_{dataset}_bulk", "application/zip", status)
+    if revalidated:
+        acquisition_status = _int_value(metadata.get("status"), 200)
+        try:
+            return _replay(document, status=304)
+        except ValueError:
+            # A fresh 304 authenticates the current cached generation, not a
+            # caller-writable acquisition timestamp from a prior process.
+            revalidated_document = RawDocument(
+                path,
+                url,
+                datetime.now(timezone.utc),
+                str(metadata["sha256"]),
+                "sec_edgar",
+                f"sec_{dataset}_bulk",
+                "application/zip",
+                304,
+            )
+            return _mint(revalidated_document, acquisition_status=acquisition_status, lineage=(acquisition_status, 304))
+    try:
+        return _replay(document, status=status)
+    except ValueError as exc:
+        raise SecEdgarBulkUnavailable("cached SEC bulk artifact has no provider-owned acquisition proof") from exc
 
 
 def _metadata_artifact(metadata: dict[str, object], paths: dict[str, Path], url: str) -> Path | None:
@@ -646,46 +678,52 @@ def _validate_zip(path: Path, dataset: str) -> None:
 
 
 def _validate_zip_container(path: Path, dataset: str) -> None:
-    """Bound the exact directory selected by the pinned stdlib ZIP reader.
-
-    _EndRecData reads only the bounded EOCD/comment and adjacent ZIP64 records,
-    not the member table. Reuse that selection so preflight cannot inspect a
-    different ZIP64 record than ZipFile. Count actual records with fixed-size
-    reads before allowing ZipFile to allocate its bounded table.
-    """
+    """Validate bounded EOCD/ZIP64 structures without private ``zipfile`` APIs."""
 
     byte_limit, member_limit, directory_limit = _dataset_limits(dataset)
     file_size = path.stat().st_size
     if not 22 <= file_size <= byte_limit:
         raise SecEdgarBulkUnavailable("SEC bulk ZIP size is outside its bound")
-    with path.open("rb") as handle:
-        end = getattr(zipfile, "_EndRecData")(handle)
-    if not isinstance(end, list) or len(end) != 10:
-        raise SecEdgarBulkUnavailable("SEC bulk ZIP EOCD is missing or malformed")
-    signature, disk, central_disk, entries_disk, entries, central_size, central_offset, comment_size, comment, location = end
-    if disk != 0 or central_disk != 0 or entries_disk != entries:
+    eocd_offset, eocd = _find_eocd(path)
+    _, disk, central_disk, entries_disk, entries16, central_size32, central_offset32, comment_size = struct.unpack(
+        "<4s4H2IH", eocd[:22]
+    )
+    if disk != 0 or central_disk != 0 or entries_disk != entries16:
         raise SecEdgarBulkUnavailable("SEC bulk ZIP is multi-disk")
-    if location + 22 + comment_size != file_size or len(comment) != comment_size:
+    if eocd_offset + 22 + comment_size != file_size:
         raise SecEdgarBulkUnavailable("SEC bulk ZIP EOCD comment is malformed")
+    sentinel = (
+        entries_disk == 0xFFFF
+        or entries16 == 0xFFFF
+        or central_size32 == 0xFFFFFFFF
+        or central_offset32 == 0xFFFFFFFF
+    )
+    entries = entries16
+    central_size = central_size32
+    central_offset = central_offset32
+    zip64_record_offset = eocd_offset
+    locator_offset = eocd_offset - 20
+    has_locator = locator_offset >= 0 and _read_at(path, locator_offset, 4) == b"PK\x06\x07"
+    if sentinel and not has_locator:
+        raise SecEdgarBulkUnavailable("SEC ZIP64 locator is missing")
+    if has_locator:
+        zip64 = _read_zip64_record(path, locator_offset)
+        if zip64 is None:
+            raise SecEdgarBulkUnavailable("SEC ZIP64 locator or record is malformed")
+        zip64_entries, zip64_size, zip64_offset, zip64_declared_record_offset, zip64_record_offset = zip64
+        # An adjacent ZIP64 record is the authoritative directory declaration
+        # even when a producer omitted the legacy EOCD sentinels.  This also
+        # prevents a misleading legacy EOCD from selecting a different table.
+        entries, central_size, central_offset = zip64_entries, zip64_size, zip64_offset
     if entries > member_limit or central_size > directory_limit:
         raise SecEdgarBulkUnavailable("SEC bulk ZIP central directory exceeds its bound")
-    is_zip64 = signature == b"PK\x06\x06"
-    directory_end = location - (76 if is_zip64 else 0)
+    directory_end = zip64_record_offset if has_locator else eocd_offset
     directory_start = directory_end - central_size
     concat = directory_start - central_offset
     if directory_start < 0 or concat < 0:
         raise SecEdgarBulkUnavailable("SEC bulk ZIP central directory offset is invalid")
-    if is_zip64:
-        record = _read_at(path, location - 76, 56)
-        locator = _read_at(path, location - 20, 20)
-        locator_disk, relative_offset, disks = struct.unpack_from("<IQI", locator, 4)
-        if (
-            locator[:4] != b"PK\x06\x07" or record[:4] != b"PK\x06\x06"
-            or struct.unpack_from("<Q", record, 4)[0] != 44
-            or locator_disk != 0 or disks != 1
-            or relative_offset + concat != location - 76
-        ):
-            raise SecEdgarBulkUnavailable("SEC ZIP64 adjacent records are inconsistent")
+    if has_locator and zip64_declared_record_offset + concat != zip64_record_offset:
+        raise SecEdgarBulkUnavailable("SEC ZIP64 record offset is inconsistent")
     consumed = 0
     actual_entries = 0
     with path.open("rb") as handle:
@@ -704,6 +742,56 @@ def _validate_zip_container(path: Path, dataset: str) -> None:
             handle.seek(record_size - 46, os.SEEK_CUR)
     if actual_entries != entries:
         raise SecEdgarBulkUnavailable("SEC ZIP central directory count is inconsistent")
+
+
+def _find_eocd(path: Path) -> tuple[int, bytes]:
+    """Find the last EOCD in the APPNOTE-bounded comment search window."""
+
+    size = path.stat().st_size
+    window_start = max(0, size - (22 + 0xFFFF))
+    with path.open("rb") as handle:
+        handle.seek(window_start)
+        tail = handle.read(size - window_start)
+    for relative in range(len(tail) - 22, -1, -1):
+        if tail[relative:relative + 4] != b"PK\x05\x06":
+            continue
+        comment_size = struct.unpack_from("<H", tail, relative + 20)[0]
+        if relative + 22 + comment_size == len(tail):
+            return window_start + relative, tail[relative:relative + 22]
+    raise SecEdgarBulkUnavailable("SEC bulk ZIP EOCD is missing or malformed")
+
+
+def _read_zip64_record(path: Path, locator_offset: int) -> tuple[int, int, int, int, int] | None:
+    locator = _read_at(path, locator_offset, 20)
+    if locator[:4] != b"PK\x06\x07":
+        return None
+    disk, declared_record_offset, disks = struct.unpack_from("<IQI", locator, 4)
+    if disk != 0 or disks != 1 or declared_record_offset < 0:
+        return None
+    # APPNOTE places the ZIP64 EOCD immediately before its locator.  The
+    # locator offset is relative to the archive start; a prepended data span
+    # is accounted for after the central-directory offset is known.
+    record_offset = locator_offset - 56
+    if record_offset < 0:
+        return None
+    fixed = _read_at(path, record_offset, 12)
+    if fixed[:4] != b"PK\x06\x06":
+        return None
+    record_size = struct.unpack_from("<Q", fixed, 4)[0]
+    if record_size < 44 or record_size > 1024:
+        return None
+    total_size = 12 + record_size
+    if record_offset + total_size != locator_offset:
+        return None
+    record = _read_at(path, record_offset, total_size)
+    if len(record) < 56:
+        return None
+    _, _, _, _, record_disk, record_central_disk, entries_disk, entries, central_size, central_offset = struct.unpack_from(
+        "<4sQ2H2I4Q", record, 0
+    )
+    if record_disk != 0 or record_central_disk != 0 or entries_disk != entries:
+        return None
+    return entries, central_size, central_offset, declared_record_offset, record_offset
 
 
 def _read_at(path: Path, offset: int, length: int) -> bytes:

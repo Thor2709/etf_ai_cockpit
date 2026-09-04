@@ -21,6 +21,7 @@ from etf_cockpit.application.sec_submissions_import import (
     import_sec_submissions,
 )
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
+from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
 from etf_cockpit.parsers.contracts import RawDocument
 
 
@@ -324,6 +325,27 @@ def test_restart_rejects_mutated_local_filing_url_even_when_rehashed(tmp_path: P
 
     assert result.status == "failed"
     assert manifest_path.read_bytes() == before
+
+
+def test_forged_manifest_cannot_promote_path_only_restart_to_official(tmp_path: Path) -> None:
+    source = _write(tmp_path / "submissions.json", _payload())
+    cache = tmp_path / "cache"
+    first = import_sec_submissions(source, _identity(), cache_dir=cache)
+    manifest_path, payload = _manifest(first)
+    snapshot = payload["snapshots"][0]
+    official_url = SUBMISSIONS_URL.format(cik="0000789019")
+    for field in ("source_document", "provenance"):
+        snapshot[field]["provider_id"] = "sec_edgar"
+        snapshot[field]["source_url"] = official_url
+    for record in snapshot["records"]:
+        record["source_id"] = record["source_id"].replace("sec_local_import:", "sec_edgar:", 1)
+    _rewrite_manifest(manifest_path, payload, snapshot)
+
+    result = import_sec_submissions(source, _identity(), cache_dir=cache)
+
+    assert result.status == "partial"
+    assert all(record.source_id.startswith("sec_local_import:") for record in result.records)
+    assert all(document.provider_id != "sec_edgar" for document in result.raw_documents)
 
 
 def test_a_to_b_to_a_restart_keeps_latest_snapshot_consistent(tmp_path: Path) -> None:
@@ -645,28 +667,22 @@ def test_manifest_identity_is_stable_across_msft_other_msft_replay(
     assert all(snapshot["identity"] == {"cik": "0000789019", "instrument_id": "MSFT"} for snapshot in payload["snapshots"])
 
 
-def test_acceptance_after_acquisition_is_explicitly_unavailable(
+def test_acceptance_after_genuine_provider_acquisition_is_unavailable(
     tmp_path: Path,
 ) -> None:
-    source = _write(tmp_path / "submissions.json", _payload())
+    payload = _payload()
+    payload["filings"]["recent"]["acceptanceDateTime"] = ["2099-01-02T03:04:05.000Z"]
+    payload_bytes = json.dumps(payload).encode()
+    provider = SecEdgarProvider(
+        "SEC capability tests research@company.org",
+        cache_dir=tmp_path / "provider-cache",
+        transport=lambda _url, _headers: (payload_bytes, 200, {}),
+        max_retries=0,
+    )
+    provenance = provider.fetch_submissions("789019")
+    source = provenance.path
     filing = tmp_path / "annual.htm"
     filing.write_text("<html>filing</html>", encoding="utf-8")
-    provenance = _official(
-        source,
-        SUBMISSIONS_URL.format(cik="0000789019"),
-        "sec_submissions",
-        "application/json",
-    )
-    provenance = RawDocument(
-        provenance.path,
-        provenance.source_url,
-        datetime(2025, 12, 31, tzinfo=timezone.utc),
-        provenance.sha256,
-        provenance.provider_id,
-        provenance.document_type,
-        provenance.media_type,
-        provenance.http_status,
-    )
 
     result = import_sec_submissions(
         source,
@@ -677,5 +693,6 @@ def test_acceptance_after_acquisition_is_explicitly_unavailable(
     )
 
     assert result.status == "partial"
-    assert result.records[0].available_at == result.records[0].accepted_at
-    assert any(item["code"] == "provenance_unattested" for item in result.warnings)
+    assert result.records[0].available_at is None
+    assert any(item["code"] == "acceptance_after_acquisition" for item in result.warnings)
+    assert not any(item["code"] == "provenance_unattested" for item in result.warnings)
