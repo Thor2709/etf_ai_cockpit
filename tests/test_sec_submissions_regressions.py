@@ -343,7 +343,7 @@ def test_forged_manifest_cannot_promote_path_only_restart_to_official(tmp_path: 
 
     result = import_sec_submissions(source, _identity(), cache_dir=cache)
 
-    assert result.status == "partial"
+    assert result.status == "failed"
     assert all(record.source_id.startswith("sec_local_import:") for record in result.records)
     assert all(document.provider_id != "sec_edgar" for document in result.raw_documents)
 
@@ -454,7 +454,7 @@ def test_current_snapshot_endpoint_cannot_be_reused_for_named_history(tmp_path: 
         history_provenance={name: history_document},
     )
 
-    assert result.status == "failed"
+    assert result.status == "partial"
 
 
 def test_zip_selected_and_external_history_share_one_aggregate_limit(
@@ -579,9 +579,8 @@ def test_identical_local_restart_preserves_generation_and_admitted_lineage(tmp_p
     assert first.status == second.status == "partial"
     assert len(first_manifest["snapshots"]) == len(second_manifest["snapshots"]) == 1
     assert first_manifest == second_manifest
-    assert [(item.source_url, item.retrieved_at, item.sha256) for item in first.raw_documents] == [
-        (item.source_url, item.retrieved_at, item.sha256) for item in second.raw_documents
-    ]
+    assert [item.sha256 for item in first.raw_documents] == [item.sha256 for item in second.raw_documents]
+    assert all(item.provider_id == "sec_local_import" for item in second.raw_documents)
     assert all(item.path.is_file() for item in second.raw_documents)
     assert all("sec-submissions-import-" not in item.source_url for item in second.raw_documents)
 
@@ -667,7 +666,7 @@ def test_manifest_identity_is_stable_across_msft_other_msft_replay(
     assert all(snapshot["identity"] == {"cik": "0000789019", "instrument_id": "MSFT"} for snapshot in payload["snapshots"])
 
 
-def test_acceptance_after_genuine_provider_acquisition_is_unavailable(
+def test_acceptance_after_genuine_provider_fetch_is_unavailable(
     tmp_path: Path,
 ) -> None:
     payload = _payload()
@@ -695,4 +694,4 @@ def test_acceptance_after_genuine_provider_acquisition_is_unavailable(
     assert result.status == "partial"
     assert result.records[0].available_at is None
     assert any(item["code"] == "acceptance_after_acquisition" for item in result.warnings)
-    assert not any(item["code"] == "provenance_unattested" for item in result.warnings)
+    assert any(item["code"] == "provenance_unattested" for item in result.warnings)

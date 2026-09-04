@@ -61,7 +61,7 @@ def parse_submissions(
     history_paths: Mapping[str, Path] | None = None,
     acquired_at: datetime | None = None,
     history_acquired_at: Mapping[str, datetime] | None = None,
-    source_provider: str = "sec_edgar",
+    source_provider: str = "sec_local_import",
     history_source_providers: Mapping[str, str] | None = None,
 ) -> ParseResult[SubmissionRecord]:
     """Parse one SEC submissions snapshot and explicitly supplied history files.
@@ -264,7 +264,7 @@ def _records_from_columns(
     warnings: list[ParseWarning],
     source_label: str,
     acquired_at: datetime | None = None,
-    source_provider: str = "sec_edgar",
+    source_provider: str = "sec_local_import",
 ) -> tuple[SubmissionRecord, ...]:
     count = len(columns["accessionNumber"])
     result: list[SubmissionRecord] = []

@@ -24,13 +24,14 @@ Supported interrupted reads use the configured bounded retry allowance and
 retain only exception bytes within the declared response span. A `200`
 response safely restarts from byte zero, including when a server ignores or
 does not support ranges. Resumed artifacts preserve honest HTTP 206 provenance.
-The local submissions importer admits 206 and 304 provenance only when a
-process-bound capability minted by this provider binds the status-bearing
-document to the retained immutable artifact. Caller-authored 206/304 values,
-sidecars, and manifests cannot recreate that capability and are downgraded or
-rejected as local/manual evidence.
+The local submissions importer admits official 206 and 304 provenance only
+inside the concrete provider's fused acquisition-to-import call. A bounded,
+provider-owned in-memory session ledger binds the status-bearing document to
+the retained immutable artifact; public paths, RawDocument values, sidecars,
+and manifests never recreate that proof and are downgraded or rejected as
+local/manual evidence. There is no generic capability-upgrade API.
 
-Successful `RawDocument` values retain the exact URL, aware acquisition time,
+Successful in-memory `RawDocument` values retain the exact URL, aware acquisition time,
 full SHA-256, provider `sec_edgar`, dataset document type, `application/zip`
 media type, and actual HTTP status. A `304` revalidation reuses the prior
 artifact hash and acquisition timestamp rather than inventing a new time.
@@ -38,12 +39,11 @@ Both ordinary responses and HTTP-error304 responses retain their effective
 URL for the same exact-endpoint check; redirected responses are not admitted.
 Cache-only selection is explicit, reads immutable objects without waiting on a
 live download, and reports unavailable when no strictly validated artifact
-exists or when the process-local acquisition proof is absent; sidecars alone
-cannot authorize an offline replay. A fresh provider HTTP 304 may establish a
-new capability after validating the cached bytes and acquisition metadata. It
-re-anchors availability to the fresh validation time because a prior-process
-timestamp is not itself authoritative; same-process revalidation retains the
-proved original acquisition time with a 304 lineage. Partial
+exists or when the same-session ledger proof is absent; sidecars alone cannot
+authorize an offline replay. When the ledger is cold, validators and Range are
+omitted. An unexpected 304 receives one unconditional full request; another
+304, 206, or error fails closed. Same-session revalidation retains the proved
+original acquisition time with a 304 lineage. Partial
 state is generation-bound (dataset, exact URL, size, strong
 validator, byte count, and prefix hash), so a changed or tampered prefix cannot
 be spliced into a later response. Network reads happen outside publication
@@ -59,7 +59,7 @@ The explicit per-dataset local resource policy is:
 | Companyfacts | 8 GiB | 50,000 | 32 MiB |
 | Submissions | 8 GiB | 1,000,000 | 256 MiB |
 
-Companyfacts uses the existing canonical local importer's8GiB archive ceiling;
+Companyfacts uses the existing canonical local importer's 8 GiB archive ceiling;
 submissions has separate directory/member headroom. These are bounded product
 resource policies, not measurements or guarantees about today's archives.
 Declared over-limit downloads fail before streaming; local cache/imports stay
@@ -67,7 +67,7 @@ available. The submissions member ceiling has headroom over
 the 780,000+ submissions-member shape reported in this [SEC EDGAR issue
 comment](https://github.com/sec-edgar/sec-edgar/issues/257#issuecomment-1004777593);
 current nightly live sizes are not asserted. Complete and partial sidecar reads
-are capped at64KiB before JSON parsing, with malformed/deeply nested data failing
+are capped at 64 KiB before JSON parsing, with malformed/deeply nested data failing
 closed; oversized partials are rejected before hashing.
 
 EOCD selection uses the APPNOTE-bounded comment window and explicit EOCD,

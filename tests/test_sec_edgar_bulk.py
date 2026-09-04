@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 from contextlib import contextmanager
-from datetime import datetime, timezone
 import http.client
 from io import BytesIO
 import json
@@ -21,7 +20,6 @@ from etf_cockpit.data.sec_edgar_bulk import (
     SecEdgarBulkUnavailable,
 )
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
-from etf_cockpit.data.sec_edgar_capability import _admitted
 
 
 class Response:
@@ -244,6 +242,25 @@ def test_partial_source_url_binding_disables_resume(tmp_path: Path) -> None:
     assert result.path.read_bytes() == payload
 
 
+def test_partial_resume_requires_the_same_provider_session(tmp_path: Path) -> None:
+    payload = _zip_bytes()
+    first, _ = _provider(tmp_path, [Response(payload[:7], headers={"ETag": '"stable"', "Content-Length": str(len(payload))})], max_retries=0)
+    with pytest.raises(SecEdgarBulkUnavailable):
+        first.fetch_companyfacts_bulk()
+    observed: dict[str, str] = {}
+
+    def response(_url: str, headers: dict[str, str]) -> Response:
+        observed.update(headers)
+        return Response(payload, 200, {})
+
+    second, _ = _provider(tmp_path, [Response(payload)], max_retries=0)
+    second.transport = response
+    result = second.fetch_companyfacts_bulk()
+    assert "Range" not in observed
+    assert "If-Range" not in observed
+    assert result.path.read_bytes() == payload
+
+
 def test_bad_zip_or_truncation_preserves_last_good_artifact(tmp_path: Path) -> None:
     payload = _zip_bytes()
     provider, _ = _provider(tmp_path, [Response(payload, headers={"ETag": '"good"'})])
@@ -311,45 +328,28 @@ def test_cache_only_replay_reuses_process_bound_admission(tmp_path: Path) -> Non
     )
 
     assert replay is not first
-    assert _admitted(first, digest=first.sha256, document_type="sec_companyfacts_bulk")
-    assert _admitted(replay, digest=replay.sha256, document_type="sec_companyfacts_bulk")
-    assert not _admitted(forged, digest=forged.sha256, document_type="sec_companyfacts_bulk")
+    assert provider._session_generation_matches(first)
+    assert provider._session_generation_matches(replay)
+    assert forged == first
 
 
-def test_bulk_304_after_process_registry_loss_mints_new_admission(tmp_path: Path) -> None:
-    import etf_cockpit.data.sec_edgar_capability as capability
-
+def test_bulk_cold_304_retries_unconditionally(tmp_path: Path) -> None:
     payload = _zip_bytes()
-    provider, _ = _provider(tmp_path, [Response(payload)], max_retries=0)
+    responses = [Response(payload), Response(b"", status=304), Response(payload)]
+    provider, _ = _provider(tmp_path, responses, max_retries=0)
     first = provider.fetch_companyfacts_bulk()
-    capability._ADMISSIONS.clear()
-    capability._CACHE_ADMISSIONS.clear()
-    revalidator = SecEdgarProvider(
-        "ETF Research owner@company.eu",
-        cache_dir=tmp_path,
-        transport=lambda _url, _headers: Response(b"", status=304),
-        max_retries=0,
-        rate_limit_seconds=0,
-    )
-
-    revalidated_after = datetime.now(timezone.utc)
-    second = revalidator.fetch_companyfacts_bulk()
-
-    assert second.http_status == 304
-    assert second.retrieved_at >= revalidated_after
-    assert second.retrieved_at != first.retrieved_at
-    assert _admitted(second, digest=second.sha256, document_type="sec_companyfacts_bulk")
+    provider._authority_ledger.clear()
+    second = provider.fetch_companyfacts_bulk()
+    assert second.http_status == 200
+    assert second.sha256 == first.sha256
 
 
-def test_cache_only_after_process_registry_loss_fails_closed(tmp_path: Path) -> None:
-    import etf_cockpit.data.sec_edgar_capability as capability
-
+def test_cache_only_after_session_ledger_eviction_fails_closed(tmp_path: Path) -> None:
     provider, _ = _provider(tmp_path, [Response(_zip_bytes())], max_retries=0)
     provider.fetch_companyfacts_bulk()
-    capability._ADMISSIONS.clear()
-    capability._CACHE_ADMISSIONS.clear()
+    provider._authority_ledger.clear()
 
-    with pytest.raises(SecEdgarBulkUnavailable, match="provider-owned acquisition proof"):
+    with pytest.raises(SecEdgarBulkUnavailable, match="provider-owned (?:acquisition proof|session proof)"):
         provider.fetch_companyfacts_bulk(cache_only=True)
 
 
@@ -592,7 +592,7 @@ def test_oversized_partial_rejects_before_hashing(tmp_path: Path, monkeypatch: p
     assert bulk._partial_state(bulk._paths(tmp_path / "sec_edgar_bulk", "companyfacts"), COMPANYFACTS_BULK_URL, "companyfacts") == {}
 
 
-def _zip64_bytes(*, misleading_eocd: bool = False) -> bytes:
+def _zip64_bytes(*, misleading_eocd: bool = False, extensible: bytes = b"") -> bytes:
     output = BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
         archive.writestr("CIK0000000001.json", b"{}")
@@ -600,7 +600,7 @@ def _zip64_bytes(*, misleading_eocd: bool = False) -> bytes:
     payload = output.getvalue()
     eocd = bytearray(payload[-22:])
     size, offset = struct.unpack_from("<II", eocd, 12)
-    record = struct.pack("<4sQ2H2I4Q", b"PK\x06\x06", 44, 45, 45, 0, 0, 2, 2, size, offset)
+    record = struct.pack("<4sQ2H2I4Q", b"PK\x06\x06", 44 + len(extensible), 45, 45, 0, 0, 2, 2, size, offset) + extensible
     locator = struct.pack("<4sIQI", b"PK\x06\x07", 0, len(payload) - 22, 1)
     if misleading_eocd:
         struct.pack_into("<HHII", eocd, 8, 1, 1, 0, offset)
@@ -609,6 +609,12 @@ def _zip64_bytes(*, misleading_eocd: bool = False) -> bytes:
 
 def test_valid_adjacent_zip64_without_sentinels_is_supported(tmp_path: Path) -> None:
     payload = _zip64_bytes()
+    provider, _ = _provider(tmp_path, [Response(payload)], max_retries=0)
+    assert provider.fetch_companyfacts_bulk().path.read_bytes() == payload
+
+
+def test_variable_length_zip64_extensible_sector_is_supported(tmp_path: Path) -> None:
+    payload = _zip64_bytes(extensible=b"PK\x99\x00" + b"x" * 60)
     provider, _ = _provider(tmp_path, [Response(payload)], max_retries=0)
     assert provider.fetch_companyfacts_bulk().path.read_bytes() == payload
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -20,8 +20,7 @@ from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
 from etf_cockpit.data.bulk_cache import BulkCacheError, ContentAddressedCache
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
-from etf_cockpit.data.sec_edgar_bulk import SecEdgarBulkError, _validate_zip_container
-from etf_cockpit.data.sec_edgar_capability import _admitted, _derive
+from etf_cockpit.data.sec_edgar_bulk import SecEdgarBulkError, _open_zipfile, _validate_zip_container
 from etf_cockpit.parsers.contracts import ParseWarning, RawDocument
 from etf_cockpit.parsers.sec_submissions import PARSER_NAME, PARSER_VERSION, SubmissionRecord, parse_submissions
 
@@ -33,7 +32,7 @@ MAX_MEMBER_BYTES = 256 * 1024 * 1024
 MAX_SELECTED_BYTES = 512 * 1024 * 1024
 MAX_COMPRESSION_RATIO = 200.0
 MAX_MEMBERS = 1_000_000
-MANIFEST_SCHEMA = "sec_submissions_import.v1"
+MANIFEST_SCHEMA = "sec_submissions_import.v2"
 MAX_MANIFEST_BYTES = 16 * 1024 * 1024
 
 
@@ -75,6 +74,57 @@ def import_sec_submissions(
     identity_registry: Path | None = None,
     publish_guard: PublicationScopeFactory | None = None,
 ) -> SubmissionsImportResult:
+    """Parse local/manual submissions evidence; public callers cannot assert SEC authority."""
+
+    return _import_submissions_core(
+        source,
+        identity,
+        cache_dir=cache_dir,
+        history_paths=history_paths,
+        filing_documents=filing_documents,
+        provenance=provenance,
+        history_provenance=history_provenance,
+        identity_registry=identity_registry,
+        publish_guard=publish_guard,
+    )
+
+
+def _import_provider_submissions(
+    provider: object,
+    document: RawDocument,
+    identity: CanonicalIdentity,
+    *,
+    cache_dir: Path,
+    **kwargs: object,
+) -> SubmissionsImportResult:
+    """Private fused seam: verify the concrete provider generation before import."""
+
+    checker = getattr(provider, "_session_generation_matches", None)
+    if not callable(checker) or not checker(document):
+        raise ValueError("provider submissions import lacks an exact session generation")
+    return _import_submissions_core(
+        document.path,
+        identity,
+        cache_dir=cache_dir,
+        provenance=document,
+        _provider=provider,
+        **kwargs,
+    )
+
+
+def _import_submissions_core(
+    source: Path,
+    identity: CanonicalIdentity,
+    *,
+    cache_dir: Path,
+    history_paths: Mapping[str, Path] | None = None,
+    filing_documents: Mapping[str, Path | RawDocument] | None = None,
+    provenance: RawDocument | None = None,
+    history_provenance: Mapping[str, RawDocument] | None = None,
+    identity_registry: Path | None = None,
+    publish_guard: PublicationScopeFactory | None = None,
+    _provider: object | None = None,
+) -> SubmissionsImportResult:
     """Parse selected submissions data and retain every supplied raw input.
 
     This function performs no acquisition and never creates financial facts.
@@ -91,7 +141,7 @@ def import_sec_submissions(
         is_zip = zipfile.is_zipfile(source_path)
         _validate_input_path(source_path, max_bytes=MAX_SOURCE_BYTES if is_zip else MAX_MEMBER_BYTES)
         source_sha = _sha256_file(source_path)
-        source_meta = _validated_provenance(provenance, source_path, source_sha, cik, is_zip)
+        source_meta = _validated_provenance(provenance, source_path, source_sha, cik, is_zip, _provider)
         provenance_warning = () if provenance is None or source_meta.provider_id == provenance.provider_id else (
             {
                 "code": "provenance_unattested",
@@ -206,13 +256,18 @@ def import_sec_submissions(
                 "snapshot_member": retained.get("snapshot-member"),
                 "history_documents": {key.removeprefix("history:"): value for key, value in retained.items() if key.startswith("history:")},
                 "filing_documents": {key.removeprefix("filing:"): value for key, value in retained.items() if key.startswith("filing:")},
-                "records": [_json_safe(asdict(record)) for record in parsed.records],
+                # Persisted record lineage follows the same neutralisation as
+                # the manifest documents. The live result may still expose
+                # the provider-bound record identity for this call.
+                "records": [_json_safe(asdict(_localise_record(record))) for record in parsed.records],
                 "warnings": list(warnings),
                 "coverage_status": "partial" if warnings else "complete",
                 "parser_name": parsed.parser_name,
                 "parser_version": parsed.parser_version,
                 "identity": {"cik": cik, "instrument_id": instrument_id},
-                "provenance": _json_safe(asdict(source_meta)),
+                # Durable v2 manifests never persist effective SEC authority.
+                # The live provider session generation remains process-local only.
+                "provenance": retained["snapshot"],
             }
             snapshot["bundle_sha256"] = _bundle_sha256(snapshot)
             manifest = _publish_manifest(
@@ -294,7 +349,7 @@ def _prepare_parse_inputs(source: Path, cik: str, temp_root: Path, supplied: Map
             selected_external_size += candidate.stat().st_size
     if selected_external_size > MAX_SELECTED_BYTES:
         raise ValueError("selected submissions inputs exceed the aggregate size bound")
-    with zipfile.ZipFile(source) as archive:
+    with _open_zipfile(source) as archive:
         infos = archive.infolist()
         if len(infos) > MAX_MEMBERS:
             raise ValueError("submissions ZIP contains too many members")
@@ -425,46 +480,21 @@ def _capture_history_inputs(
             raise ValueError("submissions history name is unsafe or not bound to the selected CIK")
         source_path = Path(raw_path)
         destination = temp_root / raw_name
-        captured_sha = _capture_input(source_path, destination, max_bytes=MAX_MEMBER_BYTES)
+        _capture_input(source_path, destination, max_bytes=MAX_MEMBER_BYTES)
         captured[raw_name] = destination
         # Detached files are newly captured inputs.  Their availability must
         # be anchored to this capture, never copied from the parent snapshot.
         captured_at = datetime.now(timezone.utc)
-        source_document = (history_provenance or {}).get(raw_name)
-        if source_document is not None and source_document.provider_id == "sec_edgar":
-            if source_document.source_url == SUBMISSIONS_URL.format(cik=cik):
-                raise ValueError("current SEC submissions endpoint cannot attest a named history file")
-            if source_is_bulk or not _admitted(source_document, digest=captured_sha, document_type=source_document.document_type):
-                metadata[raw_name] = _local_document(destination, "sec_submissions", retrieved_at=captured_at)
-                warnings.append(
-                    {
-                        "code": "history_provenance_unattested",
-                        "message": f"SEC submissions history {raw_name} lacked provider-owned acquisition evidence; retained as local manual evidence",
-                        "severity": "warning",
-                        "source_location": None,
-                    }
-                )
-                continue
-        if source_document is not None:
-            validated = _validated_aux_provenance(
-                source_document,
-                source_path,
-                captured_sha,
-                raw_name,
-                cik,
-                source_is_bulk=source_is_bulk,
-            )
-            if validated.provider_id == "sec_local_import":
-                metadata[raw_name] = _local_document(destination, "sec_submissions", retrieved_at=captured_at)
-            else:
-                metadata[raw_name] = _rebind_document_path(validated, destination)
-        else:
-            metadata[raw_name] = _local_document(destination, "sec_submissions", retrieved_at=captured_at)
-        if metadata[raw_name].provider_id != "sec_edgar":
+        # Detached caller inputs are never part of the provider's fused
+        # acquisition boundary.  Even a perfectly matching RawDocument is
+        # local/manual evidence; only an archive member can inherit the
+        # provider session generation through _derived_member_document.
+        metadata[raw_name] = _local_document(destination, "sec_submissions", retrieved_at=captured_at)
+        if (history_provenance or {}).get(raw_name) is not None:
             warnings.append(
                 {
-                    "code": "history_provenance_manual",
-                    "message": f"SEC submissions history {raw_name} was supplied as local/manual evidence rather than an archive-bound member",
+                    "code": "history_provenance_unattested",
+                    "message": f"SEC submissions history {raw_name} lacked provider-owned acquisition evidence; retained as local manual evidence",
                     "severity": "warning",
                     "source_location": None,
                 }
@@ -506,7 +536,11 @@ def _retain_inputs(inputs: list[tuple[str, Path, RawDocument]], *, cache_dir: Pa
                 _validate_namespace(object_path, cache.base)
                 if not object_path.is_file() or _sha256_file(object_path) != digest:
                     raise BulkCacheError("SEC submissions cache object checksum is invalid after retention")
-                retained[role] = {"sha256": digest, "path": str(object_path), "source_url": source.source_url, "retrieved_at": source.retrieved_at.isoformat(), "provider_id": source.provider_id, "document_type": source.document_type, "media_type": source.media_type, "http_status": source.http_status}
+                # Effective authority is deliberately process-local.  A
+                # manifest is caller-rewritable data and therefore stores a
+                # neutral local/manual record even for a fused provider import.
+                persisted = _local_document(object_path, source.document_type, retrieved_at=source.retrieved_at)
+                retained[role] = {"sha256": digest, "path": str(object_path), "source_url": persisted.source_url, "retrieved_at": persisted.retrieved_at.isoformat(), "provider_id": persisted.provider_id, "document_type": persisted.document_type, "media_type": persisted.media_type, "http_status": persisted.http_status}
                 documents.append(RawDocument(object_path, source.source_url, source.retrieved_at, digest, source.provider_id, source.document_type, source.media_type, source.http_status))
     return retained, documents
 
@@ -533,6 +567,8 @@ def _publish_manifest(path: Path, snapshot: dict[str, object], *, cache_dir: Pat
                     candidate = json.loads(path.read_text(encoding="utf-8"))
                     if isinstance(candidate, dict) and _manifest_valid_payload(candidate, cache_dir):
                         previous = candidate
+                    elif isinstance(candidate, dict) and (migrated := _migrate_v1_manifest(candidate, cache_dir)) is not None and _manifest_valid_payload(migrated, cache_dir):
+                        previous = migrated
                     else:
                         raise ValueError("existing submissions manifest is invalid; refusing replacement")
                 except (OSError, ValueError, TypeError):
@@ -563,7 +599,12 @@ def _manifest_valid(path: Path, cache_dir: Path) -> bool:
         if path.stat().st_size > MAX_MANIFEST_BYTES:
             return False
         payload = json.loads(path.read_text(encoding="utf-8"))
-        return isinstance(payload, dict) and _manifest_valid_payload(payload, cache_dir)
+        if not isinstance(payload, dict):
+            return False
+        if _manifest_valid_payload(payload, cache_dir):
+            return True
+        migrated = _migrate_v1_manifest(payload, cache_dir)
+        return migrated is not None and _manifest_valid_payload(migrated, cache_dir)
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return False
 
@@ -595,6 +636,48 @@ def _manifest_valid_payload(payload: dict[str, object], cache_dir: Path) -> bool
     )
 
 
+def _migrate_v1_manifest(payload: dict[str, object], cache_dir: Path) -> dict[str, object] | None:
+    """Convert legacy manifests while removing any persisted SEC authority."""
+
+    if payload.get("schema_version") != "sec_submissions_import.v1":
+        return None
+    try:
+        migrated = json.loads(json.dumps(payload))
+        snapshots = migrated.get("snapshots")
+        if not isinstance(snapshots, list) or not snapshots:
+            return None
+        for snapshot in snapshots:
+            if not isinstance(snapshot, dict):
+                return None
+            groups = [snapshot.get("source_document"), snapshot.get("snapshot_member")]
+            for field in ("history_documents", "filing_documents"):
+                values = snapshot.get(field)
+                if not isinstance(values, dict):
+                    return None
+                groups.extend(values.values())
+            provenance = snapshot.get("provenance")
+            groups.append(provenance)
+            for item in groups:
+                if isinstance(item, dict) and item.get("provider_id") == "sec_edgar" and isinstance(item.get("path"), str):
+                    item["provider_id"] = "sec_local_import"
+                    item["source_url"] = Path(item["path"]).absolute().as_uri()
+                    item["http_status"] = 200
+            records = snapshot.get("records")
+            if not isinstance(records, list):
+                return None
+            for record in records:
+                if isinstance(record, dict) and isinstance(record.get("source_id"), str) and record["source_id"].startswith("sec_edgar:"):
+                    record["source_id"] = "sec_local_import:" + record["source_id"].removeprefix("sec_edgar:")
+            snapshot.pop("bundle_sha256", None)
+            snapshot["bundle_sha256"] = _bundle_sha256(snapshot)
+        migrated["schema_version"] = MANIFEST_SCHEMA
+        migrated["latest_source_sha256"] = snapshots[-1].get("source_sha256")
+        migrated["latest_bundle_sha256"] = snapshots[-1].get("bundle_sha256")
+        return migrated
+    except (OSError, TypeError, ValueError, RecursionError):
+        return None
+
+
 def _snapshot_valid(snapshot: dict[str, object], cache_dir: Path) -> bool:
     required = {"bundle_sha256", "source_sha256", "source_document", "snapshot_member", "history_documents", "filing_documents", "records", "warnings", "coverage_status", "parser_name", "parser_version", "identity", "provenance"}
     bundle_sha = snapshot.get("bundle_sha256")
@@ -624,11 +707,7 @@ def _snapshot_valid(snapshot: dict[str, object], cache_dir: Path) -> bool:
     source_url = source.get("source_url")
     source_type = source.get("document_type")
     source_provider = source.get("provider_id")
-    if source_provider == "sec_edgar":
-        expected_url = SUBMISSIONS_BULK_URL if source_type == "sec_submissions_bulk" else SUBMISSIONS_URL.format(cik=identity_cik)
-        if source_url != expected_url:
-            return False
-    elif source_provider != "sec_local_import" or not isinstance(source_url, str) or urlparse(source_url).scheme != "file":
+    if source_provider != "sec_local_import" or not isinstance(source_url, str) or urlparse(source_url).scheme != "file":
         return False
     if source_type == "sec_submissions_bulk":
         if member is None or not _zip_snapshot_member_valid(source, member, identity_cik):
@@ -648,14 +727,11 @@ def _snapshot_valid(snapshot: dict[str, object], cache_dir: Path) -> bool:
             or not _retained_item_valid(item, cache_dir)
         ):
             return False
-        if item.get("provider_id") == "sec_edgar":
-            expected_history_url = SUBMISSIONS_BULK_URL if source_type == "sec_submissions_bulk" else f"https://data.sec.gov/submissions/{name}"
-            if item.get("source_url") != expected_history_url:
-                return False
-            if source_type == "sec_submissions_bulk" and not _zip_member_valid(source, item, name):
-                return False
-        elif item.get("provider_id") != "sec_local_import" or urlparse(str(item.get("source_url", ""))).scheme != "file":
+        if item.get("provider_id") != "sec_local_import" or urlparse(str(item.get("source_url", ""))).scheme != "file":
             return False
+        # v2 persistence is intentionally neutral/local.  Archive membership
+        # is checked during the fused acquisition while the provider session generation
+        # is live; detached local history is never required to be a ZIP member.
     for name, item in filings.items():
         if not isinstance(name, str) or re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", name) is None or not isinstance(item, dict) or item.get("document_type") != "sec_filing" or not _retained_item_valid(item, cache_dir):
             return False
@@ -685,9 +761,9 @@ def _snapshot_valid(snapshot: dict[str, object], cache_dir: Path) -> bool:
                     for name, item in histories.items()
                     if isinstance(item, dict)
                 },
-                source_provider=str(source.get("provider_id", "sec_local_import")),
+                source_provider="sec_local_import",
                 history_source_providers={
-                    name: str(item.get("provider_id", "sec_local_import"))
+                    name: "sec_local_import"
                     for name, item in histories.items()
                     if isinstance(item, dict)
                 },
@@ -700,21 +776,7 @@ def _snapshot_valid(snapshot: dict[str, object], cache_dir: Path) -> bool:
     for accession, item in filings.items():
         if not isinstance(item, dict) or accession not in records_by_accession:
             return False
-        if item.get("provider_id") == "sec_edgar":
-            record = records_by_accession[accession]
-            primary = record.primary_document
-            archive_cik = str(int(record.cik)) if record.cik.isdigit() else ""
-            expected_paths = {
-                f"/Archives/edgar/data/{record.cik}/{accession.replace('-', '')}/{primary}",
-                f"/Archives/edgar/data/{archive_cik}/{accession.replace('-', '')}/{primary}",
-            } if isinstance(primary, str) and primary else set()
-            parsed_url = urlparse(str(item.get("source_url", "")))
-            if parsed_url.scheme != "https" or parsed_url.hostname != "www.sec.gov" or parsed_url.path not in expected_paths:
-                return False
-        elif item.get("provider_id") == "sec_local_import":
-            if urlparse(str(item.get("source_url", ""))).scheme != "file":
-                return False
-        else:
+        if item.get("provider_id") != "sec_local_import" or urlparse(str(item.get("source_url", ""))).scheme != "file":
             return False
     parser_warnings = _warning_payload(replay.warnings)
     if not all(item in warnings for item in parser_warnings) or (snapshot.get("coverage_status") == "complete" and warnings):
@@ -759,7 +821,7 @@ def _zip_member_valid(source: dict[str, object], member: dict[str, object], memb
     ):
         return False
     try:
-        with zipfile.ZipFile(Path(source_path)) as archive:
+        with _open_zipfile(Path(source_path)) as archive:
             info = archive.getinfo(member_name)
             _validate_member(info)
             with archive.open(info) as stream:
@@ -773,6 +835,12 @@ def _zip_member_valid(source: dict[str, object], member: dict[str, object], memb
 
 def _manifest_identity(identity: dict[str, object]) -> CanonicalIdentity:
     return CanonicalIdentity(str(identity["instrument_id"]), "Imported SEC entity", None, "needs_verification", "", None, None, "stock", {}, "manual_review", (), str(identity["cik"]))
+
+
+def _localise_record(record: SubmissionRecord) -> SubmissionRecord:
+    if record.source_id.startswith("sec_edgar:"):
+        return replace(record, source_id="sec_local_import:" + record.source_id.removeprefix("sec_edgar:"))
+    return record
 
 
 def _bundle_sha256(snapshot: dict[str, object]) -> str:
@@ -821,9 +889,9 @@ def _retained_meta_valid(item: object, source: object | None, role: str) -> bool
     if type(status) is not int or status not in {200, 206, 304}:
         return False
     provider, doc_type = item["provider_id"], item["document_type"]
-    if not isinstance(provider, str) or not isinstance(doc_type, str) or provider not in {"sec_edgar", "sec_local_import"}:
+    if not isinstance(provider, str) or not isinstance(doc_type, str) or provider != "sec_local_import":
         return False
-    if provider == "sec_local_import" and status != 200:
+    if status != 200:
         return False
     media = item["media_type"]
     if doc_type == "sec_submissions_bulk" and media != "application/zip":
@@ -840,7 +908,7 @@ def _retained_meta_valid(item: object, source: object | None, role: str) -> bool
     return not (parsed.username or parsed.password or parsed.query or parsed.fragment)
 
 
-def _validated_provenance(document: RawDocument | None, path: Path, digest: str, cik: str | None, bulk: bool) -> RawDocument:
+def _validated_provenance(document: RawDocument | None, path: Path, digest: str, cik: str | None, bulk: bool, provider: object | None = None) -> RawDocument:
     if document is None:
         return _local_document(path, "sec_submissions_bulk" if bulk else "sec_submissions")
     if not isinstance(document.path, Path) or document.path.absolute() != path.absolute() or document.sha256 != digest:
@@ -867,7 +935,10 @@ def _validated_provenance(document: RawDocument | None, path: Path, digest: str,
         raise ValueError("submissions provenance URL does not match the selected CIK")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("submissions provenance URL contains unexpected credentials or components")
-    if not _admitted(document, digest=digest, document_type=expected_type):
+    if provider is None:
+        return _local_document(path, expected_type)
+    validator = getattr(provider, "_session_generation_matches", None)
+    if not callable(validator) or not validator(document):
         return _local_document(path, expected_type)
     return document
 
@@ -902,9 +973,7 @@ def _validated_filing_provenance(document: RawDocument, path: Path, digest: str,
     }
     if parsed.path not in expected_paths:
         raise ValueError("filing provenance URL does not match the selected CIK, accession, and primary document")
-    if not _admitted(document, digest=digest, document_type="sec_filing"):
-        return _local_document(path, "sec_filing")
-    return document if document.http_status == 200 else _local_document(path, "sec_filing")
+    return _local_document(path, "sec_filing")
 
 
 def _validated_aux_provenance(document: RawDocument | None, path: Path, digest: str, name: str, cik: str, *, source_is_bulk: bool = False) -> RawDocument:
@@ -923,8 +992,8 @@ def _validated_aux_provenance(document: RawDocument | None, path: Path, digest: 
         expected_url = SUBMISSIONS_BULK_URL if source_is_bulk else f"https://data.sec.gov/submissions/{name}"
         if document.source_url != expected_url:
             raise ValueError("submissions history provenance URL is not the advertised SEC source")
-        if source_is_bulk or not _admitted(document, digest=digest, document_type="sec_submissions"):
-            return _local_document(path, "sec_submissions")
+        # A detached RawDocument is never an archive-bound provider proof.
+        return _local_document(path, "sec_submissions")
     elif document.provider_id != "sec_local_import":
         raise ValueError("submissions history provenance provider is invalid")
     elif document.document_type != "sec_submissions" or document.media_type != "application/json" or parsed.scheme != "file":
@@ -966,8 +1035,7 @@ def _rebind_document_path(document: RawDocument, path: Path) -> RawDocument:
 def _derived_member_document(path: Path, provenance: RawDocument | None) -> RawDocument:
     if provenance is None:
         return _local_document(path, "sec_submissions")
-    document = RawDocument(path, provenance.source_url, provenance.retrieved_at, _sha256_file(path), provenance.provider_id, "sec_submissions", "application/json", provenance.http_status)
-    return _derive(provenance, document)
+    return RawDocument(path, provenance.source_url, provenance.retrieved_at, _sha256_file(path), provenance.provider_id, "sec_submissions", "application/json", provenance.http_status)
 
 
 def _local_document(path: Path, document_type: str, *, retrieved_at: datetime | None = None) -> RawDocument:

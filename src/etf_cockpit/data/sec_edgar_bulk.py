@@ -25,7 +25,6 @@ import zipfile
 from etf_cockpit.core.atomic_io import atomic_write_json
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
-from etf_cockpit.data.sec_edgar_capability import _mint, _replay
 from etf_cockpit.parsers.contracts import RawDocument
 
 
@@ -85,23 +84,35 @@ def fetch_bulk(provider: Any, dataset: str, *, publish_guard: PublicationScopeFa
         if not root.is_dir():
             raise SecEdgarBulkUnavailable(f"no cached SEC {dataset} bulk artifact is available")
         _validate_namespace(root, root.parent)
-        return _cached_result(_read_json(paths["metadata"]), paths, url, dataset)
+        document = _cached_result(_read_json(paths["metadata"]), paths, url, dataset)
+        if not provider._session_generation_matches(document):
+            raise SecEdgarBulkUnavailable("cache-only SEC replay has no provider-owned session proof")
+        return document
     # Directory and persistent-lock creation are durable namespace changes too;
     # keep them inside the caller's publication authorization boundary.
     with publication_scope(publish_guard):
         _prepare_paths(paths, root)
     with _guard(paths["lock"]):
         metadata = _read_json(paths["metadata"])
-        return _acquire(provider, dataset, url, paths, metadata, publish_guard)
+        document = _acquire(provider, dataset, url, paths, metadata, publish_guard)
+        key = provider._ledger_key(document)
+        from etf_cockpit.data.sec_edgar_provider import _SessionGeneration
+        provider._authority_ledger[key] = _SessionGeneration(document.source_url, document.sha256, document.document_type, document.path)
+        provider._authority_ledger.move_to_end(key)
+        while len(provider._authority_ledger) > provider.MAX_AUTHORITY_LEDGER:
+            provider._authority_ledger.popitem(last=False)
+        return document
 
 
 def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], metadata: dict[str, object], publish_guard: PublicationScopeFactory | None) -> RawDocument:
     headers = {"User-Agent": provider.user_agent, "Accept": "application/zip"}
     artifact = _metadata_artifact(metadata, paths, url)
     if artifact is not None:
-        if metadata.get("etag"):
+        cached_document = _result(artifact, url, metadata, _int_value(metadata.get("status"), 200), dataset)
+        same_session = provider._session_generation_matches(cached_document)
+        if same_session and metadata.get("etag"):
             headers["If-None-Match"] = str(metadata["etag"])
-        if metadata.get("last_modified"):
+        if same_session and metadata.get("last_modified"):
             headers["If-Modified-Since"] = str(metadata["last_modified"])
 
     partial = _partial_state(paths, url, dataset)
@@ -111,7 +122,14 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
         # resumed at EOF.  Let the next 200 response replace it safely.
         resume_offset = 0
     resume_validator = _strong_validator(partial.get("validator")) if partial else None
-    if resume_offset and resume_validator and paths["part"].is_file():
+    partial_session = bool(
+        partial
+        and resume_offset
+        and resume_validator
+        and paths["part"].is_file()
+        and provider._has_partial_session(dataset, url, str(partial["generation"]))
+    )
+    if partial_session:
         headers["Range"] = f"bytes={resume_offset}-"
         headers["If-Range"] = resume_validator
     else:
@@ -119,7 +137,10 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
         resume_validator = None
 
     last_error: Exception | None = None
-    for attempt in range(int(provider.max_retries) + 1):
+    cold_304_retried = False
+    attempt_limit = int(provider.max_retries) + 1
+    attempt = 0
+    while attempt < attempt_limit:
         try:
             provider._respect_rate_limit()
             raw_response = provider._request_bulk_stream(url, headers)
@@ -129,11 +150,29 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
                     raise SecEdgarBulkEndpointError("SEC bulk response followed an unexpected redirect")
                 if response.status == 304:
                     if artifact is None:
+                        if not cold_304_retried:
+                            cold_304_retried = True
+                            attempt_limit = max(attempt_limit, 2)
+                            headers.pop("If-None-Match", None)
+                            headers.pop("If-Modified-Since", None)
+                            attempt += 1
+                            continue
                         raise SecEdgarBulkUnavailable("SEC returned 304 without a cached artifact")
+                    cached_document = _result(artifact, url, metadata, _int_value(metadata.get("status"), 200), dataset)
+                    if not provider._session_generation_matches(cached_document):
+                        if not cold_304_retried:
+                            cold_304_retried = True
+                            attempt_limit = max(attempt_limit, 2)
+                            headers.pop("If-None-Match", None)
+                            headers.pop("If-Modified-Since", None)
+                            attempt += 1
+                            continue
+                        raise SecEdgarBulkUnavailable("SEC returned 304 without a provider-owned session proof")
                     return _result(artifact, url, metadata, 304, dataset, revalidated=True)
                 if response.status in {429} or response.status >= 500:
                     raise SecEdgarBulkUnavailable(f"SEC endpoint returned HTTP {response.status}")
                 total: int | None
+                generation: str | None = None
                 if response.status == 206:
                     if not resume_validator or resume_offset <= 0:
                         raise SecEdgarBulkResumeError("SEC returned 206 without a validator-bound partial")
@@ -148,11 +187,14 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
                         response.headers, url, dataset, append=True, generation=str(partial["generation"]),
                         expected_length=response_length, prefix_sha256=str(partial["prefix_sha256"]),
                     )
+                    generation = str(partial["generation"])
                 elif response.status == 200:
                     total = _validated_content_length(response.headers)
+                    generation = uuid.uuid4().hex
+                    provider._remember_partial_session(dataset, url, generation)
                     _stream_response(
                         response.stream, paths, publish_guard, 0, total,
-                        response.headers, url, dataset, append=False, generation=None,
+                        response.headers, url, dataset, append=False, generation=generation,
                         expected_length=total, prefix_sha256=None,
                     )
                 elif response.status < 200 or response.status >= 300:
@@ -167,6 +209,8 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
             _validate_zip(paths["part"], dataset)
             final = paths["objects"] / f"{payload_sha}.zip"
             _publish_artifact(paths["part"], final, paths["part_meta"], publish_guard, paths["objects"])
+            if generation is not None:
+                provider._forget_partial_session(dataset, url, generation)
             acquired_at = datetime.now(timezone.utc)
             response_etag = _strong_validator(_header(response.headers, "etag")) or ""
             next_metadata = {
@@ -185,7 +229,7 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
             with publication_scope(publish_guard):
                 atomic_write_json(paths["metadata"], next_metadata)
             document = RawDocument(final, url, acquired_at, payload_sha, "sec_edgar", f"sec_{dataset}_bulk", "application/zip", response.status)
-            return _mint(document, acquisition_status=response.status, lineage=(response.status,))
+            return document
         except WorkflowTransitionError:
             raise
         except SecEdgarBulkEndpointError:
@@ -195,12 +239,12 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
             raise
         except SecEdgarBulkUnavailable as exc:
             last_error = exc
-            if attempt >= int(provider.max_retries):
+            if attempt >= attempt_limit - 1:
                 raise
             provider._sleep(min(2.0, 0.25 * (2**attempt)))
         except (OSError, IOError, TimeoutError, IncompleteRead, ValueError, TypeError, zipfile.BadZipFile) as exc:
             last_error = exc
-            if attempt >= int(provider.max_retries):
+            if attempt >= attempt_limit - 1:
                 raise SecEdgarBulkUnavailable(f"SEC bulk acquisition failed after {attempt + 1} attempt(s)") from exc
             provider._sleep(min(2.0, 0.25 * (2**attempt)))
         except Exception as exc:
@@ -219,6 +263,7 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
             else:
                 headers.pop("Range", None)
                 headers.pop("If-Range", None)
+        attempt += 1
     raise SecEdgarBulkUnavailable("SEC bulk acquisition failed") from last_error
 
 
@@ -259,7 +304,8 @@ def _stream_response(
             for existing_chunk in iter(lambda: existing.read(_CHUNK_BYTES), b""):
                 digest.update(existing_chunk)
     else:
-        generation = uuid.uuid4().hex
+        if generation is None:
+            generation = uuid.uuid4().hex
         streamed = 0
         # Invalidate the previous generation before truncating its bytes.  If
         # authorization or metadata publication fails, no stale proof can
@@ -429,29 +475,16 @@ def _result(
     if retrieved.tzinfo is None or retrieved.utcoffset() is None:
         raise SecEdgarBulkUnavailable("cached SEC bulk acquisition time is not timezone-aware")
     _validate_zip(path, dataset)
-    document = RawDocument(path, url, retrieved, str(metadata["sha256"]), "sec_edgar", f"sec_{dataset}_bulk", "application/zip", status)
-    if revalidated:
-        acquisition_status = _int_value(metadata.get("status"), 200)
-        try:
-            return _replay(document, status=304)
-        except ValueError:
-            # A fresh 304 authenticates the current cached generation, not a
-            # caller-writable acquisition timestamp from a prior process.
-            revalidated_document = RawDocument(
-                path,
-                url,
-                datetime.now(timezone.utc),
-                str(metadata["sha256"]),
-                "sec_edgar",
-                f"sec_{dataset}_bulk",
-                "application/zip",
-                304,
-            )
-            return _mint(revalidated_document, acquisition_status=acquisition_status, lineage=(acquisition_status, 304))
-    try:
-        return _replay(document, status=status)
-    except ValueError as exc:
-        raise SecEdgarBulkUnavailable("cached SEC bulk artifact has no provider-owned acquisition proof") from exc
+    return RawDocument(
+        path,
+        url,
+        retrieved,
+        str(metadata["sha256"]),
+        "sec_edgar",
+        f"sec_{dataset}_bulk",
+        "application/zip",
+        304 if revalidated else status,
+    )
 
 
 def _metadata_artifact(metadata: dict[str, object], paths: dict[str, Path], url: str) -> Path | None:
@@ -650,7 +683,7 @@ def _validate_zip(path: Path, dataset: str) -> None:
     try:
         byte_limit, member_limit, _ = _dataset_limits(dataset)
         _validate_zip_container(path, dataset)
-        with zipfile.ZipFile(path) as archive:
+        with _open_zipfile(path) as archive:
             members = archive.infolist()
             if len(members) > member_limit:
                 raise SecEdgarBulkUnavailable("SEC bulk ZIP central directory is too large")
@@ -734,14 +767,134 @@ def _validate_zip_container(path: Path, dataset: str) -> None:
             header = handle.read(46)
             if len(header) != 46 or header[:4] != b"PK\x01\x02":
                 raise SecEdgarBulkUnavailable("SEC ZIP central directory record is invalid")
-            record_size = 46 + sum(struct.unpack_from("<3H", header, 28))
+            (
+                _, _, _, flags, _, _, _, _, compressed_size, member_size,
+                name_length, extra_length, comment_length, _, _, external_attr, _,
+            ) = struct.unpack("<4s6H3I5H2I", header)
+            name = handle.read(name_length)
+            handle.seek(extra_length + comment_length, os.SEEK_CUR)
+            try:
+                member_name = name.decode("utf-8" if flags & 0x800 else "cp437")
+            except UnicodeDecodeError as exc:
+                raise SecEdgarBulkUnavailable("SEC ZIP member name is not UTF-8") from exc
+            _validate_member_name(member_name)
+            if flags & 1 or member_size < 0 or compressed_size < 0 or (member_size and compressed_size == 0):
+                raise SecEdgarBulkUnavailable("SEC bulk ZIP contains an unsafe member")
+            if compressed_size and member_size / compressed_size > MAX_BULK_COMPRESSION_RATIO:
+                raise SecEdgarBulkUnavailable("SEC bulk ZIP compression ratio is unsafe")
+            if stat.S_ISLNK((external_attr >> 16) & 0xFFFF):
+                raise SecEdgarBulkUnavailable("SEC bulk ZIP contains a linked member")
+            record_size = 46 + name_length + extra_length + comment_length
             consumed += record_size
             actual_entries += 1
             if consumed > central_size or actual_entries > member_limit or actual_entries > entries:
                 raise SecEdgarBulkUnavailable("SEC ZIP central directory records exceed declared bounds")
-            handle.seek(record_size - 46, os.SEEK_CUR)
     if actual_entries != entries:
         raise SecEdgarBulkUnavailable("SEC ZIP central directory count is inconsistent")
+
+
+def _has_zip64_extensible_data(path: Path) -> bool:
+    try:
+        eocd_offset, _ = _find_eocd(path)
+        locator_offset = eocd_offset - 20
+        if locator_offset < 0 or _read_at(path, locator_offset, 4) != b"PK\x06\x07":
+            return False
+        record = _read_zip64_record(path, locator_offset)
+        return record is not None and record[4] + 56 < locator_offset
+    except (OSError, ValueError, SecEdgarBulkUnavailable):
+        return False
+
+
+@contextmanager
+def _open_zipfile(path: Path) -> Iterator[zipfile.ZipFile]:
+    """Open ordinary ZIPs or a ZIP64 archive with bounded extensible data."""
+
+    view = _zip64_view(path)
+    archive = zipfile.ZipFile(view or path)
+    try:
+        yield archive
+    finally:
+        archive.close()
+
+
+def _zip64_view(path: Path) -> "_Zip64View | None":
+    eocd_offset, _ = _find_eocd(path)
+    locator_offset = eocd_offset - 20
+    if locator_offset < 0 or _read_at(path, locator_offset, 4) != b"PK\x06\x07":
+        return None
+    record = _read_zip64_record(path, locator_offset)
+    if record is None or record[4] + 56 >= locator_offset:
+        return None
+    return _Zip64View(path, record[4] + 56, locator_offset)
+
+
+class _Zip64View:
+    """Seekable file view with ZIP64 extensible bytes removed logically."""
+
+    def __init__(self, path: Path, skip_start: int, skip_end: int) -> None:
+        self._file = path.open("rb")
+        self._skip_start = skip_start
+        self._skip_end = skip_end
+        self._length = path.stat().st_size - (skip_end - skip_start)
+        self._position = 0
+
+    def seekable(self) -> bool:
+        return True
+
+    def readable(self) -> bool:
+        return True
+
+    def seek(self, offset: int, whence: int = os.SEEK_SET) -> int:
+        if whence == os.SEEK_SET:
+            position = offset
+        elif whence == os.SEEK_CUR:
+            position = self._position + offset
+        elif whence == os.SEEK_END:
+            position = self._length + offset
+        else:
+            raise ValueError("invalid ZIP64 view seek mode")
+        if position < 0:
+            raise ValueError("negative ZIP64 view seek")
+        self._position = position
+        return position
+
+    def tell(self) -> int:
+        return self._position
+
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            size = self._length - self._position
+        size = min(size, max(0, self._length - self._position))
+        logical_start = self._position
+        remaining = size
+        chunks: list[bytes] = []
+        while remaining:
+            physical = self._position if self._position < self._skip_start else self._position + (self._skip_end - self._skip_start)
+            before_skip = self._skip_start - self._position if self._position < self._skip_start else remaining
+            chunk_size = min(remaining, before_skip)
+            self._file.seek(physical)
+            chunk = self._file.read(chunk_size)
+            if len(chunk) != chunk_size:
+                break
+            chunks.append(chunk)
+            self._position += chunk_size
+            remaining -= chunk_size
+        payload = bytearray(b"".join(chunks))
+        # Removing the extensible sector also normalises the ZIP64 record's
+        # declared body length from ``44 + extensible`` to the fixed 44-byte
+        # body exposed by this view. Patch only reads overlapping that field.
+        size_field_start = self._skip_start - 52
+        replacement = struct.pack("<Q", 44)
+        overlap_start = max(logical_start, size_field_start)
+        overlap_end = min(logical_start + len(payload), size_field_start + len(replacement))
+        if overlap_start < overlap_end:
+            payload[overlap_start - logical_start:overlap_end - logical_start] = replacement[
+                overlap_start - size_field_start:overlap_end - size_field_start
+            ]
+        return bytes(payload)
+
+    def close(self) -> None:
+        self._file.close()
 
 
 def _find_eocd(path: Path) -> tuple[int, bytes]:
@@ -768,30 +921,31 @@ def _read_zip64_record(path: Path, locator_offset: int) -> tuple[int, int, int, 
     disk, declared_record_offset, disks = struct.unpack_from("<IQI", locator, 4)
     if disk != 0 or disks != 1 or declared_record_offset < 0:
         return None
-    # APPNOTE places the ZIP64 EOCD immediately before its locator.  The
-    # locator offset is relative to the archive start; a prepended data span
-    # is accounted for after the central-directory offset is known.
-    record_offset = locator_offset - 56
-    if record_offset < 0:
-        return None
-    fixed = _read_at(path, record_offset, 12)
-    if fixed[:4] != b"PK\x06\x06":
-        return None
-    record_size = struct.unpack_from("<Q", fixed, 4)[0]
-    if record_size < 44 or record_size > 1024:
-        return None
-    total_size = 12 + record_size
-    if record_offset + total_size != locator_offset:
-        return None
-    record = _read_at(path, record_offset, total_size)
-    if len(record) < 56:
-        return None
-    _, _, _, _, record_disk, record_central_disk, entries_disk, entries, central_size, central_offset = struct.unpack_from(
-        "<4sQ2H2I4Q", record, 0
-    )
-    if record_disk != 0 or record_central_disk != 0 or entries_disk != entries:
-        return None
-    return entries, central_size, central_offset, declared_record_offset, record_offset
+    # APPNOTE permits extensible data after the fixed ZIP64 EOCD fields, so
+    # the record is not always the historical 56 bytes. Search only the
+    # bounded bytes immediately preceding the locator and require the record
+    # length to land exactly at the locator.
+    search_start = max(0, locator_offset - 12 - 1024)
+    for record_offset in range(locator_offset - 12, search_start - 1, -1):
+        fixed = _read_at(path, record_offset, 12)
+        if fixed[:4] != b"PK\x06\x06":
+            continue
+        record_size = struct.unpack_from("<Q", fixed, 4)[0]
+        if record_size < 44 or record_size > 1024:
+            continue
+        total_size = 12 + record_size
+        if record_offset + total_size != locator_offset:
+            continue
+        record = _read_at(path, record_offset, total_size)
+        if len(record) < 56:
+            continue
+        _, _, _, _, record_disk, record_central_disk, entries_disk, entries, central_size, central_offset = struct.unpack_from(
+            "<4sQ2H2I4Q", record, 0
+        )
+        if record_disk != 0 or record_central_disk != 0 or entries_disk != entries:
+            continue
+        return entries, central_size, central_offset, declared_record_offset, record_offset
+    return None
 
 
 def _read_at(path: Path, offset: int, length: int) -> bytes:

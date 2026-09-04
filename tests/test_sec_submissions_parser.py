@@ -68,7 +68,7 @@ def test_official_submissions_fixture_preserves_rows_dates_and_raw_evidence() ->
     assert record.available_at == record.accepted_at
     assert record.is_amendment is False
     assert record.source_sha256 == result.source_sha256
-    assert record.source_id.startswith("sec_edgar:")
+    assert record.source_id.startswith("sec_local_import:")
     assert record.raw_row["core_type"] == "PX14A6G"
 
 

@@ -116,6 +116,22 @@ reject/downgrade handling for unproved persisted authority, and variable-length
 ZIP64 record support before another paired review. No packaged gate or
 integration is authorised on this head.
 
+The replacement candidate removes the generic acquisition capability entirely
+and fuses provider acquisition to submissions import through the concrete
+provider instance. Public paths, `RawDocument` values and all durable manifest
+generations remain explicit `sec_local_import` evidence; only the exact bounded
+in-process provider session generation can produce an ephemeral live
+`sec_edgar` result. Cold sessions omit persisted validators and range state,
+retry an unexpected 304 unconditionally, and require a full response before
+admission; bounded same-session replay and partial resume retain fail-closed
+ledger checks. Manifest schema v2 neutralises durable authority and safely
+migrates valid v1 histories. The bounded ZIP reader now accepts APPNOTE ZIP64
+extensible data without relying on private standard-library internals. Root's
+fresh six-module selection passes 164 tests with one existing Windows
+link-capability skip on both Python 3.12.10 and Python 3.13.14; Ruff,
+compileall and diff hygiene pass. Freeze one exact replacement commit for fresh
+paired whole-diff and provenance/PIT review before any H-tier packaged gate.
+
 Do not run H-tier gates or integrate until all focused cases pass and the stable
 complete diff receives independent whole-diff and provenance-risk acceptance.
 This train still does not close the full bulk/resumable/canonical-statements issue.

@@ -14,22 +14,23 @@ snapshot, history file, and filing is retained through the existing
 content-addressed cache. Missing advertised history or filing bytes produce
 partial coverage and durable warnings. The durable manifest stores a complete
 snapshot bundle: parser identity, canonical CIK/instrument identity, retained
-object paths and SHA-256 values, source URL, timezone-aware acquisition time,
-provider, document type, media, HTTP status, records, warnings, filing/history
-maps, coverage status, and a bundle digest. Changed history or filing bytes
+object paths and SHA-256 values, effective local/manual source URL and
+timestamp, document type, media, HTTP status, records, warnings, filing/history
+maps, coverage status, and a bundle digest. Schema v2 persists no effective
+official SEC authority; reported origin is non-authoritative only. Changed history or filing bytes
 therefore create a new generation while retaining the old content-addressed
 object; restart revalidates every retained object and replays the parser before
 reporting verified evidence. Fabricated metadata, stale pointers, and objects
 outside the immutable object layout are rejected without replacement.
 
-Official `RawDocument` provenance is admitted only when its path, checksum,
-timezone-aware timestamp, provider, exact SEC URL, document type, media type,
-and integer HTTP status are consistent with a process-bound capability minted
-by the SEC provider and its immutable payload. Caller-created metadata,
-sidecars, or manifests cannot construct or rehydrate that capability and are
-downgraded to `sec_local_import` manual evidence; matching fields alone never
-establish official authority. ZIP members may derive authority only from an
-admitted bulk capability. Filing URLs are bound to the
+Official `RawDocument` provenance is admitted only inside a concrete
+`SecEdgarProvider` fused acquisition-to-import call. The provider's opaque
+process-local session generation binds path, checksum, timestamp, exact SEC URL,
+document type, media type, and integer HTTP status to immutable bytes. There is
+no generic authority-upgrade API: caller-created paths, `RawDocument` values,
+sidecars, and manifests cannot construct or rehydrate a session generation and are
+downgraded to `sec_local_import` manual evidence. ZIP members may derive
+authority only from the live fused bulk session generation. Filing URLs are bound to the
 selected company CIK, accession directory, and primary document; a third-party
 accession prefix is permitted. Local inputs are marked `sec_local_import` and
 remain manual-review evidence, with HTML retained as `text/html` (other

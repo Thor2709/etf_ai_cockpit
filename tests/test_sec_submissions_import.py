@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+import inspect
 import json
 from pathlib import Path
 import zipfile
@@ -15,6 +16,7 @@ from etf_cockpit.application.sec_submissions_import import (
 )
 from etf_cockpit.core.workflow import WorkflowTransitionError
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
+from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
 from etf_cockpit.parsers.contracts import RawDocument
 
 FIXTURE = Path("tests/fixtures/official/sec_submissions/microsoft-submissions.json")
@@ -55,6 +57,32 @@ def test_local_import_retains_snapshot_and_actual_filing_bytes(tmp_path: Path) -
     retained_filing = Path(snapshot["filing_documents"]["0000789019-26-000001"]["path"])
     assert retained_filing.read_bytes() == filing.read_bytes()
     assert snapshot["records"][0]["raw_row"]["rawExtra"] == "retained"
+
+
+def test_provider_fused_import_keeps_official_session_generation_ephemeral(tmp_path: Path) -> None:
+    payload = _payload()
+    provider = SecEdgarProvider(
+        "SEC fused import tests research@company.org",
+        cache_dir=tmp_path / "provider-cache",
+        transport=lambda _url, _headers: (json.dumps(payload).encode(), 200, {}),
+        rate_limit_seconds=0,
+    )
+
+    result = provider.import_submissions(_identity(), import_cache_dir=tmp_path / "import-cache")
+
+    assert result.status == "partial"
+    assert result.raw_documents[0].provider_id == "sec_edgar"
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    persisted = manifest["snapshots"][0]["source_document"]
+    assert persisted["provider_id"] == "sec_local_import"
+    assert persisted["source_url"].startswith("file:")
+    public_parameters = set(inspect.signature(import_sec_submissions).parameters)
+    provider_parameters = set(inspect.signature(provider.import_submissions).parameters)
+    assert public_parameters == {
+        "source", "identity", "cache_dir", "history_paths", "filing_documents",
+        "provenance", "history_provenance", "identity_registry", "publish_guard",
+    }
+    assert provider_parameters == {"identity", "import_cache_dir", "kwargs"}
 
 
 def test_official_fixture_retains_full_snapshot_with_explicit_provenance(tmp_path: Path) -> None:
@@ -322,7 +350,7 @@ def test_unsafe_zip_member_is_rejected_before_selected_extraction(tmp_path: Path
     assert not (tmp_path / "outside.json").exists()
 
 
-def test_caller_authored_receipt_cannot_admit_official_submissions(tmp_path: Path) -> None:
+def test_caller_authored_metadata_cannot_admit_official_submissions(tmp_path: Path) -> None:
     source = _write(tmp_path / "submissions_0000789019_abcdef0123456789.json", _payload())
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     acquired_at = datetime(2026, 9, 3, 5, tzinfo=timezone.utc)
@@ -344,7 +372,7 @@ def test_caller_authored_receipt_cannot_admit_official_submissions(tmp_path: Pat
     assert any(warning["code"] == "provenance_unattested" for warning in result.warnings)
 
 
-def test_caller_authored_receipt_downgrades_parent_and_detached_history(tmp_path: Path) -> None:
+def test_caller_authored_metadata_downgrades_parent_and_detached_history(tmp_path: Path) -> None:
     name = "CIK0000789019-submissions-001.json"
     source = _write(tmp_path / "submissions_0000789019_abcdef0123456789.json", _payload([{"name": name, "filingCount": 1}]))
     history = _write(tmp_path / name, _payload(columns=_columns("0000789019-25-000001", "10-Q")))
