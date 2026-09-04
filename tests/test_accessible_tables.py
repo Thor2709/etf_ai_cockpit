@@ -137,6 +137,45 @@ def test_accessible_table_only_masks_exact_detached_control_error() -> None:
         table.search_control.on_change(SimpleNamespace(data="["))
 
 
+def test_accessible_table_bounds_large_frames_and_pages_without_losing_search_data() -> None:
+    frame = pd.DataFrame({"instrument_id": [f"ETF-{i:05d}" for i in range(10_000)], "rank": range(10_000)})
+    table = tables.accessible_table(frame, table_id="large", page_size=50)
+
+    assert len(table.control.rows) == 50
+    assert table.page_count == 200
+    assert table.next_control is not None and table.next_control.disabled is False
+    table.page(200)
+    assert len(table.control.rows) == 50
+    assert table.control.rows[0].cells[0].content.value == "ETF-9950"
+    table.page(201)
+    assert table.control.rows[0].cells[0].content.value == "ETF-9950"
+
+    table.search_control.on_change(SimpleNamespace(data="ETF-9999"))
+    assert len(table.control.rows) == 1
+    assert table.page_control is not None and table.page_control.value == "Page 1 of 1"
+    assert table.previous_control is not None and table.previous_control.disabled is True
+
+
+def test_accessible_table_reset_and_missing_last_sort_are_explicit() -> None:
+    frame = pd.DataFrame({"rank": [None, 2, 1, None], "label": ["missing-a", "two", "one", "missing-b"]})
+    table = tables.accessible_table(frame, table_id="missing", page_size=2)
+
+    ascending = table.sort("rank")
+    assert ascending["rank"].tolist()[:2] == [1.0, 2.0]
+    assert ascending["rank"].isna().tolist() == [False, False, True, True]
+    descending = table.sort("rank", ascending=False)
+    assert descending["rank"].tolist()[:2] == [2.0, 1.0]
+    assert descending["rank"].isna().tolist() == [False, False, True, True]
+
+    table.search_control.on_change(SimpleNamespace(data="two"))
+    assert len(table.control.rows) == 1
+    reset = table.reset()
+    pd.testing.assert_frame_equal(reset, frame)
+    assert len(table.control.rows) == 2
+    assert table.search_control.value == ""
+    assert table.reset_control is not None and table.reset_control.tooltip
+
+
 def test_chart_descriptors_expose_observable_series_data() -> None:
     history = charts.history_chart(pd.DataFrame({"date": ["2026-07-01"], "adjusted_close": [101.5]}))
     assert history.available is True

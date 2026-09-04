@@ -64,15 +64,22 @@ signal, paper or execution integration was added. Independent review approved
 the corrected tests; focused scope, governance, UI, Ruff, compile and diff
 checks pass.
 
-Current issue: `ISSUE-0041`, beginning the single-writer overlapping frontend
-sequence `ISSUE-0041` -> `ISSUE-0042` -> `ISSUE-0045` -> `ISSUE-0137` -> `ISSUE-0140`.
-Defer final `ISSUE-0148` documentation until the product batches are stable.
+Work stopped at the requested checkpoint on 2026-09-04. `ISSUE-0041` is
+incomplete and its five-file working-tree diff is intentionally uncommitted.
+The partial implementation adds bounded/searchable/sortable/paginated table
+work and focused tests, but the new tests were not run and the broader
+theme/Flet/router/config acceptance scope remains unimplemented. See
+`plans/HANDOFF-ANTIGRAVITY-COMPLETION-20260904.md` before resuming. The next
+single-writer sequence remains `ISSUE-0041` -> `ISSUE-0042` -> `ISSUE-0045`
+-> `ISSUE-0137` -> `ISSUE-0140`. Defer final `ISSUE-0148` documentation until
+the product batches are stable.
 
-The remaining 39 issues stay unfinished in this lane. The three sensitive issues are
-not waived: `ISSUE-0032` and `ISSUE-0054` require separate high-risk completion;
-`UPDATEV2-0014` is deferred to the existing non-overlapping OAM lane and later
-integration. The branch cannot be called complete until all 40 live issue
-requirements and the combined final gates are proven.
+The remaining 36 issues stay unfinished in this lane. Sensitive work is not
+waived: `ISSUE-0032` is complete and independently risk-reviewed;
+`ISSUE-0054` still requires separate high-risk completion; `UPDATEV2-0014` is
+deferred to the existing non-overlapping OAM lane and later integration. The
+branch cannot be called complete until all 40 live issue requirements and the
+combined final gates are proven.
 
 Known dependency blockers outside the 40-issue set remain explicit rather than
 being bypassed: exact `ISSUE-0142` acceptance requires planned `ISSUE-0127` and

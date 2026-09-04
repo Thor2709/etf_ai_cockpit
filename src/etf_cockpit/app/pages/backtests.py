@@ -113,7 +113,11 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
     chart_descriptor = equity_drawdown_chart(equity_frame)
     price_chart_descriptor = history_chart(state.snapshot.prices, title="Adjusted-price history")
     recent_evidence = chart_descriptor.data
-    strategy_table = accessible_table(report.results, table_id="backtests.strategy-results")
+    strategy_table = accessible_table(
+        report.results,
+        table_id="backtests.strategy-results",
+        compact=float(getattr(_page, "width", 0) or state.snapshot.config.ui.window_width) < 760,
+    )
     export_status = ft.Text("CSV exports show the destination path and controlled failure state.", color=theme.MUTED, selectable=True)
 
     def export_backtest(_event: ft.ControlEvent) -> None:
@@ -212,8 +216,18 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                 ft.Column(
                     [
                         section_header("Strategy diagnostics", "After-cost results versus equal-weight, quality-only, momentum-only, quality-momentum and trend-only baselines."),
-                        strategy_table.search_control,
+                        ft.Row(
+                            [strategy_table.search_control, strategy_table.reset_control],
+                            spacing=theme.SPACE_2,
+                            wrap=True,
+                        ),
                         strategy_table.control,
+                        strategy_table.empty_control,
+                        ft.Row(
+                            [strategy_table.previous_control, strategy_table.page_control, strategy_table.next_control],
+                            spacing=theme.SPACE_2,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
                         strategy_table.status_control,
                         ft.Text(f"{strategy_table.search_label}; sortable columns: {', '.join(strategy_table.sortable_columns)}", color=theme.MUTED, selectable=True),
                     ],

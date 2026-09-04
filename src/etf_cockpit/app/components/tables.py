@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import ceil
+from typing import Callable
 
 import flet as ft
 import pandas as pd
@@ -24,12 +26,59 @@ class AccessibleTable:
     sort_callback: object
     search_control: ft.TextField
     status_control: ft.Text
+    empty_control: ft.Text | None = None
+    compact: bool = False
+    page_size: int = 50
+    page_count: int = 1
+    page_control: ft.Text | None = None
+    previous_control: ft.TextButton | None = None
+    next_control: ft.TextButton | None = None
+    reset_control: ft.TextButton | None = None
+    page_callback: Callable[[int], pd.DataFrame] | None = None
+    reset_callback: Callable[[], pd.DataFrame] | None = None
 
     def search(self, query: str) -> pd.DataFrame:
         return self.search_callback(query)
 
     def sort(self, column: str, ascending: bool = True) -> pd.DataFrame:
         return self.sort_callback(column, ascending)
+
+    def page(self, number: int) -> pd.DataFrame:
+        """Show a bounded page and return the complete page data frame."""
+
+        if self.page_callback is None:
+            return self.frame.copy()
+        # The public helper is intentionally one-based (as the visible page
+        # indicator is), while the private callback remains zero-based for
+        # straightforward button arithmetic.  Keep page(0) as a forgiving
+        # alias for callers that used the original headless test convention.
+        return self.page_callback(max(0, int(number) - 1) if int(number) > 0 else 0)
+
+    def reset(self) -> pd.DataFrame:
+        """Clear search/sort paging state and show the first bounded page."""
+
+        if self.reset_callback is None:
+            return self.frame.copy()
+        return self.reset_callback()
+
+    @property
+    def controls(self) -> tuple[ft.Control, ...]:
+        """Return the complete keyboard-addressable presentation controls."""
+
+        controls: list[ft.Control] = [self.search_control]
+        if self.reset_control is not None:
+            controls.append(self.reset_control)
+        controls.append(self.control)
+        if self.empty_control is not None:
+            controls.append(self.empty_control)
+        controls.append(self.status_control)
+        if self.previous_control is not None:
+            controls.append(self.previous_control)
+        if self.page_control is not None:
+            controls.append(self.page_control)
+        if self.next_control is not None:
+            controls.append(self.next_control)
+        return tuple(controls)
 
 
 def accessible_table(
@@ -38,7 +87,13 @@ def accessible_table(
     table_id: str,
     searchable: bool = True,
     sortable: bool = True,
+    compact: bool = False,
+    empty_message: str = "No matching rows found.",
+    page_size: int = 50,
 ) -> AccessibleTable:
+    if isinstance(page_size, bool) or int(page_size) < 1:
+        raise ValueError("page_size must be a positive integer")
+    page_size = int(page_size)
     data = frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
     columns = tuple(str(column) for column in data.columns)
 
@@ -59,7 +114,19 @@ def accessible_table(
 
     def _rows(view: pd.DataFrame) -> list[ft.DataRow]:
         return [
-            ft.DataRow(cells=[ft.DataCell(ft.Text(_cell_text(value), selectable=True)) for value in row])
+            ft.DataRow(
+                cells=[
+                    ft.DataCell(
+                        ft.Text(
+                            _cell_text(value),
+                            selectable=True,
+                            tooltip=_cell_text(value) if len(_cell_text(value)) > 30 else None,
+                            overflow=ft.TextOverflow.ELLIPSIS if len(_cell_text(value)) > 30 else None,
+                        )
+                    )
+                    for value in row
+                ]
+            )
             for row in view.itertuples(index=False, name=None)
         ]
 
@@ -78,14 +145,43 @@ def accessible_table(
             return data.copy()
         return data.sort_values(column, ascending=bool(ascending), kind="stable", na_position="last").reset_index(drop=True)
 
-    status_control = ft.Text(f"{len(data)} rows; status is shown as text", selectable=True)
+    status_control = ft.Text(
+        f"{len(data)} rows; status is shown as text",
+        key=f"{table_id}.status",
+        selectable=True,
+    )
+    empty_control = ft.Text(
+        empty_message,
+        key=f"{table_id}.empty",
+        color=MUTED,
+        visible=len(data) == 0,
+        selectable=True,
+    )
+    page_control = ft.Text(f"Page 1 of {max(1, ceil(len(data) / page_size))}", key=f"{table_id}.page", selectable=True)
+    page_count = max(1, ceil(len(data) / page_size))
+    state = {"view": data.copy(), "page": 0}
 
     def _is_detached_control_error(exc: RuntimeError) -> bool:
         return " ".join(str(exc).casefold().split()).endswith("control must be added to the page first")
 
-    def _update_view(view: pd.DataFrame) -> None:
-        control.rows = _rows(view)
-        status_control.value = f"{len(view)} rows; status is shown as text"
+    def _update_view(view: pd.DataFrame, *, page: int = 0) -> pd.DataFrame:
+        state["view"] = view.copy()
+        page_count_current = max(1, ceil(len(view) / page_size))
+        state["page"] = min(max(int(page), 0), page_count_current - 1)
+        start = state["page"] * page_size
+        visible = view.iloc[start : start + page_size]
+        control.rows = _rows(visible)
+        end = min(start + len(visible), len(view))
+        if len(view) == 0:
+            status_control.value = "0 rows; status is shown as text"
+        elif len(view) > page_size:
+            status_control.value = f"Showing {start + 1}-{end} of {len(view)} rows; status is shown as text"
+        else:
+            status_control.value = f"{len(view)} rows; status is shown as text"
+        empty_control.visible = len(view) == 0
+        page_control.value = f"Page {state['page'] + 1} of {page_count_current}"
+        previous_control.disabled = state["page"] == 0
+        next_control.disabled = state["page"] >= page_count_current - 1
         update = getattr(control, "update", None)
         if callable(update):
             try:
@@ -104,16 +200,33 @@ def accessible_table(
             except RuntimeError as exc:
                 if not _is_detached_control_error(exc):
                     raise
+        empty_update = getattr(empty_control, "update", None)
+        if callable(empty_update):
+            try:
+                empty_update()
+            except RuntimeError as exc:
+                if not _is_detached_control_error(exc):
+                    raise
+        page_update = getattr(page_control, "update", None)
+        if callable(page_update):
+            try:
+                page_update()
+            except RuntimeError as exc:
+                if not _is_detached_control_error(exc):
+                    raise
+        return visible.copy()
 
     def _search_changed(event: ft.ControlEvent) -> None:
         query = getattr(event, "data", None)
         if query is None:
             query = search_control.value
-        _update_view(search_callback(str(query or "")))
+        _update_view(search_callback(str(query or "")), page=0)
 
     search_control = ft.TextField(
         key=f"{table_id}.search",
         label=f"Search {table_id}" if searchable else "",
+        hint_text=f"Filter {table_id}..." if searchable else "",
+        tooltip=f"Filter {table_id} rows by keyword",
         visible=searchable,
         dense=True,
         on_change=_search_changed if searchable else None,
@@ -122,7 +235,7 @@ def accessible_table(
     def _sort_event(column: str):
         def callback(event: ft.ControlEvent) -> None:
             ascending = bool(getattr(event, "ascending", True))
-            _update_view(sort_callback(column, ascending))
+            _update_view(sort_callback(column, ascending), page=0)
 
         return callback
 
@@ -140,12 +253,48 @@ def accessible_table(
             table_columns.append(data_column)
 
     control = ft.DataTable(
+        key=f"{table_id}.table",
         columns=table_columns,
-        rows=_rows(data),
-        data_row_min_height=36,
-        data_row_max_height=56,
-        column_spacing=14,
+        rows=[],
+        data_row_min_height=28 if compact else 36,
+        data_row_max_height=42 if compact else 56,
+        column_spacing=8 if compact else 14,
     )
+
+    def _go_to_page(number: int) -> pd.DataFrame:
+        return _update_view(state["view"], page=number)
+
+    def _previous(_event: ft.ControlEvent) -> None:
+        _go_to_page(state["page"] - 1)
+
+    def _next(_event: ft.ControlEvent) -> None:
+        _go_to_page(state["page"] + 1)
+
+    def _reset(_event: ft.ControlEvent | None = None) -> None:
+        search_control.value = ""
+        _update_view(data, page=0)
+
+    previous_control = ft.TextButton(
+        "Previous",
+        key=f"{table_id}.previous",
+        tooltip="Show the previous table page",
+        on_click=_previous,
+        disabled=True,
+    )
+    next_control = ft.TextButton(
+        "Next",
+        key=f"{table_id}.next",
+        tooltip="Show the next table page",
+        on_click=_next,
+        disabled=page_count <= 1,
+    )
+    reset_control = ft.TextButton(
+        "Reset",
+        key=f"{table_id}.reset",
+        tooltip="Clear table search and sorting",
+        on_click=_reset,
+    )
+    _update_view(data, page=0)
 
     return AccessibleTable(
         control=control,
@@ -158,6 +307,16 @@ def accessible_table(
         sort_callback=sort_callback,
         search_control=search_control,
         status_control=status_control,
+        empty_control=empty_control,
+        compact=compact,
+        page_size=page_size,
+        page_count=page_count,
+        page_control=page_control,
+        previous_control=previous_control,
+        next_control=next_control,
+        reset_control=reset_control,
+        page_callback=_go_to_page,
+        reset_callback=lambda: (_reset() or state["view"].copy()),
     )
 
 

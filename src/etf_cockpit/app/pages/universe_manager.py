@@ -72,56 +72,115 @@ def filter_records(records: Iterable[UniverseRecord], query: str = "", tier: str
     )
 
 
+UNIVERSE_TABLE_PAGE_SIZE = 50
+_UNIVERSE_SORT_FIELDS = {
+    "ID": "instrument_id",
+    "Name": "name",
+    "Yahoo ticker": "ticker",
+    "Type": "asset_type",
+    "ISIN status": "isin_status",
+    "Status": "enabled",
+    "Policy evidence": "policy_state",
+}
+
+
+def _sort_universe_records(records: Iterable[UniverseRecord], column: str, ascending: bool) -> tuple[UniverseRecord, ...]:
+    """Sort only display records, retaining missing values at the end."""
+
+    field = _UNIVERSE_SORT_FIELDS.get(column)
+    values = list(records)
+    if field is None:
+        return tuple(values)
+
+    def value_for(record: UniverseRecord) -> object:
+        if field == "enabled":
+            return "ready" if record.enabled else "disabled"
+        if field == "policy_state":
+            return getattr(record, "policy_state", "unavailable")
+        return getattr(record, field, None)
+
+    present: list[UniverseRecord] = []
+    missing: list[UniverseRecord] = []
+    for record in values:
+        value = value_for(record)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            missing.append(record)
+        else:
+            present.append(record)
+    present.sort(key=lambda record: str(value_for(record)).casefold(), reverse=not ascending)
+    return tuple((*present, *missing))
+
+
 def _table(
     records: Iterable[UniverseRecord],
     on_edit,
     policy_states: dict[str, tuple[str, str]] | None = None,
 ) -> ft.DataTable:
     policy_states = policy_states or {}
-    rows: list[ft.DataRow] = []
-    for record in records:
-        status = "disabled" if not record.enabled else "needs_verification" if record.isin_status != "verified" else "ready"
-        policy_state, policy_reason = policy_states.get(
-            record.instrument_id,
-            ("unavailable", "No versioned policy evidence is available."),
-        )
-        rows.append(
-            ft.DataRow(
-                cells=[
-                    ft.DataCell(ft.Text(record.instrument_id, color=theme.TEXT)),
-                    ft.DataCell(ft.Text(record.name, color=theme.TEXT)),
-                    ft.DataCell(ft.Text(record.ticker, color=theme.MUTED)),
-                    ft.DataCell(ft.Text(record.asset_type, color=theme.MUTED)),
-                    ft.DataCell(ft.Text(record.isin_status, color=theme.AMBER if record.isin_status != "verified" else theme.GREEN)),
-                    ft.DataCell(ft.Text(status, color=theme.AMBER if status != "ready" else theme.GREEN)),
-                    ft.DataCell(
-                        ft.Text(
-                            policy_state,
-                            color=theme.GREEN if policy_state == "current" else theme.AMBER,
-                            tooltip=policy_reason,
-                        )
-                    ),
-                    ft.DataCell(ft.Button("Edit", key=f"universe.edit.{record.instrument_id}", on_click=lambda _event, row=record: on_edit(row))),
-                ]
+    all_records = tuple(records)
+
+    def build_rows(view: Iterable[UniverseRecord]) -> list[ft.DataRow]:
+        rows: list[ft.DataRow] = []
+        for record in view:
+            status = "disabled" if not record.enabled else "needs_verification" if record.isin_status != "verified" else "ready"
+            policy_state, policy_reason = policy_states.get(
+                record.instrument_id,
+                ("unavailable", "No versioned policy evidence is available."),
             )
-        )
-    return ft.DataTable(
+            rows.append(
+                ft.DataRow(
+                    cells=[
+                        ft.DataCell(ft.Text(record.instrument_id, color=theme.TEXT)),
+                        ft.DataCell(ft.Text(record.name, color=theme.TEXT)),
+                        ft.DataCell(ft.Text(record.ticker, color=theme.MUTED)),
+                        ft.DataCell(ft.Text(record.asset_type, color=theme.MUTED)),
+                        ft.DataCell(ft.Text(record.isin_status, color=theme.AMBER if record.isin_status != "verified" else theme.GREEN)),
+                        ft.DataCell(ft.Text(status, color=theme.AMBER if status != "ready" else theme.GREEN)),
+                        ft.DataCell(
+                            ft.Text(
+                                policy_state,
+                                color=theme.GREEN if policy_state == "current" else theme.AMBER,
+                                tooltip=policy_reason,
+                            )
+                        ),
+                        ft.DataCell(ft.Button("Edit", key=f"universe.edit.{record.instrument_id}", on_click=lambda _event, row=record: on_edit(row))),
+                    ]
+                )
+            )
+        return rows
+
+    visible_records = all_records[:UNIVERSE_TABLE_PAGE_SIZE]
+    table_ref: ft.DataTable | None = None
+
+    def sort_column(column: str, event: ft.ControlEvent) -> None:
+        ascending = bool(getattr(event, "ascending", True))
+        if table_ref is not None:
+            table_ref.rows = build_rows(_sort_universe_records(all_records, column, ascending)[:UNIVERSE_TABLE_PAGE_SIZE])
+
+    columns = (
+        "ID",
+        "Name",
+        "Yahoo ticker",
+        "Type",
+        "ISIN status",
+        "Status",
+        "Policy evidence",
+        "Actions",
+    )
+    table = ft.DataTable(
+        key="universe.table",
         columns=[
-            ft.DataColumn(ft.Text(label, color=theme.TEXT))
-            for label in (
-                "ID",
-                "Name",
-                "Yahoo ticker",
-                "Type",
-                "ISIN status",
-                "Status",
-                "Policy evidence",
-                "Actions",
+            ft.DataColumn(
+                ft.Text(label, color=theme.TEXT, tooltip=f"Sort by {label}" if label in _UNIVERSE_SORT_FIELDS else None),
+                on_sort=(lambda event, name=label: sort_column(name, event)) if label in _UNIVERSE_SORT_FIELDS else None,
             )
+            for label in columns
         ],
-        rows=rows,
+        rows=build_rows(visible_records),
         column_spacing=16,
     )
+    table_ref = table
+    return table
 
 
 def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
@@ -712,8 +771,9 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         page.update()
 
     def _table_with_actions(rows: Iterable[UniverseRecord]) -> ft.DataTable:
-        table = _table(rows, edit_dialog, policy_states)
-        for row, record in zip(table.rows, rows):
+        visible_rows = tuple(rows)
+        table = _table(visible_rows, edit_dialog, policy_states)
+        for row, record in zip(table.rows, visible_rows):
             if record.enabled:
                 action_button = ft.Button(
                     "Disable",
@@ -745,22 +805,67 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
         dense=True,
     )
     table_host = ft.Column([], key="universe.table-host", spacing=0)
+    table_page = 0
+    table_status = ft.Text("", key="universe.table-status", selectable=True, color=theme.MUTED)
+    previous_page = ft.TextButton(
+        "Previous",
+        key="universe.previous",
+        tooltip="Show the previous universe page",
+        disabled=True,
+    )
+    next_page = ft.TextButton(
+        "Next",
+        key="universe.next",
+        tooltip="Show the next universe page",
+        disabled=True,
+    )
+    page_indicator = ft.Text("Page 1 of 1", key="universe.page", selectable=True)
 
-    def rebuild_table(_event: ft.ControlEvent | None = None) -> None:
+    def rebuild_table(_event: ft.ControlEvent | None = None, *, reset_page: bool = True) -> None:
+        nonlocal table_page
         needle = query.value or ""
         selected_tier = str(tier_filter.value or "primary")
+        filtered = filter_records(records, needle, tier=selected_tier)
+        page_count = max(1, (len(filtered) + UNIVERSE_TABLE_PAGE_SIZE - 1) // UNIVERSE_TABLE_PAGE_SIZE)
+        if reset_page:
+            table_page = 0
+        table_page = min(max(table_page, 0), page_count - 1)
+        start = table_page * UNIVERSE_TABLE_PAGE_SIZE
+        visible = filtered[start : start + UNIVERSE_TABLE_PAGE_SIZE]
+        table_status.value = f"Showing {start + 1}-{start + len(visible)} of {len(filtered)} universe records" if filtered else "Showing 0 of 0 universe records"
+        page_indicator.value = f"Page {table_page + 1} of {page_count}"
+        previous_page.disabled = table_page == 0
+        next_page.disabled = table_page >= page_count - 1
         table_host.controls = [
             ft.Row(
-                [_table_with_actions(filter_records(records, needle, tier=selected_tier))],
+                [_table_with_actions(visible)],
                 key="universe.table-scroll",
                 scroll=ft.ScrollMode.AUTO,
                 vertical_alignment=ft.CrossAxisAlignment.START,
-            )
+            ),
+            ft.Row(
+                [previous_page, page_indicator, next_page, table_status],
+                spacing=theme.SPACE_2,
+                wrap=True,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
         ]
         page.update()
 
-    query.on_change = rebuild_table
-    tier_filter.on_select = rebuild_table
+    def previous_page_click(_event: ft.ControlEvent) -> None:
+        nonlocal table_page
+        table_page -= 1
+        rebuild_table(reset_page=False)
+
+    def next_page_click(_event: ft.ControlEvent) -> None:
+        nonlocal table_page
+        table_page += 1
+        rebuild_table(reset_page=False)
+
+    previous_page.on_click = previous_page_click
+    next_page.on_click = next_page_click
+    query.on_change = lambda event: rebuild_table(event, reset_page=True)
+    tier_filter.on_select = lambda event: rebuild_table(event, reset_page=True)
     add_button = ft.Button("Add record", key="universe.add", icon=ft.Icons.ADD, on_click=add_dialog)
     import_button = ft.Button("Import", key="universe.import", icon=ft.Icons.UPLOAD_FILE, on_click=import_dialog)
     rebuild_table()

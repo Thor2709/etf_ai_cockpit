@@ -557,6 +557,32 @@ def test_universe_tier_filter_uses_visible_scrollable_table(monkeypatch) -> None
     assert any(isinstance(control, ft.DataTable) for control in _walk(table_scroll))
 
 
+def test_universe_table_has_bounded_rows_and_missing_last_sort_controls() -> None:
+    rows = tuple(
+        UniverseRecord(
+            f"ETF-{index:03d}",
+            f"Name {index:03d}",
+            isin_status="" if index == 0 else "verified",
+            ticker=f"T{index:03d}",
+            tier="primary",
+            sector="" if index == 0 else "Equity",
+        )
+        for index in range(50)
+    )
+    table = manager._table(rows, lambda _record: None)
+
+    assert table.key == "universe.table"
+    assert len(table.rows) == manager.UNIVERSE_TABLE_PAGE_SIZE
+    assert table.columns[0].label.tooltip == "Sort by ID"
+    assert callable(table.columns[0].on_sort)
+    assert table.columns[-1].on_sort is None
+
+    table.columns[0].on_sort(SimpleNamespace(ascending=False))
+    assert table.rows[0].cells[0].content.value == "ETF-074"
+    table.columns[4].on_sort(SimpleNamespace(ascending=True))
+    assert table.rows[-1].cells[4].content.value == ""
+
+
 def test_save_reloads_active_state_and_marks_universe_cache_revision(monkeypatch) -> None:
     record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary", "", True, "daily", "EUR", "NO", "", "", "")
     monkeypatch.setattr(manager, "load_universe", lambda *_args: UniverseStoreSnapshot((record,), "captured", Path("store.json")))
