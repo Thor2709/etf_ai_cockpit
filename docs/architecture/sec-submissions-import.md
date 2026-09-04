@@ -12,14 +12,27 @@ and unrecognised raw-row fields. Metadata is not treated as a filing document.
 Actual filing bytes must be supplied explicitly by accession; each supplied
 snapshot, history file, and filing is retained through the existing
 content-addressed cache. Missing advertised history or filing bytes produce
-partial coverage and durable warnings. Changed snapshots append a new manifest
-generation while retaining prior raw generations; restart revalidates retained
-object paths and hashes before reporting verified evidence.
+partial coverage and durable warnings. The durable manifest stores a complete
+snapshot bundle: parser identity, canonical CIK/instrument identity, retained
+object paths and SHA-256 values, source URL, timezone-aware acquisition time,
+provider, document type, media, HTTP status, records, warnings, filing/history
+maps, coverage status, and a bundle digest. Changed history or filing bytes
+therefore create a new generation while retaining the old content-addressed
+object; restart revalidates every retained object and replays the parser before
+reporting verified evidence. Fabricated metadata, stale pointers, and objects
+outside the immutable object layout are rejected without replacement.
 
 Official `RawDocument` provenance is admitted only when its path, checksum,
 timezone-aware timestamp, provider, exact SEC URL, document type, media type,
-and HTTP status are consistent. Local inputs are marked `sec_local_import` and
-remain manual-review evidence. Cancellation or publication failure propagates
+and integer HTTP status are consistent. Filing URLs are bound to the selected
+company CIK, accession directory, and primary document; a third-party accession
+prefix is permitted. Local inputs are marked `sec_local_import` and remain
+manual-review evidence, with HTML retained as `text/html` (other unsupported
+local filing formats use an explicit binary media type). ZIP selection validates
+the central directory before allocation, then bounds each selected member to
+256 MiB and the selected aggregate to 512 MiB; the archive itself is bounded to
+8 GiB. Missing history or filing bytes and parser row warnings remain
+`partial`, never `complete`. Cancellation or publication failure propagates
 through the caller's publication scope and does not replace the prior import
 manifest. Every result keeps `execution_allowed=false` and this component never
 creates canonical financial facts or starts scoring/execution.

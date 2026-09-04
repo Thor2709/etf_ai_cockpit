@@ -190,3 +190,127 @@ def test_tampered_manifest_is_not_overwritten(tmp_path: Path) -> None:
 
     assert result.status == "failed"
     assert json.loads(first.manifest_path.read_text(encoding="utf-8")) == {"tampered": True}
+
+
+def test_result_to_dict_is_json_safe_for_raw_documents(tmp_path: Path) -> None:
+    source = _write(tmp_path / "submissions.json", _payload())
+    result = import_sec_submissions(source, _identity(), cache_dir=tmp_path / "cache")
+    encoded = json.dumps(result.to_dict())
+    assert "raw_documents" in encoded
+    assert "+00:00" in encoded
+
+
+def test_same_source_changed_history_appends_complete_evidence_bundle(tmp_path: Path) -> None:
+    name = "CIK0000789019-submissions-001.json"
+    source = _write(tmp_path / "submissions.json", _payload([{"name": name, "filingCount": 1}]))
+    history = _write(tmp_path / name, _payload(columns=_columns("0000789019-25-000001", "10-Q")))
+    cache = tmp_path / "cache"
+    first = import_sec_submissions(source, _identity(), cache_dir=cache, history_paths={name: history})
+    first_manifest = json.loads(first.manifest_path.read_text(encoding="utf-8"))
+    first_path = Path(first_manifest["snapshots"][0]["history_documents"][name]["path"])
+    history.write_text(json.dumps(_payload(columns=_columns("0000789019-25-000002", "10-Q"))), encoding="utf-8")
+    second = import_sec_submissions(source, _identity(), cache_dir=cache, history_paths={name: history})
+    manifest = json.loads(second.manifest_path.read_text(encoding="utf-8"))
+    assert second.status == "partial"
+    assert len(manifest["snapshots"]) == 2
+    assert first_path.read_bytes() != Path(manifest["snapshots"][1]["history_documents"][name]["path"]).read_bytes()
+
+
+def test_changed_filing_bytes_append_revision_without_overwrite(tmp_path: Path) -> None:
+    source = _write(tmp_path / "submissions.json", _payload())
+    filing = tmp_path / "annual.htm"
+    filing.write_bytes(b"revision one")
+    cache = tmp_path / "cache"
+    first = import_sec_submissions(source, _identity(), cache_dir=cache, filing_documents={"0000789019-26-000001": filing})
+    first_manifest = json.loads(first.manifest_path.read_text(encoding="utf-8"))
+    first_path = Path(first_manifest["snapshots"][0]["filing_documents"]["0000789019-26-000001"]["path"])
+    filing.write_bytes(b"revision two")
+    second = import_sec_submissions(source, _identity(), cache_dir=cache, filing_documents={"0000789019-26-000001": filing})
+    manifest = json.loads(second.manifest_path.read_text(encoding="utf-8"))
+    assert len(manifest["snapshots"]) == 2
+    assert first_path.read_bytes() == b"revision one"
+    assert Path(manifest["snapshots"][1]["filing_documents"]["0000789019-26-000001"]["path"]).read_bytes() == b"revision two"
+
+
+def test_official_filing_provenance_binds_record_url_and_media(tmp_path: Path) -> None:
+    source = _write(tmp_path / "submissions.json", _payload())
+    filing = tmp_path / "annual.htm"
+    filing.write_text("<html>filing</html>", encoding="utf-8")
+    document = RawDocument(
+        filing,
+        "https://www.sec.gov/Archives/edgar/data/0000789019/000078901926000001/annual.htm",
+        datetime(2026, 9, 3, tzinfo=timezone.utc),
+        hashlib.sha256(filing.read_bytes()).hexdigest(),
+        "sec_edgar",
+        "sec_filing",
+        "text/html",
+        200,
+    )
+    result = import_sec_submissions(source, _identity(), cache_dir=tmp_path / "cache", filing_documents={"0000789019-26-000001": document})
+    assert result.status == "complete"
+    assert result.raw_documents[-1].source_url == document.source_url
+
+
+def test_official_filing_foreign_url_is_rejected_without_cache(tmp_path: Path) -> None:
+    source = _write(tmp_path / "submissions.json", _payload())
+    filing = tmp_path / "annual.htm"
+    filing.write_text("<html>filing</html>", encoding="utf-8")
+    document = RawDocument(
+        filing,
+        "https://example.invalid/annual.htm",
+        datetime(2026, 9, 3, tzinfo=timezone.utc),
+        hashlib.sha256(filing.read_bytes()).hexdigest(),
+        "sec_edgar",
+        "sec_filing",
+        "application/json",
+        200,
+    )
+    result = import_sec_submissions(source, _identity(), cache_dir=tmp_path / "cache", filing_documents={"0000789019-26-000001": document})
+    assert result.status == "failed"
+    assert not (tmp_path / "cache").exists()
+
+
+def test_corrupt_retained_object_blocks_restart_and_preserves_manifest(tmp_path: Path) -> None:
+    source = _write(tmp_path / "submissions.json", _payload())
+    cache = tmp_path / "cache"
+    first = import_sec_submissions(source, _identity(), cache_dir=cache)
+    before_manifest = first.manifest_path.read_bytes()
+    source_object = Path(json.loads(before_manifest)["snapshots"][0]["source_document"]["path"])
+    source_object.write_bytes(b"corrupt retained evidence")
+    result = import_sec_submissions(source, _identity(), cache_dir=cache)
+    assert result.status == "failed"
+    assert first.manifest_path.read_bytes() == before_manifest
+
+
+def test_fabricated_snapshot_metadata_is_rejected_without_rewrite(tmp_path: Path) -> None:
+    source = _write(tmp_path / "submissions.json", _payload())
+    cache = tmp_path / "cache"
+    first = import_sec_submissions(source, _identity(), cache_dir=cache)
+    before = first.manifest_path.read_bytes()
+    payload = json.loads(before)
+    payload["snapshots"] = [{}]
+    first.manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+    tampered = first.manifest_path.read_bytes()
+    result = import_sec_submissions(source, _identity(), cache_dir=cache)
+    assert result.status == "failed"
+    assert first.manifest_path.read_bytes() == tampered
+    assert before != tampered
+
+
+def test_noncanonical_instrument_identity_is_rejected_before_io(tmp_path: Path) -> None:
+    source = _write(tmp_path / "submissions.json", _payload())
+    invalid = _identity("789019", " MSFT")
+    result = import_sec_submissions(source, invalid, cache_dir=tmp_path / "cache")
+    assert result.status == "failed"
+    assert "instrument_id" in result.detail
+    assert not (tmp_path / "cache").exists()
+
+
+def test_unsafe_zip_member_is_rejected_before_selected_extraction(tmp_path: Path) -> None:
+    archive = tmp_path / "submissions.zip"
+    with zipfile.ZipFile(archive, "w") as package:
+        package.writestr("CIK0000789019.json", json.dumps(_payload()))
+        package.writestr("../outside.json", b"must not extract")
+    result = import_sec_submissions(archive, _identity(), cache_dir=tmp_path / "cache")
+    assert result.status == "failed"
+    assert not (tmp_path / "outside.json").exists()
