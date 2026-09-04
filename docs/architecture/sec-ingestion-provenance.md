@@ -20,6 +20,15 @@ URL matches the requested CIK, and whose retrieval time is timezone-aware. Any
 mismatch is rejected before the atomic facts and inventory publication,
 leaving prior evidence unchanged.
 
+For a supplied fetched document, the importer captures a validated,
+content-addressed sibling before parsing and publishes from that capture, so
+source-file mutation after validation cannot make the facts/inventory pair
+refer to different bytes. Existing provider generations are already
+content-addressed and are retained as-is. A `304` is admitted only when the
+persisted cache payload and its original timezone-aware `retrieved_at` are
+valid; missing, malformed or timezone-naive timestamps fail closed without
+fabricating a new acquisition time or replacing prior evidence.
+
 This boundary does not add network behavior, provider write authority, or
 execution authority. SEC acquisition remains explicit and
 `execution_allowed=false` remains unchanged.

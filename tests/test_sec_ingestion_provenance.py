@@ -88,7 +88,9 @@ def test_fetch_companyfacts_preserves_fresh_and_revalidated_document_provenance(
     assert len(first_inventory) == len(second_inventory) == 1
     row = second_inventory.iloc[0]
     assert row["source_url"] == "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json"
-    assert row["path"] == str(Path(metadata["raw_path"]))
+    captured_path = Path(row["path"])
+    assert captured_path != Path(metadata["raw_path"])
+    assert captured_path.read_bytes() == Path(metadata["raw_path"]).read_bytes()
     assert row["checksum"] == metadata["sha256"]
     assert row["ingested_at"] == metadata["retrieved_at"]
     assert row["document_type"] == "sec_companyfacts"
@@ -188,6 +190,38 @@ def test_import_companyfacts_rejects_changed_file_before_publication(tmp_path, m
     assert "No data changed" in message
     assert not (tmp_path / "facts.parquet").exists()
     assert not (tmp_path / "inventory.parquet").exists()
+
+
+def test_import_companyfacts_captures_provider_generation_before_boundary_mutation(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.app import state as state_module
+
+    original_bytes = _payload()
+    source_sha256 = hashlib.sha256(original_bytes).hexdigest()
+    payload_path = tmp_path / f"companyfacts_0000789019_{source_sha256[:16]}.json"
+    payload_path.write_bytes(original_bytes)
+    document = _document(payload_path)
+    replacement_bytes = original_bytes.replace(b'"val": 10', b'"val": 11')
+    original_writer = state_module.write_statement_evidence
+
+    def mutate_source_then_publish(source, records, facts_destination, inventory_destination, **kwargs):
+        payload_path.write_bytes(replacement_bytes)
+        return original_writer(source, records, facts_destination, inventory_destination, **kwargs)
+
+    monkeypatch.setattr(state_module, "write_statement_evidence", mutate_source_then_publish)
+    monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "facts.parquet")
+    monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "inventory.parquet")
+    monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    state = _state(state_module)
+
+    message = state.import_sec_companyfacts(payload_path, document=document)
+
+    assert "complete" in message
+    row = pd.read_parquet(tmp_path / "inventory.parquet").iloc[0]
+    captured_path = Path(row["path"])
+    assert captured_path != payload_path
+    assert captured_path.read_bytes() == original_bytes
+    assert hashlib.sha256(captured_path.read_bytes()).hexdigest() == row["checksum"]
+    assert payload_path.read_bytes() == replacement_bytes
 
 
 def test_import_companyfacts_rejects_parser_checksum_mismatch_before_publication(tmp_path, monkeypatch) -> None:

@@ -112,6 +112,35 @@ def test_sec_provider_uses_conditional_cache_and_bounded_rate(tmp_path: Path) ->
     assert (tmp_path / "companyfacts_0000789019.json.meta.json").exists()
 
 
+@pytest.mark.parametrize("retrieved_at", [None, "2026-09-03T12:00:00", "not-a-timestamp"])
+def test_sec_provider_rejects_invalid_persisted_304_timestamp_without_replacing_cache(
+    tmp_path: Path, retrieved_at: str | None
+) -> None:
+    payload = json.dumps({"cik": "0000789019", "facts": {}}).encode()
+    provider = SecEdgarProvider(
+        "ETF AI Cockpit tests research@company.org",
+        cache_dir=tmp_path,
+        transport=lambda _url, _headers: (payload, 200, {"ETag": '"facts-v1"'}),
+        rate_limit_seconds=0,
+    )
+    first = provider.fetch_companyfacts("789019")
+    metadata_path = tmp_path / "companyfacts_0000789019.json.meta.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if retrieved_at is None:
+        metadata.pop("retrieved_at")
+    else:
+        metadata["retrieved_at"] = retrieved_at
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    cache_bytes = first.path.read_bytes()
+    provider.transport = lambda _url, _headers: (b"", 304, {"ETag": '"facts-v1"'})
+
+    with pytest.raises(ValueError, match="retrieved_at"):
+        provider.fetch_companyfacts("789019")
+
+    assert first.path.read_bytes() == cache_bytes
+    assert json.loads(metadata_path.read_text(encoding="utf-8")) == metadata
+
+
 def test_sec_provider_preserves_existing_cache_on_invalid_response(tmp_path: Path) -> None:
     payload = json.dumps({"cik": "0000789019", "facts": {}}).encode()
     calls = 0

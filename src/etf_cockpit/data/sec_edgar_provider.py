@@ -162,13 +162,14 @@ class SecEdgarProvider:
                     if expected_sha and cached_sha != expected_sha:
                         raise ValueError("SEC cached payload checksum mismatch")
                     _validate_identity(_parse_json(cached_payload), expected_cik)
+                    retrieved_at = _retrieved_at(metadata)
                     immutable_path = _immutable_cache_path(cache_path, cached_sha)
                     with publication_scope(publish_guard):
                         _ensure_immutable_payload(immutable_path, cached_payload, expected_cik)
                     return RawDocument(
                         immutable_path,
                         url,
-                        _retrieved_at(metadata),
+                        retrieved_at,
                         cached_sha,
                         "sec_edgar",
                         document_type,
@@ -348,11 +349,17 @@ def _ensure_immutable_payload(path: Path, payload: bytes, expected_cik: str) -> 
 
 def _retrieved_at(metadata: Mapping[str, Any]) -> datetime:
     value = metadata.get("retrieved_at")
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("SEC cached metadata retrieved_at is missing")
     try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-    except (TypeError, ValueError):
-        return datetime.now(timezone.utc)
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("SEC cached metadata retrieved_at is invalid") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("SEC cached metadata retrieved_at must be timezone-aware")
+    # Preserve the persisted aware instant and its original offset; 304 is a
+    # revalidation, not a new acquisition timestamp.
+    return parsed
 
 
 def _sha256(payload: bytes) -> str:

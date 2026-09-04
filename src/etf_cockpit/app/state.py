@@ -4,6 +4,7 @@ from dataclasses import dataclass, field, replace
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import wraps
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -883,9 +884,20 @@ class AppState:
 
         try:
             source_path = Path(path)
+            source_bytes = source_path.read_bytes()
+            source_sha256 = hashlib.sha256(source_bytes).hexdigest()
             if document is not None:
-                _validate_sec_raw_document(document, source_path)
-            payload = json.loads(source_path.read_text(encoding="utf-8"))
+                _validate_sec_raw_document(document, source_path, content=source_bytes)
+                parsed_path = _capture_sec_raw_document(
+                    source_path,
+                    source_bytes,
+                    source_sha256,
+                    document=document,
+                    publish_guard=publish_guard,
+                )
+            else:
+                parsed_path = source_path
+            payload = json.loads(source_bytes.decode("utf-8"))
             cik = str(payload.get("cik") or payload.get("cik_str") or "").strip()
             if not cik:
                 raise ValueError("SEC companyfacts is missing a CIK")
@@ -913,14 +925,20 @@ class AppState:
                 () if resolved_from_identity else ("cik_not_resolved_to_instrument",),
                 cik,
             )
-            parsed = parse_companyfacts(source_path, identity)
+            parsed = parse_companyfacts(parsed_path, identity)
             if not parsed.success:
                 warning_codes = ", ".join(warning.code for warning in parsed.warnings)
                 self.last_message = f"SEC import unavailable: {warning_codes or 'validation failed'}. No data changed."
                 return _legacy_unavailable(self, self.last_message)
             if document is not None:
-                _validate_sec_raw_document(document, source_path, normalised_cik, parsed.source_sha256)
-                source = document
+                _validate_sec_raw_document(
+                    document,
+                    source_path,
+                    normalised_cik,
+                    parsed.source_sha256,
+                    content=source_bytes,
+                )
+                source = replace(document, path=parsed_path)
             else:
                 source = RawDocument(source_path, source_path.resolve().as_uri(), datetime.now(timezone.utc), parsed.source_sha256, "sec_edgar", "sec_companyfacts", "application/json", 200)
             with publication_scope(publish_guard):
@@ -1372,11 +1390,62 @@ def _resolve_sec_instrument(cik: str) -> str | None:
         return None
 
 
+def _capture_sec_raw_document(
+    source_path: Path,
+    content: bytes,
+    source_sha256: str,
+    *,
+    document: RawDocument,
+    publish_guard: PublicationScopeFactory | None = None,
+) -> Path:
+    """Bind parsing/publication to a durable content-addressed local copy.
+
+    Even provider generations with content-addressed names may be mutable at
+    the filesystem level, so retain a validated sibling snapshot before
+    parsing every supplied document. The original path remains available for
+    provenance validation and legacy callers.
+    """
+
+    stem, suffix = source_path.stem, source_path.suffix
+    capture_parts = stem.split(".")
+    already_captured = (
+        len(capture_parts) >= 3
+        and capture_parts[-1] == "immutable"
+        and len(capture_parts[-2]) == 64
+        and capture_parts[-2].casefold() == source_sha256
+    )
+    if already_captured:
+        return source_path
+    captured_path = source_path.with_name(f"{stem}.{source_sha256}.immutable{suffix}")
+    if captured_path.is_symlink():
+        raise ValueError("SEC captured raw document path must not be a symlink")
+    if captured_path.is_file():
+        if hashlib.sha256(captured_path.read_bytes()).hexdigest() != source_sha256:
+            raise ValueError("SEC captured raw document checksum mismatch")
+        return captured_path
+    if captured_path.exists():
+        raise ValueError("SEC captured raw document target is not a regular file")
+    with publication_scope(publish_guard):
+        atomic_write_bytes(
+            captured_path,
+            content,
+            lambda candidate: _validate_captured_sec_raw(candidate, source_sha256),
+        )
+    return captured_path
+
+
+def _validate_captured_sec_raw(path: Path, expected_sha256: str) -> None:
+    if hashlib.sha256(path.read_bytes()).hexdigest() != expected_sha256:
+        raise ValueError("SEC captured raw document checksum mismatch")
+
+
 def _validate_sec_raw_document(
     document: RawDocument,
     path: Path,
     expected_cik: str | None = None,
     parsed_sha256: str | None = None,
+    *,
+    content: bytes | None = None,
 ) -> None:
     """Fail closed when fetched SEC provenance is not bound to the parsed file."""
 
@@ -1411,7 +1480,7 @@ def _validate_sec_raw_document(
         raise ValueError("SEC source evidence URL is invalid")
     if not isinstance(document.sha256, str) or len(document.sha256) != 64 or document.sha256 != document.sha256.lower() or any(character not in "0123456789abcdef" for character in document.sha256):
         raise ValueError("SEC source evidence checksum is invalid")
-    actual_sha256 = sha256_file(document.path)
+    actual_sha256 = hashlib.sha256(content).hexdigest() if content is not None else sha256_file(document.path)
     if actual_sha256 != document.sha256:
         raise ValueError("SEC source evidence checksum does not match the file")
     if parsed_sha256 is not None and parsed_sha256 != actual_sha256:

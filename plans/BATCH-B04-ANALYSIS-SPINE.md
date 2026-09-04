@@ -15,6 +15,17 @@ bulk/resume acceptance remains open; no canonical status, runner policy,
 Antigravity reservation, execution authority, broker write, release or deployment
 is changed.
 
+The first current-main risk review rejected `09df1d86` because 304 cache
+metadata could synthesize missing/invalid retrieval chronology and supplied raw
+files could change between validation and publication. The single consolidated
+correction now rejects missing, malformed and timezone-naive persisted
+timestamps and parses/publishes every supplied provider document from a distinct
+validated content-addressed capture. Adversarial provider-generation mutation
+coverage and all owned focused tests pass (37 tests) with JUnit at
+`logs/sec-current-main-correction.xml`; Ruff, compilation and diff hygiene pass.
+Freeze the corrected head for one replacement paired review. No further routine
+repair cycle is authorised.
+
 ## ISSUE-0026 Windows baseline-test correction — 2026-09-04
 
 The fresh Windows packaged retry at macro head
