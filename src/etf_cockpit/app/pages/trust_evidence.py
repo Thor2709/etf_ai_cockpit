@@ -385,8 +385,8 @@ def filings_page(page: ft.Page, state: AppState) -> ft.Control:
         "Official SEC/ESEF/local filing evidence. Missing filings remain missing; vendor fundamentals cannot outrank official matched filings.",
         [
             ("Filings inventory", FILINGS_STATEMENTS_PATH, ["instrument_id", "document_type", "source_authority", "coverage_status", "fact_count", "mapping_warnings", "checksum", "executable_authority", "path"]),
-            ("Official filing discovery", OAM_DISCOVERY_PATH, ["provider_id", "country", "issuer", "isin", "title", "document_type", "published_at", "available_at", "availability_precision", "identity_status", "amendment_of", "source_url", "document_url", "source_authority", "terms_url", "coverage_status", "snapshot_sha256", "adapter_status", "manual_fallback"]),
-            ("Jurisdiction coverage", FILING_COVERAGE_PATH, ["provider_id", "country", "instrument_identity", "issuer", "status", "matched_records", "official_records", "identity_matched_records", "available_at_records", "manual_fallback", "snapshot_sha256", "retrieved_at", "message", "execution_allowed"]),
+            ("Official filing discovery", OAM_DISCOVERY_PATH, ["provider_id", "country", "issuer", "isin", "title", "document_type", "published_at", "available_at", "availability_precision", "identity_status", "amendment_of", "source_url", "document_url", "source_authority", "terms_url", "coverage_status", "snapshot_sha256", "adapter_status", "manual_fallback", "manual_review", "execution_allowed"]),
+            ("Jurisdiction coverage", FILING_COVERAGE_PATH, ["provider_id", "country", "instrument_identity", "issuer", "status", "matched_records", "official_records", "identity_matched_records", "available_at_records", "manual_fallback", "manual_review_records", "snapshot_sha256", "retrieved_at", "message", "execution_allowed"]),
             ("Manual official filing queue", MANUAL_FILING_QUEUE_PATH, ["jurisdiction", "instrument_id", "document_type", "published_at", "available_at", "availability_precision", "source_url", "source_authority", "raw_path", "sha256", "identity_status", "coverage_status", "manual_review", "execution_allowed"]),
             ("SEC statement facts", STATEMENT_FACTS_PATH, ["instrument_id", "taxonomy", "concept", "canonical_metric", "mapping_status", "is_custom", "unit", "end", "filed", "form", "accession", "source_id"]),
             ("Provider probes", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "source_authority", "message"]),
@@ -767,6 +767,39 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             ),
         )
 
+    async def import_local_oam(_event: ft.ControlEvent) -> None:
+        files = await picker.pick_files(
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=["csv", "json", "xml"],
+            with_data=True,
+        )
+        if not files:
+            result.value = "Local OAM import cancelled; no data changed."
+            page.update()
+            return
+        selected = files[0]
+        suffix = Path(str(getattr(selected, "name", "oam-export.json"))).suffix or ".json"
+        _run_picker_activity(
+            page,
+            state,
+            result,
+            "Import local OAM export",
+            "Reading local structured export",
+            selected,
+            suffix,
+            lambda path, action_id: state.import_local_oam(
+                path,
+                str(oam_country_field.value or "FR"),
+                issuer=str(oam_issuer_field.value or ""),
+                isin=str(oam_isin_field.value or ""),
+                document_type=str(oam_document_type_field.value or ""),
+                date_from=str(oam_date_from_field.value or ""),
+                date_to=str(oam_date_to_field.value or ""),
+                company_number=str(company_number_field.value or ""),
+                publish_guard=lambda: state.activity_publication(action_id),
+            ),
+        )
+
     async def import_manual_filing(_event: ft.ControlEvent) -> None:
         files = await picker.pick_files(
             file_type=ft.FilePickerFileType.CUSTOM,
@@ -799,7 +832,7 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             ),
         )
 
-    return panel(ft.Column([section_header("Official filing import", "SEC EDGAR, filings.xbrl.org, Companies House and national OAM evidence. Network, entitlement and timing gaps remain explicit; no filing action starts scoring or execution."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec)], wrap=True), ft.Row([bulk_dataset, bulk_instrument, ft.OutlinedButton("Import local SEC ZIP", key="filings.import-sec-bulk", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec_bulk), ft.OutlinedButton("Fetch official SEC bulk", key="filings.fetch-sec-bulk", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec_bulk), ft.OutlinedButton("Use session cache", key="filings.cache-sec-bulk", on_click=cached_sec_bulk)], wrap=True), ft.Text("Local first import: enter CIK and instrument ID. Network refresh requires a unique saved identity and name/contact email. Bulk downloads can be several GB."), ft.Text(getattr(state, "sec_companyfacts_bulk_message", "No companyfacts bulk result in this session."), selectable=True), submissions_table, ft.Row([country_field, filing_id_field, ft.OutlinedButton("Discover ESEF filings", key="filings.discover-esef", icon=ft.Icons.SEARCH, on_click=discover_esef), ft.OutlinedButton("Download ESEF package", key="filings.download-esef", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=download_esef), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), ft.Row([oam_country_field, oam_issuer_field, oam_isin_field, oam_document_type_field, company_number_field], wrap=True), ft.Row([oam_date_from_field, oam_date_to_field, oam_endpoint_field, companies_house_key_field, ft.OutlinedButton("Discover official filings", key="filings.discover-oam", icon=ft.Icons.SEARCH, on_click=discover_oam)], wrap=True), ft.Row([manual_country_field, manual_instrument_field, manual_document_type_field, manual_published_field, manual_available_field], wrap=True), ft.Row([manual_source_url_field, ft.OutlinedButton("Archive manual official filing", key="filings.import-manual-official", icon=ft.Icons.UPLOAD_FILE, on_click=import_manual_filing)], wrap=True), result], spacing=8))
+    return panel(ft.Column([section_header("Official filing import", "SEC EDGAR, filings.xbrl.org, Companies House and national OAM evidence. Network, entitlement and timing gaps remain explicit; no filing action starts scoring or execution."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec)], wrap=True), ft.Row([bulk_dataset, bulk_instrument, ft.OutlinedButton("Import local SEC ZIP", key="filings.import-sec-bulk", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec_bulk), ft.OutlinedButton("Fetch official SEC bulk", key="filings.fetch-sec-bulk", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec_bulk), ft.OutlinedButton("Use session cache", key="filings.cache-sec-bulk", on_click=cached_sec_bulk)], wrap=True), ft.Text("Local first import: enter CIK and instrument ID. Network refresh requires a unique saved identity and name/contact email. Bulk downloads can be several GB."), ft.Text(getattr(state, "sec_companyfacts_bulk_message", "No companyfacts bulk result in this session."), selectable=True), submissions_table, ft.Row([country_field, filing_id_field, ft.OutlinedButton("Discover ESEF filings", key="filings.discover-esef", icon=ft.Icons.SEARCH, on_click=discover_esef), ft.OutlinedButton("Download ESEF package", key="filings.download-esef", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=download_esef), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), ft.Row([oam_country_field, oam_issuer_field, oam_isin_field, oam_document_type_field, company_number_field], wrap=True), ft.Row([oam_date_from_field, oam_date_to_field, oam_endpoint_field, companies_house_key_field, ft.OutlinedButton("Discover official filings", key="filings.discover-oam", icon=ft.Icons.SEARCH, on_click=discover_oam), ft.OutlinedButton("Import local OAM export", key="filings.import-local-oam", icon=ft.Icons.UPLOAD_FILE, on_click=import_local_oam)], wrap=True), ft.Row([manual_country_field, manual_instrument_field, manual_document_type_field, manual_published_field, manual_available_field], wrap=True), ft.Row([manual_source_url_field, ft.OutlinedButton("Archive manual official filing", key="filings.import-manual-official", icon=ft.Icons.UPLOAD_FILE, on_click=import_manual_filing)], wrap=True), result], spacing=8))
 
 
 def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
