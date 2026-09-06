@@ -686,6 +686,193 @@ class PaperLedger:
                 )
             return tuple(rows)
 
+    def timeline_rows(self, instrument_id: str) -> tuple[dict[str, object], ...]:
+        """Project the validated lifecycle history for one instrument.
+
+        This is intentionally a read-only projection.  It reads one event
+        list, replays that same list for lifecycle validation, and never
+        acquires the write lock or repairs the ledger.  Proposal decisions
+        resolve their instrument from the frozen proposal snapshot; fills and
+        cancellations resolve it from the accepted order.
+        """
+
+        requested = str(instrument_id).strip()
+        if not requested:
+            raise PaperLedgerIntegrityError("An instrument ID is required for paper timeline projection.")
+        events = self._read_events()
+        state = self._replay(events)
+        orders = state["orders"]
+        assert isinstance(orders, dict)
+        requested_key = requested.upper()
+        rows: list[dict[str, object]] = []
+        event_orders: dict[str, dict[str, object]] = {}
+
+        def text_id(value: object, field: str) -> str:
+            result = str(value or "").strip()
+            if not result:
+                raise PaperLedgerIntegrityError(f"Paper timeline event is missing {field}.")
+            return result
+
+        def frozen_snapshot(payload: Mapping[str, object]) -> Mapping[str, object]:
+            snapshot = payload.get("proposal_snapshot")
+            if not isinstance(snapshot, Mapping):
+                raise PaperLedgerIntegrityError("Paper timeline proposal decision has no frozen proposal snapshot.")
+            proposal_id = text_id(payload.get("proposal_id"), "proposal_id")
+            if text_id(snapshot.get("proposal_id"), "proposal_snapshot.proposal_id") != proposal_id:
+                raise PaperLedgerIntegrityError("Paper timeline proposal decision has a contradictory proposal association.")
+            text_id(snapshot.get("instrument_id"), "proposal_snapshot.instrument_id")
+            return snapshot
+
+        def frozen_run_id(snapshot: Mapping[str, object]) -> str | object:
+            value = snapshot.get("run_id")
+            return value if isinstance(value, str) and value.strip() else "unavailable"
+
+        def base_event(event: Mapping[str, object], payload: Mapping[str, object]) -> dict[str, object]:
+            return {
+                "schema_version": event.get("schema_version"),
+                "account_id": event.get("account_id"),
+                "sequence": event.get("sequence"),
+                "event_sequence": event.get("sequence"),
+                "event_id": event.get("event_id"),
+                "event_hash": event.get("event_hash"),
+                "prior_event_hash": event.get("prior_event_hash"),
+                "occurred_at": event.get("occurred_at"),
+                "event_type": event.get("event_type"),
+                "source_authority": "local_paper_ledger",
+                "execution_allowed": False,
+                "payload": _json_copy(payload),
+            }
+
+        for event in events:
+            kind = event.get("event_type")
+            payload = event.get("payload")
+            if kind not in {"proposal_rejected", "proposal_deferred", "order_accepted", "fill_recorded", "order_cancelled"}:
+                continue
+            if not isinstance(payload, Mapping):
+                raise PaperLedgerIntegrityError("Paper timeline event payload is not an object.")
+
+            row = base_event(event, payload)
+            instrument: str
+            proposal_snapshot: Mapping[str, object] | None = None
+            order_id: str | None = None
+            if kind in {"proposal_rejected", "proposal_deferred"}:
+                proposal_snapshot = frozen_snapshot(payload)
+                instrument = text_id(proposal_snapshot.get("instrument_id"), "proposal_snapshot.instrument_id")
+                if instrument.upper() != requested_key:
+                    continue
+                row.update(
+                    {
+                        "instrument_id": instrument,
+                        "proposal_id": text_id(payload.get("proposal_id"), "proposal_id"),
+                        "rejection_id" if kind == "proposal_rejected" else "deferred_id": text_id(
+                            payload.get("rejection_id" if kind == "proposal_rejected" else "deferred_id"),
+                            "rejection_id" if kind == "proposal_rejected" else "deferred_id",
+                        ),
+                        "reason": text_id(payload.get("reason"), "reason"),
+                        "proposal_evidence_hashes": _json_copy(payload.get("proposal_evidence_hashes")),
+                        "run_id": frozen_run_id(proposal_snapshot),
+                        "status": "rejected" if kind == "proposal_rejected" else "deferred",
+                    }
+                )
+            elif kind == "order_accepted":
+                order_id = text_id(payload.get("order_id"), "order_id")
+                order = orders.get(order_id)
+                if not isinstance(order, Mapping):
+                    raise PaperLedgerIntegrityError("Paper timeline accepted order is missing from replay state.")
+                instrument = text_id(payload.get("instrument_id"), "instrument_id")
+                proposal_snapshot = frozen_snapshot(payload)
+                snapshot_instrument = text_id(proposal_snapshot.get("instrument_id"), "proposal_snapshot.instrument_id")
+                if snapshot_instrument.upper() != instrument.upper():
+                    raise PaperLedgerIntegrityError("Paper timeline order has contradictory instrument associations.")
+                event_orders[order_id] = {
+                    "remaining_quantity": float(payload.get("quantity", 0.0)),
+                    "status": str(payload.get("status", "accepted")),
+                }
+                if instrument.upper() != requested_key:
+                    continue
+                row.update(
+                    {
+                        "instrument_id": instrument,
+                        "proposal_id": text_id(payload.get("proposal_id"), "proposal_id"),
+                        "order_id": order_id,
+                        "side": payload.get("side"),
+                        "quantity": payload.get("quantity"),
+                        "status": payload.get("status", "accepted"),
+                        "proposal_evidence_hashes": _json_copy(payload.get("proposal_evidence_hashes")),
+                        "run_id": frozen_run_id(proposal_snapshot),
+                    }
+                )
+            elif kind == "fill_recorded":
+                order_id = text_id(payload.get("order_id"), "order_id")
+                order = orders.get(order_id)
+                if not isinstance(order, Mapping):
+                    raise PaperLedgerIntegrityError("Paper timeline fill references an unknown order.")
+                instrument = text_id(order.get("instrument_id"), "order.instrument_id")
+                fill_instrument = text_id(payload.get("instrument_id"), "instrument_id")
+                if fill_instrument.upper() != instrument.upper():
+                    raise PaperLedgerIntegrityError("Paper timeline fill has contradictory instrument associations.")
+                if instrument.upper() != requested_key:
+                    continue
+                snapshot = order.get("proposal_snapshot")
+                if not isinstance(snapshot, Mapping):
+                    raise PaperLedgerIntegrityError("Paper timeline order has no frozen proposal snapshot.")
+                event_order = event_orders.get(order_id)
+                if event_order is None:
+                    raise PaperLedgerIntegrityError("Paper timeline fill precedes its accepted order.")
+                remaining = float(event_order["remaining_quantity"]) - float(payload.get("quantity", 0.0))
+                event_status = "filled" if remaining <= 1e-8 else "partially_filled"
+                event_order.update({"remaining_quantity": remaining, "status": event_status})
+                row.update(
+                    {
+                        "instrument_id": instrument,
+                        "proposal_id": text_id(order.get("proposal_id"), "proposal_id"),
+                        "order_id": order_id,
+                        "fill_id": text_id(payload.get("fill_id"), "fill_id"),
+                        "paper_trade_id": text_id(payload.get("fill_id"), "fill_id"),
+                        "side": payload.get("side"),
+                        "quantity": payload.get("quantity"),
+                        "price": payload.get("price"),
+                        "fee": payload.get("fee"),
+                        "status": event_status,
+                        "event_time_status": event_status,
+                        "current_order_status": order.get("status", "unknown"),
+                        "proposal_evidence_hashes": _json_copy(order.get("proposal_evidence_hashes")),
+                        "run_id": frozen_run_id(snapshot),
+                    }
+                )
+            else:  # order_cancelled
+                order_id = text_id(payload.get("order_id"), "order_id")
+                order = orders.get(order_id)
+                if not isinstance(order, Mapping):
+                    raise PaperLedgerIntegrityError("Paper timeline cancellation references an unknown order.")
+                instrument = text_id(order.get("instrument_id"), "order.instrument_id")
+                if payload.get("instrument_id") is not None and text_id(payload.get("instrument_id"), "instrument_id").upper() != instrument.upper():
+                    raise PaperLedgerIntegrityError("Paper timeline cancellation has contradictory instrument associations.")
+                if instrument.upper() != requested_key:
+                    continue
+                snapshot = order.get("proposal_snapshot")
+                if not isinstance(snapshot, Mapping):
+                    raise PaperLedgerIntegrityError("Paper timeline order has no frozen proposal snapshot.")
+                event_order = event_orders.get(order_id)
+                if event_order is None:
+                    raise PaperLedgerIntegrityError("Paper timeline cancellation precedes its accepted order.")
+                event_order["status"] = "cancelled"
+                row.update(
+                    {
+                        "instrument_id": instrument,
+                        "proposal_id": text_id(order.get("proposal_id"), "proposal_id"),
+                        "order_id": order_id,
+                        "reason": text_id(payload.get("reason"), "reason"),
+                        "status": "cancelled",
+                        "event_time_status": "cancelled",
+                        "current_order_status": order.get("status", "unknown"),
+                        "proposal_evidence_hashes": _json_copy(order.get("proposal_evidence_hashes")),
+                        "run_id": frozen_run_id(snapshot),
+                    }
+                )
+            rows.append(row)
+        return tuple(rows)
+
     def _append(self, event_type: str, payload: Mapping[str, object], *, occurred_at: datetime | None) -> None:
         events = self._read_events()
         sequence = len(events) + 1
