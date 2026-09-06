@@ -34,6 +34,8 @@ def generate_signals(
     *,
     as_of_date: date | None = None,
     run_id: str | None = None,
+    decision_timestamp: datetime | pd.Timestamp | None = None,
+    publish: bool = True,
     toto_available: bool = False,
     timesfm_available: bool = False,
     forecast_scores: dict[str, dict[str, float]] | None = None,
@@ -228,13 +230,32 @@ def generate_signals(
                 "timesfm": "unavailable" if not timesfm_available else "timesfm_2_5_optional",
                 "toto": "unavailable" if not toto_available else "toto_2_0_optional",
             },
-            timestamp=datetime.now(timezone.utc),
+            timestamp=_signal_timestamp(decision_timestamp),
             canonical_score=canonical_score,
         )
         signals.append(_attach_authority(signal, data_report))
 
-    append_jsonl("signal_log.jsonl", "signals_generated", {"signals": [_signal_to_json(signal) for signal in signals]}, run_id=run_id)
+    if publish:
+        append_jsonl(
+            "signal_log.jsonl",
+            "signals_generated",
+            {"signals": [_signal_to_json(signal) for signal in signals]},
+            run_id=run_id,
+        )
     return signals
+
+
+def _signal_timestamp(decision_timestamp: datetime | pd.Timestamp | None) -> datetime:
+    if decision_timestamp is None:
+        return datetime.now(timezone.utc)
+    timestamp = pd.Timestamp(decision_timestamp)
+    if pd.isna(timestamp):
+        raise ValueError("decision_timestamp must be a valid timestamp")
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        timestamp = timestamp.tz_localize(timezone.utc)
+    else:
+        timestamp = timestamp.tz_convert(timezone.utc)
+    return timestamp.to_pydatetime()
 
 
 def _signal_to_json(signal: SignalResult) -> dict[str, object]:

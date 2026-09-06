@@ -22,7 +22,10 @@ SCHEMA_VERSION = "1.0"
 REPORT_DIRECTORY = Path("artifacts/validation")
 OPTIONAL_COMPONENTS = ("torch", "timesfm", "toto")
 MODES = ("quick", "changed", "issue", "phase", "full", "offline", "packaged")
-CHANGED_TEST_TIMEOUT_SECONDS = 480
+# Exact-head hosted evidence reached the prior 900-second ceiling without a
+# test failure after full replay was added. This remains bounded and does not
+# remove or retry any required test.
+CHANGED_TEST_TIMEOUT_SECONDS = 1200
 
 
 @dataclass

@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import replace
+from datetime import date
+import hashlib
+import json
 
 import pandas as pd
+import pytest
 
 from etf_cockpit.app.pages.etf_detail import etf_detail_page
 from etf_cockpit.app.pages.instrument_detail import render_news_context_panel
@@ -12,6 +17,7 @@ from etf_cockpit.application.ui_facade import (
     load_classification_projection,
     load_identity_projection,
 )
+from etf_cockpit.application.market_clock import operational_calendar_record_is_canonical
 from etf_cockpit.data.classification import (
     ClassificationEvidence,
     ClassificationOverride,
@@ -21,9 +27,64 @@ from etf_cockpit.data.classification import (
 from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.identity_master import IdentityMasterStore, IdentitySourceRow
 from etf_cockpit.data.instrument_identity import IdentityClaim
+from etf_cockpit.backtest.engine import _canonical_calendar_contract
+from etf_cockpit.backtest.engine import _instrument_operational_evidence
+from etf_cockpit.data.market_calendar import ClockContext, MarketCalendarService
 from etf_cockpit.services import build_snapshot
 from etf_cockpit.signals.feature_drivers import claim_binding_hash, deterministic_driver_claim
 from etf_cockpit.signals.simple_scores import load_simple_scoreboard
+
+
+@pytest.fixture(scope="module")
+def _canonical_snapshot():
+    return build_snapshot()
+
+
+@pytest.fixture
+def snapshot(_canonical_snapshot):
+    immutable_values = {
+        id(_canonical_snapshot.benchmark_reference_registry): _canonical_snapshot.benchmark_reference_registry,
+    }
+    if _canonical_snapshot.vwce_anchor_evidence is not None:
+        immutable_values[id(_canonical_snapshot.vwce_anchor_evidence)] = _canonical_snapshot.vwce_anchor_evidence
+    return copy.deepcopy(_canonical_snapshot, memo=immutable_values)
+
+
+def test_instrument_detail_snapshot_fixture_is_deep_isolated(
+    _canonical_snapshot,
+    snapshot,
+) -> None:
+    baseline_feature_columns = _canonical_snapshot.latest_features.columns.tolist()
+    baseline_first_name = _canonical_snapshot.config.universe.etfs[0].name
+    baseline_signal_count = len(_canonical_snapshot.signals)
+
+    snapshot.latest_features["_fixture_mutation"] = 1
+    snapshot.config.universe.etfs[0].name = "fixture mutation"
+    snapshot.signals.append(object())
+
+    immutable_values = {
+        id(_canonical_snapshot.benchmark_reference_registry): _canonical_snapshot.benchmark_reference_registry,
+    }
+    if _canonical_snapshot.vwce_anchor_evidence is not None:
+        immutable_values[id(_canonical_snapshot.vwce_anchor_evidence)] = _canonical_snapshot.vwce_anchor_evidence
+    next_snapshot = copy.deepcopy(_canonical_snapshot, memo=immutable_values)
+
+    assert snapshot.latest_features is not _canonical_snapshot.latest_features
+    assert snapshot.config is not _canonical_snapshot.config
+    assert snapshot.signals is not _canonical_snapshot.signals
+    assert snapshot.benchmark_reference_registry is _canonical_snapshot.benchmark_reference_registry
+    with pytest.raises(AttributeError):
+        _canonical_snapshot.benchmark_reference_registry.benchmarks = ()
+    if _canonical_snapshot.vwce_anchor_evidence is not None:
+        assert snapshot.vwce_anchor_evidence is _canonical_snapshot.vwce_anchor_evidence
+        with pytest.raises(AttributeError):
+            _canonical_snapshot.vwce_anchor_evidence.status = "fixture mutation"
+        with pytest.raises(TypeError):
+            _canonical_snapshot.vwce_anchor_evidence.fees["fixture"] = "mutation"
+    assert "_fixture_mutation" not in next_snapshot.latest_features.columns
+    assert next_snapshot.config.universe.etfs[0].name == baseline_first_name
+    assert len(next_snapshot.signals) == baseline_signal_count
+    assert _canonical_snapshot.latest_features.columns.tolist() == baseline_feature_columns
 
 
 def _walk_controls(control):
@@ -36,6 +97,130 @@ def _walk_controls(control):
     for row in getattr(control, "rows", []) or []:
         for cell in getattr(row, "cells", []) or []:
             yield from _walk_controls(getattr(cell, "content", None))
+
+
+def _calendar_fields() -> dict[str, object]:
+    projection = {
+        "status": "available",
+        "instrument_id": "VWCE",
+        "identity_decision_id": "calendar-test-decision",
+        "identity_decision_time": "2026-01-01T00:00:00+00:00",
+        "identity_effective_at": "2020-01-01",
+        "identity_objects": [{
+            "object_type": "listing",
+            "object_id": "listing:VWCE:XETR",
+            "fields": {
+                "mic": "XETR",
+                "calendar_id": "XETR",
+                "timezone": "Europe/Berlin",
+                "opening_auction_minutes": 5,
+                "closing_auction_minutes": 10,
+            },
+        }],
+        "identity_history": [{"source_id": "calendar-test-source"}],
+    }
+    fields, reason = _canonical_calendar_contract(
+        projection,
+        "VWCE",
+        "2026-06-01T16:00:00+00:00",
+        "2026-06-02T16:00:00+00:00",
+        service=MarketCalendarService(),
+    )
+    assert reason is None
+    assert fields["calendar_opening_auction_minutes"] == 5
+    assert fields["calendar_closing_auction_minutes"] == 10
+    return fields
+
+
+def test_operational_calendar_readback_rejects_preclose_adjusted_close_lineage() -> None:
+    record = _calendar_fields()
+    projection = {
+        "status": "available",
+        "instrument_id": "VWCE",
+        "identity_decision_id": record["calendar_identity_decision_id"],
+        "identity_decision_time": record["calendar_known_at"],
+        "identity_effective_at": record["calendar_valid_from"],
+        "identity_objects": [{
+            "object_type": "listing",
+            "object_id": record["calendar_listing_id"],
+            "fields": {
+                "mic": record["calendar_mic"],
+                "calendar_id": record["calendar_id"],
+                "timezone": record["calendar_timezone"],
+                "calendar_source_version": record["calendar_source_version"],
+                "opening_auction_minutes": record["calendar_opening_auction_minutes"],
+                "closing_auction_minutes": record["calendar_closing_auction_minutes"],
+            },
+        }],
+        "identity_history": [{"source_id": record["calendar_source_id"]}],
+    }
+    service = MarketCalendarService()
+    listing = service.listing_from_identity_projection(projection)
+    signal = pd.Timestamp("2026-06-01T14:00:00+00:00").to_pydatetime()
+    execution = pd.Timestamp("2026-06-02T14:00:00+00:00").to_pydatetime()
+    signal_state = service.market_state(listing, ClockContext.at(signal, knowledge_cutoff=signal))
+    execution_state = service.market_state(
+        listing, ClockContext.at(execution, knowledge_cutoff=signal)
+    )
+    lineage_payload = {
+        "listing": listing.lineage_hash,
+        "signal_state": signal_state.lineage_hash,
+        "execution_state": execution_state.lineage_hash,
+        "signal_date": "2026-06-01",
+        "execution_date": "2026-06-02",
+    }
+    record["calendar_session_lineage_hash"] = hashlib.sha256(
+        json.dumps(lineage_payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+    assert not operational_calendar_record_is_canonical(
+        record,
+        instrument_id="VWCE",
+        signal_timestamp=signal,
+        execution_timestamp=execution,
+        signal_date=date(2026, 6, 1),
+        execution_date=date(2026, 6, 2),
+    )
+
+
+def test_operational_calendar_readback_rejects_timezone_naive_instants() -> None:
+    record = _calendar_fields()
+
+    assert not operational_calendar_record_is_canonical(
+        record,
+        instrument_id="VWCE",
+        signal_timestamp="2026-06-01T16:00:00",
+        execution_timestamp="2026-06-02T16:00:00+00:00",
+        signal_date=date(2026, 6, 1),
+        execution_date=date(2026, 6, 2),
+    )
+
+
+def test_operational_calendar_readback_rejects_unknown_timezone_without_crashing() -> None:
+    record = _calendar_fields()
+    record["calendar_timezone"] = "Not/A_Real_Timezone"
+    assert not operational_calendar_record_is_canonical(
+        record,
+        instrument_id="VWCE",
+        signal_timestamp="2026-06-01T16:00:00+00:00",
+        execution_timestamp="2026-06-02T16:00:00+00:00",
+        signal_date=date(2026, 6, 1),
+        execution_date=date(2026, 6, 2),
+    )
+
+
+def test_operational_calendar_readback_rejects_noncanonical_effective_date() -> None:
+    record = _calendar_fields()
+    record["calendar_valid_from"] = "2020-01-01garbage"
+
+    assert not operational_calendar_record_is_canonical(
+        record,
+        instrument_id="VWCE",
+        signal_timestamp="2026-06-01T16:00:00+00:00",
+        execution_timestamp="2026-06-02T16:00:00+00:00",
+        signal_date=date(2026, 6, 1),
+        execution_date=date(2026, 6, 2),
+    )
 
 
 def test_instrument_detail_scoreboard_reader_hides_classification_invalidated_score(
@@ -102,10 +287,9 @@ def test_instrument_detail_scoreboard_reader_hides_classification_invalidated_sc
     assert panel["execution_allowed"] is False
 
 
-def test_instrument_detail_exposes_identity_lineage_from_application_facade(monkeypatch) -> None:
+def test_instrument_detail_exposes_identity_lineage_from_application_facade(monkeypatch, snapshot) -> None:
     from etf_cockpit.app.selectors import instrument_detail as selector
 
-    snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]
     monkeypatch.setattr(
         selector,
@@ -237,6 +421,7 @@ def test_identity_master_migration_preserves_legacy_projection_until_imported(tm
 def test_classification_projection_loader_and_instrument_selector_expose_context(
     tmp_path,
     monkeypatch,
+    snapshot,
 ) -> None:
     available_at = "2026-07-21T00:00:00Z"
     with ClassificationStore(tmp_path) as store:
@@ -294,7 +479,6 @@ def test_classification_projection_loader_and_instrument_selector_expose_context
 
     from etf_cockpit.app.selectors import instrument_detail as selector
 
-    snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]
     monkeypatch.setattr(
         selector,
@@ -308,11 +492,10 @@ def test_classification_projection_loader_and_instrument_selector_expose_context
     assert model.identity["execution_allowed"] is False
 
 
-def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, monkeypatch) -> None:
+def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, monkeypatch, snapshot) -> None:
     from etf_cockpit.app.pages.instrument_detail import instrument_detail_page
     from etf_cockpit.app.selectors import instrument_detail as selector
 
-    snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]
     monkeypatch.setattr(selector, "FEATURE_DRIVERS_PATH", tmp_path / "feature_drivers.parquet")
     source_vintage_hash = "a" * 64
@@ -340,10 +523,9 @@ def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, m
     assert "{'instrument_id'" not in " ".join(texts)
 
 
-def test_instrument_detail_driver_panel_normalises_legacy_store_columns(tmp_path, monkeypatch) -> None:
+def test_instrument_detail_driver_panel_normalises_legacy_store_columns(tmp_path, monkeypatch, snapshot) -> None:
     from etf_cockpit.app.selectors import instrument_detail as selector
 
-    snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]
     monkeypatch.setattr(selector, "FEATURE_DRIVERS_PATH", tmp_path / "feature_drivers.parquet")
     pd.DataFrame(
@@ -367,24 +549,365 @@ def test_instrument_detail_driver_panel_normalises_legacy_store_columns(tmp_path
     assert panel["stale_or_partial"][0]["freshness_classification"] == "partial"
 
 
-def test_instrument_detail_has_required_sections_for_primary_and_sparebanken() -> None:
-    snapshot = build_snapshot()
+def test_instrument_detail_has_required_sections_for_primary_and_sparebanken(snapshot) -> None:
     model = build_instrument_detail(snapshot, snapshot.config.universe.enabled_ids[0])
     assert {"identity", "price", "scores", "risk", "attribution", "fundamentals", "etf_disclosures", "news", "forecasts", "backtests", "history", "journal", "run_changes"} <= set(model.sections)
     assert model.instrument_id
 
 
-def test_missing_optional_stores_are_unavailable_not_crash() -> None:
-    snapshot = build_snapshot()
+def test_operational_evidence_rejects_aggregate_and_contradictory_identity_rows() -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    valid = {
+        "instrument_id": "VWCE",
+        "evidence_status": "available",
+        "evidence_reason": "canonical_local_backtest_evidence",
+        "strategy": "signal_strategy",
+        "signal_date": "2026-06-01",
+        "signal_timestamp": "2026-06-01T16:00:00+00:00",
+        "execution_date": "2026-06-02",
+        "execution_timestamp": "2026-06-02T16:00:00+00:00",
+        "decision_price": 100.0,
+        "decision_price_basis": "adjusted_close",
+        "decision_price_source_identity": "test-source|VWCE",
+        "next_open_reference_price": 101.0,
+        "next_open_reference_basis": "adjusted_ohlc_from_same_row_adjustment",
+        "next_open_source_identity": "test-source|VWCE",
+        "next_period_reference_price": 102.0,
+        "next_period_reference_basis": "adjusted_close",
+        "next_period_source_identity": "test-source|VWCE",
+        "close_to_next_open_gap": 0.01,
+        "price_provenance": "row_bound_corporate_action_consistent",
+        "arrival_price_assumption": "next_adjusted_close",
+        "execution_delay_sessions": 1,
+        "same_bar_execution_avoided": True,
+        "fill_source": "simulated_backtest",
+        "observed_range_spread_proxy": 0.03,
+        "spread_proxy": 0.03,
+        "cost_spread_assumption_bps": 4.0,
+        "cost_spread_assumption_source": "execution-cost-v1:CostEstimate.spread_bps",
+        "estimated_cost_bps": 9.0,
+        "estimated_cost_bps_source": "execution-cost-v1:CostEstimate.total_cost_bps",
+        "session_state": None,
+        "auction_state": None,
+        "expiry_state": None,
+        "order_lifecycle": None,
+        "paper_fill_source": None,
+        "reconciled_fill_source": None,
+        "execution_allowed": False,
+        **_calendar_fields(),
+    }
+    contradictory = dict(valid, etf_id="OTHER")
+    aggregate = dict(valid)
+    aggregate.pop("instrument_id")
+    report = type("Report", (), {"operational_evidence": pd.DataFrame([aggregate, contradictory, valid])})()
+
+    panel = selector._operational_evidence_panel(report, "VWCE")
+
+    assert panel["status"] == "available"
+    assert [row["instrument_id"] for row in panel["rows"]] == ["VWCE"]
+    assert panel["execution_allowed"] is False
+
+
+def test_operational_evidence_malformed_available_rows_fail_closed() -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    valid = {
+        "instrument_id": "VWCE",
+        "evidence_status": "available",
+        "evidence_reason": "canonical_local_backtest_evidence",
+        "strategy": "signal_strategy",
+        "signal_date": "2026-06-01",
+        "signal_timestamp": "2026-06-01T16:00:00+00:00",
+        "execution_date": "2026-06-02",
+        "execution_timestamp": "2026-06-02T16:00:00+00:00",
+        "decision_price": 100.0,
+        "decision_price_basis": "adjusted_close",
+        "decision_price_source_identity": "test-source|VWCE",
+        "next_open_reference_price": 101.0,
+        "next_open_reference_basis": "adjusted_ohlc_from_same_row_adjustment",
+        "next_open_source_identity": "test-source|VWCE",
+        "next_period_reference_price": 102.0,
+        "next_period_reference_basis": "adjusted_close",
+        "next_period_source_identity": "test-source|VWCE",
+        "close_to_next_open_gap": 0.01,
+        "price_provenance": "row_bound_corporate_action_consistent",
+        "arrival_price_assumption": "next_adjusted_close",
+        "execution_delay_sessions": 1,
+        "same_bar_execution_avoided": True,
+        "fill_source": "simulated_backtest",
+        "observed_range_spread_proxy": 0.03,
+        "spread_proxy": 0.03,
+        "cost_spread_assumption_bps": 4.0,
+        "cost_spread_assumption_source": "execution-cost-v1:CostEstimate.spread_bps",
+        "estimated_cost_bps": 9.0,
+        "estimated_cost_bps_source": "execution-cost-v1:CostEstimate.total_cost_bps",
+        "session_state": None,
+        "auction_state": None,
+        "expiry_state": None,
+        "order_lifecycle": None,
+        "paper_fill_source": None,
+        "reconciled_fill_source": None,
+        "execution_allowed": False,
+        **_calendar_fields(),
+    }
+    malformed_values = (
+        ("evidence_status", True),
+        ("signal_timestamp", "not-a-timestamp"),
+        ("signal_timestamp", "2026-06-01"),
+        ("signal_timestamp", "2026-06-01T16:00:00"),
+        ("signal_date", "2026-06-02"),
+        ("execution_timestamp", "2026-06-01T01:00:00"),
+        ("execution_date", "2026-06-01"),
+        ("execution_date", "2026-06-03"),
+        ("execution_timestamp", "2026-06-01T00:00:00"),
+        ("execution_timestamp", "2026-06-02T16:00:00"),
+        ("decision_price", "100.0"),
+        ("close_to_next_open_gap", 0.5),
+        ("price_provenance", None),
+        ("spread_proxy", 0.04),
+        ("next_open_reference_price", 0.0),
+        ("next_period_reference_price", float("inf")),
+        ("arrival_price_assumption", "next_open"),
+        ("execution_delay_sessions", True),
+        ("execution_delay_sessions", "1"),
+        ("execution_delay_sessions", 1.0),
+        ("same_bar_execution_avoided", 1),
+        ("execution_allowed", 0),
+        ("fill_source", "SIMULATED_BACKTEST"),
+        ("observed_range_spread_proxy", "0.03"),
+        ("observed_range_spread_proxy", -0.01),
+        ("cost_spread_assumption_bps", "4.0"),
+        ("cost_spread_assumption_bps", -1.0),
+        ("cost_spread_assumption_source", None),
+        ("estimated_cost_bps", "9.0"),
+        ("estimated_cost_bps", -1.0),
+        ("estimated_cost_bps_source", None),
+    )
+    for field, malformed in malformed_values:
+        row = dict(valid)
+        row[field] = malformed
+        report = type("Report", (), {"operational_evidence": pd.DataFrame([row])})()
+
+        panel = selector._operational_evidence_panel(report, "VWCE")
+
+        assert panel["status"] == "unavailable", field
+        assert panel["rows"] == []
+        assert panel["execution_allowed"] is False
+
+    legacy = dict(valid, cost_spread_assumption_bps=None, cost_spread_assumption_source=None)
+    report = type("Report", (), {"operational_evidence": pd.DataFrame([legacy])})()
+    panel = selector._operational_evidence_panel(report, "VWCE")
+    assert panel["status"] == "available"
+
+    negative_gap = dict(valid, next_open_reference_price=99.0, close_to_next_open_gap=-0.01)
+    report = type("Report", (), {"operational_evidence": pd.DataFrame([negative_gap])})()
+    panel = selector._operational_evidence_panel(report, "VWCE")
+    assert panel["status"] == "available"
+    assert panel["rows"][0]["close_to_next_open_gap"] == -0.01
+
+    missing_required = dict(valid)
+    missing_required.pop("next_open_source_identity")
+    report = type("Report", (), {"operational_evidence": pd.DataFrame([missing_required])})()
+    assert selector._operational_evidence_panel(report, "VWCE")["status"] == "unavailable"
+
+    rollover_fields, reason = _canonical_calendar_contract(
+        {
+            "status": "available",
+            "instrument_id": "VWCE",
+            "identity_decision_id": "calendar-test-decision",
+            "identity_decision_time": "2026-01-01T00:00:00+00:00",
+            "identity_effective_at": "2020-01-01",
+            "identity_objects": [{
+                "object_type": "listing",
+                "object_id": "listing:VWCE:XETR",
+                "fields": {
+                    "mic": "XETR",
+                    "calendar_id": "XETR",
+                    "timezone": "Europe/Berlin",
+                    "calendar_source_version": "identity-master.v1",
+                },
+            }],
+            "identity_history": [{"source_id": "calendar-test-source"}],
+        },
+        "VWCE",
+        "2026-06-01T16:00:00+00:00",
+        "2026-06-02T16:00:00+00:00",
+        service=MarketCalendarService(),
+    )
+    assert reason is None
+    rollover = dict(
+        valid,
+        signal_timestamp="2026-06-01T22:30:00+00:00",
+        execution_timestamp="2026-06-02T22:30:00+00:00",
+        **rollover_fields,
+    )
+    rollover["signal_date"] = "2026-06-01"
+    rollover["execution_date"] = "2026-06-02"
+    rollover_report = type("Report", (), {"operational_evidence": pd.DataFrame([rollover])})()
+    rollover_panel = selector._operational_evidence_panel(rollover_report, "VWCE")
+    assert rollover_panel["status"] == "unavailable"
+    assert rollover_panel["rows"] == []
+
+
+def test_operational_evidence_roundtrips_point_in_time_calendar_closure(
+    tmp_path, monkeypatch
+) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import market_clock
+
+    ledger = tmp_path / "market_calendar_corrections.yaml"
+    ledger.write_text(
+        """schema_version: market-calendar-corrections.v1
+corrections:
+  - correction_id: xetr-2024-01-03-v1
+    mic: XETR
+    session_date: 2024-01-03
+    kind: exceptional_closure
+    revision: 1
+    reason: Exchange-declared closure fixture.
+    source_id: exchange-notice:test
+    source_checksum: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    timezone: Europe/Berlin
+    source_version: notice-v1
+    valid_from: 2024-01-03
+    known_at: 2024-01-02T12:00:00Z
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(market_clock, "CONFIG_DIR", tmp_path)
+    projection = {
+        "status": "available",
+        "instrument_id": "VWCE",
+        "identity_decision_id": "calendar-test-decision",
+        "identity_decision_time": "2024-01-01T00:00:00+00:00",
+        "identity_effective_at": "2020-01-01",
+        "identity_objects": [{
+            "object_type": "listing",
+            "object_id": "listing:VWCE:XETR",
+            "fields": {
+                "mic": "XETR",
+                "calendar_id": "XETR",
+                "timezone": "Europe/Berlin",
+                "calendar_source_version": "identity-master.v1",
+                "opening_auction_minutes": 5,
+                "closing_auction_minutes": 10,
+            },
+        }],
+        "identity_history": [{"source_id": "calendar-test-source"}],
+    }
+    service = MarketCalendarService.from_correction_ledger(ledger)
+    evidence = _instrument_operational_evidence(
+        instrument_id="VWCE",
+        strategy="signal_strategy",
+        signal_timestamp="2024-01-02T17:00:00+00:00",
+        execution_timestamp="2024-01-04T17:00:00+00:00",
+        signal_date=date(2024, 1, 2),
+        execution_date=date(2024, 1, 4),
+        decision_price=100.0,
+        next_open=101.0,
+        next_period_close=102.0,
+        high=103.0,
+        low=99.0,
+        open_price=101.0,
+        cost_spread_assumption_bps=4.0,
+        cost_spread_assumption_source="execution-cost-v1:CostEstimate.spread_bps",
+        estimated_cost_bps=9.0,
+        estimated_cost_bps_source="execution-cost-v1:CostEstimate.total_cost_bps",
+        decision_price_source_identity="test-source|VWCE",
+        next_open_source_identity="test-source|VWCE",
+        next_period_source_identity="test-source|VWCE",
+        calendar_identity=projection,
+        calendar_service=service,
+    )
+    report = type("Report", (), {"operational_evidence": pd.DataFrame([evidence])})()
+
+    panel = selector._operational_evidence_panel(report, "VWCE")
+
+    assert evidence["evidence_status"] == "available"
+    assert panel["status"] == "available"
+    assert len(panel["rows"]) == 1
+    assert panel["rows"][0]["calendar_session_lineage_hash"] == evidence["calendar_session_lineage_hash"]
+    assert panel["execution_allowed"] is False
+
+
+def test_paper_trade_source_is_not_conflated_with_simulated_fill() -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    panel = selector._paper_trade_panel(
+        "VWCE",
+        pd.DataFrame([{
+            "instrument_id": "VWCE",
+            "fill_source": "paper",
+            "source_authority": "local_paper_ledger",
+            "paper_trade_id": "p-1",
+        }]),
+    )
+
+    assert panel["status"] == "available"
+    assert panel["source"] == "paper_trade_ledger"
+    assert panel["fill_source"] == "paper"
+    assert panel["execution_allowed"] is False
+
+    contradictory = selector._paper_trade_panel(
+        "VWCE",
+        pd.DataFrame([{"instrument_id": "VWCE", "fill_source": "live", "paper_trade_id": "p-2"}]),
+    )
+    assert contradictory["status"] == "unavailable"
+    assert contradictory["execution_allowed"] is False
+
+    for field, value in (("source", "mystery_vendor"), ("provider_name", 123)):
+        unknown = selector._paper_trade_panel(
+            "VWCE",
+            pd.DataFrame([{
+                "instrument_id": "VWCE",
+                "source_authority": "local_paper_ledger",
+                field: value,
+                "paper_trade_id": f"p-{field}",
+            }]),
+        )
+        assert unknown["status"] == "unavailable"
+        assert unknown["rows"] == []
+
+    contradictory_markers = selector._paper_trade_panel(
+        "VWCE",
+        pd.DataFrame(
+            [
+                {
+                    "instrument_id": "VWCE",
+                    "fill_source": "paper",
+                    "source_authority": "live_broker",
+                    "paper_trade_id": "p-3",
+                }
+            ]
+        ),
+    )
+    assert contradictory_markers["status"] == "unavailable"
+    assert contradictory_markers["execution_allowed"] is False
+
+    for field, value in (
+        ("source", "live_broker"),
+        ("mode", "live"),
+        ("paper_fill_source", "live"),
+        ("reconciled_fill_source", "live_broker"),
+    ):
+        contradictory_alias = selector._paper_trade_panel(
+            "VWCE",
+            pd.DataFrame([{"instrument_id": "VWCE", field: value, "paper_trade_id": f"p-{field}"}]),
+        )
+        assert contradictory_alias["status"] == "unavailable"
+        assert contradictory_alias["rows"] == []
+
+
+def test_missing_optional_stores_are_unavailable_not_crash(snapshot) -> None:
     model = build_instrument_detail(snapshot, "missing-instrument")
     assert model.status == "unavailable"
     assert model.sections["identity"] == "unavailable"
 
 
-def test_instrument_detail_etf_disclosure_panel_shows_inventory_and_holdings_quality() -> None:
+def test_instrument_detail_etf_disclosure_panel_shows_inventory_and_holdings_quality(snapshot) -> None:
     from etf_cockpit.app.selectors.instrument_detail import build_etf_disclosure_panel
 
-    snapshot = build_snapshot()
     model = build_instrument_detail(
         snapshot,
         snapshot.config.universe.enabled_ids[0],
@@ -415,10 +938,9 @@ def test_instrument_detail_etf_disclosure_panel_shows_inventory_and_holdings_qua
     assert panel["holdings"]["confidence"] == 1.0
 
 
-def test_instrument_detail_disclosure_panel_is_honest_when_inventory_is_missing() -> None:
+def test_instrument_detail_disclosure_panel_is_honest_when_inventory_is_missing(snapshot) -> None:
     from etf_cockpit.app.selectors.instrument_detail import build_etf_disclosure_panel
 
-    snapshot = build_snapshot()
     model = build_instrument_detail(snapshot, snapshot.config.universe.enabled_ids[0], document_registry=pd.DataFrame(), holdings=pd.DataFrame())
     panel = build_etf_disclosure_panel(model)
     assert panel["status"] == "unavailable"
@@ -426,10 +948,9 @@ def test_instrument_detail_disclosure_panel_is_honest_when_inventory_is_missing(
     assert panel["holdings"]["status"] == "unavailable"
 
 
-def test_instrument_detail_disclosure_panel_surfaces_parsed_kid_and_methodology_provenance() -> None:
+def test_instrument_detail_disclosure_panel_surfaces_parsed_kid_and_methodology_provenance(snapshot) -> None:
     from etf_cockpit.app.selectors.instrument_detail import build_etf_disclosure_panel
 
-    snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]
     model = build_instrument_detail(
         snapshot,
@@ -489,8 +1010,7 @@ def test_instrument_detail_disclosure_panel_surfaces_parsed_kid_and_methodology_
     assert panel["methodology"]["provider"] == "FTSE Russell"
 
 
-def test_legacy_etf_detail_renders_controlled_empty_state_without_scores() -> None:
-    snapshot = build_snapshot()
+def test_legacy_etf_detail_renders_controlled_empty_state_without_scores(snapshot) -> None:
     empty_snapshot = replace(snapshot, signals=[], latest_features=pd.DataFrame())
     state = AppState(snapshot=empty_snapshot, selected_etf=empty_snapshot.config.ui.default_etf)
 
@@ -499,8 +1019,7 @@ def test_legacy_etf_detail_renders_controlled_empty_state_without_scores() -> No
     assert control is not None
 
 
-def test_instrument_detail_news_panel_renders_complete_provenance_and_authority_flags() -> None:
-    snapshot = build_snapshot()
+def test_instrument_detail_news_panel_renders_complete_provenance_and_authority_flags(snapshot) -> None:
     instrument_id = snapshot.config.universe.enabled_ids[0]
     model = build_instrument_detail(
         snapshot,
@@ -554,8 +1073,7 @@ def test_instrument_detail_news_panel_renders_complete_provenance_and_authority_
         assert expected in rendered
 
 
-def test_instrument_detail_selects_latest_fundamentals_by_as_of_not_checksum() -> None:
-    snapshot = build_snapshot()
+def test_instrument_detail_selects_latest_fundamentals_by_as_of_not_checksum(snapshot) -> None:
     instrument_id = snapshot.config.universe.enabled_ids[0]
     model = build_instrument_detail(
         snapshot,
@@ -585,8 +1103,7 @@ def test_instrument_detail_selects_latest_fundamentals_by_as_of_not_checksum() -
     assert model.sections["fundamentals"]["as_of"] == "2026-07-12"
 
 
-def test_instrument_detail_news_is_sorted_by_published_then_ingested_time() -> None:
-    snapshot = build_snapshot()
+def test_instrument_detail_news_is_sorted_by_published_then_ingested_time(snapshot) -> None:
     instrument_id = snapshot.config.universe.enabled_ids[0]
     model = build_instrument_detail(
         snapshot,
@@ -616,10 +1133,9 @@ def test_instrument_detail_news_is_sorted_by_published_then_ingested_time() -> N
     assert [item["news_id"] for item in model.sections["news"]["items"]] == ["older", "newer"]
 
 
-def test_instrument_detail_surfaces_cost_edge_fields_and_unavailable_state(tmp_path, monkeypatch) -> None:
+def test_instrument_detail_surfaces_cost_edge_fields_and_unavailable_state(tmp_path, monkeypatch, snapshot) -> None:
     import etf_cockpit.app.selectors.instrument_detail as selector
 
-    snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]
     scoreboard_path = tmp_path / "scoreboard.parquet"
     pd.DataFrame(

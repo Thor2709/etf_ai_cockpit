@@ -64,6 +64,11 @@ from etf_cockpit.data.fx_data import commit_fx_import, fx_data_inventory, load_f
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.fundamentals import load_fundamental_evidence
+from etf_cockpit.data.identity_master import (
+    IdentityMasterSchemaError,
+    IdentityMasterStore,
+)
+from etf_cockpit.data.local_storage import storage_layout
 from etf_cockpit.data.import_pipeline import commit_price_import, rollback_latest_price_import as rollback_price_store
 from etf_cockpit.data.manual_notes import commit_manual_news_import, load_manual_news, validate_manual_news
 from etf_cockpit.data.parsed_disclosures import read_etf_report_records
@@ -76,6 +81,7 @@ from etf_cockpit.data.reference_data import (
     validate_reference_dataset,
 )
 from etf_cockpit.data.sample_data import ensure_sample_files
+from etf_cockpit.data.trust_artifacts import IDENTITY_PATH
 from etf_cockpit.data.trade_candidate_analysis import (
     fetch_candidate_prices,
     load_candidate_price_binding,
@@ -282,6 +288,142 @@ def _run_backtest_compatibly(config: AppConfig, prices: pd.DataFrame, **kwargs: 
     accepts_kwargs = any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
     supported = kwargs if accepts_kwargs else {key: value for key, value in kwargs.items() if key in parameters}
     return run_backtest(config, prices, **supported)
+
+
+def _backtest_runner_kwargs(
+    reference_context: CanonicalReferenceContext,
+    fundamentals: pd.DataFrame,
+    *,
+    structure_document_registry: object,
+    structure_report_records: object,
+    structure_supplemental_rows: object,
+    structure_holdings: object,
+    calendar_identity_resolver: Callable[[str, object], Mapping[str, object] | None] | None,
+) -> dict[str, object]:
+    return {
+        "fundamentals": fundamentals,
+        "structure_document_registry": structure_document_registry,
+        "structure_report_records": structure_report_records,
+        "structure_supplemental_rows": structure_supplemental_rows,
+        "structure_holdings": structure_holdings,
+        "benchmark_data_id": reference_context.benchmark_data_id,
+        "benchmark_reference": reference_context.projection,
+        "reference_identity": reference_context.identity,
+        "benchmark_registry": reference_context.registry,
+        "calendar_identity_resolver": calendar_identity_resolver,
+    }
+
+
+def _normalise_operational_evidence_rows(rows: object) -> list[dict[str, object]] | None:
+    if not isinstance(rows, list) or any(not isinstance(row, Mapping) for row in rows):
+        return None
+    normalised: list[dict[str, object]] = []
+    for row in rows:
+        if any(type(key) is not str for key in row):
+            return None
+        normalised.append(
+            {
+                key: value.isoformat() if type(value) is date else value
+                for key, value in row.items()
+            }
+        )
+    return normalised
+
+
+def _operational_evidence_rows_match_replay(
+    cached_rows: object, replayed_rows: object
+) -> bool:
+    cached = _normalise_operational_evidence_rows(cached_rows)
+    replayed = _normalise_operational_evidence_rows(replayed_rows)
+    if cached is None or replayed is None or len(cached) != len(replayed):
+        return False
+    try:
+        for cached_row, replayed_row in zip(cached, replayed, strict=True):
+            if set(cached_row) != set(replayed_row):
+                return False
+            for key in cached_row:
+                cached_value = cached_row[key]
+                replayed_value = replayed_row[key]
+                if type(cached_value) is not type(replayed_value) or cached_value != replayed_value:
+                    return False
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _replay_backtest_for_cache(
+    config: AppConfig,
+    prices: pd.DataFrame,
+    runner_kwargs: Mapping[str, object],
+) -> BacktestReport | None:
+    identity_store: IdentityMasterStore | None = None
+    try:
+        identity_store, calendar_identity_resolver = _open_backtest_calendar_identity_resolver()
+        if identity_store is None and calendar_identity_resolver is not None:
+            return None
+        replay_kwargs = dict(runner_kwargs)
+        replay_kwargs["calendar_identity_resolver"] = calendar_identity_resolver
+        report = _run_backtest_compatibly(config, prices, **replay_kwargs)
+        if not isinstance(report, BacktestReport) or not isinstance(report.metadata, dict):
+            return None
+        return report
+    except Exception:
+        return None
+    finally:
+        if identity_store is not None:
+            identity_store.close()
+
+
+def _open_backtest_calendar_identity_resolver() -> tuple[
+    IdentityMasterStore | None,
+    Callable[[str, object], Mapping[str, object] | None] | None,
+]:
+    """Open one read-only logical identity view for the complete backtest run."""
+
+    def unavailable_projection(instrument_id: str, reason: str) -> Mapping[str, object]:
+        return {
+            "status": "unavailable",
+            "instrument_id": instrument_id,
+            "reason": reason,
+            "execution_allowed": False,
+        }
+
+    def unavailable(instrument_id: str, _signal_timestamp: object) -> Mapping[str, object]:
+        return unavailable_projection(instrument_id, "canonical_identity_store_unreadable")
+
+    identity_path = Path(IDENTITY_PATH).resolve()
+    if len(identity_path.parents) < 3:
+        return None, None
+    root = identity_path.parents[2]
+    try:
+        if not storage_layout(root).transactional_path.is_file():
+            return None, None
+        store = IdentityMasterStore(root, read_only=True)
+    except (IdentityMasterSchemaError, OSError, ValueError):
+        return None, unavailable
+    cache: dict[tuple[str, str], Mapping[str, object] | None] = {}
+
+    def resolve(instrument_id: str, signal_timestamp: object) -> Mapping[str, object] | None:
+        try:
+            timestamp = pd.Timestamp(signal_timestamp)
+            if pd.isna(timestamp) or timestamp.tzinfo is None or timestamp.utcoffset() is None:
+                return unavailable_projection(
+                    instrument_id, "canonical_identity_point_in_time_unavailable"
+                )
+            timestamp = timestamp.tz_convert("UTC")
+            point_in_time = timestamp.isoformat()
+            key = (instrument_id, point_in_time)
+            if key not in cache:
+                cache[key] = store.projection(
+                    instrument_id,
+                    effective_at=point_in_time,
+                    decision_time=point_in_time,
+                )
+            return cache[key]
+        except (IdentityMasterSchemaError, KeyError, TypeError, ValueError, OverflowError):
+            return unavailable(instrument_id, signal_timestamp)
+
+    return store, resolve
 
 
 def _load_structure_caps(instrument_ids: object, decision_time: object) -> dict[str, float]:
@@ -1997,19 +2139,21 @@ class BacktestService:
             structure_evidence = _load_local_structural_evidence()
         except Exception:
             structure_evidence = None
+        identity_store, calendar_identity_resolver = _open_backtest_calendar_identity_resolver()
         try:
-            report = _run_backtest_compatibly(
-                self.config,
-                prices,
-                fundamentals=fundamentals,
+            runner_kwargs = _backtest_runner_kwargs(
+                reference_context,
+                fundamentals,
                 structure_document_registry=(structure_evidence.document_registry if structure_evidence else None),
                 structure_report_records=(structure_evidence.report_records if structure_evidence else None),
                 structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),
                 structure_holdings=(structure_evidence.holdings if structure_evidence else None),
-                benchmark_data_id=reference_context.benchmark_data_id,
-                benchmark_reference=reference_context.projection,
-                reference_identity=reference_context.identity,
-                benchmark_registry=reference_context.registry,
+                calendar_identity_resolver=calendar_identity_resolver,
+            )
+            report = _run_backtest_compatibly(
+                self.config,
+                prices,
+                **runner_kwargs,
             )
             # Bind every runner result to the freshly resolved readback context
             # before publication, including older local runner seams.
@@ -2018,6 +2162,9 @@ class BacktestService:
             report.results["benchmark_strategy"] = reference_binding["benchmark_strategy"]
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
+        finally:
+            if identity_store is not None:
+                identity_store.close()
         run_id = settings_bound_run_id("backtest", settings_identity=settings_identity)
         with publication_scope(publish_guard):
             ensure_run_manifest(
@@ -2044,6 +2191,9 @@ class BacktestService:
             persisted_results["largest_negative_contribution_periods"] = persisted_results[
                 "largest_negative_contribution_periods"
             ].map(lambda value: json.dumps(value, default=str, separators=(",", ":")))
+        metadata_payload = json.dumps(
+            report.metadata, default=str, sort_keys=True, indent=2
+        ).encode("utf-8")
         payloads = {
             BACKTESTS_DIR / "backtest_results.csv": (
                 persisted_results.to_csv(index=False).encode("utf-8"),
@@ -2065,6 +2215,10 @@ class BacktestService:
                 report.quality_momentum_evidence.to_csv(index=False).encode("utf-8"),
                 lambda path: _validate_csv(path),
             ),
+            BACKTESTS_DIR / "backtest_metadata.json": (
+                metadata_payload,
+                lambda path: json.loads(path.read_text(encoding="utf-8")),
+            ),
         }
         settings_revision = str(settings_identity["settings_revision"])
         requests = [
@@ -2083,13 +2237,6 @@ class BacktestService:
                 lambda path: json.loads(path.read_text(encoding="utf-8")),
             )
             for path, (payload, _validator) in payloads.items()
-        )
-        requests.append(
-            AtomicWriteRequest(
-                BACKTESTS_DIR / "backtest_metadata.json",
-                json.dumps(report.metadata, default=str, sort_keys=True, indent=2).encode("utf-8"),
-                lambda path: json.loads(path.read_text(encoding="utf-8")),
-            )
         )
         with timed_step("backtest", "write_outputs"):
             with publication_scope(publish_guard):
@@ -2117,9 +2264,10 @@ class BacktestService:
             trade_path,
             signal_path,
             quality_evidence_path,
+            metadata_path,
         )
         sidecar_paths = tuple(_universe_cache_meta_path(path) for path in payload_paths)
-        snapshot_paths = payload_paths + sidecar_paths + (metadata_path,)
+        snapshot_paths = payload_paths + sidecar_paths
         if any(not path.is_file() for path in snapshot_paths):
             return None
         try:
@@ -2182,10 +2330,29 @@ class BacktestService:
             if structural_hashes.eq("").any() or structural_hashes.str.casefold().isin({"nan", "none"}).any():
                 return None
             quality_momentum_evidence = pd.read_csv(BytesIO(payload_bytes[quality_evidence_path]))
-            metadata = json.loads(snapshot[metadata_path].decode("utf-8"))
-            if not isinstance(metadata, dict) or not _cached_backtest_binding_matches(
-                metadata, reference_context
+            metadata = json.loads(payload_bytes[metadata_path].decode("utf-8"))
+            if not isinstance(metadata, dict):
+                return None
+            fundamentals = load_fundamental_evidence()
+            replay = _replay_backtest_for_cache(
+                self.config,
+                prices,
+                _backtest_runner_kwargs(
+                    reference_context,
+                    fundamentals,
+                    structure_document_registry=(structure_evidence.document_registry if structure_evidence else None),
+                    structure_report_records=(structure_evidence.report_records if structure_evidence else None),
+                    structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),
+                    structure_holdings=(structure_evidence.holdings if structure_evidence else None),
+                    calendar_identity_resolver=None,
+                ),
+            )
+            if replay is None or not _operational_evidence_rows_match_replay(
+                metadata.get("operational_evidence_rows"),
+                replay.metadata.get("operational_evidence_rows"),
             ):
+                return None
+            if not _cached_backtest_binding_matches(metadata, reference_context):
                 return None
             expected_benchmark_strategy = metadata["benchmark_strategy"]
             if (
@@ -2208,7 +2375,7 @@ class BacktestService:
             if metadata.get("input_checksum") != backtest_input_checksum(
                 self.config,
                 checksum_prices,
-                load_fundamental_evidence(),
+                fundamentals,
                 structure_document_registry=(structure_evidence.document_registry if structure_evidence else None),
                 structure_report_records=(structure_evidence.report_records if structure_evidence else None),
                 structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),

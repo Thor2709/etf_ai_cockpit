@@ -234,12 +234,13 @@ class CalendarCorrection:
                 self.mic,
                 self.reason,
                 self.source_id,
-                self.source_version,
             )
         ):
             raise MarketClockError(
-                "calendar correction identity, MIC, reason, source and version are required"
+                "calendar correction identity, MIC, reason and source are required"
             )
+        if type(self.source_version) is not str or not self.source_version.strip():
+            raise MarketClockError("calendar correction source_version must be non-empty text")
         if not _SHA256.fullmatch(self.source_checksum.casefold()):
             raise MarketClockError(
                 "calendar correction source_checksum must be a SHA-256 digest"
@@ -859,21 +860,50 @@ class MarketCalendarService:
             "identity_conflict_ids"
         ):
             raise MarketClockError("identity projection is unavailable or conflicted")
+        instrument_id = projection.get("instrument_id")
+        decision_id = projection.get("identity_decision_id")
+        if type(instrument_id) is not str or not instrument_id.strip():
+            raise MarketClockError("identity projection instrument_id must be text")
+        if type(decision_id) is not str or not decision_id.strip():
+            raise MarketClockError("identity projection decision_id must be text")
         objects = projection.get("identity_objects")
         if not isinstance(objects, list):
             raise MarketClockError("identity projection has no immutable objects")
         candidates: list[Mapping[str, object]] = []
         for item in objects:
-            if not isinstance(item, Mapping) or str(
-                item.get("object_type", "")
-            ).casefold() not in {"listing", "quotation"}:
+            if not isinstance(item, Mapping):
+                raise MarketClockError("identity projection objects must be mappings")
+            object_type = item.get("object_type")
+            if type(object_type) is not str:
+                raise MarketClockError("identity projection object type must be text")
+            if object_type.casefold() not in {"listing", "quotation"}:
                 continue
             fields = item.get("fields")
-            if isinstance(fields, Mapping) and all(
-                str(fields.get(key, "")).strip()
+            object_id = item.get("object_id")
+            if type(object_id) is not str or not object_id.strip() or not isinstance(fields, Mapping):
+                raise MarketClockError("calendar identity object is malformed")
+            if any(
+                type(fields.get(key)) is not str or not fields[key].strip()
                 for key in ("mic", "calendar_id", "timezone")
             ):
-                candidates.append(item)
+                raise MarketClockError("calendar identity fields must be non-empty text")
+            for alias in ("calendar_source_version", "source_version"):
+                if alias in fields and (
+                    type(fields[alias]) is not str or not fields[alias].strip()
+                ):
+                    raise MarketClockError("calendar source version must be non-empty text")
+            if (
+                "calendar_source_version" in fields
+                and "source_version" in fields
+                and fields["calendar_source_version"] != fields["source_version"]
+            ):
+                raise MarketClockError("calendar source-version aliases conflict")
+            for field_name in ("opening_auction_minutes", "closing_auction_minutes"):
+                if field_name in fields and (
+                    type(fields[field_name]) is not int or fields[field_name] < 0
+                ):
+                    raise MarketClockError("listing auction windows must be non-negative integers")
+            candidates.append(item)
         if len(candidates) != 1:
             raise MarketClockError(
                 "identity projection must resolve exactly one calendar-certified listing"
@@ -881,23 +911,52 @@ class MarketCalendarService:
         item = candidates[0]
         fields = item["fields"]
         assert isinstance(fields, Mapping)
+        canonical_fields = {
+            "mic": fields["mic"],
+            "calendar_id": fields["calendar_id"],
+            "timezone": fields["timezone"],
+            "calendar_source_version": fields.get("calendar_source_version")
+            or fields.get("source_version")
+            or "identity-master.v1",
+            "opening_auction_minutes": _non_negative_int(
+                fields.get("opening_auction_minutes", 0)
+            ),
+            "closing_auction_minutes": _non_negative_int(
+                fields.get("closing_auction_minutes", 0)
+            ),
+        }
+        canonical_item = {
+            "object_type": "listing",
+            "object_id": item["object_id"],
+            "fields": canonical_fields,
+        }
         history = projection.get("identity_history")
+        if not isinstance(history, list) or not history or any(
+            not isinstance(row, Mapping)
+            or type(row.get("source_id")) is not str
+            or not row["source_id"].strip()
+            for row in history
+        ):
+            raise MarketClockError("identity history requires explicit source identifiers")
         source_ids = (
             sorted(
                 {
-                    str(row.get("source_id"))
+                    row["source_id"]
                     for row in history
-                    if isinstance(row, Mapping) and row.get("source_id")
+                    if isinstance(row, Mapping)
+                    and type(row.get("source_id")) is str
+                    and row["source_id"].strip()
                 }
             )
             if isinstance(history, list)
             else []
         )
+        canonical_source_id = "|".join(source_ids) or "identity-master:projection"
         source_payload = {
             "instrument_id": projection.get("instrument_id"),
-            "object": item,
+            "object": canonical_item,
             "decision_id": projection.get("identity_decision_id"),
-            "sources": source_ids,
+            "source_id": canonical_source_id,
         }
         known_raw = projection.get("identity_decision_time")
         effective_raw = projection.get("identity_effective_at")
@@ -908,26 +967,18 @@ class MarketCalendarService:
         known = _parse_datetime(known_raw)
         valid_from = _parse_date(effective_raw)
         return ListingCalendarEvidence(
-            listing_id=str(item.get("object_id", "")),
-            instrument_id=str(projection.get("instrument_id", "")),
-            mic=str(fields["mic"]).upper(),
-            calendar_id=str(fields["calendar_id"]),
-            timezone=str(fields["timezone"]),
-            source_id="|".join(source_ids) or "identity-master:projection",
+            listing_id=item["object_id"],
+            instrument_id=instrument_id,
+            mic=fields["mic"].upper(),
+            calendar_id=fields["calendar_id"],
+            timezone=fields["timezone"],
+            source_id=canonical_source_id,
             source_checksum=_hash(source_payload),
             valid_from=valid_from,
             known_at=known,
-            source_version=str(
-                fields.get("calendar_source_version")
-                or fields.get("source_version")
-                or "identity-master.v1"
-            ),
-            opening_auction_minutes=_non_negative_int(
-                fields.get("opening_auction_minutes", 0)
-            ),
-            closing_auction_minutes=_non_negative_int(
-                fields.get("closing_auction_minutes", 0)
-            ),
+            source_version=str(canonical_fields["calendar_source_version"]),
+            opening_auction_minutes=int(canonical_fields["opening_auction_minutes"]),
+            closing_auction_minutes=int(canonical_fields["closing_auction_minutes"]),
         )
 
     @staticmethod
@@ -1213,20 +1264,51 @@ class MarketCalendarService:
 
 
 def _parse_datetime(value: object) -> datetime:
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise MarketClockError("identity decision time is invalid") from exc
-    if parsed.tzinfo is None:
+    if type(value) is datetime:
+        parsed = value
+    else:
+        if type(value) is not str or value.strip() != value:
+            raise MarketClockError("identity decision time must be canonical text")
+        canonical_input = value[:-1] + "+00:00" if value.endswith("Z") else value
+        try:
+            parsed = datetime.fromisoformat(canonical_input)
+        except ValueError as exc:
+            raise MarketClockError("identity decision time is invalid") from exc
+        if parsed.isoformat() != canonical_input:
+            raise MarketClockError("identity decision time must be canonical ISO")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise MarketClockError("identity decision time must be timezone-aware")
     return parsed.astimezone(UTC)
 
 
 def _parse_date(value: object) -> date:
+    if type(value) is datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise MarketClockError("identity effective datetime must be timezone-aware")
+        return value.astimezone(UTC).date()
+    if type(value) is date:
+        return value
+    if type(value) is not str or value.strip() != value:
+        raise MarketClockError("identity effective date must be canonical ISO text")
+    if len(value) != 10:
+        canonical_input = value[:-1] + "+00:00" if value.endswith("Z") else value
+        try:
+            parsed = datetime.fromisoformat(canonical_input)
+        except ValueError as exc:
+            raise MarketClockError("identity effective timestamp is invalid") from exc
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise MarketClockError("identity effective datetime must be timezone-aware")
+        canonical = parsed.isoformat()
+        if canonical_input != canonical:
+            raise MarketClockError("identity effective timestamp must be canonical ISO")
+        return parsed.astimezone(UTC).date()
     try:
-        return date.fromisoformat(str(value)[:10])
+        parsed = date.fromisoformat(value)
     except ValueError as exc:
         raise MarketClockError("identity effective date is invalid") from exc
+    if parsed.isoformat() != value:
+        raise MarketClockError("identity effective date must be canonical ISO")
+    return parsed
 
 
 def load_calendar_corrections(path: str | Path) -> tuple[CalendarCorrection, ...]:
@@ -1265,7 +1347,7 @@ def load_calendar_corrections(path: str | Path) -> tuple[CalendarCorrection, ...
                     source_id=str(row["source_id"]),
                     source_checksum=str(row["source_checksum"]),
                     timezone=str(row["timezone"]),
-                    source_version=str(row["source_version"]),
+                    source_version=row["source_version"],
                     valid_from=_parse_date(row["valid_from"]),
                     known_at=_parse_datetime(row["known_at"]),
                     open_time=_parse_time(row.get("open_time")),

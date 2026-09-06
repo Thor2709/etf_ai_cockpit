@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import flet as ft
+import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import metric_card, panel, section_header
@@ -11,6 +12,60 @@ from etf_cockpit.app.components.governance_badges import build_gate_summary
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.application.ui_facade import build_simple_instrument_scores
+from etf_cockpit.app.selectors.instrument_detail import (
+    _latest_operational_row,
+    _operational_evidence_panel,
+)
+
+
+def _signals_operational_evidence(scores: list[object], report: object) -> ft.Control:
+    lines: list[str] = []
+    evidence_fields = (
+        "evidence_status", "evidence_reason", "signal_date", "signal_timestamp",
+        "execution_date", "execution_timestamp", "decision_price", "decision_price_basis",
+        "decision_price_source_identity", "next_open_reference_price", "next_open_reference_basis",
+        "next_open_source_identity", "next_period_reference_price", "next_period_reference_basis",
+        "next_period_source_identity", "close_to_next_open_gap", "price_provenance",
+        "arrival_price_assumption", "execution_delay_sessions", "same_bar_execution_avoided",
+        "observed_range_spread_proxy", "spread_proxy", "cost_spread_assumption_bps", "cost_spread_assumption_source",
+        "estimated_cost_bps", "estimated_cost_bps_source", "session_state", "auction_state",
+        "expiry_state", "order_lifecycle", "fill_source", "paper_fill_source",
+        "reconciled_fill_source", "execution_allowed",
+    )
+
+    def display(value: object) -> str:
+        return "unavailable" if value is None or (isinstance(value, float) and pd.isna(value)) else str(value)
+
+    for score in scores:
+        instrument_id = str(getattr(score, "display_id", "")).strip()
+        if not instrument_id:
+            continue
+        projection = _operational_evidence_panel(report, instrument_id)
+        if projection.get("status") == "available":
+            rows = projection.get("rows", [])
+            latest = _latest_operational_row(rows)
+            lines.append(f"{instrument_id}: " + "; ".join(f"{field}={display(latest.get(field))}" for field in evidence_fields))
+        else:
+            lines.append(
+                f"{instrument_id}: unavailable/context-only (evidence_reason={display(projection.get('message', 'exact operational evidence unavailable'))}); "
+                + "; ".join(f"{field}=unavailable" for field in evidence_fields if field not in {"evidence_reason", "execution_allowed"})
+                + "; evidence_reason=" + display(projection.get("message", "exact operational evidence unavailable"))
+                + "; execution_allowed=false; aggregate aliases are excluded"
+            )
+    if not lines:
+        lines = ["Instrument-scoped operational evidence unavailable; execution_allowed=false"]
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Operational evidence",
+                    "Exact-instrument backtest evidence only. Decision price, next-open reference, source and timestamp are descriptive; paper/reconciled fills remain separate.",
+                ),
+                ft.Text("\n".join(lines), color=theme.MUTED, selectable=True),
+            ],
+            spacing=6,
+        )
+    )
 
 
 def signals_page(_page: ft.Page, state: AppState) -> ft.Control:
@@ -68,6 +123,7 @@ def signals_page(_page: ft.Page, state: AppState) -> ft.Control:
     ]
     if gate_summary is not None:
         controls.append(gate_summary)
+    controls.append(_signals_operational_evidence(scores, getattr(state.snapshot, "backtest", None)))
     controls.append(
         panel(
             ft.Column(

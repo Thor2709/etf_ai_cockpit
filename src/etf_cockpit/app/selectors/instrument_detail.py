@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 import math
+from numbers import Integral, Real
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -19,6 +21,7 @@ from etf_cockpit.application.ui_facade import (
     NEWS_CLEAN_PATH,
     assess_fundamental_row,
     build_market_clock_diagnostics,
+    operational_calendar_record_is_canonical,
     calculate_etf_economics,
     build_direct_overlap_view,
     build_document_inventory,
@@ -1591,6 +1594,7 @@ def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: M
     report = getattr(snapshot, "backtest", None)
     signal_log = _instrument_rows(getattr(report, "signal_log", None), instrument_id)
     trade_log = _instrument_rows(getattr(report, "trade_log", None), instrument_id)
+    operational_evidence = _operational_evidence_panel(report, instrument_id)
     tail_diagnostics = _strategy_tail_diagnostics(report)
     quality_raw = None
     quality_present = False
@@ -1612,16 +1616,287 @@ def _backtest_panel(snapshot: CockpitSnapshot, instrument_id: str, scoreboard: M
         message = "Backtest trust unavailable for this instrument."
         if tail_diagnostics:
             message += " Strategy-level tail diagnostics are shown as portfolio context only."
+        unavailable_operational = dict(operational_evidence)
+        unavailable_operational.pop("instrument_id", None)
         return _unavailable(message) | {
             "trust": "unavailable",
             "signal_rows": [],
             "trade_rows": [],
             "tail_diagnostics": tail_diagnostics,
+            "operational_evidence": unavailable_operational,
             **llm_backtest_fields,
         }
     metadata_source = scoreboard or (signal_log.iloc[-1] if not signal_log.empty else trade_log.iloc[-1])
     trust = quality or "unavailable"
-    return {"status": "available" if quality is not None else "manual_review", "trust": trust, "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "tail_diagnostics": tail_diagnostics, "execution_allowed": False, **llm_backtest_fields, **_provenance_fields(metadata_source)}
+    return {"status": "available" if quality is not None else "manual_review", "trust": trust, "signal_rows": signal_log.to_dict("records"), "trade_rows": trade_log.to_dict("records"), "tail_diagnostics": tail_diagnostics, "operational_evidence": operational_evidence, "execution_allowed": False, **llm_backtest_fields, **_provenance_fields(metadata_source)}
+
+
+def _latest_operational_row(rows: object) -> dict[str, object]:
+    """Select the latest evidence row by absolute UTC instant."""
+
+    if not isinstance(rows, list):
+        return {}
+
+    def sort_key(row: Mapping[str, object]) -> tuple[int, int, int, str]:
+        execution_key = pd.to_datetime(row.get("execution_timestamp"), errors="coerce", utc=True)
+        signal_key = pd.to_datetime(row.get("signal_timestamp"), errors="coerce", utc=True)
+        return (
+            0 if pd.isna(execution_key) else 1,
+            0 if pd.isna(execution_key) else int(execution_key.value),
+            0 if pd.isna(signal_key) else int(signal_key.value),
+            str(row.get("strategy", "")),
+        )
+
+    valid_rows = [row for row in rows if isinstance(row, Mapping)]
+    return dict(max(valid_rows, key=sort_key, default={}))
+
+
+def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str, Any]:
+    """Project only strict exact-instrument simulated evidence."""
+
+    source = getattr(report, "operational_evidence", None)
+    rows = _instrument_rows(source, instrument_id)
+    if rows.empty:
+        return _unavailable(
+            "Operational evidence unavailable for this instrument; aggregate backtest rows are context-only."
+        ) | {"instrument_id": instrument_id, "rows": [], "scope": "instrument", "source": "simulated_backtest"}
+    required = {
+        "evidence_status",
+        "evidence_reason",
+        "strategy",
+        "signal_date",
+        "signal_timestamp",
+        "execution_date",
+        "execution_timestamp",
+        "decision_price",
+        "decision_price_basis",
+        "next_open_reference_price",
+        "next_open_reference_basis",
+        "next_period_reference_price",
+        "next_period_reference_basis",
+        "close_to_next_open_gap",
+        "price_provenance",
+        "decision_price_source_identity",
+        "next_open_source_identity",
+        "next_period_source_identity",
+        "arrival_price_assumption",
+        "execution_delay_sessions",
+        "same_bar_execution_avoided",
+        "fill_source",
+        "observed_range_spread_proxy",
+        "spread_proxy",
+        "cost_spread_assumption_bps",
+        "cost_spread_assumption_source",
+        "estimated_cost_bps",
+        "estimated_cost_bps_source",
+        "session_state",
+        "auction_state",
+        "expiry_state",
+        "order_lifecycle",
+        "paper_fill_source",
+        "reconciled_fill_source",
+        "execution_allowed",
+        "calendar_listing_id",
+        "calendar_mic",
+        "calendar_id",
+        "calendar_timezone",
+        "calendar_source_id",
+        "calendar_source_checksum",
+        "calendar_source_version",
+        "calendar_opening_auction_minutes",
+        "calendar_closing_auction_minutes",
+        "calendar_identity_decision_id",
+        "calendar_valid_from",
+        "calendar_known_at",
+        "calendar_identity_lineage_hash",
+        "calendar_session_lineage_hash",
+    }
+    if not required.issubset(rows.columns):
+        return _unavailable(
+            "Operational evidence schema is incomplete; no partial execution claim is shown."
+        ) | {"instrument_id": instrument_id, "rows": [], "scope": "instrument", "source": "simulated_backtest"}
+
+    def strict_timestamp(value: object) -> pd.Timestamp | None:
+        if type(value) is not str or not value or value.strip() != value or "T" not in value:
+            return None
+        try:
+            parsed = pd.Timestamp(datetime.fromisoformat(value.replace("Z", "+00:00")))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return None if pd.isna(parsed) or parsed.tzinfo is None else parsed
+
+    def strict_date(value: object) -> date | None:
+        if isinstance(value, date) and not isinstance(value, datetime):
+            return value
+        if type(value) is not str or len(value) != 10 or value.strip() != value:
+            return None
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError:
+            return None
+        return parsed if parsed.isoformat() == value else None
+
+    def strict_number(value: object, *, positive: bool, signed: bool = False) -> float | None:
+        if isinstance(value, bool) or not isinstance(value, Real):
+            return None
+        number = float(value)
+        if not math.isfinite(number) or (number <= 0 if positive else (number < 0 and not signed)):
+            return None
+        return number
+
+    def optional_non_negative_number(value: object) -> bool:
+        return _is_missing_scalar(value) or strict_number(value, positive=False) is not None
+
+    def optional_number_with_source(value: object, source: object) -> bool:
+        if _is_missing_scalar(value):
+            return _is_missing_scalar(source)
+        return (
+            strict_number(value, positive=False) is not None
+            and type(source) is str
+            and bool(source)
+            and source.strip() == source
+        )
+
+    def strict_text(value: object) -> bool:
+        return type(value) is str and bool(value) and value.strip() == value
+
+    def explicit_unavailable(value: object) -> bool:
+        return _is_missing_scalar(value)
+
+    def calendar_is_canonical(
+        record: Mapping[str, Any],
+        signal_ts: pd.Timestamp,
+        execution_ts: pd.Timestamp,
+        signal_day: date,
+        execution_day: date,
+    ) -> bool:
+        return operational_calendar_record_is_canonical(
+            record,
+            instrument_id=instrument_id,
+            signal_timestamp=signal_ts,
+            execution_timestamp=execution_ts,
+            signal_date=signal_day,
+            execution_date=execution_day,
+        )
+
+    safe_rows: list[dict[str, Any]] = []
+    for record in rows.to_dict("records"):
+        signal_ts = strict_timestamp(record.get("signal_timestamp"))
+        execution_ts = strict_timestamp(record.get("execution_timestamp"))
+        signal_date = strict_date(record.get("signal_date"))
+        execution_date = strict_date(record.get("execution_date"))
+        timestamp_ordered = False
+        try:
+            timestamp_ordered = bool(
+                signal_ts is not None
+                and execution_ts is not None
+                and execution_ts > signal_ts
+            )
+        except TypeError:
+            timestamp_ordered = False
+        safe = (
+            type(record.get("evidence_status")) is str
+            and record.get("evidence_status") == "available"
+            and record.get("evidence_reason") == "canonical_local_backtest_evidence"
+            and strict_text(record.get("strategy"))
+            and type(record.get("instrument_id")) is str
+            and record.get("instrument_id") == instrument_id
+            and timestamp_ordered
+            and signal_date is not None
+            and execution_date is not None
+            and signal_ts is not None
+            and execution_ts is not None
+            and execution_date > signal_date
+            and strict_number(record.get("decision_price"), positive=True) is not None
+            and record.get("decision_price_basis") == "adjusted_close"
+            and strict_number(record.get("next_open_reference_price"), positive=True) is not None
+            and record.get("next_open_reference_basis") == "adjusted_ohlc_from_same_row_adjustment"
+            and strict_number(record.get("next_period_reference_price"), positive=True) is not None
+            and record.get("next_period_reference_basis") == "adjusted_close"
+            and strict_number(record.get("close_to_next_open_gap"), positive=False, signed=True) is not None
+            and math.isclose(
+                float(record.get("close_to_next_open_gap")),
+                float(record.get("next_open_reference_price")) / float(record.get("decision_price")) - 1.0,
+                rel_tol=1e-9,
+                abs_tol=1e-9,
+            )
+            and strict_text(record.get("price_provenance"))
+            and record.get("price_provenance") == "row_bound_corporate_action_consistent"
+            and strict_text(record.get("decision_price_source_identity"))
+            and strict_text(record.get("next_open_source_identity"))
+            and strict_text(record.get("next_period_source_identity"))
+            and len({record.get("decision_price_source_identity"), record.get("next_open_source_identity"), record.get("next_period_source_identity")}) == 1
+            and type(record.get("arrival_price_assumption")) is str
+            and record.get("arrival_price_assumption") == "next_adjusted_close"
+            and isinstance(record.get("execution_delay_sessions"), Integral)
+            and not isinstance(record.get("execution_delay_sessions"), bool)
+            and int(record.get("execution_delay_sessions")) == 1
+            and type(record.get("same_bar_execution_avoided")) is bool
+            and record.get("same_bar_execution_avoided") is True
+            and type(record.get("execution_allowed")) is bool
+            and record.get("execution_allowed") is False
+            and type(record.get("fill_source")) is str
+            and record.get("fill_source") == "simulated_backtest"
+            and optional_non_negative_number(record.get("observed_range_spread_proxy"))
+            and optional_non_negative_number(record.get("spread_proxy"))
+            and (
+                _is_missing_scalar(record.get("observed_range_spread_proxy"))
+                and _is_missing_scalar(record.get("spread_proxy"))
+                or (
+                    strict_number(record.get("observed_range_spread_proxy"), positive=False) is not None
+                    and strict_number(record.get("spread_proxy"), positive=False) is not None
+                    and math.isclose(
+                        float(record.get("observed_range_spread_proxy")),
+                        float(record.get("spread_proxy")),
+                        rel_tol=1e-9,
+                        abs_tol=1e-9,
+                    )
+                )
+            )
+            and optional_number_with_source(
+                record.get("cost_spread_assumption_bps"),
+                record.get("cost_spread_assumption_source"),
+            )
+            and optional_number_with_source(
+                record.get("estimated_cost_bps"),
+                record.get("estimated_cost_bps_source"),
+            )
+            and explicit_unavailable(record.get("session_state"))
+            and explicit_unavailable(record.get("auction_state"))
+            and explicit_unavailable(record.get("expiry_state"))
+            and explicit_unavailable(record.get("order_lifecycle"))
+            and explicit_unavailable(record.get("paper_fill_source"))
+            and explicit_unavailable(record.get("reconciled_fill_source"))
+            and calendar_is_canonical(record, signal_ts, execution_ts, signal_date, execution_date)
+        )
+        if safe:
+            safe_rows.append(record)
+        elif record.get("evidence_status") == "available":
+            return _unavailable(
+                "Operational evidence is malformed, partial or contradictory; no execution claim is shown."
+            ) | {
+                "instrument_id": instrument_id,
+                "rows": [],
+                "scope": "instrument",
+                "source": "simulated_backtest",
+            }
+    if not safe_rows:
+        return _unavailable(
+            "Operational evidence is malformed, partial or contradictory; no execution claim is shown."
+        ) | {
+            "instrument_id": instrument_id,
+            "rows": [],
+            "scope": "instrument",
+            "source": "simulated_backtest",
+        }
+    return {
+        "status": "available",
+        "instrument_id": instrument_id,
+        "scope": "instrument",
+        "source": "simulated_backtest",
+        "rows": safe_rows,
+        "execution_allowed": False,
+    }
 
 
 def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
@@ -1631,7 +1906,49 @@ def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) ->
     rows = _instrument_rows(source, instrument_id)
     if rows.empty:
         return _unavailable("Paper-trade history unavailable; no local paper-trade records are registered.") | {"rows": []}
-    return {"status": "available", "rows": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
+    def has_marker(column: str) -> bool:
+        return column in rows.columns and rows[column].map(lambda value: not _is_missing_scalar(value)).any()
+
+    live_aliases = {
+        "live", "live_broker", "broker", "broker_api", "provider", "provider_api",
+        "production", "real", "real_market", "execution",
+    }
+    recognized_source_fields = (
+        "source", "source_authority", "fill_source", "mode", "source_mode",
+        "execution_mode", "provider", "provider_name", "execution_source",
+        "order_source", "broker", "paper_fill_source", "reconciled_fill_source",
+    )
+    paper_aliases = {"paper", "local_paper_ledger", "paper_trade_ledger"}
+    for field in recognized_source_fields:
+        if field not in rows.columns:
+            continue
+        for value in rows[field].tolist():
+            if _is_missing_scalar(value):
+                continue
+            if type(value) is not str:
+                return _unavailable("Paper-trade source is malformed; explicit local paper-ledger authority is required.") | {"rows": []}
+            normalized = value.strip().casefold().replace("-", "_").replace("/", "_")
+            aliases = {token for token in normalized.split("_") if token}
+            if normalized in live_aliases or aliases.intersection(live_aliases):
+                return _unavailable("Paper-trade source is contradictory; live or broker evidence is never presented as paper.") | {"rows": []}
+            if normalized not in paper_aliases:
+                return _unavailable("Paper-trade source is unknown; explicit local paper-ledger authority is required.") | {"rows": []}
+
+    has_fill_marker = has_marker("fill_source")
+    fill_is_paper = "fill_source" in rows.columns and rows["fill_source"].map(
+        lambda value: type(value) is str and value == "paper"
+    ).all()
+    authority_is_paper = "source_authority" in rows.columns and rows["source_authority"].map(
+        lambda value: type(value) is str and value == "local_paper_ledger"
+    ).all()
+    source_is_paper = authority_is_paper and (not has_fill_marker or fill_is_paper)
+    execution_is_disabled = (
+        "execution_allowed" not in rows.columns
+        or rows["execution_allowed"].map(lambda value: type(value) is bool and value is False).all()
+    )
+    if not source_is_paper or not execution_is_disabled:
+        return _unavailable("Paper-trade source is contradictory; only local paper-ledger fills are shown.") | {"rows": []}
+    return {"status": "available", "source": "paper_trade_ledger", "fill_source": "paper", "rows": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
 
 
 def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:
