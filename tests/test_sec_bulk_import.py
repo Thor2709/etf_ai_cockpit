@@ -434,3 +434,53 @@ def test_import_accepts_valid_zip64_before_member_selection(tmp_path: Path) -> N
     locator = struct.pack("<4sIQI", b"PK\x06\x07", 0, len(payload) - 22, 1)
     archive.write_bytes(payload[:-22] + record + locator + eocd)
     assert _run(archive, tmp_path).per_cik[0].status == "imported"
+
+
+def test_fused_provider_import_preserves_official_generation_and_invalidates_manual_checkpoint(tmp_path: Path) -> None:
+    from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
+
+    archive = _archive(tmp_path, {"CIK0000000001.json": _facts()})
+    provider = SecEdgarProvider("ETF Research owner@company.eu", cache_dir=tmp_path / "acquisition", transport=lambda *_: (archive.read_bytes(), 200, {"ETag": '"stable"'}), rate_limit_seconds=0)
+    assert _run(archive, tmp_path).per_cik[0].status == "imported"
+    kwargs = dict(import_cache_dir=tmp_path / "cache", facts_destination=tmp_path / "facts.parquet", inventory_destination=tmp_path / "inventory.parquet")
+    official = provider.import_companyfacts_bulk((_identity(),), **kwargs)
+    assert official.per_cik[0].status == "imported"
+    acquired = provider.fetch_companyfacts_bulk(cache_only=True)
+    assert provider.import_companyfacts_bulk((_identity(),), cache_only=True, **kwargs).per_cik[0].status == "skipped"
+    inventory = pd.read_parquet(tmp_path / "inventory.parquet")
+    assert set(inventory["source_authority"]) == {"manual_review", "official_regulator"}
+    row = inventory[inventory["source_authority"] == "official_regulator"].iloc[0]
+    assert row["ingested_at"] == acquired.retrieved_at.isoformat()
+    assert row["source_url"] == SEC_COMPANYFACTS_BULK_URL
+    provider.transport = lambda *_: (b"", 304, {})
+    assert provider.import_companyfacts_bulk((_identity(),), **kwargs).per_cik[0].status == "imported"
+    checkpoint = json.loads(official.checkpoint_path.read_text())
+    assert checkpoint["entries"]["0000000001"]["http_status"] == 304
+    assert checkpoint["entries"]["0000000001"]["retrieved_at"] == acquired.retrieved_at.isoformat()
+    assert provider.import_companyfacts_bulk((_identity(),), **kwargs).per_cik[0].status == "skipped"
+    inventory = pd.read_parquet(tmp_path / "inventory.parquet")
+    inventory.loc[inventory["source_authority"] == "official_regulator", "ingested_at"] = "2000-01-01T00:00:00+00:00"
+    inventory.to_parquet(tmp_path / "inventory.parquet", index=False)
+    assert provider.import_companyfacts_bulk((_identity(),), **kwargs).per_cik[0].status == "imported"
+    restored = pd.read_parquet(tmp_path / "inventory.parquet")
+    assert restored.loc[restored["source_authority"] == "official_regulator", "ingested_at"].eq(acquired.retrieved_at.isoformat()).all()
+
+
+def test_fused_provider_rejects_cold_or_forged_generation(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+    from etf_cockpit.application.sec_bulk_import import _import_provider_companyfacts_bulk
+    from etf_cockpit.data.sec_edgar_bulk import SecEdgarBulkUnavailable
+    from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
+
+    archive = _archive(tmp_path, {"CIK0000000001.json": _facts()})
+    provider = SecEdgarProvider("ETF Research owner@company.eu", cache_dir=tmp_path / "acquisition", transport=lambda *_: (archive.read_bytes(), 200, {}), rate_limit_seconds=0)
+    document = provider.fetch_companyfacts_bulk()
+    cold = SecEdgarProvider(provider.user_agent, cache_dir=provider.cache_dir, transport=lambda *_: pytest.fail("cache-only must not request network"))
+    with pytest.raises(SecEdgarBulkUnavailable, match="session proof"):
+        cold.import_companyfacts_bulk((_identity(),), import_cache_dir=tmp_path / "cache", facts_destination=tmp_path / "facts.parquet", inventory_destination=tmp_path / "inventory.parquet", cache_only=True)
+    from dataclasses import replace
+    altered = replace(document, retrieved_at=datetime(2000, 1, 1, tzinfo=timezone.utc))
+    for unproved, candidate in ((cold, document), (SimpleNamespace(_session_generation_matches=lambda *_args, **_kwargs: True), document), (provider, altered)):
+        result = _import_provider_companyfacts_bulk(unproved, candidate, (_identity(),), cache_dir=tmp_path / "cache", facts_destination=tmp_path / "facts.parquet", inventory_destination=tmp_path / "inventory.parquet")
+        assert result.overall_status == "failed"
+    assert not (tmp_path / "facts.parquet").exists()

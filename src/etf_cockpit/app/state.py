@@ -988,13 +988,12 @@ class AppState:
                 cached_bulk, bulk_reason = _cached_sec_bulk_document(bulk_cache, getattr(self, "_sec_bulk_provider", None))
                 if cached_bulk is not None:
                     statement_import_started = True
-                    bulk_result = _import_sec_companyfacts_bulk(
-                        cached_bulk.path,
+                    bulk_result = self._sec_bulk_provider.import_companyfacts_bulk(
                         (identity,),
-                        cache_dir=bulk_cache,
+                        import_cache_dir=bulk_cache,
+                        cache_only=True,
                         facts_destination=STATEMENT_FACTS_PATH,
                         inventory_destination=FILINGS_STATEMENTS_PATH,
-                        provenance=cached_bulk,
                         publish_guard=publish_guard,
                     )
                     if bulk_result.overall_status in {"complete", "partial"}:
@@ -1015,7 +1014,7 @@ class AppState:
                 return _legacy_unavailable(self, self.last_message)
             configured_agent = str(user_agent or os.getenv("ETF_COCKPIT_SEC_EDGAR_USER_AGENT") or "").strip()
             if not configured_agent:
-                self.last_message = f"SEC import unavailable: {bulk_reason}; configure ETF_COCKPIT_SEC_EDGAR_USER_AGENT with organisation and contact email. {_sec_failure_state(statement_import_started)}"
+                self.last_message = f"SEC import unavailable: {bulk_reason}; configure ETF_COCKPIT_SEC_EDGAR_USER_AGENT with name and contact email. {_sec_failure_state(statement_import_started)}"
                 return _legacy_unavailable(self, self.last_message)
             if normalised_cik is None:
                 self.last_message = f"SEC import unavailable: {bulk_reason}. Local data was not changed."
@@ -1122,23 +1121,28 @@ class AppState:
                 raise ValueError(f"SEC bulk refresh rejected before acquisition: {reason}")
             configured_agent = str(user_agent or os.getenv("ETF_COCKPIT_SEC_EDGAR_USER_AGENT") or "").strip()
             if not configured_agent:
-                raise ValueError("explicit SEC bulk refresh requires a configured organisation/contact user agent")
+                raise ValueError("explicit SEC bulk refresh requires a configured name and contact email")
             cache_root = cache_dir or (RAW_DIR / "sec_edgar")
             provider = getattr(self, "_sec_bulk_provider", None)
             if provider is None or Path(provider.cache_dir).resolve() != Path(cache_root).resolve() or provider.user_agent != configured_agent:
                 provider = SecEdgarProvider(configured_agent, cache_dir=cache_root)
                 self._sec_bulk_provider = provider
-            document = provider.fetch_companyfacts_bulk(publish_guard=publish_guard)
             statement_import_started = True
-            return self.import_sec_companyfacts_bulk(
-                document.path,
-                identity=selected,
-                cache_dir=cache_root,
-                provenance=document,
+            result = provider.import_companyfacts_bulk(
+                (selected,), import_cache_dir=cache_root,
+                facts_destination=STATEMENT_FACTS_PATH, inventory_destination=FILINGS_STATEMENTS_PATH,
                 publish_guard=publish_guard,
             )
+            self.last_message = _bulk_result_message(result, "SEC bulk import")
+            if result.overall_status not in {"complete", "partial"}:
+                return _legacy_unavailable(self, self.last_message)
+            self._record_activity_output("SEC statement evidence published", STATEMENT_FACTS_PATH)
+            return self.last_message
         except (ActivityUnavailableError, WorkflowTransitionError):
             raise
+        except SecEdgarBulkUnavailable as exc:
+            self.last_message = f"SEC bulk refresh unavailable: {_sec_failure_detail(exc)}. {_sec_failure_state(False)}"
+            return _legacy_unavailable(self, self.last_message, exc)
         except Exception as exc:
             self.last_message = f"SEC bulk refresh unavailable: {_sec_failure_detail(exc)}. {_sec_failure_state(statement_import_started)}"
             return _legacy_unavailable(self, self.last_message, exc)

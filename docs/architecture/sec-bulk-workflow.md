@@ -24,7 +24,7 @@ imports only that CIK member, and publishes through the existing atomic
 statement facts/inventory writer. Local ZIP provenance is marked
 `sec_local_import`/`manual_review`; it is never silently promoted to official
 authority. `AppState.fetch_sec_companyfacts_bulk` is the explicit network
-refresh entrypoint and requires a configured organisation/contact user agent.
+refresh entrypoint and requires a configured name and contact email.
 
 Relevant persisted identity rows are validated in both directions before
 archive access or provider construction. Conflicting CIKs for an instrument,
@@ -38,9 +38,13 @@ Acquisition documents retain the actual provider HTTP status and timestamp,
 including resumed 206 and revalidated 304. Passing those documents through the
 public local importer does not grant official authority: canonical bulk facts
 and inventory remain `sec_local_import`/`manual_review` with their local capture
-time, also for caller-authored RawDocument inputs. A provider-fused official
-companyfacts import remains a later boundary. The newer immutable single-JSON
-capture and provenance path is preserved.
+time, also for caller-authored RawDocument inputs. Explicit refresh and
+same-session cache selection instead call `SecEdgarProvider.import_companyfacts_bulk`,
+which verifies its exact in-memory generation inside the private importer seam.
+Those canonical facts and inventory retain official authority and the acquired
+URL/time, including original time through 304 revalidation. AppState never
+upgrades a fetched document through the public local importer. The newer
+immutable single-JSON capture and provenance path is preserved.
 
 Bulk cache misses do not trigger large downloads automatically. All durable
 imports and explicit refreshes accept the caller publication guard, preserve

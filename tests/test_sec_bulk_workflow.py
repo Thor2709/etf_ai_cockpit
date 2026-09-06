@@ -97,9 +97,9 @@ def test_same_session_cached_bulk_is_preferred_without_ua_or_network(tmp_path: P
     assert "SEC cached bulk import complete" in result
     assert "freshness unverified" in result
     row = pd.read_parquet(tmp_path / "inventory.parquet").iloc[0]
-    assert row["source_url"].startswith("file:")
-    assert row["source_authority"] == "manual_review"
-    assert row["source_authority"] == "manual_review"
+    assert row["source_url"] == COMPANYFACTS_BULK_URL
+    assert row["source_authority"] == "official_regulator"
+    assert row["source_authority"] == "official_regulator"
 
 
 def test_explicit_bulk_import_keeps_public_206_and_304_manual(tmp_path: Path, monkeypatch) -> None:
@@ -245,13 +245,11 @@ def test_explicit_refresh_routes_actual_provider_document_to_canonical_stores(tm
     provenance = RawDocument(archive, COMPANYFACTS_BULK_URL, datetime(2026, 9, 3, 4, tzinfo=timezone.utc), digest, "sec_edgar", "sec_companyfacts_bulk", "application/zip", 200)
     calls = 0
 
-    class Provider:
+    class Provider(SecEdgarProvider):
         def __init__(self, *_args, **_kwargs):
             nonlocal calls
             calls += 1
-
-        def fetch_companyfacts_bulk(self, **_kwargs):
-            return provenance
+            super().__init__(*_args, **_kwargs, transport=lambda *_: (archive.read_bytes(), 200, {}), rate_limit_seconds=0)
 
     monkeypatch.setattr(state_module, "SecEdgarProvider", Provider)
     result = _state(state_module).fetch_sec_companyfacts_bulk("1", instrument_id="ONE", user_agent="ETF Research owner@company.eu", cache_dir=tmp_path / "cache")
@@ -259,8 +257,8 @@ def test_explicit_refresh_routes_actual_provider_document_to_canonical_stores(tm
     assert "SEC bulk import complete" in result
     assert calls == 1
     row = pd.read_parquet(tmp_path / "inventory.parquet").iloc[0]
-    assert row["source_url"].startswith("file:")
-    assert row["source_authority"] == "manual_review"
+    assert row["source_url"] == COMPANYFACTS_BULK_URL
+    assert row["source_authority"] == "official_regulator"
     assert row["ingested_at"] != provenance.retrieved_at.isoformat()
 
 
@@ -484,8 +482,8 @@ def test_appstate_interrupted_acquisition_reports_retained_partial(tmp_path: Pat
     assert "SEC bulk import complete" in revalidated
     assert documents[-1].http_status == 304
     assert documents[-1].retrieved_at == acquired_at
-    assert pd.read_parquet(inventory).iloc[0]["source_authority"] == "manual_review"
-    assert pd.read_parquet(inventory).iloc[0]["ingested_at"] != acquired_at.isoformat()
+    assert pd.read_parquet(inventory).iloc[0]["source_authority"] == "official_regulator"
+    assert pd.read_parquet(inventory).iloc[0]["ingested_at"] == acquired_at.isoformat()
     assert pd.read_parquet(facts)["instrument_id"].eq("ONE").all()
 
 
@@ -736,7 +734,7 @@ def test_cold_appstate_cannot_rehydrate_bulk_session(tmp_path: Path, monkeypatch
     assert {path.relative_to(cache): path.read_bytes() for path in cache.rglob("*") if path.is_file()} == before
 
 
-def test_cancelled_refresh_keeps_same_session_cache_and_manual_stores(tmp_path: Path, monkeypatch) -> None:
+def test_cancelled_refresh_keeps_same_session_cache_and_official_stores(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
     from etf_cockpit.core.workflow import WorkflowTransitionError
 
@@ -759,5 +757,5 @@ def test_cancelled_refresh_keeps_same_session_cache_and_manual_stores(tmp_path: 
         state.fetch_sec_companyfacts_bulk("1", instrument_id="ONE", user_agent=provider.user_agent, cache_dir=cache, publish_guard=cancel)
     assert all(path.read_bytes() == payload for path, payload in before.items())
     assert "SEC cached bulk import complete" in state.fetch_sec_companyfacts("1", instrument_id="ONE", cache_dir=cache)
-    assert pd.read_parquet(tmp_path / "inventory.parquet")["source_authority"].eq("manual_review").all()
+    assert pd.read_parquet(tmp_path / "inventory.parquet")["source_authority"].eq("official_regulator").all()
     assert state._sec_bulk_provider is provider

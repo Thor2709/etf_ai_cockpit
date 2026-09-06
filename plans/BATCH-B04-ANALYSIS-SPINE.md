@@ -1,5 +1,31 @@
 # B04 Analysis Spine
 
+## Official companyfacts completion lane — 2026-09-06
+
+PR726 merged as `46706be6d0bbee1a0be41f8fdea785ca9f79868c` after exact
+paired review and H run `34004339146` passed both platforms (4,202 tests each).
+The configured release verifier accepted terminal artifact `9980951035`.
+Post-merge convergence run `34006361665` passed at that exact main. Root
+verified the downloaded live sync plan: zero actions, zero blockers, accepted
+authority reconciliation; plan checksum
+`2e1b4e712131f9434f46f245a9c74d08b82815a56127895d80f25a6b8283bfa7`.
+
+Fresh `C:/dev/etf-sec-official-bulk-20260906` continues from preserved AppState
+checkpoint `f6270317f73b38e67e47a663bf78322f72959719`. One implementer owns
+the provider-fused companyfacts method, private importer seam/shared core,
+SEC AppState call sites and their focused tests/docs. Public inputs remain
+manual-only. Provider acquisition internals, core atomic machinery, OAM, UI
+and canonical state are excluded. Complete the provider seam before adding
+explicit UI actions and clean-first-run/audit acceptance. Root will bind the
+finished remaining diff to current main before final reviews and one H gate.
+
+
+The provider-fused seam now passes 165 tests with five existing host symlink
+skips on both runtimes; Ruff, dual compilation and diff checks pass. Official
+200/206/304, same-session cache, manual-to-official checkpoint replacement,
+corruption and cancellation regressions are covered. This is a local checkpoint
+awaiting coherent UI/audit completion and final independent reviews.
+
 ## SEC bulk application integration — 2026-09-06
 
 Companyfacts component `5e6e5f16ec6616d231818a11d8f8c4a14df12530` has

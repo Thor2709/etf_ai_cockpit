@@ -57,12 +57,19 @@ returned and replayed on resume; warning-bearing imports are partial coverage.
 
 Public `RawDocument` provenance is a caller-authored description, never proof
 of official acquisition. Valid descriptions are checked for consistency but
-cannot upgrade authority or supply the retained acquisition time. Imports
+cannot upgrade authority or supply the retained acquisition time. Public imports
 remain explicitly local (`file://` member URL, aware local capture timestamp,
 `sec_local_import` source IDs and `manual_review` facts/inventory). Resume
 retains the original proved local capture timestamp. Invalid descriptions
-fail closed. A provider-fused official companyfacts import remains a later
-integration gap; sidecars and checkpoint metadata cannot construct that proof.
+fail closed. `SecEdgarProvider.import_companyfacts_bulk` instead acquires or
+selects a same-session cached archive and immediately enters a private importer
+seam. The shared core requires the concrete provider's exact process-local
+generation before preserving official source URL, acquisition timestamp and
+HTTP 200/206/304 lineage. No caller flag, sidecar or checkpoint can construct
+that proof. The selected member retains its own checksum and archive lineage.
+Manual-to-official transitions invalidate the prior checkpoint; resumed official
+imports revalidate stored facts/inventory and retain the original acquisition
+time. The same publication guard covers acquisition and canonical import.
 
 Cancellation raises the existing `WorkflowTransitionError` at cache, member,
 statement publication, and checkpoint boundaries; it cannot authorize a

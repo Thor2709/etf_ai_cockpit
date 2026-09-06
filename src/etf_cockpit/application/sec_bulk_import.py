@@ -95,14 +95,51 @@ def import_sec_companyfacts_bulk(
 ) -> BulkImportResult:
     """Import only requested SEC companyfacts members from a local ZIP archive."""
 
+    return _import_companyfacts_bulk_core(
+        archive, identities, cache_dir=cache_dir, facts_destination=facts_destination,
+        inventory_destination=inventory_destination, provenance=provenance, publish_guard=publish_guard,
+    )
+
+
+def _import_provider_companyfacts_bulk(
+    provider: object, document: RawDocument, identities: Iterable[CanonicalIdentity],
+    *, cache_dir: Path, facts_destination: Path, inventory_destination: Path,
+    publish_guard: PublicationScopeFactory | None = None,
+) -> BulkImportResult:
+    """Private fused seam; the shared core verifies the provider generation."""
+    return _import_companyfacts_bulk_core(
+        document.path, identities, cache_dir=cache_dir, facts_destination=facts_destination,
+        inventory_destination=inventory_destination, provenance=document,
+        publish_guard=publish_guard, _provider=provider,
+    )
+
+
+def _import_companyfacts_bulk_core(
+    archive: Path,
+    identities: Iterable[CanonicalIdentity],
+    *,
+    cache_dir: Path,
+    facts_destination: Path,
+    inventory_destination: Path,
+    provenance: RawDocument | None = None,
+    publish_guard: PublicationScopeFactory | None = None,
+    _provider: object | None = None,
+) -> BulkImportResult:
+    """Import only requested SEC companyfacts members from a local ZIP archive."""
+
     requested, identity_error = _requested_identities(identities)
     if identity_error is not None:
         return _failed_result(identity_error, requested)
     archive_path = Path(archive)
     try:
         archive_sha256 = _validate_archive_source(archive_path, provenance)
-        # Public metadata can describe origin, but cannot attest acquisition.
-        provenance = None
+        if _provider is None:
+            # Public metadata can describe origin, but cannot attest acquisition.
+            provenance = None
+        else:
+            from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
+            if not isinstance(_provider, SecEdgarProvider) or provenance is None or not SecEdgarProvider._session_generation_matches(_provider, provenance, allow_revalidated=True):
+                raise ValueError("provider companyfacts import lacks an exact session generation")
         _validate_cache_root(Path(cache_dir))
         # Check the unresolved namespace before the cache constructor resolves it.
         _validate_namespace_path(Path(cache_dir) / "sec_companyfacts_bulk", Path(cache_dir))
