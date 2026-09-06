@@ -18,7 +18,7 @@
     "base_registry_sha256": "9d6a5e5a2530aa0abaefe59e098d886b8e90368fe2fde98e02701da7a40de9de",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "54a25fc12d82ed076f2ac4f93790fda8fce638f5cb1ddc003adc75ad17aa1c40",
+    "proposed_registry_sha256": "61642e9b8718994abb29b60d150778f0aa953a9efea36057750d6e1d553c08e8",
     "reason": "Integrate only UPDATEV2-0014 using merged reviewed PR #730 and verified H evidence; preserve dependencies, product code and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
