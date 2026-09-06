@@ -1,33 +1,29 @@
 # SEC ingestion provenance boundary
 
-`AppState.fetch_sec_companyfacts` passes the provider's complete `RawDocument`
-to `import_sec_companyfacts`. The supplied document's path, source URL,
-retrieval timestamp, checksum, provider, document type, media type and HTTP
-status are validated and passed through to the statement writer for both a
-fresh `200` response and a cache revalidation `304` response. The current
-inventory contract persists the path, source URL, retrieval timestamp as
-`ingested_at`, checksum, document type, document identity and existing source
-authority/fact metadata; provider and HTTP status are not new inventory
-columns.
+The SEC companyfacts import accepts a provider `RawDocument` only as an
+in-memory result of the concrete provider acquisition call. A public `Path`,
+sidecar, or caller-constructed `RawDocument` cannot establish SEC authority;
+those inputs are retained as local/manual evidence after the usual path,
+checksum, URL, timestamp, document-type, media-type and HTTP-status checks.
+The provider's opaque session generation is process-local and cannot be reconstructed from
+durable cache metadata.
 
-The import seam keeps existing `Path` callers compatible. A Path-only import
-continues to create the historical local URL/timestamp source record and its
-existing `sec_edgar`-based source-authority behavior. This boundary does not
-add manual-import authority protection. A supplied provider document must
-instead be a valid SEC companyfacts document whose path resolves to the parsed
-file, whose lowercase SHA-256 matches the bytes and parser result, whose source
-URL matches the requested CIK, and whose retrieval time is timezone-aware. Any
-mismatch is rejected before the atomic facts and inventory publication,
-leaving prior evidence unchanged.
+Provider acquisition and import are one fused boundary. A fresh `200`, an
+exact same-session cache replay, or a same-session `304` may carry official
+provenance in the returned in-memory result. On a ledger miss, validators and
+`Range` are omitted; an unexpected cold `304` gets one unconditional full-`200`
+retry and then fails closed. Cache mutation, eviction, malformed metadata and
+ambiguous redirects never manufacture authority. Durable records remain
+local/manual and preserve `execution_allowed=false`.
 
 For a supplied fetched document, the importer captures a validated,
 content-addressed sibling before parsing and publishes from that capture, so
 source-file mutation after validation cannot make the facts/inventory pair
-refer to different bytes. Existing provider generations are already
-content-addressed and are retained as-is. A `304` is admitted only when the
-persisted cache payload and its original timezone-aware `retrieved_at` are
-valid; missing, malformed or timezone-naive timestamps fail closed without
-fabricating a new acquisition time or replacing prior evidence.
+refer to different bytes. Existing provider generations are content-addressed
+and retained as local/manual evidence. A `304` is admitted only with the
+provider's exact same-session ledger proof; missing, malformed or
+timezone-naive timestamps fail closed without fabricating an acquisition time
+or replacing prior evidence.
 
 This boundary does not add network behavior, provider write authority, or
 execution authority. SEC acquisition remains explicit and

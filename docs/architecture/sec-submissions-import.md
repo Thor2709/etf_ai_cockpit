@@ -1,0 +1,53 @@
+# SEC submissions and raw-filing import
+
+`import_sec_submissions` is an explicit, local-only ingestion boundary. It
+accepts one `CanonicalIdentity`, validates the CIK and optional persisted
+bidirectional identity registry, and parses either a submissions JSON snapshot
+with explicitly named history files or a ZIP containing the selected CIK
+member. No network request or provider construction occurs in this service.
+
+The parser's filing rows remain available as structured `SubmissionRecord`
+values, including amendment accessions, availability timestamps, source hashes,
+and unrecognised raw-row fields. Metadata is not treated as a filing document.
+Actual filing bytes must be supplied explicitly by accession; each supplied
+snapshot, history file, and filing is retained through the existing
+content-addressed cache. Missing advertised history or filing bytes produce
+partial coverage and durable warnings. The durable manifest stores a complete
+snapshot bundle: parser identity, canonical CIK/instrument identity, retained
+object paths and SHA-256 values, effective local/manual source URL and
+timestamp, document type, media, HTTP status, records, warnings, filing/history
+maps, coverage status, and a bundle digest. Schema v2 persists no effective
+official SEC authority; reported origin is non-authoritative only. Changed history or filing bytes
+therefore create a new generation while retaining the old content-addressed
+object; restart revalidates every retained object and replays the parser before
+reporting verified evidence. Fabricated metadata, stale pointers, and objects
+outside the immutable object layout are rejected without replacement.
+
+Official `RawDocument` provenance is admitted only inside a concrete
+`SecEdgarProvider` fused acquisition-to-import call. The provider's opaque
+process-local session generation binds path, checksum, timestamp, exact SEC URL,
+document type, media type, and integer HTTP status to immutable bytes. There is
+no generic authority-upgrade API: caller-created paths, `RawDocument` values,
+sidecars, and manifests cannot construct or rehydrate a session generation and are
+downgraded to `sec_local_import` manual evidence. ZIP members may derive
+authority only from the live fused bulk session generation. Filing URLs are bound to the
+selected company CIK, accession directory, and primary document; a third-party
+accession prefix is permitted. Local inputs are marked `sec_local_import` and
+remain manual-review evidence, with HTML retained as `text/html` (other
+unsupported local filing formats use an explicit binary media type). ZIP selection validates
+the central directory before allocation, then bounds each selected member to
+256 MiB and the selected aggregate to 512 MiB; the archive itself is bounded to
+8 GiB. The selected snapshot and archive histories reserve their actual
+extracted size before detached history capture. Each detached copy is bounded
+by the remaining aggregate budget before opening its destination and during
+streaming, so source growth cannot overfill temporary parse inputs. The
+enclosing archive is governed separately by its 8 GiB limit. Detached history files receive their own capture timestamp and
+per-input availability bound; they never inherit the parent snapshot time.
+Missing or malformed `filings.files` coverage, history or filing bytes, and
+parser row warnings remain
+`partial`, never `complete`. Cancellation or publication failure propagates
+through the caller's publication scope and does not replace the prior import
+manifest. Fused provider calls forward the same publication guard to both
+acquisition and import, preserving the prior raw cache as well as the import
+manifest when acquisition publication is cancelled. Every result keeps `execution_allowed=false` and this component never
+creates canonical financial facts or starts scoring/execution.

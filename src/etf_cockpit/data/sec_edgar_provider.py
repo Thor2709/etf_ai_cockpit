@@ -7,6 +7,7 @@ network response is allowed to bypass the identity and JSON checks here.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -43,6 +44,21 @@ class _Response:
     headers: dict[str, str]
 
 
+@dataclass(frozen=True)
+class _SessionGeneration:
+    """Immutable facts for one validated provider-session generation."""
+
+    source_url: str
+    sha256: str
+    document_type: str
+    path: Path
+    retrieved_at: datetime
+    provider_id: str
+    media_type: str
+    http_status: int
+    revalidated: bool = False
+
+
 class SecEdgarProvider:
     """Fetch SEC submissions/companyfacts using a deterministic local cache.
 
@@ -52,6 +68,7 @@ class SecEdgarProvider:
     """
 
     BASE_URL = "https://data.sec.gov"
+    MAX_AUTHORITY_LEDGER = 128
 
     def probe_capabilities(self) -> tuple[ProviderCapability, ...]:
         return (ProviderCapability(
@@ -98,6 +115,8 @@ class SecEdgarProvider:
         self._monotonic = monotonic
         self._sleep = sleep
         self._last_request_at: float | None = None
+        self._authority_ledger: OrderedDict[tuple[str, str, str, str], _SessionGeneration] = OrderedDict()
+        self._partial_sessions: OrderedDict[tuple[str, str, str], tuple[object, ...]] = OrderedDict()
 
     def fetch_companyfacts(
         self,
@@ -106,13 +125,14 @@ class SecEdgarProvider:
         publish_guard: PublicationScopeFactory | None = None,
     ) -> RawDocument:
         cik_text = _normalise_cik(cik)
-        return self._fetch(
+        document = self._fetch(
             f"{self.BASE_URL}/api/xbrl/companyfacts/CIK{cik_text}.json",
             f"companyfacts_{cik_text}.json",
             "sec_companyfacts",
             cik_text,
             publish_guard=publish_guard,
         )
+        return document
 
     def fetch_submissions(
         self,
@@ -121,13 +141,150 @@ class SecEdgarProvider:
         publish_guard: PublicationScopeFactory | None = None,
     ) -> RawDocument:
         cik_text = _normalise_cik(cik)
-        return self._fetch(
+        document = self._fetch(
             f"{self.BASE_URL}/submissions/CIK{cik_text}.json",
             f"submissions_{cik_text}.json",
             "sec_submissions",
             cik_text,
             publish_guard=publish_guard,
         )
+        return document
+
+    def import_submissions(
+        self,
+        identity: Any,
+        *,
+        import_cache_dir: Path,
+        **kwargs: Any,
+    ) -> Any:
+        """Acquire and import submissions through one provider-owned seam.
+
+        The returned import may expose the live official document in memory,
+        but the durable manifest is always local/manual.  A caller cannot
+        reproduce the provider-owned session generation required by the importer.
+        """
+
+        from etf_cockpit.application.sec_submissions_import import _import_provider_submissions
+
+        cik = _normalise_cik(getattr(identity, "cik", ""))
+        document = self._fetch(
+            f"{self.BASE_URL}/submissions/CIK{cik}.json",
+            f"submissions_{cik}.json",
+            "sec_submissions",
+            cik,
+            publish_guard=kwargs.get("publish_guard"),
+        )
+        return _import_provider_submissions(self, document, identity, cache_dir=import_cache_dir, **kwargs)
+
+    fetch_and_import_submissions = import_submissions
+
+    def import_submissions_bulk(
+        self,
+        identity: Any,
+        *,
+        import_cache_dir: Path,
+        cache_only: bool = False,
+        **kwargs: Any,
+    ) -> Any:
+        """Acquire the submissions archive and import its selected member."""
+
+        from etf_cockpit.application.sec_submissions_import import _import_provider_submissions
+        from etf_cockpit.data.sec_edgar_bulk import fetch_bulk
+
+        document = fetch_bulk(self, "submissions", cache_only=cache_only, publish_guard=kwargs.get("publish_guard"))
+        return _import_provider_submissions(self, document, identity, cache_dir=import_cache_dir, **kwargs)
+
+    def fetch_companyfacts_bulk(
+        self,
+        *,
+        publish_guard: PublicationScopeFactory | None = None,
+        cache_only: bool = False,
+    ) -> RawDocument:
+        """Explicitly acquire the SEC companyfacts bulk ZIP."""
+
+        from etf_cockpit.data.sec_edgar_bulk import fetch_bulk
+
+        return fetch_bulk(self, "companyfacts", publish_guard=publish_guard, cache_only=cache_only)
+
+    def fetch_submissions_bulk(
+        self,
+        *,
+        publish_guard: PublicationScopeFactory | None = None,
+        cache_only: bool = False,
+    ) -> RawDocument:
+        """Explicitly acquire the SEC submissions bulk ZIP."""
+
+        from etf_cockpit.data.sec_edgar_bulk import fetch_bulk
+
+        return fetch_bulk(self, "submissions", publish_guard=publish_guard, cache_only=cache_only)
+
+    def _ledger_key(self, document: RawDocument) -> tuple[str, str, str, str]:
+        return (document.source_url, document.sha256, document.document_type, str(document.path.absolute()))
+
+    def _session_generation_matches(self, document: RawDocument, *, allow_revalidated: bool = False) -> bool:
+        key = self._ledger_key(document)
+        generation = self._authority_ledger.get(key)
+        if generation is None:
+            return False
+        if (
+            generation.source_url != document.source_url
+            or generation.sha256 != document.sha256
+            or generation.document_type != document.document_type
+            or generation.path != document.path.absolute()
+            or generation.retrieved_at != document.retrieved_at
+            or generation.provider_id != document.provider_id
+            or generation.media_type != document.media_type
+            or (
+                document.http_status != generation.http_status
+                and not ((allow_revalidated or generation.revalidated) and document.http_status == 304)
+            )
+        ):
+            return False
+        try:
+            if not document.path.is_file():
+                return False
+            digest = hashlib.sha256()
+            with document.path.open("rb") as source:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            if digest.hexdigest() != document.sha256:
+                return False
+        except OSError:
+            return False
+        self._authority_ledger.move_to_end(key)
+        return True
+
+    def _remember_partial_session(self, dataset: str, source_url: str, generation: str, state: tuple[object, ...]) -> None:
+        key = (str(dataset), str(source_url), str(generation))
+        self._partial_sessions[key] = state
+        self._partial_sessions.move_to_end(key)
+        while len(self._partial_sessions) > self.MAX_AUTHORITY_LEDGER:
+            self._partial_sessions.popitem(last=False)
+
+    def _has_partial_session(self, dataset: str, source_url: str, generation: str, state: tuple[object, ...]) -> bool:
+        key = (str(dataset), str(source_url), str(generation))
+        if self._partial_sessions.get(key) != state:
+            return False
+        self._partial_sessions.move_to_end(key)
+        return True
+
+    def _forget_partial_session(self, dataset: str, source_url: str, generation: str) -> None:
+        self._partial_sessions.pop((str(dataset), str(source_url), str(generation)), None)
+
+    def _request_bulk_stream(self, url: str, headers: dict[str, str]) -> Any:
+        """Return a response with bounded ``read(size)`` access for bulk ZIPs."""
+
+        if self.transport is not None:
+            return self.transport(url, headers)
+        request = Request(url, headers=headers)
+        try:
+            return urlopen(request, timeout=self.timeout)
+        except HTTPError as exc:
+            if exc.code == 304:
+                # Keep geturl(): redirects on error responses need the same
+                # endpoint admission check as ordinary streamed responses.
+                return exc
+            raise
 
     def _fetch(
         self,
@@ -142,20 +299,40 @@ class SecEdgarProvider:
         metadata_path = cache_path.with_name(f"{cache_path.name}.meta.json")
         metadata = _read_metadata(metadata_path)
         headers = {"User-Agent": self.user_agent, "Accept": "application/json"}
+        same_session = False
         if cache_path.is_file():
-            if metadata.get("etag"):
+            cached_sha = str(metadata.get("sha256") or "")
+            cached_path = _immutable_cache_path(cache_path, cached_sha) if re.fullmatch(r"[0-9a-f]{64}", cached_sha) else cache_path
+            try:
+                cached_time = _retrieved_at(metadata)
+                cached_status = int(metadata.get("status", 200))
+            except (TypeError, ValueError):
+                cached_time, cached_status = None, 200
+            cached_document = RawDocument(cached_path, url, cached_time, cached_sha, "sec_edgar", document_type, "application/json", cached_status) if cached_path.is_file() and cached_time is not None else None
+            same_session = cached_document is not None and self._session_generation_matches(cached_document)
+            if same_session and metadata.get("etag"):
                 headers["If-None-Match"] = str(metadata["etag"])
-            if metadata.get("last_modified"):
+            if same_session and metadata.get("last_modified"):
                 headers["If-Modified-Since"] = str(metadata["last_modified"])
 
         last_error: Exception | None = None
-        for attempt in range(self.max_retries + 1):
+        attempt_limit = self.max_retries + 1
+        attempt = 0
+        cold_304_retried = False
+        while attempt < attempt_limit:
             self._respect_rate_limit()
             try:
                 response = self._request(url, headers)
                 if response.status == 304:
-                    if not cache_path.is_file():
-                        raise ValueError("SEC returned 304 but no cached document exists")
+                    if not same_session:
+                        if not cold_304_retried:
+                            cold_304_retried = True
+                            attempt_limit = max(attempt_limit, 2)
+                            headers.pop("If-None-Match", None)
+                            headers.pop("If-Modified-Since", None)
+                            attempt += 1
+                            continue
+                        raise ValueError("SEC returned 304 without a provider-owned session proof")
                     cached_payload = cache_path.read_bytes()
                     cached_sha = _sha256(cached_payload)
                     expected_sha = str(metadata.get("sha256") or "").strip().lower()
@@ -166,7 +343,7 @@ class SecEdgarProvider:
                     immutable_path = _immutable_cache_path(cache_path, cached_sha)
                     with publication_scope(publish_guard):
                         _ensure_immutable_payload(immutable_path, cached_payload, expected_cik)
-                    return RawDocument(
+                    document = RawDocument(
                         immutable_path,
                         url,
                         retrieved_at,
@@ -176,6 +353,10 @@ class SecEdgarProvider:
                         "application/json",
                         304,
                     )
+                    if not self._session_generation_matches(document, allow_revalidated=True):
+                        raise ValueError("SEC returned 304 without a provider-owned session proof")
+                    revalidated = RawDocument(immutable_path, url, document.retrieved_at, cached_sha, "sec_edgar", document_type, "application/json", 304)
+                    return revalidated
                 if response.status == 429 or response.status >= 500:
                     raise SecEdgarUnavailable(f"SEC endpoint returned HTTP {response.status}")
                 if response.status < 200 or response.status >= 300:
@@ -198,12 +379,13 @@ class SecEdgarProvider:
                     "retrieved_at": retrieved_at.isoformat(),
                     "sha256": payload_sha,
                     "raw_path": str(immutable_path),
+                    "status": response.status,
                     "etag": response.headers.get("ETag", ""),
                     "last_modified": response.headers.get("Last-Modified", ""),
                 }
                 with publication_scope(publish_guard):
                     atomic_write_json(metadata_path, next_metadata)
-                return RawDocument(
+                document = RawDocument(
                     immutable_path,
                     url,
                     retrieved_at,
@@ -213,14 +395,24 @@ class SecEdgarProvider:
                     "application/json",
                     response.status,
                 )
+                key = self._ledger_key(document)
+                self._authority_ledger[key] = _SessionGeneration(
+                    document.source_url, document.sha256, document.document_type, document.path.absolute(),
+                    document.retrieved_at, document.provider_id, document.media_type, document.http_status,
+                )
+                self._authority_ledger.move_to_end(key)
+                while len(self._authority_ledger) > self.MAX_AUTHORITY_LEDGER:
+                    self._authority_ledger.popitem(last=False)
+                return document
             except (HTTPError, URLError, TimeoutError, OSError, SecEdgarUnavailable) as exc:
                 last_error = exc
-                if attempt >= self.max_retries:
+                if attempt >= attempt_limit - 1:
                     raise SecEdgarUnavailable(f"SEC request unavailable after {attempt + 1} attempt(s)") from exc
                 self._sleep(min(2.0, 0.25 * (2**attempt)))
             except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError) as exc:
                 # A bad payload is not retried and never replaces the cache.
                 raise ValueError(f"SEC response JSON validation failed: {exc}") from exc
+            attempt += 1
         raise SecEdgarUnavailable("SEC request unavailable") from last_error
 
     def _request(self, url: str, headers: dict[str, str]) -> _Response:
@@ -360,6 +552,15 @@ def _retrieved_at(metadata: Mapping[str, Any]) -> datetime:
     # Preserve the persisted aware instant and its original offset; 304 is a
     # revalidation, not a new acquisition timestamp.
     return parsed
+
+
+def _cached_acquisition_status(metadata: Mapping[str, Any]) -> int:
+    """Read only a validated acquisition status from the cache metadata."""
+
+    status = metadata.get("status", 200)
+    if type(status) is not int or status not in {200, 206}:
+        raise ValueError("SEC cached metadata acquisition status is invalid")
+    return status
 
 
 def _sha256(payload: bytes) -> str:

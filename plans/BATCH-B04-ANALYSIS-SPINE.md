@@ -1,5 +1,263 @@
 # B04 Analysis Spine
 
+## SEC capture-budget review finding — 2026-09-06
+
+Replacement `001494301dcec87859eccb42f8f5d919e8ef3756` passes whole-diff
+review; risk review accepts the four corrected boundaries but rejects the
+component for a separate aggregate-capture limit defect. Detached history
+inputs are copied before the combined 512 MiB budget is checked. A reduced
+1,000-byte probe copied a 385-byte snapshot and a 1,536-byte history before
+rejecting; no manifest was published. Preserve this head without package gates.
+
+One newly evidenced, independently bounded repair is assigned in fresh
+`C:/dev/etf-sec-capture-budget-20260906`: enforce the cumulative selected
+snapshot/history capture budget before and during copies, with a regression
+proving no excess capture. Provider/bulk corrections remain frozen and are not
+reopened. Require focused corrected evidence and replacement paired review
+before H-tier gates. Canonical status and execution authority remain unchanged.
+
+The bounded repair is complete: selected snapshot/archive-history bytes are
+accounted before detached capture, and every detached copy receives the remaining
+budget with streaming growth checks. The separate 8 GiB archive limit is
+preserved. Four reduced-budget JSON/ZIP and growth regressions pass; both
+six-module suites pass 183 tests with one existing Windows link-capability skip.
+JUnit is retained at `logs/capture-budget-py312.xml` and
+`logs/capture-budget-py313.xml`; Ruff, dual compilation and diff hygiene pass.
+Root inspected the finished three-file product/test/doc correction. Freeze the
+replacement for both reviewers; no prior rejection is treated as acceptance.
+
+## SEC consolidated review correction — 2026-09-06
+
+Frozen head `05c26ba6533cfcbdd0e40d724a20731ca0585749` is rejected.
+Whole-diff review reproduces dropped cancellation guards in fused acquisition,
+bulk 304 overwriting the acquisition-status ledger and breaking offline replay,
+and archive-sized allocations during session verification. Risk review also
+reports that partial-session proof binds a generation identifier but not the
+original prefix hash, size and validator. Its final response was blocked by a
+cybersecurity safety check; there is no complete accepting risk verdict.
+
+Preserve the rejected lane. One implementer in isolated
+`C:/dev/etf-sec-correction-20260906`, branch `codex/sec-correction-20260906`,
+owns a consolidated correction and focused regressions in the provider/bulk
+boundary and relevant tests/docs. Bind partial state in memory, preserve
+acquisition identity through revalidation, forward publication guards and use
+bounded hashing. Do not extend authority or weaken admission/replay contracts.
+Both fresh reviews and full H-tier gates remain mandatory before integration.
+
+The consolidated correction now forwards guards through both fused acquisition
+paths, retains the original 200/206 generation across repeated 304 revalidation,
+hashes session artifacts in bounded chunks, and binds each resumable checkpoint's
+original length, total, validator and prefix digest in the provider session.
+Thirteen new regression cases pass. The complete six-module selection passes
+179 tests with one existing Windows link-capability skip on both Python 3.12.10
+and 3.13.14; JUnit is retained in `logs/sec-correction-py312.xml` and
+`logs/sec-correction-py313.xml`. Ruff, both compilation checks and diff hygiene
+pass. Root inspected the completed diff and reports before freezing it for
+replacement paired review. No canonical lifecycle transition is claimed.
+
+## Verified SEC continuation — 2026-09-06
+
+Fetched and remotely verified main is `bc9876c03b868a323da1d1f5904cad4e33375559`.
+UPDATEV2-0012 is P0, `implemented_initially`, and mechanically ready with no
+blocking dependencies. The original dirty checkout and all earlier lanes are
+preserved. The rejected `2c685501` train and its stopped six-file correction
+were copied byte-for-byte into fresh `codex/sec-resume-20260906` at
+`C:/dev/etf-sec-resume-20260906`; no implementation was recreated.
+
+The complete six-module SEC selection passes on Python 3.12.10 and 3.13.14:
+166 passed and one existing Windows link-capability skip on each. JUnit is
+retained locally at `logs/sec-resume-py312.xml` and `logs/sec-resume-py313.xml`.
+Ruff, compilation, registry validation and byte-clean programme generation
+pass. These fresh results supersede the missing corrected-tree 3.13 evidence
+in the retained September 4 handoff. Earlier rejected reviews are not approval.
+
+Next action is paired independent whole-diff and provenance/PIT review of the
+frozen complete main-to-head diff, followed by full H-tier packaged evidence
+only on an accepted head. Canonical status remains unchanged: this component
+does not yet supply the remaining canonical-statements, AppState/UI/audit,
+clean-first-run and configured live SEC acceptance. Live requests require a
+legitimate contact user agent; none is fabricated. Execution remains disabled.
+
+## UPDATEV2-0012 submissions-import current-main train — 2026-09-04
+
+The parser-only candidate remains unaccepted because bare historical submission
+files need identity authority from their acquisition/container evidence rather
+than accession prefixes or display names. Continue the highest-priority P0 train
+on exact main `bc9876c03b868a323da1d1f5904cad4e33375559` in isolated branch
+`codex/sec-submissions-current-main-20260904`. The lane now contains the
+historical submissions evidence importer and reviewed bulk-acquisition dependency
+through `d8d56c6f`; no application UI, canonical lifecycle state or provider
+write authority is included.
+
+Fresh current-main regression capture collected 103 cases: 85 passed, 17 failed,
+one platform link case skipped, with no errors. The failures are the preserved
+admission/replay contract: link/path mutation before validation, history/member
+provenance binding, truthful complete coverage, acquisition-time and A-B-A
+restart identity, concurrent same-CIK publication, bounded manifests/aggregate
+inputs, official history URL compatibility, filing URL compatibility, and stable
+local JSON/ZIP lineage. One implementer owns the existing submissions importer,
+parser, their dedicated tests and architecture notes to close this complete
+failure set without weakening assertions. Root alone owns this chronology.
+
+The bounded importer correction now closes all 17 preserved failures. Root's
+fresh exact-tree run passes 102 of 103 focused parser/import/acquisition cases;
+the remaining case is the existing explicit Windows link-capability skip. Ruff,
+compilation and diff hygiene pass, with initial red evidence retained at
+`logs/sec-submissions-current-main-red.xml` and corrected evidence at
+`logs/sec-submissions-current-main-green.xml`. The correction validates cache
+links before reads/guard opens, binds selected ZIP members and history provenance,
+enforces truthful coverage and aggregate bounds, preserves stable local restart
+lineage and serialises same-CIK identity publication. Freeze the resulting head
+for independent whole-diff and provenance-risk review; these focused passes do
+not authorise integration or whole-issue completion.
+
+Both independent reviews rejected head `1c0ffbee`: first publication could
+parse bytes different from the retained source, caller-authored detached history
+could acquire false official SEC provenance, later manifest generations could
+change instrument identity, and post-acquisition acceptance timestamps remained
+apparently available. The single consolidated correction parses only a private
+bounded capture, self-validates the candidate snapshot under the publication
+lock, binds official history to retained archive membership, downgrades detached
+history to explicit local/manual partial evidence, enforces identity across all
+snapshots and clears availability later than acquisition. Root's fresh complete
+144-test SEC submissions/provider/bulk/provenance selection passes with one
+existing Windows link-capability skip; Ruff, compileall and diff hygiene pass.
+Freeze one replacement head for fresh paired review before any H-tier gate.
+
+Replacement head `dc364aa66dbfef462ada7948b79ca4cb6ab5c8e6` is rejected by
+both final reviewers. The consolidated demonstrated set is: caller-authored
+documents can still claim official SEC acquisition authority; detached history
+can inherit an older parent acquisition time; local submissions rows can retain
+an `sec_edgar` source identity; absent `filings.files` can be reported complete;
+mutated local filing URLs can survive restart validation; the importer/documented
+206/304 boundary disagrees; and malformed caller mappings can escape controlled
+failure. Apply one bounded correction with direct adversarial regressions, then
+freeze one replacement head for paired review. Do not run H-tier gates on the
+rejected head, change lifecycle state, or broaden this component.
+
+The bounded review correction now requires durable SEC provider receipt evidence
+before retaining official authority and downgrades unattested caller metadata to
+local/manual evidence. Detached history receives its own capture and availability
+time, and mixed-source history records carry their admitted provider rather than
+inheriting the parent snapshot authority. Missing `filings.files`, mutated local
+filing URLs, 206/304 admission and malformed mappings now fail closed or remain
+explicitly partial as appropriate. Root's fresh six-module SEC selection passes
+158 cases with one existing Windows link-capability skip; the implementer's wider
+focused selection passes 119 cases with the same skip, while the 37-case provider
+and provenance selection, Ruff, compileall and diff hygiene pass. Freeze the
+replacement commit for fresh paired whole-diff and provenance-risk review before
+running any H-tier gate.
+
+Paired review rejects replacement `60698f644c0b5266e088101880d028b0d8251d92`.
+The repeated authority-failure fingerprint is a caller-writable path plus
+predictable JSON sidecar being treated as provider acquisition evidence; a
+caller can recompute every checked field and obtain `sec_edgar` authority, while
+HTTP 200/206/304 lineage is not bound. This is the second failure of the same
+metadata-matching approach, so stop it rather than extending sidecar checks.
+The independent Windows-supported Python 3.13 run also rejects a valid adjacent
+ZIP64 archive because private `zipfile._EndRecData` location semantics changed,
+and review found that the acceptance-after-acquisition regression was weakened
+instead of preserved. No packaged gate or integration is authorised.
+
+Use a materially different bounded repair: only an opaque provider-issued
+acquisition capability may carry official authority through the importer; plain
+paths, public `RawDocument` values and manifests remain local/manual and cannot
+elevate authority. Replay must return through the provider boundary. Replace the
+private ZIP parser dependency with bounded APPNOTE EOCD/ZIP64 structure handling
+that is compatible with supported Python 3.11--3.13, and restore direct PIT
+coverage. Require focused 3.12 and 3.13 evidence plus fresh paired exact-head
+review before H-tier gates.
+
+The capability/ZIP64 replacement is implemented without sidecar authority.
+Provider and bulk adapters mint bounded process-local acquisition proofs; plain
+paths, public `RawDocument` values and recomputed manifests cannot promote the
+current import, cache-only replay without a live proof fails closed, and a fresh
+HTTP 304 re-anchors availability when prior-process acquisition time cannot be
+proved. Explicit APPNOTE EOCD/ZIP64 parsing replaces private standard-library
+internals. Root's fresh six-module selection passes 266 tests with one Windows
+link-capability skip on both Python 3.12.10 and the packaged-runtime family
+Python 3.13.14. Ruff, compileall and diff hygiene pass. Freeze the resulting
+commit for fresh paired whole-diff and provenance/PIT review; these focused
+results still do not authorise a packaged gate or integration.
+
+Paired H-tier review rejects capability head
+`c81dd9863d882efa47e51a7da88d6d6a1cb40265`. ZIP64 compatibility and the
+direct path/sidecar downgrade pass on Python 3.12 and 3.13, but the generic
+module-private mint function remains callable by an in-process caller. A cold
+304 can also promote caller-controlled cached bytes because its validator and
+metadata are not authenticated, and recomputed historical manifests can retain
+unproved `sec_edgar` claims. The ZIP64 parser additionally rejects valid records
+with APPNOTE extensible data. Do not iterate the exposed generic-mint or
+cold-304 admission approach. Require an adapter-bound acquisition/import
+boundary, an unconditional full response after registry loss, explicit
+reject/downgrade handling for unproved persisted authority, and variable-length
+ZIP64 record support before another paired review. No packaged gate or
+integration is authorised on this head.
+
+The replacement candidate removes the generic acquisition capability entirely
+and fuses provider acquisition to submissions import through the concrete
+provider instance. Public paths, `RawDocument` values and all durable manifest
+generations remain explicit `sec_local_import` evidence; only the exact bounded
+in-process provider session generation can produce an ephemeral live
+`sec_edgar` result. Cold sessions omit persisted validators and range state,
+retry an unexpected 304 unconditionally, and require a full response before
+admission; bounded same-session replay and partial resume retain fail-closed
+ledger checks. Manifest schema v2 neutralises durable authority and safely
+migrates valid v1 histories. The bounded ZIP reader now accepts APPNOTE ZIP64
+extensible data without relying on private standard-library internals. Root's
+fresh six-module selection passes 164 tests with one existing Windows
+link-capability skip on both Python 3.12.10 and Python 3.13.14; Ruff,
+compileall and diff hygiene pass. Freeze one exact replacement commit for fresh
+paired whole-diff and provenance/PIT review before any H-tier packaged gate.
+
+The provenance/PIT review rejects fused candidate
+`2c68550167781fbe1dbf698aa9ab911a33151328`. Its session ledger binds URL,
+checksum, document type and path but not the original acquisition timestamp or
+complete `RawDocument` generation, so a same-process sidecar timestamp edit
+followed by HTTP 304 can backdate official evidence. The bulk retry path can
+also reconstruct `Range` and `If-Range` from persisted partial state after a
+cold first-attempt failure, bypassing the initial session check. Bind the full
+generation in memory, require metadata equality before conditional revalidation,
+and preserve explicit session proof across every partial retry. Add both exact
+adversarial regressions before freezing another head. No packaged gate or
+integration is authorised on the rejected commit.
+
+Do not run H-tier gates or integrate until all focused cases pass and the stable
+complete diff receives independent whole-diff and provenance-risk acceptance.
+This train still does not close the full bulk/resumable/canonical-statements issue.
+Antigravity reservations, v5/custom-runner work, broker/provider writes, release
+authority and `execution_allowed=false` remain unchanged.
+
+## SEC submissions parser current-main candidate — 2026-09-04
+
+UPDATEV2-0012 remains P0, dependency-ready and outside Antigravity's reserved
+queue. The bounded submissions-history parser from `5f2ccb98` is transplanted
+onto exact current main `bc9876c03b868a323da1d1f5904cad4e33375559` in
+`C:/dev/etf-sec-submissions-current-main-20260904`, branch
+`codex/sec-submissions-current-main-20260904`. The product candidate adds only
+the new parser, its dedicated tests and architecture note; the historical plan
+conflict was resolved in favour of current chronology and this checkpoint.
+
+Require focused current-main evidence and an independent whole-diff review
+before integration. This parser is one input to the remaining bulk/resumable
+SEC workflow and does not satisfy whole-issue acceptance by itself. Do not
+change canonical lifecycle state, Antigravity files, v5/custom-runner work,
+broker/provider write authority, release/deployment authority or
+`execution_allowed=false`.
+
+The first independent current-main review rejected `c6b1c9a5`: missing
+`acceptanceDateTime` columns dropped historical rows, and bare historical
+column files lacked independently verifiable row-level issuer identity. The
+single focused correction now retains missing-time rows explicitly and rejects
+conflicting CIK fields. A proposed accession-prefix identity check was itself
+rejected by the unchanged official fixture: legitimate reporting-owner filings
+reduced the retained Microsoft feed from 1,004 records to 127. The valid
+corrected suite passes 25 tests and retains all 1,004 official rows. Keep this
+candidate unaccepted until the remaining history-file identity guarantee is
+bound through the acquisition/container contract; do not infer issuer identity
+from accession digits or legal display names. No H-tier gate or integration is
+authorised while this blocker remains.
+
 ## SEC current-main integration candidate — 2026-09-04
 
 The reviewed SEC provenance train at `e4c39c33404379ebe2512cbe94169fd62502f0b3`
