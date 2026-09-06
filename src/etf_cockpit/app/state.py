@@ -7,9 +7,11 @@ from functools import wraps
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import threading
 from typing import Any, Callable, TypeVar, cast
+from urllib.error import HTTPError
 from urllib.parse import urlparse
 
 from etf_cockpit.core.config import AppConfig, save_provider_settings
@@ -21,9 +23,12 @@ from etf_cockpit.core.errors import ErrorStore, classify_exception
 from etf_cockpit.core.timing import timed_step
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowController, WorkflowStatus, WorkflowStep, WorkflowTransitionError, publication_scope
 from etf_cockpit.application.api import LocalApplicationApi
+from etf_cockpit.application.sec_bulk_import import BulkImportResult, import_sec_companyfacts_bulk as _import_sec_companyfacts_bulk
+from etf_cockpit.application.sec_submissions_import import SubmissionsImportResult, import_sec_submissions as _import_sec_submissions
 from etf_cockpit.core.job_scheduler import DurableJobScheduler
 from etf_cockpit.data.trust_artifacts import IDENTITY_PATH, refresh_static_trust_artifacts, write_trust_artifacts_for_scores
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
+from etf_cockpit.data.sec_edgar_bulk import SecEdgarBulkUnavailable
 from etf_cockpit.data.esef_provider import EsefProviderUnavailable, FilingsXbrlOrgProvider
 from etf_cockpit.data.oam_adapters import (
     CompaniesHouseFilingAdapter,
@@ -969,28 +974,265 @@ class AppState:
         user_agent: str | None = None,
         publish_guard: PublicationScopeFactory | None = None,
     ) -> str:
-        """Fetch keyless SEC facts with controlled unavailable state."""
+        """Use a validated local bulk archive before explicit per-CIK JSON fetch."""
 
+        statement_import_started = False
         try:
+            normalised_cik = _normalise_sec_cik(cik)
+            bulk_cache = cache_dir or (RAW_DIR / "sec_edgar")
+            cached_bulk: RawDocument | None = None
+            bulk_reason = ""
+            identity = _build_sec_bulk_identity(normalised_cik, instrument_id) if normalised_cik is not None else None
+            if normalised_cik is None:
+                bulk_reason = "requested CIK is malformed"
+            elif identity is not None:
+                cached_bulk, bulk_reason = _cached_sec_bulk_document(bulk_cache, getattr(self, "_sec_bulk_provider", None))
+                if cached_bulk is not None:
+                    statement_import_started = True
+                    bulk_result = self._sec_bulk_provider.import_companyfacts_bulk(
+                        (identity,),
+                        import_cache_dir=bulk_cache,
+                        cache_only=True,
+                        facts_destination=STATEMENT_FACTS_PATH,
+                        inventory_destination=FILINGS_STATEMENTS_PATH,
+                        publish_guard=publish_guard,
+                    )
+                    if bulk_result.overall_status in {"complete", "partial"}:
+                        self.last_message = _bulk_result_message(bulk_result, "SEC cached bulk import", context=bulk_reason)
+                        self._record_sec_bulk_outputs(bulk_result)
+                        return self.last_message
+                    detail = next((item.detail for item in bulk_result.per_cik if item.detail), "")
+                    bulk_reason = f"cached bulk import failed: {detail or bulk_result.overall_status}"
+            else:
+                bulk_reason = f"validated SEC bulk cache unavailable; {_sec_bulk_identity_reason(normalised_cik, instrument_id)}"
+
+            # Only genuine absent binding may use the unresolved/manual JSON
+            # fallback. Known-invalid evidence must not reach its legacy resolver.
+            if normalised_cik is not None and identity is None and (
+                instrument_id is not None or _persisted_sec_instruments(normalised_cik) != ()
+            ):
+                self.last_message = f"SEC import unavailable: {bulk_reason}. Local data was not changed."
+                return _legacy_unavailable(self, self.last_message)
             configured_agent = str(user_agent or os.getenv("ETF_COCKPIT_SEC_EDGAR_USER_AGENT") or "").strip()
             if not configured_agent:
-                self.last_message = "SEC import unavailable: configure ETF_COCKPIT_SEC_EDGAR_USER_AGENT with organisation and contact email. Local data was not changed."
+                self.last_message = f"SEC import unavailable: {bulk_reason}; configure ETF_COCKPIT_SEC_EDGAR_USER_AGENT with name and contact email. {_sec_failure_state(statement_import_started)}"
+                return _legacy_unavailable(self, self.last_message)
+            if normalised_cik is None:
+                self.last_message = f"SEC import unavailable: {bulk_reason}. Local data was not changed."
                 return _legacy_unavailable(self, self.last_message)
             provider = SecEdgarProvider(
                 configured_agent,
-                cache_dir=cache_dir or (RAW_DIR / "sec_edgar"),
+                cache_dir=bulk_cache,
             )
             document = provider.fetch_companyfacts(cik, publish_guard=publish_guard)
-            return self.import_sec_companyfacts(
+            statement_import_started = True
+            result = self.import_sec_companyfacts(
                 document.path,
                 instrument_id=instrument_id,
                 document=document,
                 publish_guard=publish_guard,
             )
+            # The legacy local-import wording concerns that operation only;
+            # an encompassing fetch may already have published raw documents.
+            result = result.replace("No data changed", "Raw acquisition cache may have changed; inspect statement-import status")
+            self.last_message = result
+            if bulk_reason:
+                self.last_message = f"{result} Bulk fallback: {bulk_reason}."
+            return self.last_message
+        except ActivityUnavailableError as exc:
+            if not statement_import_started:
+                raise
+            self.last_message = str(exc).replace("No data changed", "Raw acquisition cache may have changed; inspect statement-import status")
+            raise ActivityUnavailableError(self.last_message) from exc
+        except WorkflowTransitionError:
+            raise
+        except Exception as exc:
+            self.last_message = f"SEC import unavailable: {_sec_failure_detail(exc)}. {_sec_failure_state(statement_import_started)}"
+            return _legacy_unavailable(self, self.last_message, exc)
+
+    def import_sec_companyfacts_bulk(
+        self,
+        archive: Path,
+        *,
+        cik: str | None = None,
+        instrument_id: str | None = None,
+        identity: CanonicalIdentity | None = None,
+        cache_dir: Path | None = None,
+        provenance: RawDocument | None = None,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> str:
+        """Import one explicitly selected CIK from a local SEC bulk ZIP."""
+
+        statement_import_started = False
+        try:
+            selected = identity
+            if selected is None:
+                normalised_cik = _normalise_sec_cik(cik)
+                if normalised_cik is None:
+                    raise ValueError("SEC bulk import requires a valid selected CIK")
+                selected = _build_sec_bulk_identity(normalised_cik, instrument_id, allow_manual=True)
+                if selected is None:
+                    raise ValueError("SEC bulk import requires a unique persisted CIK-to-instrument identity")
+            else:
+                if not isinstance(selected, CanonicalIdentity):
+                    raise ValueError("SEC bulk import requires a CanonicalIdentity")
+                _validate_sec_bulk_identity(selected)
+                if cik is not None and _normalise_sec_cik(cik) != _normalise_sec_cik(selected.cik):
+                    raise ValueError("supplied CIK does not match the selected canonical identity")
+                if instrument_id is not None and (not isinstance(instrument_id, str) or selected.instrument_id != instrument_id):
+                    raise ValueError("supplied instrument ID does not match the selected canonical identity")
+            statement_import_started = True
+            result = _import_sec_companyfacts_bulk(
+                Path(archive),
+                (selected,),
+                cache_dir=cache_dir or (RAW_DIR / "sec_edgar"),
+                facts_destination=STATEMENT_FACTS_PATH,
+                inventory_destination=FILINGS_STATEMENTS_PATH,
+                provenance=provenance,
+                publish_guard=publish_guard,
+            )
+            self.last_message = _bulk_result_message(result, "SEC bulk import")
+            if result.overall_status not in {"complete", "partial"}:
+                return _legacy_unavailable(self, self.last_message)
+            self._record_sec_bulk_outputs(result)
+            return self.last_message
         except (ActivityUnavailableError, WorkflowTransitionError):
             raise
         except Exception as exc:
-            self.last_message = f"SEC import unavailable: {type(exc).__name__}. Local data was not changed."
+            self.last_message = f"SEC bulk import unavailable: {_sec_failure_detail(exc)}. {_sec_failure_state(statement_import_started)}"
+            return _legacy_unavailable(self, self.last_message, exc)
+
+    def fetch_sec_companyfacts_bulk(
+        self,
+        cik: str,
+        *,
+        instrument_id: str | None = None,
+        cache_dir: Path | None = None,
+        user_agent: str | None = None,
+        publish_guard: PublicationScopeFactory | None = None,
+        cache_only: bool = False,
+    ) -> str:
+        """Explicitly acquire the nightly bulk archive and import one CIK."""
+
+        statement_import_started = False
+        try:
+            normalised_cik = _normalise_sec_cik(cik)
+            selected = _build_sec_bulk_identity(normalised_cik, instrument_id) if normalised_cik is not None else None
+            if selected is None:
+                reason = _sec_bulk_identity_reason(normalised_cik, instrument_id) if normalised_cik is not None else "requested CIK is malformed"
+                raise ValueError(f"SEC bulk refresh rejected before acquisition: {reason}")
+            configured_agent = str(user_agent or os.getenv("ETF_COCKPIT_SEC_EDGAR_USER_AGENT") or "").strip()
+            if not configured_agent and not cache_only:
+                raise ValueError("explicit SEC bulk refresh requires a configured name and contact email")
+            cache_root = cache_dir or (RAW_DIR / "sec_edgar")
+            provider = getattr(self, "_sec_bulk_provider", None)
+            if cache_only:
+                if provider is None or Path(provider.cache_dir).resolve() != Path(cache_root).resolve():
+                    raise SecEdgarBulkUnavailable("SEC bulk cache unavailable: no same-session acquisition proof")
+            elif provider is None or Path(provider.cache_dir).resolve() != Path(cache_root).resolve() or provider.user_agent != configured_agent:
+                provider = SecEdgarProvider(configured_agent, cache_dir=cache_root)
+                self._sec_bulk_provider = provider
+            statement_import_started = True
+            result = provider.import_companyfacts_bulk(
+                (selected,), import_cache_dir=cache_root, cache_only=cache_only,
+                facts_destination=STATEMENT_FACTS_PATH, inventory_destination=FILINGS_STATEMENTS_PATH,
+                publish_guard=publish_guard,
+            )
+            self.last_message = _bulk_result_message(result, "SEC bulk import")
+            if result.overall_status not in {"complete", "partial"}:
+                return _legacy_unavailable(self, self.last_message)
+            self._record_sec_bulk_outputs(result)
+            return self.last_message
+        except (ActivityUnavailableError, WorkflowTransitionError):
+            raise
+        except SecEdgarBulkUnavailable as exc:
+            self.last_message = f"SEC bulk refresh unavailable: {_sec_failure_detail(exc)}. {_sec_failure_state(False)}"
+            return _legacy_unavailable(self, self.last_message, exc)
+        except Exception as exc:
+            self.last_message = f"SEC bulk refresh unavailable: {_sec_failure_detail(exc)}. {_sec_failure_state(statement_import_started)}"
+            return _legacy_unavailable(self, self.last_message, exc)
+
+    def _record_sec_bulk_outputs(self, result: BulkImportResult) -> None:
+        message = self.last_message
+        self.sec_companyfacts_bulk_message = message
+        self._record_activity_output("SEC statement facts published", STATEMENT_FACTS_PATH)
+        self._record_activity_output("SEC statement inventory published", FILINGS_STATEMENTS_PATH)
+        if result.checkpoint_path is not None:
+            members = ",".join(str(item.member_sha256 or "missing") for item in result.per_cik[:3])
+            self._record_activity_output(f"SEC {result.overall_status}; archive sha256={result.archive_sha256}; member sha256={members}; {message[:512]}", result.checkpoint_path)
+        self.last_message = message
+
+    def _finish_sec_submissions_import(self, result: SubmissionsImportResult) -> str:
+        self.sec_submissions_result = result
+        warnings = ",".join(str(item.get("code", "warning")) for item in result.warnings[:5])
+        self.last_message = redact_text(
+            f"SEC submissions import {result.status}: {len(result.records)} filing records; "
+            f"warnings={warnings or 'none'}; {result.detail}. Filing bytes may be missing; "
+            "execution_allowed=false."
+        )[:2048]
+        if result.status not in {"complete", "partial"}:
+            return _legacy_unavailable(self, self.last_message)
+        message = self.last_message
+        if result.manifest_path is not None:
+            self._record_activity_output("SEC submissions manifest retained", result.manifest_path)
+        for document in result.raw_documents[:3]:
+            self._record_activity_output(f"SEC submissions sha256={document.sha256}", document.path)
+        self.last_message = message
+        return message
+
+    def import_sec_submissions_bulk(
+        self, archive: Path, *, cik: str | None = None, instrument_id: str | None = None,
+        identity: CanonicalIdentity | None = None, cache_dir: Path | None = None,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> str:
+        """Import local submissions metadata with explicit manual identity."""
+        try:
+            normalised = _normalise_sec_cik(cik) if cik is not None else None
+            selected = identity or (_build_sec_bulk_identity(normalised, instrument_id, allow_manual=True) if normalised else None)
+            if selected is None:
+                raise ValueError("SEC submissions import requires a selected CIK and canonical instrument identity")
+            _validate_sec_bulk_identity(selected)
+            if cik is not None and _normalise_sec_cik(cik) != _normalise_sec_cik(selected.cik):
+                raise ValueError("supplied CIK does not match the selected canonical identity")
+            if instrument_id is not None and (not isinstance(instrument_id, str) or selected.instrument_id != instrument_id):
+                raise ValueError("supplied instrument ID does not match the selected canonical identity")
+            result = _import_sec_submissions(Path(archive), selected, cache_dir=cache_dir or (RAW_DIR / "sec_edgar"), publish_guard=publish_guard)
+            return self._finish_sec_submissions_import(result)
+        except (ActivityUnavailableError, WorkflowTransitionError):
+            raise
+        except Exception as exc:
+            self.last_message = f"SEC submissions import unavailable: {_sec_failure_detail(exc)}; execution_allowed=false."
+            return _legacy_unavailable(self, self.last_message, exc)
+
+    def fetch_sec_submissions_bulk(
+        self, cik: str, *, instrument_id: str | None = None, cache_dir: Path | None = None,
+        user_agent: str | None = None, publish_guard: PublicationScopeFactory | None = None,
+        cache_only: bool = False,
+    ) -> str:
+        """Explicitly acquire or select same-session submissions evidence."""
+        try:
+            normalised = _normalise_sec_cik(cik)
+            selected = _build_sec_bulk_identity(normalised, instrument_id) if normalised else None
+            if selected is None:
+                raise ValueError("SEC submissions refresh requires a unique persisted CIK-to-instrument identity")
+            configured_agent = str(user_agent or os.getenv("ETF_COCKPIT_SEC_EDGAR_USER_AGENT") or "").strip()
+            cache_root = cache_dir or (RAW_DIR / "sec_edgar")
+            provider = getattr(self, "_sec_bulk_provider", None)
+            if cache_only:
+                if provider is None or Path(provider.cache_dir).resolve() != Path(cache_root).resolve():
+                    raise SecEdgarBulkUnavailable("SEC bulk cache unavailable: no same-session acquisition proof")
+            else:
+                if not configured_agent:
+                    raise ValueError("SEC submissions refresh requires name and contact email")
+                if provider is None or Path(provider.cache_dir).resolve() != Path(cache_root).resolve() or provider.user_agent != configured_agent:
+                    provider = SecEdgarProvider(configured_agent, cache_dir=cache_root)
+                    self._sec_bulk_provider = provider
+            result = provider.import_submissions_bulk(selected, import_cache_dir=cache_root, cache_only=cache_only, publish_guard=publish_guard)
+            return self._finish_sec_submissions_import(result)
+        except (ActivityUnavailableError, WorkflowTransitionError):
+            raise
+        except Exception as exc:
+            self.last_message = f"SEC submissions refresh unavailable: {_sec_failure_detail(exc)}; raw cache may have changed; execution_allowed=false."
             return _legacy_unavailable(self, self.last_message, exc)
 
     def import_esef_package(
@@ -1388,6 +1630,176 @@ def _resolve_sec_instrument(cik: str) -> str | None:
         return matches[0] if len(matches) == 1 else None
     except (OSError, ValueError, TypeError, ImportError):
         return None
+
+
+def _normalise_sec_cik(value: object) -> str | None:
+    text = str(value or "").strip().upper().removeprefix("CIK")
+    if re.fullmatch(r"[0-9]{1,10}", text) is None or int(text) <= 0:
+        return None
+    return text.zfill(10)
+
+
+def _persisted_sec_instruments(cik: str, instrument_id: str | None = None) -> tuple[str, ...] | None:
+    """Validate relevant registry rows in both directions; absence is not corruption."""
+
+    try:
+        if not IDENTITY_PATH.exists():
+            return ()
+        import pandas as pd
+
+        frame = pd.read_parquet(IDENTITY_PATH)
+        if "cik" not in frame.columns or "instrument_id" not in frame.columns:
+            return None
+        bindings: list[tuple[str | None, str | None, bool]] = []
+        for raw_cik, raw_id in frame[["cik", "instrument_id"]].itertuples(index=False, name=None):
+            row_cik = _normalise_sec_cik(raw_cik) if isinstance(raw_cik, (str, int)) and not isinstance(raw_cik, bool) else None
+            row_id = raw_id.strip() if isinstance(raw_id, str) else None
+            canonical_id = isinstance(raw_id, str) and bool(row_id) and raw_id == row_id
+            bindings.append((row_cik, row_id, canonical_id))
+        if any(row_cik == cik and not canonical_id for row_cik, _, canonical_id in bindings):
+            return None
+        forward = {row_id for row_cik, row_id, _ in bindings if row_cik == cik and row_id is not None}
+        relevant_ids = forward | ({instrument_id} if instrument_id else set())
+        if any(row_id in relevant_ids and (row_cik != cik or not canonical_id) for row_cik, row_id, canonical_id in bindings):
+            return None
+        return tuple(sorted(forward))
+    except (OSError, ValueError, TypeError, ImportError):
+        return None
+
+
+def _validate_sec_bulk_identity(identity: CanonicalIdentity) -> str:
+    """Validate supplied bulk identity against the registry when one exists."""
+
+    if not isinstance(identity, CanonicalIdentity):
+        raise ValueError("SEC bulk import requires a CanonicalIdentity")
+    cik = _normalise_sec_cik(identity.cik)
+    if cik is None:
+        raise ValueError("SEC bulk identity CIK is invalid")
+    instrument_id = identity.instrument_id
+    if not isinstance(instrument_id, str) or not instrument_id or instrument_id != instrument_id.strip():
+        raise ValueError("SEC bulk identity instrument_id must be a non-empty canonical string")
+    persisted = _persisted_sec_instruments(cik, instrument_id)
+    if persisted is None:
+        raise ValueError("SEC bulk identity registry is unavailable or malformed")
+    if len(persisted) > 1:
+        raise ValueError(f"SEC bulk identity mapping is ambiguous for CIK {cik}")
+    if persisted and persisted[0] != instrument_id:
+        raise ValueError(f"SEC bulk identity conflicts with persisted CIK mapping for {cik}")
+    return cik
+
+
+def _build_sec_bulk_identity(cik: str, instrument_id: str | None, *, allow_manual: bool = False) -> CanonicalIdentity | None:
+    if instrument_id is not None and (not isinstance(instrument_id, str) or not instrument_id or instrument_id != instrument_id.strip()):
+        return None
+    requested = instrument_id or ""
+    persisted = _persisted_sec_instruments(cik, requested or None)
+    if allow_manual and persisted == () and requested:
+        persisted = (requested,)
+    if persisted is None or len(persisted) != 1:
+        return None
+    resolved = requested or persisted[0]
+    if resolved != persisted[0]:
+        return None
+    return CanonicalIdentity(
+        resolved,
+        "Imported SEC entity",
+        None,
+        "needs_verification",
+        "",
+        None,
+        None,
+        "stock",
+        {},
+        "manual_review",
+        (),
+        cik,
+    )
+
+
+def _sec_bulk_identity_reason(cik: str, instrument_id: str | None) -> str:
+    requested = str(instrument_id or "").strip()
+    persisted = _persisted_sec_instruments(cik, requested or None)
+    if persisted is None:
+        return "SEC bulk identity registry is unavailable or malformed"
+    if len(persisted) > 1:
+        return f"SEC bulk identity mapping is ambiguous for CIK {cik}"
+    if requested and persisted and persisted[0] != requested:
+        return f"SEC bulk identity conflicts with persisted CIK mapping for {cik}"
+    return "no unique persisted CIK-to-instrument identity"
+
+
+def _cached_sec_bulk_document(cache_dir: Path, provider: SecEdgarProvider | None = None) -> tuple[RawDocument | None, str]:
+    try:
+        if provider is None or Path(provider.cache_dir).resolve() != Path(cache_dir).resolve():
+            return None, "validated SEC bulk cache unavailable (no same-session acquisition proof)"
+        document = provider.fetch_companyfacts_bulk(cache_only=True)
+        age_seconds = int((datetime.now(timezone.utc) - document.retrieved_at).total_seconds())
+        return document, f"retrieved_at={document.retrieved_at.isoformat()}; cache age {age_seconds}s; freshness unverified"
+    except (OSError, ValueError, TypeError, SecEdgarBulkUnavailable) as exc:
+        return None, f"validated SEC bulk cache unavailable ({type(exc).__name__})"
+
+
+def _bulk_result_message(result: BulkImportResult, prefix: str, *, context: str = "") -> str:
+    statuses: list[str] = []
+    for item in result.per_cik[:5]:
+        detail = redact_text(" ".join(str(item.detail or "").split()))[:240]
+        displayed: list[str] = []
+        for warning in item.warnings[:20]:
+            code = redact_text(str(warning.get("code") or warning.get("message") or "warning"))[:80]
+            if code not in displayed and len(displayed) < 5:
+                displayed.append(code)
+        warning_codes = ",".join(displayed)
+        parts = [f"{item.cik}:{item.status}"]
+        if item.coverage_status != "complete":
+            parts.append(f"coverage={item.coverage_status}")
+        if warning_codes:
+            parts.append(f"warnings={warning_codes}")
+        omitted = len(item.warnings) - len(displayed)
+        if omitted:
+            parts.append(f"{omitted} warning entries omitted")
+        if detail:
+            parts.append(detail)
+        statuses.append(" ".join(parts))
+    status_text = ", ".join(statuses) or "none"
+    if len(result.per_cik) > 5:
+        status_text += f"; {len(result.per_cik) - 5} CIK results omitted"
+    message = f"{prefix} {result.overall_status}: {status_text}"
+    if context:
+        message += f"; {context}"
+    suffix = "; execution_allowed=false."
+    message = redact_text(message)
+    limit = 2048 - len(suffix)
+    if len(message) > limit:
+        message = message[:limit - 23] + " ... [output truncated]"
+    return message + suffix
+
+
+def _sec_failure_state(statement_import_started: bool) -> str:
+    if statement_import_started:
+        return "Statement import completion unconfirmed; inspect stored evidence. Raw cache/partials or checkpoints may have changed."
+    return "Canonical statement stores unchanged; raw cache/partials may have changed."
+
+
+def _sec_failure_detail(exc: BaseException) -> str:
+    """Expose bounded SEC transport/quota context without echoing raw errors."""
+
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    details: list[str] = []
+    while current is not None and id(current) not in seen and len(seen) < 8:
+        seen.add(id(current))
+        match = re.search(r"\bHTTP(?:\s+Error)?\s+(\d{3})\b", str(current)[:512], flags=re.IGNORECASE)
+        status = str(current.code) if isinstance(current, HTTPError) else match.group(1) if match else None
+        if status is not None:
+            if status == "429":
+                return "SEC endpoint returned HTTP 429 (rate limit/quota)"
+            return f"SEC endpoint returned HTTP {status}"
+        safe_message = redact_text(" ".join(str(current).split()))[:160]
+        detail = f"{type(current).__name__}: {safe_message}" if safe_message else type(current).__name__
+        if detail not in details and len(details) < 3:
+            details.append(detail)
+        current = current.__cause__ or current.__context__
+    return "; caused by ".join(details)[:512]
 
 
 def _capture_sec_raw_document(
