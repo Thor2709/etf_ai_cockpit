@@ -348,6 +348,7 @@ def _render_evidence_section(
         if field_name in {
             "history",
             "rows",
+            "cards",
             "entries",
             "signal_rows",
             "trade_rows",
@@ -357,6 +358,7 @@ def _render_evidence_section(
             "statement_history",
             "pairs",
             "concentrations",
+            "forecast_model_matches",
         }:
             lines.append(_render_record_group(str(field_name), item))
             continue
@@ -658,11 +660,29 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         ),
         _render_evidence_section("Forecast evidence", model.sections.get("forecasts")),
         _render_evidence_section(
+            "Model cards",
+            model.sections.get("model_cards"),
+            subtitle="Deterministic model catalogue capabilities, versions, licences and optional availability; cards do not prove a model produced this instrument's forecast.",
+            key="instrument-detail.model-cards",
+        ),
+        _render_evidence_section(
+            "Factor risk",
+            model.sections.get("factor_risk"),
+            subtitle="Global factor-risk diagnostics are calculated from the complete snapshot and only then filtered to the selected instrument; historical point-in-time look-through selection remains unavailable.",
+            key="instrument-detail.factor-risk",
+        ),
+        _render_evidence_section(
             "Backtest trust",
             model.sections.get("backtests"),
             subtitle="Instrument-scoped signals and trades determine instrument trust; strategy-level tail diagnostics are portfolio context only. execution_allowed=false.",
         ),
         _render_evidence_section("Paper-trade history", model.sections.get("paper_trades")),
+        _render_evidence_section(
+            "Score history",
+            model.sections.get("history"),
+            subtitle="Dated local score runs and source metadata are shown exactly as recorded; missing values remain unavailable.",
+            key="instrument-detail.score-history",
+        ),
         _render_evidence_section("Decision journal", model.sections.get("journal")),
         _render_evidence_section(
             "LLM thesis diary",

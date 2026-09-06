@@ -132,6 +132,7 @@ from etf_cockpit.core.versioning import *  # noqa: F401,F403
 from etf_cockpit.core.job_scheduler import *  # noqa: F401,F403
 from etf_cockpit.core.resource_profiles import *  # noqa: F401,F403
 from etf_cockpit.models.forecast_scores import *  # noqa: F401,F403
+from etf_cockpit.models.model_zoo import *  # noqa: F401,F403
 from etf_cockpit.models.coverage_audit import *  # noqa: F401,F403
 from etf_cockpit.models.local_weights import *  # noqa: F401,F403
 from etf_cockpit.portfolio.allocation import *  # noqa: F401,F403
@@ -738,6 +739,51 @@ def load_paper_trade_rows(root: Path) -> tuple[dict[str, object], ...]:
         return PaperLedger(root).trade_rows()
     except (OSError, PaperLedgerError, ValueError):
         return ()
+
+
+def load_paper_timeline(
+    root: Path,
+    instrument_id: str,
+    *,
+    account_id: str = "local-paper",
+) -> dict[str, object]:
+    """Read one paper account's validated lifecycle history for presentation."""
+
+    from etf_cockpit.portfolio.paper_trading import (
+        PaperLedger,
+        PaperLedgerError,
+        PaperLedgerIntegrityError,
+    )
+
+    ledger = PaperLedger(root, account_id=account_id)
+    if not ledger.path.exists():
+        return {
+            "status": "unavailable",
+            "instrument_id": str(instrument_id),
+            "rows": [],
+            "reason_code": "paper_ledger_missing",
+            "source_authority": "local_paper_ledger",
+            "execution_allowed": False,
+        }
+    try:
+        rows = ledger.timeline_rows(instrument_id)
+    except (OSError, PaperLedgerIntegrityError, PaperLedgerError, ValueError):
+        return {
+            "status": "invalid",
+            "instrument_id": str(instrument_id),
+            "rows": [],
+            "reason_code": "paper_ledger_invalid",
+            "source_authority": "local_paper_ledger",
+            "execution_allowed": False,
+        }
+    return {
+        "status": "available",
+        "instrument_id": str(instrument_id),
+        "rows": list(rows),
+        "source_authority": "local_paper_ledger",
+        "message": "Recorded paper lifecycle history; this is not a historical account reconstruction.",
+        "execution_allowed": False,
+    }
 
 
 def _load_market_series_projection(
