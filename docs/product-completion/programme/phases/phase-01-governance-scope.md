@@ -94,7 +94,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0079` | `P0` | `hardening_required` | `security-and-release` | `ISSUE-0145`, `ISSUE-0149` | - | `ISSUE-0085` | - |
 | `ISSUE-0179` | `P1` | `integrated` | `programme-control` | `ISSUE-0178` | - | - | `ISSUE-0152` |
 | `UPDATEV2-0010` | `P3` | `closed` | `data-and-evidence` | - | - | - | - |
-| `UPDATEV2-0012` | `P0` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0087`, `ISSUE-0091` | `ISSUE-0073`, `ISSUE-0081`, `ISSUE-0091` |
+| `UPDATEV2-0012` | `P0` | `integrated` | `programme-governance` | - | - | `ISSUE-0087`, `ISSUE-0091` | `ISSUE-0073`, `ISSUE-0081`, `ISSUE-0091` |
 | `UPDATEV2-0013` | `P3` | `closed` | `data-and-evidence` | - | - | - | - |
 | `UPDATEV2-0014` | `P1` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0087` | `ISSUE-0076`, `ISSUE-0087` |
 | `UPDATEV2-0017` | `P1` | `closed` | `programme-governance` | - | - | - | `ISSUE-0103`, `ISSUE-0104` |
