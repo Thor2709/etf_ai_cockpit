@@ -10,6 +10,15 @@ from current main and is required before the historical AppState bulk workflow
 can be integrated. No historical test result is assumed compatible with the
 current parser/provider dependencies.
 
+Baseline `b140065e` fails collection on both Python 3.12 and 3.13 because
+`sec_facts._statement_store_guards` is absent. The implementation agent made no
+edits and stopped at the ownership boundary: importer-only locking would not
+coordinate canonical writers. JUnit is retained as
+`logs/companyfacts-baseline312.xml` and `logs/companyfacts-baseline313.xml`.
+One read-only planner is checking the historical dependency and smallest
+canonical-writer prerequisite before further implementation. Do not remove the
+guard import or weaken checkpoint consistency merely to pass collection.
+
 UPDATEV2-0012 remains P0 and dependency-ready. One implementer owns only this
 new application module, its direct tests and note, and must establish a focused
 baseline before a bounded compatibility correction. PR726 provider/bulk/parser
