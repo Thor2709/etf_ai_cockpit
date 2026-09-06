@@ -50,7 +50,7 @@ Bulk cache misses do not trigger large downloads automatically. All durable
 imports and explicit refreshes accept the caller publication guard, preserve
 partial parser warnings and checkpoint failures as visible statuses, and keep
 `execution_allowed=false`. The JSON picker/UI remains a separate JSON-only
-path; this workflow does not claim UI integration or whole-issue completion.
+path. The filings page exposes a separate dataset selector for companyfacts and submissions, local ZIP import, explicit official refresh and same-session cache reuse.
 
 Cache success reports its original acquisition timestamp, age and unverified
 freshness; there is no invented expiry policy or automatic bulk refresh.
@@ -62,3 +62,19 @@ redacted and bounded; real HTTP429 errors retain their quota/rate-limit meaning.
 An acquisition failure distinguishes unchanged canonical stores from raw
 cache/partials that may have been retained. Once statement import has started,
 an unexpected error does not claim that all state is unchanged.
+
+
+The bulk picker requests native paths with `with_data=False`; unavailable native
+paths are an explicit error, with no byte-upload fallback. A first local import
+can use an explicit CIK and canonical instrument ID without credentials or network.
+Official refresh requires a unique saved mapping and a name and contact email.
+Rendering controls never acquires data. Every action uses the existing activity
+publication guard, and cancelled picker selection starts no import.
+
+Companyfacts results retain partial coverage and warning codes in the visible
+session status; an inventory status of `imported` is not a completeness claim.
+The existing facts and inventory tables remain canonical. Submissions metadata
+has a bounded session table, with missing filing bytes explicitly reported.
+Session output references record bounded archive/member hashes and checkpoint
+or manifest paths. Existing audit evidence exports canonical stores and session
+logs, without copying the bulk ZIP archive. Execution remains disabled.

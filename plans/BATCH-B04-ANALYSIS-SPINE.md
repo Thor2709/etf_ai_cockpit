@@ -1,5 +1,40 @@
 # B04 Analysis Spine
 
+## SEC UI completion checkpoint — 2026-09-06
+
+The remaining product lane is bound to main `46706be6` through tree-preserving
+merge `b4867590`. Explicit native ZIP, official refresh and same-session cache
+controls now reach both datasets. Partial/warning messages survive session
+output logging; submissions previews are bounded and missing filing bytes stay
+explicit. Authored UI acceptance contracts accompany the controls.
+Both runtime affected selections pass 186 tests with one existing host skip;
+one additional real session/audit-copy warning regression and four final UI
+callback tests pass per runtime. Ruff, compilation and diff hygiene pass.
+Full native visual and complete audit-package acceptance, independent final
+reviews and central H validation remain required. Test-created thesis diary
+artifacts are retained outside staged source ownership. No status is advanced
+until remaining acceptance is resolved.
+
+
+## SEC live evidence — 2026-09-06
+
+With the user-supplied personal contact held only in ignored local config,
+HTTP200 bulk acquisition at reviewed source `7004b9c8` retained submissions
+archive `80c8cc6660ccd37411fe867ef23dfb92765dfd4815cab18b4093e9092b6a75ec`
+(1,562,265,619 bytes). The frozen provider-fused checkpoint `023523f7` acquired
+companyfacts archive
+`1c6ab59f38e405631d0fd223fa2cde11281352e2d0775901a5d2766bbd9f0560`
+(1,408,249,354 bytes), then imported selected CIK 0000789019 into isolated
+verification stores: 32,580 facts and one matching inventory row. Member hash
+is `f8aae2965b20ad0df44bdf7ccbedf797d275b6b8dc030154a7a311361bb7246f`.
+The actual result is partial with five ambiguous-unit warnings, not complete
+coverage. Inventory retains official regulator provenance, those warnings,
+acquisition time and executable_authority=false. This isolated CIK mapping is
+verification evidence, not portfolio attribution. No data-quality rule changed.
+Full local records: `C:/dev/etf-sec-live-20260906`; archives remain local and are
+not added to Git or audit uploads. Final UI/audit acceptance remains pending.
+
+
 ## Official companyfacts completion lane — 2026-09-06
 
 PR726 merged as `46706be6d0bbee1a0be41f8fdea785ca9f79868c` after exact

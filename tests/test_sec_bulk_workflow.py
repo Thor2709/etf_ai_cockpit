@@ -759,3 +759,94 @@ def test_cancelled_refresh_keeps_same_session_cache_and_official_stores(tmp_path
     assert "SEC cached bulk import complete" in state.fetch_sec_companyfacts("1", instrument_id="ONE", cache_dir=cache)
     assert pd.read_parquet(tmp_path / "inventory.parquet")["source_authority"].eq("official_regulator").all()
     assert state._sec_bulk_provider is provider
+
+
+def test_clean_first_run_explicit_local_identity_and_bounded_audit_outputs(tmp_path, monkeypatch):
+    from etf_cockpit.app import state as state_module
+    from etf_cockpit.chatgpt_bridge import export_pack
+
+    _configure_state(state_module, tmp_path, monkeypatch)
+    monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *a, **k: pytest.fail("local must stay offline"))
+    state = _state(state_module)
+    outputs = []
+    def output(step, path):
+        outputs.append((step, Path(path)))
+        state.last_message = step
+    monkeypatch.setattr(state, "_record_activity_output", output)
+    message = state.import_sec_companyfacts_bulk(_archive(tmp_path / "companyfacts.zip"), cik="1", instrument_id="ONE", cache_dir=tmp_path / "cache")
+    assert "complete" in message and "execution_allowed=false" in message
+    assert state.sec_companyfacts_bulk_message == message
+    assert len(outputs) == 3
+    assert "sha256=" in outputs[-1][0]
+    assert outputs[-1][1].is_file()
+    assert pd.read_parquet(tmp_path / "inventory.parquet")["source_authority"].eq("manual_review").all()
+    evidence = tmp_path / "audit"
+    evidence.mkdir()
+    manifest = {"included": [], "missing": [], "checksums": {}}
+    for path in (tmp_path / "facts.parquet", tmp_path / "inventory.parquet"):
+        export_pack._copy_evidence_file(path, evidence, manifest)
+    assert manifest["included"]
+    assert not list(evidence.rglob("*.zip"))
+
+
+def test_submissions_bulk_local_and_explicit_session_cache(tmp_path, monkeypatch):
+    from etf_cockpit.app import state as state_module
+    from etf_cockpit.core.workflow import WorkflowTransitionError
+
+    _configure_state(state_module, tmp_path, monkeypatch)
+    archive = tmp_path / "submissions.zip"
+    payload = {"cik": "0000000001", "name": "One", "filings": {"recent": {"accessionNumber": ["0000000001-26-000001"], "filingDate": ["2026-01-02"], "reportDate": ["2025-12-31"], "acceptanceDateTime": ["2026-01-02T03:04:05.000Z"], "form": ["10-K"], "primaryDocument": ["annual.htm"]}, "files": []}}
+    with zipfile.ZipFile(archive, "w") as package:
+        package.writestr("CIK0000000001.json", json.dumps(payload))
+    state = _state(state_module)
+    local = state.import_sec_submissions_bulk(archive, cik="1", instrument_id="ONE", cache_dir=tmp_path / "local")
+    assert "partial" in local and "Filing bytes may be missing" in local
+    assert state.sec_submissions_result.records
+    assert state.sec_submissions_result.manifest_path.is_file()
+    assert all(doc.provider_id == "sec_local_import" for doc in state.sec_submissions_result.raw_documents)
+    assert "unavailable" in state.fetch_sec_submissions_bulk("1", instrument_id="ONE", cache_dir=tmp_path / "cache", cache_only=True)
+    _persisted_identity(tmp_path / "identity.parquet")
+    provider = SecEdgarProvider("ETF Research owner@company.eu", cache_dir=tmp_path / "cache", transport=lambda *_: (archive.read_bytes(), 200, {}), rate_limit_seconds=0)
+    monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *a, **k: provider)
+    assert "partial" in state.fetch_sec_submissions_bulk("1", instrument_id="ONE", user_agent=provider.user_agent, cache_dir=tmp_path / "cache")
+    provider.transport = lambda *_: pytest.fail("cache and cancellation must stay offline")
+    assert "partial" in state.fetch_sec_submissions_bulk("1", instrument_id="ONE", cache_dir=tmp_path / "cache", cache_only=True)
+    before = state.sec_submissions_result.manifest_path.read_bytes()
+    def cancel():
+        raise WorkflowTransitionError("cancelled")
+    with pytest.raises(WorkflowTransitionError):
+        state.fetch_sec_submissions_bulk("1", instrument_id="ONE", cache_dir=tmp_path / "cache", cache_only=True, publish_guard=cancel)
+    assert state.sec_submissions_result.manifest_path.read_bytes() == before
+    cold = _state(state_module)
+    assert "no same-session acquisition proof" in cold.fetch_sec_submissions_bulk("1", instrument_id="ONE", cache_dir=tmp_path / "cache", cache_only=True)
+
+
+def test_bulk_activity_session_evidence_preserves_partial_warning(tmp_path, monkeypatch):
+    from etf_cockpit.app import state as state_module
+    from etf_cockpit.core import session_log
+    from etf_cockpit.core.workflow import WorkflowController
+
+    _configure_state(state_module, tmp_path, monkeypatch)
+    monkeypatch.setattr(state_module.AppState, "refresh_runtime_profile", lambda self: None)
+    log = tmp_path / "session.jsonl"
+    monkeypatch.setattr(state_module, "ACTIVITY_LOG_PATH", log)
+    monkeypatch.setattr(session_log, "SESSION_LOG_PATH", log)
+    state = state_module.AppState(snapshot=SimpleNamespace(), selected_etf="ETF", workflow_controller=WorkflowController(log_path=log))
+    archive = tmp_path / "partial.zip"
+    payload = json.loads(_facts())
+    payload["facts"]["us-gaap"]["Assets"]["units"]["EUR"] = payload["facts"]["us-gaap"]["Assets"]["units"]["USD"]
+    payload["facts"]["us-gaap"]["Revenues"] = {"units": {"USD": [{"val": 2, "end": "2024-12-31", "form": "10-K", "filed": "2025-01-01"}]}}
+    with zipfile.ZipFile(archive, "w") as package:
+        package.writestr("CIK0000000001.json", json.dumps(payload))
+    activity = state.begin_activity("Import SEC companyfacts bulk")
+    with state.share_activity(activity.action_id):
+        result = state.import_sec_companyfacts_bulk(archive, cik="1", instrument_id="ONE", cache_dir=tmp_path / "cache", publish_guard=lambda: state.activity_publication(activity.action_id))
+        state.finish_activity(result, expected_action_id=activity.action_id)
+    assert "partial" in result
+    assert "ambiguous_unit" in result
+    assert state.sec_companyfacts_bulk_message == result
+    copied = tmp_path / "audit" / "session.jsonl"
+    assert session_log.copy_session_log_to(copied)
+    evidence = copied.read_text()
+    assert "sha256=" in evidence and "partial" in evidence and "ambiguous_unit" in evidence
+    assert "execution_allowed=false" in evidence

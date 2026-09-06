@@ -24,6 +24,7 @@ from etf_cockpit.core.timing import timed_step
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowController, WorkflowStatus, WorkflowStep, WorkflowTransitionError, publication_scope
 from etf_cockpit.application.api import LocalApplicationApi
 from etf_cockpit.application.sec_bulk_import import BulkImportResult, import_sec_companyfacts_bulk as _import_sec_companyfacts_bulk
+from etf_cockpit.application.sec_submissions_import import SubmissionsImportResult, import_sec_submissions as _import_sec_submissions
 from etf_cockpit.core.job_scheduler import DurableJobScheduler
 from etf_cockpit.data.trust_artifacts import IDENTITY_PATH, refresh_static_trust_artifacts, write_trust_artifacts_for_scores
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
@@ -998,7 +999,7 @@ class AppState:
                     )
                     if bulk_result.overall_status in {"complete", "partial"}:
                         self.last_message = _bulk_result_message(bulk_result, "SEC cached bulk import", context=bulk_reason)
-                        self._record_activity_output("SEC statement evidence published", STATEMENT_FACTS_PATH)
+                        self._record_sec_bulk_outputs(bulk_result)
                         return self.last_message
                     detail = next((item.detail for item in bulk_result.per_cik if item.detail), "")
                     bulk_reason = f"cached bulk import failed: {detail or bulk_result.overall_status}"
@@ -1069,7 +1070,7 @@ class AppState:
                 normalised_cik = _normalise_sec_cik(cik)
                 if normalised_cik is None:
                     raise ValueError("SEC bulk import requires a valid selected CIK")
-                selected = _build_sec_bulk_identity(normalised_cik, instrument_id)
+                selected = _build_sec_bulk_identity(normalised_cik, instrument_id, allow_manual=True)
                 if selected is None:
                     raise ValueError("SEC bulk import requires a unique persisted CIK-to-instrument identity")
             else:
@@ -1093,7 +1094,7 @@ class AppState:
             self.last_message = _bulk_result_message(result, "SEC bulk import")
             if result.overall_status not in {"complete", "partial"}:
                 return _legacy_unavailable(self, self.last_message)
-            self._record_activity_output("SEC statement evidence published", STATEMENT_FACTS_PATH)
+            self._record_sec_bulk_outputs(result)
             return self.last_message
         except (ActivityUnavailableError, WorkflowTransitionError):
             raise
@@ -1109,6 +1110,7 @@ class AppState:
         cache_dir: Path | None = None,
         user_agent: str | None = None,
         publish_guard: PublicationScopeFactory | None = None,
+        cache_only: bool = False,
     ) -> str:
         """Explicitly acquire the nightly bulk archive and import one CIK."""
 
@@ -1120,23 +1122,26 @@ class AppState:
                 reason = _sec_bulk_identity_reason(normalised_cik, instrument_id) if normalised_cik is not None else "requested CIK is malformed"
                 raise ValueError(f"SEC bulk refresh rejected before acquisition: {reason}")
             configured_agent = str(user_agent or os.getenv("ETF_COCKPIT_SEC_EDGAR_USER_AGENT") or "").strip()
-            if not configured_agent:
+            if not configured_agent and not cache_only:
                 raise ValueError("explicit SEC bulk refresh requires a configured name and contact email")
             cache_root = cache_dir or (RAW_DIR / "sec_edgar")
             provider = getattr(self, "_sec_bulk_provider", None)
-            if provider is None or Path(provider.cache_dir).resolve() != Path(cache_root).resolve() or provider.user_agent != configured_agent:
+            if cache_only:
+                if provider is None or Path(provider.cache_dir).resolve() != Path(cache_root).resolve():
+                    raise SecEdgarBulkUnavailable("SEC bulk cache unavailable: no same-session acquisition proof")
+            elif provider is None or Path(provider.cache_dir).resolve() != Path(cache_root).resolve() or provider.user_agent != configured_agent:
                 provider = SecEdgarProvider(configured_agent, cache_dir=cache_root)
                 self._sec_bulk_provider = provider
             statement_import_started = True
             result = provider.import_companyfacts_bulk(
-                (selected,), import_cache_dir=cache_root,
+                (selected,), import_cache_dir=cache_root, cache_only=cache_only,
                 facts_destination=STATEMENT_FACTS_PATH, inventory_destination=FILINGS_STATEMENTS_PATH,
                 publish_guard=publish_guard,
             )
             self.last_message = _bulk_result_message(result, "SEC bulk import")
             if result.overall_status not in {"complete", "partial"}:
                 return _legacy_unavailable(self, self.last_message)
-            self._record_activity_output("SEC statement evidence published", STATEMENT_FACTS_PATH)
+            self._record_sec_bulk_outputs(result)
             return self.last_message
         except (ActivityUnavailableError, WorkflowTransitionError):
             raise
@@ -1145,6 +1150,85 @@ class AppState:
             return _legacy_unavailable(self, self.last_message, exc)
         except Exception as exc:
             self.last_message = f"SEC bulk refresh unavailable: {_sec_failure_detail(exc)}. {_sec_failure_state(statement_import_started)}"
+            return _legacy_unavailable(self, self.last_message, exc)
+
+    def _record_sec_bulk_outputs(self, result: BulkImportResult) -> None:
+        message = self.last_message
+        self.sec_companyfacts_bulk_message = message
+        self._record_activity_output("SEC statement facts published", STATEMENT_FACTS_PATH)
+        self._record_activity_output("SEC statement inventory published", FILINGS_STATEMENTS_PATH)
+        if result.checkpoint_path is not None:
+            members = ",".join(str(item.member_sha256 or "missing") for item in result.per_cik[:3])
+            self._record_activity_output(f"SEC {result.overall_status}; archive sha256={result.archive_sha256}; member sha256={members}; {message[:512]}", result.checkpoint_path)
+        self.last_message = message
+
+    def _finish_sec_submissions_import(self, result: SubmissionsImportResult) -> str:
+        self.sec_submissions_result = result
+        warnings = ",".join(str(item.get("code", "warning")) for item in result.warnings[:5])
+        self.last_message = redact_text(
+            f"SEC submissions import {result.status}: {len(result.records)} filing records; "
+            f"warnings={warnings or 'none'}; {result.detail}. Filing bytes may be missing; "
+            "execution_allowed=false."
+        )[:2048]
+        if result.status not in {"complete", "partial"}:
+            return _legacy_unavailable(self, self.last_message)
+        message = self.last_message
+        if result.manifest_path is not None:
+            self._record_activity_output("SEC submissions manifest retained", result.manifest_path)
+        for document in result.raw_documents[:3]:
+            self._record_activity_output(f"SEC submissions sha256={document.sha256}", document.path)
+        self.last_message = message
+        return message
+
+    def import_sec_submissions_bulk(
+        self, archive: Path, *, cik: str | None = None, instrument_id: str | None = None,
+        identity: CanonicalIdentity | None = None, cache_dir: Path | None = None,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> str:
+        """Import local submissions metadata with explicit manual identity."""
+        try:
+            normalised = _normalise_sec_cik(cik) if cik is not None else None
+            selected = identity or (_build_sec_bulk_identity(normalised, instrument_id, allow_manual=True) if normalised else None)
+            if selected is None:
+                raise ValueError("SEC submissions import requires a selected CIK and canonical instrument identity")
+            _validate_sec_bulk_identity(selected)
+            result = _import_sec_submissions(Path(archive), selected, cache_dir=cache_dir or (RAW_DIR / "sec_edgar"), publish_guard=publish_guard)
+            return self._finish_sec_submissions_import(result)
+        except (ActivityUnavailableError, WorkflowTransitionError):
+            raise
+        except Exception as exc:
+            self.last_message = f"SEC submissions import unavailable: {_sec_failure_detail(exc)}; execution_allowed=false."
+            return _legacy_unavailable(self, self.last_message, exc)
+
+    def fetch_sec_submissions_bulk(
+        self, cik: str, *, instrument_id: str | None = None, cache_dir: Path | None = None,
+        user_agent: str | None = None, publish_guard: PublicationScopeFactory | None = None,
+        cache_only: bool = False,
+    ) -> str:
+        """Explicitly acquire or select same-session submissions evidence."""
+        try:
+            normalised = _normalise_sec_cik(cik)
+            selected = _build_sec_bulk_identity(normalised, instrument_id) if normalised else None
+            if selected is None:
+                raise ValueError("SEC submissions refresh requires a unique persisted CIK-to-instrument identity")
+            configured_agent = str(user_agent or os.getenv("ETF_COCKPIT_SEC_EDGAR_USER_AGENT") or "").strip()
+            cache_root = cache_dir or (RAW_DIR / "sec_edgar")
+            provider = getattr(self, "_sec_bulk_provider", None)
+            if cache_only:
+                if provider is None or Path(provider.cache_dir).resolve() != Path(cache_root).resolve():
+                    raise SecEdgarBulkUnavailable("SEC bulk cache unavailable: no same-session acquisition proof")
+            else:
+                if not configured_agent:
+                    raise ValueError("SEC submissions refresh requires name and contact email")
+                if provider is None or Path(provider.cache_dir).resolve() != Path(cache_root).resolve() or provider.user_agent != configured_agent:
+                    provider = SecEdgarProvider(configured_agent, cache_dir=cache_root)
+                    self._sec_bulk_provider = provider
+            result = provider.import_submissions_bulk(selected, import_cache_dir=cache_root, cache_only=cache_only, publish_guard=publish_guard)
+            return self._finish_sec_submissions_import(result)
+        except (ActivityUnavailableError, WorkflowTransitionError):
+            raise
+        except Exception as exc:
+            self.last_message = f"SEC submissions refresh unavailable: {_sec_failure_detail(exc)}; raw cache may have changed; execution_allowed=false."
             return _legacy_unavailable(self, self.last_message, exc)
 
     def import_esef_package(
@@ -1600,11 +1684,13 @@ def _validate_sec_bulk_identity(identity: CanonicalIdentity) -> str:
     return cik
 
 
-def _build_sec_bulk_identity(cik: str, instrument_id: str | None) -> CanonicalIdentity | None:
+def _build_sec_bulk_identity(cik: str, instrument_id: str | None, *, allow_manual: bool = False) -> CanonicalIdentity | None:
     if instrument_id is not None and (not isinstance(instrument_id, str) or not instrument_id or instrument_id != instrument_id.strip()):
         return None
     requested = instrument_id or ""
     persisted = _persisted_sec_instruments(cik, requested or None)
+    if allow_manual and persisted == () and requested:
+        persisted = (requested,)
     if persisted is None or len(persisted) != 1:
         return None
     resolved = requested or persisted[0]
