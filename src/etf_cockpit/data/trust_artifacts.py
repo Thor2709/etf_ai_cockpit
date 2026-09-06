@@ -1808,6 +1808,7 @@ def _append_filings_statement_inventory(identity: pd.DataFrame) -> Path:
 
     guard_path = FILINGS_STATEMENTS_PATH.with_name(f"{FILINGS_STATEMENTS_PATH.name}.guard")
     with persistent_file_guard(guard_path):
+        wait_for_atomic_group(FILINGS_STATEMENTS_PATH)
         return _append_parquet(
             FILINGS_STATEMENTS_PATH,
             _local_document_inventory("filings", RAW_DIR / "filings", identity),

@@ -178,3 +178,46 @@ def test_failed_paired_publication_preserves_generation_and_releases_guards(
     write_statement_evidence(_source(tmp_path, "2"), (_record("2", 2),), facts, inventory, instrument_id="I2")
     assert set(pd.read_parquet(facts)["instrument_id"]) == {"I1", "I2"}
     assert set(pd.read_parquet(inventory)["instrument_id"]) == {"I1", "I2"}
+
+@pytest.mark.parametrize("next_operation", ["paired", "facts", "inventory", "trust", "checkpoint"])
+def test_pending_partial_pair_recovers_before_read_merge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, next_operation: str,
+) -> None:
+    from etf_cockpit.core.atomic_io import AtomicWriteInterrupted
+    from etf_cockpit.data import trust_artifacts
+
+    facts = tmp_path / "facts.parquet"
+    inventory = tmp_path / "inventory.parquet"
+    write_statement_evidence(_source(tmp_path, "1"), (_record("1", 1),), facts, inventory, instrument_id="I1")
+    original_replace = Path.replace
+
+    def interrupt_after_facts(path, destination):
+        result = original_replace(path, destination)
+        if Path(destination) == facts:
+            raise AtomicWriteInterrupted("crash after first replacement")
+        return result
+
+    with monkeypatch.context() as crash:
+        crash.setattr(Path, "replace", interrupt_after_facts)
+        with pytest.raises(AtomicWriteInterrupted):
+            write_statement_evidence(_source(tmp_path, "2"), (_record("2", 2),), facts, inventory, instrument_id="I2")
+    assert set(pd.read_parquet(facts)["instrument_id"]) == {"I1", "I2"}
+    assert set(pd.read_parquet(inventory)["instrument_id"]) == {"I1"}
+    source = _source(tmp_path, "3")
+    if next_operation == "paired":
+        write_statement_evidence(source, (_record("3", 3),), facts, inventory, instrument_id="I3")
+    elif next_operation == "facts":
+        write_statement_facts((_record("3", 3),), facts)
+    elif next_operation == "inventory":
+        write_statement_inventory(source, (_record("3", 3),), inventory, instrument_id="I3")
+    elif next_operation == "trust":
+        monkeypatch.setattr(trust_artifacts, "FILINGS_STATEMENTS_PATH", inventory)
+        monkeypatch.setattr(trust_artifacts, "_local_document_inventory", lambda *_: pd.DataFrame([{"document_id": "local:3", "checksum": "3", "instrument_id": "I3"}]))
+        trust_artifacts._append_filings_statement_inventory(pd.DataFrame())
+    else:
+        with sec_facts._statement_store_guards((facts, inventory)):
+            assert set(pd.read_parquet(facts)["instrument_id"]) == {"I1"}
+            assert set(pd.read_parquet(inventory)["instrument_id"]) == {"I1"}
+    assert set(pd.read_parquet(facts)["instrument_id"]) == ({"I1", "I3"} if next_operation in {"paired", "facts"} else {"I1"})
+    assert set(pd.read_parquet(inventory)["instrument_id"]) == ({"I1", "I3"} if next_operation in {"paired", "inventory", "trust"} else {"I1"})
+    assert not list(tmp_path.rglob(".atomic-write-group.lock"))

@@ -84,17 +84,21 @@ def test_checked_official_companyfacts_fixture_imports_from_selected_zip(tmp_pat
     assert pd.read_parquet(tmp_path / "inventory.parquet")["checksum"].notna().all()
 
 
-def test_official_provenance_uses_archive_url_and_member_lineage(tmp_path: Path) -> None:
+@pytest.mark.parametrize("status", [200, 206, 304])
+def test_public_provenance_remains_manual_with_member_lineage(tmp_path: Path, status: int) -> None:
     archive = _archive(tmp_path, {"CIK0000000001.json": _facts()})
     archive_sha256 = hashlib.sha256(archive.read_bytes()).hexdigest()
-    provenance = RawDocument(archive, SEC_COMPANYFACTS_BULK_URL, datetime(2026, 9, 3, tzinfo=timezone.utc), archive_sha256, "sec_edgar", SEC_COMPANYFACTS_BULK_DOCUMENT_TYPE, "application/zip", 200)
+    provenance = RawDocument(archive, SEC_COMPANYFACTS_BULK_URL, datetime(2026, 9, 3, tzinfo=timezone.utc), archive_sha256, "sec_edgar", SEC_COMPANYFACTS_BULK_DOCUMENT_TYPE, "application/zip", status)
 
     result = _run(archive, tmp_path, provenance=provenance)
 
     assert result.per_cik[0].status == "imported"
-    assert pd.read_parquet(tmp_path / "facts.parquet")["source_id"].astype(str).str.startswith("sec_edgar:").all()
+    assert pd.read_parquet(tmp_path / "facts.parquet")["source_id"].astype(str).str.startswith("sec_local_import:").all()
     row = pd.read_parquet(tmp_path / "inventory.parquet").iloc[0]
-    assert row["source_url"] == SEC_COMPANYFACTS_BULK_URL
+    assert row["source_url"].startswith("file:")
+    assert row["source_authority"] == "manual_review"
+    assert row["ingested_at"] != provenance.retrieved_at.isoformat()
+    assert set(pd.read_parquet(tmp_path / "facts.parquet")["authority_selection"]) == {"manual_review"}
     assert row["checksum"] == hashlib.sha256((tmp_path / "cache" / "sec_companyfacts_bulk" / "members" / archive_sha256 / "CIK0000000001.json").read_bytes()).hexdigest()
 
 
@@ -227,7 +231,7 @@ def test_bulk_import_never_uses_network_and_cancellation_propagates(tmp_path: Pa
         _run(archive, tmp_path, publish_guard=lambda: (_ for _ in ()).throw(WorkflowTransitionError("cancelled")))
 
 
-def test_resume_binds_current_local_and_official_provenance(tmp_path: Path) -> None:
+def test_resume_cannot_upgrade_local_evidence_with_public_provenance(tmp_path: Path) -> None:
     archive = _archive(tmp_path, {"CIK0000000001.json": _facts()})
     local = _run(archive, tmp_path)
     official = RawDocument(archive, SEC_COMPANYFACTS_BULK_URL, datetime(2026, 9, 3, tzinfo=timezone.utc), hashlib.sha256(archive.read_bytes()).hexdigest(), "sec_edgar", SEC_COMPANYFACTS_BULK_DOCUMENT_TYPE, "application/zip", 200)
@@ -235,19 +239,20 @@ def test_resume_binds_current_local_and_official_provenance(tmp_path: Path) -> N
     demoted = _run(archive, tmp_path)
 
     assert local.per_cik[0].status == "imported"
-    assert promoted.per_cik[0].status == "imported"
-    assert demoted.per_cik[0].status == "imported"
-    assert set(pd.read_parquet(tmp_path / "inventory.parquet")["source_authority"]) == {"manual_review", "official_regulator"}
+    assert promoted.per_cik[0].status == "skipped"
+    assert demoted.per_cik[0].status == "skipped"
+    assert set(pd.read_parquet(tmp_path / "inventory.parquet")["source_authority"]) == {"manual_review"}
 
 
-def test_official_changed_acquisition_timestamp_reimports(tmp_path: Path) -> None:
+def test_public_changed_acquisition_timestamp_does_not_rewrite_local_capture(tmp_path: Path) -> None:
     archive = _archive(tmp_path, {"CIK0000000001.json": _facts()})
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     first = _run(archive, tmp_path, provenance=RawDocument(archive, SEC_COMPANYFACTS_BULK_URL, datetime(2026, 9, 3, 1, tzinfo=timezone.utc), digest, "sec_edgar", SEC_COMPANYFACTS_BULK_DOCUMENT_TYPE, "application/zip", 200))
     second = _run(archive, tmp_path, provenance=RawDocument(archive, SEC_COMPANYFACTS_BULK_URL, datetime(2026, 9, 3, 2, tzinfo=timezone.utc), digest, "sec_edgar", SEC_COMPANYFACTS_BULK_DOCUMENT_TYPE, "application/zip", 200))
 
-    assert first.per_cik[0].status == second.per_cik[0].status == "imported"
-    assert pd.read_parquet(tmp_path / "inventory.parquet").iloc[-1]["ingested_at"].startswith("2026-09-03T02:00:00")
+    assert first.per_cik[0].status == "imported"
+    assert second.per_cik[0].status == "skipped"
+    assert not pd.read_parquet(tmp_path / "inventory.parquet").iloc[-1]["ingested_at"].startswith("2026-09-03T02:00:00")
 
 
 def test_resume_reimports_when_one_fact_or_inventory_is_tampered(tmp_path: Path) -> None:
@@ -399,3 +404,33 @@ def test_cache_capacity_failure_is_controlled_archive_failure(tmp_path: Path, mo
     assert result.overall_status == "failed"
     assert result.per_cik[0].status == "failed"
     assert "BulkCacheError" in result.per_cik[0].detail
+
+@pytest.mark.parametrize("zip64", [False, True])
+@pytest.mark.parametrize("limit", ["MAX_BULK_MEMBERS", "MAX_CENTRAL_DIRECTORY_BYTES"])
+def test_import_bounds_directory_before_zipfile_allocation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, zip64: bool, limit: str) -> None:
+    from etf_cockpit.data import sec_edgar_bulk
+
+    archive = _archive(tmp_path, {"CIK0000000001.json": _facts()})
+    if zip64:
+        payload = archive.read_bytes()
+        eocd = payload[-22:]
+        size, offset = struct.unpack_from("<II", eocd, 12)
+        record = struct.pack("<4sQ2H2I4Q", b"PK\x06\x06", 44, 45, 45, 0, 0, 1, 1, size, offset)
+        locator = struct.pack("<4sIQI", b"PK\x06\x07", 0, len(payload) - 22, 1)
+        archive.write_bytes(payload[:-22] + record + locator + eocd)
+    monkeypatch.setattr(sec_edgar_bulk, limit, 0)
+    monkeypatch.setattr(zipfile, "ZipFile", lambda *_args, **_kwargs: pytest.fail("allocated member table before bounded admission"))
+    result = _run(archive, tmp_path)
+    assert result.overall_status == "failed"
+    assert not (tmp_path / "facts.parquet").exists()
+
+
+def test_import_accepts_valid_zip64_before_member_selection(tmp_path: Path) -> None:
+    archive = _archive(tmp_path, {"CIK0000000001.json": _facts()})
+    payload = archive.read_bytes()
+    eocd = payload[-22:]
+    size, offset = struct.unpack_from("<II", eocd, 12)
+    record = struct.pack("<4sQ2H2I4Q", b"PK\x06\x06", 44, 45, 45, 0, 0, 1, 1, size, offset)
+    locator = struct.pack("<4sIQI", b"PK\x06\x07", 0, len(payload) - 22, 1)
+    archive.write_bytes(payload[:-22] + record + locator + eocd)
+    assert _run(archive, tmp_path).per_cik[0].status == "imported"

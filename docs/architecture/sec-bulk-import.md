@@ -13,7 +13,9 @@ members are streamed to hash-checked files below the full archive hash.
 Member names, duplicate entries, traversal/absolute names, links, encryption,
 sizes, compression ratios, compressed archive bytes, selected-member bytes
 (256 MiB each; 512 MiB selected aggregate), and path/link boundaries are
-validated before parsing. Unselected members are never extracted and their
+validated before parsing. The parent acquisition container validator checks
+EOCD/ZIP64 declarations and actual bounded central-directory spans before
+`ZipFile` can allocate its member table. Unselected members are never extracted and their
 uncompressed sizes are not treated as an extraction claim.
 Requested CIKs are processed independently, so missing, malformed, or failed
 members are disclosed per CIK and do not erase previously published evidence.
@@ -31,11 +33,12 @@ facts and inventory writers, paired evidence publication, and the trust-refresh
 inventory append hold the same persistent destination sidecars across their
 complete read/merge/write operation. Multi-store acquisition deduplicates
 resolved paths and uses a stable case-insensitive order; guards are released
-on all exits, including cancellation. Checkpoint reads release these
-non-reentrant guards before invoking a writer. Switching
-between local and official provenance revalidates and replaces that CIK's
-checkpoint, while retaining both sources in the canonical stores.
-Persisted acquisition time must match the checkpoint time for both providers;
+on all exits, including cancellation. Under those sidecars, the existing
+atomic-group recovery API resolves pending transactions before any store read
+or merge. Its native guards release before publication; no recovery protocol
+is added. Checkpoint reads release the non-reentrant statement guards before
+invoking a writer.
+Persisted acquisition time must match the checkpoint time;
 local resumes do not substitute the new invocation's clock. Inventory execution
 authority must be explicitly false. Fact authority selections are revalidated
 using the canonical writer's existing selection functions over the retained
@@ -52,15 +55,14 @@ facts/inventory publication whose checkpoint write fails is reported as
 published-but-pending, not as a failed publication. Parser warnings are
 returned and replayed on resume; warning-bearing imports are partial coverage.
 
-With validated official provenance, persisted source fields are the bulk SEC
-URL, aware acquisition timestamp, `sec_edgar` provider, member checksum/path,
-and `sec_companyfacts_bulk` document type; inventory retains its existing
-identity and `official_regulator` authority. The member remains lineaged to
-the supplied bulk archive rather than represented as a fabricated per-CIK
-download. Without validated provenance, the source is explicitly local
-(`file://` member URL, current aware import timestamp, `sec_local_import`),
-source IDs are rewritten to that local prefix, and records/inventory carry
-`manual_review`; this does not add new manual-import authority protection.
+Public `RawDocument` provenance is a caller-authored description, never proof
+of official acquisition. Valid descriptions are checked for consistency but
+cannot upgrade authority or supply the retained acquisition time. Imports
+remain explicitly local (`file://` member URL, aware local capture timestamp,
+`sec_local_import` source IDs and `manual_review` facts/inventory). Resume
+retains the original proved local capture timestamp. Invalid descriptions
+fail closed. A provider-fused official companyfacts import remains a later
+integration gap; sidecars and checkpoint metadata cannot construct that proof.
 
 Cancellation raises the existing `WorkflowTransitionError` at cache, member,
 statement publication, and checkpoint boundaries; it cannot authorize a

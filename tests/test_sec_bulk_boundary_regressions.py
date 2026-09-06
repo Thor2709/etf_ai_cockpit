@@ -291,7 +291,7 @@ def test_trust_refresh_and_canonical_statement_writer_serialize_on_same_guard(
     assert facts_path.is_file()
 
 
-def test_resume_matches_provider_specific_inventory_rows_and_preserves_both_sources(tmp_path: Path) -> None:
+def test_resume_public_provenance_cannot_create_official_inventory_rows(tmp_path: Path) -> None:
     archive = _archive(tmp_path, {"CIK0000000001.json": _facts()})
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     official = RawDocument(
@@ -314,12 +314,12 @@ def test_resume_matches_provider_specific_inventory_rows_and_preserves_both_sour
 
     assert local_first.per_cik[0].status == "imported"
     assert local_resume.per_cik[0].status == "skipped"
-    assert official_first.per_cik[0].status == "imported"
+    assert official_first.per_cik[0].status == "skipped"
     assert official_resume.per_cik[0].status == "skipped"
-    assert local_switch.per_cik[0].status == "imported"
+    assert local_switch.per_cik[0].status == "skipped"
     assert local_repeat.per_cik[0].status == "skipped"
     inventory = pd.read_parquet(tmp_path / "inventory.parquet")
-    assert set(inventory["source_authority"]) == {"manual_review", "official_regulator"}
+    assert set(inventory["source_authority"]) == {"manual_review"}
 
 
 @pytest.mark.parametrize("official", [False, True])
@@ -346,7 +346,7 @@ def test_resume_repairs_altered_persisted_time_and_authority(
     if field == "ingested_at":
         frame[field] = "2000-01-01T00:00:00+00:00"
     elif field == "authority_selection":
-        frame[field] = "manual_review" if official else "canonical_sec"
+        frame[field] = "canonical_sec"
     else:
         frame[field] = True
     frame.to_parquet(path, index=False)
@@ -359,7 +359,7 @@ def test_resume_repairs_altered_persisted_time_and_authority(
     checkpoint = json.loads(repaired.checkpoint_path.read_text(encoding="utf-8"))
     assert inventory.iloc[0]["ingested_at"] == checkpoint["entries"]["0000000001"]["retrieved_at"]
     assert inventory.iloc[0]["executable_authority"].item() is False
-    assert set(facts["authority_selection"]) == {"canonical_sec" if official else "manual_review"}
+    assert set(facts["authority_selection"]) == {"manual_review"}
     assert _run(archive, tmp_path, provenance=provenance).per_cik[0].status == "skipped"
 
 
@@ -379,14 +379,14 @@ def test_resume_replays_authority_after_a_newer_canonical_writer_fact(tmp_path: 
     )
     frame = pd.read_parquet(tmp_path / "facts.parquet")
     older_rows = frame["source_id"] != newer.source_id
-    assert set(frame.loc[older_rows, "authority_selection"]) == {"retained_sec"}
+    assert set(frame.loc[older_rows, "authority_selection"]) == {"manual_review"}
     assert _run(archive, tmp_path, provenance=provenance).per_cik[0].status == "skipped"
 
     frame.loc[older_rows, "authority_selection"] = "canonical_sec"
     frame.to_parquet(tmp_path / "facts.parquet", index=False)
     assert _run(archive, tmp_path, provenance=provenance).per_cik[0].status == "imported"
     repaired = pd.read_parquet(tmp_path / "facts.parquet")
-    assert set(repaired.loc[repaired["source_id"] != newer.source_id, "authority_selection"]) == {"retained_sec"}
+    assert set(repaired.loc[repaired["source_id"] != newer.source_id, "authority_selection"]) == {"manual_review"}
     assert set(repaired.loc[repaired["source_id"] == newer.source_id, "authority_selection"]) == {"canonical_sec"}
     assert _run(archive, tmp_path, provenance=provenance).per_cik[0].status == "skipped"
 

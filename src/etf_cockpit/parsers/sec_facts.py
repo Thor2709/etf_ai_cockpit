@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
-from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group, parquet_payload, validate_parquet_file
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group, parquet_payload, validate_parquet_file, wait_for_atomic_group
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import FILINGS_STATEMENTS_PATH
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
@@ -333,6 +333,8 @@ def _statement_store_guards(destinations: Iterable[Path]):
     with ExitStack() as stack:
         for path in paths:
             stack.enter_context(persistent_file_guard(path.with_name(f"{path.name}.guard")))
+        for path in paths:
+            wait_for_atomic_group(path)
         yield
 
 

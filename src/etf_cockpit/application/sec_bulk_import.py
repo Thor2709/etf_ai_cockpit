@@ -27,6 +27,7 @@ from etf_cockpit.data.bulk_cache import (
     ArchiveValidationError,
     ContentAddressedCache,
 )
+from etf_cockpit.data.sec_edgar_bulk import SecEdgarBulkError, _validate_zip_container
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
 from etf_cockpit.parsers.contracts import RawDocument
 from etf_cockpit.parsers.sec_facts import (
@@ -100,6 +101,8 @@ def import_sec_companyfacts_bulk(
     archive_path = Path(archive)
     try:
         archive_sha256 = _validate_archive_source(archive_path, provenance)
+        # Public metadata can describe origin, but cannot attest acquisition.
+        provenance = None
         _validate_cache_root(Path(cache_dir))
         # Check the unresolved namespace before the cache constructor resolves it.
         _validate_namespace_path(Path(cache_dir) / "sec_companyfacts_bulk", Path(cache_dir))
@@ -130,6 +133,7 @@ def import_sec_companyfacts_bulk(
             raise ArchiveValidationError("cached bulk archive checksum does not match the source")
         checkpoint_path = cache.base / "checkpoints" / f"{archive_sha256}.json"
         checkpoint = _load_checkpoint(checkpoint_path, archive_sha256)
+        _validate_zip_container(archive_object, "companyfacts")
         with zipfile.ZipFile(archive_object) as package:
             selected_names = {f"CIK{_normalise_cik(identity.cik)}.json" for identity in requested if _normalise_cik(identity.cik) is not None}
             members = _validated_members(package, selected_names)
@@ -148,7 +152,7 @@ def import_sec_companyfacts_bulk(
             )
     except WorkflowTransitionError:
         raise
-    except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile, ArchiveValidationError, BulkCacheError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile, ArchiveValidationError, BulkCacheError, SecEdgarBulkError) as exc:
         return _failed_result(f"bulk archive unavailable: {type(exc).__name__}: {exc}", requested, archive_sha256 if "archive_sha256" in locals() else None)
 
     statuses = tuple(results)

@@ -1,5 +1,36 @@
 # B04 Analysis Spine
 
+## Companyfacts component consolidated correction — 2026-09-06
+
+Both independent reviewers reject `9e56499c959f2fe09b3659c9c4c8019c164bc054`.
+The complete finding set is: canonical writers read stores before pending
+atomic transactions recover, public `RawDocument` metadata can grant official
+authority, and ZIP directory limits are checked after member-table allocation.
+An interrupted-pair regression reproduced facts without matching inventory
+after a later writer completed. Preserve the rejected head and its 102-pass
+reports; they are not acceptance evidence.
+
+One consolidated repair in fresh
+`C:/dev/etf-sec-companyfacts-correction-20260906` must recover before store
+reads through existing compatible atomic APIs, retain manual authority for
+public inputs, and use the parent's bounded container check before allocation.
+The owning implementation scope excludes core atomic API changes, frozen PR726
+files, score methods, and programme authority. Escalate if existing APIs cannot
+satisfy the recovery contract without wider changes. New targeted regressions,
+affected dual-runtime evidence, replacement reviews and H-tier gates are
+required before integration. No whole-issue completion is claimed.
+
+The consolidated repair now invokes existing atomic recovery under statement
+sidecars before reads, retains manual authority for public archive metadata,
+and validates bounded EOCD/ZIP64 structure before `ZipFile` allocation. New
+interrupted-pair regressions cover paired/individual/trust/checkpoint paths.
+Both affected runtime selections pass 114 tests with four existing host symlink
+skips, with JUnit at `logs/companyfacts-corrected312.xml` and
+`logs/companyfacts-corrected313.xml`; Ruff, dual compilation and diff hygiene
+pass. Root inspected the completed source/doc diff and both reports. Freeze for
+replacement paired review. The official fused companyfacts path remains an
+explicit later integration gap; no proof is invented from caller metadata.
+
 ## Canonical statement-writer prerequisite — 2026-09-06
 
 The read-only planner traced the missing guard to omitted historical source
