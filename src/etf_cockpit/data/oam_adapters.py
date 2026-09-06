@@ -28,6 +28,7 @@ import xml.etree.ElementTree as ET
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 
@@ -82,6 +83,9 @@ class OAMRecord:
     identity_status: str
     amendment_of: str = ""
     warnings: tuple[str, ...] = ()
+    claimed_available_at: str | None = None
+    manual_review: bool = False
+    execution_allowed: bool = False
 
 
 @dataclass(frozen=True)
@@ -225,6 +229,80 @@ class OAMAdapter:
                 warnings=("unsupported_structured_export",),
             )
 
+    def discover_local(
+        self,
+        source_path: Path,
+        request: OAMDiscoveryRequest | None = None,
+    ) -> OAMDiscoveryResult:
+        """Discover records from one user-owned structured export without network I/O.
+
+        Local imports deliberately bypass ``enabled``, the endpoint and the
+        transport.  The source bytes are retained under a content-addressed
+        snapshot before parsing, while every parsed record remains explicitly
+        local/manual-review evidence rather than official authority.
+        """
+
+        request = request or OAMDiscoveryRequest()
+        snapshot: OAMSnapshot | None = None
+        try:
+            path = Path(source_path)
+            payload, media_type = _read_local_oam_export(path)
+            source_url = path.resolve().as_uri()
+            snapshot = self._snapshot(
+                source_url,
+                _Response(payload, 200, {"content-type": media_type}),
+                force_materialize=True,
+            )
+            rows = self._parse(payload, media_type)
+            if not rows:
+                raise ValueError("Local OAM export contains no structured filing records")
+            records = self._normalise_records(
+                rows,
+                request,
+                source_authority="local_user_import",
+                local_source_url=source_url,
+                snapshot_sha256=snapshot.sha256,
+                observed_at=snapshot.retrieved_at,
+            )
+            if not records:
+                return OAMDiscoveryResult(
+                    self.provider_id,
+                    "manual_review",
+                    "No local OAM records matched the request; manual review is required.",
+                    snapshot=snapshot,
+                    coverage=self._coverage(0, request, "manual_review", source_authority="local_user_import"),
+                    manual_fallback=True,
+                    warnings=("no_unambiguous_match", "local_user_import", "manual_review_required"),
+                )
+            if self._ambiguous(records, request):
+                return OAMDiscoveryResult(
+                    self.provider_id,
+                    "manual_review",
+                    "Multiple local issuer records matched; supply an ISIN before selecting a document.",
+                    snapshot=snapshot,
+                    coverage=self._coverage(len(records), request, "manual_review", source_authority="local_user_import"),
+                    manual_fallback=True,
+                    warnings=("ambiguous_issuer", "local_user_import", "manual_review_required"),
+                )
+            return OAMDiscoveryResult(
+                self.provider_id,
+                "manual_review",
+                f"Loaded {len(records)} local {self.country} OAM record(s); manual review required.",
+                records=tuple(records),
+                snapshot=snapshot,
+                coverage=self._coverage(len(records), request, "manual_review", source_authority="local_user_import"),
+                manual_fallback=True,
+                warnings=("local_user_import", "manual_review_required", "execution_disabled"),
+            )
+        except (OSError, ValueError, ET.ParseError, UnicodeDecodeError, csv.Error) as exc:
+            return OAMDiscoveryResult(
+                self.provider_id,
+                "error",
+                f"Local OAM export was rejected: {type(exc).__name__}.",
+                snapshot=snapshot,
+                manual_fallback=True,
+                warnings=("local_import_rejected", "no_registry_mutation", "execution_disabled"),
+            )
     def _validated_url(self, request: OAMDiscoveryRequest) -> str:
         if not self.endpoint:
             raise ValueError("No official structured OAM endpoint is configured.")
@@ -279,7 +357,13 @@ class OAMAdapter:
         except (TimeoutError, OSError) as exc:
             raise OAMUnavailable("official OAM endpoint unavailable") from exc
 
-    def _snapshot(self, url: str, response: _Response) -> OAMSnapshot:
+    def _snapshot(
+        self,
+        url: str,
+        response: _Response,
+        *,
+        force_materialize: bool = False,
+    ) -> OAMSnapshot:
         if len(response.payload) > MAX_RESPONSE_BYTES:
             raise ValueError("OAM response exceeds the bounded response size")
         digest = hashlib.sha256(response.payload).hexdigest()
@@ -287,7 +371,10 @@ class OAMAdapter:
         path = self.cache_dir / "snapshots" / f"{self.provider_id}-{digest[:16]}{suffix}"
         if path.exists() and hashlib.sha256(path.read_bytes()).hexdigest() != digest:
             raise ValueError("OAM snapshot checksum mismatch")
-        if not path.exists():
+        # Local imports always materialise a fresh atomic inode.  A selected
+        # local file may be hardlinked into the cache; replacing the
+        # destination breaks that alias while retaining captured bytes.
+        if force_materialize or not path.exists():
             with publication_scope(self.publish_guard):
                 atomic_write_bytes(path, response.payload, lambda candidate: _validate_checksum(candidate, digest))
         return OAMSnapshot(str(path), url, digest, len(response.payload), response.headers.get("content-type", ""), response.status, datetime.now(timezone.utc).isoformat(timespec="seconds"))
@@ -325,7 +412,17 @@ class OAMAdapter:
                 return [item for item in value if isinstance(item, Mapping)]
         return [parsed]
 
-    def _normalise_records(self, rows: Sequence[Mapping[str, object]], request: OAMDiscoveryRequest) -> list[OAMRecord]:
+    def _normalise_records(
+        self,
+        rows: Sequence[Mapping[str, object]],
+        request: OAMDiscoveryRequest,
+        *,
+        source_authority: str = "official_oam",
+        local_source_url: str = "",
+        snapshot_sha256: str = "",
+        observed_at: str = "",
+    ) -> list[OAMRecord]:
+        local_import = source_authority == "local_user_import"
         normalised: list[OAMRecord] = []
         for raw in rows:
             values = _flatten_attributes(raw)
@@ -334,7 +431,8 @@ class OAMAdapter:
             title = _first(values, "title", "document_title", "name")
             document_type = _first(values, "document_type", "documentType", "type")
             published = _first(values, "published_at", "publication_date", "published", "date", "as_of_date") or None
-            available = _first(values, "available_at", "availability_date", "received_at", "processed_at") or published
+            claimed_available = _first(values, "available_at", "availability_date", "received_at", "processed_at") or published
+            available = claimed_available
             availability_precision = _timestamp_precision(available)
             amendment_of = _first(values, "amendment_of", "amends", "replaces", "previous_filing_id")
             source_url = _first(values, "source_url", "source", "url", "link")
@@ -351,18 +449,45 @@ class OAMAdapter:
                 continue
             source = source_url or self.endpoint
             warnings: tuple[str, ...] = ()
-            if not self._official_url(source):
-                source = self.endpoint
-                warnings = ("untrusted_source_url",)
-            if document_url and not self._official_url(document_url):
-                document_url = ""
-                warnings = (*warnings, "untrusted_document_url")
+            if local_import:
+                source = source_url or local_source_url
+                if source_url and not self._official_url(source_url):
+                    raise ValueError("Local OAM export contains an untrusted source link")
+                if document_url and not self._official_url(document_url):
+                    raise ValueError("Local OAM export contains an untrusted document link")
+                available = observed_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
+                availability_precision = _timestamp_precision(available)
+                warnings = ("local_user_import", "manual_review_required", "availability_observed_at_snapshot")
+                if claimed_available:
+                    warnings = (*warnings, "claimed_availability_unverified")
+            else:
+                if not self._official_url(source):
+                    source = self.endpoint
+                    warnings = ("untrusted_source_url",)
+                if document_url and not self._official_url(document_url):
+                    document_url = ""
+                    warnings = (*warnings, "untrusted_document_url")
             if availability_precision == "unavailable":
                 warnings = (*warnings, "availability_timestamp_unavailable")
             elif availability_precision == "date":
                 warnings = (*warnings, "availability_precision_date")
-            source_id = "oam:" + hashlib.sha256("|".join((self.provider_id, source, isin, title, published or "")).encode("utf-8")).hexdigest()[:24]
-            identity_status = "matched_isin" if isin else "issuer_only_manual_review"
+            if published and _timestamp_precision(published) == "unavailable":
+                warnings = (*warnings, "publication_timestamp_unavailable")
+            source_prefix = "oam-local:" if local_import else "oam:"
+            source_id = source_prefix + hashlib.sha256(
+                "|".join((self.provider_id, snapshot_sha256 if local_import else source, isin, title, published or "")).encode("utf-8")
+            ).hexdigest()[:24]
+            if local_import:
+                source_id = _local_oam_source_id(self.provider_id, snapshot_sha256, raw)
+                identity_status = (
+                    "matched_isin_manual_review"
+                    if request.isin and request.isin.strip().upper() == isin
+                    else "issuer_only_manual_review"
+                    if issuer
+                    else "identifier_unverified_manual_review"
+                )
+            else:
+                identity_status = "matched_isin" if isin else "issuer_only_manual_review"
             normalised.append(
                 OAMRecord(
                     provider_id=self.provider_id,
@@ -377,12 +502,15 @@ class OAMAdapter:
                     source_url=source,
                     document_url=document_url,
                     source_id=source_id,
-                    source_authority="official_oam",
+                    source_authority=source_authority,
                     terms_url=self.terms_url,
-                    coverage_status="available",
+                    coverage_status="manual_review" if local_import else "available",
                     identity_status=identity_status,
                     amendment_of=amendment_of,
                     warnings=warnings,
+                    claimed_available_at=claimed_available if local_import else None,
+                    manual_review=local_import,
+                    execution_allowed=False,
                 )
             )
         return list({record.source_id: record for record in normalised}.values())
@@ -392,8 +520,21 @@ class OAMAdapter:
         return bool(request.issuer and not request.isin and len({record.isin or record.source_id for record in records}) > 1)
 
     @staticmethod
-    def _coverage(count: int, request: OAMDiscoveryRequest, status: str) -> dict[str, object]:
-        return {"status": status, "matched_records": count, "query": request.query(), "source_authority": "official_oam"}
+    def _coverage(
+        count: int,
+        request: OAMDiscoveryRequest,
+        status: str,
+        *,
+        source_authority: str = "official_oam",
+    ) -> dict[str, object]:
+        return {
+            "status": status,
+            "matched_records": count,
+            "query": request.query(),
+            "source_authority": source_authority,
+            "manual_review": source_authority == "local_user_import",
+            "execution_allowed": False,
+        }
 
     def _unavailable(self, message: str, *, retry_count: int = 0) -> OAMDiscoveryResult:
         return OAMDiscoveryResult(self.provider_id, "unavailable", message, retry_count=retry_count, manual_fallback=True, warnings=("manual_fallback_available",))
@@ -505,41 +646,82 @@ class CompaniesHouseFilingAdapter(OAMAdapter):
         self,
         rows: Sequence[Mapping[str, object]],
         request: OAMDiscoveryRequest,
+        *,
+        source_authority: str = "official_companies_house",
+        local_source_url: str = "",
+        snapshot_sha256: str = "",
+        observed_at: str = "",
     ) -> list[OAMRecord]:
+        local_import = source_authority == "local_user_import"
         company_number = request.company_number.strip().upper()
-        source_url = self._validated_url(request)
+        source_url = "" if local_import else self._validated_url(request)
         records: list[OAMRecord] = []
         for raw in rows:
             values = _flatten_attributes(raw)
-            transaction_id = _first(values, "transaction_id", "id", "barcode")
-            published = _first(values, "date", "filed_at") or None
-            category = _first(values, "category", "type")
-            description = _first(values, "description", "description_values", "type")
+            transaction_id = _first(values, "transaction_id", "id", "barcode", "filing_id")
+            published = _first(values, "date", "filed_at", "published_at", "publication_date") or None
+            category = _first(values, "category", "document_type", "type")
+            description = _first(values, "description", "description_values", "document_title", "title", "type")
+            row_company_number = _first(values, "company_number", "companynumber", "company_id")
+            effective_company_number = company_number or row_company_number.upper()
+            if local_import and not effective_company_number and not _first(values, "issuer", "issuer_name", "company", "company_name", "entity", "name"):
+                continue
+            if local_import and request.company_number and row_company_number and request.company_number.strip().upper() != row_company_number.upper():
+                continue
             if request.document_type and request.document_type.casefold() not in category.casefold():
                 continue
             if not _date_in_range(published, request.date_from, request.date_to):
                 continue
             links = raw.get("links")
             metadata_path = str(links.get("document_metadata") or "") if isinstance(links, Mapping) else ""
-            document_url = ""
-            if metadata_path:
+            document_url = _first(values, "document_url", "download_url", "file_url") if local_import else ""
+            if metadata_path and not local_import:
                 metadata_url = urljoin("https://document-api.company-information.service.gov.uk", metadata_path)
                 document_url = metadata_url.rstrip("/") + "/content"
                 if not self._official_url(document_url):
                     document_url = ""
-            available = _first(values, "available_at") or published
+            if local_import:
+                declared_source = _first(values, "source_url", "source", "url", "link")
+                source_url = declared_source or local_source_url
+                if declared_source and not self._official_url(declared_source):
+                    raise ValueError("Local OAM export contains an untrusted source link")
+                if document_url and not self._official_url(document_url):
+                    raise ValueError("Local OAM export contains an untrusted document link")
+            claimed_available = _first(values, "available_at", "availability_date", "received_at", "processed_at") or published
+            available = claimed_available if not local_import else observed_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
             precision = _timestamp_precision(available)
-            warnings = ("availability_precision_date",) if precision == "date" else ()
+            warnings: tuple[str, ...] = ()
+            if local_import:
+                warnings = ("local_user_import", "manual_review_required", "availability_observed_at_snapshot")
+                if claimed_available:
+                    warnings = (*warnings, "claimed_availability_unverified")
+            elif precision == "date":
+                warnings = ("availability_precision_date",)
             if not transaction_id:
                 warnings = (*warnings, "transaction_identity_unavailable")
+            if published and _timestamp_precision(published) == "unavailable":
+                warnings = (*warnings, "publication_timestamp_unavailable")
             source_id = "companies-house:" + hashlib.sha256(
-                "|".join((company_number, transaction_id, published or "", description)).encode("utf-8")
+                "|".join((snapshot_sha256 if local_import else effective_company_number, transaction_id, published or "", description)).encode("utf-8")
             ).hexdigest()[:24]
+            if local_import:
+                source_id = _local_oam_source_id(self.provider_id, snapshot_sha256, {"row": raw, "company_number": effective_company_number})
+            if local_import:
+                if (
+                    request.company_number
+                    and row_company_number
+                    and request.company_number.strip().upper() == row_company_number.upper()
+                ):
+                    identity_status = "matched_company_number_manual_review"
+                else:
+                    identity_status = "issuer_only_manual_review"
+            else:
+                identity_status = "matched_company_number"
             records.append(
                 OAMRecord(
                     provider_id=self.provider_id,
                     country=self.country,
-                    issuer=company_number,
+                    issuer=effective_company_number or (_first(values, "issuer", "issuer_name", "company", "company_name", "entity", "name") if local_import else ""),
                     isin="",
                     title=description,
                     document_type=category,
@@ -549,12 +731,15 @@ class CompaniesHouseFilingAdapter(OAMAdapter):
                     source_url=source_url,
                     document_url=document_url,
                     source_id=source_id,
-                    source_authority="official_companies_house",
+                    source_authority=source_authority,
                     terms_url=self.terms_url,
-                    coverage_status="available",
-                    identity_status="matched_company_number",
+                    coverage_status="manual_review" if local_import else "available",
+                    identity_status=identity_status,
                     amendment_of="",
                     warnings=warnings,
+                    claimed_available_at=claimed_available if local_import else None,
+                    manual_review=local_import,
+                    execution_allowed=False,
                 )
             )
         return list({record.source_id: record for record in records}.values())
@@ -578,6 +763,31 @@ def oam_adapter_for_country(country: str) -> type[OAMAdapter]:
     except KeyError as exc:
         supported = ", ".join(sorted(OAM_ADAPTERS_BY_COUNTRY))
         raise ValueError(f"OAM country must be one of: {supported}") from exc
+
+
+def import_local_oam_export(
+    source_path: Path,
+    *,
+    country: str,
+    request: OAMDiscoveryRequest | None = None,
+    cache_dir: Path | None = None,
+    publish_guard: PublicationScopeFactory | None = None,
+) -> OAMDiscoveryResult:
+    """Consume a local JSON/CSV/XML OAM export through a country adapter.
+
+    This convenience boundary intentionally constructs a disabled adapter:
+    the local path never consults an endpoint, transport or network.  The
+    adapter's ``discover_local`` method retains the bytes and performs all
+    structured parsing and identity filtering.
+    """
+
+    adapter_type = oam_adapter_for_country(country)
+    adapter = adapter_type(
+        cache_dir=cache_dir,
+        enabled=False,
+        publish_guard=publish_guard,
+    )
+    return adapter.discover_local(Path(source_path), request)
 
 
 def download_oam_document(
@@ -613,7 +823,7 @@ def write_oam_discovery_registry(
     destination: Path = OAM_DISCOVERY_PATH,
     publish_guard: PublicationScopeFactory | None = None,
 ) -> Path:
-    """Write only successful, evidence-labelled discovery rows locally."""
+    """Upsert evidence-labelled discovery rows without dropping jurisdictions."""
 
     rows = [asdict(record) for record in result.records]
     frame = pd.DataFrame(rows, columns=list(OAMRecord.__dataclass_fields__))
@@ -630,9 +840,70 @@ def write_oam_discovery_registry(
     frame["coverage_json"] = json.dumps(result.coverage or {}, sort_keys=True)
     frame["warnings"] = frame["warnings"].map(lambda value: list(value) if isinstance(value, tuple) else value) if not frame.empty else pd.Series(dtype=object)
     destination = Path(destination)
-    with publication_scope(publish_guard):
-        _write_parquet_atomic(frame, destination)
+    guard_path = destination.with_name(destination.name + ".guard")
+    with persistent_file_guard(guard_path):
+        existing = _read_parquet_or_empty(destination)
+        if not frame.empty and not existing.empty:
+            # Replace only the same content-addressed source rows.  In particular,
+            # a local FR import must not erase an existing NL/SE/GB observation.
+            for column in frame.columns:
+                if column not in existing.columns:
+                    existing[column] = None
+            for column in existing.columns:
+                if column not in frame.columns:
+                    frame[column] = None
+            frame = frame[existing.columns]
+            _retain_local_observation_times(frame, existing)
+            incoming_ids = set(frame["source_id"].dropna().astype(str))
+            if "source_id" in existing.columns:
+                existing = existing[~existing["source_id"].fillna("").astype(str).isin(incoming_ids)]
+            combined = pd.concat([existing, frame], ignore_index=True)
+        elif frame.empty:
+            # A failed/manual-review result with no records must never replace a
+            # previously published registry.  Preserve the historical behaviour
+            # of materialising an empty schema only when no registry exists.
+            if destination.exists():
+                return destination
+            combined = frame
+        else:
+            combined = frame
+        if not combined.empty:
+            combined = combined.sort_values(
+                [column for column in ("country", "provider_id", "source_id") if column in combined.columns],
+                kind="stable",
+            )
+        with publication_scope(publish_guard):
+            _write_parquet_atomic(combined, destination)
     return destination
+
+
+def _local_oam_source_id(provider_id: str, snapshot_sha256: str, raw: Mapping[str, object]) -> str:
+    # Include the complete structured row: missing identifiers must not collapse
+    # different issuers, document links, amendments or other row discriminators.
+    identity = json.dumps([provider_id, snapshot_sha256, raw], sort_keys=True, separators=(",", ":"), default=str)
+    return "oam-local:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+
+
+def _retain_local_observation_times(frame: pd.DataFrame, existing: pd.DataFrame) -> None:
+    """Keep the earliest locally observed availability for the exact stored row."""
+    observations: dict[tuple[str, str, str], pd.Timestamp] = {}
+    for row in existing.to_dict("records"):
+        if row.get("source_authority") != "local_user_import":
+            continue
+        observed = pd.to_datetime(row.get("available_at"), utc=True, errors="coerce")
+        if pd.isna(observed):
+            continue
+        key = (str(row.get("provider_id")), str(row.get("source_id")), str(row.get("snapshot_sha256")))
+        observations[key] = min(observations.get(key, observed), observed)
+    for index, row in frame.iterrows():
+        if row.get("source_authority") != "local_user_import":
+            continue
+        key = (str(row.get("provider_id")), str(row.get("source_id")), str(row.get("snapshot_sha256")))
+        previous = observations.get(key)
+        # Use the importer observation, never claimed_available_at from the file.
+        observed = pd.to_datetime(row.get("retrieved_at"), utc=True, errors="coerce")
+        if previous is not None and not pd.isna(observed) and previous < observed:
+            frame.at[index, "available_at"] = previous.isoformat(timespec="seconds")
 
 
 def write_filing_coverage(
@@ -659,6 +930,7 @@ def write_filing_coverage(
         "identity_matched_records": sum(record.identity_status.startswith("matched") for record in result.records),
         "available_at_records": sum(bool(record.available_at) for record in result.records),
         "manual_fallback": result.manual_fallback,
+        "manual_review_records": sum(bool(record.manual_review) for record in result.records),
         "snapshot_sha256": result.snapshot.sha256 if result.snapshot else None,
         "snapshot_path": result.snapshot.path if result.snapshot else None,
         "retrieved_at": result.snapshot.retrieved_at if result.snapshot else datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -667,12 +939,14 @@ def write_filing_coverage(
         "execution_allowed": False,
     }
     destination = Path(destination)
-    existing = _read_parquet_or_empty(destination)
-    combined = pd.concat([existing, pd.DataFrame([row])], ignore_index=True)
-    combined = combined.drop_duplicates(["provider_id", "query_sha256"], keep="last")
-    combined = combined.sort_values(["country", "provider_id", "instrument_identity", "query_sha256"], kind="stable")
-    with publication_scope(publish_guard):
-        _write_parquet_atomic(combined, destination)
+    guard_path = destination.with_name(destination.name + ".guard")
+    with persistent_file_guard(guard_path):
+        existing = _read_parquet_or_empty(destination)
+        combined = pd.concat([existing, pd.DataFrame([row])], ignore_index=True)
+        combined = combined.drop_duplicates(["provider_id", "query_sha256"], keep="last")
+        combined = combined.sort_values(["country", "provider_id", "instrument_identity", "query_sha256"], kind="stable")
+        with publication_scope(publish_guard):
+            _write_parquet_atomic(combined, destination)
     return destination
 
 
@@ -681,6 +955,7 @@ _OFFICIAL_FILING_HOSTS: dict[str, tuple[str, ...]] = {
 }
 _OFFICIAL_FILING_HOSTS["EU"] = ("filings.xbrl.org",)
 _MANUAL_SUFFIXES = frozenset({".csv", ".html", ".json", ".pdf", ".xbrl", ".xbri", ".xhtml", ".xml", ".zip"})
+_LOCAL_OAM_SUFFIXES = frozenset({".csv", ".json", ".xml"})
 
 
 def archive_manual_official_filing(
@@ -759,6 +1034,32 @@ def archive_manual_official_filing(
 
 class OAMUnavailable(RuntimeError):
     """The bounded official OAM request could not be completed."""
+
+
+def _read_local_oam_export(path: Path) -> tuple[bytes, str]:
+    """Read one bounded, regular local structured-export file."""
+
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("Local OAM import requires a readable regular file.")
+    suffix = path.suffix.casefold()
+    if suffix not in _LOCAL_OAM_SUFFIXES:
+        raise ValueError("Local OAM import supports only JSON, CSV and XML exports.")
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise ValueError("Local OAM import could not inspect the selected file.") from exc
+    if size <= 0 or size > MAX_RESPONSE_BYTES:
+        raise ValueError("Local OAM export is empty or exceeds the bounded response size.")
+    with path.open("rb") as stream:
+        payload = stream.read(MAX_RESPONSE_BYTES + 1)
+    if len(payload) != size or len(payload) > MAX_RESPONSE_BYTES:
+        raise ValueError("Local OAM export changed during bounded read or exceeds the size limit.")
+    media_type = {
+        ".csv": "text/csv",
+        ".xml": "application/xml",
+        ".json": "application/json",
+    }[suffix]
+    return payload, media_type
 
 
 def _validate_checksum(path: Path, expected: str) -> None:
@@ -908,6 +1209,7 @@ __all__ = [
     "SwedenFiOamAdapter",
     "archive_manual_official_filing",
     "download_oam_document",
+    "import_local_oam_export",
     "oam_adapter_for_country",
     "write_filing_coverage",
     "write_oam_discovery_registry",

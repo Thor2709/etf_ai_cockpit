@@ -1,5 +1,22 @@
 # B04 Analysis Spine
 
+## Current resume checkpoint — 2026-09-06
+
+SEC PR728 is integrated as `9c05220a661b46593ce1cd089c87a4bcdf0c5705`.
+Run34010676398 passed all required gates and4342 tests per platform;
+required named risk review approves. Status-completion34012298607 is
+applied_and_verified with accepted authority and zero-action readback.
+Execution remains disabled.
+
+UPDATEV2-0014 has no blocking dependencies. Its approved source42097aaa
+is reconciled in isolated `codex/oam-integration-current-20260906` against
+that main. Product/test blobs match the approved source; only the shared
+checkpoint chronology required merging. Both47-test correction reports,
+both64-test initial reports and nine architecture tests match preserved hashes.
+Canonical OAM status remains implemented_initially. Next: finish separate
+configuration PR729, bind final integration to resulting main, verify retained
+review identities and run mandatory H packages before merge.
+
 ## SEC canonical completion candidate — 2026-09-06
 
 Product PR727 merged as efa68f18ae52640a23b97f0942dfd97edece9cef with exact
@@ -17,6 +34,18 @@ exact guards/reviews and permitted evidence reuse, then the sole writer and
 zero-action readback. No product, dependency, execution or wider authority
 changes are included. OAM corrected product42097aaa remains independently
 approved locally and awaits its own main-bound H validation.
+## OAM candidate resumption — 2026-09-06
+
+UPDATEV2-0014 is dependency-ready with no blocking dependencies. The preserved
+corrected candidate `3724c30e2ebe5bf3d5fdae22db40c7da6710cbf5` is being
+transplanted into the isolated `codex/oam-resume-20260906` lane based on frozen
+SEC product head `cd557ea8b3e82831e8b21c26ce421957ee0a0405`. Main remains
+`46706be6d0bbee1a0be41f8fdea785ca9f79868c`; SEC PR #727 requires terminal H
+evidence before integration. OAM has no external blocker. Next action: resolve
+the shared Filings UI conflict preserving both workflows, rerun focused evidence
+on both pinned runtimes, then review the stable complete diff. Prior OAM test
+claims lack a verifiable report identity and are not reused. Canonical status
+remains unchanged until acceptance and integration are evidenced.
 
 
 ## SEC integration and canonical sequencing — 2026-09-06
