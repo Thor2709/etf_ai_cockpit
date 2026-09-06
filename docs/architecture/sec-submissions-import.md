@@ -43,5 +43,7 @@ Missing or malformed `filings.files` coverage, history or filing bytes, and
 parser row warnings remain
 `partial`, never `complete`. Cancellation or publication failure propagates
 through the caller's publication scope and does not replace the prior import
-manifest. Every result keeps `execution_allowed=false` and this component never
+manifest. Fused provider calls forward the same publication guard to both
+acquisition and import, preserving the prior raw cache as well as the import
+manifest when acquisition publication is cancelled. Every result keeps `execution_allowed=false` and this component never
 creates canonical financial facts or starts scoring/execution.

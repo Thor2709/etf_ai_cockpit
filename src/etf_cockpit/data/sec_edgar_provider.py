@@ -56,6 +56,7 @@ class _SessionGeneration:
     provider_id: str
     media_type: str
     http_status: int
+    revalidated: bool = False
 
 
 class SecEdgarProvider:
@@ -115,7 +116,7 @@ class SecEdgarProvider:
         self._sleep = sleep
         self._last_request_at: float | None = None
         self._authority_ledger: OrderedDict[tuple[str, str, str, str], _SessionGeneration] = OrderedDict()
-        self._partial_sessions: OrderedDict[tuple[str, str, str], None] = OrderedDict()
+        self._partial_sessions: OrderedDict[tuple[str, str, str], tuple[object, ...]] = OrderedDict()
 
     def fetch_companyfacts(
         self,
@@ -171,6 +172,7 @@ class SecEdgarProvider:
             f"submissions_{cik}.json",
             "sec_submissions",
             cik,
+            publish_guard=kwargs.get("publish_guard"),
         )
         return _import_provider_submissions(self, document, identity, cache_dir=import_cache_dir, **kwargs)
 
@@ -189,7 +191,7 @@ class SecEdgarProvider:
         from etf_cockpit.application.sec_submissions_import import _import_provider_submissions
         from etf_cockpit.data.sec_edgar_bulk import fetch_bulk
 
-        document = fetch_bulk(self, "submissions", cache_only=cache_only)
+        document = fetch_bulk(self, "submissions", cache_only=cache_only, publish_guard=kwargs.get("publish_guard"))
         return _import_provider_submissions(self, document, identity, cache_dir=import_cache_dir, **kwargs)
 
     def fetch_companyfacts_bulk(
@@ -234,28 +236,34 @@ class SecEdgarProvider:
             or generation.media_type != document.media_type
             or (
                 document.http_status != generation.http_status
-                and not (allow_revalidated and document.http_status == 304)
+                and not ((allow_revalidated or generation.revalidated) and document.http_status == 304)
             )
         ):
             return False
         try:
-            if not document.path.is_file() or _sha256(document.path.read_bytes()) != document.sha256:
+            if not document.path.is_file():
+                return False
+            digest = hashlib.sha256()
+            with document.path.open("rb") as source:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            if digest.hexdigest() != document.sha256:
                 return False
         except OSError:
             return False
         self._authority_ledger.move_to_end(key)
         return True
 
-    def _remember_partial_session(self, dataset: str, source_url: str, generation: str) -> None:
+    def _remember_partial_session(self, dataset: str, source_url: str, generation: str, state: tuple[object, ...]) -> None:
         key = (str(dataset), str(source_url), str(generation))
-        self._partial_sessions[key] = None
+        self._partial_sessions[key] = state
         self._partial_sessions.move_to_end(key)
         while len(self._partial_sessions) > self.MAX_AUTHORITY_LEDGER:
             self._partial_sessions.popitem(last=False)
 
-    def _has_partial_session(self, dataset: str, source_url: str, generation: str) -> bool:
+    def _has_partial_session(self, dataset: str, source_url: str, generation: str, state: tuple[object, ...]) -> bool:
         key = (str(dataset), str(source_url), str(generation))
-        if key not in self._partial_sessions:
+        if self._partial_sessions.get(key) != state:
             return False
         self._partial_sessions.move_to_end(key)
         return True

@@ -8,6 +8,7 @@ honest acquisition provenance.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
 from http.client import IncompleteRead
@@ -85,7 +86,7 @@ def fetch_bulk(provider: Any, dataset: str, *, publish_guard: PublicationScopeFa
             raise SecEdgarBulkUnavailable(f"no cached SEC {dataset} bulk artifact is available")
         _validate_namespace(root, root.parent)
         document = _cached_result(_read_json(paths["metadata"]), paths, url, dataset)
-        if not provider._session_generation_matches(document):
+        if not _cached_session_matches(provider, document):
             raise SecEdgarBulkUnavailable("cache-only SEC replay has no provider-owned session proof")
         return document
     # Directory and persistent-lock creation are durable namespace changes too;
@@ -96,6 +97,9 @@ def fetch_bulk(provider: Any, dataset: str, *, publish_guard: PublicationScopeFa
         metadata = _read_json(paths["metadata"])
         document = _acquire(provider, dataset, url, paths, metadata, publish_guard)
         key = provider._ledger_key(document)
+        if document.http_status == 304:
+            provider._authority_ledger[key] = replace(provider._authority_ledger[key], revalidated=True)
+            return document
         from etf_cockpit.data.sec_edgar_provider import _SessionGeneration
         provider._authority_ledger[key] = _SessionGeneration(
             document.source_url, document.sha256, document.document_type, document.path.absolute(),
@@ -107,12 +111,21 @@ def fetch_bulk(provider: Any, dataset: str, *, publish_guard: PublicationScopeFa
         return document
 
 
+def _cached_session_matches(provider: Any, document: RawDocument) -> bool:
+    generation = provider._authority_ledger.get(provider._ledger_key(document))
+    return bool(
+        generation is not None
+        and generation.http_status == document.http_status
+        and provider._session_generation_matches(document)
+    )
+
+
 def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], metadata: dict[str, object], publish_guard: PublicationScopeFactory | None) -> RawDocument:
     headers = {"User-Agent": provider.user_agent, "Accept": "application/zip"}
     artifact = _metadata_artifact(metadata, paths, url)
     if artifact is not None:
         cached_document = _result(artifact, url, metadata, _int_value(metadata.get("status"), 200), dataset)
-        same_session = provider._session_generation_matches(cached_document)
+        same_session = _cached_session_matches(provider, cached_document)
         if same_session and metadata.get("etag"):
             headers["If-None-Match"] = str(metadata["etag"])
         if same_session and metadata.get("last_modified"):
@@ -130,7 +143,7 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
         and resume_offset
         and resume_validator
         and paths["part"].is_file()
-        and provider._has_partial_session(dataset, url, str(partial["generation"]))
+        and provider._has_partial_session(dataset, url, str(partial["generation"]), _partial_identity(partial))
     )
     if partial_session:
         headers["Range"] = f"bytes={resume_offset}-"
@@ -162,7 +175,7 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
                             continue
                         raise SecEdgarBulkUnavailable("SEC returned 304 without a cached artifact")
                     cached_document = _result(artifact, url, metadata, _int_value(metadata.get("status"), 200), dataset)
-                    if not provider._session_generation_matches(cached_document):
+                    if not _cached_session_matches(provider, cached_document):
                         if not cold_304_retried:
                             cold_304_retried = True
                             attempt_limit = max(attempt_limit, 2)
@@ -188,17 +201,16 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
                     _stream_response(
                         response.stream, paths, publish_guard, resume_offset, total,
                         response.headers, url, dataset, append=True, generation=str(partial["generation"]),
-                        expected_length=response_length, prefix_sha256=str(partial["prefix_sha256"]),
+                        expected_length=response_length, prefix_sha256=str(partial["prefix_sha256"]), provider=provider,
                     )
                     generation = str(partial["generation"])
                 elif response.status == 200:
                     total = _validated_content_length(response.headers)
                     generation = uuid.uuid4().hex
-                    provider._remember_partial_session(dataset, url, generation)
                     _stream_response(
                         response.stream, paths, publish_guard, 0, total,
                         response.headers, url, dataset, append=False, generation=generation,
-                        expected_length=total, prefix_sha256=None,
+                        expected_length=total, prefix_sha256=None, provider=provider,
                     )
                 elif response.status < 200 or response.status >= 300:
                     raise SecEdgarBulkUnavailable(f"SEC endpoint returned HTTP {response.status}")
@@ -264,7 +276,7 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
                 resume_offset
                 and resume_validator
                 and isinstance(partial.get("generation"), str)
-                and provider._has_partial_session(dataset, url, str(partial["generation"]))
+                and provider._has_partial_session(dataset, url, str(partial["generation"]), _partial_identity(partial))
             ):
                 headers["Range"] = f"bytes={resume_offset}-"
                 headers["If-Range"] = resume_validator
@@ -291,6 +303,7 @@ def _stream_response(
     generation: str | None,
     expected_length: int | None,
     prefix_sha256: str | None,
+    provider: Any,
 ) -> None:
     """Read network bytes without the publication lock and checkpoint each write."""
 
@@ -304,6 +317,9 @@ def _stream_response(
         raise SecEdgarBulkUnavailable("SEC bulk declared size exceeds the dataset byte limit")
 
     if append:
+        current = _partial_state(paths, source_url, dataset)
+        if not current or not provider._has_partial_session(dataset, source_url, str(generation), _partial_identity(current)):
+            raise SecEdgarBulkResumeError("resumed partial session state changed before append")
         if generation is None:
             raise SecEdgarBulkResumeError("resumed partial is missing its generation")
         if prefix_sha256 is None or not paths["part"].is_file() or paths["part"].stat().st_size != offset or _sha256_file(paths["part"]) != prefix_sha256:
@@ -323,6 +339,17 @@ def _stream_response(
         with publication_scope(publish_guard):
             _start_generation(paths, dataset, source_url, total, validator, generation)
         digest = hashlib.sha256()
+
+    def checkpoint_file() -> None:
+        _checkpoint_partial_file(paths, dataset, source_url, streamed, total, validator, generation, digest.hexdigest())
+        provider._remember_partial_session(
+            dataset, source_url, generation,
+            (streamed, total, validator, digest.hexdigest()),
+        )
+
+    def checkpoint() -> None:
+        with publication_scope(publish_guard):
+            checkpoint_file()
 
     received = 0
     while True:
@@ -347,20 +374,20 @@ def _stream_response(
                         streamed += len(candidate)
                         received += len(candidate)
                         digest.update(candidate)
-            _checkpoint_partial(paths, dataset, source_url, streamed, total, validator, generation, digest.hexdigest(), publish_guard)
+            checkpoint()
             raise
         if not chunk:
             break
         if not isinstance(chunk, (bytes, bytearray)):
-            _checkpoint_partial(paths, dataset, source_url, streamed, total, validator, generation, digest.hexdigest(), publish_guard)
+            checkpoint()
             raise TypeError("SEC bulk response returned a non-bytes chunk")
         chunk_bytes = bytes(chunk)
         next_size = streamed + len(chunk_bytes)
         if next_size > byte_limit or (total is not None and next_size > total):
-            _checkpoint_partial(paths, dataset, source_url, streamed, total, validator, generation, digest.hexdigest(), publish_guard)
+            checkpoint()
             raise SecEdgarBulkUnavailable("SEC bulk response exceeds its bounded byte limit")
         if expected_length is not None and received + len(chunk_bytes) > expected_length:
-            _checkpoint_partial(paths, dataset, source_url, streamed, total, validator, generation, digest.hexdigest(), publish_guard)
+            checkpoint()
             raise SecEdgarBulkResumeError("SEC bulk response body exceeds Content-Length") if append else SecEdgarBulkUnavailable("SEC bulk response body exceeds Content-Length")
         try:
             with publication_scope(publish_guard):
@@ -368,8 +395,9 @@ def _stream_response(
                 streamed = next_size
                 received += len(chunk_bytes)
                 digest.update(chunk_bytes)
-                _checkpoint_partial_file(paths, dataset, source_url, streamed, total, validator, generation, digest.hexdigest())
+                checkpoint_file()
         except BaseException:
+            provider._forget_partial_session(dataset, source_url, generation)
             # If the write itself partially succeeded, checkpoint the actual
             # on-disk prefix; a size/hash mismatch makes it non-resumable.
             actual = paths["part"].stat().st_size if paths["part"].is_file() else 0
@@ -379,11 +407,9 @@ def _stream_response(
             raise
 
     if (expected_length is not None and received != expected_length) or (total is not None and streamed != total):
-        with publication_scope(publish_guard):
-            _checkpoint_partial_file(paths, dataset, source_url, streamed, total, validator, generation, digest.hexdigest())
+        checkpoint()
         raise SecEdgarBulkUnavailable("SEC bulk response was truncated")
-    with publication_scope(publish_guard):
-        _checkpoint_partial_file(paths, dataset, source_url, streamed, total, validator, generation, digest.hexdigest())
+    checkpoint()
 
 
 _EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
@@ -414,15 +440,11 @@ def _append_chunk(paths: dict[str, Path], chunk: bytes) -> None:
         os.fsync(target.fileno())
 
 
-def _checkpoint_partial(paths: dict[str, Path], dataset: str, source_url: str, streamed: int, total: int | None, validator: str | None, generation: str, prefix_sha256: str, publish_guard: PublicationScopeFactory | None) -> None:
-    actual = paths["part"].stat().st_size if paths["part"].is_file() else 0
-    with publication_scope(publish_guard):
-        _write_partial_file(paths, dataset, source_url, actual, total, validator, generation, prefix_sha256)
-
-
 def _checkpoint_partial_file(paths: dict[str, Path], dataset: str, source_url: str, streamed: int, total: int | None, validator: str | None, generation: str, prefix_sha256: str) -> None:
     actual = paths["part"].stat().st_size if paths["part"].is_file() else 0
-    _write_partial_file(paths, dataset, source_url, actual, total, validator, generation, prefix_sha256)
+    if actual != streamed:
+        raise SecEdgarBulkResumeError("partial size changed before checkpoint")
+    _write_partial_file(paths, dataset, source_url, streamed, total, validator, generation, prefix_sha256)
 
 
 def _validate_partial_response(headers: dict[str, str], offset: int, validator: str, *, expected_total: int | None = None) -> tuple[int, int]:
@@ -635,6 +657,10 @@ def _read_json(path: Path) -> dict[str, object]:
         return payload if isinstance(payload, dict) else {}
     except (OSError, ValueError, TypeError, RecursionError):
         return {}
+
+
+def _partial_identity(state: dict[str, object]) -> tuple[object, ...]:
+    return (state.get("bytes"), state.get("total"), state.get("validator"), state.get("prefix_sha256"))
 
 
 def _partial_state(paths: dict[str, Path], expected_url: str | None = None, expected_dataset: str | None = None) -> dict[str, object]:

@@ -480,3 +480,29 @@ def test_malformed_mapping_inputs_return_controlled_failure(tmp_path: Path, fiel
 
     assert result.status == "failed"
     assert "mapping" in result.detail
+
+@pytest.mark.parametrize("bulk", [False, True])
+def test_fused_cancel_preserves_acquisition_and_import_cache(tmp_path: Path, bulk: bool) -> None:
+    from io import BytesIO
+
+    payload = json.dumps(_payload()).encode()
+    if bulk:
+        output = BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("CIK0000789019.json", payload)
+        payload = output.getvalue()
+    provider = SecEdgarProvider(
+        "SEC cancellation tests research@company.org", cache_dir=tmp_path / "raw",
+        transport=lambda *_: (payload, 200, {}), rate_limit_seconds=0, max_retries=0,
+    )
+    acquire_import = provider.import_submissions_bulk if bulk else provider.import_submissions
+    acquire_import(_identity(), import_cache_dir=tmp_path / "import")
+    before = {path.relative_to(tmp_path): path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+
+    def cancel():
+        raise WorkflowTransitionError("cancelled")
+
+    with pytest.raises(WorkflowTransitionError):
+        acquire_import(_identity(), import_cache_dir=tmp_path / "import", publish_guard=cancel)
+    after = {path.relative_to(tmp_path): path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    assert after == before

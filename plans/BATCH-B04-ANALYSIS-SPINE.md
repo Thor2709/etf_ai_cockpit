@@ -1,5 +1,34 @@
 # B04 Analysis Spine
 
+## SEC consolidated review correction — 2026-09-06
+
+Frozen head `05c26ba6533cfcbdd0e40d724a20731ca0585749` is rejected.
+Whole-diff review reproduces dropped cancellation guards in fused acquisition,
+bulk 304 overwriting the acquisition-status ledger and breaking offline replay,
+and archive-sized allocations during session verification. Risk review also
+reports that partial-session proof binds a generation identifier but not the
+original prefix hash, size and validator. Its final response was blocked by a
+cybersecurity safety check; there is no complete accepting risk verdict.
+
+Preserve the rejected lane. One implementer in isolated
+`C:/dev/etf-sec-correction-20260906`, branch `codex/sec-correction-20260906`,
+owns a consolidated correction and focused regressions in the provider/bulk
+boundary and relevant tests/docs. Bind partial state in memory, preserve
+acquisition identity through revalidation, forward publication guards and use
+bounded hashing. Do not extend authority or weaken admission/replay contracts.
+Both fresh reviews and full H-tier gates remain mandatory before integration.
+
+The consolidated correction now forwards guards through both fused acquisition
+paths, retains the original 200/206 generation across repeated 304 revalidation,
+hashes session artifacts in bounded chunks, and binds each resumable checkpoint's
+original length, total, validator and prefix digest in the provider session.
+Thirteen new regression cases pass. The complete six-module selection passes
+179 tests with one existing Windows link-capability skip on both Python 3.12.10
+and 3.13.14; JUnit is retained in `logs/sec-correction-py312.xml` and
+`logs/sec-correction-py313.xml`. Ruff, both compilation checks and diff hygiene
+pass. Root inspected the completed diff and reports before freezing it for
+replacement paired review. No canonical lifecycle transition is claimed.
+
 ## Verified SEC continuation — 2026-09-06
 
 Fetched and remotely verified main is `bc9876c03b868a323da1d1f5904cad4e33375559`.

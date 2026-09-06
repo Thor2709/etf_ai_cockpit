@@ -43,10 +43,14 @@ exists or when the same-session ledger proof is absent; sidecars alone cannot
 authorize an offline replay. When the ledger is cold, validators and Range are
 omitted. An unexpected 304 receives one unconditional full request; another
 304, 206, or error fails closed. Same-session revalidation retains the proved
-original acquisition time with a 304 lineage. Partial
+original acquisition time and HTTP 200/206 identity with a separate in-memory
+304 lineage, so repeated revalidation and cache-only replay retain the original
+proof. Session verification hashes artifacts in bounded 1 MiB reads. Partial
 state is generation-bound (dataset, exact URL, size, strong
 validator, byte count, and prefix hash), so a changed or tampered prefix cannot
-be spliced into a later response. Network reads happen outside publication
+be spliced into a later response. Each successfully published checkpoint binds
+its exact byte count, total size, validator and prefix hash in process; writable
+sidecars cannot redefine that state on explicit retries or automatic retries. Network reads happen outside publication
 authorization; each durable chunk/checkpoint and final promotion is guarded,
 fsynced, and cancellation-aware. No provider probe, background action, upload,
 broker write, or live execution is enabled; `execution_allowed` remains false

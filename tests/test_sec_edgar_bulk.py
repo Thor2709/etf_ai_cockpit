@@ -671,3 +671,90 @@ def test_dataset_policy_has_bounded_historical_submissions_headroom() -> None:
     assert facts == (8 * 1024**3, 50_000, 32 * 1024**2)
     assert submissions == (8 * 1024**3, 1_000_000, 256 * 1024**2)
     assert submissions[1] > 781_211
+
+@pytest.mark.parametrize("resumed", [False, True])
+def test_repeated_bulk_revalidation_preserves_acquisition_proof(tmp_path: Path, resumed: bool) -> None:
+    payload = _zip_bytes()
+    responses = [Response(payload[:7] if resumed else payload, headers={"ETag": '"stable"', "Content-Length": str(len(payload))})]
+    provider, calls = _provider(tmp_path, responses, max_retries=0)
+    if resumed:
+        with pytest.raises(SecEdgarBulkUnavailable):
+            provider.fetch_companyfacts_bulk()
+        responses.append(Response(payload[7:], 206, {"ETag": '"stable"', "Content-Range": f"bytes 7-{len(payload)-1}/{len(payload)}"}))
+    acquired = provider.fetch_companyfacts_bulk()
+    for _ in range(2):
+        responses.append(Response(b"", 304))
+        revalidated = provider.fetch_companyfacts_bulk()
+        assert revalidated.http_status == 304
+        assert revalidated.retrieved_at == acquired.retrieved_at
+        assert provider._session_generation_matches(revalidated)
+        assert provider._session_generation_matches(acquired)
+        assert calls[-1][1]["If-None-Match"] == '"stable"'
+        assert provider.fetch_companyfacts_bulk(cache_only=True) == acquired
+    metadata_path = tmp_path / "sec_edgar_bulk/companyfacts.meta.json"
+    metadata = json.loads(metadata_path.read_text())
+    for field, value in (("retrieved_at", "2001-01-01T00:00:00+00:00"), ("status", 304)):
+        changed = dict(metadata, **{field: value})
+        metadata_path.write_text(json.dumps(changed))
+        with pytest.raises(SecEdgarBulkUnavailable):
+            provider.fetch_companyfacts_bulk(cache_only=True)
+
+
+@pytest.mark.parametrize("field", ["prefix", "bytes", "total", "validator"])
+@pytest.mark.parametrize("automatic_retry", [False, True])
+def test_partial_sidecar_cannot_rebind_same_session(tmp_path: Path, field: str, automatic_retry: bool) -> None:
+    payload = _zip_bytes()
+    responses = [Response(payload[:14], headers={"ETag": '"stable"', "Content-Length": str(len(payload))}), Response(payload)]
+    provider, calls = _provider(tmp_path, responses, max_retries=int(automatic_retry))
+
+    def alter(_delay: float = 0) -> None:
+        partial = tmp_path / "sec_edgar_bulk/partials/companyfacts.part"
+        sidecar = partial.with_suffix(".json")
+        metadata = json.loads(sidecar.read_text())
+        if field == "prefix":
+            partial.write_bytes(b"x" * 14)
+            metadata["prefix_sha256"] = hashlib.sha256(partial.read_bytes()).hexdigest()
+        elif field == "bytes":
+            partial.write_bytes(payload[:7])
+            metadata["bytes"] = 7
+            metadata["prefix_sha256"] = hashlib.sha256(payload[:7]).hexdigest()
+        elif field == "total":
+            metadata["total"] = len(payload) + 1
+        else:
+            metadata["validator"] = '"changed"'
+        sidecar.write_text(json.dumps(metadata))
+
+    if automatic_retry:
+        provider._sleep = alter
+    else:
+        with pytest.raises(SecEdgarBulkUnavailable):
+            provider.fetch_companyfacts_bulk()
+        alter()
+    result = provider.fetch_companyfacts_bulk()
+    assert result.path.read_bytes() == payload
+    assert "Range" not in calls[-1][1]
+    assert "If-Range" not in calls[-1][1]
+
+
+def test_session_verification_uses_bounded_reads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    provider, _ = _provider(tmp_path, [Response(_zip_bytes())])
+    document = provider.fetch_companyfacts_bulk()
+    original_open = Path.open
+    reads: list[int] = []
+
+    class BoundedReader:
+        def __enter__(self):
+            self.stream = original_open(document.path, "rb")
+            return self
+
+        def __exit__(self, *args):
+            self.stream.close()
+
+        def read(self, size=-1):
+            assert 0 < size <= 1024 * 1024
+            reads.append(size)
+            return self.stream.read(size)
+
+    monkeypatch.setattr(Path, "open", lambda path, *args, **kwargs: BoundedReader() if path == document.path else original_open(path, *args, **kwargs))
+    assert provider._session_generation_matches(document)
+    assert reads
