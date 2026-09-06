@@ -41,7 +41,9 @@ Prefer the exact named custom agent over a generic worker. Select it through the
 
 Never claim that a Luna role was used unless actual child metadata confirms `gpt-5.6-luna`. Never silently substitute Sol, Terra or a generic worker when a named Luna role fails. Fail closed when the effective role, model, effort or permissions cannot be verified.
 
-Normal allocation is one active child. The canonical configuration caps routine delegated concurrency at two children, excluding the root, to control cost and over-delegation. Read-only lanes may be expanded deliberately for a task when evidence shows value, subject to the root/project maximum-authority ceiling and available capacity. Do not spawn an agent merely because a slot is available.
+The canonical configuration provides a hard capacity ceiling of six children, excluding the root; this is resilience headroom, not a target. Normal deliberate allocation is one child and normally no more than two useful children run concurrently. A third useful child is allowed only for already-required, dependency-ready, non-overlapping work whose result will definitely be consumed. Never spawn an agent merely because capacity exists.
+
+Required `reviewer` and `risk_reviewer` gates for a frozen head take priority over scouting, documentation, next-issue preparation, release verification and other discretionary work. Before spawning a mandatory reviewer, inspect child state and close completed children whose results have already been integrated. Never allow discretionary work to occupy the capacity required by a mandatory named reviewer.
 
 Parallelise primarily scouting, documentation research, independent review, test analysis and benchmark analysis. Normally permit only one workspace-writing child at a time. Two write agents may run together only in separate worktrees with proven disjoint file ownership. Never run overlapping production-code writers.
 
@@ -51,7 +53,9 @@ Review only a finished stable diff. Once work is delegated, the root must not pe
 
 Children must remain within delegated scope, must not recursively delegate and must return distilled evidence instead of raw logs or noisy exploration. A child must stop and return when it encounters unexpected architecture, conflicting requirements, wider ownership, repeated focused failure or authority outside its role.
 
-Close finished child threads after their conclusions are integrated.
+Close completed child threads promptly after their conclusions are integrated. Do not send queue-only messages to a completed child; use the appropriate follow-up mechanism or create one fresh bounded child only when further work is genuinely required.
+
+If a required spawn reports `agent thread limit reached`, inspect active and completed child state, release completed children and retry the exact named agent once. If it still fails while fewer genuinely active children exist than the configured ceiling, classify it as a V2 residency/thread-accounting failure rather than a product defect. Preserve the exact checkpoint and resume from a fresh root session; do not repeatedly retry, substitute or weaken the required review, rerun unrelated evidence or mark the product implementation defective.
 
 Use this task packet for every delegation:
 

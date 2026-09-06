@@ -22,10 +22,12 @@ This directory preserves the latest reviewed personal Codex orchestration config
   files are retained only as historical/manual V1 compatibility material;
   they are not the active V2 routing path. Do not infer current model
   availability or active settings from them.
-- The canonical snapshot keeps `max_concurrent_threads_per_session = 2` as
-  the routine cost and over-delegation cap. Read-only lanes may be expanded
-  deliberately for a task when evidence shows value, subject to the
-  root/project ceiling and available capacity; workspace-writing remains
+- The canonical snapshot keeps `max_concurrent_threads_per_session = 6` as a
+  hard child-capacity ceiling that leaves room for mandatory review when V2
+  retains completed threads. It is not an allocation target: use one child
+  normally, no more than two useful children concurrently in ordinary work,
+  and a third only for already-required dependency-ready disjoint work whose
+  result will definitely be consumed. Workspace-writing remains
   ownership-controlled.
 - The repository-root `AGENTS.md` remains the authoritative project-specific instruction file.
 - Trust uses verified exact project paths. No supported wildcard or
@@ -43,7 +45,7 @@ This directory preserves the latest reviewed personal Codex orchestration config
 
 ## Routing enforcement
 
-Run `enforce-agent-routing.ps1` without switches for a read-only audit of the live root model, V2 settings, all 12 role TOMLs and registered worktrees.
+Run `enforce-agent-routing.ps1` without switches for a read-only audit of the live root model, the single hard concurrency setting, V2 settings, all 12 role TOMLs and registered worktrees. It rejects duplicate concurrency assignments and the legacy `max_threads` alias so conflicting ceilings cannot silently coexist.
 
 Use `-ApplyWorktreeOverrides` to place an ignored, generated `AGENTS.override.md` in existing worktrees whose root policy differs from the canonical root `AGENTS.md`. This prevents an old worktree from reactivating stale routing instructions without changing its branch. Use `-PruneMissingWorktrees` only to remove Git metadata for worktree directories that no longer exist.
 

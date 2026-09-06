@@ -42,7 +42,29 @@ if ((Get-TomlString $configText "model") -ne "gpt-6-astra") { $problems.Add("Roo
 if ((Get-TomlString $configText "model_reasoning_effort") -ne "low") { $problems.Add("Root reasoning is not low.") }
 if ((Get-TomlString $configText "plan_mode_reasoning_effort") -ne "medium") { $problems.Add("Plan reasoning is not medium.") }
 if ($configText -notmatch "(?m)^\s*multi_agent_v2\s*=\s*true\s*$") { $problems.Add("multi_agent_v2 is not enabled.") }
-if ($configText -notmatch "(?m)^\s*max_concurrent_threads_per_session\s*=\s*2\s*$") { $problems.Add("Routine child concurrency is not capped at 2.") }
+$concurrencyMatches = [regex]::Matches($configText, "(?m)^\s*max_concurrent_threads_per_session\s*=\s*(\d+)\s*(?:#.*)?$")
+if ($concurrencyMatches.Count -ne 1) {
+    $problems.Add("Live config must contain exactly one max_concurrent_threads_per_session assignment.")
+} elseif ([int]$concurrencyMatches[0].Groups[1].Value -ne 6) {
+    $problems.Add("Hard child capacity ceiling is not 6.")
+}
+if ($configText -match "(?m)^\s*max_threads\s*=") {
+    $problems.Add("Legacy max_threads conflicts with the authoritative concurrency setting.")
+}
+
+foreach ($snapshotName in @("config.toml", "config-core.toml")) {
+    $snapshotPath = Join-Path $PSScriptRoot $snapshotName
+    $snapshotText = Get-Content -LiteralPath $snapshotPath -Raw
+    $snapshotMatches = [regex]::Matches($snapshotText, "(?m)^\s*max_concurrent_threads_per_session\s*=\s*(\d+)\s*(?:#.*)?$")
+    if ($snapshotMatches.Count -ne 1) {
+        $problems.Add("$snapshotName must contain exactly one max_concurrent_threads_per_session assignment.")
+    } elseif ([int]$snapshotMatches[0].Groups[1].Value -ne 6) {
+        $problems.Add("$snapshotName hard child capacity ceiling is not 6.")
+    }
+    if ($snapshotText -match "(?m)^\s*max_threads\s*=") {
+        $problems.Add("$snapshotName contains the conflicting legacy max_threads alias.")
+    }
+}
 
 foreach ($role in $expected.Keys) {
     $path = Join-Path $liveAgents ($role + ".toml")
