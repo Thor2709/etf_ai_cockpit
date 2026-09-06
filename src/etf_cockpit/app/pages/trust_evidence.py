@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+from types import SimpleNamespace
 from typing import Callable, Iterator
 
 import flet as ft
@@ -569,8 +570,11 @@ def _status_page(
 
 
 def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
-    result = ft.Text("SEC import status: unavailable until a local fixture is selected or a CIK fetch is requested.", color=theme.MUTED, selectable=True)
-    cik_field = ft.TextField(label="SEC CIK", value="789019", width=180)
+    result = ft.Text(getattr(state, "last_message", "SEC import status: unavailable until a local fixture is selected or a CIK fetch is requested."), color=theme.MUTED, selectable=True)
+    cik_field = ft.TextField(label="SEC CIK", value="789019", width=180, key="filings.sec-cik")
+    bulk_dataset = ft.Dropdown(label="SEC bulk dataset", value="companyfacts", key="filings.sec-bulk-dataset", options=[ft.dropdown.Option("companyfacts"), ft.dropdown.Option("submissions")], width=190)
+    bulk_instrument = ft.TextField(label="Canonical instrument ID", key="filings.sec-bulk-instrument", width=230)
+    bulk_picker = _attach_picker(page, "filings.bulk.file-picker")
     country_field = ft.TextField(label="ESEF country", value="NL", width=120)
     filing_id_field = ft.TextField(label="ESEF filing ID", width=250)
     filing_countries = ("DK", "FI", "FR", "GB", "NL", "NO", "SE")
@@ -641,6 +645,53 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                 publish_guard=lambda: state.activity_publication(action_id),
             ),
         )
+
+    async def import_sec_bulk(_event: ft.ControlEvent) -> None:
+        dataset = str(bulk_dataset.value or "companyfacts")
+        cik = str(cik_field.value or "").strip()
+        instrument = str(bulk_instrument.value or "").strip() or None
+        files = await bulk_picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["zip"], with_data=False)
+        if not files:
+            result.value = "SEC bulk import cancelled; no data changed."
+            page.update()
+            return
+        native_path = getattr(files[0], "path", None)
+        if not native_path or not Path(native_path).is_file():
+            result.value = "SEC bulk ZIP import requires a readable native file path. Use the desktop file picker; archive bytes are not uploaded."
+            page.update()
+            return
+        action = state.import_sec_submissions_bulk if dataset == "submissions" else state.import_sec_companyfacts_bulk
+        _run_picker_activity(
+            page, state, result, f"Import SEC {dataset} bulk", "Importing selected CIK from local ZIP",
+            SimpleNamespace(path=native_path), ".zip",
+            lambda path, action_id: action(path, cik=cik, instrument_id=instrument, publish_guard=lambda: state.activity_publication(action_id)),
+        )
+
+    async def fetch_sec_bulk(_event: ft.ControlEvent, *, cache_only: bool = False) -> None:
+        dataset = str(bulk_dataset.value or "companyfacts")
+        cik = str(cik_field.value or "").strip()
+        instrument = str(bulk_instrument.value or "").strip() or None
+        action = state.fetch_sec_submissions_bulk if dataset == "submissions" else state.fetch_sec_companyfacts_bulk
+        _run_official_filing_action(
+            page, state, result, f"{'Use cached' if cache_only else 'Fetch'} SEC {dataset} bulk",
+            "Selecting same-session cache" if cache_only else "Acquiring official SEC bulk archive",
+            lambda action_id: action(cik, instrument_id=instrument, cache_only=cache_only, publish_guard=lambda: state.activity_publication(action_id)),
+        )
+
+    async def cached_sec_bulk(event: ft.ControlEvent) -> None:
+        await fetch_sec_bulk(event, cache_only=True)
+
+    submissions = getattr(state, "sec_submissions_result", None)
+    submissions_table = ft.Column([
+        ft.Text("Submissions metadata: filing bytes may be missing; execution_allowed=false."),
+        ft.Text("Warnings: " + (", ".join(str(item.get("code", "warning")) for item in submissions.warnings[:5]) or "none") if submissions is not None else "No submissions warning evidence yet."),
+        ft.Text(f"Showing up to 25 of {len(submissions.records)} records; coverage={submissions.status}." if submissions is not None else "No submissions imported in this session."),
+        ft.DataTable(
+            key="filings.sec-submissions-table",
+            columns=[ft.DataColumn(ft.Text(label)) for label in ("CIK", "Accession", "Form", "Filed", "Available at", "Source hash")],
+            rows=[ft.DataRow(cells=[ft.DataCell(ft.Text(str(value or "missing"))) for value in (record.cik, record.accession, record.form, record.filing_date, record.available_at, record.source_sha256[:16])]) for record in submissions.records[:25]] if submissions is not None else [],
+        ),
+    ])
 
     async def import_esef(_event: ft.ControlEvent) -> None:
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["xbri", "zip"], with_data=True)
@@ -748,7 +799,7 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             ),
         )
 
-    return panel(ft.Column([section_header("Official filing import", "SEC EDGAR, filings.xbrl.org, Companies House and national OAM evidence. Network, entitlement and timing gaps remain explicit; no filing action starts scoring or execution."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec)], wrap=True), ft.Row([country_field, filing_id_field, ft.OutlinedButton("Discover ESEF filings", key="filings.discover-esef", icon=ft.Icons.SEARCH, on_click=discover_esef), ft.OutlinedButton("Download ESEF package", key="filings.download-esef", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=download_esef), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), ft.Row([oam_country_field, oam_issuer_field, oam_isin_field, oam_document_type_field, company_number_field], wrap=True), ft.Row([oam_date_from_field, oam_date_to_field, oam_endpoint_field, companies_house_key_field, ft.OutlinedButton("Discover official filings", key="filings.discover-oam", icon=ft.Icons.SEARCH, on_click=discover_oam)], wrap=True), ft.Row([manual_country_field, manual_instrument_field, manual_document_type_field, manual_published_field, manual_available_field], wrap=True), ft.Row([manual_source_url_field, ft.OutlinedButton("Archive manual official filing", key="filings.import-manual-official", icon=ft.Icons.UPLOAD_FILE, on_click=import_manual_filing)], wrap=True), result], spacing=8))
+    return panel(ft.Column([section_header("Official filing import", "SEC EDGAR, filings.xbrl.org, Companies House and national OAM evidence. Network, entitlement and timing gaps remain explicit; no filing action starts scoring or execution."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec)], wrap=True), ft.Row([bulk_dataset, bulk_instrument, ft.OutlinedButton("Import local SEC ZIP", key="filings.import-sec-bulk", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec_bulk), ft.OutlinedButton("Fetch official SEC bulk", key="filings.fetch-sec-bulk", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec_bulk), ft.OutlinedButton("Use session cache", key="filings.cache-sec-bulk", on_click=cached_sec_bulk)], wrap=True), ft.Text("Local first import: enter CIK and instrument ID. Network refresh requires a unique saved identity and name/contact email. Bulk downloads can be several GB."), ft.Text(getattr(state, "sec_companyfacts_bulk_message", "No companyfacts bulk result in this session."), selectable=True), submissions_table, ft.Row([country_field, filing_id_field, ft.OutlinedButton("Discover ESEF filings", key="filings.discover-esef", icon=ft.Icons.SEARCH, on_click=discover_esef), ft.OutlinedButton("Download ESEF package", key="filings.download-esef", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=download_esef), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), ft.Row([oam_country_field, oam_issuer_field, oam_isin_field, oam_document_type_field, company_number_field], wrap=True), ft.Row([oam_date_from_field, oam_date_to_field, oam_endpoint_field, companies_house_key_field, ft.OutlinedButton("Discover official filings", key="filings.discover-oam", icon=ft.Icons.SEARCH, on_click=discover_oam)], wrap=True), ft.Row([manual_country_field, manual_instrument_field, manual_document_type_field, manual_published_field, manual_available_field], wrap=True), ft.Row([manual_source_url_field, ft.OutlinedButton("Archive manual official filing", key="filings.import-manual-official", icon=ft.Icons.UPLOAD_FILE, on_click=import_manual_filing)], wrap=True), result], spacing=8))
 
 
 def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:

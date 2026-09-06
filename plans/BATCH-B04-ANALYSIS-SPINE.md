@@ -1,5 +1,224 @@
 # B04 Analysis Spine
 
+## SEC integration and canonical sequencing — 2026-09-06
+
+Current main remains `46706be6d0bbee1a0be41f8fdea785ca9f79868c`.
+Corrected product source `f667d0b44be8f2bdaf5dbbe076dc9885c2b01561`
+passes affected evidence. The integration lane contains its exact product tree
+and retains its ancestry. Canonical UPDATEV2-0012 remains implemented_initially.
+
+The existing status guard checks verified_commit ancestry against the reviewed
+generation base (`status_transition_guard.py`, verified_commit_is_ancestor),
+so the new product source cannot legally become canonical integrated evidence
+before its product merge. Follow the user's integration-then-canonical order:
+finish exact product reviews and H gates, merge, then append the one allowed
+implemented_initially-to-integrated hop from that fresh main using the existing
+reviewed checksum/authority preparation and zero-action readback. Do not change
+programme machinery, fabricate an older verification commit, or invent status
+history. This is a required dependency of the canonical projection, not a
+whole-issue completion claim. Native visual inspection is not claimed; actual
+native-path callbacks, complete audit validation and actual export workflows
+have focused evidence, and both platform package gates remain mandatory.
+
+
+## Consolidated SEC completion correction — 2026-09-06
+
+Both final product reviewers reject only explicit selector inconsistency in
+AppState.import_sec_submissions_bulk at `6c405c6d`: a supplied identity must
+not override a contradictory CIK or instrument argument. One bounded repair
+in `C:/dev/etf-sec-final-correction-20260906` owns only that method and focused
+no-import/no-publication regressions. Provider/importer/writer/UI contracts
+remain frozen. Whole review dismissed the preview-refresh concern because
+the activity finally path rebuilds the shell.
+
+Root additionally passed 14 complete audit-archive validation tests on both
+runtimes and the actual AppState audit-export workflow on Python 3.12; the
+3.13 workflow check also passed. Combined with the real canonical evidence and
+session-copy regression, this closes the separate export-path acceptance gap.
+Native visual inspection has not been performed; do not claim it. Required
+acceptance is guarded native-path/callback evidence and the complete H-tier
+Linux/Windows package gates, not an invented manual screenshot requirement.
+Issue status remains unchanged until corrected paired review and required
+acceptance evidence are prepared for the canonical completion candidate.
+
+
+The four-line selector correction is complete. Ten new cases cover rejected
+contradictory/malformed selectors before importer invocation plus matching and
+identity-only calls. Both affected workflow/UI selections pass 71 tests with
+one existing host skip; Ruff, dual compilation and diff checks pass. Root
+checked the finished correction. Freeze this product source for final
+acceptance preparation and exact-head independent readback.
+
+## SEC UI completion checkpoint — 2026-09-06
+
+The remaining product lane is bound to main `46706be6` through tree-preserving
+merge `b4867590`. Explicit native ZIP, official refresh and same-session cache
+controls now reach both datasets. Partial/warning messages survive session
+output logging; submissions previews are bounded and missing filing bytes stay
+explicit. Authored UI acceptance contracts accompany the controls.
+Both runtime affected selections pass 186 tests with one existing host skip;
+one additional real session/audit-copy warning regression and four final UI
+callback tests pass per runtime. Ruff, compilation and diff hygiene pass.
+Full native visual and complete audit-package acceptance, independent final
+reviews and central H validation remain required. Test-created thesis diary
+artifacts are retained outside staged source ownership. No status is advanced
+until remaining acceptance is resolved.
+
+
+## SEC live evidence — 2026-09-06
+
+With the user-supplied personal contact held only in ignored local config,
+HTTP200 bulk acquisition at reviewed source `7004b9c8` retained submissions
+archive `80c8cc6660ccd37411fe867ef23dfb92765dfd4815cab18b4093e9092b6a75ec`
+(1,562,265,619 bytes). The frozen provider-fused checkpoint `023523f7` acquired
+companyfacts archive
+`1c6ab59f38e405631d0fd223fa2cde11281352e2d0775901a5d2766bbd9f0560`
+(1,408,249,354 bytes), then imported selected CIK 0000789019 into isolated
+verification stores: 32,580 facts and one matching inventory row. Member hash
+is `f8aae2965b20ad0df44bdf7ccbedf797d275b6b8dc030154a7a311361bb7246f`.
+The actual result is partial with five ambiguous-unit warnings, not complete
+coverage. Inventory retains official regulator provenance, those warnings,
+acquisition time and executable_authority=false. This isolated CIK mapping is
+verification evidence, not portfolio attribution. No data-quality rule changed.
+Full local records: `C:/dev/etf-sec-live-20260906`; archives remain local and are
+not added to Git or audit uploads. Final UI/audit acceptance remains pending.
+
+
+## Official companyfacts completion lane — 2026-09-06
+
+PR726 merged as `46706be6d0bbee1a0be41f8fdea785ca9f79868c` after exact
+paired review and H run `34004339146` passed both platforms (4,202 tests each).
+The configured release verifier accepted terminal artifact `9980951035`.
+Post-merge convergence run `34006361665` passed at that exact main. Root
+verified the downloaded live sync plan: zero actions, zero blockers, accepted
+authority reconciliation; plan checksum
+`2e1b4e712131f9434f46f245a9c74d08b82815a56127895d80f25a6b8283bfa7`.
+
+Fresh `C:/dev/etf-sec-official-bulk-20260906` continues from preserved AppState
+checkpoint `f6270317f73b38e67e47a663bf78322f72959719`. One implementer owns
+the provider-fused companyfacts method, private importer seam/shared core,
+SEC AppState call sites and their focused tests/docs. Public inputs remain
+manual-only. Provider acquisition internals, core atomic machinery, OAM, UI
+and canonical state are excluded. Complete the provider seam before adding
+explicit UI actions and clean-first-run/audit acceptance. Root will bind the
+finished remaining diff to current main before final reviews and one H gate.
+
+
+The provider-fused seam now passes 165 tests with five existing host symlink
+skips on both runtimes; Ruff, dual compilation and diff checks pass. Official
+200/206/304, same-session cache, manual-to-official checkpoint replacement,
+corruption and cancellation regressions are covered. This is a local checkpoint
+awaiting coherent UI/audit completion and final independent reviews.
+
+## SEC bulk application integration — 2026-09-06
+
+Companyfacts component `5e6e5f16ec6616d231818a11d8f8c4a14df12530` has
+whole-diff and risk approval against `7004b9c8`; its H-tier evidence is pending
+the frozen PR726 integration lane. The next bounded writer owns SEC-only
+AppState integration, `tests/test_sec_bulk_workflow.py` and the matching
+architecture note in `C:/dev/etf-sec-bulk-app-20260906`. Reuse precise historical
+`7b37371d` methods while preserving current single-JSON provenance, explicit
+network actions, cancellation and manual-only public bulk inputs. No UI,
+provider, importer, OAM, canonical lifecycle or execution authority changes.
+UPDATEV2-0012 remains incomplete; official fused bulk, UI/audit and complete
+first-run acceptance remain later work. Root owns this checkpoint; the
+implementer owns only the stated application/test/document paths.
+
+
+The recovered AppState workflow passes 90 tests with one existing symlink skip
+on each Python 3.12/3.13 runtime, plus Ruff, compilation and diff hygiene.
+Existing single-JSON immutable provenance functions are retained. This local
+checkpoint is not independently reviewed or integration-ready. Complete the
+provider-fused companyfacts seam and explicit Filings bulk/submissions actions,
+then review the coherent remaining SEC product diff and run one H-tier matrix.
+Public archives remain manual; official acquisition must use the provider-owned
+session seam. Existing output tables/audit projections require acceptance tests,
+not a new audit architecture or copies of multi-gigabyte archives.
+## Companyfacts component consolidated correction — 2026-09-06
+
+Both independent reviewers reject `9e56499c959f2fe09b3659c9c4c8019c164bc054`.
+The complete finding set is: canonical writers read stores before pending
+atomic transactions recover, public `RawDocument` metadata can grant official
+authority, and ZIP directory limits are checked after member-table allocation.
+An interrupted-pair regression reproduced facts without matching inventory
+after a later writer completed. Preserve the rejected head and its 102-pass
+reports; they are not acceptance evidence.
+
+One consolidated repair in fresh
+`C:/dev/etf-sec-companyfacts-correction-20260906` must recover before store
+reads through existing compatible atomic APIs, retain manual authority for
+public inputs, and use the parent's bounded container check before allocation.
+The owning implementation scope excludes core atomic API changes, frozen PR726
+files, score methods, and programme authority. Escalate if existing APIs cannot
+satisfy the recovery contract without wider changes. New targeted regressions,
+affected dual-runtime evidence, replacement reviews and H-tier gates are
+required before integration. No whole-issue completion is claimed.
+
+The consolidated repair now invokes existing atomic recovery under statement
+sidecars before reads, retains manual authority for public archive metadata,
+and validates bounded EOCD/ZIP64 structure before `ZipFile` allocation. New
+interrupted-pair regressions cover paired/individual/trust/checkpoint paths.
+Both affected runtime selections pass 114 tests with four existing host symlink
+skips, with JUnit at `logs/companyfacts-corrected312.xml` and
+`logs/companyfacts-corrected313.xml`; Ruff, dual compilation and diff hygiene
+pass. Root inspected the completed source/doc diff and both reports. Freeze for
+replacement paired review. The official fused companyfacts path remains an
+explicit later integration gap; no proof is invented from caller metadata.
+
+## Canonical statement-writer prerequisite — 2026-09-06
+
+The read-only planner traced the missing guard to omitted historical source
+dependencies, not a new architecture requirement. Commits `68fe0631` and
+`07a81794` contain ordered statement destination guards, all three canonical
+writer wrappers, the coordinated trust-inventory refresh, serialization tests
+and explicit manual-review classification for local SEC imports. These remain
+present in historical `7b37371d`; the initial four-file transplant omitted them.
+
+One implementer in fresh `C:/dev/etf-sec-statement-prerequisite-20260906`
+owns only those precise hunks in `sec_facts.py`, the trust-inventory wrapper and
+call site in `trust_artifacts.py`, serialization/boundary tests and the existing
+bulk-import note. The preserved score-history candidate changes score methods
+and `_append_parquet`; those symbols are excluded from this writer's ownership.
+Do not replace whole historical source files, change the atomic paired
+publication mechanism, or introduce nested non-reentrant statement guards.
+The importer and writer prerequisite form one inseparable component for the
+next stable review; no acceptance is claimed until focused and full H-tier
+evidence passes. PR726's source remains frozen in its separate CI lane.
+
+The prerequisite is restored without changing the importer, score methods or
+`_append_parquet`. Both Python 3.12 and 3.13 affected integration selections pass
+102 tests with four existing Windows symlink-capability skips; seven strengthened
+serialization checks pass, as do Ruff, dual compilation and diff hygiene.
+JUnit is retained at `logs/statement-corrected312.xml` and
+`logs/statement-corrected313.xml`. Root inspected the completed writer/test/doc
+diff and verified both reports. Freeze the full importer-plus-prerequisite
+component for independent review; it is not yet accepted or dependency-integrated.
+
+## Companyfacts bulk importer prerequisite — 2026-09-06
+
+While immutable PR726 validates `7004b9c8`, a disjoint next lane at
+`C:/dev/etf-sec-companyfacts-import-20260906` preserves the exact historical
+`sec_bulk_import.py`, two direct test modules and architecture note from
+`7b37371d5bfdeed2a3364a1ac43fe8c573ade24e`. This application importer is absent
+from current main and is required before the historical AppState bulk workflow
+can be integrated. No historical test result is assumed compatible with the
+current parser/provider dependencies.
+
+Baseline `b140065e` fails collection on both Python 3.12 and 3.13 because
+`sec_facts._statement_store_guards` is absent. The implementation agent made no
+edits and stopped at the ownership boundary: importer-only locking would not
+coordinate canonical writers. JUnit is retained as
+`logs/companyfacts-baseline312.xml` and `logs/companyfacts-baseline313.xml`.
+One read-only planner is checking the historical dependency and smallest
+canonical-writer prerequisite before further implementation. Do not remove the
+guard import or weaken checkpoint consistency merely to pass collection.
+
+UPDATEV2-0012 remains P0 and dependency-ready. One implementer owns only this
+new application module, its direct tests and note, and must establish a focused
+baseline before a bounded compatibility correction. PR726 provider/bulk/parser
+files remain frozen and unwritable. No AppState/UI/audit or lifecycle completion
+is included. Stop if compatibility requires wider architectural ownership.
+
 ## SEC capture-budget review finding — 2026-09-06
 
 Replacement `001494301dcec87859eccb42f8f5d919e8ef3756` passes whole-diff
