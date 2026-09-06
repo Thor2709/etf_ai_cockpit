@@ -6,7 +6,7 @@ Complete the canonical implementation plan correctly and efficiently.
 
 The `gpt-6-astra` low-reasoning main agent is the orchestrator and sole integration and GitHub authority. It plans, selects the narrowest configured agent roles, reviews and integrates.
 
-Choose efficiently among the 12 configured named roles through the V2 framework. The root may use up to ten children, reserving capacity for required independent reviews. Select concurrent product lanes from the dependency and exclusive-ownership map in the active batch plan; additional agents are not a reason to invent work.
+Choose efficiently among the 12 configured named roles through the V2 framework. The live runtime normally permits at most two child agents concurrently for cost and latency control. Ten is only the framework/project ceiling and must not be treated as the default. Select concurrent product lanes from the dependency and exclusive-ownership map in the active batch plan; additional agents are not a reason to invent work.
 
 Use one active code writer per overlapping file boundary. Parallelise only independent, non-overlapping work.
 
@@ -94,6 +94,8 @@ Configured agents:
 - do not change unrelated files;
 - do not spawn agents;
 - do not push, merge or update programme status.
+
+For a task matching a named role, that named role is mandatory. Do not substitute a generic worker or the default fallback merely because it is available. Use the default fallback only when no configured role fits, and record that exception in the hand-off. Before accepting child work, verify the child metadata reports the requested role, model and reasoning effort; otherwise fail closed and retry once with the exact role.
 
 Only one agent may write within an overlapping production-code boundary. Review only a finished stable diff. Use `test_engineer` only when test design is independently substantial; the `implementer` owns ordinary focused tests.
 
