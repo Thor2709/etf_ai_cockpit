@@ -23,3 +23,15 @@ rows. The complete registry read-modify-write is serialized with a persistent
 sidecar guard so concurrent jurisdiction imports cannot silently erase one
 another. Coverage and warnings remain explicit and are never used to enable
 scoring, broker access, or execution.
+
+
+Local source IDs include the complete structured row and snapshot hash, so
+missing identifiers cannot collapse distinct issuers or documents. Companies
+House rows also distinguish the effective company number. Exact duplicate rows
+within the same content remain deduplicated.
+
+Under the registry guard, reimporting an identical local row retains its earliest
+stored observed `available_at`, including concurrent imports published out of
+order. `retrieved_at` describes the selected import snapshot; caller-declared
+historical availability remains only `claimed_available_at` and never supplies
+the observed availability. Different snapshot content remains distinct evidence.

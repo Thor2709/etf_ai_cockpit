@@ -848,3 +848,72 @@ def test_manual_official_filing_rejects_invalid_timing(tmp_path: Path) -> None:
             raw_dir=tmp_path / "raw",
             queue_path=tmp_path / "queue.parquet",
         )
+
+
+@pytest.mark.parametrize("adapter_type", [NetherlandsAfmOamAdapter, CompaniesHouseFilingAdapter])
+def test_local_rows_without_identifiers_retain_distinct_entities_and_documents(tmp_path, adapter_type):
+    source = tmp_path / "distinct.json"
+    source.write_text(json.dumps({"records": [
+        {"issuer": "First", "title": "Report", "date": "2026-07-01", "document_type": "annual"},
+        {"issuer": "Second", "title": "Report", "date": "2026-07-01", "document_type": "annual"},
+        {"issuer": "First", "title": "Report", "date": "2026-07-01", "document_type": "amendment"},
+    ]}))
+    result = adapter_type(cache_dir=tmp_path / "cache", enabled=False).discover_local(source)
+    assert len(result.records) == 3
+    assert len({row.source_id for row in result.records}) == 3
+    assert {row.issuer for row in result.records} == {"First", "Second"}
+    assert all(row.manual_review and not row.execution_allowed for row in result.records)
+
+
+def test_companies_house_same_document_discriminates_company_numbers(tmp_path):
+    source = tmp_path / "companies.json"
+    source.write_text(json.dumps({"records": [
+        {"company_number": "001", "title": "Report", "date": "2026-07-01"},
+        {"company_number": "002", "title": "Report", "date": "2026-07-01"},
+    ]}))
+    result = CompaniesHouseFilingAdapter(cache_dir=tmp_path / "cache", enabled=False).discover_local(source)
+    assert len(result.records) == 2
+    assert len({row.source_id for row in result.records}) == 2
+    assert {row.issuer for row in result.records} == {"001", "002"}
+
+
+@pytest.mark.parametrize("concurrent", [False, True])
+def test_identical_local_reimports_preserve_earliest_observed_availability(tmp_path, monkeypatch, concurrent):
+    from datetime import datetime, timezone
+    from threading import Barrier
+    from etf_cockpit.data import oam_adapters as module
+
+    class Clock(datetime):
+        current = datetime(2026, 7, 10, tzinfo=timezone.utc)
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current
+    monkeypatch.setattr(module, "datetime", Clock)
+    source = tmp_path / "source.json"
+    source.write_text(json.dumps({"records": [{"issuer": "First", "title": "Report", "available_at": "2001-01-01"}]}))
+    adapter = NetherlandsAfmOamAdapter(cache_dir=tmp_path / "cache", enabled=False)
+    first = adapter.discover_local(source)
+    Clock.current = datetime(2026, 7, 11, tzinfo=timezone.utc)
+    second = adapter.discover_local(source)
+    assert first.snapshot.sha256 == second.snapshot.sha256
+    assert first.records[0].source_id == second.records[0].source_id
+    assert first.records[0].available_at != second.records[0].available_at
+    registry = tmp_path / "registry.parquet"
+    if concurrent:
+        barrier = Barrier(2)
+        def publish(result):
+            barrier.wait()
+            write_oam_discovery_registry(result, destination=registry)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(publish, result) for result in (second, first)]
+            for future in futures:
+                future.result()
+    else:
+        write_oam_discovery_registry(first, destination=registry)
+        write_oam_discovery_registry(second, destination=registry)
+    frame = pd.read_parquet(registry)
+    assert len(frame) == 1
+    assert frame.iloc[0]["available_at"] == first.records[0].available_at
+    assert frame.iloc[0]["claimed_available_at"] == "2001-01-01"
+    assert frame.iloc[0]["source_authority"] == "local_user_import"
+    assert not frame.iloc[0]["execution_allowed"]

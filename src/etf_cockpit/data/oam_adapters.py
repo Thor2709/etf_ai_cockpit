@@ -478,6 +478,7 @@ class OAMAdapter:
                 "|".join((self.provider_id, snapshot_sha256 if local_import else source, isin, title, published or "")).encode("utf-8")
             ).hexdigest()[:24]
             if local_import:
+                source_id = _local_oam_source_id(self.provider_id, snapshot_sha256, raw)
                 identity_status = (
                     "matched_isin_manual_review"
                     if request.isin and request.isin.strip().upper() == isin
@@ -704,7 +705,7 @@ class CompaniesHouseFilingAdapter(OAMAdapter):
                 "|".join((snapshot_sha256 if local_import else effective_company_number, transaction_id, published or "", description)).encode("utf-8")
             ).hexdigest()[:24]
             if local_import:
-                source_id = "oam-local:" + source_id
+                source_id = _local_oam_source_id(self.provider_id, snapshot_sha256, {"row": raw, "company_number": effective_company_number})
             if local_import:
                 if (
                     request.company_number
@@ -720,7 +721,7 @@ class CompaniesHouseFilingAdapter(OAMAdapter):
                 OAMRecord(
                     provider_id=self.provider_id,
                     country=self.country,
-                    issuer=effective_company_number,
+                    issuer=effective_company_number or (_first(values, "issuer", "issuer_name", "company", "company_name", "entity", "name") if local_import else ""),
                     isin="",
                     title=description,
                     document_type=category,
@@ -852,6 +853,7 @@ def write_oam_discovery_registry(
                 if column not in frame.columns:
                     frame[column] = None
             frame = frame[existing.columns]
+            _retain_local_observation_times(frame, existing)
             incoming_ids = set(frame["source_id"].dropna().astype(str))
             if "source_id" in existing.columns:
                 existing = existing[~existing["source_id"].fillna("").astype(str).isin(incoming_ids)]
@@ -873,6 +875,35 @@ def write_oam_discovery_registry(
         with publication_scope(publish_guard):
             _write_parquet_atomic(combined, destination)
     return destination
+
+
+def _local_oam_source_id(provider_id: str, snapshot_sha256: str, raw: Mapping[str, object]) -> str:
+    # Include the complete structured row: missing identifiers must not collapse
+    # different issuers, document links, amendments or other row discriminators.
+    identity = json.dumps([provider_id, snapshot_sha256, raw], sort_keys=True, separators=(",", ":"), default=str)
+    return "oam-local:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+
+
+def _retain_local_observation_times(frame: pd.DataFrame, existing: pd.DataFrame) -> None:
+    """Keep the earliest locally observed availability for the exact stored row."""
+    observations: dict[tuple[str, str, str], pd.Timestamp] = {}
+    for row in existing.to_dict("records"):
+        if row.get("source_authority") != "local_user_import":
+            continue
+        observed = pd.to_datetime(row.get("available_at"), utc=True, errors="coerce")
+        if pd.isna(observed):
+            continue
+        key = (str(row.get("provider_id")), str(row.get("source_id")), str(row.get("snapshot_sha256")))
+        observations[key] = min(observations.get(key, observed), observed)
+    for index, row in frame.iterrows():
+        if row.get("source_authority") != "local_user_import":
+            continue
+        key = (str(row.get("provider_id")), str(row.get("source_id")), str(row.get("snapshot_sha256")))
+        previous = observations.get(key)
+        # Use the importer observation, never claimed_available_at from the file.
+        observed = pd.to_datetime(row.get("retrieved_at"), utc=True, errors="coerce")
+        if previous is not None and not pd.isna(observed) and previous < observed:
+            frame.at[index, "available_at"] = previous.isoformat(timespec="seconds")
 
 
 def write_filing_coverage(
