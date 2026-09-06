@@ -1,5 +1,22 @@
 # B04 Analysis Spine
 
+## ISSUE-0019 preserved point-in-time correction — 2026-09-06
+
+Current base is6145bdb21b64a027f8d3bccb962e651d59d384ac. Preserve rejected
+candidate67971744 history through this integration; only batch chronology
+conflicted. Product blobs merge unchanged. ISSUE-0019 has no blocking edges,
+but remains implemented_initially. Its prior paired reviews reject unbounded
+fallback features/current holdings in historical factor risk and conflated
+global versus selected-instrument coverage. One bounded implementer will own
+that boundary and focused tests in C:/dev/etf-issue0019-pit-correction-20260906.
+The immutable OAM headad8a1d76 has paired approvals and H run34029549970;
+its adapter/state/trust-page files do not overlap this instrument-detail lane.
+Root serializes all integration and canonical writes. No Antigravity or original
+ISSUE-0019 worktree is changed. Preserve execution_allowed=false and fail closed
+when historical factor evidence cannot be established. This is a checkpoint,
+not acceptance; paired reviews and fresh H evidence remain required.
+
+
 ## SEC canonical completion candidate — 2026-09-06
 
 Product PR727 merged as efa68f18ae52640a23b97f0942dfd97edece9cef with exact
