@@ -608,3 +608,17 @@ pairs or unavailable states for market, rating, currency, duration, size and
 history. Source and raw SHA-256 lineage is retained. Missing tape or bid/ask
 evidence, stale/evaluated labels and provider conflicts never grant precise
 liquidity or execution claims; `execution_allowed` is always false.
+
+### Instrument Detail factor-risk availability
+
+The Instrument Detail selector suppresses numeric factor-risk results for the
+current `CockpitSnapshot` contract. That contract provides raw prices, feature
+frames, current holdings and configuration, without a verified shared historical
+cutoff and revision/availability binding for all four inputs. Filtering price
+rows by date cannot establish that binding, and dated holdings or features alone
+do not establish historical knowledge. The selector does not invoke the factor
+producer for these unbound inputs. Allocation validation remains explicit, while
+selected-instrument input absence is reported independently of global report
+availability. All numeric groups remain empty and `execution_allowed=false`.
+A numeric panel requires a canonical producer input contract establishing the
+joint point-in-time provenance; this selector does not invent that contract.

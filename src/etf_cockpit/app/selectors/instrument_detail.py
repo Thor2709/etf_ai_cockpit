@@ -52,7 +52,6 @@ from etf_cockpit.application.ui_facade import (
     score_history_frame,
     sort_news_items,
     allocation_frame,
-    build_factor_risk_report,
     model_zoo_frame,
 )
 from etf_cockpit.core.paths import DERIVED_DIR
@@ -1693,15 +1692,8 @@ def _model_cards_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[st
     }
 
 
-def _records_for_instrument(value: object, instrument_id: str) -> list[dict[str, object]]:
-    if not isinstance(value, pd.DataFrame) or value.empty or "instrument_id" not in value.columns:
-        return []
-    rows = value.loc[value["instrument_id"].astype(str).eq(str(instrument_id))]
-    return rows.where(pd.notna(rows), None).to_dict("records")
-
-
 def _factor_risk_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[str, Any]:
-    """Bind the canonical global factor report, then isolate one instrument."""
+    """Fail numeric risk closed until all snapshot inputs have a PIT binding."""
 
     prices = getattr(snapshot, "prices", None)
     features = getattr(snapshot, "latest_features", None)
@@ -1758,41 +1750,37 @@ def _factor_risk_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[st
                 "missing_target_ids": sorted(target_ids - held_ids),
                 "non_target_held_ids": sorted(held_ids - target_ids),
             }
-        # The canonical snapshot cutoff is the only permissible observation
-        # bound; do not let presentation introduce future prices.
-        cutoff = getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
-        scoped_prices = prices
-        if cutoff is not None and "date" in prices.columns:
-            parsed = pd.to_datetime(prices["date"], errors="coerce")
-            scoped_prices = prices.loc[parsed <= pd.Timestamp(cutoff)].copy()
-        report = build_factor_risk_report(scoped_prices, allocation, features, holdings)
+        selected_sources = {
+            "prices": "etf_id" in prices.columns and bool(prices["etf_id"].eq(instrument_id).any()),
+            "features": "etf_id" in features.columns and bool(features["etf_id"].eq(instrument_id).any()),
+            "holdings": instrument_id in held_ids,
+            "allocation": instrument_id in allocation_ids,
+        }
     except (ArithmeticError, KeyError, OSError, TypeError, ValueError):
         return _unavailable("Factor-risk evidence is invalid; manual review is required.") | {
             **unavailable_details
         }
-    if not isinstance(report, Mapping):
-        return _unavailable("Factor-risk evidence is invalid; manual review is required.") | {
-            **unavailable_details
-        }
-    diagnostics = report.get("diagnostics") if isinstance(report.get("diagnostics"), Mapping) else {}
-    coverage = report.get("coverage") if isinstance(report.get("coverage"), Mapping) else {}
-    return {
-        "status": report.get("status", "unavailable"),
+    # CockpitSnapshot carries current holdings/configuration and descriptor
+    # frames, not a verified, jointly cutoff-bound factor input projection.
+    # Row dates alone cannot prove historical availability or revision identity.
+    # Do not calculate with those inputs, even when prices have a cutoff.
+    missing_sources = [name for name, present in selected_sources.items() if not present]
+    return _unavailable(
+        "Numeric factor-risk evidence unavailable: the snapshot does not bind prices, "
+        "features, holdings and allocation to one verified historical cutoff."
+        + (" The selected instrument is absent from: " + ", ".join(missing_sources) + "." if missing_sources else "")
+    ) | {
+        **unavailable_details,
         "instrument_id": instrument_id,
-        "model_version": report.get("model_version", diagnostics.get("model_version", "unavailable")),
-        "factor_exposures": _records_for_instrument(report.get("factor_exposures"), instrument_id),
-        "specific_risk": _records_for_instrument(report.get("specific_risk"), instrument_id),
-        "instrument_contributions": _records_for_instrument(report.get("instrument_contributions"), instrument_id),
-        "global_coverage": coverage,
-        "global_diagnostics": diagnostics,
-        "coverage": coverage,
-        "diagnostics": diagnostics,
-        "coverage_scope": "global",
-        "diagnostics_scope": "global",
-        "warnings": list(report.get("warnings", ())) if isinstance(report.get("warnings", ()), (list, tuple)) else [],
-        "message": "Global factor-risk report calculated from the complete snapshot; instrument rows are filtered by exact ID. Historical point-in-time look-through selection is unavailable.",
-        "execution_allowed": False,
+        "historical_binding_status": "unavailable",
+        "allocation_status": "complete",
+        "selected_instrument_status": "absent" if missing_sources else "unverified",
+        "selected_instrument_missing_sources": missing_sources,
+        "global_report_status": "unavailable",
+        "coverage_scope": "selected_instrument",
+        "coverage": {"status": "unavailable", "instrument_id": instrument_id},
     }
+
 
 
 def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:

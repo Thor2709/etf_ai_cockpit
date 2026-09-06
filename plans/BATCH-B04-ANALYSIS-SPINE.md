@@ -16,6 +16,13 @@ ISSUE-0019 worktree is changed. Preserve execution_allowed=false and fail closed
 when historical factor evidence cannot be established. This is a checkpoint,
 not acceptance; paired reviews and fresh H evidence remain required.
 
+The safety correction now suppresses numeric output for the unbound snapshot
+contract and separates selected-input absence. Python3.13 passed104 tests;
+Python3.12 passed103 initially and its sole data-lock contention failure
+passed once serially after both suites ended. Ruff/compile/diff pass. Preserve
+test-created untracked data. A read-only planner is assessing the missing
+positive-path contract before any whole-issue acceptance or hosted freeze.
+
 
 ## SEC canonical completion candidate — 2026-09-06
 
