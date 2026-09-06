@@ -100,7 +100,7 @@ def _import_provider_submissions(
     """Private fused seam: verify the concrete provider generation before import."""
 
     checker = getattr(provider, "_session_generation_matches", None)
-    if not callable(checker) or not checker(document):
+    if not callable(checker) or not checker(document, allow_revalidated=True):
         raise ValueError("provider submissions import lacks an exact session generation")
     return _import_submissions_core(
         document.path,
@@ -938,7 +938,7 @@ def _validated_provenance(document: RawDocument | None, path: Path, digest: str,
     if provider is None:
         return _local_document(path, expected_type)
     validator = getattr(provider, "_session_generation_matches", None)
-    if not callable(validator) or not validator(document):
+    if not callable(validator) or not validator(document, allow_revalidated=True):
         return _local_document(path, expected_type)
     return document
 

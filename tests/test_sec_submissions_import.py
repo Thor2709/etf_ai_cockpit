@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import inspect
 import json
@@ -83,6 +83,37 @@ def test_provider_fused_import_keeps_official_session_generation_ephemeral(tmp_p
         "provenance", "history_provenance", "identity_registry", "publish_guard",
     }
     assert provider_parameters == {"identity", "import_cache_dir", "kwargs"}
+
+
+def test_fused_304_rejects_sidecar_timestamp_and_reacquires_full_200(tmp_path: Path) -> None:
+    payload = json.dumps(_payload()).encode()
+    responses = [(payload, 200, {"ETag": '"stable"'}), (b"", 304, {}), (payload, 200, {})]
+    requests: list[dict[str, str]] = []
+
+    def transport(_url: str, headers: dict[str, str]) -> tuple[bytes, int, dict[str, str]]:
+        requests.append(dict(headers))
+        return responses.pop(0)
+
+    provider = SecEdgarProvider(
+        "SEC fused timestamp tests research@company.org",
+        cache_dir=tmp_path / "provider-cache",
+        transport=transport,
+        rate_limit_seconds=0,
+    )
+    original = provider.fetch_submissions("789019")
+    metadata_path = tmp_path / "provider-cache" / "submissions_0000789019.json.meta.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    forged_time = original.retrieved_at + timedelta(hours=1)
+    metadata["retrieved_at"] = forged_time.isoformat()
+    metadata["status"] = 304
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    result = provider.import_submissions(_identity(), import_cache_dir=tmp_path / "import-cache")
+
+    assert result.status == "partial"
+    assert result.raw_documents[0].retrieved_at != forged_time
+    assert "If-None-Match" not in requests[1]
+    assert "If-Modified-Since" not in requests[1]
 
 
 def test_official_fixture_retains_full_snapshot_with_explicit_provenance(tmp_path: Path) -> None:

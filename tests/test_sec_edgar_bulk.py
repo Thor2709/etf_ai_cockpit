@@ -261,6 +261,26 @@ def test_partial_resume_requires_the_same_provider_session(tmp_path: Path) -> No
     assert result.path.read_bytes() == payload
 
 
+def test_cold_partial_retry_after_transient_failure_never_emits_range(tmp_path: Path) -> None:
+    payload = _zip_bytes()
+    first, _ = _provider(tmp_path, [Response(payload[:7], headers={"ETag": '"stable"', "Content-Length": str(len(payload))})], max_retries=0)
+    with pytest.raises(SecEdgarBulkUnavailable):
+        first.fetch_companyfacts_bulk()
+    calls: list[dict[str, str]] = []
+
+    def transient_then_unsolicited_206(_url: str, headers: dict[str, str]) -> Response:
+        calls.append(dict(headers))
+        if len(calls) == 1:
+            raise TimeoutError("transient")
+        return Response(payload[7:], 206, {"ETag": '"stable"', "Content-Range": f"bytes 7-{len(payload)-1}/{len(payload)}"})
+
+    second, _ = _provider(tmp_path, [Response(payload)], max_retries=1)
+    second.transport = transient_then_unsolicited_206
+    with pytest.raises(SecEdgarBulkUnavailable):
+        second.fetch_companyfacts_bulk()
+    assert all("Range" not in headers and "If-Range" not in headers for headers in calls)
+
+
 def test_bad_zip_or_truncation_preserves_last_good_artifact(tmp_path: Path) -> None:
     payload = _zip_bytes()
     provider, _ = _provider(tmp_path, [Response(payload, headers={"ETag": '"good"'})])

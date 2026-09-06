@@ -1,5 +1,28 @@
 # B04 Analysis Spine
 
+## Verified SEC continuation — 2026-09-06
+
+Fetched and remotely verified main is `bc9876c03b868a323da1d1f5904cad4e33375559`.
+UPDATEV2-0012 is P0, `implemented_initially`, and mechanically ready with no
+blocking dependencies. The original dirty checkout and all earlier lanes are
+preserved. The rejected `2c685501` train and its stopped six-file correction
+were copied byte-for-byte into fresh `codex/sec-resume-20260906` at
+`C:/dev/etf-sec-resume-20260906`; no implementation was recreated.
+
+The complete six-module SEC selection passes on Python 3.12.10 and 3.13.14:
+166 passed and one existing Windows link-capability skip on each. JUnit is
+retained locally at `logs/sec-resume-py312.xml` and `logs/sec-resume-py313.xml`.
+Ruff, compilation, registry validation and byte-clean programme generation
+pass. These fresh results supersede the missing corrected-tree 3.13 evidence
+in the retained September 4 handoff. Earlier rejected reviews are not approval.
+
+Next action is paired independent whole-diff and provenance/PIT review of the
+frozen complete main-to-head diff, followed by full H-tier packaged evidence
+only on an accepted head. Canonical status remains unchanged: this component
+does not yet supply the remaining canonical-statements, AppState/UI/audit,
+clean-first-run and configured live SEC acceptance. Live requests require a
+legitimate contact user agent; none is fabricated. Execution remains disabled.
+
 ## UPDATEV2-0012 submissions-import current-main train — 2026-09-04
 
 The parser-only candidate remains unaccepted because bare historical submission
@@ -131,6 +154,18 @@ fresh six-module selection passes 164 tests with one existing Windows
 link-capability skip on both Python 3.12.10 and Python 3.13.14; Ruff,
 compileall and diff hygiene pass. Freeze one exact replacement commit for fresh
 paired whole-diff and provenance/PIT review before any H-tier packaged gate.
+
+The provenance/PIT review rejects fused candidate
+`2c68550167781fbe1dbf698aa9ab911a33151328`. Its session ledger binds URL,
+checksum, document type and path but not the original acquisition timestamp or
+complete `RawDocument` generation, so a same-process sidecar timestamp edit
+followed by HTTP 304 can backdate official evidence. The bulk retry path can
+also reconstruct `Range` and `If-Range` from persisted partial state after a
+cold first-attempt failure, bypassing the initial session check. Bind the full
+generation in memory, require metadata equality before conditional revalidation,
+and preserve explicit session proof across every partial retry. Add both exact
+adversarial regressions before freezing another head. No packaged gate or
+integration is authorised on the rejected commit.
 
 Do not run H-tier gates or integrate until all focused cases pass and the stable
 complete diff receives independent whole-diff and provenance-risk acceptance.

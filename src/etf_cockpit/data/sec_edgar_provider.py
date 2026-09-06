@@ -52,6 +52,10 @@ class _SessionGeneration:
     sha256: str
     document_type: str
     path: Path
+    retrieved_at: datetime
+    provider_id: str
+    media_type: str
+    http_status: int
 
 
 class SecEdgarProvider:
@@ -215,10 +219,24 @@ class SecEdgarProvider:
     def _ledger_key(self, document: RawDocument) -> tuple[str, str, str, str]:
         return (document.source_url, document.sha256, document.document_type, str(document.path.absolute()))
 
-    def _session_generation_matches(self, document: RawDocument) -> bool:
+    def _session_generation_matches(self, document: RawDocument, *, allow_revalidated: bool = False) -> bool:
         key = self._ledger_key(document)
         generation = self._authority_ledger.get(key)
-        if generation is None or generation != _SessionGeneration(document.source_url, document.sha256, document.document_type, document.path):
+        if generation is None:
+            return False
+        if (
+            generation.source_url != document.source_url
+            or generation.sha256 != document.sha256
+            or generation.document_type != document.document_type
+            or generation.path != document.path.absolute()
+            or generation.retrieved_at != document.retrieved_at
+            or generation.provider_id != document.provider_id
+            or generation.media_type != document.media_type
+            or (
+                document.http_status != generation.http_status
+                and not (allow_revalidated and document.http_status == 304)
+            )
+        ):
             return False
         try:
             if not document.path.is_file() or _sha256(document.path.read_bytes()) != document.sha256:
@@ -327,7 +345,7 @@ class SecEdgarProvider:
                         "application/json",
                         304,
                     )
-                    if not self._session_generation_matches(document):
+                    if not self._session_generation_matches(document, allow_revalidated=True):
                         raise ValueError("SEC returned 304 without a provider-owned session proof")
                     revalidated = RawDocument(immutable_path, url, document.retrieved_at, cached_sha, "sec_edgar", document_type, "application/json", 304)
                     return revalidated
@@ -370,7 +388,10 @@ class SecEdgarProvider:
                     response.status,
                 )
                 key = self._ledger_key(document)
-                self._authority_ledger[key] = _SessionGeneration(document.source_url, document.sha256, document.document_type, document.path)
+                self._authority_ledger[key] = _SessionGeneration(
+                    document.source_url, document.sha256, document.document_type, document.path.absolute(),
+                    document.retrieved_at, document.provider_id, document.media_type, document.http_status,
+                )
                 self._authority_ledger.move_to_end(key)
                 while len(self._authority_ledger) > self.MAX_AUTHORITY_LEDGER:
                     self._authority_ledger.popitem(last=False)

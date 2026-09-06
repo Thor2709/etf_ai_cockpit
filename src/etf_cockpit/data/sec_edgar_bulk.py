@@ -97,7 +97,10 @@ def fetch_bulk(provider: Any, dataset: str, *, publish_guard: PublicationScopeFa
         document = _acquire(provider, dataset, url, paths, metadata, publish_guard)
         key = provider._ledger_key(document)
         from etf_cockpit.data.sec_edgar_provider import _SessionGeneration
-        provider._authority_ledger[key] = _SessionGeneration(document.source_url, document.sha256, document.document_type, document.path)
+        provider._authority_ledger[key] = _SessionGeneration(
+            document.source_url, document.sha256, document.document_type, document.path.absolute(),
+            document.retrieved_at, document.provider_id, document.media_type, document.http_status,
+        )
         provider._authority_ledger.move_to_end(key)
         while len(provider._authority_ledger) > provider.MAX_AUTHORITY_LEDGER:
             provider._authority_ledger.popitem(last=False)
@@ -257,12 +260,19 @@ def _acquire(provider: Any, dataset: str, url: str, paths: dict[str, Path], meta
             resume_validator = _strong_validator(partial.get("validator")) if partial else None
             headers.pop("If-None-Match", None)
             headers.pop("If-Modified-Since", None)
-            if resume_offset and resume_validator:
+            if (
+                resume_offset
+                and resume_validator
+                and isinstance(partial.get("generation"), str)
+                and provider._has_partial_session(dataset, url, str(partial["generation"]))
+            ):
                 headers["Range"] = f"bytes={resume_offset}-"
                 headers["If-Range"] = resume_validator
             else:
                 headers.pop("Range", None)
                 headers.pop("If-Range", None)
+                resume_offset = 0
+                resume_validator = None
         attempt += 1
     raise SecEdgarBulkUnavailable("SEC bulk acquisition failed") from last_error
 
