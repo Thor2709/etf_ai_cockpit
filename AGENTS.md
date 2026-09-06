@@ -4,7 +4,7 @@
 
 Complete the canonical implementation plan correctly and efficiently.
 
-The `gpt-5.6-sol` medium-reasoning main agent is the orchestrator and sole integration and GitHub authority. It plans, selects the narrowest configured agent roles, reviews and integrates.
+The `gpt-6-astra` low-reasoning main agent is the orchestrator and sole integration and GitHub authority. It plans, selects the narrowest configured agent roles, reviews and integrates.
 
 Choose efficiently among the 12 configured named roles through the V2 framework. The root may use up to ten children, reserving capacity for required independent reviews. Select concurrent product lanes from the dependency and exclusive-ownership map in the active batch plan; additional agents are not a reason to invent work.
 
@@ -76,7 +76,7 @@ For each substantive task, the main agent must:
 4. State what must not change.
 5. Select the narrowest suitable configured agent and delegate when doing so is efficient.
 6. Review the worker's complete diff and tests.
-7. Request at most one focused correction from the implementation agent.
+7. Request at most one consolidated correction pass from the implementation agent when review identifies valid findings.
 8. Integrate and run the necessary broader checks.
 9. Update the batch plan, status and GitHub only after the implementation is evidenced.
 

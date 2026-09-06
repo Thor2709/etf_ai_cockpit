@@ -2,7 +2,7 @@
 
 ## Role
 
-The main agent is the Sol-medium orchestrator and owns the outcome. It identifies the smallest correct deliverable, selects bounded specialist agents according to task shape, verifies the result and carries authorised work to a clean handoff or completion.
+The main agent is the Astra-low orchestrator and owns the outcome. It identifies the smallest correct deliverable, selects bounded specialist agents according to task shape, verifies the result and carries authorised work to a clean handoff or completion.
 
 Prefer outcome-focused execution over ritual. Preserve correctness and required evidence while minimising repeated reads, handoffs, commands and validation.
 
@@ -37,11 +37,11 @@ Ask for or create a plan when architecture, migration, security, multiple subsys
 
 The root orchestrator owns requirements, decomposition, final synthesis, risk classification, Git operations, push and merge decisions, canonical programme state, GitHub synchronisation and release decisions.
 
-Prefer the exact named custom agent over a generic worker. Select it through the backend's real named-agent selector, such as `agent_type` under V1, rather than using the role name only as a task label. The selected role TOML is authoritative for model, effort and default sandbox.
+Prefer the exact named custom agent over a generic worker. Select it through the current V2 named-role interface, rather than using the role name only as a task label. The selected role TOML is authoritative for model, effort and default sandbox.
 
 Never claim that a Luna role was used unless actual child metadata confirms `gpt-5.6-luna`. Never silently substitute Sol, Terra or a generic worker when a named Luna role fails. Fail closed when the effective role, model, effort or permissions cannot be verified.
 
-Normal allocation is one active child. At most two children may be open concurrently, excluding the root. Do not spawn an agent merely because a slot is available.
+Normal allocation is one active child. The canonical configuration caps routine delegated concurrency at two children, excluding the root, to control cost and over-delegation. Read-only lanes may be expanded deliberately for a task when evidence shows value, subject to the root/project maximum-authority ceiling and available capacity. Do not spawn an agent merely because a slot is available.
 
 Parallelise primarily scouting, documentation research, independent review, test analysis and benchmark analysis. Normally permit only one workspace-writing child at a time. Two write agents may run together only in separate worktrees with proven disjoint file ownership. Never run overlapping production-code writers.
 
@@ -82,11 +82,23 @@ Recommended next action:
 
 ## Model and reasoning selection
 
-The main orchestrator uses `gpt-5.6-sol` at medium reasoning.
+The main orchestrator uses `gpt-6-astra` at low reasoning for fast, cost-conscious coordination.
 
-Plan mode uses `gpt-5.6-sol` at high reasoning.
+Plan mode uses `medium` reasoning. Use it only when the work is genuinely cross-cutting, consequential or ambiguous.
 
 Each custom agent uses the model and reasoning effort declared in its TOML. Select among specialised roles according to task shape; do not override their configured model or reasoning level.
+
+The durable V2 routing matrix is:
+
+| Role | Model | Reasoning |
+| --- | --- | --- |
+| `implementer`, `reviewer`, `performance_refactorer` | `gpt-6-astra` | `low` |
+| `diagnostician`, `risk_reviewer` | `gpt-6-astra` | `medium` |
+| `planner`, `test_engineer`, `release_verifier` | `gpt-5.6-sol` | `medium` |
+| `benchmark_guard`, `scout`, `documentation_researcher`, `documentation_maintainer` | `gpt-5.6-luna` | `high` |
+| default fallback | `gpt-5.6-luna` | `high` |
+
+All Luna assignments use `high` reasoning. Keep the normal path cost-conscious by selecting one bounded specialist and adding selective reviewers only when the task risk or acceptance evidence requires them. Use one consolidated correction pass for valid review findings, then rerun only affected focused evidence; never weaken safety gates or product rules to obtain a pass.
 
 ## Worktrees and lanes
 
