@@ -26,7 +26,13 @@ IDs/authority/time/path/checksum/type. Stale, corrupt, or changed evidence is
 reimported. Checkpoint read-modify-write is guarded and merges the complete
 current checkpoint, retaining unrelated CIKs and concurrent updates.
 The two persisted stores are read together under the canonical writer guards;
-inventory matching includes the provider-specific document identity. Switching
+inventory matching includes the provider-specific document identity. Individual
+facts and inventory writers, paired evidence publication, and the trust-refresh
+inventory append hold the same persistent destination sidecars across their
+complete read/merge/write operation. Multi-store acquisition deduplicates
+resolved paths and uses a stable case-insensitive order; guards are released
+on all exits, including cancellation. Checkpoint reads release these
+non-reentrant guards before invoking a writer. Switching
 between local and official provenance revalidates and replaces that CIK's
 checkpoint, while retaining both sources in the canonical stores.
 Persisted acquisition time must match the checkpoint time for both providers;

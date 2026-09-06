@@ -1,5 +1,34 @@
 # B04 Analysis Spine
 
+## Canonical statement-writer prerequisite — 2026-09-06
+
+The read-only planner traced the missing guard to omitted historical source
+dependencies, not a new architecture requirement. Commits `68fe0631` and
+`07a81794` contain ordered statement destination guards, all three canonical
+writer wrappers, the coordinated trust-inventory refresh, serialization tests
+and explicit manual-review classification for local SEC imports. These remain
+present in historical `7b37371d`; the initial four-file transplant omitted them.
+
+One implementer in fresh `C:/dev/etf-sec-statement-prerequisite-20260906`
+owns only those precise hunks in `sec_facts.py`, the trust-inventory wrapper and
+call site in `trust_artifacts.py`, serialization/boundary tests and the existing
+bulk-import note. The preserved score-history candidate changes score methods
+and `_append_parquet`; those symbols are excluded from this writer's ownership.
+Do not replace whole historical source files, change the atomic paired
+publication mechanism, or introduce nested non-reentrant statement guards.
+The importer and writer prerequisite form one inseparable component for the
+next stable review; no acceptance is claimed until focused and full H-tier
+evidence passes. PR726's source remains frozen in its separate CI lane.
+
+The prerequisite is restored without changing the importer, score methods or
+`_append_parquet`. Both Python 3.12 and 3.13 affected integration selections pass
+102 tests with four existing Windows symlink-capability skips; seven strengthened
+serialization checks pass, as do Ruff, dual compilation and diff hygiene.
+JUnit is retained at `logs/statement-corrected312.xml` and
+`logs/statement-corrected313.xml`. Root inspected the completed writer/test/doc
+diff and verified both reports. Freeze the full importer-plus-prerequisite
+component for independent review; it is not yet accepted or dependency-integrated.
+
 ## Companyfacts bulk importer prerequisite — 2026-09-06
 
 While immutable PR726 validates `7004b9c8`, a disjoint next lane at

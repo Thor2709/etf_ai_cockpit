@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from contextlib import ExitStack, contextmanager
 import hashlib
 import json
 from pathlib import Path
 from typing import Any, Iterable
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group, parquet_payload, validate_parquet_file
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import FILINGS_STATEMENTS_PATH
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
 from etf_cockpit.parsers.contracts import ParseResult, ParseWarning, RawDocument, _sha256_file
@@ -274,9 +276,10 @@ def write_statement_facts(records: Iterable[StatementFact], destination: Path, *
     """Persist clean statement facts as a durable, de-duplicated store."""
 
     records_tuple = tuple(records)
-    frame = _statement_facts_write_frame(records_tuple, destination, vendor_records)
-    frame = _ordered_statement_facts(frame)
-    atomic_write_bytes(destination, parquet_payload(frame), validate_parquet_file)
+    with _statement_store_guards((destination,)):
+        frame = _statement_facts_write_frame(records_tuple, destination, vendor_records)
+        frame = _ordered_statement_facts(frame)
+        atomic_write_bytes(destination, parquet_payload(frame), validate_parquet_file)
     return destination
 
 
@@ -291,8 +294,9 @@ def write_statement_inventory(
     """Publish a one-row filing inventory entry with fact/source IDs."""
 
     output = destination or FILINGS_STATEMENTS_PATH
-    frame = _statement_inventory_write_frame(source, records, output, instrument_id=instrument_id, source_url=source_url)
-    atomic_write_bytes(output, parquet_payload(frame), validate_parquet_file)
+    with _statement_store_guards((output,)):
+        frame = _statement_inventory_write_frame(source, records, output, instrument_id=instrument_id, source_url=source_url)
+        atomic_write_bytes(output, parquet_payload(frame), validate_parquet_file)
     return output
 
 
@@ -309,15 +313,27 @@ def write_statement_evidence(
     """Publish facts and inventory in one recoverable atomic transaction."""
 
     rows = tuple(records)
-    facts_frame = _statement_facts_write_frame(rows, facts_destination, vendor_records)
-    inventory_frame = _statement_inventory_write_frame(source, rows, inventory_destination, instrument_id=instrument_id, source_url=source_url)
-    atomic_write_group(
-        (
-            AtomicWriteRequest(facts_destination, parquet_payload(_ordered_statement_facts(facts_frame)), validate_parquet_file),
-            AtomicWriteRequest(inventory_destination, parquet_payload(inventory_frame), validate_parquet_file),
+    with _statement_store_guards((facts_destination, inventory_destination)):
+        facts_frame = _statement_facts_write_frame(rows, facts_destination, vendor_records)
+        inventory_frame = _statement_inventory_write_frame(source, rows, inventory_destination, instrument_id=instrument_id, source_url=source_url)
+        atomic_write_group(
+            (
+                AtomicWriteRequest(facts_destination, parquet_payload(_ordered_statement_facts(facts_frame)), validate_parquet_file),
+                AtomicWriteRequest(inventory_destination, parquet_payload(inventory_frame), validate_parquet_file),
+            )
         )
-    )
     return facts_destination, inventory_destination
+
+
+@contextmanager
+def _statement_store_guards(destinations: Iterable[Path]):
+    """Serialize every statement-store read-modify-write under stable guards."""
+
+    paths = sorted({Path(destination).resolve() for destination in destinations}, key=lambda path: (str(path).casefold(), str(path)))
+    with ExitStack() as stack:
+        for path in paths:
+            stack.enter_context(persistent_file_guard(path.with_name(f"{path.name}.guard")))
+        yield
 
 
 def _statement_facts_write_frame(records: tuple[StatementFact, ...], destination: Path, vendor_records: Iterable[object]):
@@ -471,7 +487,7 @@ def _record_value(record: object, name: str, default: object = "") -> str:
 
 def _authority_selection(source_id: object, selected: bool) -> str:
     prefix = str(source_id or "").split(":", 1)[0]
-    if prefix == "esef_local_import":
+    if prefix in {"esef_local_import", "sec_local_import"}:
         return "manual_review"
     if prefix == "filings_xbrl_org":
         return "canonical_esef" if selected else "retained_esef"
