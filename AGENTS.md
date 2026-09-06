@@ -4,9 +4,9 @@
 
 Complete the canonical implementation plan correctly and efficiently.
 
-The `gpt-5.6-sol` medium-reasoning main agent is the orchestrator and sole integration and GitHub authority. It plans, selects the narrowest configured agent roles, reviews and integrates.
+The `gpt-6-astra` low-reasoning main agent is the orchestrator and sole integration and GitHub authority. It plans, selects the narrowest configured agent roles, reviews and integrates.
 
-Choose efficiently among the 12 configured named roles through the V2 framework. The root may use up to ten children, reserving capacity for required independent reviews. Select concurrent product lanes from the dependency and exclusive-ownership map in the active batch plan; additional agents are not a reason to invent work.
+Choose efficiently among the 12 configured named roles through the V2 framework. The live runtime has a hard capacity ceiling of six children, excluding the root; this is resilience headroom, not a target. Normal deliberate allocation is one child and normally no more than two useful children run concurrently. A third useful child is allowed only for already-required, dependency-ready, non-overlapping work whose result will definitely be consumed. Additional capacity is not a reason to invent work.
 
 Use one active code writer per overlapping file boundary. Parallelise only independent, non-overlapping work.
 
@@ -21,7 +21,7 @@ Use immutable integration/CI heads and isolated implementation worktrees.
 Concurrent writers require proven disjoint file and runtime ownership plus
 dependency readiness; root alone serializes merges and canonical/GitHub writes.
 Maximise safe, complete issue-level parallelism without a fixed issue/writer
-quota; retain review capacity within the ten-child V2 resource ceiling.
+quota; retain mandatory-review capacity within the six-child V2 hard ceiling.
 Normally make one product issue per product PR; batch only inseparable,
 independent dependency edges. Lifecycle/status convergence is compact and
 automatic. Update canonical control first and regenerate projections; never
@@ -76,7 +76,7 @@ For each substantive task, the main agent must:
 4. State what must not change.
 5. Select the narrowest suitable configured agent and delegate when doing so is efficient.
 6. Review the worker's complete diff and tests.
-7. Request at most one focused correction from the implementation agent.
+7. Request at most one consolidated correction pass from the implementation agent when review identifies valid findings.
 8. Integrate and run the necessary broader checks.
 9. Update the batch plan, status and GitHub only after the implementation is evidenced.
 
@@ -94,6 +94,12 @@ Configured agents:
 - do not change unrelated files;
 - do not spawn agents;
 - do not push, merge or update programme status.
+
+For a task matching a named role, that named role is mandatory. Do not substitute a generic worker or the default fallback merely because it is available. Use the default fallback only when no configured role fits, and record that exception in the hand-off. Before accepting child work, verify the child metadata reports the requested role, model and reasoning effort; otherwise fail closed and retry once with the exact role.
+
+Required `reviewer` and `risk_reviewer` gates for a frozen head take priority over scouting, documentation, next-issue preparation, release verification and other discretionary work. Before spawning a mandatory reviewer, inspect child state and close completed children whose results have already been integrated. Never allow discretionary work to occupy the capacity required by a mandatory named reviewer. Close completed children promptly and do not send queue-only messages to them; use the appropriate follow-up mechanism or one fresh bounded child only when further work is genuinely required.
+
+If a required spawn reports `agent thread limit reached`, inspect active and completed child state, release completed children and retry the exact named agent once. If it still fails while fewer genuinely active children exist than the configured ceiling, classify it as a V2 residency/thread-accounting failure rather than a product defect. Preserve the exact checkpoint and resume from a fresh root session; do not repeatedly retry, substitute or weaken the required review, rerun unrelated evidence or mark the product implementation defective.
 
 Only one agent may write within an overlapping production-code boundary. Review only a finished stable diff. Use `test_engineer` only when test design is independently substantial; the `implementer` owns ordinary focused tests.
 

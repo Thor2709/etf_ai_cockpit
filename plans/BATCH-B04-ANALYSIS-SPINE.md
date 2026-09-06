@@ -1,5 +1,16 @@
 # B04 Analysis Spine
 
+## OAM final integration preparation — 2026-09-06
+
+Configuration-only PR729 merged as6145bdb21b64a027f8d3bccb962e651d59d384ac
+with exact approved a7f179bf, both reviews, H run34012252448 and4342 tests on
+each platform. OAM is now bound to that main with unchanged approved product,
+test and UI-contract blobs. Retain the existing focused reports; run fresh
+paired integration review and complete H packages on the frozen final head.
+The existing verified_commit ancestry guard still requires product integration
+before the one legal OAM implemented_initially-to-integrated projection.
+Do not change the guard or fabricate ancestry. Execution remains false.
+
 ## Current resume checkpoint — 2026-09-06
 
 SEC PR728 is integrated as `9c05220a661b46593ce1cd089c87a4bcdf0c5705`.
