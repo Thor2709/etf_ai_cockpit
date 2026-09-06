@@ -850,3 +850,43 @@ def test_bulk_activity_session_evidence_preserves_partial_warning(tmp_path, monk
     evidence = copied.read_text()
     assert "sha256=" in evidence and "partial" in evidence and "ambiguous_unit" in evidence
     assert "execution_allowed=false" in evidence
+
+
+@pytest.mark.parametrize("selectors", [
+    {"cik": "2"}, {"cik": "invalid"}, {"cik": ""},
+    {"instrument_id": "TWO"}, {"instrument_id": " ONE"},
+    {"instrument_id": "ONE "}, {"instrument_id": ""}, {"instrument_id": 1},
+])
+def test_submissions_identity_rejects_contradictory_selectors_before_import(tmp_path, monkeypatch, selectors):
+    from etf_cockpit.app import state as state_module
+
+    _configure_state(state_module, tmp_path, monkeypatch)
+    monkeypatch.setattr(state_module, "_import_sec_submissions", lambda *a, **k: pytest.fail("invalid selectors must not reach importer"))
+    def guard():
+        pytest.fail("invalid selectors must not reach publication")
+    result = _state(state_module).import_sec_submissions_bulk(
+        tmp_path / "unread.zip", identity=_identity(), publish_guard=guard, **selectors,
+    )
+    assert "does not match the selected canonical identity" in result
+    assert "execution_allowed=false" in result
+
+
+@pytest.mark.parametrize("selectors", [{}, {"cik": "0000000001", "instrument_id": "ONE"}])
+def test_submissions_identity_accepts_absent_or_matching_selectors(tmp_path, monkeypatch, selectors):
+    from etf_cockpit.app import state as state_module
+
+    _configure_state(state_module, tmp_path, monkeypatch)
+    state = _state(state_module)
+    expected = object()
+    calls = []
+    def importer(path, identity, **kwargs):
+        calls.append((path, identity, kwargs))
+        return expected
+    monkeypatch.setattr(state_module, "_import_sec_submissions", importer)
+    monkeypatch.setattr(state, "_finish_sec_submissions_import", lambda result: "accepted" if result is expected else pytest.fail("result changed"))
+    def guard():
+        return None
+    assert state.import_sec_submissions_bulk(tmp_path / "selected.zip", identity=_identity(), publish_guard=guard, **selectors) == "accepted"
+    assert len(calls) == 1
+    assert calls[0][1] == _identity()
+    assert calls[0][2]["publish_guard"] is guard

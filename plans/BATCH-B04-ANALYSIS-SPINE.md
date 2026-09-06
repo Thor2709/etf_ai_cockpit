@@ -1,5 +1,33 @@
 # B04 Analysis Spine
 
+## Consolidated SEC completion correction — 2026-09-06
+
+Both final product reviewers reject only explicit selector inconsistency in
+AppState.import_sec_submissions_bulk at `6c405c6d`: a supplied identity must
+not override a contradictory CIK or instrument argument. One bounded repair
+in `C:/dev/etf-sec-final-correction-20260906` owns only that method and focused
+no-import/no-publication regressions. Provider/importer/writer/UI contracts
+remain frozen. Whole review dismissed the preview-refresh concern because
+the activity finally path rebuilds the shell.
+
+Root additionally passed 14 complete audit-archive validation tests on both
+runtimes and the actual AppState audit-export workflow on Python 3.12; the
+3.13 workflow check also passed. Combined with the real canonical evidence and
+session-copy regression, this closes the separate export-path acceptance gap.
+Native visual inspection has not been performed; do not claim it. Required
+acceptance is guarded native-path/callback evidence and the complete H-tier
+Linux/Windows package gates, not an invented manual screenshot requirement.
+Issue status remains unchanged until corrected paired review and required
+acceptance evidence are prepared for the canonical completion candidate.
+
+
+The four-line selector correction is complete. Ten new cases cover rejected
+contradictory/malformed selectors before importer invocation plus matching and
+identity-only calls. Both affected workflow/UI selections pass 71 tests with
+one existing host skip; Ruff, dual compilation and diff checks pass. Root
+checked the finished correction. Freeze this product source for final
+acceptance preparation and exact-head independent readback.
+
 ## SEC UI completion checkpoint — 2026-09-06
 
 The remaining product lane is bound to main `46706be6` through tree-preserving

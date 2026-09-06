@@ -1192,6 +1192,10 @@ class AppState:
             if selected is None:
                 raise ValueError("SEC submissions import requires a selected CIK and canonical instrument identity")
             _validate_sec_bulk_identity(selected)
+            if cik is not None and _normalise_sec_cik(cik) != _normalise_sec_cik(selected.cik):
+                raise ValueError("supplied CIK does not match the selected canonical identity")
+            if instrument_id is not None and (not isinstance(instrument_id, str) or selected.instrument_id != instrument_id):
+                raise ValueError("supplied instrument ID does not match the selected canonical identity")
             result = _import_sec_submissions(Path(archive), selected, cache_dir=cache_dir or (RAW_DIR / "sec_edgar"), publish_guard=publish_guard)
             return self._finish_sec_submissions_import(result)
         except (ActivityUnavailableError, WorkflowTransitionError):
