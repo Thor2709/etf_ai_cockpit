@@ -178,9 +178,16 @@ def _import_submissions_core(
                     break
         with tempfile.TemporaryDirectory(prefix="sec-submissions-import-") as temp_name:
             capture_path = Path(temp_name) / source_path.name
-            captured_sha = _capture_input(source_path, capture_path, max_bytes=MAX_SOURCE_BYTES if is_zip else MAX_MEMBER_BYTES)
+            captured_sha = _capture_input(source_path, capture_path, max_bytes=MAX_SOURCE_BYTES if is_zip else min(MAX_MEMBER_BYTES, MAX_SELECTED_BYTES))
             if captured_sha != source_sha:
                 raise ValueError("submissions source changed while being captured")
+            # Select/extract bounded archive members before capturing detached
+            # histories, so both consume the same parse-input budget. The
+            # enclosing archive retains its separate, larger source bound.
+            parse_path, history_for_parser, member_inputs = _prepare_parse_inputs(
+                capture_path, cik, Path(temp_name), history_paths, source_meta
+            )
+            selected_size = sum(path.stat().st_size for _, path, _ in member_inputs) if is_zip else capture_path.stat().st_size
             captured_history, history_metadata, history_warnings = _capture_history_inputs(
                 history_paths,
                 Path(temp_name) / "history",
@@ -188,10 +195,9 @@ def _import_submissions_core(
                 cik,
                 source_is_bulk=is_zip,
                 acquired_at=source_meta.retrieved_at,
+                remaining_bytes=MAX_SELECTED_BYTES - selected_size,
             )
-            parse_path, history_for_parser, member_inputs = _prepare_parse_inputs(
-                capture_path, cik, Path(temp_name), captured_history, source_meta
-            )
+            history_for_parser.update(captured_history)
             history_warnings = tuple(history_warnings) + tuple(
                 {
                     "code": "history_provenance_manual",
@@ -461,6 +467,7 @@ def _capture_history_inputs(
     *,
     source_is_bulk: bool,
     acquired_at: datetime,
+    remaining_bytes: int,
 ) -> tuple[dict[str, Path], dict[str, RawDocument], tuple[dict[str, object], ...]]:
     """Capture caller-supplied history and strip unattested official claims."""
 
@@ -480,7 +487,8 @@ def _capture_history_inputs(
             raise ValueError("submissions history name is unsafe or not bound to the selected CIK")
         source_path = Path(raw_path)
         destination = temp_root / raw_name
-        _capture_input(source_path, destination, max_bytes=MAX_MEMBER_BYTES)
+        _capture_input(source_path, destination, max_bytes=min(MAX_MEMBER_BYTES, remaining_bytes))
+        remaining_bytes -= destination.stat().st_size
         captured[raw_name] = destination
         # Detached files are newly captured inputs.  Their availability must
         # be anchored to this capture, never copied from the parent snapshot.

@@ -37,7 +37,11 @@ remain manual-review evidence, with HTML retained as `text/html` (other
 unsupported local filing formats use an explicit binary media type). ZIP selection validates
 the central directory before allocation, then bounds each selected member to
 256 MiB and the selected aggregate to 512 MiB; the archive itself is bounded to
-8 GiB. Detached history files receive their own capture timestamp and
+8 GiB. The selected snapshot and archive histories reserve their actual
+extracted size before detached history capture. Each detached copy is bounded
+by the remaining aggregate budget before opening its destination and during
+streaming, so source growth cannot overfill temporary parse inputs. The
+enclosing archive is governed separately by its 8 GiB limit. Detached history files receive their own capture timestamp and
 per-input availability bound; they never inherit the parent snapshot time.
 Missing or malformed `filings.files` coverage, history or filing bytes, and
 parser row warnings remain

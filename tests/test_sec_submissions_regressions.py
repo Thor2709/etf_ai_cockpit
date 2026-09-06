@@ -695,3 +695,68 @@ def test_acceptance_after_genuine_provider_fetch_is_unavailable(
     assert result.records[0].available_at is None
     assert any(item["code"] == "acceptance_after_acquisition" for item in result.warnings)
     assert any(item["code"] == "provenance_unattested" for item in result.warnings)
+
+@pytest.mark.parametrize("bulk", [False, True])
+@pytest.mark.parametrize("grows_during_copy", [False, True])
+def test_selected_capture_budget_prevents_excess_temporary_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bulk: bool, grows_during_copy: bool,
+) -> None:
+    name = "CIK0000789019-submissions-001.json"
+    snapshot = json.dumps(_payload([{"name": name, "filingCount": 1}])).encode()
+    source = _archive(tmp_path / "submissions.zip", {"CIK0000789019.json": snapshot}) if bulk else tmp_path / "snapshot.json"
+    if not bulk:
+        source.write_bytes(snapshot)
+    history = tmp_path / name
+    history.write_bytes(b" " * (100 if grows_during_copy else 1536))
+    histories = {name: history}
+    if grows_during_copy:
+        earlier_name = "CIK0000789019-submissions-002.json"
+        earlier = tmp_path / earlier_name
+        earlier.write_bytes(b" " * 100)
+        histories = {earlier_name: earlier, **histories}
+    cache = tmp_path / "cache"
+    previous = import_sec_submissions(source, _identity(), cache_dir=cache)
+    assert previous.status == "partial"
+    before = {path.relative_to(cache): path.read_bytes() for path in cache.rglob("*") if path.is_file()}
+    monkeypatch.setattr(submissions_module, "MAX_SELECTED_BYTES", 1000)
+    original_capture = submissions_module._capture_input
+    original_open = Path.open
+    copied_sizes: list[int] = []
+    attempted: list[Path] = []
+
+    def capture(candidate, destination, *, max_bytes):
+        attempted.append(candidate)
+        try:
+            return original_capture(candidate, destination, max_bytes=max_bytes)
+        finally:
+            root = destination.parent.parent if destination.parent.name == "history" else destination.parent
+            copied_sizes.append(sum(path.stat().st_size for path in root.rglob("*") if path.is_file() and path.suffix != ".zip"))
+
+    @contextmanager
+    def growing_reader(path, *args, **kwargs):
+        with original_open(path, *args, **kwargs) as handle:
+            class Reader:
+                grew = False
+
+                def read(self, size):
+                    data = handle.read(size)
+                    if not self.grew:
+                        self.grew = True
+                        with original_open(path, "ab") as writer:
+                            writer.write(b" " * 1536)
+                    return data
+            yield Reader()
+
+    def open_input(path, *args, **kwargs):
+        if grows_during_copy and path == history and args == ("rb",):
+            return growing_reader(path, *args, **kwargs)
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(submissions_module, "_capture_input", capture)
+    monkeypatch.setattr(Path, "open", open_input)
+    result = import_sec_submissions(source, _identity(), cache_dir=cache, history_paths=histories)
+    assert result.status == "failed"
+    assert result.manifest_path is None
+    assert max(copied_sizes) <= 1000
+    assert (history in attempted) is grows_during_copy
+    assert {path.relative_to(cache): path.read_bytes() for path in cache.rglob("*") if path.is_file()} == before

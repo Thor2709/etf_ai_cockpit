@@ -1,5 +1,31 @@
 # B04 Analysis Spine
 
+## SEC capture-budget review finding — 2026-09-06
+
+Replacement `001494301dcec87859eccb42f8f5d919e8ef3756` passes whole-diff
+review; risk review accepts the four corrected boundaries but rejects the
+component for a separate aggregate-capture limit defect. Detached history
+inputs are copied before the combined 512 MiB budget is checked. A reduced
+1,000-byte probe copied a 385-byte snapshot and a 1,536-byte history before
+rejecting; no manifest was published. Preserve this head without package gates.
+
+One newly evidenced, independently bounded repair is assigned in fresh
+`C:/dev/etf-sec-capture-budget-20260906`: enforce the cumulative selected
+snapshot/history capture budget before and during copies, with a regression
+proving no excess capture. Provider/bulk corrections remain frozen and are not
+reopened. Require focused corrected evidence and replacement paired review
+before H-tier gates. Canonical status and execution authority remain unchanged.
+
+The bounded repair is complete: selected snapshot/archive-history bytes are
+accounted before detached capture, and every detached copy receives the remaining
+budget with streaming growth checks. The separate 8 GiB archive limit is
+preserved. Four reduced-budget JSON/ZIP and growth regressions pass; both
+six-module suites pass 183 tests with one existing Windows link-capability skip.
+JUnit is retained at `logs/capture-budget-py312.xml` and
+`logs/capture-budget-py313.xml`; Ruff, dual compilation and diff hygiene pass.
+Root inspected the finished three-file product/test/doc correction. Freeze the
+replacement for both reviewers; no prior rejection is treated as acceptance.
+
 ## SEC consolidated review correction — 2026-09-06
 
 Frozen head `05c26ba6533cfcbdd0e40d724a20731ca0585749` is rejected.
