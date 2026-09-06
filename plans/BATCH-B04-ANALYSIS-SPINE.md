@@ -1,5 +1,29 @@
 # B04 Analysis Spine
 
+## SEC bulk application integration — 2026-09-06
+
+Companyfacts component `5e6e5f16ec6616d231818a11d8f8c4a14df12530` has
+whole-diff and risk approval against `7004b9c8`; its H-tier evidence is pending
+the frozen PR726 integration lane. The next bounded writer owns SEC-only
+AppState integration, `tests/test_sec_bulk_workflow.py` and the matching
+architecture note in `C:/dev/etf-sec-bulk-app-20260906`. Reuse precise historical
+`7b37371d` methods while preserving current single-JSON provenance, explicit
+network actions, cancellation and manual-only public bulk inputs. No UI,
+provider, importer, OAM, canonical lifecycle or execution authority changes.
+UPDATEV2-0012 remains incomplete; official fused bulk, UI/audit and complete
+first-run acceptance remain later work. Root owns this checkpoint; the
+implementer owns only the stated application/test/document paths.
+
+
+The recovered AppState workflow passes 90 tests with one existing symlink skip
+on each Python 3.12/3.13 runtime, plus Ruff, compilation and diff hygiene.
+Existing single-JSON immutable provenance functions are retained. This local
+checkpoint is not independently reviewed or integration-ready. Complete the
+provider-fused companyfacts seam and explicit Filings bulk/submissions actions,
+then review the coherent remaining SEC product diff and run one H-tier matrix.
+Public archives remain manual; official acquisition must use the provider-owned
+session seam. Existing output tables/audit projections require acceptance tests,
+not a new audit architecture or copies of multi-gigabyte archives.
 ## Companyfacts component consolidated correction — 2026-09-06
 
 Both independent reviewers reject `9e56499c959f2fe09b3659c9c4c8019c164bc054`.
