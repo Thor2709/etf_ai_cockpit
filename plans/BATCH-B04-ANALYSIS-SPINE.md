@@ -1,5 +1,24 @@
 # B04 Analysis Spine
 
+## SEC canonical completion candidate — 2026-09-06
+
+Product PR727 merged as efa68f18ae52640a23b97f0942dfd97edece9cef with exact
+reviewed headcd557ea8b3e82831e8b21c26ce421957ee0a0405. H run34008261224
+passed4342 tests per platform and all mandatory jobs. Independent V2 whole,
+risk and release-verifier metadata and evidence match the exact head. Terminal
+artifact9982160996 SHA2566a1e10d51e61f585fd5f045d07c707d9a871a10ac05cec20301b7bd30bf903d3
+passed the validator. Post-merge convergence34010169402 produced zero actions
+and accepted authority reconciliation; no lifecycle write was implied.
+
+This isolated candidate appends only UPDATEV2-0012 implemented_initially to
+integrated, using the now-merged product evidence. Canonical control is changed
+before generated projections. Next: reviewed single-hop authority preparation,
+exact guards/reviews and permitted evidence reuse, then the sole writer and
+zero-action readback. No product, dependency, execution or wider authority
+changes are included. OAM corrected product42097aaa remains independently
+approved locally and awaits its own main-bound H validation.
+
+
 ## SEC integration and canonical sequencing — 2026-09-06
 
 Current main remains `46706be6d0bbee1a0be41f8fdea785ca9f79868c`.

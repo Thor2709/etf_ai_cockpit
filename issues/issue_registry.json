@@ -26402,7 +26402,20 @@
       "write_conflict_group": "data-and-evidence"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #727 merged exact independently approved head cd557ea8b3e82831e8b21c26ce421957ee0a0405 as efa68f18ae52640a23b97f0942dfd97edece9cef; merge tree 9243dd7603141f9b683e0d8213e590079268baa3 matches validated tree.",
+            "H run 34008261224 passed all required jobs and 4342 tests on each platform. Terminal artifact 9982160996 SHA256 6a1e10d51e61f585fd5f045d07c707d9a871a10ac05cec20301b7bd30bf903d3 passed exact-head validator and independent release verification.",
+            "Acceptance: explicit local and provider-owned bulk companyfacts/submissions workflows, resumable exact-content checkpoints, retained raw evidence and acquisition time, canonical statements, guarded recovery, partial coverage, UI callbacks and bounded audit export; execution_allowed=false.",
+            "Live SEC: submissions archive 1562265619 bytes SHA256 80c8cc6660ccd37411fe867ef23dfb92765dfd4815cab18b4093e9092b6a75ec; companyfacts archive 1408249354 bytes SHA256 1c6ab59f38e405631d0fd223fa2cde11281352e2d0775901a5d2766bbd9f0560. Isolated CIK 0000789019 import retained 32580 facts and five explicit ambiguous-unit warnings; archives and contact configuration remain local."
+          ],
+          "review_reference": "PR #727 exact-head V2 whole-diff and risk approvals, H validation and independent release evidence verification",
+          "reviewed_date": "2026-09-06",
+          "reviewer": "Codex reviewer gpt-6-astra low, risk_reviewer gpt-6-astra medium, release_verifier gpt-5.6-sol medium and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "UPDATEV2-0012",
@@ -26429,7 +26442,7 @@
       "package_status": "Implementation complete; closure pending",
       "phase": "phase-01-governance-scope",
       "priority": "P0",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26454,8 +26467,8 @@
       "source_record_id": "UPDATEV2-0012",
       "source_title": "SEC EDGAR official statement importer",
       "title": "SEC EDGAR official statement importer (original update ISSUE-0012)",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "cd557ea8b3e82831e8b21c26ce421957ee0a0405",
+      "verified_date": "2026-09-06",
       "why": "SEC is an official no-key source, but fair-access and point-in-time correctness still matter.",
       "write_conflict_group": "programme-governance"
     },
@@ -28065,7 +28078,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "320a9f400fdae1a05dd30c3b3366063f8fee22d3ff1f837e0166ad0211a28253",
+    "programme_control_state_sha256": "557c36db7ef340dcab3875a1e3dbe47e666b5b6d4d7dc36716126f94b9b73b06",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

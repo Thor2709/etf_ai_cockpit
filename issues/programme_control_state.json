@@ -3698,7 +3698,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #545 merged the sole ISSUE-0099→ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
+            "PR #545 merged the sole ISSUE-0099\u2192ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies the required adapter registration, point-in-time cohort, robust statistics, lineage and replay boundary while ISSUE-0099 retains financial-sector implementation"
           ],
           "review_reference": "B04 ISSUE-0099 readiness after complete ISSUE-0098 dependency review",
@@ -3791,7 +3791,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #545 merged the sole ISSUE-0099→ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
+            "PR #545 merged the sole ISSUE-0099\u2192ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies the required adapter registration, point-in-time cohort, robust statistics, lineage and replay boundary while ISSUE-0099 retains financial-sector implementation"
           ],
           "from": "planned",
@@ -3850,7 +3850,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #551 merged the sole ISSUE-0100→ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
+            "PR #551 merged the sole ISSUE-0100\u2192ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0100 retains all REIT, utility and infrastructure implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -3945,7 +3945,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #551 merged the sole ISSUE-0100→ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
+            "PR #551 merged the sole ISSUE-0100\u2192ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0100 retains all REIT, utility and infrastructure implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -4006,7 +4006,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #557 merged the sole ISSUE-0101→ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
+            "PR #557 merged the sole ISSUE-0101\u2192ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0101 retains all energy, materials and industrial implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -4101,7 +4101,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #557 merged the sole ISSUE-0101→ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
+            "PR #557 merged the sole ISSUE-0101\u2192ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0101 retains all energy, materials and industrial implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -4162,7 +4162,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #638 merged the sole ISSUE-0102→ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
+            "PR #638 merged the sole ISSUE-0102\u2192ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
             "Release run 30737461361 passed classifier, preflight, supply-chain, authoritative Linux and Windows package gates and terminal validation summary; standalone status guard 30737461338 passed",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology implementation scope; convergence run 30738361187 was zero action and execution_allowed remains false"
           ],
@@ -4257,7 +4257,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #638 merged the sole ISSUE-0102→ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
+            "PR #638 merged the sole ISSUE-0102\u2192ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
             "Release run 30737461361 passed classifier, preflight, supply-chain, authoritative Linux and Windows package gates and terminal validation summary; standalone status guard 30737461338 passed",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology implementation scope; convergence run 30738361187 was zero action and execution_allowed remains false"
           ],
@@ -9711,17 +9711,47 @@
       "verified_date": "2026-07-21"
     },
     "UPDATEV2-0012": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #727 merged exact independently approved head cd557ea8b3e82831e8b21c26ce421957ee0a0405 as efa68f18ae52640a23b97f0942dfd97edece9cef; merge tree 9243dd7603141f9b683e0d8213e590079268baa3 matches validated tree.",
+            "H run 34008261224 passed all required jobs and 4342 tests on each platform. Terminal artifact 9982160996 SHA256 6a1e10d51e61f585fd5f045d07c707d9a871a10ac05cec20301b7bd30bf903d3 passed exact-head validator and independent release verification.",
+            "Acceptance: explicit local and provider-owned bulk companyfacts/submissions workflows, resumable exact-content checkpoints, retained raw evidence and acquisition time, canonical statements, guarded recovery, partial coverage, UI callbacks and bounded audit export; execution_allowed=false.",
+            "Live SEC: submissions archive 1562265619 bytes SHA256 80c8cc6660ccd37411fe867ef23dfb92765dfd4815cab18b4093e9092b6a75ec; companyfacts archive 1408249354 bytes SHA256 1c6ab59f38e405631d0fd223fa2cde11281352e2d0775901a5d2766bbd9f0560. Isolated CIK 0000789019 import retained 32580 facts and five explicit ambiguous-unit warnings; archives and contact configuration remain local."
+          ],
+          "review_reference": "PR #727 exact-head V2 whole-diff and risk approvals, H validation and independent release evidence verification",
+          "reviewed_date": "2026-09-06",
+          "reviewer": "Codex reviewer gpt-6-astra low, risk_reviewer gpt-6-astra medium, release_verifier gpt-5.6-sol medium and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-01-governance-scope",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "PR #727 exact-head V2 whole-diff and risk approvals, H validation and independent release evidence verification",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #727 merged exact independently approved head cd557ea8b3e82831e8b21c26ce421957ee0a0405 as efa68f18ae52640a23b97f0942dfd97edece9cef; merge tree 9243dd7603141f9b683e0d8213e590079268baa3 matches validated tree.",
+            "H run 34008261224 passed all required jobs and 4342 tests on each platform. Terminal artifact 9982160996 SHA256 6a1e10d51e61f585fd5f045d07c707d9a871a10ac05cec20301b7bd30bf903d3 passed exact-head validator and independent release verification.",
+            "Acceptance: explicit local and provider-owned bulk companyfacts/submissions workflows, resumable exact-content checkpoints, retained raw evidence and acquisition time, canonical statements, guarded recovery, partial coverage, UI callbacks and bounded audit export; execution_allowed=false.",
+            "Live SEC: submissions archive 1562265619 bytes SHA256 80c8cc6660ccd37411fe867ef23dfb92765dfd4815cab18b4093e9092b6a75ec; companyfacts archive 1408249354 bytes SHA256 1c6ab59f38e405631d0fd223fa2cde11281352e2d0775901a5d2766bbd9f0560. Isolated CIK 0000789019 import retained 32580 facts and five explicit ambiguous-unit warnings; archives and contact configuration remain local."
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #727 exact-head V2 whole-diff and risk approvals, H validation and independent release evidence verification",
+          "reviewed_date": "2026-09-06",
+          "reviewer": "Codex reviewer gpt-6-astra low, risk_reviewer gpt-6-astra medium, release_verifier gpt-5.6-sol medium and root orchestrator",
+          "to": "integrated",
+          "verified_commit": "cd557ea8b3e82831e8b21c26ce421957ee0a0405"
+        }
+      ],
+      "verified_commit": "cd557ea8b3e82831e8b21c26ce421957ee0a0405",
+      "verified_date": "2026-09-06"
     },
     "UPDATEV2-0013": {
       "acceptance_evidence": [],
