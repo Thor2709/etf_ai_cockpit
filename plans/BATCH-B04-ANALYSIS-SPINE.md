@@ -1,5 +1,21 @@
 # B04 Analysis Spine
 
+## Companyfacts bulk importer prerequisite — 2026-09-06
+
+While immutable PR726 validates `7004b9c8`, a disjoint next lane at
+`C:/dev/etf-sec-companyfacts-import-20260906` preserves the exact historical
+`sec_bulk_import.py`, two direct test modules and architecture note from
+`7b37371d5bfdeed2a3364a1ac43fe8c573ade24e`. This application importer is absent
+from current main and is required before the historical AppState bulk workflow
+can be integrated. No historical test result is assumed compatible with the
+current parser/provider dependencies.
+
+UPDATEV2-0012 remains P0 and dependency-ready. One implementer owns only this
+new application module, its direct tests and note, and must establish a focused
+baseline before a bounded compatibility correction. PR726 provider/bulk/parser
+files remain frozen and unwritable. No AppState/UI/audit or lifecycle completion
+is included. Stop if compatibility requires wider architectural ownership.
+
 ## SEC capture-budget review finding — 2026-09-06
 
 Replacement `001494301dcec87859eccb42f8f5d919e8ef3756` passes whole-diff
