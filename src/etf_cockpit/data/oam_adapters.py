@@ -253,7 +253,8 @@ class OAMAdapter:
                 _Response(payload, 200, {"content-type": media_type}),
                 force_materialize=True,
             )
-            rows = self._parse(payload, media_type)
+            rows = self._parse(payload, media_type, strict=True)
+            self._validate_local_links(rows)
             if not rows:
                 raise ValueError("Local OAM export contains no structured filing records")
             records = self._normalise_records(
@@ -392,7 +393,7 @@ class OAMAdapter:
             return ".bin"
         return ".json"
 
-    def _parse(self, payload: bytes, media_type: str) -> list[Mapping[str, object]]:
+    def _parse(self, payload: bytes, media_type: str, *, strict: bool = False) -> list[Mapping[str, object]]:
         text = payload.decode("utf-8-sig")
         if _looks_like_html(text) or "html" in media_type.lower():
             raise ValueError("HTML scraping is not supported")
@@ -403,14 +404,35 @@ class OAMAdapter:
             return list(csv.DictReader(io.StringIO(text)))
         parsed = json.loads(text)
         if isinstance(parsed, list):
+            if strict and any(not isinstance(item, Mapping) for item in parsed):
+                raise ValueError("Local OAM JSON list contains a non-record member")
             return [item for item in parsed if isinstance(item, Mapping)]
         if not isinstance(parsed, Mapping):
             raise ValueError("OAM JSON export must contain an object or list")
         for key in ("results", "data", "items", "documents", "records"):
             value = parsed.get(key)
             if isinstance(value, list):
+                if strict and any(not isinstance(item, Mapping) for item in value):
+                    raise ValueError("Local OAM JSON list contains a non-record member")
                 return [item for item in value if isinstance(item, Mapping)]
         return [parsed]
+
+    def _validate_local_links(self, rows: Sequence[Mapping[str, object]]) -> None:
+        """Validate the complete export before any identity or date filtering."""
+        for raw in rows:
+            values = _flatten_attributes(raw)
+            for key in ("source_url", "source", "url", "link", "document_url", "download_url", "file_url"):
+                declared = _first(values, key)
+                if declared and not self._official_url(declared):
+                    raise ValueError("Local OAM export contains an untrusted declared link")
+            links = raw.get("links")
+            if isinstance(links, Mapping) and links.get("document_metadata"):
+                metadata_url = urljoin(
+                    "https://document-api.company-information.service.gov.uk",
+                    str(links["document_metadata"]),
+                )
+                if not self._official_url(metadata_url):
+                    raise ValueError("Local OAM export contains an untrusted metadata link")
 
     def _normalise_records(
         self,
@@ -663,10 +685,16 @@ class CompaniesHouseFilingAdapter(OAMAdapter):
             category = _first(values, "category", "document_type", "type")
             description = _first(values, "description", "description_values", "document_title", "title", "type")
             row_company_number = _first(values, "company_number", "companynumber", "company_id")
-            effective_company_number = company_number or row_company_number.upper()
+            effective_company_number = row_company_number.upper() if local_import else company_number or row_company_number.upper()
+            row_issuer = _first(values, "issuer", "issuer_name", "company", "company_name", "entity", "name")
             if local_import and not effective_company_number and not _first(values, "issuer", "issuer_name", "company", "company_name", "entity", "name"):
                 continue
-            if local_import and request.company_number and row_company_number and request.company_number.strip().upper() != row_company_number.upper():
+            if local_import and request.company_number and company_number != row_company_number.upper():
+                continue
+            if local_import and request.issuer and request.issuer.casefold() not in row_issuer.casefold():
+                continue
+            # This adapter does not establish ISIN identity from Companies House exports.
+            if local_import and request.isin:
                 continue
             if request.document_type and request.document_type.casefold() not in category.casefold():
                 continue

@@ -917,3 +917,77 @@ def test_identical_local_reimports_preserve_earliest_observed_availability(tmp_p
     assert frame.iloc[0]["claimed_available_at"] == "2001-01-01"
     assert frame.iloc[0]["source_authority"] == "local_user_import"
     assert not frame.iloc[0]["execution_allowed"]
+
+@pytest.mark.parametrize("wrapper", [None, "results", "data", "items", "documents", "records"])
+def test_local_mixed_json_rejects_whole_export_without_publication(tmp_path, monkeypatch, wrapper):
+    rows = [{"issuer": "Valid", "isin": "NL1", "title": "Report"}, "broken row"]
+    source = tmp_path / "mixed.json"
+    source.write_text(json.dumps(rows if wrapper is None else {wrapper: rows}))
+    result = NetherlandsAfmOamAdapter(cache_dir=tmp_path / "cache").discover_local(source)
+    assert result.status == "error"
+    assert result.records == ()
+    assert result.snapshot is not None
+    _assert_app_rejects_without_publication(source, "NL", tmp_path, monkeypatch)
+
+
+@pytest.mark.parametrize("adapter_type", [NetherlandsAfmOamAdapter, CompaniesHouseFilingAdapter])
+@pytest.mark.parametrize("link_key", ["source_url", "source", "url", "link", "document_url", "download_url", "file_url", "metadata"])
+def test_local_unmatched_untrusted_row_rejects_entire_export(tmp_path, monkeypatch, adapter_type, link_key):
+    good = {"issuer": "Target", "isin": "NL1", "company_number": "001", "title": "Report"}
+    bad = {"issuer": "Other", "isin": "NL2", "company_number": "002", "title": "Other"}
+    if link_key == "metadata":
+        bad["links"] = {"document_metadata": "https://evil.example/report"}
+    else:
+        bad[link_key] = "https://evil.example/report"
+    source = tmp_path / "mixed.json"
+    source.write_text(json.dumps({"records": [good, bad]}))
+    request = OAMDiscoveryRequest(issuer="Target", company_number="001")
+    result = adapter_type(cache_dir=tmp_path / "cache").discover_local(source, request)
+    assert result.status == "error"
+    assert result.records == ()
+    assert result.snapshot is not None
+    _assert_app_rejects_without_publication(source, adapter_type.country, tmp_path, monkeypatch, issuer="Target", company_number="001")
+
+
+@pytest.mark.parametrize("query", [
+    OAMDiscoveryRequest(company_number="01234567"),
+    OAMDiscoveryRequest(issuer="Target"),
+    OAMDiscoveryRequest(isin="GB123"),
+    OAMDiscoveryRequest(company_number="01234567", issuer="Target", isin="GB123"),
+])
+def test_local_companies_house_does_not_invent_or_ignore_identity(tmp_path, query):
+    source = tmp_path / "company.json"
+    source.write_text(json.dumps({"items": [{"issuer": "Other Ltd", "title": "Report"}]}))
+    adapter = CompaniesHouseFilingAdapter(cache_dir=tmp_path / "cache")
+    unmatched = adapter.discover_local(source, query)
+    assert unmatched.status == "manual_review"
+    assert unmatched.records == ()
+    unfiltered = adapter.discover_local(source)
+    matched = adapter.discover_local(source, OAMDiscoveryRequest(issuer="Other Ltd"))
+    assert matched.records[0].issuer == "Other Ltd"
+    assert matched.records[0].source_id == unfiltered.records[0].source_id
+    assert matched.records[0].identity_status == "issuer_only_manual_review"
+
+
+def test_local_companies_house_applies_all_identity_constraints(tmp_path):
+    source = tmp_path / "company.json"
+    source.write_text(json.dumps({"items": [{"company_number": "01234567", "issuer": "Other Ltd", "title": "Report"}]}))
+    adapter = CompaniesHouseFilingAdapter(cache_dir=tmp_path / "cache")
+    matched = adapter.discover_local(source, OAMDiscoveryRequest(company_number="01234567", issuer="Other"))
+    assert matched.records[0].issuer == "01234567"
+    assert matched.records[0].identity_status == "matched_company_number_manual_review"
+    for request in (OAMDiscoveryRequest(company_number="01234567", issuer="Target"), OAMDiscoveryRequest(company_number="01234567", isin="GB123")):
+        assert adapter.discover_local(source, request).records == ()
+
+
+def _assert_app_rejects_without_publication(source, country, tmp_path, monkeypatch, **query):
+    from etf_cockpit.app import state as state_module
+
+    def unexpected_publication(*args, **kwargs):
+        pytest.fail("Rejected export must not publish registry or coverage")
+
+    monkeypatch.setattr(state_module, "write_oam_discovery_registry", unexpected_publication)
+    monkeypatch.setattr(state_module, "write_filing_coverage", unexpected_publication)
+    state = state_module.AppState.__new__(state_module.AppState)
+    with pytest.raises(state_module.ActivityUnavailableError, match="rejected"):
+        state.import_local_oam(source, country, cache_dir=tmp_path / "app-cache", **query)

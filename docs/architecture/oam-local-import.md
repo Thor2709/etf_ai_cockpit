@@ -35,3 +35,11 @@ stored observed `available_at`, including concurrent imports published out of
 order. `retrieved_at` describes the selected import snapshot; caller-declared
 historical availability remains only `claimed_available_at` and never supplies
 the observed availability. Different snapshot content remains distinct evidence.
+
+Local JSON record lists reject non-object members instead of silently dropping
+malformed rows. All declared source, document and metadata links are validated
+before query filtering, including links on unmatched rows. Companies House
+local queries never supply missing source company numbers: company-number
+constraints require an explicit matching row value, and issuer constraints
+filter the source issuer name. ISIN constraints return no matches because this
+adapter does not establish ISIN identity. Remote discovery behavior is unchanged.

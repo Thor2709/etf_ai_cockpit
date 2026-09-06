@@ -1,5 +1,24 @@
 # B04 Analysis Spine
 
+## OAM consolidated identity/export correction — 2026-09-06
+
+Both verified named reviews reject PR730 head
+`02e267510d7cdd92503338513138cbb5317d1345`. The complete demonstrated set
+is local Companies House query/source identity substitution, silently discarded
+malformed JSON members, and query filters bypassing declared-link validation.
+Run34013832227 is cancelled and not acceptance evidence.
+One implementer owns only adapter, adapter tests and architecture documentation
+in `C:/dev/etf-oam-identity-correction-20260906`. The original frozen lane and
+all Antigravity worktrees remain untouched. Complete affected regressions,
+freeze one corrected head, collect both replacement reviews and fresh H gates
+before integration and the existing legal canonical status projection.
+The complete correction passes 74 affected tests on each pinned Python runtime,
+27 root architecture/button checks, Ruff, compilation and byte-clean programme
+generation. Reports are retained in C:/dev/etf-oam-identity-evidence-20260906.
+Freeze this correction for paired review and fresh full H evidence.
+UPDATEV2-0014 remains implemented_initially; execution_allowed=false.
+
+
 ## OAM final integration preparation — 2026-09-06
 
 Configuration-only PR729 merged as6145bdb21b64a027f8d3bccb962e651d59d384ac
