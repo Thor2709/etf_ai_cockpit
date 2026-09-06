@@ -22,6 +22,24 @@ Python3.12 passed103 initially and its sole data-lock contention failure
 passed once serially after both suites ended. Ruff/compile/diff pass. Preserve
 test-created untracked data. A read-only planner is assessing the missing
 positive-path contract before any whole-issue acceptance or hosted freeze.
+The verified planner found an existing bound-snapshot route: independently
+replay full-feature price_binding, require the exact no-trade reference and
+holdings checksum/knowledge cutoff, and use the canonical factor producer
+without undated classification or fund look-through. Root authorizes one
+bounded helper at ui_facade plus selector/tests/SDD, with actual positive ETF
+and unheld-stock fixtures and adversarial binding cases. No new formula or
+bitemporal universe is invented. Run local runtime suites serially because
+checkout data roots are shared. Whole issue acceptance needs this positive
+path as well as explicit unavailable states; retrospective look-through stays
+unsupported. Sole writer remains isolated from OAM's frozen integration.
+The complete bound helper now passes30 affected factor tests per runtime,
+then15 helper tests per runtime after exact canonical descriptor-replay parity
+closed root's tampering reproduction. A real CockpitSnapshot/FeatureService
+fixture produces available ETF and unheld-stock evidence. Root27 architecture/
+button checks and byte-clean programme generation pass. No new financial
+formula, dependencies or arbitrary retrospective look-through is introduced.
+Freeze this completed product checkpoint for both independent reviews; H
+integration evidence and canonical/GitHub acceptance remain outstanding.
 
 
 ## SEC canonical completion candidate — 2026-09-06

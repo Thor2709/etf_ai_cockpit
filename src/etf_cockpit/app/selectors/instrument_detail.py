@@ -51,6 +51,7 @@ from etf_cockpit.application.ui_facade import (
     read_priips_kid_records,
     score_history_frame,
     sort_news_items,
+    load_bound_factor_risk_panel,
     allocation_frame,
     model_zoo_frame,
 )
@@ -1694,6 +1695,10 @@ def _model_cards_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[st
 
 def _factor_risk_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[str, Any]:
     """Fail numeric risk closed until all snapshot inputs have a PIT binding."""
+
+    full_features = getattr(snapshot, "features", None)
+    if isinstance(full_features, pd.DataFrame) and full_features.attrs.get("price_binding") is not None:
+        return load_bound_factor_risk_panel(snapshot, instrument_id)
 
     prices = getattr(snapshot, "prices", None)
     features = getattr(snapshot, "latest_features", None)

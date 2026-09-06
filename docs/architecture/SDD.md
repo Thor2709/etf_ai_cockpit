@@ -611,14 +611,23 @@ liquidity or execution claims; `execution_allowed` is always false.
 
 ### Instrument Detail factor-risk availability
 
-The Instrument Detail selector suppresses numeric factor-risk results for the
-current `CockpitSnapshot` contract. That contract provides raw prices, feature
-frames, current holdings and configuration, without a verified shared historical
-cutoff and revision/availability binding for all four inputs. Filtering price
-rows by date cannot establish that binding, and dated holdings or features alone
-do not establish historical knowledge. The selector does not invoke the factor
-producer for these unbound inputs. Allocation validation remains explicit, while
-selected-instrument input absence is reported independently of global report
-availability. All numeric groups remain empty and `execution_allowed=false`.
-A numeric panel requires a canonical producer input contract establishing the
-joint point-in-time provenance; this selector does not invent that contract.
+The application facade replays the full feature frame's canonical `price_binding`
+against adjusted prices and its declared calculation window. The canonical feature
+calculation is replayed over those prices, and every supplied factor descriptor
+must match exactly before the factor producer can run. Feature rows outside
+that window are rejected; latest-feature fallbacks cannot grant numeric authority.
+A single canonical `reference:no_trade` must bind the exact holdings checksum,
+effective date, weights and knowledge time to the snapshot cutoff. Missing or
+conflicting bindings keep the numeric panel unavailable.
+
+The estimation universe is the verified price/feature intersection, including
+unheld instruments. Bound held positions retain their actual portfolio weights
+and market values. Proven nonheld positions receive zero portfolio weight while
+their unknown market-value descriptor remains missing. Only price-derived feature
+descriptors reach the existing canonical factor producer; undated configuration
+classifications and fund look-through holdings are omitted. No financial formula
+is duplicated. Selected-instrument model coverage is independent of global
+report availability, and missing model coverage suppresses every selected numeric
+group. The panel exposes the decision time, price and holdings checksums, snapshot
+universe revision and model version. Arbitrary retrospective universe replay and
+historical fund look-through remain unsupported; `execution_allowed=false`.
