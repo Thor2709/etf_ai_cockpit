@@ -96,7 +96,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `UPDATEV2-0010` | `P3` | `closed` | `data-and-evidence` | - | - | - | - |
 | `UPDATEV2-0012` | `P0` | `integrated` | `programme-governance` | - | - | `ISSUE-0087`, `ISSUE-0091` | `ISSUE-0073`, `ISSUE-0081`, `ISSUE-0091` |
 | `UPDATEV2-0013` | `P3` | `closed` | `data-and-evidence` | - | - | - | - |
-| `UPDATEV2-0014` | `P1` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0087` | `ISSUE-0076`, `ISSUE-0087` |
+| `UPDATEV2-0014` | `P1` | `integrated` | `programme-governance` | - | - | `ISSUE-0087` | `ISSUE-0076`, `ISSUE-0087` |
 | `UPDATEV2-0017` | `P1` | `closed` | `programme-governance` | - | - | - | `ISSUE-0103`, `ISSUE-0104` |
 | `UPDATEV2-0019` | `P1` | `closed` | `programme-governance` | - | - | - | `ISSUE-0105`, `ISSUE-0112` |
 | `UPDATEV2-0020` | `P1` | `planned` | `programme-governance` | - | - | - | `ISSUE-0104`, `ISSUE-0149`, `UPDATEV2-0015` |
