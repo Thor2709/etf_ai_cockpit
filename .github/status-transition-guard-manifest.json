@@ -4,22 +4,22 @@
   "allowed_status_transitions": [
     {
       "from": "implemented_initially",
-      "issue_id": "UPDATEV2-0012",
+      "issue_id": "UPDATEV2-0014",
       "to": "integrated"
     }
   ],
-  "base_commit": "efa68f18ae52640a23b97f0942dfd97edece9cef",
-  "branch": "codex/sec-lifecycle-20260906",
+  "base_commit": "ad79d38749ee6b7279e65ace170518dbc552d589",
+  "branch": "codex/oam-lifecycle-20260906",
   "issue_ids": [
-    "UPDATEV2-0012"
+    "UPDATEV2-0014"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "38f0a383b989a7e68c7f590c91112d264fe3eacd44d5851b560d1081992b192f",
+    "base_registry_sha256": "9d6a5e5a2530aa0abaefe59e098d886b8e90368fe2fde98e02701da7a40de9de",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "9d6a5e5a2530aa0abaefe59e098d886b8e90368fe2fde98e02701da7a40de9de",
-    "reason": "Integrate only UPDATEV2-0012 from implemented_initially to integrated using merged reviewed PR #727 and exact H evidence; preserve dependencies, product code, authority scope and execution_allowed=false.",
+    "proposed_registry_sha256": "61642e9b8718994abb29b60d150778f0aa953a9efea36057750d6e1d553c08e8",
+    "reason": "Integrate only UPDATEV2-0014 using merged reviewed PR #730 and verified H evidence; preserve dependencies, product code and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

@@ -26516,7 +26516,19 @@
       "write_conflict_group": "data-and-evidence"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #730 merged approved ad8a1d76341749ac21d9cde4ecf68d2c85049b43 as ad79d38749ee6b7279e65ace170518dbc552d589 with identical product tree.",
+            "H run34029549970 passed all mandatory jobs and4389 tests per platform; terminal artifact9988762644 extracted SHA256 b99ce78c3db7afd412785983aa7c542d243f739ee4e4181a7f02fe342fe8cc89 passed validator and independent release verification.",
+            "Explicit local CSV/JSON/XML OAM imports preserve immutable manual provenance, observed availability, complete export validation, exact source identity, guarded upserts, UI no-publication rejection and execution_allowed=false."
+          ],
+          "review_reference": "PR #730 exact-head V2 paired approvals and verified H evidence",
+          "reviewed_date": "2026-09-06",
+          "reviewer": "Codex reviewer gpt-6-astra low, risk_reviewer gpt-6-astra medium, release_verifier gpt-5.6-sol medium and root",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "UPDATEV2-0014",
@@ -26541,7 +26553,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P1",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26565,8 +26577,8 @@
       "source_record_id": "UPDATEV2-0014",
       "source_title": "France DILA and Netherlands AFM OAM discovery adapters",
       "title": "France DILA and Netherlands AFM OAM discovery adapters (original update ISSUE-0014)",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "ad8a1d76341749ac21d9cde4ecf68d2c85049b43",
+      "verified_date": "2026-09-06",
       "why": "Official European filing discovery is fragmented before a complete single access point.",
       "write_conflict_group": "programme-governance"
     },
@@ -28078,7 +28090,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "557c36db7ef340dcab3875a1e3dbe47e666b5b6d4d7dc36716126f94b9b73b06",
+    "programme_control_state_sha256": "3108a041a798d23e2673ffd8652eec85cb891741c51acd407e6370173b3f32f7",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
