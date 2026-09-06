@@ -1,5 +1,19 @@
 # B04 Analysis Spine
 
+## OAM candidate resumption — 2026-09-06
+
+UPDATEV2-0014 is dependency-ready with no blocking dependencies. The preserved
+corrected candidate `3724c30e2ebe5bf3d5fdae22db40c7da6710cbf5` is being
+transplanted into the isolated `codex/oam-resume-20260906` lane based on frozen
+SEC product head `cd557ea8b3e82831e8b21c26ce421957ee0a0405`. Main remains
+`46706be6d0bbee1a0be41f8fdea785ca9f79868c`; SEC PR #727 requires terminal H
+evidence before integration. OAM has no external blocker. Next action: resolve
+the shared Filings UI conflict preserving both workflows, rerun focused evidence
+on both pinned runtimes, then review the stable complete diff. Prior OAM test
+claims lack a verifiable report identity and are not reused. Canonical status
+remains unchanged until acceptance and integration are evidenced.
+
+
 ## SEC integration and canonical sequencing — 2026-09-06
 
 Current main remains `46706be6d0bbee1a0be41f8fdea785ca9f79868c`.

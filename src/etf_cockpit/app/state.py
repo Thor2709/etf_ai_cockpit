@@ -34,6 +34,7 @@ from etf_cockpit.data.oam_adapters import (
     CompaniesHouseFilingAdapter,
     OAMDiscoveryRequest,
     archive_manual_official_filing,
+    import_local_oam_export,
     oam_adapter_for_country,
     write_filing_coverage,
     write_oam_discovery_registry,
@@ -1393,6 +1394,75 @@ class AppState:
             self.last_message = (
                 f"OAM discovery unavailable: {type(exc).__name__}. Manual fallback remains available; "
                 "the coverage attempt was retained when possible, but no filing evidence or score changed."
+            )
+            raise ActivityUnavailableError(self.last_message) from exc
+
+    def import_local_oam(
+        self,
+        path: Path,
+        country: str,
+        *,
+        issuer: str = "",
+        isin: str = "",
+        document_type: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        company_number: str = "",
+        cache_dir: Path | None = None,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> str:
+        """Import a local structured OAM export as manual-review evidence."""
+
+        try:
+            start = datetime.fromisoformat(date_from.strip()).date() if date_from.strip() else None
+            end = datetime.fromisoformat(date_to.strip()).date() if date_to.strip() else None
+            if start and end and start > end:
+                raise ValueError("OAM date_from must not be after date_to")
+            country_code = str(country or "").strip().upper()
+            request = OAMDiscoveryRequest(
+                issuer=issuer,
+                isin=isin,
+                document_type=document_type,
+                date_from=start,
+                date_to=end,
+                company_number=company_number,
+            )
+            result = import_local_oam_export(
+                Path(path),
+                country=country_code,
+                request=request,
+                cache_dir=cache_dir,
+                publish_guard=publish_guard,
+            )
+            if not result.records:
+                self.last_message = (
+                    f"{redact_text(str(result.message))} No discovery rows or coverage were published; "
+                    "manual review remains required and execution_allowed=false."
+                )
+                raise ActivityUnavailableError(self.last_message)
+            # Local imports are intentionally manual-review results, but they
+            # still publish the discovered rows and their coverage observation.
+            registry_path = write_oam_discovery_registry(result, publish_guard=publish_guard)
+            write_filing_coverage(
+                result,
+                country=country_code,
+                request=request,
+                publish_guard=publish_guard,
+            )
+            self._record_activity_output("Local OAM filing registry published", registry_path)
+            checksum = result.snapshot.sha256[:12] if result.snapshot else "unavailable"
+            self.last_message = (
+                f"{redact_text(str(result.message))} Snapshot checksum={checksum}...; "
+                "source_authority=local_user_import; manual_review=true; execution_allowed=false."
+            )
+            return self.last_message
+        except (ActivityUnavailableError, WorkflowTransitionError):
+            raise
+        except Exception as exc:
+            self.last_message = (
+                f"Local OAM import unavailable: {type(exc).__name__}. "
+                "Import publication did not complete; inspect retained local evidence before retrying. "
+                "Manual review remains required and execution_allowed=false."
             )
             raise ActivityUnavailableError(self.last_message) from exc
 

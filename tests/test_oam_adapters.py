@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
+import hashlib
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -18,9 +21,27 @@ from etf_cockpit.data.oam_adapters import (
     SwedenFiOamAdapter,
     archive_manual_official_filing,
     download_oam_document,
+    import_local_oam_export,
     write_filing_coverage,
     write_oam_discovery_registry,
 )
+
+
+def _local_oam_payload(issuer: str, isin: str) -> dict[str, object]:
+    return {
+        "records": [
+            {
+                "issuer": issuer,
+                "isin": isin,
+                "title": "Annual report",
+                "document_type": "annual_report",
+                "published_at": "2026-07-01",
+                "available_at": "2026-07-01T12:00:00Z",
+                "source_url": "https://afm.nl/export/oam.json",
+                "document_url": "https://afm.nl/export/report.pdf",
+            }
+        ]
+    }
 
 
 def _transport(payload: bytes, *, media_type: str, status: int = 200):
@@ -105,6 +126,360 @@ def test_afm_adapter_parses_structured_xml_export(tmp_path: Path) -> None:
     assert result.status == "ok"
     assert result.records[0].issuer == "XML BV"
     assert result.records[0].published_at == "2026-05-01"
+
+
+@pytest.mark.parametrize(
+    ("suffix", "payload", "isin"),
+    [
+        (".json", json.dumps(_local_oam_payload("Local BV", "NL0000000101")).encode(), "NL0000000101"),
+        (
+            ".csv",
+            b"issuer,isin,title,document_type,published_at,available_at\nLocal BV,NL0000000102,Report,annual_report,2026-07-01,2026-07-01T12:00:00Z\n",
+            "NL0000000102",
+        ),
+        (
+            ".xml",
+            b"<?xml version='1.0'?><records><record><issuer>Local BV</issuer><isin>NL0000000103</isin><title>Report</title><document_type>annual_report</document_type><published_at>2026-07-01</published_at></record></records>",
+            "NL0000000103",
+        ),
+    ],
+)
+def test_local_structured_oam_import_is_offline_content_addressed_and_manual_review(
+    tmp_path: Path,
+    suffix: str,
+    payload: bytes,
+    isin: str,
+) -> None:
+    source = tmp_path / f"oam-export{suffix}"
+    source.write_bytes(payload)
+    network_calls: list[str] = []
+
+    def forbidden_transport(*_args: object) -> object:
+        network_calls.append("called")
+        raise AssertionError("local OAM import must not invoke transport")
+
+    adapter = NetherlandsAfmOamAdapter(
+        cache_dir=tmp_path / "cache",
+        endpoint="https://afm.nl/remote.json",
+        transport=forbidden_transport,
+        enabled=False,
+    )
+    result = adapter.discover_local(source, OAMDiscoveryRequest(isin=isin))
+
+    assert result.status == "manual_review"
+    assert len(result.records) == 1
+    record = result.records[0]
+    assert record.source_authority == "local_user_import"
+    assert record.coverage_status == "manual_review"
+    assert record.manual_review is True
+    assert record.execution_allowed is False
+    assert record.identity_status == "matched_isin_manual_review"
+    assert "manual_review_required" in record.warnings
+    assert result.coverage == {
+        "status": "manual_review",
+        "matched_records": 1,
+        "query": {"isin": record.isin},
+        "source_authority": "local_user_import",
+        "manual_review": True,
+        "execution_allowed": False,
+    }
+    assert result.snapshot is not None
+    assert Path(result.snapshot.path).read_bytes() == payload
+    assert result.snapshot.sha256 == hashlib.sha256(payload).hexdigest()
+    assert network_calls == []
+
+
+def test_local_import_rejects_html_untrusted_links_and_oversize_without_registry_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    valid = tmp_path / "valid.json"
+    valid.write_text(json.dumps(_local_oam_payload("Local BV", "NL0000000110")), encoding="utf-8")
+    adapter = NetherlandsAfmOamAdapter(cache_dir=tmp_path / "cache", enabled=False)
+    accepted = adapter.discover_local(valid, OAMDiscoveryRequest(isin="NL0000000110"))
+    registry = tmp_path / "oam.parquet"
+    write_oam_discovery_registry(accepted, destination=registry)
+    before = registry.read_bytes()
+
+    html = tmp_path / "bad.html"
+    html.write_text("<!doctype html><html>not an export</html>", encoding="utf-8")
+    rejected_html = adapter.discover_local(html)
+    assert rejected_html.status == "error"
+    assert rejected_html.snapshot is None
+    assert registry.read_bytes() == before
+
+    linked = tmp_path / "linked.json"
+    payload = _local_oam_payload("Local BV", "NL0000000111")
+    payload["records"][0]["document_url"] = "https://evil.example/report.pdf"  # type: ignore[index]
+    linked.write_text(json.dumps(payload), encoding="utf-8")
+    rejected_link = adapter.discover_local(linked, OAMDiscoveryRequest(isin="NL0000000111"))
+    assert rejected_link.status == "error"
+    assert rejected_link.snapshot is not None
+    assert "local_import_rejected" in rejected_link.warnings
+    assert registry.read_bytes() == before
+
+    monkeypatch.setattr("etf_cockpit.data.oam_adapters.MAX_RESPONSE_BYTES", 8)
+    oversized = tmp_path / "oversized.json"
+    oversized.write_bytes(b'{"records": []}')
+    rejected_size = adapter.discover_local(oversized)
+    assert rejected_size.status == "error"
+    assert rejected_size.snapshot is None
+    assert registry.read_bytes() == before
+
+
+def test_local_snapshot_breaks_hardlink_alias_and_survives_selected_source_mutation(tmp_path: Path) -> None:
+    payload = json.dumps(_local_oam_payload("Local BV", "NL0000000113")).encode()
+    source = tmp_path / "selected.json"
+    source.write_bytes(payload)
+    cache = tmp_path / "cache"
+    snapshot_dir = cache / "snapshots"
+    snapshot_dir.mkdir(parents=True)
+    digest = hashlib.sha256(payload).hexdigest()
+    expected_snapshot = snapshot_dir / f"nl_afm_oam-{digest[:16]}.json"
+    os.link(source, expected_snapshot)
+
+    result = NetherlandsAfmOamAdapter(cache_dir=cache, enabled=False).discover_local(
+        source,
+        OAMDiscoveryRequest(isin="NL0000000113"),
+    )
+    assert result.snapshot is not None
+    assert not os.path.samefile(source, result.snapshot.path)
+    source.write_bytes(b"mutated after import")
+    assert Path(result.snapshot.path).read_bytes() == payload
+
+
+def test_local_identity_requires_explicit_query_identifier_match(tmp_path: Path) -> None:
+    source = tmp_path / "identity.json"
+    source.write_text(
+        json.dumps({"records": [{"issuer": "Issuer", "isin": "NL0000000114", "title": "Report"}]}),
+        encoding="utf-8",
+    )
+    adapter = NetherlandsAfmOamAdapter(cache_dir=tmp_path / "cache", enabled=False)
+
+    issuer_query = adapter.discover_local(source, OAMDiscoveryRequest(issuer="Issuer"))
+    isin_query = adapter.discover_local(source, OAMDiscoveryRequest(isin="NL0000000114"))
+
+    assert issuer_query.records[0].identity_status == "issuer_only_manual_review"
+    assert isin_query.records[0].identity_status == "matched_isin_manual_review"
+
+
+def test_local_availability_is_observed_snapshot_time_and_claim_is_retained(tmp_path: Path) -> None:
+    source = tmp_path / "availability.json"
+    source.write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "issuer": "Issuer",
+                        "isin": "NL0000000115",
+                        "published_at": "2026-07-01",
+                        "available_at": "2026-07-02",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = NetherlandsAfmOamAdapter(cache_dir=tmp_path / "cache", enabled=False).discover_local(
+        source,
+        OAMDiscoveryRequest(isin="NL0000000115"),
+    )
+
+    assert result.snapshot is not None
+    record = result.records[0]
+    assert record.available_at == result.snapshot.retrieved_at
+    assert record.claimed_available_at == "2026-07-02"
+    assert record.published_at == "2026-07-01"
+    assert "availability_observed_at_snapshot" in record.warnings
+    assert "claimed_availability_unverified" in record.warnings
+
+def test_oam_registry_upsert_preserves_other_jurisdictions_for_local_import(tmp_path: Path) -> None:
+    fr_source = tmp_path / "fr.json"
+    fr_source.write_text(json.dumps({"records": [{"issuer": "France SA", "isin": "FR0000000110"}]}), encoding="utf-8")
+    fr = FranceDilaOamAdapter(cache_dir=tmp_path / "fr", enabled=False).discover_local(fr_source, OAMDiscoveryRequest(isin="FR0000000110"))
+    registry = tmp_path / "oam.parquet"
+    write_oam_discovery_registry(fr, destination=registry)
+    before = pd.read_parquet(registry)
+
+    nl_source = tmp_path / "nl.json"
+    nl_source.write_text(json.dumps(_local_oam_payload("Dutch BV", "NL0000000111")), encoding="utf-8")
+    nl = NetherlandsAfmOamAdapter(cache_dir=tmp_path / "nl", enabled=False).discover_local(nl_source, OAMDiscoveryRequest(isin="NL0000000111"))
+    write_oam_discovery_registry(nl, destination=registry)
+    stored = pd.read_parquet(registry)
+
+    assert set(stored["country"]) == {"FR", "NL"}
+    assert set(stored.loc[stored["country"] == "FR", "source_id"]) == set(before["source_id"])
+    assert set(stored.loc[stored["country"] == "NL", "source_authority"]) == {"local_user_import"}
+
+    coverage_path = write_filing_coverage(
+        nl,
+        country="NL",
+        request=OAMDiscoveryRequest(isin="NL0000000111"),
+        destination=tmp_path / "coverage.parquet",
+    )
+    coverage = pd.read_parquet(coverage_path)
+    assert coverage.loc[0, "official_records"] == 0
+    assert coverage.loc[0, "manual_review_records"] == 1
+    assert bool(coverage.loc[0, "execution_allowed"]) is False
+
+
+def test_oam_registry_serializes_concurrent_jurisdiction_upserts(tmp_path: Path) -> None:
+    registry = tmp_path / "oam.parquet"
+    results = []
+    for country, adapter_type, isin in (
+        ("FR", FranceDilaOamAdapter, "FR0000000210"),
+        ("NL", NetherlandsAfmOamAdapter, "NL0000000211"),
+    ):
+        source = tmp_path / f"{country.casefold()}.json"
+        source.write_text(
+            json.dumps({"records": [{"issuer": f"{country} issuer", "isin": isin, "title": "Annual report"}]}),
+            encoding="utf-8",
+        )
+        results.append(
+            adapter_type(cache_dir=tmp_path / f"cache-{country}", enabled=False).discover_local(
+                source,
+                OAMDiscoveryRequest(isin=isin),
+            )
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(write_oam_discovery_registry, result, destination=registry)
+            for result in results
+        ]
+        for future in futures:
+            assert future.result() == registry
+
+    assert set(pd.read_parquet(registry)["country"]) == {"FR", "NL"}
+
+
+def test_filing_coverage_serializes_concurrent_jurisdiction_upserts(tmp_path: Path) -> None:
+    destination = tmp_path / "coverage.parquet"
+    results = []
+    for country, adapter_type, isin in (
+        ("FR", FranceDilaOamAdapter, "FR0000000212"),
+        ("NL", NetherlandsAfmOamAdapter, "NL0000000213"),
+    ):
+        source = tmp_path / f"coverage-{country.casefold()}.json"
+        source.write_text(
+            json.dumps({"records": [{"issuer": f"{country} issuer", "isin": isin}]}),
+            encoding="utf-8",
+        )
+        results.append(
+            (
+                country,
+                OAMDiscoveryRequest(isin=isin),
+                adapter_type(cache_dir=tmp_path / f"coverage-cache-{country}", enabled=False).discover_local(
+                    source,
+                    OAMDiscoveryRequest(isin=isin),
+                ),
+            )
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(
+                write_filing_coverage,
+                result,
+                country=country,
+                request=request,
+                destination=destination,
+            )
+            for country, request, result in results
+        ]
+        for future in futures:
+            assert future.result() == destination
+
+    stored = pd.read_parquet(destination)
+    assert set(stored["country"]) == {"FR", "NL"}
+
+
+def test_local_import_convenience_function_bypasses_disabled_adapter_transport(tmp_path: Path) -> None:
+    source = tmp_path / "local.json"
+    source.write_text(json.dumps(_local_oam_payload("Local BV", "NL0000000112")), encoding="utf-8")
+    result = import_local_oam_export(source, country="NL", request=OAMDiscoveryRequest(isin="NL0000000112"), cache_dir=tmp_path / "cache")
+
+    assert result.status == "manual_review"
+    assert result.records[0].source_authority == "local_user_import"
+
+
+def test_companies_house_local_import_accepts_local_keyword_contract_without_network(tmp_path: Path) -> None:
+    source = tmp_path / "companies-house.json"
+    source.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "company_number": "03842976",
+                        "transaction_id": "local-accounts-1",
+                        "date": "2026-07-01",
+                        "category": "accounts",
+                        "description": "Annual accounts",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = CompaniesHouseFilingAdapter(cache_dir=tmp_path / "cache", enabled=False).discover_local(
+        source,
+        OAMDiscoveryRequest(company_number="03842976", document_type="accounts"),
+    )
+
+    assert result.status == "manual_review"
+    record = result.records[0]
+    assert record.country == "GB"
+    assert record.source_authority == "local_user_import"
+    assert record.identity_status == "matched_company_number_manual_review"
+    assert record.available_at == result.snapshot.retrieved_at
+
+
+def test_companies_house_local_import_keeps_each_row_company_identity(tmp_path: Path) -> None:
+    source = tmp_path / "companies-house-multi.json"
+    source.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {"company_number": "03842976", "transaction_id": "a", "category": "accounts"},
+                    {"company_number": "01234567", "transaction_id": "b", "category": "accounts"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = CompaniesHouseFilingAdapter(cache_dir=tmp_path / "cache", enabled=False).discover_local(source)
+
+    assert result.status == "manual_review"
+    assert {record.issuer for record in result.records} == {"03842976", "01234567"}
+    assert {record.identity_status for record in result.records} == {"issuer_only_manual_review"}
+
+
+def test_local_import_keeps_identity_and_timing_gaps_explicit(tmp_path: Path) -> None:
+    source = tmp_path / "timing.json"
+    source.write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "issuer": "Issuer without ISIN",
+                        "published_at": "not-a-timestamp",
+                        "title": "Report",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = NetherlandsAfmOamAdapter(cache_dir=tmp_path / "cache", enabled=False).discover_local(source)
+
+    assert result.status == "manual_review"
+    record = result.records[0]
+    assert record.identity_status == "issuer_only_manual_review"
+    assert record.availability_precision == "timestamp"
+    assert "availability_observed_at_snapshot" in record.warnings
+    assert "publication_timestamp_unavailable" in record.warnings
+    assert record.coverage_status == "manual_review"
 
 
 def test_discovered_document_download_is_checksum_backed_and_official_only(tmp_path: Path) -> None:
