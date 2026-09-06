@@ -12,6 +12,9 @@ to integrated. Captured plan7d2754fb80c4f3df356fce213aaa1c7a81af571a73d4bafc4fc9
 has exactly one update for GitHub154, zero blockers. Reviewed preparer produced
 append-only authority388cc661a26f07dff0f6cc68f890743e5979db39777625ce5f1dd21c1b8be1aa.
 Local234 focused authority/status/registry tests and byte-clean generation pass.
+Paired review rejected04a00d67 only for eight historical Unicode escape
+spellings rewritten by the control writer. Their original bytes are restored;
+authority and semantic bindings remain unchanged. Freeze the replacement.
 Next: exact guards, paired review and required validation, then ordered writer
 and independent zero-action readback. No external status write has occurred.
 ISSUE0019 source8b0a1bff has both final approvals and remains local pending

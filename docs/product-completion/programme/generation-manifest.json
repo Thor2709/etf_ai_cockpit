@@ -15,7 +15,7 @@
     },
     {
       "path": "docs/product-completion/CURRENT_STATUS.json",
-      "sha256": "903042c2adf154f07df0bfc151decbd6a2e46e7f8344f96cc520bfd6b52a02b2"
+      "sha256": "0ac956815f0b1784abf801ad8a7353cdccdbaa9fd79723895d2d61424200e344"
     },
     {
       "path": "docs/product-completion/DELIVERY_WORKFLOW.md",
@@ -83,7 +83,7 @@
     },
     {
       "path": "docs/product-completion/programme/readiness.json",
-      "sha256": "78dfcfa52e980f26772218dc38cf29e785dcc0d82102e9466b0ae5a7b0300711"
+      "sha256": "21251341b56611bae2300e3f73393809a6e3eabb4c4bbad0e8a838a8cebd007b"
     },
     {
       "path": "docs/product-completion/programme/roadmap.md",
@@ -151,7 +151,7 @@
     },
     {
       "path": "issues/issue_registry.json",
-      "sha256": "54a25fc12d82ed076f2ac4f93790fda8fce638f5cb1ddc003adc75ad17aa1c40"
+      "sha256": "61642e9b8718994abb29b60d150778f0aa953a9efea36057750d6e1d553c08e8"
     },
     {
       "path": "issues/open.md",
@@ -159,7 +159,7 @@
     },
     {
       "path": "issues/programme_control_state.json",
-      "sha256": "b69cc6e6693ffbe0a264630e82c584bb8723460dc26cb4123f310fb4caff2fb3"
+      "sha256": "3108a041a798d23e2673ffd8652eec85cb891741c51acd407e6370173b3f32f7"
     }
   ],
   "schema_version": "programme-generation.v1"
