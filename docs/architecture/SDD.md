@@ -617,7 +617,14 @@ calculation is replayed over those prices, and every supplied factor descriptor
 must match exactly before the factor producer can run. Feature rows outside
 that window are rejected; latest-feature fallbacks cannot grant numeric authority.
 A single canonical `reference:no_trade` must bind the exact holdings checksum,
-effective date, weights and knowledge time to the snapshot cutoff. Missing or
+effective date, weights and knowledge time to the snapshot cutoff. Each price and
+holdings row must declare valid timezone-aware source knowledge within the
+decision cutoff. The reference knowledge time must equal the maximum holdings
+row knowledge, replaying the canonical no-trade construction rule. Price source
+knowledge is validated separately from the value-only adjusted-price checksum;
+missing knowledge never acquires historical authority from an observation date.
+The panel exposes these source-knowledge checks and the holdings/reference
+identities explicitly. Missing or
 conflicting bindings keep the numeric panel unavailable.
 
 The estimation universe is the verified price/feature intersection, including

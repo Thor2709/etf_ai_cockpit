@@ -921,6 +921,34 @@ def load_bound_factor_risk_panel(snapshot: object, instrument_id: str) -> dict[s
     from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry, ReferencePortfolioDefinition
     from etf_cockpit.portfolio.sandbox import holdings_checksum
 
+    def source_knowledge(frame, effective_times, decision, *, price_rows=False):
+        # Replay the no-trade builder's explicit per-row knowledge contract.
+        authority_columns = tuple(column for column in ("known_at", "imported_at", "available_at") if column in frame)
+        if not authority_columns:
+            raise ValueError("explicit source knowledge is missing")
+        columns = authority_columns + tuple(column for column in ("retrieved_at", "published_at") if price_rows and column in frame)
+        times = []
+        for (_, row), effective_time in zip(frame.iterrows(), effective_times):
+            declared = {}
+            for column in columns:
+                value = row[column]
+                if value is None or pandas.isna(value):
+                    continue
+                parsed = pandas.to_datetime(value, errors="coerce")
+                if pandas.isna(parsed) or getattr(parsed, "tzinfo", None) is None:
+                    raise ValueError("source knowledge must contain valid aware timestamps")
+                declared[column] = pandas.Timestamp(parsed).tz_convert("UTC")
+            if not any(column in declared for column in authority_columns):
+                raise ValueError("each source row requires explicit knowledge")
+            row_known = max(declared.values())
+            if row_known < effective_time or row_known > decision:
+                raise ValueError("source knowledge contradicts the effective time or decision cutoff")
+            times.append(row_known)
+        return max(times), {
+            "status": "validated", "row_count": len(times), "fields": list(columns),
+            "latest_known_at": max(times).isoformat(), "earliest_known_at": min(times).isoformat(),
+        }
+
     empty = {
         "status": "unavailable", "instrument_id": instrument_id,
         "factor_exposures": [], "specific_risk": [], "instrument_contributions": [],
@@ -950,6 +978,8 @@ def load_bound_factor_risk_panel(snapshot: object, instrument_id: str) -> dict[s
             raise ValueError("snapshot cutoff does not match the bound calculation window")
         scoped_prices = clip_to_decision_window(prices, **window)
         scoped_features = clip_to_decision_window(features, **window)
+        price_effective = pandas.to_datetime(scoped_prices["date"], errors="coerce", utc=True, format="mixed")
+        _, price_knowledge = source_knowledge(scoped_prices, price_effective, decision, price_rows=True)
         if len(scoped_features) != len(features) or scoped_features.empty:
             raise ValueError("feature rows fall outside the bound decision window")
         for frame in (scoped_prices, scoped_features, holdings):
@@ -988,6 +1018,9 @@ def load_bound_factor_risk_panel(snapshot: object, instrument_id: str) -> dict[s
         holding_dates = pandas.to_datetime(holdings["as_of_date"], errors="coerce", utc=True, format="mixed")
         if holding_dates.isna().any() or set(holding_dates.dt.date) != {as_of.date()}:
             raise ValueError("holdings are not effective at the snapshot cutoff")
+        holdings_known, holdings_knowledge = source_knowledge(
+            holdings, [pandas.Timestamp(as_of.date(), tz="UTC")] * len(holdings), decision
+        )
         registry = getattr(snapshot, "benchmark_reference_registry", None)
         if not isinstance(registry, CanonicalBenchmarkRegistry):
             raise ValueError("canonical no-trade reference is unavailable")
@@ -998,6 +1031,8 @@ def load_bound_factor_risk_panel(snapshot: object, instrument_id: str) -> dict[s
         reference = references[0]
         known = pandas.Timestamp(reference.known_at)
         effective = pandas.Timestamp(reference.effective_at)
+        if known != holdings_known:
+            raise ValueError("no-trade reference knowledge differs from the source row maximum")
         if (reference.method != "no_trade" or tuple(reference.source_hashes) != (checksum,)
                 or known.tzinfo is None or known > decision or effective != pandas.Timestamp(as_of.date(), tz="UTC")):
             raise ValueError("no-trade reference holdings provenance does not match the cutoff")
@@ -1042,6 +1077,10 @@ def load_bound_factor_risk_panel(snapshot: object, instrument_id: str) -> dict[s
         "global_coverage_scope": "estimation_universe", "global_diagnostics_scope": "estimation_universe",
         "warnings": report.get("warnings", []), "model_version": report.get("model_version", "unavailable"),
         "decision_time": window["decision_time"], "price_snapshot_checksum": replayed["price_snapshot_checksum"],
+        "source_knowledge": {
+            "prices": price_knowledge | {"checksum_scope": "price checksum binds values only; row knowledge validated separately"},
+            "holdings": holdings_knowledge | {"holdings_checksum": checksum, "reference_content_hash": reference.content_hash},
+        },
         "holdings_checksum": checksum, "universe_revision": getattr(snapshot, "universe_revision", ""),
         "message": "Factor risk from verified snapshot price/features and no-trade holdings bindings. Historical look-through and arbitrary retrospective universe replay are unsupported.",
     }

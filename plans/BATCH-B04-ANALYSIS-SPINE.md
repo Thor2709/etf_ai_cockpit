@@ -1,5 +1,22 @@
 # B04 Analysis Spine
 
+## ISSUE-0019 source-knowledge correction — 2026-09-06
+
+Whole review approves4d22c157, but paired risk review rejects its two P1
+source-knowledge boundaries: future-known prices pass a value-only checksum,
+and future-known holdings pass a refreshed checksum with contradictory early
+reference knowledge. One consolidated correction replays existing source
+knowledge rules and binds reference/source knowledge before numeric authority.
+No formula, dependency or broader PIT architecture is changed. Preserve prior
+passing reports and both reproductions; run affected knowledge regressions,
+freeze replacement and collect both reviews before H integration acceptance.
+Both source-knowledge reproductions fail before correction. The replacement
+passes31 helper tests per runtime serially, including positive source knowledge
+and contradictory/missing/naive/malformed cases. Ruff/compile/diff pass; retain
+knowledge-red312.xml as failing evidence, knowledge312/313.xml as passing.
+Canonical ISSUE-0019 remains implemented_initially; execution_allowed=false.
+
+
 ## ISSUE-0019 preserved point-in-time correction — 2026-09-06
 
 Current base is6145bdb21b64a027f8d3bccb962e651d59d384ac. Preserve rejected
