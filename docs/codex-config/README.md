@@ -45,8 +45,24 @@ This directory preserves the latest reviewed personal Codex orchestration config
 
 ## Routing enforcement
 
-Run `enforce-agent-routing.ps1` without switches for a read-only audit of the live root model, the single hard concurrency setting, V2 settings, all 12 role TOMLs and registered worktrees. It rejects duplicate concurrency assignments and the legacy `max_threads` alias so conflicting ceilings cannot silently coexist.
+Run `enforce-agent-routing.ps1` without switches for a read-only audit of the live root model, concurrency ceiling, V2 feature flag, Luna/high fallback, all 12 live role TOMLs and registered worktrees. Both checked-in configuration templates receive the same configuration checks. Python 3.11 or newer is required for the standard-library `tomllib` parser; no third-party dependency is installed. If necessary, select the interpreter with `-PythonExecutable C:\path\to\python.exe`.
 
-Use `-ApplyWorktreeOverrides` to place an ignored, generated `AGENTS.override.md` in existing worktrees whose root policy differs from the canonical root `AGENTS.md`. This prevents an old worktree from reactivating stale routing instructions without changing its branch. Use `-PruneMissingWorktrees` only to remove Git metadata for worktree directories that no longer exist.
+The audit validates TOML structure and exact table scope: root model settings, `[agents]` capacity and fallback, and `[features]` V2 enablement. Malformed TOML, duplicate keys or tables, misplaced controls and the legacy `max_threads` alias fail closed before any override writes.
+
+To update policies, explicitly select only worktrees you own:
+
+```powershell
+.\docs\codex-config\enforce-agent-routing.ps1 -ApplyWorktreeOverrides -OwnedWorktree C:\dev\my-owned-worktree
+```
+
+`-OwnedWorktree` accepts an array of exact registered worktree paths. Selection is an ownership assertion by the caller; never select Antigravity or another task's worktree without authority. There is no apply-to-all default. Every selected target is preflighted before writes: existing overrides must begin with this script's generated marker, and symlink overrides are refused. Unselected worktrees remain untouched. Generated overrides are written only where `AGENTS.md` differs from canonical policy. No overrides are deleted, no Git exclusion files are edited, and no worktree metadata is pruned. Generated files may appear as untracked files; keep them out of commits. An override in a worktree whose policy has become canonical is retained for its owner to inspect separately.
+
+Run the focused fixture regressions with:
+
+```powershell
+python -B -m unittest discover -s docs/codex-config -p test_agent_routing.py -v
+```
+
+All test writes use temporary fixtures; the tests do not change live configuration or real worktree overrides.
 
 The canonical product programme remains in `PLAN_step2.md`, `issues/issue_registry.json`, `issues/programme_control_state.json`, and `docs/product-completion/`.
