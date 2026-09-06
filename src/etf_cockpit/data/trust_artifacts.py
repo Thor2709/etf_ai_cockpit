@@ -20,6 +20,7 @@ from etf_cockpit.core.atomic_io import (
     wait_for_atomic_group,
 )
 from etf_cockpit.core.config import AppConfig
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import CLEAN_DIR, DERIVED_DIR, RAW_DIR, ROOT
 from etf_cockpit.core.session_log import log_event
 from etf_cockpit.core.versioning import build_run_manifest, build_version_registry, ensure_run_manifest, write_version_registry
@@ -1290,12 +1291,7 @@ def write_optional_source_inventories(config: AppConfig, identity: pd.DataFrame)
         # Keep imported SEC statement rows when the normal trust refresh runs.
         # The refresh discovers local filing documents, but it is not allowed
         # to replace evidence imported through another official provider.
-        "filings_statements": _append_parquet(
-            FILINGS_STATEMENTS_PATH,
-            _local_document_inventory("filings", RAW_DIR / "filings", identity),
-            [],
-            id_columns=["document_id", "checksum"],
-        ),
+        "filings_statements": _append_filings_statement_inventory(identity),
         "etf_disclosures": _write_dual(
             _etf_disclosure_inventory(identity, configured_etf_ids=[etf.id for etf in config.universe.etfs if etf.instrument_type == "etf"]),
             ETF_DISCLOSURES_PATH,
@@ -1805,6 +1801,20 @@ def _append_parquet(
     if not combined.empty:
         combined = combined.drop_duplicates(subset=[col for col in id_columns if col in combined.columns], keep="last")
     return _write_dual(combined, path)
+
+
+def _append_filings_statement_inventory(identity: pd.DataFrame) -> Path:
+    """Serialize trust refresh with the canonical filings-store writer guard."""
+
+    guard_path = FILINGS_STATEMENTS_PATH.with_name(f"{FILINGS_STATEMENTS_PATH.name}.guard")
+    with persistent_file_guard(guard_path):
+        wait_for_atomic_group(FILINGS_STATEMENTS_PATH)
+        return _append_parquet(
+            FILINGS_STATEMENTS_PATH,
+            _local_document_inventory("filings", RAW_DIR / "filings", identity),
+            [],
+            id_columns=["document_id", "checksum"],
+        )
 
 
 def _run_snapshot_hash(frame: pd.DataFrame) -> str:

@@ -194,6 +194,21 @@ class SecEdgarProvider:
         document = fetch_bulk(self, "submissions", cache_only=cache_only, publish_guard=kwargs.get("publish_guard"))
         return _import_provider_submissions(self, document, identity, cache_dir=import_cache_dir, **kwargs)
 
+    def import_companyfacts_bulk(
+        self, identities: Any, *, import_cache_dir: Path,
+        facts_destination: Path, inventory_destination: Path,
+        cache_only: bool = False, publish_guard: PublicationScopeFactory | None = None,
+    ) -> Any:
+        """Acquire and import companyfacts through one provider-owned session."""
+        from etf_cockpit.application.sec_bulk_import import _import_provider_companyfacts_bulk
+
+        document = self.fetch_companyfacts_bulk(cache_only=cache_only, publish_guard=publish_guard)
+        return _import_provider_companyfacts_bulk(
+            self, document, identities, cache_dir=import_cache_dir,
+            facts_destination=facts_destination, inventory_destination=inventory_destination,
+            publish_guard=publish_guard,
+        )
+
     def fetch_companyfacts_bulk(
         self,
         *,

@@ -248,3 +248,9 @@ controls:
   - {key: etf-disclosures.import-report, route: /etf-disclosures, control_label: Import bounded report, callback: import_report, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_etf_report_ui.py, control_type: button}
   - {key: etf-disclosures.verify-report, route: /etf-disclosures, control_label: Verify report, callback: review_report, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_etf_report_ui.py, control_type: button}
   - {key: etf-disclosures.reject-report, route: /etf-disclosures, control_label: Reject report, callback: review_report, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_etf_report_ui.py, control_type: button}
+
+  # Explicit SEC bulk workflows.
+  - {key: filings.import-sec-bulk, route: /filings, control_label: Import local SEC ZIP, callback: import_sec_bulk, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_sec_bulk_ui.py, control_type: button}
+  - {key: filings.fetch-sec-bulk, route: /filings, control_label: Fetch official SEC bulk, callback: fetch_sec_bulk, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_sec_bulk_ui.py, control_type: button}
+  - {key: filings.cache-sec-bulk, route: /filings, control_label: Use session cache, callback: cached_sec_bulk, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_sec_bulk_ui.py, control_type: button}
+  - {key: filings.bulk.file-picker, route: /filings, control_label: SEC bulk native file picker, callback: pick_files, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_sec_bulk_ui.py, control_type: file_picker}
