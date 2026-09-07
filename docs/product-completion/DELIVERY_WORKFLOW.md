@@ -43,8 +43,13 @@ AGY editors count as writers under the same file/runtime ownership limits.
 They have no canonical programme-state authority, cannot satisfy formal V2
 reviewer/risk/release gates and cannot decide validation sufficiency. Root may
 use the reviewed skill/adapter for approved cheap-to-verify assignments and
-must independently inspect the real diff and run required evidence. Start
-with advisory shadow work; use normal V2 fallback on failure or low value.
+must independently inspect the real diff and run required evidence. Scout and
+editor each have independent disabled/shadow/enabled states. Both currently
+remain disabled: AGY 1.1.27 fresh headless agent fallback and absent hooks
+permit forbidden collaboration tools. Interactive hook enforcement is proven
+only when actually loaded; it does not authorize fresh automation. After a
+reviewed capability-specific containment proof, start that capability in
+advisory shadow mode. Use normal V2 fallback on failure or low value.
 
 Review a stable exact-head diff. Merge only the reviewed head after required
 gates. Update the canonical control source first; never hand-edit generated

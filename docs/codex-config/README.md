@@ -10,7 +10,8 @@ children. They consume no V2 slot; editors count as writers under the same
 ownership rules. They cannot satisfy formal reviewer/risk/release gates,
 decide test sufficiency or write Git/GitHub/canonical programme state. Codex
 independently inspects actual changes, selects the existing validation tier
-and runs tests. Start with advisory shadow assignments and normal V2 fallback.
+and runs tests. Scout and editor each have independent disabled/shadow/enabled
+states. Both currently remain disabled; use normal V2 fallback.
 
 Reviewed Codex skill source: `codex-skills/antigravity-flash/`. After framework
 acceptance, root synchronizes these reviewed files to the live Codex USER
@@ -24,17 +25,20 @@ unrelated configuration. The root owns any user-home synchronization/fallback.
 AGY custom agents live at `.agents/agents/codex-flash-scout/agent.md` and
 `.agents/agents/codex-flash-editor/agent.md`. Both disable shell execution,
 subagent invocation and inherited customizations, with empty MCP/skills/plugins.
-Scout exposes only `view_file`, `grep_search`, `find_by_name`, `list_dir`;
+Scout requests only `view_file`, `grep_search`, `find_by_name`, `list_dir`;
 editor adds `write_to_file`, `replace_file_content`, `multi_replace_file_content`.
-Bodies contain authority constraints directly. Inheritance isolation does not
-prove root AGENTS.md is hidden; live marker-fixture evidence is required.
+Bodies contain authority constraints directly. Interactive scout marker
+evidence confirmed custom-body visibility and exclusion of root AGENTS, ambient
+rules and skills. This does not prove fresh headless custom-agent selection.
 
 Only `agy_delegate.py` invokes official AGY. It resolves PATH, then on Windows
 the official per-user `LOCALAPPDATA/agy/bin/agy.exe` location, checks >=1.1.27,
 queries models/agents in the exact workspace and requires the discovered
 `gemini-3.8-flash-medium` slug. CLI 1.1.27 omits main-agent-only definitions
-from the non-interactive agents listing, so agent authority comes from the
-byte-identical reviewed definition plus the run's exact `init.agent`. High requires an explicit root justification;
+from the non-interactive agents listing. Byte-identical definitions and
+`init.agent` are consistency checks, not proof of selection: the direct
+headless run echoed the requested name while logging fallback to default.
+High requires an explicit root justification;
 other model generations are rejected. Workspace definitions must match the
 reviewed source. No credentials, provider configuration, private APIs, MCP
 bridges or permission bypass are part of this integration. Existing provider
@@ -49,9 +53,13 @@ git diff --check
 ```
 
 The wrapper uses `-p`, `--output-format stream-json`, exact `--model`/`--agent`,
-`--print-timeout`, `--sandbox` and `--json-schema`. It captures both streams,
-requires init identity/tool/permission metadata and a single successful result,
-checks tool steps and rejects denied actions even with a zero exit code.
+`--print-timeout`, `--sandbox` and `--json-schema`, plus `--mode plan` for scout.
+It captures both streams, records the primary `init.tools` registry without
+requiring it to be a subset of the agent tool list, and validates identity,
+permission metadata and a single successful result. Forbidden tool/subagent
+activity is a capability containment failure. Denial metadata without forbidden
+activity degrades only that assignment; malformed or uncorrelated tool errors
+remain rejected without claiming safe containment.
 Captured diagnostics are not echoed because they may contain local sensitive
 data. Rejection is not rollback: Codex still inspects status/diff after editor
 failure. The sandbox flag concerns terminal restrictions; file ownership is
@@ -63,13 +71,27 @@ Protocol sources checked 2026-09-07:
 [custom-agent schema](https://www.antigravity.google/docs/subagents/) and
 [terminal sandbox](https://www.antigravity.google/docs/cli/sandbox/).
 Deterministic tests use mocked documented streams, not personal Google access.
-Live authentication and model selection succeeded, but the AGY 1.1.27 scout
-smoke exposed the full global tool surface and attempted a forbidden command.
-Headless permission handling denied it and the adapter rejected the result.
-`HARNESS_ENABLED = False` therefore prevents any further process launch until a
-reviewed code change follows an upstream fix and proves preventive containment,
-inheritance, scout/editor and failure paths. Do not sync or install the Skill.
-No undocumented benign built-ins are allowed.
+The completed AGY 1.1.27 matrix used the existing Google AI Pro account and
+exact `gemini-3.8-flash-medium` model:
+
+| Route | Observed containment | Automation decision |
+| --- | --- | --- |
+| Fresh headless `--agent`, plan, sandbox | Echoed scout identity, but logged fallback to default and zero hooks. `invoke_subagent`, `define_subagent`, and `manage_subagents` succeeded; shell/read attempts were separately denied. | Scout disabled; editor disabled. |
+| Interactive custom scout | Actual schema restricted; workspace hook loaded. A broad canary agent's forbidden shell, write, web, task, scheduling, permission, messaging and collaboration calls were hard-denied by the strict hook. | Effective when loaded; not fresh task automation proof. |
+| Resume interactive scout | Retained scout behavior and hooks, but lacked `init.agent` and required persistent conversation/bootstrap. | Not an accepted automation route. |
+
+The documented subagent `tools` list is not a primary-registry contract;
+interactive restrictions and fresh headless selection must be verified
+separately. `CAPABILITY_STATES` keeps both capabilities disabled. Even changing
+either state to shadow/enabled cannot launch: `require_fresh_containment`
+rejects until a reviewed implementation proves positive fresh-headless agent
+selection and required hook identity and activation from an adapter-owned
+artifact. Absence of fallback, a nonzero hook count or an echoed name is
+insufficient. Negative log fixtures cover observed fallback and zero-hook
+messages; they do not establish a positive log protocol. No AGY process is
+launched by this disabled adapter. Do not sync or install the Skill. Outcome C
+is preserved; activation requires capability-specific containment and ownership
+evidence.
 
 - `global-AGENTS.md` mirrors the global `C:\\Users\\thor2\\.codex\\AGENTS.md`.
 - `config.toml` mirrors the current desktop Codex configuration as volatile

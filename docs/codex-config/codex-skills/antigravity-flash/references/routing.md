@@ -1,5 +1,10 @@
 # Routing
 
+Scout and editor are independently disabled. These task classes become
+eligible only after the selected capability passes reviewed containment and
+enters shadow/enabled state. Scout requires plan mode; state changes alone
+cannot bypass the adapter's fresh-headless identity/hook guard.
+
 Prefer scout for file/symbol/call-path maps, affected-test candidates,
 reference/removal/stale-doc searches, dependency and ownership overlap,
 omission sweeps, supplied local CI/evidence clustering and dependency-ready

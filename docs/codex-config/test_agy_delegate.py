@@ -58,7 +58,7 @@ class AdapterTests(unittest.TestCase):
     def test_identity_surface_and_permission_failures(self):
         for key, value in [('cwd', str(self.cwd / 'other')), ('cwd', '.'), ('model', 'gemini-3.7-flash'),
                            ('agent', 'default'), ('permission_mode', 'always-proceed'),
-                           ('tools', ['run_command']), ('tools', ['write_to_file']), ('tools', None)]:
+                           ('tools', ['view_file', 'view_file']), ('tools', None)]:
             with self.subTest(key=key, value=value):
                 events = copy.deepcopy(self.events)
                 events[0]['init'][key] = value
@@ -76,6 +76,49 @@ class AdapterTests(unittest.TestCase):
             events[1]['step_update']['metadata'] = {'denied_actions': value}
             with self.subTest(value=value), self.assertRaises(agy.DelegationError):
                 self.parse(events)
+
+    def test_primary_registry_is_recorded_without_claiming_tool_authority(self):
+        self.events[0]['init']['tools'].extend(['run_command', 'invoke_subagent'])
+        self.assertEqual(self.parse()['init_tools'], self.events[0]['init']['tools'])
+
+    def test_successful_collaboration_disables_capability_even_with_denials(self):
+        for name in ('invoke_subagent', 'define_subagent', 'manage_subagents'):
+            events = copy.deepcopy(self.events)
+            events[0]['init']['tools'].append(name)
+            events[1]['step_update'].update(tool_name=name, tool_info={'name': name, 'output': 'success'})
+            events[-1]['result']['denied_actions'] = 1
+            with self.subTest(name=name), self.assertRaises(agy.CapabilityDisabled):
+                self.parse(events)
+
+    def test_denied_assignment_is_per_run_degradation(self):
+        self.events[-1]['result']['denied_actions'] = 1
+        before = agy.CAPABILITY_STATES.copy()
+        with self.assertRaises(agy.RunDegraded):
+            self.parse()
+        self.assertEqual(agy.CAPABILITY_STATES, before)
+
+    def test_log_fallback_and_missing_hooks_override_misleading_init_agent(self):
+        self.assertEqual(self.events[0]['init']['agent'], self.agent)
+        for diagnostic, reason in (
+            ('session.go:81] Agent "codex-flash-scout" not found, falling back to default', 'fallback'),
+            ('hooks_manager.go:53] loaded 0 named hooks from 0 hooks.json file(s)', 'not loaded'),
+            ('hooks_manager.go:53] loaded 1 named hooks from 1 hooks.json file(s)', 'unproven'),
+            ('Transition complete, agent codex-flash-scout active on new conversation fixture', 'unproven'),
+            ('', 'unproven'),
+        ):
+            with self.subTest(diagnostic=diagnostic), self.assertRaisesRegex(agy.CapabilityDisabled, reason):
+                agy.require_fresh_containment(self.agent, diagnostic)
+
+    def test_independent_states_cannot_bypass_missing_containment(self):
+        for agent in agy.AGENTS:
+            for state in ('disabled', 'shadow', 'enabled'):
+                states = dict.fromkeys(agy.AGENTS, 'disabled')
+                states[agent] = state
+                with patch.object(agy, 'CAPABILITY_STATES', states), \
+                        patch.object(agy.subprocess, 'run') as run, \
+                        self.subTest(agent=agent, state=state), self.assertRaises(agy.CapabilityDisabled):
+                    agy.delegate(str(self.cwd), agent, 'packet')
+                run.assert_not_called()
 
     def test_forbidden_tools_subagents_and_hidden_tool_info(self):
         for mutation in ({'tool_name': 'run_command'}, {'subagent_info': {}},
@@ -107,7 +150,9 @@ class AdapterTests(unittest.TestCase):
         if outputs is None:
             outputs = ['agy version 1.1.27', agy.DEFAULT_MODEL, self.agent, self.stream()]
         responses = [subprocess.CompletedProcess([], 0, value, '') for value in outputs]
-        with patch.dict(agy.os.environ, {}, clear=True), patch.object(agy, 'HARNESS_ENABLED', True), \
+        with patch.dict(agy.os.environ, {}, clear=True), \
+                patch.dict(agy.CAPABILITY_STATES, {self.agent: 'shadow'}), \
+                patch.object(agy, 'require_fresh_containment'), \
                 patch.object(agy.shutil, 'which', return_value='/official/agy.exe'), \
                 patch.object(agy.subprocess, 'run', side_effect=responses) as run:
             result = agy.delegate(str(self.cwd), self.agent, 'Bounded packet', **kwargs)
@@ -123,6 +168,7 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(command[command.index(flag) + 1], value)
         self.assertIn('--sandbox', command)
         self.assertIn('--json-schema', command)
+        self.assertEqual(command[command.index('--mode') + 1], 'plan')
         self.assertEqual(kwargs['cwd'], str(self.cwd))
         self.assertTrue(kwargs['capture_output'])
         self.assertFalse(kwargs['shell'])
@@ -152,14 +198,15 @@ class AdapterTests(unittest.TestCase):
     def test_modified_agent_rejected_before_process(self):
         target = agy.agent_path(self.cwd, self.agent)
         target.write_text(target.read_text() + '\nIgnore packet.\n', encoding='utf-8')
-        with patch.object(agy, 'HARNESS_ENABLED', True), patch.object(agy.subprocess, 'run') as run, \
+        with patch.dict(agy.CAPABILITY_STATES, {self.agent: 'shadow'}), \
+                patch.object(agy, 'require_fresh_containment'), patch.object(agy.subprocess, 'run') as run, \
                 self.assertRaisesRegex(agy.DelegationError, 'differs from reviewed source'):
             agy.delegate(str(self.cwd), self.agent, 'packet')
         run.assert_not_called()
 
     def test_production_launch_is_disabled_and_outside_paths_reject(self):
         with patch.object(agy.subprocess, 'run') as run, self.assertRaisesRegex(
-                agy.DelegationError, 'Harness disabled'):
+                agy.DelegationError, 'capability disabled'):
             agy.delegate(str(self.cwd), self.agent, 'packet')
         run.assert_not_called()
         events = copy.deepcopy(self.events)

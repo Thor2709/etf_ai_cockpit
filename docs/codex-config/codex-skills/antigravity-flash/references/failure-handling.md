@@ -3,8 +3,18 @@
 Begin with 180 seconds for trivial scout, 300 for larger preflight and 480–600
 for a bounded editor. The adapter bounds CLI and outer process timeouts.
 Reject malformed/missing streams, identity mismatch, unknown or forbidden
-tools, denied actions, permission errors, cancellation, waiting/nonterminal
+tool activity, denied actions, permission errors, cancellation, waiting/nonterminal
 status, quota exhaustion or low-value output. Exit zero is insufficient.
+
+Treat positively established safe denial as per-run degradation with V2
+fallback. Successful forbidden tools or subagent activity disable the affected
+capability pending reviewed containment repair. Uncorrelated or malformed tool
+errors do not prove safe denial. Record `init.tools`; a broad primary registry
+alone does not prove forbidden execution. `init.agent` alone does not prove
+actual selection. Fresh-headless fallback or missing hooks blocks launch;
+nonzero hook counts and absence of fallback do not prove required hook identity.
+Both capability states currently remain disabled. Interactive hook enforcement
+and resumed conversations do not justify fresh automation activation.
 
 Never blindly retry. Inspect real status/diff even after a rejected editor;
 rejection is not rollback. Preserve unexpected changes for root review.

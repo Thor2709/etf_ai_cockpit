@@ -20,7 +20,8 @@ EDIT_TOOLS = READ_TOOLS | {'write_to_file', 'replace_file_content', 'multi_repla
 AGENTS = {'codex-flash-scout': READ_TOOLS, 'codex-flash-editor': EDIT_TOOLS}
 DEFAULT_MODEL = 'gemini-3.8-flash-medium'
 MODELS = {DEFAULT_MODEL, 'gemini-3.8-flash-high'}
-HARNESS_ENABLED = False  # AGY 1.1.27 failed live tool-surface restriction proof.
+CAPABILITY_STATES = {'codex-flash-scout': 'disabled', 'codex-flash-editor': 'disabled'}
+STATES = frozenset({'disabled', 'shadow', 'enabled'})
 LIST_FIELDS = ('files_inspected', 'requirements_addressed', 'candidate_tests', 'uncertainties')
 HANDOFF_SCHEMA = {
     'type': 'object', 'additionalProperties': False,
@@ -36,6 +37,28 @@ REPO = Path(__file__).resolve().parents[2]
 
 class DelegationError(ValueError):
     """Rejected run; never infer acceptance from a worker response."""
+
+
+class CapabilityDisabled(DelegationError):
+    """Containment failure: this capability needs a reviewed repair."""
+
+
+class RunDegraded(DelegationError):
+    """This assignment was denied safely; use V2 fallback for this run."""
+
+
+def require_fresh_containment(agent, diagnostic_log=''):
+    """No proven positive fresh-headless identity/hook artifact exists in 1.1.27.
+
+    These observed negative diagnostics are useful evidence, but their absence,
+    init.agent, and a nonzero hook count cannot establish preventive containment.
+    There is deliberately no caller-supplied boolean or state-switch bypass.
+    """
+    if re.search(r'Agent .* not found, falling back to default', diagnostic_log):
+        raise CapabilityDisabled(f'{agent}: custom-agent fallback observed')
+    if 'loaded 0 named hooks from 0 hooks.json file(s)' in diagnostic_log:
+        raise CapabilityDisabled(f'{agent}: required hooks were not loaded')
+    raise CapabilityDisabled(f'{agent}: fresh headless agent and hook identity unproven')
 
 
 def require(condition, message):
@@ -100,15 +123,19 @@ def validate_handoff(value):
     return value
 
 
-def no_denials(value):
+def has_denials(value):
+    denied = False
     if isinstance(value, dict):
         for key, item in value.items():
             if key == 'denied_actions':
-                require(item == [] or type(item) is int and item == 0, 'Denied or malformed actions')
-            no_denials(item)
+                require(isinstance(item, list) or type(item) is int and item >= 0,
+                        'Malformed denied actions')
+                denied |= bool(item)
+            denied |= has_denials(item)
     elif isinstance(value, list):
         for item in value:
-            no_denials(item)
+            denied |= has_denials(item)
+    return denied
 
 
 def parse_stream(stdout, cwd, model, agent):
@@ -123,12 +150,13 @@ def parse_stream(stdout, cwd, model, agent):
     require(init.get('permission_mode') == 'request-review', 'Unsafe permission mode')
     exposed = init.get('tools')
     require(isinstance(exposed, list) and all(isinstance(x, str) for x in exposed)
-            and set(exposed) <= AGENTS[agent], 'Forbidden or missing tool surface')
+            and len(exposed) == len(set(exposed)), 'Malformed or missing tool registry')
     conversation = events[0].get('conversation_id')
     require(isinstance(conversation, str) and bool(conversation), 'Missing conversation identity')
     used = set()
+    denied = False
     for event in events:
-        no_denials(event)
+        denied |= has_denials(event)
     for event in events[1:-1]:
         require(event.get('event') == 'step_update', 'Unexpected stream event')
         step = event.get('step_update')
@@ -136,11 +164,13 @@ def parse_stream(stdout, cwd, model, agent):
         require(step.get('state') in ('ACTIVE', 'DONE'), 'Invalid step state')
         kind = step.get('step_type')
         require(kind in ('user_input', 'agent_response', 'tool', 'checkpoint'), 'Unknown step type')
-        require('subagent_info' not in step, 'Subagent activity')
+        if 'subagent_info' in step:
+            raise CapabilityDisabled('Subagent activity')
         if kind == 'tool' or 'tool_name' in step or 'tool_info' in step:
             name = step.get('tool_name')
-            require(kind == 'tool' and isinstance(name, str) and name in AGENTS[agent]
-                    and name in exposed, 'Forbidden tool use')
+            if isinstance(name, str) and name not in AGENTS[agent]:
+                raise CapabilityDisabled('Forbidden tool activity; containment unproven')
+            require(kind == 'tool' and isinstance(name, str) and name in exposed, 'Invalid tool use')
             info = step.get('tool_info', {})
             require(isinstance(info, dict) and info.get('name', name) == name
                     and not info.get('error'), 'Failed or inconsistent tool call')
@@ -168,8 +198,10 @@ def parse_stream(stdout, cwd, model, agent):
         require(isinstance(result['cwd'], str) and Path(result['cwd']).is_absolute()
                 and Path(result['cwd']).resolve() == cwd, 'Wrong result cwd')
     handoff = validate_handoff(result.get('structured_output'))
+    if denied:
+        raise RunDegraded('Denied actions: assignment degraded; use V2 fallback')
     return {'cwd': str(cwd), 'model': model, 'agent': agent, 'status': 'SUCCESS',
-            'tools_used': sorted(used), 'denied_actions': [], 'handoff': handoff}
+            'init_tools': exposed, 'tools_used': sorted(used), 'denied_actions': [], 'handoff': handoff}
 
 
 def run_cli(executable, args, cwd, timeout):
@@ -201,8 +233,11 @@ def delegate(cwd, agent, prompt, timeout=180, model=DEFAULT_MODEL, high_reason=N
             'High requires explicit root justification')
     require(type(timeout) is int and 1 <= timeout <= 600, 'Timeout must be 1..600 seconds')
     require(isinstance(prompt, str) and prompt.strip(), 'Empty task packet')
-    require(HARNESS_ENABLED,
-            'Harness disabled: AGY 1.1.27 failed live tool-surface restriction proof')
+    state = CAPABILITY_STATES.get(agent)
+    require(state in STATES, 'Invalid capability state')
+    if state == 'disabled':
+        raise CapabilityDisabled(f'{agent}: capability disabled')
+    require_fresh_containment(agent)
     for variable in ('GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS',
                      'GOOGLE_GENAI_USE_VERTEXAI'):
         require(not os.environ.get(variable), 'Provider override present; do not change auth route')
@@ -224,13 +259,13 @@ def delegate(cwd, agent, prompt, timeout=180, model=DEFAULT_MODEL, high_reason=N
     require(len(versions) == 1 and tuple(map(int, versions[0])) >= (1, 1, 27), 'AGY version must be >=1.1.27')
     listing = run_cli(executable, ['models'], workspace, 30)
     require(model in re.findall(r'[A-Za-z0-9_.-]+', listing), 'Expected models entry unavailable')
-    # CLI 1.1.27's non-interactive listing omits main-agent-only definitions
-    # even though the interactive selector and --agent accept them. Keep the
-    # query as a compatibility preflight, while the reviewed file and exact
-    # init.agent identity remain the fail-closed authority.
+    # The listing is discovery only. init.agent echoes the requested agent even
+    # on fallback; neither establishes actual custom-agent or hook activation.
     run_cli(executable, ['agents'], workspace, 30)
     args = ['-p', prompt, '--output-format', 'stream-json', '--model', model, '--agent', agent,
             '--print-timeout', f'{timeout}s', '--sandbox', '--json-schema', json.dumps(HANDOFF_SCHEMA)]
+    if agent == 'codex-flash-scout':
+        args.extend(['--mode', 'plan'])
     return parse_stream(run_cli(executable, args, workspace, timeout + 5), workspace, model, agent)
 
 
@@ -247,7 +282,9 @@ def main():
         result = delegate(args.cwd, args.agent, args.packet.read_text(encoding='utf-8'),
                           args.timeout, args.model, args.high_reason)
     except (OSError, ValueError) as error:
-        print(json.dumps({'status': 'REJECTED', 'reason': str(error)}))
+        status = ('CAPABILITY_DISABLED' if isinstance(error, CapabilityDisabled) else
+                  'RUN_DEGRADED' if isinstance(error, RunDegraded) else 'REJECTED')
+        print(json.dumps({'status': status, 'reason': str(error)}))
         return 1
     print(json.dumps(result))
     return 0

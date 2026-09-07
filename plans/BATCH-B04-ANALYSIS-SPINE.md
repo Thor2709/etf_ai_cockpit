@@ -5958,10 +5958,17 @@ merged as `a15cafae968ee66fca4f0762407a7ecd81d9755e`; the harness lane was rebas
 to that main before implementation. Official AGY 1.1.27 is authenticated through
 the existing Google AI Pro account and lists `gemini-3.8-flash-medium`. Workspace
 trust made both custom agents visible in the interactive selector. However, a
-real scout run selected the expected agent/model/cwd while exposing the full
-global tool surface and attempting forbidden `run_command` outside the worktree;
+real scout run reported the expected agent/model/cwd while exposing the full
+global tool registry and attempting forbidden `run_command` outside the worktree;
 headless mode denied it and the adapter rejected `denied_actions`. This proves
-the installed CLI does not enforce the documented custom-agent `tools` allowlist
-for this main-agent path. Preserve the fail-closed adapter and do not sync or
-route the Skill until an official CLI fix or other separately authorized,
-mechanically proven restriction makes the live smoke pass.
+the run was rejected; it does not by itself prove primary-agent tool-list
+semantics. The completed capability matrix corrected the diagnosis: fresh
+headless logs show custom-agent fallback and zero loaded hooks despite echoed
+`init.agent`; collaboration tools actually succeeded. Interactive exact scout
+selection, strict hook denials and customization marker isolation passed.
+Resume preserved scout/hooks but requires persistent interactive bootstrap.
+Both scout and editor remain independently disabled (outcome C). The adapter
+must reject any shadow/enabled launch until a reliable positive fresh-headless
+agent and hook identity artifact can be enforced. Prior head `69bbcfcb` passed
+H-tier run `34082822173`; code changes invalidate that evidence for the next
+head. Root must obtain fresh formal reviews and package gates before acceptance.

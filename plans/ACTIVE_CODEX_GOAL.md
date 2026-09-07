@@ -9,7 +9,11 @@ scout/editor workers are subordinate to Codex and do not consume V2 slots;
 editors count as writers. They cannot decide test sufficiency, satisfy formal
 V2 reviewer/risk/release gates, mutate programme state or integrate work.
 The Codex-only antigravity-flash skill and adapter are reviewed source only and
-hard-disabled after AGY 1.1.27 failed tool-surface restriction proof. Do not
+independently disabled for scout and editor after AGY 1.1.27 fresh headless
+selection fell back to default, loaded no hooks and permitted collaboration
+tools. Interactive custom-agent restrictions, strict hook denial and marker
+isolation passed; resumed interactive conversations are not fresh automation.
+Do not
 sync, install or route them until a reviewed replacement head proves preventive
 containment; normal V2 remains authoritative. Preserve
 `execution_allowed=false`. Harness acceptance still requires live smoke,

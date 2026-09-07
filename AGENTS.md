@@ -19,8 +19,11 @@ V2 roles remain the formal internal system.
 root or Codex V2 children. They cannot satisfy mandatory V2 reviewer, risk or
 release gates or decide validation sufficiency. AGY processes do not consume
 V2 child slots; AGY editors count as writers under every ownership/concurrency
-rule. The antigravity-flash adapter remains hard-disabled after AGY 1.1.27
-failed live tool-surface restriction proof; do not install, sync or route the
+rule. Scout and editor each have independent disabled/shadow/enabled states;
+both remain disabled after AGY 1.1.27 fresh headless runs fell back to default,
+loaded no hooks and successfully invoked collaboration tools. Interactive
+custom-agent and hook containment passed but does not prove fresh automation.
+Do not install, sync or route the
 Skill until a reviewed replacement head proves preventive containment. Normal
 V2 routing remains authoritative. CLI details belong in
 `docs/codex-config/README.md`.
