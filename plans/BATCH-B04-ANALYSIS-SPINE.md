@@ -1,5 +1,31 @@
 # B04 Analysis Spine
 
+## ISSUE-0019 product reconciliation — 2026-09-07
+
+OAM PRs #730/#731 are merged at exact main e3ea2ab4f8ac165e74dacbbb40fc4d8a5a8f2923.
+Writer34034680038 is applied_and_verified with zero-action readback; independent
+live plan a61d16947f623ff193a985718660f4eb0982e3fdfe980d5f2f585723efcca50b
+confirms zero actions and zero blockers.
+
+Canonical ISSUE-0019 has no blocking dependencies and is implemented_initially.
+Its corrected source8b0a1bff62eb9f668c08fdc9c44793225a93a424 is preserved and
+reconciled into this fresh product lane. All nine product/document/test blobs
+match that source; only this chronology required conflict resolution. Both
+source reviews approved, and 31 source-knowledge tests pass on each pinned
+runtime with prior affected and architecture evidence retained. The positive
+ETF and unheld-stock factor panel uses canonical price/feature replay and
+explicit source knowledge; unavailable or inconsistent evidence fails closed.
+
+The combined completion proposal26da14a6 is preserved and rejected by the
+existing status guard: verified_commit must already be an ancestor of main.
+Therefore this issue requires product integration first, then one separately
+reviewed lifecycle transaction using the existing authority process. Do not
+change the guard or claim the proposed canonical transition is accepted.
+Next: paired current-base product review and fresh H packages, expected-head
+merge, lifecycle preparation, ordered writer and independent zero-action readback.
+Original PR #709, rejected candidate lanes and Antigravity remain untouched.
+No dependencies or financial formulas are added; execution_allowed=false.
+
 ## OAM canonical integration candidate — 2026-09-06
 
 PR730 merged exact approved ad8a1d76341749ac21d9cde4ecf68d2c85049b43 as

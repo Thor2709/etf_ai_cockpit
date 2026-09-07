@@ -340,6 +340,39 @@ def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, m
     assert "{'instrument_id'" not in " ".join(texts)
 
 
+def test_factor_risk_nested_groups_render_as_ordered_labelled_rows() -> None:
+    from etf_cockpit.app.pages.instrument_detail import _render_evidence_section
+
+    panel = {
+        "status": "available",
+        "factor_exposures": [
+            {"factor": "market", "exposure": 0.4},
+            {"factor": "value", "exposure": -0.2},
+        ],
+        "specific_risk": [{"instrument_id": "VWCE", "specific_risk": 0.1}],
+        "instrument_contributions": [{
+            "instrument_id": "VWCE",
+            "contribution": 0.8,
+            "instrument_beta": [
+                {"instrument_id": "AIR", "beta": 0.9},
+                {"instrument_id": "AM", "beta": 1.1},
+            ],
+        }],
+        "unavailable_group": [],
+        "execution_allowed": False,
+    }
+    rendered = _render_evidence_section("Factor risk", panel)
+    texts = [str(getattr(item, "value", "")) for item in _walk_controls(rendered) if hasattr(item, "value")]
+    joined = "\n".join(texts)
+    assert "factor_exposures 1: factor=market" in joined
+    assert "factor_exposures 2: factor=value" in joined
+    assert "specific_risk 1: instrument_id=VWCE" in joined
+    assert "instrument_contributions 1 / instrument_beta [1] / instrument_id: AIR" in joined
+    assert "instrument_contributions 1 / instrument_beta [2] / instrument_id: AM" in joined
+    assert "unavailable_group: unavailable" in joined
+    assert "{'factor'" not in joined
+
+
 def test_instrument_detail_driver_panel_normalises_legacy_store_columns(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app.selectors import instrument_detail as selector
 

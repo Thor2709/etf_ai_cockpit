@@ -608,3 +608,33 @@ pairs or unavailable states for market, rating, currency, duration, size and
 history. Source and raw SHA-256 lineage is retained. Missing tape or bid/ask
 evidence, stale/evaluated labels and provider conflicts never grant precise
 liquidity or execution claims; `execution_allowed` is always false.
+
+### Instrument Detail factor-risk availability
+
+The application facade replays the full feature frame's canonical `price_binding`
+against adjusted prices and its declared calculation window. The canonical feature
+calculation is replayed over those prices, and every supplied factor descriptor
+must match exactly before the factor producer can run. Feature rows outside
+that window are rejected; latest-feature fallbacks cannot grant numeric authority.
+A single canonical `reference:no_trade` must bind the exact holdings checksum,
+effective date, weights and knowledge time to the snapshot cutoff. Each price and
+holdings row must declare valid timezone-aware source knowledge within the
+decision cutoff. The reference knowledge time must equal the maximum holdings
+row knowledge, replaying the canonical no-trade construction rule. Price source
+knowledge is validated separately from the value-only adjusted-price checksum;
+missing knowledge never acquires historical authority from an observation date.
+The panel exposes these source-knowledge checks and the holdings/reference
+identities explicitly. Missing or
+conflicting bindings keep the numeric panel unavailable.
+
+The estimation universe is the verified price/feature intersection, including
+unheld instruments. Bound held positions retain their actual portfolio weights
+and market values. Proven nonheld positions receive zero portfolio weight while
+their unknown market-value descriptor remains missing. Only price-derived feature
+descriptors reach the existing canonical factor producer; undated configuration
+classifications and fund look-through holdings are omitted. No financial formula
+is duplicated. Selected-instrument model coverage is independent of global
+report availability, and missing model coverage suppresses every selected numeric
+group. The panel exposes the decision time, price and holdings checksums, snapshot
+universe revision and model version. Arbitrary retrospective universe replay and
+historical fund look-through remain unsupported; `execution_allowed=false`.

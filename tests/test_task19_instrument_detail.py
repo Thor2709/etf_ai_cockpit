@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date
 import json
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -31,6 +32,8 @@ REQUIRED_SECTIONS = {
     "forecasts",
     "backtests",
     "paper_trades",
+    "model_cards",
+    "factor_risk",
     "journal",
     "run_changes",
 }
@@ -92,6 +95,70 @@ def test_instrument_detail_assembles_all_required_sections_and_derived_fields() 
     assert "blocked_gates" in model.sections["scores"]
     assert {"momentum", "trend", "relative_strength", "volatility", "drawdown", "liquidity", "cost"} <= set(model.sections["risk"])
     assert {"alpha", "beta", "correlation"} <= set(model.sections["attribution"])
+    assert model.sections["model_cards"]["catalogue_only"] is True
+    assert model.sections["model_cards"]["execution_allowed"] is False
+    assert all(row["execution_allowed"] is False for row in model.sections["model_cards"]["cards"])
+    assert model.sections["factor_risk"]["execution_allowed"] is False
+
+
+def test_factor_risk_rejects_non_target_holdings_before_canonical_producer(monkeypatch) -> None:
+    from etf_cockpit.app.selectors import instrument_detail
+
+    config = SimpleNamespace(
+        universe=SimpleNamespace(etfs=[SimpleNamespace(id="VWCE", enabled=True), SimpleNamespace(id="EXTRA", enabled=True)]),
+        targets=SimpleNamespace(positions={"VWCE": object()}),
+    )
+    snapshot = SimpleNamespace(
+        config=config,
+        prices=pd.DataFrame([{"date": "2026-07-13", "etf_id": "VWCE", "adjusted_close": 100.0}]),
+        latest_features=pd.DataFrame([{"etf_id": "VWCE", "momentum_120d": 0.1}]),
+        features=pd.DataFrame(),
+        holdings=pd.DataFrame([
+            {"etf_id": "VWCE", "current_weight": 1.0, "market_value_eur": 100.0},
+            {"etf_id": "EXTRA", "current_weight": 0.0, "market_value_eur": 0.0},
+        ]),
+        data_report=SimpleNamespace(as_of_date=None),
+    )
+    monkeypatch.setattr(instrument_detail, "allocation_frame", lambda _config, _holdings: pd.DataFrame({"etf_id": ["VWCE"]}))
+    monkeypatch.setattr("etf_cockpit.portfolio.factor_risk.build_factor_risk_report", lambda *_args: (_ for _ in ()).throw(AssertionError("incomplete allocation reached producer")))
+    panel = instrument_detail._factor_risk_panel(snapshot, "VWCE")
+    assert panel["status"] == "unavailable"
+    assert panel["allocation_status"] == "incomplete"
+    assert panel["non_target_held_ids"] == ["EXTRA"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("etf_id", " VWCE "),
+        ("current_weight", float("nan")),
+        ("current_weight", float("inf")),
+        ("current_weight", -0.1),
+        ("current_weight", True),
+        ("market_value_eur", float("nan")),
+        ("market_value_eur", -1.0),
+    ],
+)
+def test_factor_risk_rejects_invalid_source_before_lossy_allocation(field, value, monkeypatch) -> None:
+    from etf_cockpit.app.selectors import instrument_detail
+
+    row = {"etf_id": "VWCE", "current_weight": 1.0, "market_value_eur": 100.0}
+    row[field] = value
+    snapshot = SimpleNamespace(
+        config=SimpleNamespace(),
+        prices=pd.DataFrame([{"date": "2026-07-13", "etf_id": "VWCE", "adjusted_close": 100.0}]),
+        latest_features=pd.DataFrame([{"etf_id": "VWCE", "momentum_120d": 0.1}]),
+        holdings=pd.DataFrame([row]),
+    )
+    monkeypatch.setattr(instrument_detail, "allocation_frame", lambda *_args: (_ for _ in ()).throw(AssertionError("invalid source reached lossy allocation")))
+    monkeypatch.setattr("etf_cockpit.portfolio.factor_risk.build_factor_risk_report", lambda *_args: (_ for _ in ()).throw(AssertionError("invalid source reached factor producer")))
+
+    panel = instrument_detail._factor_risk_panel(snapshot, "VWCE")
+
+    assert panel["status"] == "unavailable"
+    assert panel["allocation_status"] == "invalid"
+    assert panel["instrument_contributions"] == []
+    assert panel["execution_allowed"] is False
 
 
 def test_instrument_detail_uses_canonical_id_for_stock_and_sparebanken_rows() -> None:
@@ -1183,3 +1250,76 @@ def test_risk_panel_rejects_container_dates(date_value) -> None:
     panel = _risk_panel(frame, {}, {})
     assert panel["status"] in {"unavailable", "manual_review"}
     assert panel["execution_allowed"] is False
+
+@pytest.mark.parametrize("feature_source", ["latest_features", "features"])
+@pytest.mark.parametrize("holding_date", [None, "2026-09-01", "2020-01-01"])
+def test_factor_risk_unbound_historical_inputs_never_reach_producer(monkeypatch, feature_source, holding_date):
+    from etf_cockpit.app.selectors import instrument_detail
+
+    snapshot = _unbound_factor_snapshot()
+    snapshot.latest_features = pd.DataFrame()
+    snapshot.features = pd.DataFrame()
+    setattr(snapshot, feature_source, pd.DataFrame([
+        {"etf_id": "VWCE", "date": "2026-09-01", "momentum_120d": 9.0},
+    ]))
+    if holding_date is not None:
+        snapshot.holdings["as_of_date"] = holding_date
+    _block_factor_producer(monkeypatch)
+    monkeypatch.setattr(instrument_detail, "allocation_frame", lambda *_args: pd.DataFrame({"etf_id": ["VWCE"]}))
+
+    panel = instrument_detail._factor_risk_panel(snapshot, "VWCE")
+
+    assert panel["status"] == "unavailable"
+    assert panel["historical_binding_status"] == "unavailable"
+    assert panel["selected_instrument_status"] == "unverified"
+    assert panel["global_report_status"] == "unavailable"
+    assert panel["factor_exposures"] == []
+    assert panel["specific_risk"] == []
+    assert panel["instrument_contributions"] == []
+    assert panel["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("missing_source", ["all", "prices", "features"])
+def test_factor_risk_selected_instrument_absence_is_explicit(monkeypatch, missing_source):
+    from etf_cockpit.app.selectors import instrument_detail
+
+    snapshot = _unbound_factor_snapshot()
+    selected = "OTHER" if missing_source == "all" else "VWCE"
+    if missing_source == "prices":
+        snapshot.prices["etf_id"] = "OTHER"
+    elif missing_source == "features":
+        snapshot.latest_features["etf_id"] = "OTHER"
+    _block_factor_producer(monkeypatch)
+    monkeypatch.setattr(instrument_detail, "allocation_frame", lambda *_args: pd.DataFrame({"etf_id": ["VWCE"]}))
+
+    panel = instrument_detail._factor_risk_panel(snapshot, selected)
+
+    assert panel["selected_instrument_status"] == "absent"
+    expected = ["prices", "features", "holdings", "allocation"] if missing_source == "all" else [missing_source]
+    assert panel["selected_instrument_missing_sources"] == expected
+    assert panel["coverage"] == {"status": "unavailable", "instrument_id": selected}
+    assert panel["coverage_scope"] == "selected_instrument"
+    assert panel["global_coverage"] == {}
+    assert panel["status"] == "unavailable"
+    assert panel["execution_allowed"] is False
+
+
+def _unbound_factor_snapshot():
+    return SimpleNamespace(
+        config=SimpleNamespace(
+            universe=SimpleNamespace(etfs=[SimpleNamespace(id="VWCE", enabled=True)]),
+            targets=SimpleNamespace(positions={"VWCE": object()}),
+        ),
+        prices=pd.DataFrame([{"etf_id": "VWCE", "date": "2020-01-01", "adjusted_close": 100.0}]),
+        latest_features=pd.DataFrame([{"etf_id": "VWCE", "date": "2020-01-01", "momentum_120d": 0.1}]),
+        holdings=pd.DataFrame([{"etf_id": "VWCE", "current_weight": 1.0, "market_value_eur": 100.0}]),
+        data_report=SimpleNamespace(as_of_date=date(2020, 1, 1)),
+    )
+
+
+def _block_factor_producer(monkeypatch):
+    def unexpected_calculation(*args, **kwargs):
+        pytest.fail("Unbound snapshot inputs reached numeric factor calculation")
+
+    monkeypatch.setattr("etf_cockpit.portfolio.factor_risk.build_factor_risk_report", unexpected_calculation)
+    monkeypatch.setattr("etf_cockpit.application.ui_facade.build_factor_risk_report", unexpected_calculation)
