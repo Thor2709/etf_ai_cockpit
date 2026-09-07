@@ -5952,3 +5952,16 @@ implementation and mocked fail-closed validation proceed. Next action: confirm
 PR #732's formal reviewer evidence, implement the bounded harness, then run live
 smoke only after the official CLI is available without changing provider/auth
 settings. Preserve `execution_allowed=false` and all existing V2 role mappings.
+
+PR #732 was subsequently approved by exact-head whole-diff and risk review and
+merged as `a15cafae968ee66fca4f0762407a7ecd81d9755e`; the harness lane was rebased
+to that main before implementation. Official AGY 1.1.27 is authenticated through
+the existing Google AI Pro account and lists `gemini-3.8-flash-medium`. Workspace
+trust made both custom agents visible in the interactive selector. However, a
+real scout run selected the expected agent/model/cwd while exposing the full
+global tool surface and attempting forbidden `run_command` outside the worktree;
+headless mode denied it and the adapter rejected `denied_actions`. This proves
+the installed CLI does not enforce the documented custom-agent `tools` allowlist
+for this main-agent path. Preserve the fail-closed adapter and do not sync or
+route the Skill until an official CLI fix or other separately authorized,
+mechanically proven restriction makes the live smoke pass.

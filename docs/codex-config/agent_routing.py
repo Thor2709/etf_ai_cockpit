@@ -5,8 +5,11 @@ import argparse
 import hashlib
 import os
 from pathlib import Path
+import re
 import subprocess
 import tomllib
+
+import agy_delegate
 
 MARKER = '<!-- generated-by: docs/codex-config/enforce-agent-routing.ps1 -->'
 EXPECTED = {
@@ -28,6 +31,38 @@ EXPECTED = {
 def read_toml(path):
     with Path(path).open('rb') as stream:
         return tomllib.load(stream)
+
+
+def validate_external_workers(repo):
+    """Separate external-worker audit; never extend the twelve-role EXPECTED."""
+    problems = []
+    if (repo / '.agents/skills/antigravity-flash').exists():
+        problems.append('Codex AGY skill must not appear in repository .agents/skills.')
+    definitions = set((repo / '.agents/agents').glob('codex-flash-*/agent.md'))
+    expected_paths = {agy_delegate.agent_path(repo, name) for name in agy_delegate.AGENTS}
+    if definitions != expected_paths or list((repo / '.agents/agents').glob('codex-flash-*.md')):
+        problems.append('Exactly two canonical external-worker definitions are required.')
+    for name in agy_delegate.AGENTS:
+        try:
+            agy_delegate.validate_agent(agy_delegate.agent_path(repo, name), name)
+        except (OSError, ValueError) as error:
+            problems.append(f'{name}: {error}')
+    workflow = (repo / 'docs/product-completion/DELIVERY_WORKFLOW.md').read_text(encoding='utf-8')
+    if re.search(r'\b(?:ten|10)[ -]+child(?:ren)?\b', workflow, re.I):
+        problems.append('Delivery workflow retains obsolete capacity authority.')
+    # These are protected contract clauses, not semantic interpretation of prose.
+    contract = ' '.join(workflow.split())
+    for clause in (
+        'AGY editors count as writers under the same file/runtime ownership limits.',
+        'They have no canonical programme-state authority, cannot satisfy formal V2 '
+        'reviewer/risk/release gates and cannot decide validation sufficiency.',
+    ):
+        if clause not in contract:
+            problems.append('Missing protected external-worker authority clause.')
+    for path in expected_paths | set((repo / 'docs/codex-config/codex-skills/antigravity-flash').rglob('*.md')):
+        if path.exists() and '--dangerously-' + 'skip-permissions' in path.read_text(encoding='utf-8'):
+            problems.append(f'Permission bypass forbidden in worker/skill: {path}')
+    return problems
 
 
 def validate_config(data):
@@ -112,7 +147,7 @@ def main():
     here = Path(__file__).resolve().parent
     repo = here.parent.parent
     codex = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex')))
-    problems = []
+    problems = validate_external_workers(repo)
     for path in (codex / 'config.toml', here / 'config.toml', here / 'config-core.toml'):
         try:
             problems.extend(f'{path}: {problem}' for problem in validate_config(read_toml(path)))

@@ -2,6 +2,72 @@
 
 This directory preserves the latest reviewed personal Codex orchestration configuration used for ETF AI Cockpit development.
 
+## Restricted external Antigravity Flash workers
+
+The twelve Codex V2 roles and their model/effort mappings remain unchanged.
+`codex-flash-scout` and `codex-flash-editor` are external AGY workers, not V2
+children. They consume no V2 slot; editors count as writers under the same
+ownership rules. They cannot satisfy formal reviewer/risk/release gates,
+decide test sufficiency or write Git/GitHub/canonical programme state. Codex
+independently inspects actual changes, selects the existing validation tier
+and runs tests. Start with advisory shadow assignments and normal V2 fallback.
+
+Reviewed Codex skill source: `codex-skills/antigravity-flash/`. After framework
+acceptance, root synchronizes these reviewed files to the live Codex USER
+scope `~/.agents/skills/antigravity-flash/`, resolving the home directory live,
+preflighting existing content and verifying hashes. Never overwrite unexpected
+user drift. The skill must not appear in repository `.agents/skills`, which
+AGY also discovers. No live user installation is implied by this source tree.
+If discovery does not refresh, use one new Codex session without changing
+unrelated configuration. The root owns any user-home synchronization/fallback.
+
+AGY custom agents live at `.agents/agents/codex-flash-scout/agent.md` and
+`.agents/agents/codex-flash-editor/agent.md`. Both disable shell execution,
+subagent invocation and inherited customizations, with empty MCP/skills/plugins.
+Scout exposes only `view_file`, `grep_search`, `find_by_name`, `list_dir`;
+editor adds `write_to_file`, `replace_file_content`, `multi_replace_file_content`.
+Bodies contain authority constraints directly. Inheritance isolation does not
+prove root AGENTS.md is hidden; live marker-fixture evidence is required.
+
+Only `agy_delegate.py` invokes official AGY. It resolves PATH, then on Windows
+the official per-user `LOCALAPPDATA/agy/bin/agy.exe` location, checks >=1.1.27,
+queries models/agents in the exact workspace and requires the discovered
+`gemini-3.8-flash-medium` slug. CLI 1.1.27 omits main-agent-only definitions
+from the non-interactive agents listing, so agent authority comes from the
+byte-identical reviewed definition plus the run's exact `init.agent`. High requires an explicit root justification;
+other model generations are rejected. Workspace definitions must match the
+reviewed source. No credentials, provider configuration, private APIs, MCP
+bridges or permission bypass are part of this integration. Existing provider
+override environment variables cause rejection rather than configuration edits.
+
+```text
+python docs/codex-config/agy_delegate.py --cwd <absolute-owned-worktree> --agent codex-flash-scout --packet <utf8-task-packet> --timeout 180
+python -m pytest docs/codex-config/test_agy_delegate.py docs/codex-config/test_agent_routing.py -q
+python docs/codex-config/agent_routing.py
+python <skill-creator>/scripts/quick_validate.py docs/codex-config/codex-skills/antigravity-flash
+git diff --check
+```
+
+The wrapper uses `-p`, `--output-format stream-json`, exact `--model`/`--agent`,
+`--print-timeout`, `--sandbox` and `--json-schema`. It captures both streams,
+requires init identity/tool/permission metadata and a single successful result,
+checks tool steps and rejects denied actions even with a zero exit code.
+Captured diagnostics are not echoed because they may contain local sensitive
+data. Rejection is not rollback: Codex still inspects status/diff after editor
+failure. The sandbox flag concerns terminal restrictions; file ownership is
+also enforced through the restricted agent contract and independent real-diff
+inspection, not an asserted per-file OS sandbox.
+
+Protocol sources checked 2026-09-07:
+[headless event/schema/flag documentation](https://www.antigravity.google/docs/cli/headless/),
+[custom-agent schema](https://www.antigravity.google/docs/subagents/) and
+[terminal sandbox](https://www.antigravity.google/docs/cli/sandbox/).
+Deterministic tests use mocked documented streams, not personal Google access.
+Live authentication/entitlement, inheritance, scout/editor and forbidden-action
+smokes remain separate root acceptance evidence; an offline pass proves none
+of those. No undocumented benign built-ins are allowed before live evidence
+and review establish their exact names and necessity.
+
 - `global-AGENTS.md` mirrors the global `C:\\Users\\thor2\\.codex\\AGENTS.md`.
 - `config.toml` mirrors the current desktop Codex configuration as volatile
   archival evidence. Machine paths, plugin state and runtime identifiers are

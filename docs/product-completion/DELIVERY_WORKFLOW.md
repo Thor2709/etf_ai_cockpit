@@ -17,7 +17,7 @@ policy: changes invalidate reusable evidence and are at least H-tier.
    conflict with newer operational instructions.
 
 Historical instructions prescribing a Sol-high root, Terra workers, Sol-low or
-`sol_worker`, six children, two-to-four writers, two-to-eight issue PRs,
+`sol_worker`, two-to-four writers, two-to-eight issue PRs,
 Luna-only repetitive work or manual lifecycle convergence are superseded.
 
 ## Delivery shape
@@ -31,10 +31,20 @@ disjoint worktrees. Concurrent product writers require an active-batch map of
 canonical dependencies, exclusive source/test ownership and isolated runtime
 resources. Root alone serializes merges and canonical/GitHub writes. Reserve
 required independent-review capacity instead of filling every slot with
-writers. Delegation depth is one and the V2 maximum is ten children.
+writers. Delegation depth is one; effective V2 child capacity derives from
+current global/project AGENTS.md and effective Codex configuration. This
+workflow does not establish a separate numeric capacity authority.
 There is no fixed issue or writer quota: maximise complete dependency-valid
 lanes where file, contract and runtime ownership are genuinely independent.
 Separate worktrees alone do not establish that independence.
+
+External AGY workers are not Codex V2 children and use no V2 thread slot.
+AGY editors count as writers under the same file/runtime ownership limits.
+They have no canonical programme-state authority, cannot satisfy formal V2
+reviewer/risk/release gates and cannot decide validation sufficiency. Root may
+use the reviewed skill/adapter for approved cheap-to-verify assignments and
+must independently inspect the real diff and run required evidence. Start
+with advisory shadow work; use normal V2 fallback on failure or low value.
 
 Review a stable exact-head diff. Merge only the reviewed head after required
 gates. Update the canonical control source first; never hand-edit generated
