@@ -22,7 +22,13 @@ V2 child slots; AGY editors count as writers under every ownership/concurrency
 rule. Scout and editor each have independent disabled/shadow/enabled states.
 The scout is enabled for proven read-only assignments after the AGY 1.1.27 fresh-project route with
 an absolute added workspace demonstrated preventive capability absence/denial,
-clean pre/post state and working read/search tools. The editor remains disabled.
+clean pre/post state and working read/search tools. The editor remains disabled
+pending staged-promotion smoke validation. Its adapter gives AGY only a fresh
+disposable worktree from an exact base. Codex rejects the entire candidate on
+any unowned or forbidden change, rechecks the authoritative worktree and only
+then promotes a fully valid candidate. Codex independently inspects every
+promoted byte; failure never implies rollback. The evidenced outside-workspace
+permission boundary remains required; hooks are diagnostic only.
 Do not install or sync the Skill until the replacement head passes review and
 required exact-head evidence. Normal
 V2 routing remains authoritative. CLI details belong in
