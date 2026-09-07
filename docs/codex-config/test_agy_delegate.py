@@ -97,21 +97,49 @@ class AdapterTests(unittest.TestCase):
             self.parse()
         self.assertEqual(agy.CAPABILITY_STATES, before)
 
-    def test_log_fallback_and_missing_hooks_override_misleading_init_agent(self):
-        self.assertEqual(self.events[0]['init']['agent'], self.agent)
-        for diagnostic, reason in (
-            ('session.go:81] Agent "codex-flash-scout" not found, falling back to default', 'fallback'),
-            ('hooks_manager.go:53] loaded 0 named hooks from 0 hooks.json file(s)', 'not loaded'),
-            ('hooks_manager.go:53] loaded 1 named hooks from 1 hooks.json file(s)', 'unproven'),
-            ('Transition complete, agent codex-flash-scout active on new conversation fixture', 'unproven'),
-            ('', 'unproven'),
-        ):
-            with self.subTest(diagnostic=diagnostic), self.assertRaisesRegex(agy.CapabilityDisabled, reason):
-                agy.require_fresh_containment(self.agent, diagnostic)
+    def test_forbidden_error_requires_clean_state_evidence(self):
+        self.events[1]['step_update'].update(state='ERROR', tool_name='invoke_subagent',
+            tool_info={'error': {'type': 'TOOL_ERROR', 'message': 'unknown tool: "invoke_subagent" — check spelling'}})
+        with self.assertRaisesRegex(agy.DelegationError, 'clean-state evidence'):
+            self.parse()
+        with self.assertRaises(agy.RunDegraded):
+            agy.parse_stream(self.stream(), self.cwd, agy.DEFAULT_MODEL, self.agent, unchanged=True)
+        self.events[1]['step_update']['state'] = 'DONE'
+        with self.assertRaises(agy.CapabilityDisabled):
+            agy.parse_stream(self.stream(), self.cwd, agy.DEFAULT_MODEL, self.agent, unchanged=True)
+
+    def test_forbidden_active_requires_terminal_error_and_clean_state(self):
+        self.events[1]['step_update'].update(state='ACTIVE', tool_name='manage_subagents',
+                                           tool_info={'name': 'manage_subagents'})
+        with self.assertRaises(agy.DelegationError):
+            self.parse()
+        terminal = copy.deepcopy(self.events[1])
+        terminal['step_update'].update(state='ERROR', tool_info={'error': {
+            'type': 'TOOL_ERROR', 'message': 'unknown tool: "manage_subagents" — check spelling'}})
+        self.events.insert(2, terminal)
+        with self.assertRaises(agy.RunDegraded):
+            agy.parse_stream(self.stream(), self.cwd, agy.DEFAULT_MODEL, self.agent, unchanged=True)
+        terminal['step_update']['state'] = 'DONE'
+        with self.assertRaises(agy.CapabilityDisabled):
+            agy.parse_stream(self.stream(), self.cwd, agy.DEFAULT_MODEL, self.agent, unchanged=True)
+
+    def test_ambiguous_forbidden_errors_disable_even_with_unchanged_workspace(self):
+        for message in ('Message delivered successfully; receipt lookup failed',
+                        'unknown tool: "invoke_subagent" — check spelling',
+                        'unknown tool: "send_message" — check spelling; message delivered',
+                        '', None):
+            events = copy.deepcopy(self.events)
+            events[1]['step_update'].update(state='ERROR', tool_name='send_message',
+                tool_info={'error': {'type': 'TOOL_ERROR', 'message': message}})
+            with self.subTest(message=message), self.assertRaises(agy.CapabilityDisabled):
+                agy.parse_stream(self.stream(events), self.cwd, agy.DEFAULT_MODEL,
+                                 self.agent, unchanged=True)
 
     def test_independent_states_cannot_bypass_missing_containment(self):
         for agent in agy.AGENTS:
             for state in ('disabled', 'shadow', 'enabled'):
+                if agent == self.agent and state != 'disabled':
+                    continue
                 states = dict.fromkeys(agy.AGENTS, 'disabled')
                 states[agent] = state
                 with patch.object(agy, 'CAPABILITY_STATES', states), \
@@ -152,7 +180,7 @@ class AdapterTests(unittest.TestCase):
         responses = [subprocess.CompletedProcess([], 0, value, '') for value in outputs]
         with patch.dict(agy.os.environ, {}, clear=True), \
                 patch.dict(agy.CAPABILITY_STATES, {self.agent: 'shadow'}), \
-                patch.object(agy, 'require_fresh_containment'), \
+                patch.object(agy, 'workspace_snapshot', return_value=('head', {})), \
                 patch.object(agy.shutil, 'which', return_value='/official/agy.exe'), \
                 patch.object(agy.subprocess, 'run', side_effect=responses) as run:
             result = agy.delegate(str(self.cwd), self.agent, 'Bounded packet', **kwargs)
@@ -167,6 +195,8 @@ class AdapterTests(unittest.TestCase):
                             ('--output-format', 'stream-json'), ('--print-timeout', '180s')):
             self.assertEqual(command[command.index(flag) + 1], value)
         self.assertIn('--sandbox', command)
+        self.assertIn('--new-project', command)
+        self.assertEqual(command[command.index('--add-dir') + 1], str(self.cwd))
         self.assertIn('--json-schema', command)
         self.assertEqual(command[command.index('--mode') + 1], 'plan')
         self.assertEqual(kwargs['cwd'], str(self.cwd))
@@ -175,17 +205,22 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(kwargs['timeout'], 185)
 
     def test_discovery_fails_without_compatible_exact_entries(self):
-        for outputs in (['1.1.26'], ['1.1.27-beta'], ['1.1.27', 'gemini-3.7-flash-medium'],
+        for outputs in (['1.1.26'], ['1.1.28'], ['1.1.27-beta'], ['1.1.27', 'gemini-3.7-flash-medium'],
                         ['1.1.27', agy.DEFAULT_MODEL + '-other']):
             with self.subTest(outputs=outputs), self.assertRaises(agy.DelegationError):
                 self.invoke(outputs)
 
-    def test_timeout_nonzero_and_permission_diagnostics_reject(self):
+    def test_timeout_nonzero_and_auth_diagnostics_reject(self):
         for result in (subprocess.TimeoutExpired('agy', 1),
                        subprocess.CompletedProcess([], 1, self.stream(), ''),
-                       subprocess.CompletedProcess([], 0, self.stream(), 'permission denied')):
+                       subprocess.CompletedProcess([], 0, self.stream(), 'authentication required')):
             with patch.object(agy.subprocess, 'run', side_effect=[result]), self.assertRaises(agy.DelegationError):
                 agy.run_cli('/official/agy.exe', [], self.cwd, 1)
+
+    def test_hook_permission_prose_is_diagnostic_only(self):
+        output = subprocess.CompletedProcess([], 0, self.stream(), 'PreToolUse permission deny ineffective')
+        with patch.object(agy.subprocess, 'run', return_value=output):
+            self.assertEqual(agy.run_cli('/official/agy.exe', [], self.cwd, 1), self.stream())
 
     def test_invalid_inputs_never_launch(self):
         for kwargs in ({'model': 'gemini-3.6-flash'}, {'model': 'gemini-3.8-flash-high'},
@@ -204,15 +239,49 @@ class AdapterTests(unittest.TestCase):
             agy.delegate(str(self.cwd), self.agent, 'packet')
         run.assert_not_called()
 
-    def test_production_launch_is_disabled_and_outside_paths_reject(self):
+    def test_editor_launch_is_disabled_and_outside_paths_reject(self):
         with patch.object(agy.subprocess, 'run') as run, self.assertRaisesRegex(
                 agy.DelegationError, 'capability disabled'):
-            agy.delegate(str(self.cwd), self.agent, 'packet')
+            agy.delegate(str(self.cwd), 'codex-flash-editor', 'packet')
         run.assert_not_called()
         events = copy.deepcopy(self.events)
         events[1]['step_update']['tool_info']['parameters']['AbsolutePath'] = str(self.cwd.parent / 'secret')
         with self.assertRaisesRegex(agy.DelegationError, 'escapes workspace'):
             self.parse(events)
+
+    def test_snapshot_covers_ignored_files_and_empty_directories(self):
+        def snapshot(status=''):
+            outputs = [str(self.cwd), 'exact-head', status]
+            with patch.object(agy.subprocess, 'run', side_effect=[
+                    subprocess.CompletedProcess([], 0, text, '') for text in outputs]):
+                return agy.workspace_snapshot(self.cwd)
+        before = snapshot()
+        (self.cwd / 'ignored.bin').write_bytes(b'changed')
+        (self.cwd / 'empty').mkdir()
+        after = snapshot()
+        self.assertNotEqual(before, after)
+        self.assertIn('ignored.bin', after[1])
+        self.assertIn('empty', after[1])
+        with self.assertRaisesRegex(agy.DelegationError, 'dirty'):
+            snapshot('?? untracked\n')
+
+    def test_post_snapshot_runs_on_failure_and_detects_mutation(self):
+        for failure in (agy.DelegationError('timeout'), None):
+            with patch.dict(agy.os.environ, {}, clear=True), \
+                    patch.object(agy.shutil, 'which', return_value='/official/agy.exe'), \
+                    patch.object(agy, 'run_scout', side_effect=failure, return_value=self.stream()), \
+                    patch.object(agy, 'workspace_snapshot', side_effect=[('head', {}), ('head', {'new': 'file'})]) as check, \
+                    self.subTest(failure=failure), self.assertRaises(agy.CapabilityDisabled):
+                agy.delegate(str(self.cwd), self.agent, 'packet')
+            self.assertEqual(check.call_count, 2)
+
+    def test_dirty_preflight_never_launches_agy(self):
+        with patch.dict(agy.os.environ, {}, clear=True), \
+                patch.object(agy.shutil, 'which', return_value='/official/agy.exe'), \
+                patch.object(agy, 'workspace_snapshot', side_effect=agy.DelegationError('dirty')), \
+                patch.object(agy, 'run_cli') as run, self.assertRaises(agy.DelegationError):
+            agy.delegate(str(self.cwd), self.agent, 'packet')
+        run.assert_not_called()
 
 
 class ExternalConfigTests(unittest.TestCase):

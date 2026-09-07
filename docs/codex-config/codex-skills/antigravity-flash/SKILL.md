@@ -8,11 +8,10 @@ description: Use restricted external Flash workers for fast repository or call-p
 Codex remains the planner, validator and integrator. Flash is an external AGY
 worker, never a V2 role or formal gate. Use only when the expected saving
 exceeds the cost of independently checking its answer. Scout and editor each
-have independent disabled/shadow/enabled states. Both are currently disabled:
-AGY 1.1.27 fresh headless selection falls back to default and loads no hooks.
-Do not invoke, install or synchronize this Skill until a reviewed replacement
-proves preventive containment for the selected capability. After acceptance,
-start that capability in advisory shadow mode and promote only proven classes.
+have independent disabled/shadow/enabled states. Scout is in advisory shadow
+state using the passed fresh-project route with an absolute added workspace;
+editor remains disabled. Root owns acceptance and any live installation or
+synchronization. Promote only proven scout task classes.
 
 Read [routing.md](references/routing.md) to select scout versus editor, then
 [task-packet.md](references/task-packet.md) before every assignment. Read
@@ -32,10 +31,13 @@ Invoke with an absolute existing worktree and a local packet file:
 python docs/codex-config/agy_delegate.py --cwd <absolute-worktree> --agent codex-flash-scout --packet <packet-file> --timeout 180
 ```
 
-The disabled adapter contains CLI/version/model consistency checks and pins 3.8 Flash
+The adapter contains CLI/version/model consistency checks and pins 3.8 Flash
 Medium and rejects unsafe or ambiguous machine output. High requires root's
 explicit justification via --high-reason. Never substitute older models,
 alter provider/auth/credit settings or bypass permission checks.
+Scout uses plan/sandbox mode, `--new-project` and absolute `--add-dir`. Its Git
+root must be clean, with no concurrent writer. The adapter compares Git and
+filesystem evidence before/after every run, including failure paths.
 
 After every run, Codex checks real Git status/diff and ownership, independently
 verifies material claims against source, derives actual tests from canonical

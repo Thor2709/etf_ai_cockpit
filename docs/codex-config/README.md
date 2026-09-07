@@ -11,7 +11,7 @@ ownership rules. They cannot satisfy formal reviewer/risk/release gates,
 decide test sufficiency or write Git/GitHub/canonical programme state. Codex
 independently inspects actual changes, selects the existing validation tier
 and runs tests. Scout and editor each have independent disabled/shadow/enabled
-states. Both currently remain disabled; use normal V2 fallback.
+states. Scout is in advisory shadow state; editor remains disabled.
 
 Reviewed Codex skill source: `codex-skills/antigravity-flash/`. After framework
 acceptance, root synchronizes these reviewed files to the live Codex USER
@@ -32,7 +32,7 @@ evidence confirmed custom-body visibility and exclusion of root AGENTS, ambient
 rules and skills. This does not prove fresh headless custom-agent selection.
 
 Only `agy_delegate.py` invokes official AGY. It resolves PATH, then on Windows
-the official per-user `LOCALAPPDATA/agy/bin/agy.exe` location, checks >=1.1.27,
+the official per-user `LOCALAPPDATA/agy/bin/agy.exe` location, requires exactly 1.1.27,
 queries models/agents in the exact workspace and requires the discovered
 `gemini-3.8-flash-medium` slug. CLI 1.1.27 omits main-agent-only definitions
 from the non-interactive agents listing. Byte-identical definitions and
@@ -53,18 +53,25 @@ git diff --check
 ```
 
 The wrapper uses `-p`, `--output-format stream-json`, exact `--model`/`--agent`,
-`--print-timeout`, `--sandbox` and `--json-schema`, plus `--mode plan` for scout.
+`--print-timeout`, `--sandbox` and `--json-schema`, plus `--mode plan`,
+`--new-project` and absolute `--add-dir <resolved workspace>` for scout.
 It captures both streams, records the primary `init.tools` registry without
 requiring it to be a subset of the agent tool list, and validates identity,
 permission metadata and a single successful result. Forbidden tool/subagent
-activity is a capability containment failure. Denial metadata without forbidden
-activity degrades only that assignment; malformed or uncorrelated tool errors
-remain rejected without claiming safe containment.
+execution is a capability containment failure. A forbidden `ERROR/TOOL_ERROR`
+degrades only that assignment when its message exactly identifies the same tool
+as unavailable and pre/post Git and filesystem evidence is identical. Generic,
+partial-effect and mismatched errors disable the capability, as does a forbidden
+`DONE` or actual subagent activity.
 Captured diagnostics are not echoed because they may contain local sensitive
 data. Rejection is not rollback: Codex still inspects status/diff after editor
 failure. The sandbox flag concerns terminal restrictions; file ownership is
 also enforced through the restricted agent contract and independent real-diff
-inspection, not an asserted per-file OS sandbox.
+inspection, not an asserted per-file OS sandbox. Before launching, the adapter
+requires an exact clean Git root. After success or failure it verifies HEAD,
+Git cleanliness, and filesystem fingerprints including ignored files and empty
+directories. Reparse points and unreadable entries fail closed. The workspace
+must have no concurrent writer. These checks detect effects; they are not rollback.
 
 Protocol sources checked 2026-09-07:
 [headless event/schema/flag documentation](https://www.antigravity.google/docs/cli/headless/),
@@ -79,19 +86,18 @@ exact `gemini-3.8-flash-medium` model:
 | Fresh headless `--agent`, plan, sandbox | Echoed scout identity, but logged fallback to default and zero hooks. `invoke_subagent`, `define_subagent`, and `manage_subagents` succeeded; shell/read attempts were separately denied. | Scout disabled; editor disabled. |
 | Interactive custom scout | Actual schema restricted; workspace hook loaded. A broad canary agent's forbidden shell, write, web, task, scheduling, permission, messaging and collaboration calls were hard-denied by the strict hook. | Effective when loaded; not fresh task automation proof. |
 | Resume interactive scout | Retained scout behavior and hooks, but lacked `init.agent` and required persistent conversation/bootstrap. | Not an accepted automation route. |
+| Fresh `--new-project --add-dir <absolute workspace>` scout in plan/sandbox mode | The subsequent read-only route passed. Absent tool attempts emitted `ERROR/TOOL_ERROR`; approved calls emitted `ACTIVE` then `DONE`. | Scout shadow; editor disabled. |
 
 The documented subagent `tools` list is not a primary-registry contract;
 interactive restrictions and fresh headless selection must be verified
-separately. `CAPABILITY_STATES` keeps both capabilities disabled. Even changing
-either state to shadow/enabled cannot launch: `require_fresh_containment`
-rejects until a reviewed implementation proves positive fresh-headless agent
-selection and required hook identity and activation from an adapter-owned
-artifact. Absence of fallback, a nonzero hook count or an echoed name is
-insufficient. Negative log fixtures cover observed fallback and zero-hook
-messages; they do not establish a positive log protocol. No AGY process is
-launched by this disabled adapter. Do not sync or install the Skill. Outcome C
-is preserved; activation requires capability-specific containment and ownership
-evidence.
+separately. The current scout route uses a fresh project with the exact absolute
+workspace; old-route fallback evidence does not describe that route. Broad init
+registries and broken PreToolUse denial are diagnostic, not acceptance or
+disable criteria on their own. Hook counts are not relied on as containment.
+`CAPABILITY_STATES` selects scout shadow; `require_fresh_containment` continues
+to reject editor even if its state is changed. Root must disable a capability
+after a `CAPABILITY_DISABLED` outcome until reviewed repair. This source change
+does not install or synchronize the Skill or activate an external integration.
 
 - `global-AGENTS.md` mirrors the global `C:\\Users\\thor2\\.codex\\AGENTS.md`.
 - `config.toml` mirrors the current desktop Codex configuration as volatile

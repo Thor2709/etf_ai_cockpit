@@ -9,12 +9,14 @@ status, quota exhaustion or low-value output. Exit zero is insufficient.
 Treat positively established safe denial as per-run degradation with V2
 fallback. Successful forbidden tools or subagent activity disable the affected
 capability pending reviewed containment repair. Uncorrelated or malformed tool
-errors do not prove safe denial. Record `init.tools`; a broad primary registry
+errors do not prove safe denial. A forbidden ERROR/TOOL_ERROR can degrade only
+after identical pre/post Git and filesystem evidence; forbidden DONE or actual
+collaboration disables the capability. Record `init.tools`; a broad primary registry
 alone does not prove forbidden execution. `init.agent` alone does not prove
-actual selection. Fresh-headless fallback or missing hooks blocks launch;
-nonzero hook counts and absence of fallback do not prove required hook identity.
-Both capability states currently remain disabled. Interactive hook enforcement
-and resumed conversations do not justify fresh automation activation.
+actual selection. Hook counts and PreToolUse denial prose are diagnostic;
+the accepted scout route uses --new-project and an absolute --add-dir in plan
+and sandbox mode. Scout is shadow; editor remains disabled. Resumed interactive
+conversations are not an accepted automation substitute.
 
 Never blindly retry. Inspect real status/diff even after a rejected editor;
 rejection is not rollback. Preserve unexpected changes for root review.

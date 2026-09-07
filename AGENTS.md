@@ -19,12 +19,12 @@ V2 roles remain the formal internal system.
 root or Codex V2 children. They cannot satisfy mandatory V2 reviewer, risk or
 release gates or decide validation sufficiency. AGY processes do not consume
 V2 child slots; AGY editors count as writers under every ownership/concurrency
-rule. Scout and editor each have independent disabled/shadow/enabled states;
-both remain disabled after AGY 1.1.27 fresh headless runs fell back to default,
-loaded no hooks and successfully invoked collaboration tools. Interactive
-custom-agent and hook containment passed but does not prove fresh automation.
-Do not install, sync or route the
-Skill until a reviewed replacement head proves preventive containment. Normal
+rule. Scout and editor each have independent disabled/shadow/enabled states.
+The scout is in advisory shadow after the AGY 1.1.27 fresh-project route with
+an absolute added workspace demonstrated preventive capability absence/denial,
+clean pre/post state and working read/search tools. The editor remains disabled.
+Do not install or sync the Skill until the replacement head passes review and
+required exact-head evidence. Normal
 V2 routing remains authoritative. CLI details belong in
 `docs/codex-config/README.md`.
 

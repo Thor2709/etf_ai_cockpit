@@ -5967,8 +5967,14 @@ headless logs show custom-agent fallback and zero loaded hooks despite echoed
 `init.agent`; collaboration tools actually succeeded. Interactive exact scout
 selection, strict hook denials and customization marker isolation passed.
 Resume preserved scout/hooks but requires persistent interactive bootstrap.
-Both scout and editor remain independently disabled (outcome C). The adapter
-must reject any shadow/enabled launch until a reliable positive fresh-headless
-agent and hook identity artifact can be enforced. Prior head `69bbcfcb` passed
-H-tier run `34082822173`; code changes invalidate that evidence for the next
-head. Root must obtain fresh formal reviews and package gates before acceptance.
+Absolute `--add-dir` with `--new-project` corrected the fresh-headless workspace
+selection failure. The exact reviewed scout then exposed only its intended
+read/search surface plus non-creating task management; collaboration, write,
+shell, web and scheduling capabilities were absent or preventively rejected,
+and the pre/post filesystem fingerprint was identical. All approved read/search
+tools executed, `inheritCustomizations:false` excluded root/ambient rule/skill
+markers while retaining the reviewed agent body, and a useful adapter scout was
+independently verified by Codex. Scout advances to advisory shadow; editor stays
+disabled. Prior head `464cc4bc` and its H-tier evidence are stale for the new
+implementation. Freeze the replacement head for fresh formal reviews and only
+the required exact-head package gates before installation or synchronization.

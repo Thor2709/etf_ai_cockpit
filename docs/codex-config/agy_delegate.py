@@ -7,6 +7,7 @@ Unknown protocol/tool surfaces fail closed pending a reviewed live fixture.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -20,7 +21,7 @@ EDIT_TOOLS = READ_TOOLS | {'write_to_file', 'replace_file_content', 'multi_repla
 AGENTS = {'codex-flash-scout': READ_TOOLS, 'codex-flash-editor': EDIT_TOOLS}
 DEFAULT_MODEL = 'gemini-3.8-flash-medium'
 MODELS = {DEFAULT_MODEL, 'gemini-3.8-flash-high'}
-CAPABILITY_STATES = {'codex-flash-scout': 'disabled', 'codex-flash-editor': 'disabled'}
+CAPABILITY_STATES = {'codex-flash-scout': 'shadow', 'codex-flash-editor': 'disabled'}
 STATES = frozenset({'disabled', 'shadow', 'enabled'})
 LIST_FIELDS = ('files_inspected', 'requirements_addressed', 'candidate_tests', 'uncertainties')
 HANDOFF_SCHEMA = {
@@ -47,18 +48,54 @@ class RunDegraded(DelegationError):
     """This assignment was denied safely; use V2 fallback for this run."""
 
 
-def require_fresh_containment(agent, diagnostic_log=''):
-    """No proven positive fresh-headless identity/hook artifact exists in 1.1.27.
+def require_fresh_containment(agent):
+    """Only the evidenced fresh-project read-only scout route is eligible."""
+    if agent != 'codex-flash-scout':
+        raise CapabilityDisabled(f'{agent}: editor containment unproven')
 
-    These observed negative diagnostics are useful evidence, but their absence,
-    init.agent, and a nonzero hook count cannot establish preventive containment.
-    There is deliberately no caller-supplied boolean or state-switch bypass.
+
+def workspace_snapshot(workspace):
+    """Require a clean Git root and fingerprint all files, including ignored files.
+
+    Git metadata is represented by HEAD/status, not read as workspace content.
+    Refuse reparse points instead of following them outside the owned boundary.
     """
-    if re.search(r'Agent .* not found, falling back to default', diagnostic_log):
-        raise CapabilityDisabled(f'{agent}: custom-agent fallback observed')
-    if 'loaded 0 named hooks from 0 hooks.json file(s)' in diagnostic_log:
-        raise CapabilityDisabled(f'{agent}: required hooks were not loaded')
-    raise CapabilityDisabled(f'{agent}: fresh headless agent and hook identity unproven')
+    def git(*args):
+        try:
+            result = subprocess.run(
+                ['git', '--no-optional-locks', '-c', 'core.fsmonitor=false', *args],
+                cwd=str(workspace), capture_output=True, text=True, encoding='utf-8',
+                errors='strict', timeout=30, stdin=subprocess.DEVNULL, shell=False)
+        except (OSError, UnicodeError, subprocess.SubprocessError) as error:
+            raise DelegationError('Cannot verify workspace Git state') from error
+        require(result.returncode == 0, 'Cannot verify workspace Git state')
+        return result.stdout
+
+    require(Path(git('rev-parse', '--show-toplevel').strip()).resolve() == workspace,
+            'Workspace must be the exact Git root')
+    head = git('rev-parse', '--verify', 'HEAD').strip()
+    require(not git('status', '--porcelain=v1', '--untracked-files=all'), 'Workspace Git state is dirty')
+    files = {}
+    def unreadable(error):
+        raise error
+
+    for directory, dirs, names in os.walk(workspace, followlinks=False, onerror=unreadable):
+        parent = Path(directory)
+        if parent == workspace and '.git' in dirs:
+            dirs.remove('.git')
+        for name in dirs + names:
+            path = parent / name
+            metadata = path.lstat()
+            require(not path.is_symlink() and not getattr(metadata, 'st_file_attributes', 0) & 0x400,
+                    'Workspace contains a reparse point')
+            digest = None
+            if path.is_file():
+                with path.open('rb') as source:
+                    digest = hashlib.file_digest(source, 'sha256').hexdigest()
+            else:
+                require(path.is_dir(), 'Unsupported workspace filesystem entry')
+            files[path.relative_to(workspace).as_posix()] = (metadata.st_mode, metadata.st_mtime_ns, digest)
+    return head, files
 
 
 def require(condition, message):
@@ -138,7 +175,7 @@ def has_denials(value):
     return denied
 
 
-def parse_stream(stdout, cwd, model, agent):
+def parse_stream(stdout, cwd, model, agent, *, unchanged=False):
     events = [strict_json(line) for line in stdout.splitlines() if line.strip()]
     require(len(events) >= 2 and all(isinstance(x, dict) for x in events), 'Missing stream events')
     require(events[0].get('event') == 'init' and events[-1].get('event') == 'result', 'Invalid stream order')
@@ -161,15 +198,37 @@ def parse_stream(stdout, cwd, model, agent):
         require(event.get('event') == 'step_update', 'Unexpected stream event')
         step = event.get('step_update')
         require(isinstance(step, dict) and step.get('conversation_id') == conversation, 'Wrong step identity')
-        require(step.get('state') in ('ACTIVE', 'DONE'), 'Invalid step state')
+        require(step.get('state') in ('ACTIVE', 'DONE', 'ERROR'), 'Invalid step state')
         kind = step.get('step_type')
         require(kind in ('user_input', 'agent_response', 'tool', 'checkpoint'), 'Unknown step type')
         if 'subagent_info' in step:
             raise CapabilityDisabled('Subagent activity')
         if kind == 'tool' or 'tool_name' in step or 'tool_info' in step:
             name = step.get('tool_name')
+            require(kind == 'tool' and isinstance(name, str), 'Invalid tool use')
             if isinstance(name, str) and name not in AGENTS[agent]:
-                raise CapabilityDisabled('Forbidden tool activity; containment unproven')
+                info = step.get('tool_info')
+                require(isinstance(info, dict) and info.get('name', name) == name,
+                        'Inconsistent forbidden tool identity')
+                if step['state'] == 'ERROR':
+                    error = info.get('error')
+                    if not (isinstance(error, dict) and error.get('type') == 'TOOL_ERROR'
+                            and error.get('message') == f'unknown tool: "{name}" — check spelling'):
+                        raise CapabilityDisabled('Forbidden tool error does not prove capability absence')
+                    require(unchanged, 'Forbidden error lacks clean-state evidence')
+                    denied = True
+                    continue
+                if step['state'] == 'ACTIVE':
+                    # An attempt is not an effect; require a terminal error below.
+                    terminal = [x.get('step_update', {}) for x in events[1:-1]
+                                if x.get('step_update', {}).get('step_index') == step.get('step_index')
+                                and x.get('step_update', {}).get('tool_name') == name]
+                    if any(x.get('state') == 'DONE' for x in terminal):
+                        raise CapabilityDisabled('Forbidden tool executed')
+                    require(step.get('step_index') is not None and terminal[-1].get('state') == 'ERROR',
+                            'Forbidden attempt lacks terminal denial')
+                    continue
+                raise CapabilityDisabled('Forbidden tool executed')
             require(kind == 'tool' and isinstance(name, str) and name in exposed, 'Invalid tool use')
             info = step.get('tool_info', {})
             require(isinstance(info, dict) and info.get('name', name) == name
@@ -217,10 +276,8 @@ def run_cli(executable, args, cwd, timeout):
     # Diagnostics are captured but not echoed: they may contain local sensitive data.
     require(not re.search(r'authentication required', result.stderr, re.I),
             'AGY diagnostic reports authentication required')
-    require(not re.search(r'denied', result.stderr, re.I),
-            'AGY diagnostic reports a denied action')
-    require(not re.search(r'permission', result.stderr, re.I),
-            'AGY diagnostic reports a permission condition')
+    # Hook/permission prose is diagnostic, not a tool effect or safe-denial
+    # proof. Structured events plus the independent workspace check decide.
     return result.stdout
 
 
@@ -254,19 +311,34 @@ def delegate(cwd, agent, prompt, timeout=180, model=DEFAULT_MODEL, high_reason=N
             executable = str(installed)
     require(executable is not None, 'Official agy is unavailable; use V2 fallback')
     require(Path(executable).suffix.lower() not in ('.bat', '.cmd', '.ps1'), 'AGY shell shim unsupported')
+    before = workspace_snapshot(workspace)
+    try:
+        stdout = run_scout(executable, workspace, agent, prompt, timeout, model)
+    finally:
+        try:
+            after = workspace_snapshot(workspace)
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            raise CapabilityDisabled('Post-run workspace cleanliness could not be verified') from error
+        if after != before:
+            raise CapabilityDisabled('Scout changed workspace or Git state')
+    return parse_stream(stdout, workspace, model, agent, unchanged=True)
+
+
+def run_scout(executable, workspace, agent, prompt, timeout, model):
     version = run_cli(executable, ['--version'], workspace, 30)
     versions = re.findall(r'(?<![\w.])(\d+)\.(\d+)\.(\d+)(?![\w.-])', version)
-    require(len(versions) == 1 and tuple(map(int, versions[0])) >= (1, 1, 27), 'AGY version must be >=1.1.27')
+    require(len(versions) == 1 and versions[0] == ('1', '1', '27'), 'AGY version must be exactly 1.1.27')
     listing = run_cli(executable, ['models'], workspace, 30)
     require(model in re.findall(r'[A-Za-z0-9_.-]+', listing), 'Expected models entry unavailable')
     # The listing is discovery only. init.agent echoes the requested agent even
     # on fallback; neither establishes actual custom-agent or hook activation.
     run_cli(executable, ['agents'], workspace, 30)
     args = ['-p', prompt, '--output-format', 'stream-json', '--model', model, '--agent', agent,
-            '--print-timeout', f'{timeout}s', '--sandbox', '--json-schema', json.dumps(HANDOFF_SCHEMA)]
+            '--print-timeout', f'{timeout}s', '--sandbox', '--new-project', '--add-dir', str(workspace),
+            '--json-schema', json.dumps(HANDOFF_SCHEMA)]
     if agent == 'codex-flash-scout':
         args.extend(['--mode', 'plan'])
-    return parse_stream(run_cli(executable, args, workspace, timeout + 5), workspace, model, agent)
+    return run_cli(executable, args, workspace, timeout + 5)
 
 
 def main():

@@ -44,12 +44,12 @@ They have no canonical programme-state authority, cannot satisfy formal V2
 reviewer/risk/release gates and cannot decide validation sufficiency. Root may
 use the reviewed skill/adapter for approved cheap-to-verify assignments and
 must independently inspect the real diff and run required evidence. Scout and
-editor each have independent disabled/shadow/enabled states. Both currently
-remain disabled: AGY 1.1.27 fresh headless agent fallback and absent hooks
-permit forbidden collaboration tools. Interactive hook enforcement is proven
-only when actually loaded; it does not authorize fresh automation. After a
-reviewed capability-specific containment proof, start that capability in
-advisory shadow mode. Use normal V2 fallback on failure or low value.
+editor each have independent disabled/shadow/enabled states. The scout is in
+advisory shadow on the exact AGY 1.1.27 fresh-project route with an absolute
+added workspace; capability absence or exact preventive denial, clean pre/post
+state and working read/search tools are required per assignment. Broad primary
+tool registries and hooks are diagnostic, not containment boundaries. The
+editor remains disabled. Use normal V2 fallback on failure or low value.
 
 Review a stable exact-head diff. Merge only the reviewed head after required
 gates. Update the canonical control source first; never hand-edit generated
