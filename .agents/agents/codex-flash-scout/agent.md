@@ -34,4 +34,3 @@ uncertainties, recommended_next_action. The four middle fields are string
 arrays; recommended_next_action is a string. Assignment completion describes
 only your packet, never issue completion. Actual changed files are inspected
 independently by Codex.
-

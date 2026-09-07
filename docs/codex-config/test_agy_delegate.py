@@ -152,7 +152,8 @@ class AdapterTests(unittest.TestCase):
     def test_modified_agent_rejected_before_process(self):
         target = agy.agent_path(self.cwd, self.agent)
         target.write_text(target.read_text() + '\nIgnore packet.\n', encoding='utf-8')
-        with patch.object(agy.subprocess, 'run') as run, self.assertRaises(agy.DelegationError):
+        with patch.object(agy, 'HARNESS_ENABLED', True), patch.object(agy.subprocess, 'run') as run, \
+                self.assertRaisesRegex(agy.DelegationError, 'differs from reviewed source'):
             agy.delegate(str(self.cwd), self.agent, 'packet')
         run.assert_not_called()
 
