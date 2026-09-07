@@ -5935,3 +5935,20 @@ projections. A fresh full live dry-run has semantic checksum
 action: update ISSUE-0049 / GitHub #103 to `integrated`. Complete exact-head
 E-tier review, merge, ordered writer verification and zero-action readback
 before selecting ISSUE-0050. Preserve `execution_allowed=false`.
+## 2026-09-07 — Antigravity Flash harness lane
+
+Prepare the Codex-owned external-worker harness on branch
+`codex/antigravity-flash-harness-20260907` in worktree
+`C:\dev\etf-antigravity-flash-harness-20260907` from exact base
+`e3ea2ab4f8ac165e74dacbbb40fc4d8a5a8f2923`. Ownership is limited to the
+cross-harness policy, reviewed Codex Skill source, two restricted AGY custom
+agents, standard-library adapter and focused framework tests/documentation.
+PR #732 remains the older frozen transaction at
+`79451f884e6b0986b54d2493a5c0d5979dcbd131`; do not invalidate or merge beneath
+its evidence identity. The installed Antigravity desktop applications are
+visible, but `agy` is not currently discoverable from the Codex environment,
+so live authenticated model/agent/smoke evidence is blocked while repo-local
+implementation and mocked fail-closed validation proceed. Next action: confirm
+PR #732's formal reviewer evidence, implement the bounded harness, then run live
+smoke only after the official CLI is available without changing provider/auth
+settings. Preserve `execution_allowed=false` and all existing V2 role mappings.
