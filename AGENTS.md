@@ -19,9 +19,11 @@ V2 roles remain the formal internal system.
 root or Codex V2 children. They cannot satisfy mandatory V2 reviewer, risk or
 release gates or decide validation sufficiency. AGY processes do not consume
 V2 child slots; AGY editors count as writers under every ownership/concurrency
-rule. Codex may use the reviewed antigravity-flash skill and adapter for bounded
-cheap-to-verify assignments, initially advisory shadow work. Normal V2 routing
-remains the fallback. CLI details belong in `docs/codex-config/README.md`.
+rule. The antigravity-flash adapter remains hard-disabled after AGY 1.1.27
+failed live tool-surface restriction proof; do not install, sync or route the
+Skill until a reviewed replacement head proves preventive containment. Normal
+V2 routing remains authoritative. CLI details belong in
+`docs/codex-config/README.md`.
 
 ## Goal
 

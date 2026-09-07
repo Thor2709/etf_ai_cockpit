@@ -30,7 +30,8 @@ class AdapterTests(unittest.TestCase):
                 'tools': sorted(agy.READ_TOOLS), 'permission_mode': 'request-review'}},
             {'event': 'step_update', 'step_update': {'conversation_id': 'fixture',
                 'step_index': 1, 'state': 'DONE', 'step_type': 'tool', 'tool_name': 'view_file',
-                'tool_info': {'name': 'view_file', 'parameters': {}, 'output': 'source'}}},
+                'tool_info': {'name': 'view_file', 'parameters': {
+                    'AbsolutePath': str(self.cwd / 'source.py')}, 'output': 'source'}}},
             {'event': 'result', 'result': {'conversation_id': 'fixture', 'status': 'SUCCESS',
                 'structured_output': self.handoff, 'denied_actions': []}},
         ]
@@ -106,7 +107,8 @@ class AdapterTests(unittest.TestCase):
         if outputs is None:
             outputs = ['agy version 1.1.27', agy.DEFAULT_MODEL, self.agent, self.stream()]
         responses = [subprocess.CompletedProcess([], 0, value, '') for value in outputs]
-        with patch.dict(agy.os.environ, {}, clear=True), patch.object(agy.shutil, 'which', return_value='/official/agy.exe'), \
+        with patch.dict(agy.os.environ, {}, clear=True), patch.object(agy, 'HARNESS_ENABLED', True), \
+                patch.object(agy.shutil, 'which', return_value='/official/agy.exe'), \
                 patch.object(agy.subprocess, 'run', side_effect=responses) as run:
             result = agy.delegate(str(self.cwd), self.agent, 'Bounded packet', **kwargs)
         return result, run
@@ -153,6 +155,16 @@ class AdapterTests(unittest.TestCase):
         with patch.object(agy.subprocess, 'run') as run, self.assertRaises(agy.DelegationError):
             agy.delegate(str(self.cwd), self.agent, 'packet')
         run.assert_not_called()
+
+    def test_production_launch_is_disabled_and_outside_paths_reject(self):
+        with patch.object(agy.subprocess, 'run') as run, self.assertRaisesRegex(
+                agy.DelegationError, 'Harness disabled'):
+            agy.delegate(str(self.cwd), self.agent, 'packet')
+        run.assert_not_called()
+        events = copy.deepcopy(self.events)
+        events[1]['step_update']['tool_info']['parameters']['AbsolutePath'] = str(self.cwd.parent / 'secret')
+        with self.assertRaisesRegex(agy.DelegationError, 'escapes workspace'):
+            self.parse(events)
 
 
 class ExternalConfigTests(unittest.TestCase):

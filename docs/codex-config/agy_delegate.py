@@ -20,6 +20,7 @@ EDIT_TOOLS = READ_TOOLS | {'write_to_file', 'replace_file_content', 'multi_repla
 AGENTS = {'codex-flash-scout': READ_TOOLS, 'codex-flash-editor': EDIT_TOOLS}
 DEFAULT_MODEL = 'gemini-3.8-flash-medium'
 MODELS = {DEFAULT_MODEL, 'gemini-3.8-flash-high'}
+HARNESS_ENABLED = False  # AGY 1.1.27 failed live tool-surface restriction proof.
 LIST_FIELDS = ('files_inspected', 'requirements_addressed', 'candidate_tests', 'uncertainties')
 HANDOFF_SCHEMA = {
     'type': 'object', 'additionalProperties': False,
@@ -143,6 +144,20 @@ def parse_stream(stdout, cwd, model, agent):
             info = step.get('tool_info', {})
             require(isinstance(info, dict) and info.get('name', name) == name
                     and not info.get('error'), 'Failed or inconsistent tool call')
+            parameters = info.get('parameters')
+            require(isinstance(parameters, dict), 'Missing tool parameters')
+            path_fields = {
+                'view_file': 'AbsolutePath', 'write_to_file': 'TargetFile',
+                'replace_file_content': 'TargetFile',
+                'multi_replace_file_content': 'TargetFile', 'list_dir': 'DirectoryPath',
+                'find_by_name': 'SearchDirectory', 'grep_search': 'SearchPath',
+            }
+            path_value = parameters.get(path_fields[name])
+            require(isinstance(path_value, str) and Path(path_value).is_absolute(),
+                    'Missing absolute tool path')
+            resolved_path = Path(path_value).resolve(strict=False)
+            require(resolved_path == cwd or cwd in resolved_path.parents,
+                    'Tool path escapes workspace')
             used.add(name)
     result = events[-1].get('result')
     require(isinstance(result, dict) and result.get('conversation_id') == conversation, 'Wrong result identity')
@@ -186,6 +201,8 @@ def delegate(cwd, agent, prompt, timeout=180, model=DEFAULT_MODEL, high_reason=N
             'High requires explicit root justification')
     require(type(timeout) is int and 1 <= timeout <= 600, 'Timeout must be 1..600 seconds')
     require(isinstance(prompt, str) and prompt.strip(), 'Empty task packet')
+    require(HARNESS_ENABLED,
+            'Harness disabled: AGY 1.1.27 failed live tool-surface restriction proof')
     for variable in ('GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS',
                      'GOOGLE_GENAI_USE_VERTEXAI'):
         require(not os.environ.get(variable), 'Provider override present; do not change auth route')

@@ -63,10 +63,13 @@ Protocol sources checked 2026-09-07:
 [custom-agent schema](https://www.antigravity.google/docs/subagents/) and
 [terminal sandbox](https://www.antigravity.google/docs/cli/sandbox/).
 Deterministic tests use mocked documented streams, not personal Google access.
-Live authentication/entitlement, inheritance, scout/editor and forbidden-action
-smokes remain separate root acceptance evidence; an offline pass proves none
-of those. No undocumented benign built-ins are allowed before live evidence
-and review establish their exact names and necessity.
+Live authentication and model selection succeeded, but the AGY 1.1.27 scout
+smoke exposed the full global tool surface and attempted a forbidden command.
+Headless permission handling denied it and the adapter rejected the result.
+`HARNESS_ENABLED = False` therefore prevents any further process launch until a
+reviewed code change follows an upstream fix and proves preventive containment,
+inheritance, scout/editor and failure paths. Do not sync or install the Skill.
+No undocumented benign built-ins are allowed.
 
 - `global-AGENTS.md` mirrors the global `C:\\Users\\thor2\\.codex\\AGENTS.md`.
 - `config.toml` mirrors the current desktop Codex configuration as volatile
