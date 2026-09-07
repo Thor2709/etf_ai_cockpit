@@ -1,5 +1,33 @@
 # ETF AI Cockpit — Codex Rules
 
+## Universal project invariants
+
+Keep work local-first and `execution_allowed=false`. No live broker, provider
+or execution writes without separate authority. Never fabricate financial
+evidence; preserve point-in-time, revision, replay and provenance semantics
+without look-ahead. Use isolated owned worktrees and one writer per overlapping
+boundary. Preserve unrelated changes and never weaken tests or safety gates.
+
+## Harness identity and authority
+
+The GPT-6 Astra Codex root alone orchestrates, accepts work, controls Git/GitHub
+and canonical programme state, and integrates. The following Codex V2 routing,
+thread and reviewer instructions apply to Codex only. The configured twelve
+V2 roles remain the formal internal system.
+
+`codex-flash-scout` and `codex-flash-editor` are external AGY workers, not Astra
+root or Codex V2 children. They cannot satisfy mandatory V2 reviewer, risk or
+release gates or decide validation sufficiency. AGY processes do not consume
+V2 child slots; AGY editors count as writers under every ownership/concurrency
+rule. Scout and editor each have independent disabled/shadow/enabled states.
+The scout is enabled for proven read-only assignments after the AGY 1.1.27 fresh-project route with
+an absolute added workspace demonstrated preventive capability absence/denial,
+clean pre/post state and working read/search tools. The editor remains disabled.
+Do not install or sync the Skill until the replacement head passes review and
+required exact-head evidence. Normal
+V2 routing remains authoritative. CLI details belong in
+`docs/codex-config/README.md`.
+
 ## Goal
 
 Complete the canonical implementation plan correctly and efficiently.

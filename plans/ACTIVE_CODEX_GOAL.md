@@ -1,5 +1,24 @@
 # Active Codex goal — complete the canonical programme through Phase 11
 
+## Current orchestration amendment — 2026-09-07
+
+Going forward, current global/project AGENTS.md and effective Codex config
+define V2 capacity and the unchanged twelve-role routing matrix. Historical
+capacity/routing checkpoints below remain chronology only. External AGY
+scout/editor workers are subordinate to Codex and do not consume V2 slots;
+editors count as writers. They cannot decide test sufficiency, satisfy formal
+V2 reviewer/risk/release gates, mutate programme state or integrate work.
+The Codex-only antigravity-flash skill and adapter remain reviewed source only.
+The scout is enabled for proven read-only assignments on the exact AGY 1.1.27 fresh-project route
+using an absolute added workspace; its forbidden capabilities were absent or
+preventively denied, approved read/search calls worked, inheritance markers
+were isolated and pre/post state was identical. Hooks are diagnostic only.
+The editor remains disabled. Do not sync or install the Skill until the
+replacement head passes formal review and required exact-head gates; normal V2
+remains authoritative. Preserve
+`execution_allowed=false`. Harness acceptance still requires live smoke,
+independent formal reviews and the protected Linux/Windows gates.
+
 ## Objective
 
 Complete the canonical implementation programme issue by issue through

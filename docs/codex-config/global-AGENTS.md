@@ -8,6 +8,10 @@ Prefer outcome-focused execution over ritual. Preserve correctness and required 
 
 ## Context
 
+External coding CLIs may be used when project policy permits. They remain
+subordinate to Codex: inspect the real diff, independently run required
+evidence, and retain the project's formal acceptance and integration authority.
+
 Read instructions once, then use progressive disclosure:
 
 1. applicable `AGENTS.md`;

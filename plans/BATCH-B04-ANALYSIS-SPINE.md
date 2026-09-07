@@ -5935,3 +5935,47 @@ projections. A fresh full live dry-run has semantic checksum
 action: update ISSUE-0049 / GitHub #103 to `integrated`. Complete exact-head
 E-tier review, merge, ordered writer verification and zero-action readback
 before selecting ISSUE-0050. Preserve `execution_allowed=false`.
+## 2026-09-07 — Antigravity Flash harness lane
+
+Prepare the Codex-owned external-worker harness on branch
+`codex/antigravity-flash-harness-20260907` in worktree
+`C:\dev\etf-antigravity-flash-harness-20260907` from exact base
+`e3ea2ab4f8ac165e74dacbbb40fc4d8a5a8f2923`. Ownership is limited to the
+cross-harness policy, reviewed Codex Skill source, two restricted AGY custom
+agents, standard-library adapter and focused framework tests/documentation.
+PR #732 remains the older frozen transaction at
+`79451f884e6b0986b54d2493a5c0d5979dcbd131`; do not invalidate or merge beneath
+its evidence identity. The installed Antigravity desktop applications are
+visible, but `agy` is not currently discoverable from the Codex environment,
+so live authenticated model/agent/smoke evidence is blocked while repo-local
+implementation and mocked fail-closed validation proceed. Next action: confirm
+PR #732's formal reviewer evidence, implement the bounded harness, then run live
+smoke only after the official CLI is available without changing provider/auth
+settings. Preserve `execution_allowed=false` and all existing V2 role mappings.
+
+PR #732 was subsequently approved by exact-head whole-diff and risk review and
+merged as `a15cafae968ee66fca4f0762407a7ecd81d9755e`; the harness lane was rebased
+to that main before implementation. Official AGY 1.1.27 is authenticated through
+the existing Google AI Pro account and lists `gemini-3.8-flash-medium`. Workspace
+trust made both custom agents visible in the interactive selector. However, a
+real scout run reported the expected agent/model/cwd while exposing the full
+global tool registry and attempting forbidden `run_command` outside the worktree;
+headless mode denied it and the adapter rejected `denied_actions`. This proves
+the run was rejected; it does not by itself prove primary-agent tool-list
+semantics. The completed capability matrix corrected the diagnosis: fresh
+headless logs show custom-agent fallback and zero loaded hooks despite echoed
+`init.agent`; collaboration tools actually succeeded. Interactive exact scout
+selection, strict hook denials and customization marker isolation passed.
+Resume preserved scout/hooks but requires persistent interactive bootstrap.
+Absolute `--add-dir` with `--new-project` corrected the fresh-headless workspace
+selection failure. The exact reviewed scout then exposed only its intended
+read/search surface plus non-creating task management; collaboration, write,
+shell, web and scheduling capabilities were absent or preventively rejected,
+and the pre/post filesystem fingerprint was identical. All approved read/search
+tools executed, `inheritCustomizations:false` excluded root/ambient rule/skill
+markers while retaining the reviewed agent body, and a useful adapter scout was
+independently verified by Codex. Scout advances to enabled for proven read-only
+assignments; editor stays
+disabled. Prior head `464cc4bc` and its H-tier evidence are stale for the new
+implementation. Freeze the replacement head for fresh formal reviews and only
+the required exact-head package gates before installation or synchronization.
