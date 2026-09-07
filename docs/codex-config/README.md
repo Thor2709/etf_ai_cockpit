@@ -11,7 +11,7 @@ ownership rules. They cannot satisfy formal reviewer/risk/release gates,
 decide test sufficiency or write Git/GitHub/canonical programme state. Codex
 independently inspects actual changes, selects the existing validation tier
 and runs tests. Scout and editor each have independent disabled/shadow/enabled
-states. Scout is in advisory shadow state; editor remains disabled.
+states. Scout is enabled for proven read-only assignments; editor remains disabled.
 
 Reviewed Codex skill source: `codex-skills/antigravity-flash/`. After framework
 acceptance, root synchronizes these reviewed files to the live Codex USER
@@ -86,7 +86,7 @@ exact `gemini-3.8-flash-medium` model:
 | Fresh headless `--agent`, plan, sandbox | Echoed scout identity, but logged fallback to default and zero hooks. `invoke_subagent`, `define_subagent`, and `manage_subagents` succeeded; shell/read attempts were separately denied. | Scout disabled; editor disabled. |
 | Interactive custom scout | Actual schema restricted; workspace hook loaded. A broad canary agent's forbidden shell, write, web, task, scheduling, permission, messaging and collaboration calls were hard-denied by the strict hook. | Effective when loaded; not fresh task automation proof. |
 | Resume interactive scout | Retained scout behavior and hooks, but lacked `init.agent` and required persistent conversation/bootstrap. | Not an accepted automation route. |
-| Fresh `--new-project --add-dir <absolute workspace>` scout in plan/sandbox mode | The subsequent read-only route passed. Absent tool attempts emitted `ERROR/TOOL_ERROR`; approved calls emitted `ACTIVE` then `DONE`. | Scout shadow; editor disabled. |
+| Fresh `--new-project --add-dir <absolute workspace>` scout in plan/sandbox mode | The subsequent read-only route passed. Absent tool attempts emitted `ERROR/TOOL_ERROR`; approved calls emitted `ACTIVE` then `DONE`. | Scout enabled; editor disabled. |
 
 The documented subagent `tools` list is not a primary-registry contract;
 interactive restrictions and fresh headless selection must be verified
@@ -94,7 +94,7 @@ separately. The current scout route uses a fresh project with the exact absolute
 workspace; old-route fallback evidence does not describe that route. Broad init
 registries and broken PreToolUse denial are diagnostic, not acceptance or
 disable criteria on their own. Hook counts are not relied on as containment.
-`CAPABILITY_STATES` selects scout shadow; `require_fresh_containment` continues
+`CAPABILITY_STATES` selects scout enabled; `require_fresh_containment` continues
 to reject editor even if its state is changed. Root must disable a capability
 after a `CAPABILITY_DISABLED` outcome until reviewed repair. This source change
 does not install or synchronize the Skill or activate an external integration.

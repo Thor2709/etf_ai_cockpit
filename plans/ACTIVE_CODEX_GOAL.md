@@ -9,7 +9,7 @@ scout/editor workers are subordinate to Codex and do not consume V2 slots;
 editors count as writers. They cannot decide test sufficiency, satisfy formal
 V2 reviewer/risk/release gates, mutate programme state or integrate work.
 The Codex-only antigravity-flash skill and adapter remain reviewed source only.
-The scout is in advisory shadow on the exact AGY 1.1.27 fresh-project route
+The scout is enabled for proven read-only assignments on the exact AGY 1.1.27 fresh-project route
 using an absolute added workspace; its forbidden capabilities were absent or
 preventively denied, approved read/search calls worked, inheritance markers
 were isolated and pre/post state was identical. Hooks are diagnostic only.

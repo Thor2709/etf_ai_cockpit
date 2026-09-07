@@ -5974,7 +5974,8 @@ shell, web and scheduling capabilities were absent or preventively rejected,
 and the pre/post filesystem fingerprint was identical. All approved read/search
 tools executed, `inheritCustomizations:false` excluded root/ambient rule/skill
 markers while retaining the reviewed agent body, and a useful adapter scout was
-independently verified by Codex. Scout advances to advisory shadow; editor stays
+independently verified by Codex. Scout advances to enabled for proven read-only
+assignments; editor stays
 disabled. Prior head `464cc4bc` and its H-tier evidence are stale for the new
 implementation. Freeze the replacement head for fresh formal reviews and only
 the required exact-head package gates before installation or synchronization.

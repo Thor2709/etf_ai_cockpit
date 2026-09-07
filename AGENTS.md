@@ -20,7 +20,7 @@ root or Codex V2 children. They cannot satisfy mandatory V2 reviewer, risk or
 release gates or decide validation sufficiency. AGY processes do not consume
 V2 child slots; AGY editors count as writers under every ownership/concurrency
 rule. Scout and editor each have independent disabled/shadow/enabled states.
-The scout is in advisory shadow after the AGY 1.1.27 fresh-project route with
+The scout is enabled for proven read-only assignments after the AGY 1.1.27 fresh-project route with
 an absolute added workspace demonstrated preventive capability absence/denial,
 clean pre/post state and working read/search tools. The editor remains disabled.
 Do not install or sync the Skill until the replacement head passes review and

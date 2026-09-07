@@ -1,6 +1,6 @@
 # Routing
 
-Scout is in advisory shadow state; editor remains independently disabled.
+Scout is enabled for proven read-only assignments; editor remains independently disabled.
 Scout requires the fresh-project route, plan/sandbox mode and the absolute
 added workspace. State changes cannot bypass the editor containment guard.
 

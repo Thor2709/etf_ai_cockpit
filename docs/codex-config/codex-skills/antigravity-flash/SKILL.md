@@ -8,8 +8,8 @@ description: Use restricted external Flash workers for fast repository or call-p
 Codex remains the planner, validator and integrator. Flash is an external AGY
 worker, never a V2 role or formal gate. Use only when the expected saving
 exceeds the cost of independently checking its answer. Scout and editor each
-have independent disabled/shadow/enabled states. Scout is in advisory shadow
-state using the passed fresh-project route with an absolute added workspace;
+have independent disabled/shadow/enabled states. Scout is enabled for proven
+read-only assignments using the passed fresh-project route with an absolute added workspace;
 editor remains disabled. Root owns acceptance and any live installation or
 synchronization. Promote only proven scout task classes.
 

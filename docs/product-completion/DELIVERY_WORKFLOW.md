@@ -45,7 +45,7 @@ reviewer/risk/release gates and cannot decide validation sufficiency. Root may
 use the reviewed skill/adapter for approved cheap-to-verify assignments and
 must independently inspect the real diff and run required evidence. Scout and
 editor each have independent disabled/shadow/enabled states. The scout is in
-advisory shadow on the exact AGY 1.1.27 fresh-project route with an absolute
+enabled for proven read-only assignments on the exact AGY 1.1.27 fresh-project route with an absolute
 added workspace; capability absence or exact preventive denial, clean pre/post
 state and working read/search tools are required per assignment. Broad primary
 tool registries and hooks are diagnostic, not containment boundaries. The
