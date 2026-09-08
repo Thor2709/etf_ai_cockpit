@@ -1173,7 +1173,7 @@ def test_workflow_isolates_pilot_and_keeps_aggregation_non_authoritative() -> No
         "Run repeated report-only four-worker pilot"
     )
     assert "python scripts/release_gate.py --root . --verify-environment" in pilot
-    assert "timeout-minutes: 120" in pilot
+    assert "timeout-minutes: 180" in pilot
     assert "ETF_COCKPIT_RELEASE_SIGNING_KEY" not in pilot
     assert "Ensure pilot evidence directory for upload" in pilot
     assert '"${RUNNER_TEMP}/etf-cockpit-parallel-pilot-${{ matrix.platform }}"' in pilot

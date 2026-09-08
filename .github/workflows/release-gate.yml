@@ -545,8 +545,9 @@ jobs:
           - platform: windows
             os: windows-latest
     runs-on: ${{ matrix.os }}
-    # Two required repetitions measured 92.4m Linux / 104.1m Windows before setup.
-    timeout-minutes: 120
+    # The first exact-head Windows run reached the 120m ceiling before evidence upload;
+    # retain both repetitions and allow runner setup/upload variance on the slower host.
+    timeout-minutes: 180
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
