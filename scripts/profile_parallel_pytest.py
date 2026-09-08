@@ -250,22 +250,21 @@ def _run_with_manifest(
     result_manifest: Path | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], float]:
     variable = _EXECUTED_MANIFEST_ENV if executed else _MANIFEST_ENV
-    previous = os.environ.get(variable)
-    previous_results = os.environ.get(_EXECUTED_RESULTS_ENV)
+    # Nested profilers must own every evidence destination, including those
+    # unused by this invocation; otherwise collection can overwrite its parent.
+    variables = (_MANIFEST_ENV, _EXECUTED_MANIFEST_ENV, _EXECUTED_RESULTS_ENV)
+    previous = {name: os.environ.pop(name, None) for name in variables}
     os.environ[variable] = str(manifest)
     if executed and result_manifest is not None:
         os.environ[_EXECUTED_RESULTS_ENV] = str(result_manifest)
     try:
         return _run(root, command)
     finally:
-        if previous is None:
-            os.environ.pop(variable, None)
-        else:
-            os.environ[variable] = previous
-        if previous_results is None:
-            os.environ.pop(_EXECUTED_RESULTS_ENV, None)
-        else:
-            os.environ[_EXECUTED_RESULTS_ENV] = previous_results
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def _timing_summary(samples: list[float]) -> dict[str, object]:
