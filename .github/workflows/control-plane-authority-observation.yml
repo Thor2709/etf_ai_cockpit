@@ -1,0 +1,104 @@
+name: Control-plane authority observation (temporary)
+
+# Owner-requested, read-only audit. Remove before final acceptance.
+on:
+  pull_request:
+    paths:
+      - .github/workflows/control-plane-authority-observation.yml
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  actions: read
+jobs:
+  observe:
+    if: >-
+      github.repository == 'Thor2709/etf_ai_cockpit' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'codex/control-plane-remediation-20260908'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Read issue authority comments and selected accepted PR evidence
+        env:
+          GH_READ_TOKEN: ${{ github.token }}
+          OBSERVATION_HEAD: ${{ github.event.pull_request.head.sha }}
+          OBSERVATION_RUN: ${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import datetime, hashlib, json, os, pathlib, urllib.request
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'authority-observation'
+          out.mkdir()
+          base = 'https://api.github.com/repos/Thor2709/etf_ai_cockpit/'
+          def get(path):
+              request = urllib.request.Request(base + path, headers={
+                  'Authorization': 'Bearer ' + os.environ['GH_READ_TOKEN'],
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'etf-read-only-control-plane-audit',
+              }, method='GET')
+              with urllib.request.urlopen(request, timeout=45) as response:
+                  return json.load(response)
+          def pages(path):
+              result = []
+              sep = '&' if '?' in path else '?'
+              for page in range(1, 101):
+                  batch = get(path + sep + f'per_page=100&page={page}')
+                  if not isinstance(batch, list):
+                      raise ValueError('Unexpected pagination shape')
+                  result.extend(batch)
+                  if len(batch) < 100:
+                      return result
+              raise ValueError('Pagination ceiling: observations incomplete')
+          def save(name, value):
+              (out / name).write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
+          started = datetime.datetime.now(datetime.timezone.utc).isoformat()
+          main_start = get('branches/main')
+          initial = pages('issues?state=all&sort=created&direction=asc')
+          save('issues-start.json', initial)
+          for issue in initial:
+              if 'pull_request' not in issue and issue['comments']:
+                  save(f"issue-{issue['number']}-comments.json", pages(f"issues/{issue['number']}/comments"))
+          for number in (597, 633, 678, 732, 733, 734):
+              pr = get(f'pulls/{number}')
+              prefix = f'accepted-pr-{number}'
+              save(prefix + '.json', pr)
+              save(prefix + '-comments.json', pages(f'issues/{number}/comments'))
+              save(prefix + '-reviews.json', pages(f'pulls/{number}/reviews'))
+              save(prefix + '-review-comments.json', pages(f'pulls/{number}/comments'))
+              runs = get(f"actions/runs?head_sha={pr['head']['sha']}&per_page=100")
+              save(prefix + '-runs.json', runs)
+              for run in runs['workflow_runs']:
+                  if run['name'] == 'Release gate':
+                      rid = run['id']
+                      save(f'run-{rid}-jobs.json', get(f'actions/runs/{rid}/jobs?per_page=100'))
+                      save(f'run-{rid}-artifacts.json', get(f'actions/runs/{rid}/artifacts?per_page=100'))
+          final = pages('issues?state=all&sort=created&direction=asc')
+          main_end = get('branches/main')
+          save('issues-end.json', final)
+          save('main-start.json', main_start)
+          save('main-end.json', main_end)
+          save('identity.json', {
+              'schema_version': 'read-only-authority-observation.v1',
+              'repository': 'Thor2709/etf_ai_cockpit',
+              'diagnostic_head': os.environ['OBSERVATION_HEAD'],
+              'run_id': os.environ['OBSERVATION_RUN'],
+              'started_at': started,
+              'finished_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'main_stable': main_start['commit']['sha'] == main_end['commit']['sha'],
+              'issue_metadata_stable': {x['number']: x['updated_at'] for x in initial} == {x['number']: x['updated_at'] for x in final},
+              'apply_authority': False,
+              'acceptance_evidence': False,
+              'execution_allowed': False,
+              'note': 'Source observations only; not a live checksum-authorised sync plan or a new formal review.',
+          })
+          save('sha256.json', {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(out.iterdir()) if p.is_file()})
+          print('Read-only observations preserved; no issue or programme writes.')
+          PY
+      - name: Preserve observations within this repository
+        uses: actions/upload-artifact@v4
+        with:
+          name: control-plane-authority-observation-${{ github.run_id }}
+          path: ${{ runner.temp }}/authority-observation/
+          if-no-files-found: error
+          retention-days: 30
