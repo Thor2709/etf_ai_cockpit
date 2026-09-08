@@ -8,14 +8,18 @@ capacity/routing checkpoints below remain chronology only. External AGY
 scout/editor workers are subordinate to Codex and do not consume V2 slots;
 editors count as writers. They cannot decide test sufficiency, satisfy formal
 V2 reviewer/risk/release gates, mutate programme state or integrate work.
-The Codex-only antigravity-flash skill and adapter remain reviewed source only.
 The scout is enabled for proven read-only assignments on the exact AGY 1.1.27 fresh-project route
 using an absolute added workspace; its forbidden capabilities were absent or
 preventively denied, approved read/search calls worked, inheritance markers
 were isolated and pre/post state was identical. Hooks are diagnostic only.
-The editor remains disabled. Do not sync or install the Skill until the
-replacement head passes formal review and required exact-head gates; normal V2
-remains authoritative. Preserve
+The editor is enabled only through staged disposable-worktree promotion: Flash
+never writes the authoritative issue worktree directly, Codex rejects the
+whole candidate on any unowned or forbidden staged change, and Codex alone
+promotes valid candidates after independently inspecting and testing them. The
+antigravity-flash Skill is installed and synchronised. Legacy independently
+developed Antigravity issue worktrees are historical candidate artifacts and do
+not reserve current ownership. Normal V2 remains the edit fallback and formal
+reviewer, risk and release authority. Preserve
 `execution_allowed=false`. Harness acceptance still requires live smoke,
 independent formal reviews and the protected Linux/Windows gates.
 

@@ -44,12 +44,19 @@ They have no canonical programme-state authority, cannot satisfy formal V2
 reviewer/risk/release gates and cannot decide validation sufficiency. Root may
 use the reviewed skill/adapter for approved cheap-to-verify assignments and
 must independently inspect the real diff and run required evidence. Scout and
-editor each have independent disabled/shadow/enabled states. The scout is in
-enabled for proven read-only assignments on the exact AGY 1.1.27 fresh-project route with an absolute
-added workspace; capability absence or exact preventive denial, clean pre/post
-state and working read/search tools are required per assignment. Broad primary
-tool registries and hooks are diagnostic, not containment boundaries. The
-editor remains disabled. Use normal V2 fallback on failure or low value.
+editor each have independent disabled/shadow/enabled states. The scout is
+enabled for proven read-only assignments on the exact AGY 1.1.27 fresh-project
+route with an absolute added workspace; capability absence or exact preventive
+denial, clean pre/post state and working read/search tools are required per
+assignment. The editor is enabled only through staged disposable-worktree
+promotion: Flash never writes the authoritative issue worktree directly, the
+whole candidate is rejected on any unowned or forbidden staged change, and
+Codex alone promotes valid candidates after independently inspecting and testing
+them. The antigravity-flash Skill is installed and synchronised; hooks remain
+diagnostic only. Normal V2 remains the edit fallback and formal reviewer, risk
+and release authority. Legacy independently developed Antigravity issue
+worktrees are historical candidate artifacts and do not reserve current
+ownership.
 
 Review a stable exact-head diff. Merge only the reviewed head after required
 gates. Update the canonical control source first; never hand-edit generated

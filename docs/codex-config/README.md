@@ -11,14 +11,22 @@ ownership rules. They cannot satisfy formal reviewer/risk/release gates,
 decide test sufficiency or write Git/GitHub/canonical programme state. Codex
 independently inspects actual changes, selects the existing validation tier
 and runs tests. Scout and editor each have independent disabled/shadow/enabled
-states. Scout is enabled for proven read-only assignments; editor remains disabled.
+states. Scout is enabled for proven read-only assignments. Editor is enabled
+only through staged disposable-worktree promotion: Flash never writes the
+authoritative issue worktree directly, the whole candidate is rejected on any
+unowned or forbidden staged change, and Codex alone promotes valid candidates
+after independently inspecting and testing them. Hooks remain diagnostic only;
+normal V2 is the edit fallback and formal reviewer/risk/release authority.
+Legacy independently developed Antigravity issue worktrees are historical
+candidate artifacts and do not reserve current ownership.
 
-Reviewed Codex skill source: `codex-skills/antigravity-flash/`. After framework
-acceptance, root synchronizes these reviewed files to the live Codex USER
+Reviewed Codex skill source: `codex-skills/antigravity-flash/`. The reviewed
+Skill is installed and synchronised to the live Codex USER
 scope `~/.agents/skills/antigravity-flash/`, resolving the home directory live,
 preflighting existing content and verifying hashes. Never overwrite unexpected
 user drift. The skill must not appear in repository `.agents/skills`, which
-AGY also discovers. No live user installation is implied by this source tree.
+AGY also discovers. This source tree is the reviewed mirror of the live
+installation.
 If discovery does not refresh, use one new Codex session without changing
 unrelated configuration. The root owns any user-home synchronization/fallback.
 
@@ -81,7 +89,10 @@ Deterministic tests use mocked documented streams, not personal Google access.
 The completed AGY 1.1.27 matrix used the existing Google AI Pro account and
 exact `gemini-3.8-flash-medium` model:
 
-| Route | Observed containment | Automation decision |
+The following matrix is retained historical experiment evidence; the current
+automation states are declared above and in the delivery workflow.
+
+| Route | Observed containment | Historical automation decision |
 | --- | --- | --- |
 | Fresh headless `--agent`, plan, sandbox | Echoed scout identity, but logged fallback to default and zero hooks. `invoke_subagent`, `define_subagent`, and `manage_subagents` succeeded; shell/read attempts were separately denied. | Scout disabled; editor disabled. |
 | Interactive custom scout | Actual schema restricted; workspace hook loaded. A broad canary agent's forbidden shell, write, web, task, scheduling, permission, messaging and collaboration calls were hard-denied by the strict hook. | Effective when loaded; not fresh task automation proof. |
@@ -94,10 +105,12 @@ separately. The current scout route uses a fresh project with the exact absolute
 workspace; old-route fallback evidence does not describe that route. Broad init
 registries and broken PreToolUse denial are diagnostic, not acceptance or
 disable criteria on their own. Hook counts are not relied on as containment.
-`CAPABILITY_STATES` selects scout enabled; `require_fresh_containment` continues
-to reject editor even if its state is changed. Root must disable a capability
-after a `CAPABILITY_DISABLED` outcome until reviewed repair. This source change
-does not install or synchronize the Skill or activate an external integration.
+`CAPABILITY_STATES` selects scout enabled and the staged editor route; the
+adapter's `require_fresh_containment` and whole-candidate checks reject any
+unowned or forbidden editor change. Root must disable a capability after a
+`CAPABILITY_DISABLED` outcome until reviewed repair. Skill installation and
+external integration remain separate reviewed Codex-controlled actions and are
+complete for the current antigravity-flash Skill.
 
 - `global-AGENTS.md` mirrors the global `C:\\Users\\thor2\\.codex\\AGENTS.md`.
 - `config.toml` mirrors the current desktop Codex configuration as volatile

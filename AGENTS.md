@@ -29,9 +29,10 @@ any unowned or forbidden change, rechecks the authoritative worktree and only
 then promotes a fully valid candidate. Codex independently inspects every
 promoted byte; failure never implies rollback. The evidenced outside-workspace
 permission boundary remains required; hooks are diagnostic only.
-Do not install or sync the Skill until the replacement head passes review and
-required exact-head evidence. Normal
-V2 routing remains authoritative. CLI details belong in
+The antigravity-flash Skill is installed and synchronised. Legacy independently
+developed Antigravity issue worktrees are historical candidate artifacts and do
+not reserve current ownership. Normal V2 routing remains authoritative, and
+formal reviewer, risk and release gates remain Codex-controlled. CLI details belong in
 `docs/codex-config/README.md`.
 
 ## Goal
