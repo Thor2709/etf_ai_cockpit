@@ -701,6 +701,7 @@ def _validate_base_refresh_top_level(
     manifest_base: object,
     allow_readiness_change: bool,
     allow_dependency_reconciliation_change: bool = False,
+    expected_open_ledger_sha256: str | None = None,
     errors: list[str],
 ) -> None:
     excluded = {"records", "source_of_truth"}
@@ -754,6 +755,10 @@ def _validate_base_refresh_top_level(
         _error(errors, "source_of_truth must remain an object during generation-base transition")
         return
     for key in sorted(set(base_source) | set(proposed_source)):
+        if allow_dependency_reconciliation_change and key == OPEN_LEDGER_REFRESH_SOURCE_FIELD:
+            if expected_open_ledger_sha256 is None or proposed_source.get(key) != expected_open_ledger_sha256:
+                _error(errors, "declaration correction open-ledger digest mismatch")
+            continue
         if key not in BASE_REFRESH_SOURCE_FIELDS and base_source.get(key) != proposed_source.get(key):
             _error(errors, f"non-allowlisted source_of_truth change: {key}")
     proposed_baseline = proposed_source.get("baseline_commit")
@@ -973,6 +978,7 @@ def guard_proposal(
             allow_dependency_reconciliation_change=(
                 migration_mode == BASE_REFRESH_CORRECTION_MODE
             ),
+            expected_open_ledger_sha256=expected_open_ledger_sha256,
             errors=errors,
         )
 
