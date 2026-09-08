@@ -3,7 +3,7 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [],
   "base_commit": "51bec2b8937f725e9e1c74136249a1d9c7d4851a",
-  "branch": "codex/control-plane-mechanism-20260908",
+  "branch": "codex/control-plane-remediation-20260908",
   "issue_ids": [],
   "schema_version": "1.0"
 }
