@@ -239,9 +239,9 @@ class AdapterTests(unittest.TestCase):
             agy.delegate(str(self.cwd), self.agent, 'packet')
         run.assert_not_called()
 
-    def test_editor_launch_is_disabled_and_outside_paths_reject(self):
+    def test_editor_requires_packet_and_outside_paths_reject(self):
         with patch.object(agy.subprocess, 'run') as run, self.assertRaisesRegex(
-                agy.DelegationError, 'capability disabled'):
+                agy.DelegationError, 'Malformed JSON'):
             agy.delegate(str(self.cwd), 'codex-flash-editor', 'packet')
         run.assert_not_called()
         events = copy.deepcopy(self.events)
