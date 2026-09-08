@@ -180,7 +180,7 @@ class AdapterTests(unittest.TestCase):
         responses = [subprocess.CompletedProcess([], 0, value, '') for value in outputs]
         with patch.dict(agy.os.environ, {}, clear=True), \
                 patch.dict(agy.CAPABILITY_STATES, {self.agent: 'shadow'}), \
-                patch.object(agy, 'workspace_snapshot', return_value=('head', {})), \
+                patch.object(agy, 'workspace_snapshot', return_value=('head', {}, '')), \
                 patch.object(agy.shutil, 'which', return_value='/official/agy.exe'), \
                 patch.object(agy.subprocess, 'run', side_effect=responses) as run:
             result = agy.delegate(str(self.cwd), self.agent, 'Bounded packet', **kwargs)
@@ -270,10 +270,19 @@ class AdapterTests(unittest.TestCase):
             with patch.dict(agy.os.environ, {}, clear=True), \
                     patch.object(agy.shutil, 'which', return_value='/official/agy.exe'), \
                     patch.object(agy, 'run_scout', side_effect=failure, return_value=self.stream()), \
-                    patch.object(agy, 'workspace_snapshot', side_effect=[('head', {}), ('head', {'new': 'file'})]) as check, \
+                    patch.object(agy, 'workspace_snapshot', side_effect=[('head', {}, ''), ('head', {'new': 'file'}, '')]) as check, \
                     self.subTest(failure=failure), self.assertRaises(agy.CapabilityDisabled):
                 agy.delegate(str(self.cwd), self.agent, 'packet')
             self.assertEqual(check.call_count, 2)
+
+    def test_post_snapshot_detects_index_only_mutation(self):
+        with patch.dict(agy.os.environ, {}, clear=True), \
+                patch.object(agy.shutil, 'which', return_value='/official/agy.exe'), \
+                patch.object(agy, 'run_scout', return_value=self.stream()), \
+                patch.object(agy, 'workspace_snapshot', side_effect=[
+                    ('head', {}, ''), ('head', {}, 'M  indexed.txt')]), \
+                self.assertRaisesRegex(agy.CapabilityDisabled, 'changed workspace'):
+            agy.delegate(str(self.cwd), self.agent, 'packet')
 
     def test_dirty_preflight_never_launches_agy(self):
         with patch.dict(agy.os.environ, {}, clear=True), \

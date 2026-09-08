@@ -285,7 +285,7 @@ def workspace_snapshot(workspace, *, clean=True):
             else:
                 require(path.is_dir(), 'Unsupported workspace filesystem entry')
             files[path.relative_to(workspace).as_posix()] = (metadata.st_mode, metadata.st_mtime_ns, digest)
-    return head, files
+    return head, files, status
 
 
 def require(condition, message):
