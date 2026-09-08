@@ -3,7 +3,7 @@
   "outputs": [
     {
       "path": ".github/status-transition-guard-manifest.json",
-      "sha256": "83482ea31099a1de3e4dcd9a70ece74dcbcc24bda999bfcec421bb40a85e4078"
+      "sha256": "648a3e6b0084aa5dce5c46a54bf547c427af2b37cd471ff2cf59ad2a8f85d4c5"
     },
     {
       "path": "CHANGELOG.md",
@@ -19,7 +19,7 @@
     },
     {
       "path": "docs/product-completion/DELIVERY_WORKFLOW.md",
-      "sha256": "9cc74ae2b8495fa0eb555b344e7a7249c4ba3b1cf39f93ccb07ff70007bebd36"
+      "sha256": "849b7b72577b8eb3f692908d2487639d69c048d5aa0d0b809a906a1cc3a4fa06"
     },
     {
       "path": "docs/product-completion/PROGRESS.md",
@@ -31,7 +31,7 @@
     },
     {
       "path": "docs/product-completion/programme/implementation-order.md",
-      "sha256": "9b2bdb5c08ebec1b4b9d9883480d03a11780fade044d938624021bc456210611"
+      "sha256": "5ba8974ed203f5c423b877a93222f5cc857d32148495cd297848076539b35e70"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-01-governance-scope.md",
@@ -79,7 +79,7 @@
     },
     {
       "path": "docs/product-completion/programme/prompt-2-handoff.md",
-      "sha256": "4d9cfc29dfb1fb7b165bd9deb8462860daf23bde15bf335df728e708a1effb2f"
+      "sha256": "e587f0edd210317a62b85e4b9568ddfed2f2e947eac9ea113a098cf66549fb94"
     },
     {
       "path": "docs/product-completion/programme/readiness.json",

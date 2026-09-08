@@ -14,6 +14,18 @@ from scripts import aggregate_parallel_pilot
 from scripts import profile_parallel_pytest
 
 
+@pytest.fixture(autouse=True)
+def isolate_nested_pilot_evidence(monkeypatch):
+    # These tests invoke fake sessions and child pytest runs. Their evidence
+    # must never target the enclosing report-only pilot's real manifests.
+    for variable in (
+        profile_parallel_pytest._MANIFEST_ENV,
+        profile_parallel_pytest._EXECUTED_MANIFEST_ENV,
+        profile_parallel_pytest._EXECUTED_RESULTS_ENV,
+    ):
+        monkeypatch.delenv(variable, raising=False)
+
+
 def _selected_for_command(command: list[str]) -> list[str]:
     all_nodes = [
         "tests/test_one.py::test_safe",
@@ -46,6 +58,46 @@ def _write_executed_manifest(command: list[str]) -> None:
             Path(results_target).write_text(
                 json.dumps({nodeid: "passed" for nodeid in selected}), encoding="utf-8"
             )
+
+
+@pytest.mark.parametrize("executed", [False, True])
+@pytest.mark.parametrize("fails", [False, True])
+def test_nested_manifest_run_preserves_outer_evidence(tmp_path, monkeypatch, executed, fails):
+    variables = (
+        profile_parallel_pytest._MANIFEST_ENV,
+        profile_parallel_pytest._EXECUTED_MANIFEST_ENV,
+        profile_parallel_pytest._EXECUTED_RESULTS_ENV,
+    )
+    outer = {}
+    for variable in variables:
+        path = tmp_path / f"outer-{variable}.json"
+        path.write_text("outer sentinel", encoding="utf-8")
+        outer[variable] = str(path)
+        monkeypatch.setenv(variable, str(path))
+
+    def nested(_root, command):
+        _write_selected_manifest(command)
+        _write_executed_manifest(command)
+        if fails:
+            raise RuntimeError("nested failure")
+        return subprocess.CompletedProcess(command, 0, "", ""), 0.0
+
+    monkeypatch.setattr(profile_parallel_pytest, "_run", nested)
+    manifest = tmp_path / "nested.json"
+    results = tmp_path / "nested-results.json"
+    if fails:
+        with pytest.raises(RuntimeError, match="nested failure"):
+            profile_parallel_pytest._run_with_manifest(
+                tmp_path, [], manifest, executed=executed, result_manifest=results
+            )
+    else:
+        profile_parallel_pytest._run_with_manifest(
+            tmp_path, [], manifest, executed=executed, result_manifest=results
+        )
+    assert manifest.is_file()
+    assert results.exists() is executed
+    assert {variable: os.getenv(variable) for variable in variables} == outer
+    assert all(Path(path).read_text(encoding="utf-8") == "outer sentinel" for path in outer.values())
 
 
 def _junit_case(nodeid: str, body: str = "") -> str:
@@ -329,9 +381,19 @@ def test_controller_state_resets_only_after_owning_parent_finishes(monkeypatch) 
         assert state.results == {}
 
 
-def test_real_pytest_manifest_is_post_deselection_and_disjoint(tmp_path: Path) -> None:
+def test_real_pytest_manifest_is_post_deselection_and_disjoint(tmp_path: Path, monkeypatch) -> None:
     root = Path(__file__).resolve().parents[1]
+    workflow_node = (
+        "tests/issue0014/test_source_workflows.py::"
+        "test_canonical_main_workflow_composes_real_local_apis_without_network"
+    )
     selected: dict[str, set[str]] = {}
+    outer_paths = []
+    for variable in (profile_parallel_pytest._EXECUTED_MANIFEST_ENV, profile_parallel_pytest._EXECUTED_RESULTS_ENV):
+        outer = tmp_path / f"outer-{variable}.json"
+        outer.write_text("outer sentinel", encoding="utf-8")
+        monkeypatch.setenv(variable, str(outer))
+        outer_paths.append(outer)
     for label, selector in (
         ("full", []),
         ("safe", ["-m", "not serial"]),
@@ -339,6 +401,8 @@ def test_real_pytest_manifest_is_post_deselection_and_disjoint(tmp_path: Path) -
     ):
         manifest = tmp_path / f"{label}.json"
         environment = os.environ.copy()
+        environment.pop(profile_parallel_pytest._EXECUTED_MANIFEST_ENV, None)
+        environment.pop(profile_parallel_pytest._EXECUTED_RESULTS_ENV, None)
         environment["ETF_COCKPIT_PILOT_NODEID_MANIFEST"] = str(manifest)
         completed = subprocess.run(
             [
@@ -349,6 +413,7 @@ def test_real_pytest_manifest_is_post_deselection_and_disjoint(tmp_path: Path) -
                 "tests/test_screen_store.py::test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner",
                 "tests/operations/test_transactions.py::test_group_reader_cannot_observe_mixed_generation_during_activation",
                 "tests/operations/test_transactions.py::test_recovery_of_interrupted_second_real_writer_preserves_first_commit",
+                workflow_node,
                 *selector,
                 "--collect-only",
                 "-q",
@@ -361,11 +426,15 @@ def test_real_pytest_manifest_is_post_deselection_and_disjoint(tmp_path: Path) -
         )
         assert completed.returncode == 0, completed.stderr
         selected[label] = set(json.loads(manifest.read_text(encoding="utf-8")))
+        assert all(path.read_text(encoding="utf-8") == "outer sentinel" for path in outer_paths)
     assert selected["full"]
     assert selected["safe"]
     assert selected["unsafe"]
     assert selected["safe"].isdisjoint(selected["unsafe"])
     assert selected["safe"] | selected["unsafe"] == selected["full"]
+    assert workflow_node not in selected["safe"]
+    assert workflow_node in selected["unsafe"]
+    assert workflow_node in selected["full"]
     assert {
         "tests/test_screen_store.py::test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner[malformed-owner]",
         "tests/test_screen_store.py::test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner[live-owner]",
@@ -1104,6 +1173,7 @@ def test_workflow_isolates_pilot_and_keeps_aggregation_non_authoritative() -> No
         "Run repeated report-only four-worker pilot"
     )
     assert "python scripts/release_gate.py --root . --verify-environment" in pilot
+    assert "timeout-minutes: 180" in pilot
     assert "ETF_COCKPIT_RELEASE_SIGNING_KEY" not in pilot
     assert "Ensure pilot evidence directory for upload" in pilot
     assert '"${RUNNER_TEMP}/etf-cockpit-parallel-pilot-${{ matrix.platform }}"' in pilot

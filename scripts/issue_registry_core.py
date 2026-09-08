@@ -82,6 +82,51 @@ FINAL_RELEASE_MANIFEST = FINAL_RELEASE_SOURCE.parent / "SOURCE_MANIFEST.sha256"
 FINAL_RELEASE_SPEC_SHA256 = "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810"
 FINAL_RELEASE_VERIFIED_DATE = "2026-07-21"
 FINAL_RELEASE_AUDITED_COMMIT = "452d44034197cd5d837c1854603eea030e02acf6"
+DECLARATION_CORRECTION_EVENT = "dependency_edge_declaration_correction"
+DECLARATION_CORRECTION_PAIRS = frozenset({
+    ("ISSUE-0167", "ISSUE-0132"),
+    ("ISSUE-0167", "ISSUE-0133"),
+    ("ISSUE-0167", "ISSUE-0134"),
+    ("ISSUE-0167", "ISSUE-0135"),
+    ("ISSUE-0169", "ISSUE-0152"),
+})
+
+
+def validate_declaration_correction(issue_id: str, event: dict[str, Any]) -> None:
+    """Validate the closed, immutable-source-bound F23/F24 correction contract."""
+    required = {
+        "event_type", "dependency_edge", "source_reference", "source_sha256",
+        "review_reference", "evidence_references", "reviewer", "reviewed_date",
+        "verified_commit",
+    }
+    if set(event) != required or event.get("event_type") != DECLARATION_CORRECTION_EVENT:
+        raise ValueError(f"{issue_id}: declaration correction fields are malformed")
+    change = event.get("dependency_edge")
+    if not isinstance(change, dict) or set(change) != {"dependency", "operation", "prior_evidence"}:
+        raise ValueError(f"{issue_id}: declaration correction edge is malformed")
+    dependency = change.get("dependency")
+    if not isinstance(dependency, str) or (issue_id, dependency) not in DECLARATION_CORRECTION_PAIRS:
+        raise ValueError(f"{issue_id}: declaration correction pair is not authorized")
+    if change.get("operation") != "remove":
+        raise ValueError(f"{issue_id}: declaration correction must remove an edge")
+    if event.get("source_reference") != f"{FINAL_RELEASE_SOURCE.as_posix()}#{issue_id}":
+        raise ValueError(f"{issue_id}: declaration correction source reference mismatch")
+    if event.get("source_sha256") != FINAL_RELEASE_SPEC_SHA256:
+        raise ValueError(f"{issue_id}: declaration correction source checksum mismatch")
+    errors = _validate_edge_evidence(issue_id, dependency, change.get("prior_evidence"))
+    if errors:
+        raise ValueError("; ".join(errors))
+    for field in ("review_reference", "reviewer"):
+        if not isinstance(event.get(field), str) or not event[field].strip():
+            raise ValueError(f"{issue_id}: declaration correction requires {field}")
+    references = event.get("evidence_references")
+    if not isinstance(references, list) or not references or not all(
+        isinstance(value, str) and value.strip() for value in references
+    ):
+        raise ValueError(f"{issue_id}: declaration correction requires review evidence")
+    _validate_review_date(issue_id, event.get("reviewed_date"), context="declaration correction")
+    if not isinstance(event.get("verified_commit"), str) or not re.fullmatch(r"[0-9a-f]{40}", event["verified_commit"]):
+        raise ValueError(f"{issue_id}: declaration correction requires full verified commit")
 EDGE_EVIDENCE_STATES = frozenset({"unresolved", "complete", "partial_interface", "waived"})
 FINAL_RELEASE_OPEN_BEGIN = "<!-- BEGIN GENERATED FINAL RELEASE ISSUES -->"
 FINAL_RELEASE_OPEN_END = "<!-- END GENERATED FINAL RELEASE ISSUES -->"
@@ -540,7 +585,13 @@ def validate_control_authority(
         for event in history[len(prior_history) :]:
             if not isinstance(event, dict):
                 raise ValueError(f"{issue_id}: transition history does not match authoritative prior state")
-            edge_only = event.get("event_type") == "dependency_edge_update"
+            correction = event.get("event_type") == DECLARATION_CORRECTION_EVENT
+            if correction:
+                source_text, _ = _final_release_source(root)
+                source_row = next(row for row in parse_final_release_new_issues(source_text) if row["issue_id"] == issue_id)
+                if event.get("dependency_edge", {}).get("dependency") in source_row["dependencies"]:
+                    raise ValueError(f"{issue_id}: declaration correction contradicts immutable source")
+            edge_only = correction or event.get("event_type") == "dependency_edge_update"
             if edge_only:
                 if event.get("from") is not None or event.get("to") is not None:
                     raise ValueError(f"{issue_id}: dependency-edge update changed authoritative status")
@@ -580,7 +631,10 @@ def validate_control_authority(
                 dependency = str(edge_change["dependency"])
                 if not isinstance(edges, dict) or dependency not in edges:
                     raise ValueError(f"{issue_id}: transition changes a non-declared dependency edge")
-                edges[dependency] = edge_change.get("evidence")
+                if correction:
+                    del edges[dependency]
+                else:
+                    edges[dependency] = edge_change.get("evidence")
         if expected != current:
             new_events = history[len(prior_history) :]
             kind = (
@@ -1476,6 +1530,9 @@ def _validate_review_date(issue_id: str, value: object, *, context: str) -> None
 def _validate_control_event_shape(issue_id: str, event: object) -> None:
     if not isinstance(event, dict):
         raise ValueError(f"{issue_id}: transition history entries must be objects")
+    if event.get("event_type") == DECLARATION_CORRECTION_EVENT:
+        validate_declaration_correction(issue_id, event)
+        return
     edge_only = event.get("event_type") == "dependency_edge_update"
     ordinary_keys = _CONTROL_EVENT_COMMON_KEYS | {"from", "to", "allow_downgrade"}
     expected_keys = (
@@ -1590,11 +1647,23 @@ def validate_status_replay_prefix_shape(
     replayed_status: object | None = None
     ordinary_events: list[dict[str, Any]] = []
     latest_edge_evidence: dict[str, object] = {}
+    removed_edges: set[str] = set()
     for event in transition_history:
         _validate_control_event_shape(issue_id, event)
         edge_change = event.get("dependency_edge")
+        if event.get("event_type") == DECLARATION_CORRECTION_EVENT:
+            dependency = edge_change["dependency"]
+            if dependency in removed_edges:
+                raise ValueError(f"{issue_id}: duplicate declaration correction")
+            if dependency in latest_edge_evidence and latest_edge_evidence[dependency] != edge_change["prior_evidence"]:
+                raise ValueError(f"{issue_id}: declaration correction historical evidence mismatch")
+            latest_edge_evidence.pop(dependency, None)
+            removed_edges.add(dependency)
+            continue
         if edge_change is not None:
             dependency = edge_change["dependency"]
+            if dependency in removed_edges:
+                raise ValueError(f"{issue_id}: removed declaration cannot be restored")
             if dependency in latest_edge_evidence:
                 raise ValueError(
                     f"{issue_id}: status replay contains duplicate dependency-edge history"
@@ -1630,6 +1699,12 @@ def validate_status_replay_prefix_shape(
             ("implemented_initially", "integrated"),
         ]:
             raise ValueError(f"{issue_id}: legacy bootstrap replay path is malformed")
+    elif not ordinary_events and removed_edges:
+        if programme_status != "planned" or status_transition != {
+            "from": "planned", "to": "planned",
+            "review_reference": "B00 canonical import from audited programme state",
+        }:
+            raise ValueError(f"{issue_id}: declaration correction changed imported status")
     elif not ordinary_events or ordinary_events[0].get("from") != "planned":
         raise ValueError(f"{issue_id}: status replay transition history lacks its planned origin")
     if not isinstance(acceptance_evidence, list):
@@ -1679,13 +1754,17 @@ def validate_status_replay_prefix_shape(
     }
     if latest_edge_evidence != historical_edge_evidence:
         raise ValueError(f"{issue_id}: status replay dependency history does not reach canonical state")
+    if removed_edges & set(dependency_edge_evidence):
+        raise ValueError(f"{issue_id}: removed declaration remains active")
     terminal_event = transition_history[-1]
-    terminal_status_event = ordinary_events[-1]
     if (
         verified_commit != terminal_event.get("verified_commit")
         or verified_date != terminal_event.get("reviewed_date")
     ):
         raise ValueError(f"{issue_id}: status replay verified metadata does not match history")
+    if not ordinary_events:
+        return
+    terminal_status_event = ordinary_events[-1]
     expected_transition = {
         "from": terminal_status_event.get("from"),
         "to": terminal_status_event.get("to"),
@@ -1727,6 +1806,17 @@ def validate_control_transition_event(
     event: dict[str, Any],
 ) -> None:
     """Validate the canonical reviewed event used by both writer and readback."""
+    if event.get("event_type") == DECLARATION_CORRECTION_EVENT:
+        validate_declaration_correction(issue_id, event)
+        change = event["dependency_edge"]
+        edges = previous_record.get("dependency_edge_evidence")
+        if not isinstance(edges, dict) or change["dependency"] not in edges:
+            raise ValueError(f"{issue_id}: declaration correction requires a declared edge")
+        if edges[change["dependency"]] != change["prior_evidence"]:
+            raise ValueError(f"{issue_id}: declaration correction prior evidence mismatch")
+        if event["verified_commit"] == previous_record.get("verified_commit"):
+            raise ValueError(f"{issue_id}: declaration correction must advance verified commit")
+        return
     common_keys = {
         "review_reference",
         "evidence_references",

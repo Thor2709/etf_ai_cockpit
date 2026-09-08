@@ -570,7 +570,7 @@ The supplied ZIP is immutable external evidence. It is archived as nine extracte
     order_lines = [
         "# Implementation order",
         "",
-        "Follow the phase order below. Within a phase, resolve `blocking_dependencies` before implementation; treat `related_issues` as context only. Phase order and dependency readiness select work; current delivery mechanics come from `docs/product-completion/DELIVERY_WORKFLOW.md`.",
+        "Use `python scripts/programme_execution.py` for deterministic NOW/NEXT, following candidates and blockers. The phase precedence below remains canonical. Resolve blocking edge evidence and lifecycle eligibility before admission; `related_issues` and `required_inputs` are not silently blocking edges. Current delivery mechanics come from `docs/product-completion/DELIVERY_WORKFLOW.md`; ownership-safe concurrency additionally requires fresh local lane observations.",
         "",
     ]
     for index, row in enumerate(table, start=1):
@@ -630,7 +630,7 @@ Run deterministic tests and safety gates before user-visible claims. Optional To
         programme / "prompt-2-handoff.md",
         """# Prompt 2 handoff
 
-Start from `issues/issue_registry.json`, `issues/programme_control_state.json`, `docs/product-completion/CURRENT_STATUS.json`, `docs/product-completion/PROGRESS.md`, `docs/product-completion/DELIVERY_WORKFLOW.md`, `plans/ACTIVE_CODEX_GOAL.md`, the relevant phase document and the current batch plan. Run `python scripts/generate_programme.py --root . --check` plus the focused tests and canonical classifier before implementation. Treat the reconciliation report as the evidence boundary: the package is immutable, local-only historical records are explicit, dependencies are classified, and no product feature was implemented by Prompt 1.
+Start from `AGENTS.md` and `docs/development/CONTROL_PLANE.md`. Fetch exact `origin/main`, run `python scripts/programme_execution.py --check`, then read the selected `--issue` card and only its relevant source/tests. The planner derives readiness/lifecycle-filtered work and exposes evidence-only blockers; it does not grant dispatch, acceptance or mutation authority. Reconcile local lane and fresh PR identities before parallel work. Immutable source packages and historical reconciliation records remain available through issue-specific provenance rather than default session context.
 
 First implementation candidates are the records marked `ready` by the registry helper, subject to their blocking dependencies and the local-first safety policy. Re-run the atomic generator check, focused tests and classifier after changes.
 """,

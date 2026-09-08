@@ -18,6 +18,12 @@ from pathlib import Path
 from typing import Iterable, cast
 
 
+try:
+    from scripts.git_change_paths import changed_paths, working_paths
+except ModuleNotFoundError:
+    from git_change_paths import changed_paths, working_paths
+
+
 SCHEMA_VERSION = "1.0"
 REPORT_DIRECTORY = Path("artifacts/validation")
 OPTIONAL_COMPONENTS = ("torch", "timesfm", "toto")
@@ -85,7 +91,7 @@ def run_validation(
     report_root: Path | None = None,
     report_only: bool = False,
 ) -> ValidationRun:
-    """Run a local validation scope and write ``latest/validation.{json,md}`."""
+    """Run a local validation scope and write ``latest/validation.{json,md}``."""
 
     root = Path(root).resolve()
     mode = str(mode).strip().lower()
@@ -384,33 +390,27 @@ def _existing_log_paths(root: Path, *, report_dir: Path | None = None) -> list[s
 
 
 def _changed_paths(root: Path) -> list[str]:
-    output = _git(root, "status", "--porcelain")
-    if output:
-        return [line[3:] for line in output.splitlines() if len(line) > 3]
     base = os.getenv("ETF_COCKPIT_VALIDATION_BASE_SHA", "").strip()
     head = os.getenv("ETF_COCKPIT_VALIDATION_HEAD_SHA", "").strip()
-    if not base and not head:
-        return []
-    if not re.fullmatch(r"[0-9a-f]{40}", base) or not re.fullmatch(r"[0-9a-f]{40}", head):
+    if (base or head) and (
+        not re.fullmatch(r"[0-9a-f]{40}", base)
+        or not re.fullmatch(r"[0-9a-f]{40}", head)
+    ):
         raise ValueError("explicit validation base/head must both be 40-character lowercase Git SHAs")
     try:
-        completed = subprocess.run(
-            ["git", "diff", "--name-only", "--diff-filter=ACMRTUXB", base, head, "--"],
-            cwd=root,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        pending = working_paths(root)
+        committed = changed_paths(root, base, head) if base else []
     except (OSError, subprocess.CalledProcessError) as exc:
-        raise ValueError(f"cannot resolve explicit validation base/head: {base}..{head}") from exc
-    return completed.stdout.splitlines()
+        raise ValueError(f"cannot resolve validation Git changes: {base}..{head}") from exc
+    # A dirty checkout must not mask committed changes or invalid supplied refs.
+    return sorted(set(pending) | set(committed))
 
 
 def _changed_test_paths(root: Path) -> list[str]:
     return sorted(
         path
         for path in _changed_paths(root)
-        if path.startswith("tests/") and path.endswith(".py")
+        if path.startswith("tests/") and path.endswith(".py") and (root / path).is_file()
     )
 
 

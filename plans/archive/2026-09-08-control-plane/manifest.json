@@ -1,0 +1,48 @@
+{
+  "files": [
+    {
+      "archive_path": "plans/archive/2026-09-08-control-plane/AGENTS.snapshot.md",
+      "git_blob": "b7071d142d4efdb6da439006b8337c243e3a9606",
+      "original_path": "AGENTS.md",
+      "sha256": "35ecf84079cda90f96bd8706fc1810be9a990eb564cb37112321827aadf910cc"
+    },
+    {
+      "archive_path": "plans/archive/2026-09-08-control-plane/plans/ACTIVE_CODEX_GOAL.md",
+      "git_blob": "3168a6e87b8f00577966cba87ccacc1ea1b64964",
+      "original_path": "plans/ACTIVE_CODEX_GOAL.md",
+      "sha256": "4ebba4711bb510007fdb1f807bee86c5f73d578fa5424d5e5bc58fc520151522"
+    },
+    {
+      "archive_path": "plans/archive/2026-09-08-control-plane/plans/BATCH-B04-ANALYSIS-SPINE.md",
+      "git_blob": "dd300a64f7acd7e6a05bb6262c5122a929777a38",
+      "original_path": "plans/BATCH-B04-ANALYSIS-SPINE.md",
+      "sha256": "d2d4eb15762bf2c68336d0085386c60caac3ab0f832c75840878458db7228236"
+    },
+    {
+      "archive_path": "plans/archive/2026-09-08-control-plane/PLAN_step2.md",
+      "git_blob": "c50ba842076e382baf98bf07cef23a69a2c815c8",
+      "original_path": "PLAN_step2.md",
+      "sha256": "082cba6da149420a21d79e8f8455bc61293967e4923c69cd1896971d4c3da99b"
+    },
+    {
+      "archive_path": "plans/archive/2026-09-08-control-plane/plan.md",
+      "git_blob": "012f754f561e31a395cddb10328281732410c729",
+      "original_path": "plan.md",
+      "sha256": "c3d612d4d46142e1368442b819eb609ec8fcf58bc371c0bfc0b6e02594c488c5"
+    },
+    {
+      "archive_path": "plans/archive/2026-09-08-control-plane/docs/codex-config/README.md",
+      "git_blob": "dc76ea962a268974ba0cca2701a10711a8356920",
+      "original_path": "docs/codex-config/README.md",
+      "sha256": "fe72cb5735da01a0f4642cf6f6df49efc90d8e7b259a0b959ac06cd0e0580491"
+    },
+    {
+      "archive_path": "plans/archive/2026-09-08-control-plane/docs/codex-config/global-AGENTS.md",
+      "git_blob": "12a0544f1d5ca959423624a12c31c53682fa5a03",
+      "original_path": "docs/codex-config/global-AGENTS.md",
+      "sha256": "f6d5315a32dbed8f6defcbff0721c2ca6d4ace58ba8522849593ad99a19a2de4"
+    }
+  ],
+  "schema_version": "exact-history-archive.v1",
+  "source_commit": "51bec2b8937f725e9e1c74136249a1d9c7d4851a"
+}

@@ -135,11 +135,49 @@ def apply_overrides(repo, selected, registered):
     return len(targets)
 
 
+def validate_source_templates(repo):
+    """Audit reviewed repository sources without asserting a live installation."""
+    here = repo / 'docs/codex-config'
+    problems = validate_external_workers(repo)
+    for path in (here / 'config.toml', here / 'config-core.toml'):
+        try:
+            problems.extend(f'{path}: {problem}' for problem in validate_config(read_toml(path)))
+        except (OSError, ValueError) as error:
+            problems.append(f'{path}: {error}')
+    for role, expected in EXPECTED.items():
+        try:
+            data = read_toml(here / 'agents' / f'{role}.toml')
+            if (data.get('model'), data.get('model_reasoning_effort')) != expected:
+                problems.append(f'{role}: reviewed role differs from routing matrix')
+        except (OSError, ValueError) as error:
+            problems.append(f'{role}: {error}')
+    for relative in ('AGENTS.md', 'plans/ACTIVE_CODEX_GOAL.md',
+                     'plans/BATCH-B04-ANALYSIS-SPINE.md',
+                     'docs/codex-config/README.md',
+                     'docs/product-completion/DELIVERY_WORKFLOW.md',
+                     'docs/development/CONTROL_PLANE.md',
+                     'docs/codex-config/codex-skills/antigravity-flash/SKILL.md'):
+        path = repo / relative
+        if not path.is_file():
+            problems.append(f'Missing current instruction surface: {relative}')
+            continue
+        text = ' '.join(path.read_text(encoding='utf-8').split())
+        for short, agent in (('scout', 'codex-flash-scout'), ('editor', 'codex-flash-editor')):
+            current = agy_delegate.CAPABILITY_STATES[agent]
+            for state in ('enabled', 'disabled', 'shadow'):
+                if state != current and re.search(r'\b' + short + r' (?:is|remains) ' + state + r'\b', text, re.I):
+                    problems.append(f'Contradictory {short} state in {relative}')
+    return problems
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--source-only', action='store_true', help='validate repository sources, not personal/live configuration')
     parser.add_argument('--owned-worktree', action='append', default=[])
     args = parser.parse_args()
+    if args.source_only and (args.apply or args.owned_worktree):
+        parser.error('--source-only cannot write worktree overrides')
     if args.owned_worktree and not args.apply:
         parser.error('--owned-worktree requires --apply')
     if args.apply and not args.owned_worktree:
@@ -147,7 +185,12 @@ def main():
     here = Path(__file__).resolve().parent
     repo = here.parent.parent
     codex = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex')))
-    problems = validate_external_workers(repo)
+    problems = validate_source_templates(repo)
+    if args.source_only:
+        if problems:
+            raise ValueError('\n'.join(problems))
+        print('Reviewed source routing and current instruction audit passed; live runtime unverified.')
+        return
     for path in (codex / 'config.toml', here / 'config.toml', here / 'config-core.toml'):
         try:
             problems.extend(f'{path}: {problem}' for problem in validate_config(read_toml(path)))

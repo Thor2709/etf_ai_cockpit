@@ -112,11 +112,12 @@ All Luna assignments use `high` reasoning. Keep the normal path cost-conscious b
 
 Use a fresh isolated worktree for repository changes unless the active project explicitly authorises another arrangement.
 
-Maintain at most:
-
-* one immutable integration/CI lane;
-* one disjoint implementation lane;
-* independent read-only subagents.
+Root serialises integration and canonical mutation through one immutable
+integration/CI lane. Implementation lanes require dependency readiness, disjoint
+source/test ownership and mutable runtime resources, a complete writer census,
+and reserved independent-review capacity. Follow the project's validated lane
+admission policy; separate worktrees alone are not independence. The child
+ceiling is headroom, never a lane-allocation target.
 
 Do not edit a frozen PR head while its required evidence is running.
 

@@ -462,7 +462,10 @@ class StagedEditorTests(unittest.TestCase):
     def test_forbidden_packet_paths_never_launch(self):
         for path in ('../escape', '/absolute', 'a/../b', 'a\\b', 'a:stream', '.git/config',
                      '.agents/agent.md', 'AGENTS.md', 'docs/codex-config/agy_delegate.py',
-                     'credentials.json', 'secrets/key', 'private-key.pem', 'file.'):
+                     'credentials.json', 'secrets/key', 'private-key.pem', 'file.',
+                     'issues/issue_registry.json', 'issues/programme_control_state.json',
+                     'issues/open.md', 'ISSUES/closed.md', 'README.md', 'CHANGELOG.md',
+                     'PLAN_step2.md', 'docs/development/CONTROL_PLANE.md'):
             with self.subTest(path=path), self.assertRaises(agy.DelegationError):
                 agy.owned_editor_paths({**self.packet, 'owned_paths': [path]})
 

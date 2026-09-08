@@ -10,6 +10,14 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 
+try:
+    from scripts.git_change_paths import changed_paths
+    from scripts.validation_identity import identity_groups
+except ModuleNotFoundError:
+    from git_change_paths import changed_paths  # type: ignore[no-redef]
+    from validation_identity import identity_groups  # type: ignore[no-redef]
+
+
 SCHEMA_VERSION = "validation-classifier.v1"
 TIERS = ("E", "O", "H", "C")
 TIER_ORDER = {tier: index for index, tier in enumerate(TIERS)}
@@ -36,10 +44,6 @@ EVIDENCE_PREFIXES = (
     "docs/product-completion/programme/phases/",
     "docs/product-completion/reconciliation/",
 )
-CHECKPOINT_CHRONOLOGY_PATHS = {
-    "plans/active_codex_goal.md",
-    "plans/batch-b04-analysis-spine.md",
-}
 HIGH_RISK_EXACT_PATHS = {
     "src/etf_cockpit/data/market_adjustments.py",
     "src/etf_cockpit/audit/thesis_diary.py",
@@ -140,7 +144,9 @@ def _normalise_path(value: str) -> str:
 
 def classify_path(value: str) -> PathClassification:
     path = _normalise_path(value)
-    if not path or path == "." or path.startswith("../") or PurePosixPath(path).is_absolute():
+    if (value != value.strip() or any(ord(c) < 32 or ord(c) == 127 for c in value)
+            or ".." in PurePosixPath(path).parts
+            or not path or path == "." or path.startswith("../") or PurePosixPath(path).is_absolute()):
         return PathClassification(path or value, "H", "ambiguous-or-invalid-path")
     lowered = path.lower()
     parsed_path = PurePosixPath(lowered)
@@ -152,8 +158,6 @@ def classify_path(value: str) -> PathClassification:
         lowered.startswith(prefix.lower()) for prefix in EVIDENCE_PREFIXES
     ):
         return PathClassification(path, "E", "allowlisted-semantic-event-or-projection")
-    if lowered in CHECKPOINT_CHRONOLOGY_PATHS:
-        return PathClassification(path, "E", "allowlisted-checkpoint-chronology")
     if (
         lowered in PROTECTED_POLICY_PATHS
         or lowered in HIGH_RISK_EXACT_PATHS
@@ -242,9 +246,7 @@ def derive_ordinary_gate_cadence(
                 text=True,
             )
             if parent.returncode == 0:
-                changed = _git_text(
-                    root, "diff", "--name-only", "--diff-filter=ACMRTUXB", parent.stdout.strip(), commit
-                ).splitlines()
+                changed = changed_paths(root, parent.stdout.strip(), commit)
             else:
                 changed = _git_text(root, "ls-tree", "-r", "--name-only", commit).splitlines()
             if not changed:
@@ -325,40 +327,32 @@ def derive_trusted_evidence(
     head: str,
     artifact_manifest: str,
     reusable_evidence: dict[str, object] | None = None,
+    diagnostics: list[str] | None = None,
 ) -> dict[str, object] | None:
-    """Validate prior reviewed evidence against the current E change."""
+    """Validate prior reviewed evidence against the current E change.
+
+    Optional diagnostics explain rejection without creating another authority.
+    """
+    def reject(reason: str) -> dict[str, object] | None:
+        if diagnostics is not None:
+            diagnostics.append(reason)
+        return None
 
     if not re.fullmatch(r"[0-9a-f]{40}", base) or not re.fullmatch(r"[0-9a-f]{40}", head):
-        return None
+        return reject("malformed_current_base_or_head")
     if not isinstance(reusable_evidence, dict):
-        return None
+        return reject("missing_reusable_evidence")
     reviewed_base = reusable_evidence.get("base_sha")
     reviewed_head = reusable_evidence.get("head_sha")
     if not isinstance(reviewed_base, str) or not re.fullmatch(
         r"[0-9a-f]{40}", reviewed_base
     ):
-        return None
+        return reject("malformed_reviewed_base")
     if not isinstance(reviewed_head, str) or not re.fullmatch(
         r"[0-9a-f]{40}", reviewed_head
     ):
-        return None
-    groups = {
-        "source_sha256": ("src", "scripts"),
-        "dependency_sha256": (
-            "pyproject.toml",
-            "requirements-release.txt",
-            "requirements-release-parsers.txt",
-        ),
-        "product_tree_sha256": ("src", "configs"),
-        "policy_sha256": (
-            "AGENTS.md",
-            ".github/workflows",
-            "configs",
-            "docs/product-completion/DELIVERY_WORKFLOW.md",
-            artifact_manifest,
-        ),
-        "environment_sha256": ("pyproject.toml", "requirements-release.txt", "requirements-release-parsers.txt"),
-    }
+        return reject("malformed_reviewed_head")
+    groups = {f"{key}_sha256": paths for key, paths in identity_groups(artifact_manifest).items()}
     try:
         subprocess.run(
             ["git", "merge-base", "--is-ancestor", reviewed_base, reviewed_head],
@@ -388,7 +382,7 @@ def derive_trusted_evidence(
                 for ref in (reviewed_head, base, head)
             }
             if len(digests) != 1:
-                return None
+                return reject("protected_identity_changed:" + key)
             identities[key] = digests.pop()
         artifacts = [
             subprocess.check_output(
@@ -397,9 +391,32 @@ def derive_trusted_evidence(
             for ref in (reviewed_head, base, head)
         ]
         if len(set(artifacts)) != 1:
-            return None
-    except (OSError, subprocess.CalledProcessError):
-        return None
+            return reject("protected_artifact_manifest_changed")
+        # The base-approved catalogue must identify the source actually certified,
+        # not merely contain an unrelated old green run and a self-consistent hash.
+        manifest = json.loads(artifacts[0])
+        artifact = manifest.get("artifact_identity") if isinstance(manifest, dict) else None
+        if (not isinstance(artifact, dict)
+                or manifest.get("schema_version") != "protected-evidence-manifest.v1"
+                or manifest.get("execution_allowed") is not False
+                or artifact.get("terminal_result") != "success"
+                or not isinstance(artifact.get("reviewed_head_sha"), str)
+                or not re.fullmatch(r"[0-9a-f]{40}", artifact["reviewed_head_sha"])
+                or any(type(artifact.get(key)) is not int or artifact[key] < 1 for key in
+                       ("release_gate_run_id", "release_gate_attempt", "linux_junit_tests", "windows_junit_tests"))):
+            return reject("unverifiable_certified_artifact_identity")
+        certified_head = artifact["reviewed_head_sha"]
+        subprocess.run(["git", "merge-base", "--is-ancestor", certified_head, reviewed_head],
+                       cwd=root, check=True, capture_output=True)
+        for key, paths in groups.items():
+            # The evidence catalogue is necessarily written after its certified
+            # commit. Exclude only that catalogue for this additional comparison;
+            # ALL existing reviewed/base/head equality checks above remain intact.
+            source_paths = tuple(path for path in paths if path != artifact_manifest)
+            if _git_identity(root, certified_head, source_paths) != _git_identity(root, reviewed_head, source_paths):
+                return reject("certified_artifact_source_identity_changed:" + key)
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        return reject("ancestry_or_required_git_object_unverifiable")
     identities["artifact_manifest_sha256"] = (
         __import__("hashlib").sha256(artifacts[0]).hexdigest()
     )
@@ -520,14 +537,7 @@ def validation_summary_failures(
 
 
 def _git_changed_paths(root: Path, base: str, head: str) -> list[str]:
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "--diff-filter=ACMRTUXB", base, head, "--"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.splitlines()
+    return changed_paths(root, base, head)
 
 
 def _load_base_reusable_evidence(

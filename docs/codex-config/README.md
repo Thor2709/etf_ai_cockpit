@@ -2,102 +2,56 @@
 
 This directory preserves the latest reviewed personal Codex orchestration configuration used for ETF AI Cockpit development.
 
-## Restricted external Antigravity Flash workers
+## Source authority and local verification
 
-The twelve Codex V2 roles and their model/effort mappings remain unchanged.
-`codex-flash-scout` and `codex-flash-editor` are external AGY workers, not V2
-children. They consume no V2 slot; editors count as writers under the same
-ownership rules. They cannot satisfy formal reviewer/risk/release gates,
-decide test sufficiency or write Git/GitHub/canonical programme state. Codex
-independently inspects actual changes, selects the existing validation tier
-and runs tests. Scout and editor each have independent disabled/shadow/enabled
-states. Scout is enabled for proven read-only assignments; editor remains disabled.
+The twelve role files in `agents/` and sanitised `config-core.toml` define the
+reviewed routing template. `agent_routing.py` validates both checked-in templates
+and can audit actual local configuration. Do not mistake this directory or a
+historical PR description for proof of a live runtime.
 
-Reviewed Codex skill source: `codex-skills/antigravity-flash/`. After framework
-acceptance, root synchronizes these reviewed files to the live Codex USER
-scope `~/.agents/skills/antigravity-flash/`, resolving the home directory live,
-preflighting existing content and verifying hashes. Never overwrite unexpected
-user drift. The skill must not appear in repository `.agents/skills`, which
-AGY also discovers. No live user installation is implied by this source tree.
-If discovery does not refresh, use one new Codex session without changing
-unrelated configuration. The root owns any user-home synchronization/fallback.
+Current Scout/Editor capability states are read directly from
+`agy_delegate.py:CAPABILITY_STATES`; run
+`python scripts/programme_execution.py --json` from the repository for the derived
+view. The reviewed Scout route is read-only, fresh-project, absolute-workspace.
+The only Editor route is disposable exact-base staging and whole-candidate
+promotion. Flash never directly edits an authoritative issue worktree. Any
+unowned/forbidden staged change rejects the entire candidate; Codex independently
+inspects promoted bytes and determines tests. Outside-workspace preventive
+containment remains required. Hooks are diagnostic only. Normal V2 supplies
+fallback and formal reviewer/risk/release authority; AGY is not a thirteenth role.
+AGY editors count as writers, but do not consume V2 child slots.
 
-AGY custom agents live at `.agents/agents/codex-flash-scout/agent.md` and
-`.agents/agents/codex-flash-editor/agent.md`. Both disable shell execution,
-subagent invocation and inherited customizations, with empty MCP/skills/plugins.
-Scout requests only `view_file`, `grep_search`, `find_by_name`, `list_dir`;
-editor adds `write_to_file`, `replace_file_content`, `multi_replace_file_content`.
-Bodies contain authority constraints directly. Interactive scout marker
-evidence confirmed custom-body visibility and exclusion of root AGENTS, ambient
-rules and skills. This does not prove fresh headless custom-agent selection.
+Only `agy_delegate.py` invokes official AGY. It pins the reviewed CLI/model,
+rejects provider/auth overrides and unsafe streams, checks exact Git/filesystem
+identity, and removes only its own disposable worktree/project record. Never
+bypass permissions, invoke hidden APIs, add credentials, or treat failure as
+rollback. Legacy independent AGY issue worktrees are historical candidate work,
+not programme ownership. The one-time dispositions are in the control-plane
+audit and `docs/development/work-index.json`.
 
-Only `agy_delegate.py` invokes official AGY. It resolves PATH, then on Windows
-the official per-user `LOCALAPPDATA/agy/bin/agy.exe` location, requires exactly 1.1.27,
-queries models/agents in the exact workspace and requires the discovered
-`gemini-3.8-flash-medium` slug. CLI 1.1.27 omits main-agent-only definitions
-from the non-interactive agents listing. Byte-identical definitions and
-`init.agent` are consistency checks, not proof of selection: the direct
-headless run echoed the requested name while logging fallback to default.
-High requires an explicit root justification;
-other model generations are rejected. Workspace definitions must match the
-reviewed source. No credentials, provider configuration, private APIs, MCP
-bridges or permission bypass are part of this integration. Existing provider
-override environment variables cause rejection rather than configuration edits.
+Reviewed Skill source: `codex-skills/antigravity-flash/`. Live installation is
+Codex USER scope `~/.agents/skills/antigravity-flash/`, never repository
+`.agents/skills`. Repository state cannot prove installation on the current
+machine. Root verifies exact source/live hashes, preserves unexpected drift, and
+synchronises only an accepted reviewed source. `programme_execution.py --live-skill
+<absolute-live-directory> --json` is read-only hash comparison, not installation
+or proof that the runtime loaded the Skill. Use a fresh session once if discovery
+has not refreshed. Preserve existing local smoke/containment evidence and verify
+its exact CLI/model/instruction/environment identity before reuse.
+
+The former experiment matrix and installation checkpoints remain exact historical
+evidence in `plans/archive/2026-09-08-control-plane/docs/codex-config/README.md` and
+PR #734. They do not override present capability code or fresh local observation.
 
 ```text
 python docs/codex-config/agy_delegate.py --cwd <absolute-owned-worktree> --agent codex-flash-scout --packet <utf8-task-packet> --timeout 180
-python -m pytest docs/codex-config/test_agy_delegate.py docs/codex-config/test_agent_routing.py -q
+python -B -m unittest discover -s docs/codex-config -p 'test_*.py' -v
 python docs/codex-config/agent_routing.py
-python <skill-creator>/scripts/quick_validate.py docs/codex-config/codex-skills/antigravity-flash
-git diff --check
 ```
 
-The wrapper uses `-p`, `--output-format stream-json`, exact `--model`/`--agent`,
-`--print-timeout`, `--sandbox` and `--json-schema`, plus `--mode plan`,
-`--new-project` and absolute `--add-dir <resolved workspace>` for scout.
-It captures both streams, records the primary `init.tools` registry without
-requiring it to be a subset of the agent tool list, and validates identity,
-permission metadata and a single successful result. Forbidden tool/subagent
-execution is a capability containment failure. A forbidden `ERROR/TOOL_ERROR`
-degrades only that assignment when its message exactly identifies the same tool
-as unavailable and pre/post Git and filesystem evidence is identical. Generic,
-partial-effect and mismatched errors disable the capability, as does a forbidden
-`DONE` or actual subagent activity.
-Captured diagnostics are not echoed because they may contain local sensitive
-data. Rejection is not rollback: Codex still inspects status/diff after editor
-failure. The sandbox flag concerns terminal restrictions; file ownership is
-also enforced through the restricted agent contract and independent real-diff
-inspection, not an asserted per-file OS sandbox. Before launching, the adapter
-requires an exact clean Git root. After success or failure it verifies HEAD,
-Git cleanliness, and filesystem fingerprints including ignored files and empty
-directories. Reparse points and unreadable entries fail closed. The workspace
-must have no concurrent writer. These checks detect effects; they are not rollback.
-
-Protocol sources checked 2026-09-07:
-[headless event/schema/flag documentation](https://www.antigravity.google/docs/cli/headless/),
-[custom-agent schema](https://www.antigravity.google/docs/subagents/) and
-[terminal sandbox](https://www.antigravity.google/docs/cli/sandbox/).
-Deterministic tests use mocked documented streams, not personal Google access.
-The completed AGY 1.1.27 matrix used the existing Google AI Pro account and
-exact `gemini-3.8-flash-medium` model:
-
-| Route | Observed containment | Automation decision |
-| --- | --- | --- |
-| Fresh headless `--agent`, plan, sandbox | Echoed scout identity, but logged fallback to default and zero hooks. `invoke_subagent`, `define_subagent`, and `manage_subagents` succeeded; shell/read attempts were separately denied. | Scout disabled; editor disabled. |
-| Interactive custom scout | Actual schema restricted; workspace hook loaded. A broad canary agent's forbidden shell, write, web, task, scheduling, permission, messaging and collaboration calls were hard-denied by the strict hook. | Effective when loaded; not fresh task automation proof. |
-| Resume interactive scout | Retained scout behavior and hooks, but lacked `init.agent` and required persistent conversation/bootstrap. | Not an accepted automation route. |
-| Fresh `--new-project --add-dir <absolute workspace>` scout in plan/sandbox mode | The subsequent read-only route passed. Absent tool attempts emitted `ERROR/TOOL_ERROR`; approved calls emitted `ACTIVE` then `DONE`. | Scout enabled; editor disabled. |
-
-The documented subagent `tools` list is not a primary-registry contract;
-interactive restrictions and fresh headless selection must be verified
-separately. The current scout route uses a fresh project with the exact absolute
-workspace; old-route fallback evidence does not describe that route. Broad init
-registries and broken PreToolUse denial are diagnostic, not acceptance or
-disable criteria on their own. Hook counts are not relied on as containment.
-`CAPABILITY_STATES` selects scout enabled; `require_fresh_containment` continues
-to reject editor even if its state is changed. Root must disable a capability
-after a `CAPABILITY_DISABLED` outcome until reviewed repair. This source change
-does not install or synchronize the Skill or activate an external integration.
+The offline harness tests are also exercised by the normal packaged pytest
+collection through `tests/test_development_harness.py`; no personal AGY
+installation or credentials are required for those tests.
 
 - `global-AGENTS.md` mirrors the global `C:\\Users\\thor2\\.codex\\AGENTS.md`.
 - `config.toml` mirrors the current desktop Codex configuration as volatile
@@ -162,4 +116,4 @@ python -B -m unittest discover -s docs/codex-config -p test_agent_routing.py -v
 
 All test writes use temporary fixtures; the tests do not change live configuration or real worktree overrides.
 
-The canonical product programme remains in `PLAN_step2.md`, `issues/issue_registry.json`, `issues/programme_control_state.json`, and `docs/product-completion/`.
+The semantic/edit/generator/projection/consumer map and fresh-session commands are in `docs/development/CONTROL_PLANE.md`.
