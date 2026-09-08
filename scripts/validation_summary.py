@@ -29,6 +29,12 @@ except ModuleNotFoundError:
     )
 
 
+try:
+    from scripts.validation_identity import identity_groups
+except ModuleNotFoundError:
+    from validation_identity import identity_groups  # type: ignore[no-redef]
+
+
 SCHEMA_VERSION = "validation-summary.v1"
 IDENTITY_KEYS = {
     "environment",
@@ -531,13 +537,7 @@ def collect_summary(
             junit[platform] += _junit_tests(root_node)
         except (ET.ParseError, ValueError):
             continue
-    groups = {
-        "environment": ["pyproject.toml", "requirements-release.txt", "requirements-release-parsers.txt"],
-        "source": ["src", "scripts"],
-        "dependency": ["pyproject.toml", "requirements-release.txt", "requirements-release-parsers.txt"],
-        "product_tree": ["src", "configs"],
-        "policy": ["AGENTS.md", ".github/workflows", "configs"],
-    }
+    groups = identity_groups()
     report = {
         "schema_version": SCHEMA_VERSION,
         "base_sha": base,

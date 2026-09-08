@@ -330,7 +330,7 @@ def test_evidence_tier_is_a_closed_projection_allowlist() -> None:
         assert build_report([generated_path])["tier"] == "E"
     assert build_report(["docs/product-completion/programme/notes.md"])["tier"] == "H"
     assert build_report(["docs/product-completion/programme/roadmap.md.bak"])["tier"] == "H"
-    assert build_report(["plans/ACTIVE_CODEX_GOAL.md"])["tier"] == "E"
+    assert build_report(["plans/ACTIVE_CODEX_GOAL.md"])["tier"] == "H"
 
 
 def test_checkpoint_chronology_allowlist_is_narrow_and_content_independent() -> None:
@@ -353,7 +353,7 @@ def test_checkpoint_chronology_allowlist_is_narrow_and_content_independent() -> 
         "plans/BATCH-B04-RELEASE.md",
     ]
 
-    assert all(build_report([path])["tier"] == "E" for path in positive)
+    assert all(build_report([path])["tier"] == "H" for path in positive)
     assert all(build_report([path])["tier"] == "H" for path in negative)
     assert build_report(
         [positive[0], "scripts/classify_validation.py"]
@@ -423,7 +423,15 @@ def _evidence_repo(tmp_path: Path) -> tuple[str, str, str, str, dict[str, object
         path.write_text(content, encoding="utf-8")
     reviewed_base = _commit(tmp_path, "reviewed base")
     (tmp_path / "review.txt").write_text("H gate passed\n", encoding="utf-8")
-    reviewed_head = _commit(tmp_path, "reviewed head")
+    certified_head = _commit(tmp_path, "certified source fixture")
+    manifest = {
+        "schema_version": "protected-evidence-manifest.v1", "execution_allowed": False,
+        "artifact_identity": {"reviewed_head_sha": certified_head, "terminal_result": "success",
+                              "release_gate_run_id": 1, "release_gate_attempt": 1,
+                              "linux_junit_tests": 1, "windows_junit_tests": 1},
+    }
+    (tmp_path / ".github/issue-transitions/protected-evidence-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    reviewed_head = _commit(tmp_path, "base-approved evidence catalogue fixture")
     (tmp_path / "prior-evidence.txt").write_text("merged\n", encoding="utf-8")
     current_base = _commit(tmp_path, "current base")
     (tmp_path / "docs").mkdir()

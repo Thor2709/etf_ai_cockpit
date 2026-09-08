@@ -5,20 +5,18 @@ policy: changes invalidate reusable evidence and are at least H-tier.
 
 ## Precedence
 
-1. Product scope and acceptance criteria come from the immutable final-release
-   specification and the current canonical registry.
-2. Current issue identity, dependency and status come from
-   `issues/issue_registry.json` and `issues/programme_control_state.json`.
-3. Current delivery mechanics come from the global/project `AGENTS.md`, the
-   effective `config.toml`, this contract, `PLAN_step2.md` and the active goal.
-4. The active task is defined by `plans/ACTIVE_CODEX_GOAL.md` and the current
-   batch plan.
-5. Historical plans and immutable source mechanics are evidence only when they
-   conflict with newer operational instructions.
-
-Historical instructions prescribing a Sol-high root, Terra workers, Sol-low or
-`sol_worker`, two-to-four writers, two-to-eight issue PRs,
-Luna-only repetitive work or manual lifecycle convergence are superseded.
+1. Product scope/acceptance comes from immutable source specifications, source
+   ledger clauses, normative amendments and reviewed canonical extensions.
+2. Status/phase/edge evidence is edited only through the existing reviewed
+   `issues/programme_control_state.json` authority process. The registry,
+   readiness and status files are generated consumers, not independent edits.
+3. Root `AGENTS.md`, this contract and reviewed durable Codex role/configuration
+   sources define operation. Verify actual runtime metadata against those sources.
+4. Current/next work is derived by `scripts/programme_execution.py`; active
+   ownership is a root-reconciled local observation, never a historical batch
+   reservation. The output is advisory and grants no mutation authority.
+5. Historical checkpoints and personal machine snapshots are evidence only.
+   `docs/development/CONTROL_PLANE.md` maps every authority/edit/projection role.
 
 ## Delivery shape
 
@@ -27,9 +25,9 @@ current `origin/main`, dependency readiness, worktree and ownership. Normally
 deliver one bounded product issue in one product PR. Batch independent
 dependency edges only when their contracts are genuinely inseparable and the
 root records the reason. Product work may overlap immutable CI only in proven
-disjoint worktrees. Concurrent product writers require an active-batch map of
-canonical dependencies, exclusive source/test ownership and isolated runtime
-resources. Root alone serializes merges and canonical/GitHub writes. Reserve
+disjoint worktrees. Concurrent product writers require a freshly validated local lane observation
+with canonical dependencies, exclusive source/test ownership and isolated runtime
+resources. Missing, stale or conflicting ownership fails closed. Root alone serializes merges and canonical/GitHub writes. Reserve
 required independent-review capacity instead of filling every slot with
 writers. Delegation depth is one; effective V2 child capacity derives from
 current global/project AGENTS.md and effective Codex configuration. This
@@ -43,13 +41,20 @@ AGY editors count as writers under the same file/runtime ownership limits.
 They have no canonical programme-state authority, cannot satisfy formal V2
 reviewer/risk/release gates and cannot decide validation sufficiency. Root may
 use the reviewed skill/adapter for approved cheap-to-verify assignments and
-must independently inspect the real diff and run required evidence. Scout and
-editor each have independent disabled/shadow/enabled states. The scout is in
-enabled for proven read-only assignments on the exact AGY 1.1.27 fresh-project route with an absolute
-added workspace; capability absence or exact preventive denial, clean pre/post
-state and working read/search tools are required per assignment. Broad primary
-tool registries and hooks are diagnostic, not containment boundaries. The
-editor remains disabled. Use normal V2 fallback on failure or low value.
+must independently inspect the real diff and run required evidence. Current
+Scout/Editor states are defined only by the reviewed adapter's
+`CAPABILITY_STATES` and displayed by the on-demand harness report. Scout requires
+proven read-only capability absence/preventive denial, clean pre/post state and
+working read/search tools on the reviewed fresh-project absolute-workspace route.
+Editor is restricted to disposable exact-base staging: Flash never writes the
+authoritative issue worktree directly. Any forbidden or unowned change rejects
+the complete candidate; Codex promotes only a wholly valid candidate and inspects
+every promoted byte. Outside-workspace preventive containment remains required;
+hooks and primary-tool registries are diagnostic, not authority. Skill source,
+historical installation evidence and current local loaded/hash state are separate.
+Normal V2 is fallback and formal acceptance authority. Legacy independent AGY
+issue lanes do not reserve programme ownership; preserve their useful candidate
+code without continuing that orchestration model.
 
 Review a stable exact-head diff. Merge only the reviewed head after required
 gates. Update the canonical control source first; never hand-edit generated
@@ -73,10 +78,10 @@ began canonically `in_progress` before transition history existed, may use an
 empty replay prefix only when their complete fixed source record validates.
 The appended path remains the same exact two hops; every other issue, unknown
 source field, malformed value or inconsistent prefix fails closed.
-The exact active-goal and current `plans/BATCH-B04-ANALYSIS-SPINE.md`
-checkpoint chronology files are evidence-only and do not inflate an otherwise
-E control transaction; invented or other plan paths fail upward. Genuine H
-changes still run the complete serial Linux/Windows packaged gates.
+The active entry points are durable operational policy, not E-exempt chronology.
+Their former bytes remain archived; new session observations stay local/untracked
+and cannot invalidate a frozen head merely by recording progress. Policy/harness
+changes remain H-tier with complete serial Linux/Windows packaged gates.
 Where the contract permits, product lifecycle completion is atomic/automatic
 rather than a serial chain of administrative PRs.
 Generic live convergence executes the synchroniser as a module from the
@@ -91,13 +96,21 @@ compatibility boundary.
 
 ## Stable-head throughput
 
-Before freezing a product head, complete required documentation, checkpoint,
-canonical transition, transition manifest, candidate, append-only authority
-record and mechanically generated projections. Validate the exact live dry-run
-plan plus the expected post-merge ordered writer and zero-action readback. Do
-not open or merge a product/readiness PR with known missing lifecycle
-authority, and do not combine dependency-edge and lifecycle changes when the
-guard prohibits that shape.
+Before freezing a product head, complete required documentation and every
+legally includable lifecycle component. The existing ancestry guard can require
+the reviewed product commit to be on main before a completion transaction can
+be authorised. In that case, prepare the exact issue/transition/evidence checklist,
+finish product review and H validation, merge only the accepted product head,
+then bind one reviewed lifecycle transaction to the resulting exact main.
+Do not fabricate pre-merge ancestry, invent an older verification commit, weaken
+the guard or claim the product issue complete before canonical/GitHub convergence.
+
+For a lifecycle/readiness transaction, validate its complete canonical transition,
+manifest, candidate, append-only authority record, generated projections, exact
+live dry-run plan and expected ordered writer/zero-action readback before merge.
+Do not combine dependency-edge and lifecycle changes when the guard prohibits it.
+This ordering replaces the impossible universal demand for post-product ancestry
+inside the unmerged product head; it does not add mutation or recovery authority.
 
 Once the head is locally green and clean, launch whole-diff review, risk review
 and required exact-head hosted CI concurrently. Read-only preparation for the
@@ -184,7 +197,11 @@ sampled audit or final certification.
 
 Reuse is authorised only when base/head, source, dependency, product-tree,
 policy, environment, artifact-manifest and `execution_allowed=false`
-identities match exactly. The O cadence is derived from the exact PR base
+identities match exactly. `scripts/validation_identity.py` supplies the same
+protected groups to the classifier and terminal summary, including tests and
+durable harness policy. The on-demand planner explains invalidation using the
+existing validator, never a competing evidence authority. Expanding a binding
+invalidates historical sidecars; it does not rewrite or manufacture evidence. The O cadence is derived from the exact PR base
 first-parent `origin/main` history using the current classifier. E commits are
 ignored; O commits are counted from the nearest H/C reset; the second O is due
 for a full gate. Unknown cadence is never treated as zero. No GitHub variable
@@ -226,3 +243,15 @@ Architecture or contract changes require reading and updating the relevant
 SDD/ADR in the same PR. Keep the application local-first,
 `execution_allowed=false`, optional models disabled-safe, and broker/provider,
 release, deployment and external-write authority unchanged.
+
+## Exact CI source identity
+
+Every source checkout explicitly selects the event's exact PR head (or exact
+default-branch event SHA for a scheduled sample) and verifies `git rev-parse HEAD`
+before running tools. PR heads must incorporate the exact freshly fetched main
+base, so selecting the head does not discard untested integration changes. A stale
+base fails before expensive work. Trusted authority-base checkouts remain separate. Artifact
+names may retain the event/run identifier; their source identity is the verified
+head inside the evidence, not the label or GitHub's synthetic PR merge SHA.
+Integration still requires a fresh base, exact expected-head merge protection and
+all existing financial, product, cross-platform and lifecycle acceptance gates.

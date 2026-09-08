@@ -85,8 +85,9 @@ def owned_editor_paths(packet):
                 and not any(part in ('agents.md', 'agents.override.md', 'gemini.md',
                                      'delivery_workflow.md', 'pyproject.toml', 'uv.lock',
                                      'requirements.txt', 'conftest.py') for part in parts)
+                and lower not in ('readme.md', 'changelog.md', 'plan.md', 'plan_step2.md')
                 and not lower.startswith(('docs/codex-config/', 'docs/product-completion/',
-                                          'plans/', 'scripts/')),
+                                          'plans/', 'scripts/', 'issues/', 'docs/development/')),
                 'Forbidden editor promotion path')
         require(lower not in normalized, 'Duplicate owned path')
         normalized.add(lower)
@@ -533,6 +534,9 @@ def delegate(cwd, agent, prompt, timeout=180, model=DEFAULT_MODEL, high_reason=N
         validate_agent(source, name)
         require(not target.is_symlink() and target.read_bytes() == source.read_bytes(),
                 'Workspace custom agent differs from reviewed source')
+    packet = strict_json(prompt) if agent == 'codex-flash-editor' else None
+    if packet is not None:
+        owned_editor_paths(packet)  # Reject forbidden ownership before CLI discovery or launch.
     executable = shutil.which('agy')
     if executable is None and os.name == 'nt' and os.environ.get('LOCALAPPDATA'):
         installed = Path(os.environ['LOCALAPPDATA']) / 'agy' / 'bin' / 'agy.exe'
@@ -541,7 +545,7 @@ def delegate(cwd, agent, prompt, timeout=180, model=DEFAULT_MODEL, high_reason=N
     require(executable is not None, 'Official agy is unavailable; use V2 fallback')
     require(Path(executable).suffix.lower() not in ('.bat', '.cmd', '.ps1'), 'AGY shell shim unsupported')
     if agent == 'codex-flash-editor':
-        return staged_editor(executable, workspace, strict_json(prompt), timeout, model)
+        return staged_editor(executable, workspace, packet, timeout, model)
     before = workspace_snapshot(workspace)
     try:
         stdout = run_scout(executable, workspace, agent, prompt, timeout, model)
