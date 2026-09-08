@@ -103,8 +103,13 @@ def marker_ids(remote_issues: Iterable[dict[str, Any]]) -> dict[str, list[dict[s
     return result
 
 
-def normalise_remote_issue(issue: dict[str, Any]) -> dict[str, Any]:
-    value = mutation_gateway.normalise_issue_snapshot(issue)
+def normalise_remote_issue(
+    issue: dict[str, Any], *, include_refresh_protected: bool = False,
+) -> dict[str, Any]:
+    value = (
+        mutation_gateway.normalise_refresh_snapshot(issue)
+        if include_refresh_protected else mutation_gateway.normalise_issue_snapshot(issue)
+    )
     projection = mutation_gateway.project_status_events(value)
     value["status_projection"] = projection
     value["create_acceptance"] = mutation_gateway.validate_create_acceptance(value)
@@ -179,7 +184,7 @@ def plan_actions(
     refresh_remainder_of: str | None = None,
 ) -> dict[str, Any]:
     remote = sorted(
-        (normalise_remote_issue(issue) for issue in remote_issues),
+        (normalise_remote_issue(issue, include_refresh_protected=True) for issue in remote_issues),
         key=lambda issue: issue["number"],
     )
     authority_reconciliation = None
@@ -736,7 +741,7 @@ def main(argv: list[str] | None = None) -> int:
     if not isinstance(remote, list):
         raise SystemExit("remote snapshot must be a JSON list")
     normalised_remote = sorted(
-        (normalise_remote_issue(issue) for issue in remote),
+        (normalise_remote_issue(issue, include_refresh_protected=True) for issue in remote),
         key=lambda issue: issue["number"],
     )
     if args.inventory_out:

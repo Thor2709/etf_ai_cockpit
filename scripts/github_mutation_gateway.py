@@ -1983,8 +1983,9 @@ def reconcile_authority_ledger(
             if record["authority_type"] == "managed_refresh":
                 for update in record["payload"]["updates"]:
                     refresh_heads[update["issue_number"]] = (record, update)
+        refresh_issues = {int(issue["number"]): issue for issue in issues}
         for number, (record, update) in refresh_heads.items():
-            observation = refresh_observation(update, by_number.get(number, {}))
+            observation = refresh_observation(update, refresh_issues.get(number, {}))
             if observation != "post" and not (
                 record["authority_id"] == refresh_remainder_of and observation == "pre"
             ):
@@ -2186,15 +2187,42 @@ def _refresh_block(body: str, stable_id: str) -> tuple[str, str, str]:
     return body[:start], body[start:end], body[end:]
 
 
-def refresh_protected_sha256(issue: dict[str, Any]) -> str:
+def normalise_refresh_snapshot(issue: dict[str, Any]) -> dict[str, Any]:
+    """Preserve refresh metadata without changing historical snapshot hashes."""
     snapshot = normalise_issue_snapshot(issue)
+    assignees = issue.get("assignees") or []
+    milestone = issue.get("milestone")
+    if not isinstance(assignees, list) or any(not isinstance(row, dict) for row in assignees):
+        raise ValueError("managed_refresh_invalid_assignees")
+    snapshot["assignees"] = sorted(
+        ({"id": str(row.get("id") or ""), "node_id": str(row.get("node_id") or ""),
+          "login": str(row.get("login") or "")} for row in assignees),
+        key=lambda row: (row["id"], row["node_id"], row["login"]),
+    )
+    if milestone is not None and not isinstance(milestone, dict):
+        raise ValueError("managed_refresh_invalid_milestone")
+    snapshot["milestone"] = (
+        {"id": str(milestone.get("id") or ""),
+         "node_id": str(milestone.get("node_id") or ""),
+         "number": int(milestone.get("number") or 0),
+         "title": str(milestone.get("title") or ""),
+         "state": str(milestone.get("state") or "").lower()}
+        if milestone is not None else None
+    )
+    return snapshot
+
+
+def refresh_protected_sha256(issue: dict[str, Any]) -> str:
+    snapshot = normalise_refresh_snapshot(issue)
     return _sha256(_json_bytes({
-        key: snapshot[key] for key in ("number", "id", "node_id", "title", "state", "labels", "url")
+        key: snapshot[key] for key in (
+            "number", "id", "node_id", "title", "state", "labels", "url", "assignees", "milestone"
+        )
     }))
 
 
 def refresh_observation(update: dict[str, Any], issue: dict[str, Any]) -> str:
-    snapshot = normalise_issue_snapshot(issue)
+    snapshot = normalise_refresh_snapshot(issue)
     if (
         snapshot["number"] != update["issue_number"]
         or snapshot["id"] != update["database_id"]
@@ -2227,7 +2255,7 @@ def managed_refresh_updates(
         raise ValueError("managed_refresh_plan_scope_mismatch")
     canonical = sync.registry_sync_records(registry)
     by_id = {row["canonical_id"]: row for row in canonical}
-    issues = {normalise_issue_snapshot(row)["number"]: normalise_issue_snapshot(row) for row in remote}
+    issues = {normalise_refresh_snapshot(row)["number"]: normalise_refresh_snapshot(row) for row in remote}
     if len(by_id) != len(canonical) or len(issues) != len(remote):
         raise ValueError("managed_refresh_ambiguous_inventory")
     updates = []
@@ -2369,71 +2397,111 @@ def apply_reviewed_managed_refresh(
     attestation: dict[str, str], authority_revalidator: Callable[[], None],
     transport: MutationTransport | None = None,
 ) -> dict[str, Any]:
-    registry = validate_reviewed_managed_refresh(
-        root, plan, remote, authority_record=authority_record,
-        git_binding=git_binding, attestation=attestation,
-    )
-    if authority_revalidator is None:
-        raise ValueError("managed_refresh_live_authority_required")
-    client = transport or GhMutationTransport()
-    from scripts import sync_github_issues as sync
-
-    # Inventory comparisons include complete comments on claimed issues, just as
-    # the existing planner does. No write occurs until the whole batch is fresh.
-    authority_revalidator()
-    inventory = client.list_issues()
-    fresh = [
-        client.fetch_issue(int(row["number"]))
-        if sync.MARKER_RE.search(str(row.get("body") or ""))
-        or sync.LEGACY_MARKER_RE.search(str(row.get("body") or ""))
-        or CREATE_MARKER_TEMPLATE.split("{")[0] in str(row.get("body") or "")
-        else row
-        for row in inventory
-    ]
-    if sync.inventory_sha256(fresh) != plan["remote_inventory_sha256"]:
-        raise ValueError("managed_refresh_stale_inventory")
-    canonical = {row["canonical_id"]: row for row in sync.registry_sync_records(registry)}
-    reviewed = {int(row["number"]): normalise_issue_snapshot(row) for row in remote}
     evidence: dict[str, Any] = {
         "execution_allowed": False, "accepted": False, "terminal_status": "pending",
-        "authority_id": authority_record["authority_id"], "updates": [],
+        "authority_id": authority_record.get("authority_id"), "updates": [],
     }
-    for update in authority_record["payload"]["updates"]:
-        number = update["issue_number"]
+    phase = "validation"
+    number: int | None = None
+    try:
+        registry = validate_reviewed_managed_refresh(
+            root, plan, remote, authority_record=authority_record,
+            git_binding=git_binding, attestation=attestation,
+        )
+        if authority_revalidator is None:
+            raise ValueError("managed_refresh_live_authority_required")
+        client = transport or GhMutationTransport()
+        from scripts import sync_github_issues as sync
+
+        # Preserve legacy inventory hashing. Refresh-only protected metadata is
+        # additionally compared for every target before any write can start.
+        phase = "inventory_authority"
         authority_revalidator()
-        if claim_inventory_sha256(client.list_issues()) != claim_inventory_sha256(list(reviewed.values())):
-            evidence["terminal_status"] = "stale_claim_inventory"
-            return evidence
-        pre = normalise_issue_snapshot(client.fetch_issue(number))
-        if pre != reviewed[number] or refresh_observation(update, pre) != "pre":
-            evidence["terminal_status"] = "stale_preimage"
-            return evidence
-        prefix, _, suffix = _refresh_block(pre["body"], update["stable_id"])
-        body = prefix + sync.managed_block(canonical[update["stable_id"]]) + suffix
-        error = False
-        try:
-            client._refresh_managed_body(number, body)
-        except Exception:
-            # Exactly one observation, never a retry or compensating write.
-            error = True
-        try:
-            post = normalise_issue_snapshot(client.fetch_issue(number))
-            observation = refresh_observation(update, post)
-            if post["comments"] != pre["comments"]:
-                observation = "conflict"
-        except Exception:
-            observation = "unobservable"
-        result = {"issue_number": number, "observation": observation, "write_error": error}
-        evidence["updates"].append(result)
-        if observation != "post":
-            evidence["terminal_status"] = (
-                "write_failed_not_applied" if observation == "pre" else observation
-            )
-            return evidence
-        reviewed[number] = post
-    evidence["accepted"] = True
-    evidence["terminal_status"] = "applied_and_verified"
-    return evidence
+        phase = "inventory_read"
+        inventory = client.list_issues()
+        fresh = [
+            client.fetch_issue(int(row["number"]))
+            if sync.MARKER_RE.search(str(row.get("body") or ""))
+            or sync.LEGACY_MARKER_RE.search(str(row.get("body") or ""))
+            or CREATE_MARKER_TEMPLATE.split("{")[0] in str(row.get("body") or "")
+            else row
+            for row in inventory
+        ]
+        if sync.inventory_sha256(fresh) != plan["remote_inventory_sha256"]:
+            raise ValueError("managed_refresh_stale_inventory")
+        canonical = {row["canonical_id"]: row for row in sync.registry_sync_records(registry)}
+        reviewed = {int(row["number"]): normalise_refresh_snapshot(row) for row in remote}
+        fresh_by_number = {int(row["number"]): normalise_refresh_snapshot(row) for row in fresh}
+        for update in authority_record["payload"]["updates"]:
+            if fresh_by_number.get(update["issue_number"]) != reviewed[update["issue_number"]]:
+                raise ValueError("managed_refresh_stale_protected_snapshot")
+        for update in authority_record["payload"]["updates"]:
+            number = update["issue_number"]
+            phase = "prefetch_authority"
+            authority_revalidator()
+            phase = "claim_inventory_read"
+            if claim_inventory_sha256(client.list_issues()) != claim_inventory_sha256(list(reviewed.values())):
+                evidence["terminal_status"] = "stale_claim_inventory"
+                return evidence
+            phase = "preimage_read"
+            pre = normalise_refresh_snapshot(client.fetch_issue(number))
+            if pre != reviewed[number] or refresh_observation(update, pre) != "pre":
+                evidence["terminal_status"] = "stale_preimage"
+                return evidence
+            prefix, _, suffix = _refresh_block(pre["body"], update["stable_id"])
+            body = prefix + sync.managed_block(canonical[update["stable_id"]]) + suffix
+            error = False
+            # No remote read or body preparation may intervene between this
+            # fresh main/run/OIDC authority check and the one PATCH attempt.
+            phase = "prewrite_authority"
+            authority_revalidator()
+            try:
+                client._refresh_managed_body(number, body)
+            except Exception:
+                # Exactly one observation, never a retry or compensating write.
+                error = True
+            phase = "postimage_read"
+            post = None
+            try:
+                post = normalise_refresh_snapshot(client.fetch_issue(number))
+                observation = refresh_observation(update, post)
+                if post["comments"] != pre["comments"]:
+                    observation = "conflict"
+            except Exception:
+                observation = "unobservable"
+            result = {
+                "issue_number": number, "stable_id": update["stable_id"],
+                "observation": observation, "write_error": error,
+                "preimage_body_sha256": update["preimage_body_sha256"],
+                "postimage_body_sha256": update["postimage_body_sha256"],
+                "observed_body_sha256": _sha256(post["body"]) if post is not None else None,
+                "observed_protected_snapshot_sha256": refresh_protected_sha256(post) if post is not None else None,
+            }
+            evidence["updates"].append(result)
+            if observation != "post":
+                evidence["terminal_status"] = (
+                    "write_failed_not_applied" if observation == "pre" else observation
+                )
+                return evidence
+            assert post is not None
+            reviewed[number] = post
+        evidence["accepted"] = True
+        evidence["terminal_status"] = "applied_and_verified"
+        return evidence
+    except Exception as exc:
+        # The outer ordered writer persists MutationGatewayError.evidence even
+        # when a later authority or transport operation prevents batch completion.
+        code = (
+            str(exc) if isinstance(exc, ValueError) and str(exc).startswith("managed_refresh_")
+            else "managed_refresh_operation_failed"
+        )
+        evidence.update(
+            terminal_status="operation_failed", failure_phase=phase,
+            failure_issue_number=number, failure_type=type(exc).__name__,
+            failure_code=exc.code if isinstance(exc, MutationGatewayError) else code,
+        )
+        error_class = MutationTransportError if evidence["updates"] else MutationPolicyError
+        raise error_class(code, evidence) from exc
 
 
 def _validate_plan_authority(plan: dict[str, Any], approved_sha256: str) -> list[dict[str, Any]]:

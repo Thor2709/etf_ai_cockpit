@@ -46,6 +46,10 @@ class Memory:
                 row["labels"] = ["changed"]
             elif self.failure == "comment":
                 row["comments"].append({"id": "new", "body": "new comment"})
+            elif self.failure == "assignees":
+                row["assignees"] = [{"id": 90, "node_id": "NEW_USER", "login": "new"}]
+            elif self.failure == "milestone":
+                row["milestone"] = {"id": 99, "node_id": "NEW_MILESTONE", "number": 99}
             if self.failure:
                 raise TimeoutError("response lost")
 
@@ -77,6 +81,9 @@ def prepared(tmp_path: Path) -> dict[str, Any]:
             "title": record["title"], "state": "open", "labels": ["human"],
             "body": "human prefix\r\n\n" + sync.managed_block(old) + "\n\r\n human suffix ",
             "url": f"https://example.invalid/issues/{number}", "comments": [],
+            "assignees": [{"id": 10, "node_id": "USER_10", "login": "owner"}],
+            "milestone": {"id": 20, "node_id": "MILESTONE_20", "number": 1,
+                          "title": "Release", "state": "open"},
         })
         identities.append({
             "stable_id": stable_id, "issue_number": number,
@@ -222,6 +229,7 @@ def test_stale_whole_batch_zero_writes(prepared: dict[str, Any], field: str, val
     ("pre", "write_failed_not_applied", [1, 2]),
     ("third", "conflict", [1, 2]), ("labels", "conflict", [1, 2]),
     ("comment", "conflict", [1, 2]),
+    ("assignees", "conflict", [1, 2]), ("milestone", "conflict", [1, 2]),
 ])
 def test_ambiguous_serial_stop_no_rollback(prepared: dict[str, Any], failure: str, status: str, writes: list[int]) -> None:
     memory = Memory(prepared["remote"], failure)
@@ -322,7 +330,7 @@ def test_writer_applies_and_independently_reads_back(prepared: dict[str, Any], m
         caller_proof_verifier=lambda: calls.append("oidc"), evidence_out=evidence,
         **prepared["attestation"],
     )
-    assert calls == ["oidc", "revalidate", "revalidate", "revalidate", "revalidate"]
+    assert calls == ["oidc"] + ["revalidate"] * 7
     assert json.loads(evidence.read_text())["zero_action_readback"] is True
     assert memory.writes == [1, 2, 3]
 
@@ -394,3 +402,150 @@ def test_patch_primitive_body_only(monkeypatch: pytest.MonkeyPatch) -> None:
     assert json.loads(calls[0][1]["input_text"]) == {"body": "body"}
     source = Path(gateway.__file__).read_text()
     assert source.count("client._refresh_managed_body(") == 1
+
+
+@pytest.mark.parametrize("field,value", [
+    ("assignees", [{"id": 99, "node_id": "USER_99", "login": "another"}]),
+    ("milestone", None),
+])
+def test_refresh_metadata_preflight_is_whole_batch(
+    prepared: dict[str, Any], field: str, value: Any,
+) -> None:
+    memory = Memory(prepared["remote"])
+    memory.remote[2][field] = value
+    with pytest.raises(gateway.MutationPolicyError, match="stale_protected_snapshot") as caught:
+        apply(prepared, memory)
+    assert memory.writes == []
+    assert caught.value.evidence["updates"] == []
+    assert caught.value.evidence["failure_phase"] == "inventory_read"
+
+
+@pytest.mark.parametrize("field,value", [("assignees", []), ("milestone", None)])
+def test_refresh_metadata_reconciliation_and_planning_reject_drift(
+    prepared: dict[str, Any], field: str, value: Any,
+) -> None:
+    memory = Memory(prepared["remote"])
+    assert apply(prepared, memory)["accepted"]
+    memory.remote[0][field] = value
+    authorities = [prepared["bootstrap"], prepared["authority"]]
+    assert gateway.reconcile_authority_ledger(authorities, memory.remote)["error"] == "managed_refresh_projection_mismatch"
+    plan = sync.plan_actions(prepared["registry"], memory.remote, authority_records=authorities)
+    assert plan["summary"]["blocked"] > 0
+
+
+def test_refresh_metadata_does_not_reinterpret_historical_hashes(prepared: dict[str, Any]) -> None:
+    stripped = copy.deepcopy(prepared["remote"])
+    for row in stripped:
+        row.pop("assignees")
+        row.pop("milestone")
+    assert sync.inventory_sha256(stripped) == sync.inventory_sha256(prepared["remote"])
+    assert gateway.claim_inventory_sha256(stripped) == gateway.claim_inventory_sha256(prepared["remote"])
+    assert gateway.snapshot_evidence(stripped[0]) == gateway.snapshot_evidence(prepared["remote"][0])
+    assert sync.plan_actions(prepared["registry"], stripped) == sync.plan_actions(prepared["registry"], prepared["remote"])
+    normalized = sync.normalise_remote_issue(prepared["remote"][0], include_refresh_protected=True)
+    assert normalized["assignees"] == [{"id": "10", "node_id": "USER_10", "login": "owner"}]
+    assert normalized["milestone"]["id"] == "20"
+    assert gateway.refresh_protected_sha256(normalized) == gateway.refresh_protected_sha256(prepared["remote"][0])
+    assert gateway.refresh_protected_sha256(stripped[0]) != gateway.refresh_protected_sha256(normalized)
+
+
+def test_authority_revoked_during_prefetch_prevents_patch(
+    prepared: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = Memory(prepared["remote"])
+    original_fetch = memory.fetch_issue
+    first_issue_reads = 0
+    revoked = False
+
+    def fetch(number: int) -> dict[str, Any]:
+        nonlocal first_issue_reads, revoked
+        if number == 1:
+            first_issue_reads += 1
+            if first_issue_reads == 2:
+                revoked = True
+        return original_fetch(number)
+
+    def revalidate() -> None:
+        if revoked:
+            raise RuntimeError("authority revoked during prefetch")
+
+    monkeypatch.setattr(memory, "fetch_issue", fetch)
+    with pytest.raises(gateway.MutationPolicyError) as caught:
+        gateway.apply_reviewed_managed_refresh(
+            prepared["root"], prepared["plan"], prepared["remote"],
+            authority_record=prepared["authority"], git_binding=prepared["binding"],
+            attestation=prepared["attestation"], authority_revalidator=revalidate, transport=memory,
+        )
+    assert revoked
+    assert memory.writes == []
+    assert caught.value.evidence["failure_phase"] == "prewrite_authority"
+    assert caught.value.evidence["updates"] == []
+
+
+@pytest.mark.parametrize("failure,phase", [
+    ("authority", "prefetch_authority"), ("list", "claim_inventory_read"),
+    ("fetch", "preimage_read"),
+])
+def test_outer_writer_preserves_progress_after_operation_failure(
+    prepared: dict[str, Any], monkeypatch: pytest.MonkeyPatch, failure: str, phase: str,
+) -> None:
+    memory = Memory(prepared["remote"])
+    original_list, original_fetch = memory.list_issues, memory.fetch_issue
+
+    def revalidate(*args: Any, **kwargs: Any) -> None:
+        if failure == "authority" and memory.writes == [1]:
+            raise RuntimeError("authority unavailable")
+
+    def list_issues() -> list[dict[str, Any]]:
+        if failure == "list" and memory.writes == [1]:
+            raise RuntimeError("inventory unavailable")
+        return original_list()
+
+    def fetch(number: int) -> dict[str, Any]:
+        if failure == "fetch" and memory.writes == [1] and number == 2:
+            raise RuntimeError("issue unavailable")
+        return original_fetch(number)
+
+    monkeypatch.setattr(completion, "revalidate_live_authority", revalidate)
+    monkeypatch.setattr(memory, "list_issues", list_issues)
+    monkeypatch.setattr(memory, "fetch_issue", fetch)
+    evidence_path = prepared["root"].parent / "failed-evidence.json"
+    with pytest.raises(gateway.MutationTransportError) as caught:
+        completion.run(
+            prepared["root"], prepared["root"] / "absent-candidate", apply=True,
+            expected_parent=prepared["source"], expected_head=prepared["head"], main_ref=None,
+            remote_reader=memory.list_issues, mutation_transport=memory,
+            caller_proof_verifier=lambda: None, evidence_out=evidence_path,
+            **prepared["attestation"],
+        )
+    first = prepared["authority"]["payload"]["updates"][0]
+    assert memory.writes == [1]
+    evidence = caught.value.evidence
+    assert evidence["accepted"] is False
+    assert evidence["terminal_status"] == "operation_failed"
+    assert evidence["failure_phase"] == phase
+    assert evidence["failure_issue_number"] == 2
+    assert evidence["updates"] == [{
+        "issue_number": 1, "stable_id": "ISSUE-0001", "observation": "post", "write_error": False,
+        "preimage_body_sha256": first["preimage_body_sha256"],
+        "postimage_body_sha256": first["postimage_body_sha256"],
+        "observed_body_sha256": first["postimage_body_sha256"],
+        "observed_protected_snapshot_sha256": first["protected_snapshot_sha256"],
+    }]
+    assert json.loads(evidence_path.read_text())["mutation"] == evidence
+
+
+def test_preflight_transport_failure_also_carries_evidence(
+    prepared: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = Memory(prepared["remote"])
+
+    def unavailable() -> list[dict[str, Any]]:
+        raise RuntimeError("inventory unavailable")
+
+    monkeypatch.setattr(memory, "list_issues", unavailable)
+    with pytest.raises(gateway.MutationPolicyError) as caught:
+        apply(prepared, memory)
+    assert memory.writes == []
+    assert caught.value.evidence["updates"] == []
+    assert caught.value.evidence["failure_phase"] == "inventory_read"
