@@ -1,0 +1,30 @@
+# Candidate configuration for evaluation under GitHub issue #712.
+# Do not install as a blind replacement. Compare against the frozen task
+# evaluation set and preserve machine-specific plugin/path/notification fields.
+# The agent-thread value below is a hard ceiling, not a target allocation.
+
+model = "gpt-5.6-sol"
+model_reasoning_effort = "medium"
+plan_mode_reasoning_effort = "high"
+model_verbosity = "low"
+personality = "pragmatic"
+approval_policy = "never"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+exclude_slash_tmp = false
+writable_roots = []
+exclude_tmpdir_env_var = false
+network_access = true
+
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 4
+max_depth = 1
+default_subagent_model = "gpt-5.6-terra"
+default_subagent_reasoning_effort = "medium"
+interrupt_message = true
+
+[features]
+multi_agent = true
+multi_agent_v2 = true
