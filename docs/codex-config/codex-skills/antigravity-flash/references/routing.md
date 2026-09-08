@@ -1,6 +1,6 @@
 # Routing
 
-Scout is enabled for proven read-only assignments; editor remains independently disabled.
+Scout is enabled for proven read-only assignments; editor is enabled only through staged promotion.
 Scout requires the fresh-project route, plan/sandbox mode and the absolute
 added workspace. Editor state changes cannot bypass staged promotion: exact
 base and owned paths, disposable workspace, complete scope audit, authoritative

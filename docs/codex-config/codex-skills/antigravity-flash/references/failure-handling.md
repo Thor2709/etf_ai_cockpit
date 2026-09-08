@@ -15,7 +15,7 @@ collaboration disables the capability. Record `init.tools`; a broad primary regi
 alone does not prove forbidden execution. `init.agent` alone does not prove
 actual selection. Hook counts and PreToolUse denial prose are diagnostic;
 the accepted scout route uses --new-project and an absolute --add-dir in plan
-and sandbox mode. Scout is enabled for proven read-only assignments; editor remains disabled. Resumed interactive
+and sandbox mode. Scout is enabled for proven read-only assignments; editor is enabled only through staged promotion. Resumed interactive
 conversations are not an accepted automation substitute.
 
 Never blindly retry. Inspect real status/diff even after a rejected editor;
