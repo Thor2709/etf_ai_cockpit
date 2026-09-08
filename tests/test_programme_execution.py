@@ -155,6 +155,25 @@ def test_invalid_worker_claims_fail_closed(field, value, reason) -> None:
     assert reason in result["errors"][0]
 
 
+@pytest.mark.parametrize("field", ["owned_paths", "owned_tests"])
+@pytest.mark.parametrize("path", [
+    "docs/codex-config/config-core.toml",
+    "docs/codex-config/global-AGENTS.md",
+    "docs/codex-config/agents/implementer.toml",
+    "docs/codex-config/agents/nested/reviewer.toml",
+])
+def test_worker_cannot_own_durable_routing_policy(field, path) -> None:
+    result = validate(manifest(lane(1, **{field: [path]})))
+    assert result["parallel_waves"] == []
+    assert any("ROOT_ONLY_CANONICAL_OR_POLICY_OWNERSHIP" in error for error in result["errors"])
+
+
+def test_worker_can_own_nearby_routing_tests() -> None:
+    result = validate(manifest(lane(1, owned_tests=["docs/codex-config/test_agent_routing.py"])))
+    assert result["errors"] == []
+    assert result["parallel_waves"] == [["lane-1"]]
+
+
 @pytest.mark.parametrize("mutation", [
     {"owned_paths": ["src/module1.py"]},
     {"owned_tests": ["tests/test_module1.py"]},

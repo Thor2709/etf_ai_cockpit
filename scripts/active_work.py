@@ -15,7 +15,9 @@ SHA = re.compile(r"[0-9a-f]{40}")
 ROOT_FIELDS = {"schema_version", "observed_main", "programme_sha256", "root_session", "all_active_writers_reconciled", "children_in_use", "reviewers_running", "lanes"}
 ROOT_ONLY = (".github", ".agents", "issues", "docs/product-completion", "plans",
              "agents.md", "agents.override.md", "plan_step2.md", "readme.md", "changelog.md",
-             "docs/development/control_plane.md", "docs/development/work-index.json")
+             "docs/development/control_plane.md", "docs/development/work-index.json",
+             "docs/codex-config/config-core.toml", "docs/codex-config/global-agents.md",
+             "docs/codex-config/agents")
 LANE_FIELDS = {"lane_id", "issue", "branch", "worktree", "base", "head", "pr", "writer", "state", "owned_paths", "owned_tests", "runtime_roots", "ports", "resources", "blocker", "next_action"}
 
 

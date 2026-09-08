@@ -282,7 +282,7 @@ def _compact_metadata(block: str) -> dict[str, str]:
     patterns = {
         "Owner": r"\bowner\s+`([^`]+)`",
         "Phase": r"\bphase\s+`([^`]+)`",
-        "Blocking dependencies": r"\bdepends on\s+([^;]+?)(?:;|\.$|$)",
+        "Blocking dependencies": r"\bdepends on\s+(.+?)(?:;\s*execution\b|\.$)",
     }
     for key, pattern in patterns.items():
         found = re.search(pattern, value)
@@ -966,10 +966,6 @@ def _semantic_dependency_fields(
 
 def _capability_lane(issue_id: str, phase: str) -> str:
     number = issue_number(issue_id)
-    if issue_id == "ISSUE-0167":
-        return "PAPER_BROKER_OPERATIONS"
-    if issue_id == "ISSUE-0168":
-        return "PORTFOLIO_READ_ONLY"
     if issue_id == "ISSUE-0133":
         return "LIVE_CANARY_SCAFFOLD_DISABLED"
     if number is not None and 125 <= number <= 135:
