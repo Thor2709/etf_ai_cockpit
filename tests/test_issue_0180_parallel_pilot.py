@@ -331,6 +331,10 @@ def test_controller_state_resets_only_after_owning_parent_finishes(monkeypatch) 
 
 def test_real_pytest_manifest_is_post_deselection_and_disjoint(tmp_path: Path) -> None:
     root = Path(__file__).resolve().parents[1]
+    workflow_node = (
+        "tests/issue0014/test_source_workflows.py::"
+        "test_canonical_main_workflow_composes_real_local_apis_without_network"
+    )
     selected: dict[str, set[str]] = {}
     for label, selector in (
         ("full", []),
@@ -349,6 +353,7 @@ def test_real_pytest_manifest_is_post_deselection_and_disjoint(tmp_path: Path) -
                 "tests/test_screen_store.py::test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner",
                 "tests/operations/test_transactions.py::test_group_reader_cannot_observe_mixed_generation_during_activation",
                 "tests/operations/test_transactions.py::test_recovery_of_interrupted_second_real_writer_preserves_first_commit",
+                workflow_node,
                 *selector,
                 "--collect-only",
                 "-q",
@@ -366,6 +371,9 @@ def test_real_pytest_manifest_is_post_deselection_and_disjoint(tmp_path: Path) -
     assert selected["unsafe"]
     assert selected["safe"].isdisjoint(selected["unsafe"])
     assert selected["safe"] | selected["unsafe"] == selected["full"]
+    assert workflow_node not in selected["safe"]
+    assert workflow_node in selected["unsafe"]
+    assert workflow_node in selected["full"]
     assert {
         "tests/test_screen_store.py::test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner[malformed-owner]",
         "tests/test_screen_store.py::test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner[live-owner]",
