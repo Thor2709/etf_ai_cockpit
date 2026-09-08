@@ -1,8 +1,11 @@
 # Routing
 
-Scout is enabled for proven read-only assignments; editor remains independently disabled.
+Scout is enabled for proven read-only assignments; editor is enabled only through staged promotion.
 Scout requires the fresh-project route, plan/sandbox mode and the absolute
-added workspace. State changes cannot bypass the editor containment guard.
+added workspace. Editor state changes cannot bypass staged promotion: exact
+base and owned paths, disposable workspace, complete scope audit, authoritative
+state recheck, whole-candidate promotion and independent Codex inspection.
+An unowned staging change rejects the whole candidate and uses V2 fallback.
 
 Prefer scout for file/symbol/call-path maps, affected-test candidates,
 reference/removal/stale-doc searches, dependency and ownership overlap,

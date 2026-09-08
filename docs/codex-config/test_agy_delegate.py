@@ -135,10 +135,10 @@ class AdapterTests(unittest.TestCase):
                 agy.parse_stream(self.stream(events), self.cwd, agy.DEFAULT_MODEL,
                                  self.agent, unchanged=True)
 
-    def test_independent_states_cannot_bypass_missing_containment(self):
+    def test_independent_disabled_states_never_launch(self):
         for agent in agy.AGENTS:
             for state in ('disabled', 'shadow', 'enabled'):
-                if agent == self.agent and state != 'disabled':
+                if state != 'disabled':
                     continue
                 states = dict.fromkeys(agy.AGENTS, 'disabled')
                 states[agent] = state
@@ -180,7 +180,7 @@ class AdapterTests(unittest.TestCase):
         responses = [subprocess.CompletedProcess([], 0, value, '') for value in outputs]
         with patch.dict(agy.os.environ, {}, clear=True), \
                 patch.dict(agy.CAPABILITY_STATES, {self.agent: 'shadow'}), \
-                patch.object(agy, 'workspace_snapshot', return_value=('head', {})), \
+                patch.object(agy, 'workspace_snapshot', return_value=('head', {}, '')), \
                 patch.object(agy.shutil, 'which', return_value='/official/agy.exe'), \
                 patch.object(agy.subprocess, 'run', side_effect=responses) as run:
             result = agy.delegate(str(self.cwd), self.agent, 'Bounded packet', **kwargs)
@@ -239,9 +239,9 @@ class AdapterTests(unittest.TestCase):
             agy.delegate(str(self.cwd), self.agent, 'packet')
         run.assert_not_called()
 
-    def test_editor_launch_is_disabled_and_outside_paths_reject(self):
+    def test_editor_requires_packet_and_outside_paths_reject(self):
         with patch.object(agy.subprocess, 'run') as run, self.assertRaisesRegex(
-                agy.DelegationError, 'capability disabled'):
+                agy.DelegationError, 'Malformed JSON'):
             agy.delegate(str(self.cwd), 'codex-flash-editor', 'packet')
         run.assert_not_called()
         events = copy.deepcopy(self.events)
@@ -270,10 +270,19 @@ class AdapterTests(unittest.TestCase):
             with patch.dict(agy.os.environ, {}, clear=True), \
                     patch.object(agy.shutil, 'which', return_value='/official/agy.exe'), \
                     patch.object(agy, 'run_scout', side_effect=failure, return_value=self.stream()), \
-                    patch.object(agy, 'workspace_snapshot', side_effect=[('head', {}), ('head', {'new': 'file'})]) as check, \
+                    patch.object(agy, 'workspace_snapshot', side_effect=[('head', {}, ''), ('head', {'new': 'file'}, '')]) as check, \
                     self.subTest(failure=failure), self.assertRaises(agy.CapabilityDisabled):
                 agy.delegate(str(self.cwd), self.agent, 'packet')
             self.assertEqual(check.call_count, 2)
+
+    def test_post_snapshot_detects_index_only_mutation(self):
+        with patch.dict(agy.os.environ, {}, clear=True), \
+                patch.object(agy.shutil, 'which', return_value='/official/agy.exe'), \
+                patch.object(agy, 'run_scout', return_value=self.stream()), \
+                patch.object(agy, 'workspace_snapshot', side_effect=[
+                    ('head', {}, ''), ('head', {}, 'M  indexed.txt')]), \
+                self.assertRaisesRegex(agy.CapabilityDisabled, 'changed workspace'):
+            agy.delegate(str(self.cwd), self.agent, 'packet')
 
     def test_dirty_preflight_never_launches_agy(self):
         with patch.dict(agy.os.environ, {}, clear=True), \
@@ -282,6 +291,214 @@ class AdapterTests(unittest.TestCase):
                 patch.object(agy, 'run_cli') as run, self.assertRaises(agy.DelegationError):
             agy.delegate(str(self.cwd), self.agent, 'packet')
         run.assert_not_called()
+
+
+class StagedEditorTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.workspace = Path(self.temp.name).resolve() / 'authority'
+        self.workspace.mkdir()
+        self.git('init')
+        self.git('config', 'user.email', 'offline@example.invalid')
+        self.git('config', 'user.name', 'Offline test')
+        self.git('config', 'core.autocrlf', 'false')
+        shutil.copytree(agy.REPO / '.agents/agents', self.workspace / '.agents/agents')
+        (self.workspace / 'owned.txt').write_bytes(b'before\n')
+        (self.workspace / 'unowned.txt').write_bytes(b'keep\n')
+        self.git('add', '.')
+        self.git('commit', '-m', 'fixture')
+        self.base = self.git('rev-parse', 'HEAD').decode().strip()
+        self.packet = {'prompt': 'Mechanical edit', 'expected_base': self.base,
+                       'owned_paths': ['owned.txt']}
+        self.stage = None
+
+    def git(self, *args):
+        return agy.git_bytes(self.workspace, *args)
+
+    def run_editor(self, mutate):
+        def fake(executable, workspace, prompt, timeout, model):
+            agent = 'codex-flash-editor'
+            self.stage = workspace
+            self.assertNotEqual(workspace, self.workspace)
+            self.assertTrue(workspace.is_absolute())
+            self.assertNotIn(str(self.workspace), prompt)
+            mutate(workspace)
+            return '\n'.join(json.dumps(event) for event in [
+                {'event': 'init', 'conversation_id': 'offline', 'init': {
+                    'cwd': str(workspace), 'model': model, 'agent': agent,
+                    'permission_mode': 'request-review', 'tools': sorted(agy.EDIT_TOOLS)}},
+                {'event': 'result', 'result': {'conversation_id': 'offline', 'status': 'SUCCESS',
+                    'structured_output': {'assignment_status': 'complete',
+                        **{key: [] for key in agy.LIST_FIELDS},
+                        'recommended_next_action': 'Codex inspects every byte.'}}}])
+        with patch.object(agy, 'run_editor_project', side_effect=fake):
+            return agy.staged_editor('/unused/agy.exe', self.workspace, self.packet, 60, agy.DEFAULT_MODEL)
+
+    def assert_cleaned(self):
+        self.assertFalse(self.stage.exists())
+        self.assertFalse(self.stage.parent.exists())
+        self.assertNotIn(str(self.stage).replace('\\', '/'), self.git('worktree', 'list', '--porcelain').decode())
+
+    def test_owned_edit_promotes_exact_complete_candidate(self):
+        result = self.run_editor(lambda stage: (stage / 'owned.txt').write_bytes(b'after\n'))
+        self.assertEqual((self.workspace / 'owned.txt').read_bytes(), b'after\n')
+        self.assertEqual(result['promoted_paths'], ['owned.txt'])
+        self.assertTrue(result['codex_review_required'])
+        self.assertEqual(self.git('diff', '--name-only').decode().strip(), 'owned.txt')
+        self.assert_cleaned()
+
+    def test_scope_violation_rejects_whole_candidate_without_authoritative_changes(self):
+        before = agy.workspace_snapshot(self.workspace)
+        def mutate(stage):
+            (stage / 'owned.txt').write_bytes(b'candidate\n')
+            (stage / 'unowned.txt').write_bytes(b'forbidden\n')
+        with self.assertRaisesRegex(agy.DelegationError, 'Entire candidate rejected'):
+            self.run_editor(mutate)
+        self.assertEqual(agy.workspace_snapshot(self.workspace), before)
+        self.assert_cleaned()
+
+    def test_untracked_deleted_and_rename_sides_are_collected(self):
+        self.packet['owned_paths'] = ['owned.txt', 'renamed.txt', 'unowned.txt', 'new.txt']
+        def mutate(stage):
+            (stage / 'owned.txt').rename(stage / 'renamed.txt')
+            (stage / 'unowned.txt').unlink()
+            (stage / 'new.txt').write_bytes(b'new\n')
+        result = self.run_editor(mutate)
+        self.assertEqual(result['promoted_paths'], sorted(self.packet['owned_paths']))
+        self.assertFalse((self.workspace / 'owned.txt').exists())
+        self.assertFalse((self.workspace / 'unowned.txt').exists())
+        self.assertEqual((self.workspace / 'renamed.txt').read_bytes(), b'before\n')
+        self.assertEqual((self.workspace / 'new.txt').read_bytes(), b'new\n')
+        self.assert_cleaned()
+
+    def test_unowned_rename_source_and_ignored_addition_reject(self):
+        for operation in ('rename', 'ignored'):
+            with self.subTest(operation=operation):
+                def mutate(stage):
+                    if operation == 'rename':
+                        (stage / 'unowned.txt').replace(stage / 'owned.txt')
+                    else:
+                        (stage / '.hidden-canary').write_bytes(b'no')
+                with self.assertRaisesRegex(agy.DelegationError, 'Entire candidate rejected'):
+                    self.run_editor(mutate)
+                self.assertEqual(self.git('status', '--porcelain'), b'')
+                self.assert_cleaned()
+
+    def test_base_mismatch_never_launches(self):
+        self.packet['expected_base'] = '0' * 40
+        with patch.object(agy, 'run_scout') as run, self.assertRaisesRegex(agy.DelegationError, 'base mismatch'):
+            self.run_editor(lambda stage: None)
+        run.assert_not_called()
+
+    def test_authority_drift_rejects_and_preserves_concurrent_changes(self):
+        def mutate(stage):
+            (stage / 'owned.txt').write_bytes(b'candidate\n')
+            (self.workspace / 'unowned.txt').write_bytes(b'concurrent\n')
+        with self.assertRaisesRegex(agy.DelegationError, 'Authoritative workspace changed'):
+            self.run_editor(mutate)
+        self.assertEqual((self.workspace / 'owned.txt').read_bytes(), b'before\n')
+        self.assertEqual((self.workspace / 'unowned.txt').read_bytes(), b'concurrent\n')
+        self.assert_cleaned()
+
+    def test_authoritative_head_drift_rejects_before_promotion(self):
+        def mutate(stage):
+            (stage / 'owned.txt').write_bytes(b'candidate\n')
+            self.git('commit', '--allow-empty', '-m', 'concurrent head')
+        with self.assertRaisesRegex(agy.DelegationError, 'Authoritative workspace changed'):
+            self.run_editor(mutate)
+        self.assertNotEqual(self.git('rev-parse', 'HEAD').decode().strip(), self.base)
+        self.assertEqual((self.workspace / 'owned.txt').read_bytes(), b'before\n')
+        self.assert_cleaned()
+
+    def test_editor_invocation_flags_use_disposable_workspace(self):
+        outputs = ['1.1.27', agy.DEFAULT_MODEL, 'codex-flash-editor', 'stream']
+        with patch.object(agy, 'run_cli', side_effect=outputs) as run:
+            agy.run_scout('unused', self.workspace, 'codex-flash-editor', 'packet', 60,
+                          agy.DEFAULT_MODEL)
+        command = run.call_args.args[1]
+        self.assertEqual(command[command.index('--mode') + 1], 'accept-edits')
+        self.assertEqual(command[command.index('--add-dir') + 1], str(self.workspace))
+        self.assertIn('--sandbox', command)
+        self.assertIn('--new-project', command)
+
+    def test_editor_accepts_repeated_json_response_handoff_only(self):
+        handoff = {'assignment_status': 'complete', **{key: [] for key in agy.LIST_FIELDS},
+                   'recommended_next_action': 'Codex verifies source.'}
+        events = [
+            {'event': 'init', 'conversation_id': 'editor-fixture', 'init': {
+                'cwd': str(self.workspace), 'model': agy.DEFAULT_MODEL,
+                'agent': 'codex-flash-editor', 'tools': sorted(agy.EDIT_TOOLS),
+                'permission_mode': 'request-review'}},
+            {'event': 'result', 'result': {'conversation_id': 'editor-fixture', 'status': 'SUCCESS'}}]
+        response = json.dumps(handoff)
+        events[-1]['result']['response'] = response + '\n' + response
+        self.assertEqual(agy.parse_stream('\n'.join(json.dumps(x) for x in events), self.workspace,
+                                          agy.DEFAULT_MODEL, 'codex-flash-editor')['handoff'], handoff)
+
+    def test_editor_rejects_inconsistent_json_response_handoff(self):
+        handoff = {'assignment_status': 'complete', **{key: [] for key in agy.LIST_FIELDS},
+                   'recommended_next_action': 'Codex verifies source.'}
+        events = [
+            {'event': 'init', 'conversation_id': 'editor-fixture', 'init': {
+                'cwd': str(self.workspace), 'model': agy.DEFAULT_MODEL,
+                'agent': 'codex-flash-editor', 'tools': sorted(agy.EDIT_TOOLS),
+                'permission_mode': 'request-review'}},
+            {'event': 'result', 'result': {'conversation_id': 'editor-fixture', 'status': 'SUCCESS'}}]
+        events[-1]['result']['response'] = json.dumps(handoff) + '\n{}'
+        with self.assertRaisesRegex(agy.DelegationError, 'Inconsistent editor handoff'):
+            agy.parse_stream('\n'.join(json.dumps(x) for x in events), self.workspace,
+                             agy.DEFAULT_MODEL, 'codex-flash-editor')
+
+    def test_failure_cleans_staging_and_never_promotes(self):
+        def mutate(stage):
+            (stage / 'owned.txt').write_bytes(b'candidate\n')
+            raise agy.DelegationError('offline failure')
+        with self.assertRaisesRegex(agy.DelegationError, 'offline failure'):
+            self.run_editor(mutate)
+        self.assertEqual(self.git('status', '--porcelain'), b'')
+        self.assert_cleaned()
+
+    def test_forbidden_packet_paths_never_launch(self):
+        for path in ('../escape', '/absolute', 'a/../b', 'a\\b', 'a:stream', '.git/config',
+                     '.agents/agent.md', 'AGENTS.md', 'docs/codex-config/agy_delegate.py',
+                     'credentials.json', 'secrets/key', 'private-key.pem', 'file.'):
+            with self.subTest(path=path), self.assertRaises(agy.DelegationError):
+                agy.owned_editor_paths({**self.packet, 'owned_paths': [path]})
+
+    def test_editor_enabled_only_through_staged_route(self):
+        self.assertEqual(agy.CAPABILITY_STATES['codex-flash-editor'], 'enabled')
+
+    def test_project_cleanup_only_removes_new_exact_conversation(self):
+        brain = Path(self.temp.name) / '.gemini/antigravity-cli/brain'
+        old = brain / '11111111-1111-1111-1111-111111111111'
+        old.mkdir(parents=True)
+        identity = '22222222-2222-2222-2222-222222222222'
+        record = brain / identity
+        def run(*args, capture_output):
+            record.mkdir()
+            (record / 'artifact.txt').write_bytes(b'test')
+            capture_output(json.dumps({'event': 'init', 'conversation_id': identity}))
+            return 'stream'
+        with patch.object(agy.Path, 'home', return_value=Path(self.temp.name)), \
+                patch.object(agy, 'run_scout', side_effect=run):
+            self.assertEqual(agy.run_editor_project('unused', self.workspace, 'packet', 60,
+                                                  agy.DEFAULT_MODEL), 'stream')
+        self.assertFalse(record.exists())
+        self.assertTrue(old.exists())
+
+    def test_project_cleanup_rejects_reused_record(self):
+        brain = Path(self.temp.name) / '.gemini/antigravity-cli/brain'
+        identity = '11111111-1111-1111-1111-111111111111'
+        old = brain / identity
+        old.mkdir(parents=True)
+        def run(*args, capture_output):
+            capture_output(json.dumps({'event': 'init', 'conversation_id': identity}))
+        with patch.object(agy.Path, 'home', return_value=Path(self.temp.name)), \
+                patch.object(agy, 'run_scout', side_effect=run), \
+                self.assertRaisesRegex(agy.DelegationError, 'reused'):
+            agy.run_editor_project('unused', self.workspace, 'packet', 60, agy.DEFAULT_MODEL)
+        self.assertTrue(old.exists())
 
 
 class ExternalConfigTests(unittest.TestCase):

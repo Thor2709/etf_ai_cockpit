@@ -15,13 +15,14 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 READ_TOOLS = frozenset({'view_file', 'grep_search', 'find_by_name', 'list_dir'})
 EDIT_TOOLS = READ_TOOLS | {'write_to_file', 'replace_file_content', 'multi_replace_file_content'}
 AGENTS = {'codex-flash-scout': READ_TOOLS, 'codex-flash-editor': EDIT_TOOLS}
 DEFAULT_MODEL = 'gemini-3.8-flash-medium'
 MODELS = {DEFAULT_MODEL, 'gemini-3.8-flash-high'}
-CAPABILITY_STATES = {'codex-flash-scout': 'enabled', 'codex-flash-editor': 'disabled'}
+CAPABILITY_STATES = {'codex-flash-scout': 'enabled', 'codex-flash-editor': 'enabled'}
 STATES = frozenset({'disabled', 'shadow', 'enabled'})
 LIST_FIELDS = ('files_inspected', 'requirements_addressed', 'candidate_tests', 'uncertainties')
 HANDOFF_SCHEMA = {
@@ -49,12 +50,200 @@ class RunDegraded(DelegationError):
 
 
 def require_fresh_containment(agent):
-    """Only the evidenced fresh-project read-only scout route is eligible."""
-    if agent != 'codex-flash-scout':
-        raise CapabilityDisabled(f'{agent}: editor containment unproven')
+    """Editor is eligible only through the separate staging/promotion route."""
+    require(agent in AGENTS, 'Unknown capability')
 
 
-def workspace_snapshot(workspace):
+def git_bytes(workspace, *args, input_bytes=None, env=None):
+    result = subprocess.run(
+        ['git', '--no-pager', '--no-optional-locks', '-c', 'core.fsmonitor=false', *args],
+        cwd=str(workspace), input=input_bytes, capture_output=True, timeout=30,
+        shell=False, env=env)
+    require(result.returncode == 0, 'Staging Git operation failed; inspect real state')
+    return result.stdout
+
+
+def owned_editor_paths(packet):
+    require(isinstance(packet, dict) and set(packet) == {'prompt', 'expected_base', 'owned_paths'},
+            'Editor packet requires prompt, expected_base and owned_paths')
+    require(isinstance(packet['prompt'], str) and packet['prompt'].strip(), 'Empty editor prompt')
+    require(isinstance(packet['expected_base'], str)
+            and re.fullmatch(r'[0-9a-f]{40}', packet['expected_base']), 'Exact base SHA required')
+    paths = packet['owned_paths']
+    require(isinstance(paths, list) and paths, 'Exact owned_paths required')
+    normalized = set()
+    for path in paths:
+        require(isinstance(path, str) and path and not path.startswith('/')
+                and '\\' not in path and ':' not in path
+                and all(part not in ('', '.', '..') and not part.endswith((' ', '.'))
+                        for part in path.split('/')), 'Noncanonical owned path')
+        lower = path.casefold()
+        parts = lower.split('/')
+        require(not any(part.startswith('.') or part in ('credentials', 'secrets')
+                        or re.search(r'(?:secret|credential|token|password|private[_-]?key)', part)
+                        or part.endswith(('.pem', '.key', '.p12', '.pfx')) for part in parts)
+                and not any(part in ('agents.md', 'agents.override.md', 'gemini.md',
+                                     'delivery_workflow.md', 'pyproject.toml', 'uv.lock',
+                                     'requirements.txt', 'conftest.py') for part in parts)
+                and not lower.startswith(('docs/codex-config/', 'docs/product-completion/',
+                                          'plans/', 'scripts/')),
+                'Forbidden editor promotion path')
+        require(lower not in normalized, 'Duplicate owned path')
+        normalized.add(lower)
+    return set(paths)
+
+
+def candidate_files(workspace):
+    """Read every regular file, including ignored/untracked; never follow links."""
+    files = {}
+    empty_dirs = set()
+    def unreadable(error):
+        raise error
+    for directory, dirs, names in os.walk(workspace, followlinks=False, onerror=unreadable):
+        parent = Path(directory)
+        if not dirs and not names:
+            empty_dirs.add(parent.relative_to(workspace).as_posix())
+        for name in dirs + names:
+            path = parent / name
+            metadata = path.lstat()
+            require(not path.is_symlink() and not getattr(metadata, 'st_file_attributes', 0) & 0x400,
+                    'Candidate contains reparse point')
+            if path.is_file():
+                files[path.relative_to(workspace).as_posix()] = (
+                    metadata.st_mode, path.read_bytes())
+            else:
+                require(path.is_dir(), 'Unsupported candidate filesystem entry')
+    return files, empty_dirs
+
+
+def staged_editor(executable, workspace, packet, timeout, model):
+    """Codex-owned whole-candidate promotion; AGY never receives the authority root.
+
+    Requires exclusive worktree ownership for the transaction. Failures after
+    apply may leave changes: no automatic rollback or implied acceptance.
+    AGY's evidenced outside-workspace permission boundary remains a prerequisite.
+    """
+    owned = owned_editor_paths(packet)
+    require(not any(key.startswith('GIT_') and key != 'GIT_PAGER' for key in os.environ),
+            'Git environment overrides are unsupported for staged promotion')
+    require(model == DEFAULT_MODEL, 'Staged editor requires Flash Medium')
+    before = workspace_snapshot(workspace)
+    require(before[0] == packet['expected_base'], 'Authoritative base mismatch')
+    stage_parent = Path(tempfile.mkdtemp(prefix='codex-agy-editor-')).resolve()
+    stage = stage_parent / 'candidate'
+    created = False
+    try:
+        git_bytes(workspace, 'worktree', 'add', '--detach', str(stage), packet['expected_base'])
+        created = True
+        require(workspace_snapshot(stage)[0] == packet['expected_base'], 'Staging base mismatch')
+        initial, initial_empty = candidate_files(stage)
+        for name in AGENTS:
+            require(agent_path(stage, name).read_bytes() == agent_path(REPO, name).read_bytes(),
+                    'Staged agent differs from reviewed source')
+        prompt = json.dumps({'prompt': packet['prompt'], 'owned_paths': sorted(owned),
+                             'workspace': str(stage), 'expected_base': packet['expected_base']})
+        try:
+            stdout = run_editor_project(executable, stage, prompt, timeout, model)
+        finally:
+            require(workspace_snapshot(workspace, clean=False) == before,
+                    'Authoritative workspace changed during editor run; inspect, never assume rollback')
+        final, final_empty = candidate_files(stage)
+        changed = {path for path in initial.keys() | final.keys() if initial.get(path) != final.get(path)}
+        require(changed <= owned, 'Entire candidate rejected: changed path outside owned_paths')
+        affected_dirs = {parent.as_posix() for path in changed for parent in Path(path).parents}
+        require((final_empty ^ initial_empty) <= affected_dirs,
+                'Candidate changed unsupported empty directories')
+        require(git_bytes(stage, 'rev-parse', 'HEAD').decode().strip() == packet['expected_base'],
+                'Candidate base drift')
+        result = parse_stream(stdout, stage, model, 'codex-flash-editor', unchanged=not changed)
+        require(result['handoff']['assignment_status'] == 'complete', 'Incomplete editor candidate')
+        # An alternate index collects additions (including ignored files), deletes,
+        # modifications and both sides of renames without worker index assumptions.
+        env = os.environ.copy()
+        env['GIT_INDEX_FILE'] = str(stage_parent / 'candidate.index')
+        git_bytes(stage, 'read-tree', packet['expected_base'], env=env)
+        git_bytes(stage, 'add', '--all', '--force', '--', '.', env=env)
+        patch_bytes = git_bytes(stage, 'diff', '--cached', '--binary', '--no-ext-diff',
+                                '--no-textconv', '--no-renames', packet['expected_base'], env=env)
+        patch_paths = set(git_bytes(stage, 'diff', '--cached', '--name-only', '-z', '--no-renames',
+                                   packet['expected_base'], env=env).decode('utf-8').split('\0')) - {''}
+        require(patch_paths == changed, 'Git patch does not represent the complete filesystem candidate')
+        require(workspace_snapshot(workspace) == before, 'Authoritative base/state drift before promotion')
+        if patch_bytes:
+            git_bytes(workspace, 'apply', '--check', '--binary', '-', input_bytes=patch_bytes)
+            # One complete validated patch: never filter a violating candidate.
+            git_bytes(workspace, 'apply', '--binary', '-', input_bytes=patch_bytes)
+        # Return real post-promotion evidence for mandatory independent Codex review.
+        for path in changed:
+            target = workspace / path
+            if path in final:
+                require(target.is_file() and target.read_bytes() == final[path][1],
+                        'Post-promotion bytes mismatch; inspect actual changes')
+            else:
+                require(not target.exists(), 'Post-promotion deletion mismatch')
+        after = workspace_snapshot(workspace, clean=False)
+        require(after[0] == before[0], 'Authoritative HEAD changed during promotion')
+        def file_evidence(snapshot):
+            return {path: (value[0], value[2]) for path, value in snapshot[1].items()
+                    if value[2] is not None}
+        actual = file_evidence(after)
+        expected = file_evidence(before)
+        for path in changed:
+            if path in final:
+                expected[path] = (final[path][0], hashlib.sha256(final[path][1]).hexdigest())
+            else:
+                expected.pop(path, None)
+        require(actual == expected, 'Unexpected authoritative filesystem effect; inspect actual changes')
+        before_dirs = {path for path, value in before[1].items() if value[2] is None}
+        after_dirs = {path for path, value in after[1].items() if value[2] is None}
+        require((before_dirs ^ after_dirs) <= affected_dirs,
+                'Unexpected authoritative directory effect; inspect actual changes')
+        result.update(promoted_paths=sorted(changed), expected_base=packet['expected_base'],
+                      authoritative_workspace=str(workspace), codex_review_required=True,
+                      authoritative_status=git_bytes(workspace, 'status', '--porcelain=v1',
+                                                     '--untracked-files=all').decode('utf-8'),
+                      candidate_patch_sha256=hashlib.sha256(patch_bytes).hexdigest())
+        return result
+    finally:
+        if created:
+            git_bytes(workspace, 'worktree', 'remove', '--force', str(stage))
+        # Only our resolved temporary parent; Git removed the candidate above.
+        for index in (stage_parent / 'candidate.index', stage_parent / 'candidate.index.lock'):
+            index.unlink(missing_ok=True)
+        stage_parent.rmdir()
+
+
+def run_editor_project(executable, stage, prompt, timeout, model):
+    """Remove only the new AGY brain record identified by this invocation's init."""
+    brain = Path.home() / '.gemini' / 'antigravity-cli' / 'brain'
+    existing = {path.name for path in brain.iterdir()} if brain.exists() else set()
+    record = None
+    def capture(stdout):
+        nonlocal record
+        lines = stdout.splitlines()
+        require(lines, 'Missing init identity; disposable project cleanup unverified')
+        event = strict_json(lines[0])
+        identity = event.get('conversation_id') if isinstance(event, dict) else None
+        require(isinstance(event, dict) and event.get('event') == 'init' and isinstance(identity, str)
+                and re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', identity),
+                'Cannot identify disposable project record; cleanup unverified')
+        require(identity not in existing, 'AGY reused an existing project record')
+        record = brain / identity
+    try:
+        return run_scout(executable, stage, 'codex-flash-editor', prompt, timeout, model,
+                         capture_output=capture)
+    finally:
+        if record is not None and record.exists():
+            require(record.resolve().parent == brain.resolve() and not record.is_symlink(),
+                    'Unsafe disposable project record path')
+            require(not getattr(record.lstat(), 'st_file_attributes', 0) & 0x400,
+                    'Disposable project record is a reparse point')
+            # The scan rejects nested links/reparse points before recursive deletion.
+            candidate_files(record)
+            shutil.rmtree(record)
+
+
+def workspace_snapshot(workspace, *, clean=True):
     """Require a clean Git root and fingerprint all files, including ignored files.
 
     Git metadata is represented by HEAD/status, not read as workspace content.
@@ -74,7 +263,8 @@ def workspace_snapshot(workspace):
     require(Path(git('rev-parse', '--show-toplevel').strip()).resolve() == workspace,
             'Workspace must be the exact Git root')
     head = git('rev-parse', '--verify', 'HEAD').strip()
-    require(not git('status', '--porcelain=v1', '--untracked-files=all'), 'Workspace Git state is dirty')
+    status = git('status', '--porcelain=v1', '--untracked-files=all')
+    require(not clean or not status, 'Workspace Git state is dirty')
     files = {}
     def unreadable(error):
         raise error
@@ -95,7 +285,7 @@ def workspace_snapshot(workspace):
             else:
                 require(path.is_dir(), 'Unsupported workspace filesystem entry')
             files[path.relative_to(workspace).as_posix()] = (metadata.st_mode, metadata.st_mtime_ns, digest)
-    return head, files
+    return head, files, status
 
 
 def require(condition, message):
@@ -115,6 +305,32 @@ def strict_json(text):
                           parse_constant=lambda _: require(False, 'Nonfinite JSON'))
     except (ValueError, TypeError) as error:
         raise DelegationError('Malformed JSON') from error
+
+
+def strict_json_objects(text):
+    """Decode adjacent JSON objects from AGY's repeated pretty response."""
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            require(key not in result, 'Duplicate JSON field')
+            result[key] = value
+        return result
+    decoder = json.JSONDecoder(object_pairs_hook=pairs,
+                                parse_constant=lambda _: require(False, 'Nonfinite JSON'))
+    values = []
+    position = 0
+    try:
+        while position < len(text):
+            while position < len(text) and text[position].isspace():
+                position += 1
+            if position == len(text):
+                break
+            value, position = decoder.raw_decode(text, position)
+            values.append(value)
+    except (ValueError, TypeError) as error:
+        raise DelegationError('Malformed JSON') from error
+    require(values, 'Missing JSON object')
+    return values
 
 
 def agent_path(repo, name):
@@ -256,22 +472,35 @@ def parse_stream(stdout, cwd, model, agent, *, unchanged=False):
     if 'cwd' in result:
         require(isinstance(result['cwd'], str) and Path(result['cwd']).is_absolute()
                 and Path(result['cwd']).resolve() == cwd, 'Wrong result cwd')
-    handoff = validate_handoff(result.get('structured_output'))
+    structured = result.get('structured_output')
+    if structured is None and agent == 'codex-flash-editor':
+        response = result.get('response')
+        require(isinstance(response, str) and response.strip(), 'Missing editor handoff')
+        candidates = strict_json_objects(response)
+        require(candidates and all(candidate == candidates[0] for candidate in candidates),
+                'Inconsistent editor handoff response')
+        structured = candidates[-1]
+    handoff = validate_handoff(structured)
     if denied:
         raise RunDegraded('Denied actions: assignment degraded; use V2 fallback')
     return {'cwd': str(cwd), 'model': model, 'agent': agent, 'status': 'SUCCESS',
             'init_tools': exposed, 'tools_used': sorted(used), 'denied_actions': [], 'handoff': handoff}
 
 
-def run_cli(executable, args, cwd, timeout):
+def run_cli(executable, args, cwd, timeout, *, capture_output=None):
     try:
         result = subprocess.run([executable, *args], cwd=str(cwd), capture_output=True,
                                 text=True, encoding='utf-8', errors='strict', timeout=timeout,
                                 stdin=subprocess.DEVNULL, shell=False)
     except subprocess.TimeoutExpired as error:
+        if capture_output is not None and error.stdout:
+            partial = error.stdout.decode('utf-8') if isinstance(error.stdout, bytes) else error.stdout
+            capture_output(partial)
         raise DelegationError('AGY timeout; inspect any real diff and use V2 fallback') from error
     except (OSError, UnicodeError) as error:
         raise DelegationError('AGY could not run or output was not UTF-8') from error
+    if capture_output is not None:
+        capture_output(result.stdout)
     require(result.returncode == 0, 'AGY process failed; check CLI availability/auth interactively')
     # Diagnostics are captured but not echoed: they may contain local sensitive data.
     require(not re.search(r'authentication required', result.stderr, re.I),
@@ -311,6 +540,8 @@ def delegate(cwd, agent, prompt, timeout=180, model=DEFAULT_MODEL, high_reason=N
             executable = str(installed)
     require(executable is not None, 'Official agy is unavailable; use V2 fallback')
     require(Path(executable).suffix.lower() not in ('.bat', '.cmd', '.ps1'), 'AGY shell shim unsupported')
+    if agent == 'codex-flash-editor':
+        return staged_editor(executable, workspace, strict_json(prompt), timeout, model)
     before = workspace_snapshot(workspace)
     try:
         stdout = run_scout(executable, workspace, agent, prompt, timeout, model)
@@ -324,7 +555,7 @@ def delegate(cwd, agent, prompt, timeout=180, model=DEFAULT_MODEL, high_reason=N
     return parse_stream(stdout, workspace, model, agent, unchanged=True)
 
 
-def run_scout(executable, workspace, agent, prompt, timeout, model):
+def run_scout(executable, workspace, agent, prompt, timeout, model, *, capture_output=None):
     version = run_cli(executable, ['--version'], workspace, 30)
     versions = re.findall(r'(?<![\w.])(\d+)\.(\d+)\.(\d+)(?![\w.-])', version)
     require(len(versions) == 1 and versions[0] == ('1', '1', '27'), 'AGY version must be exactly 1.1.27')
@@ -338,6 +569,10 @@ def run_scout(executable, workspace, agent, prompt, timeout, model):
             '--json-schema', json.dumps(HANDOFF_SCHEMA)]
     if agent == 'codex-flash-scout':
         args.extend(['--mode', 'plan'])
+    else:
+        args.extend(['--mode', 'accept-edits'])
+    if capture_output is not None:
+        return run_cli(executable, args, workspace, timeout + 5, capture_output=capture_output)
     return run_cli(executable, args, workspace, timeout + 5)
 
 

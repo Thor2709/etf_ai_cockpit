@@ -15,11 +15,17 @@ collaboration disables the capability. Record `init.tools`; a broad primary regi
 alone does not prove forbidden execution. `init.agent` alone does not prove
 actual selection. Hook counts and PreToolUse denial prose are diagnostic;
 the accepted scout route uses --new-project and an absolute --add-dir in plan
-and sandbox mode. Scout is enabled for proven read-only assignments; editor remains disabled. Resumed interactive
+and sandbox mode. Scout is enabled for proven read-only assignments; editor is enabled only through staged promotion. Resumed interactive
 conversations are not an accepted automation substitute.
 
 Never blindly retry. Inspect real status/diff even after a rejected editor;
 rejection is not rollback. Preserve unexpected changes for root review.
+Staged editor scope violations reject the entire candidate; never select just
+its owned hunks. The adapter cleans its disposable worktree and identified new
+AGY project record even after rejection. An unavailable init identity leaves
+project-record cleanup unverified and must be reported. Outside-workspace
+effects disable the editor; do not invent hook workarounds. Recheck the actual
+authoritative state after every failure, including apply and cleanup failures.
 Fallback to the normal V2 role. At most one root-directed correction pass is
 allowed for useful, safely bounded output; do not carry sessions across issues.
 
