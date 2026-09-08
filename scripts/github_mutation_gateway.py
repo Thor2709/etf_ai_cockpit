@@ -247,6 +247,21 @@ CREATE_AUTHORITY_KEYS = {
     "claim_inventory_sha256",
     "plan_sha256",
 }
+REFRESH_REGISTRY_PATH = Path("issues/issue_registry.json")
+REFRESH_AUTHORITY_KEYS = {
+    "source_sha", "plan_sha256", "remote_inventory_sha256", "claim_inventory_sha256",
+    "registry_path", "registry_blob_oid", "registry_blob_sha256", "updates",
+}
+REFRESH_UPDATE_KEYS = {
+    "stable_id", "issue_number", "database_id", "node_id", "managed_field_deltas",
+    "preimage_body_sha256", "preimage_managed_block_sha256",
+    "desired_managed_block_sha256", "postimage_body_sha256", "protected_snapshot_sha256",
+}
+REFRESH_FIELDS = frozenset({
+    "Classification", "Priority", "Owner", "Phase", "Blocking dependencies",
+    "Required inputs", "Activation dependencies", "Capability lane",
+    "Release blocking in lane", "Downstream issues", "Related issues",
+})
 
 
 class MutationGatewayError(ValueError):
@@ -274,6 +289,8 @@ class MutationTransport(Protocol):
     def append_comment(self, number: int, body: str) -> None: ...
 
     def create_open_issue(self, title: str, body: str) -> None: ...
+
+    def _refresh_managed_body(self, number: int, body: str) -> None: ...
 
 
 def _json_bytes(value: Any) -> bytes:
@@ -546,6 +563,25 @@ def parse_authority_ledger(data: bytes) -> list[dict[str, Any]]:
             if prior_identity is None and identity in issue_identities.values():
                 raise ValueError("status_authority_issue_identity_reused")
             issue_identities[str(payload["stable_id"])] = identity
+        elif kind == "managed_refresh":
+            validate_managed_refresh_payload(payload)
+            for update in payload["updates"]:
+                identity = (update["issue_number"], update["database_id"], update["node_id"])
+                if issue_identities.get(update["stable_id"]) != identity:
+                    raise ValueError("managed_refresh_unknown_or_changed_issue_identity")
+            remainder = payload.get("remainder_of_authority_id")
+            if remainder is not None:
+                if not records or records[-1]["authority_type"] != "managed_refresh":
+                    raise ValueError("managed_refresh_remainder_requires_previous_refresh")
+                original = records[-1]
+                old = original["payload"]["updates"]
+                if (
+                    remainder != original["authority_id"]
+                    or not 0 < len(payload["updates"]) < len(old)
+                    or [row for row in old if row in payload["updates"]] != payload["updates"]
+                    or payload["registry_blob_sha256"] != original["payload"]["registry_blob_sha256"]
+                ):
+                    raise ValueError("managed_refresh_invalid_strict_remainder")
         elif kind == "create":
             if set(payload) != CREATE_AUTHORITY_KEYS:
                 raise ValueError("invalid_create_authority_fields")
@@ -1925,6 +1961,7 @@ def reconcile_authority_ledger(
     issues: list[dict[str, Any]],
     *,
     root: Path | None = None,
+    refresh_remainder_of: str | None = None,
 ) -> dict[str, Any]:
     """Reconcile every durable authority; any missing projection fails closed."""
 
@@ -1934,6 +1971,24 @@ def reconcile_authority_ledger(
         return {"accepted": False, "error": "duplicate_remote_issue_number"}
     projections: list[dict[str, Any]] = []
     try:
+        if refresh_remainder_of is not None:
+            if (
+                not records or records[-1]["authority_type"] != "managed_refresh"
+                or records[-1]["authority_id"] != refresh_remainder_of
+            ):
+                raise ValueError("managed_refresh_remainder_not_latest_authority")
+            refresh_remainder_updates(records[-1], issues)
+        refresh_heads = {}
+        for record in records:
+            if record["authority_type"] == "managed_refresh":
+                for update in record["payload"]["updates"]:
+                    refresh_heads[update["issue_number"]] = (record, update)
+        for number, (record, update) in refresh_heads.items():
+            observation = refresh_observation(update, by_number.get(number, {}))
+            if observation != "post" and not (
+                record["authority_id"] == refresh_remainder_of and observation == "pre"
+            ):
+                raise ValueError("managed_refresh_projection_mismatch")
         canonical: dict[str, dict[str, Any]] = {}
         initial_statuses: dict[str, str] = {}
         create_acceptances: dict[str, dict[str, Any]] = {}
@@ -2061,6 +2116,324 @@ def reconcile_authority_ledger(
         "head_authority_id": records[-1]["authority_id"],
         "projections": sorted(projections, key=lambda row: row["stable_id"]),
     }
+
+
+def validate_managed_refresh_payload(payload: dict[str, Any]) -> None:
+    """The refresh capability carries hashes, never a caller-supplied body."""
+    if set(payload) not in (
+        REFRESH_AUTHORITY_KEYS, REFRESH_AUTHORITY_KEYS | {"remainder_of_authority_id"}
+    ):
+        raise ValueError("invalid_managed_refresh_fields")
+    if (
+        not SHA_RE.fullmatch(str(payload.get("source_sha", "")))
+        or payload.get("registry_path") != REFRESH_REGISTRY_PATH.as_posix()
+        or not re.fullmatch(r"[0-9a-f]{40,64}", str(payload.get("registry_blob_oid", "")))
+    ):
+        raise ValueError("invalid_managed_refresh_source")
+    for key in REFRESH_AUTHORITY_KEYS | {"remainder_of_authority_id"}:
+        if (key.endswith("sha256") or key == "remainder_of_authority_id") and key in payload:
+            if not HASH_RE.fullmatch(str(payload[key])):
+                raise ValueError("invalid_managed_refresh_hash")
+    updates = payload.get("updates")
+    if not isinstance(updates, list) or not updates:
+        raise ValueError("managed_refresh_requires_nonempty_updates")
+    seen: list[set[Any]] = [set(), set(), set(), set()]
+    for row in updates:
+        if not isinstance(row, dict) or set(row) != REFRESH_UPDATE_KEYS:
+            raise ValueError("invalid_managed_refresh_update_fields")
+        if (
+            not STABLE_ID_RE.fullmatch(str(row["stable_id"]))
+            or type(row["issue_number"]) is not int or row["issue_number"] <= 0
+            or not isinstance(row["database_id"], str) or not row["database_id"]
+            or not isinstance(row["node_id"], str) or not row["node_id"]
+        ):
+            raise ValueError("invalid_managed_refresh_identity")
+        for values, key in zip(seen, ("stable_id", "issue_number", "database_id", "node_id"), strict=True):
+            if row[key] in values:
+                raise ValueError("duplicate_managed_refresh_identity")
+            values.add(row[key])
+        deltas = row["managed_field_deltas"]
+        if (
+            not isinstance(deltas, list) or not deltas
+            or any(not isinstance(field, str) or field not in REFRESH_FIELDS for field in deltas)
+            or deltas != sorted(set(deltas))
+        ):
+            raise ValueError("invalid_managed_refresh_deltas")
+        for key in REFRESH_UPDATE_KEYS:
+            if key.endswith("sha256") and not HASH_RE.fullmatch(str(row[key])):
+                raise ValueError("invalid_managed_refresh_update_hash")
+        if row["preimage_body_sha256"] == row["postimage_body_sha256"]:
+            raise ValueError("managed_refresh_noop_update")
+    if updates != sorted(updates, key=lambda row: row["stable_id"]):
+        raise ValueError("managed_refresh_updates_not_ordered")
+
+
+def _refresh_block(body: str, stable_id: str) -> tuple[str, str, str]:
+    from scripts import sync_github_issues as sync
+
+    if (
+        body.count(sync.MANAGED_START) != 1 or body.count(sync.MANAGED_END) != 1
+        or "etf-ai-cockpit-managed-" in body or "etf-ai-cockpit-local-issue-id" in body
+        or body.count("etf-ai-cockpit:managed:") != 2
+        or body.count("etf-ai-cockpit:stable-id") != 1
+        or sync.MARKER_RE.findall(body) != [stable_id]
+    ):
+        raise ValueError("managed_refresh_ambiguous_boundaries")
+    start = body.index(sync.MANAGED_START)
+    end = body.index(sync.MANAGED_END) + len(sync.MANAGED_END)
+    if end <= start or sync.MARKER_RE.findall(body[start:end]) != [stable_id]:
+        raise ValueError("managed_refresh_invalid_boundary_order")
+    return body[:start], body[start:end], body[end:]
+
+
+def refresh_protected_sha256(issue: dict[str, Any]) -> str:
+    snapshot = normalise_issue_snapshot(issue)
+    return _sha256(_json_bytes({
+        key: snapshot[key] for key in ("number", "id", "node_id", "title", "state", "labels", "url")
+    }))
+
+
+def refresh_observation(update: dict[str, Any], issue: dict[str, Any]) -> str:
+    snapshot = normalise_issue_snapshot(issue)
+    if (
+        snapshot["number"] != update["issue_number"]
+        or snapshot["id"] != update["database_id"]
+        or snapshot["node_id"] != update["node_id"]
+        or refresh_protected_sha256(snapshot) != update["protected_snapshot_sha256"]
+    ):
+        return "conflict"
+    digest = _sha256(snapshot["body"])
+    if digest == update["postimage_body_sha256"]:
+        return "post"
+    if digest == update["preimage_body_sha256"]:
+        return "pre"
+    return "conflict"
+
+
+def managed_refresh_updates(
+    registry: dict[str, Any], plan: dict[str, Any], remote: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Derive every permitted byte from the canonical registry and observed body."""
+    from scripts import sync_github_issues as sync
+
+    actions = _validate_plan_authority(plan, str(plan.get("plan_sha256", "")))
+    if (
+        plan.get("repository") != REPO
+        or plan.get("summary") != {"create": 0, "update": len(actions), "close": 0, "reopen": 0, "blocked": 0}
+        or plan.get("remote_inventory_sha256") != sync.inventory_sha256(remote)
+        or plan.get("claim_inventory_sha256") != claim_inventory_sha256(remote)
+        or registry.get("execution_allowed", False) is not False
+    ):
+        raise ValueError("managed_refresh_plan_scope_mismatch")
+    canonical = sync.registry_sync_records(registry)
+    by_id = {row["canonical_id"]: row for row in canonical}
+    issues = {normalise_issue_snapshot(row)["number"]: normalise_issue_snapshot(row) for row in remote}
+    if len(by_id) != len(canonical) or len(issues) != len(remote):
+        raise ValueError("managed_refresh_ambiguous_inventory")
+    updates = []
+    for action in actions:
+        stable_id = str(action.get("stable_id", ""))
+        issue = issues.get(action.get("remote_number"))
+        record = by_id.get(stable_id)
+        if action.get("kind") != "update" or issue is None or record is None:
+            raise ValueError("managed_refresh_update_only")
+        if (
+            len(sync.marker_ids(remote).get(stable_id, [])) != 1
+            or record.get("execution_allowed", False) is not False
+            or action.get("title") != issue["title"] or record.get("title") != issue["title"]
+            or action.get("desired_state") != issue["state"]
+            or ("closed" if record.get("ledger_state") == "closed" else "open") != issue["state"]
+        ):
+            raise ValueError("managed_refresh_protected_change")
+        prefix, old, suffix = _refresh_block(issue["body"], stable_id)
+        desired = sync.managed_block(record)
+        # Fixed template structure and identical protected lines exclude hidden,
+        # duplicate, injected, or status-bearing edits within the block.
+        old_lines, new_lines = old.split("\n"), desired.split("\n")
+        if len(old_lines) != len(new_lines):
+            raise ValueError("managed_refresh_invalid_template")
+        deltas = []
+        for before, after in zip(old_lines, new_lines, strict=True):
+            if before == after:
+                continue
+            field = after.split(":", 1)[0].removeprefix("- ")
+            if field not in REFRESH_FIELDS or not before.startswith(f"- {field}:"):
+                raise ValueError("managed_refresh_forbidden_field_delta")
+            deltas.append(field)
+        post = prefix + desired + suffix
+        if not deltas or action != sync._action("update", record, remote_number=issue["number"], body=post):
+            raise ValueError("managed_refresh_plan_not_canonical")
+        updates.append({
+            "stable_id": stable_id, "issue_number": issue["number"],
+            "database_id": issue["id"], "node_id": issue["node_id"],
+            "managed_field_deltas": sorted(deltas),
+            "preimage_body_sha256": _sha256(issue["body"]),
+            "preimage_managed_block_sha256": _sha256(old),
+            "desired_managed_block_sha256": _sha256(desired),
+            "postimage_body_sha256": _sha256(post),
+            "protected_snapshot_sha256": refresh_protected_sha256(issue),
+        })
+    return updates
+
+
+def managed_refresh_registry(root: Path, source_sha: str) -> tuple[dict[str, Any], dict[str, str]]:
+    data = _git_blob_bytes(root, source_sha, REFRESH_REGISTRY_PATH)
+    if data is None:
+        raise ValueError("managed_refresh_registry_missing")
+    registry = json.loads(data)
+    if not isinstance(registry, dict):
+        raise ValueError("managed_refresh_registry_invalid")
+    oid = subprocess.check_output(
+        ["git", "rev-parse", f"{source_sha}:{REFRESH_REGISTRY_PATH.as_posix()}"],
+        cwd=root, text=True,
+    ).strip()
+    return registry, {
+        "registry_path": REFRESH_REGISTRY_PATH.as_posix(),
+        "registry_blob_oid": oid, "registry_blob_sha256": _sha256(data),
+    }
+
+
+def refresh_remainder_updates(
+    original: dict[str, Any], remote: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    issues = {int(row["number"]): row for row in remote}
+    if len(issues) != len(remote):
+        raise ValueError("managed_refresh_duplicate_remote")
+    pending = []
+    for update in original["payload"]["updates"]:
+        observation = refresh_observation(update, issues.get(update["issue_number"], {}))
+        if observation == "conflict":
+            raise ValueError("managed_refresh_remainder_conflict")
+        if observation == "pre":
+            pending.append(update)
+    if not 0 < len(pending) < len(original["payload"]["updates"]):
+        raise ValueError("managed_refresh_remainder_not_strict")
+    return pending
+
+
+def validate_reviewed_managed_refresh(
+    root: Path, plan: dict[str, Any], remote: list[dict[str, Any]], *,
+    authority_record: dict[str, Any], git_binding: dict[str, Any],
+    attestation: dict[str, str],
+) -> dict[str, Any]:
+    payload = authority_record["payload"]
+    validate_managed_refresh_payload(payload)
+    _validate_run_attestation(attestation)
+    if (
+        authority_record.get("authority_type") != "managed_refresh"
+        or authority_record.get("execution_allowed") is not False
+        or authority_record.get("repository") != REPO
+        or authority_record.get("authority_id") != _authority_id(authority_record)
+        or authority_record["authority_id"] != git_binding.get("authority_id")
+        or authority_record["sequence"] != git_binding.get("authority_sequence")
+        or git_binding.get("authority_type") != "managed_refresh"
+        or payload["source_sha"] != git_binding.get("source_sha")
+        or payload["source_sha"] != attestation.get("event_before")
+        or git_binding.get("head_sha") != attestation.get("event_after")
+        or attestation.get("event_name") != "push"
+        or attestation.get("event_ref") != "refs/heads/main"
+        or attestation.get("run_attempt") != "1"
+        or not attestation.get("actor") or not attestation.get("pusher")
+    ):
+        raise ValueError("managed_refresh_authority_binding_mismatch")
+    before, records, actual_binding = validate_authority_git_transition(
+        root, event_before=payload["source_sha"], event_after=git_binding["head_sha"], main_ref=None,
+    )
+    if actual_binding != git_binding or records[-1] != authority_record:
+        raise ValueError("managed_refresh_committed_authority_mismatch")
+    changed = subprocess.check_output(
+        ["git", "diff", "--name-only", payload["source_sha"], git_binding["head_sha"]],
+        cwd=root, text=True,
+    ).splitlines()
+    if changed != [AUTHORITY_PATH.as_posix()]:
+        raise ValueError("managed_refresh_requires_ledger_only_change")
+    registry, binding = managed_refresh_registry(root, payload["source_sha"])
+    if any(payload[key] != value for key, value in binding.items()):
+        raise ValueError("managed_refresh_registry_binding_mismatch")
+    if (
+        payload["updates"] != managed_refresh_updates(registry, plan, remote)
+        or any(payload[key] != plan.get(key) for key in (
+            "plan_sha256", "remote_inventory_sha256", "claim_inventory_sha256"
+        ))
+    ):
+        raise ValueError("managed_refresh_reviewed_plan_mismatch")
+    if "remainder_of_authority_id" in payload:
+        if refresh_remainder_updates(before[-1], remote) != payload["updates"]:
+            raise ValueError("managed_refresh_remainder_scope_mismatch")
+    return registry
+
+
+def apply_reviewed_managed_refresh(
+    root: Path, plan: dict[str, Any], remote: list[dict[str, Any]], *,
+    authority_record: dict[str, Any], git_binding: dict[str, Any],
+    attestation: dict[str, str], authority_revalidator: Callable[[], None],
+    transport: MutationTransport | None = None,
+) -> dict[str, Any]:
+    registry = validate_reviewed_managed_refresh(
+        root, plan, remote, authority_record=authority_record,
+        git_binding=git_binding, attestation=attestation,
+    )
+    if authority_revalidator is None:
+        raise ValueError("managed_refresh_live_authority_required")
+    client = transport or GhMutationTransport()
+    from scripts import sync_github_issues as sync
+
+    # Inventory comparisons include complete comments on claimed issues, just as
+    # the existing planner does. No write occurs until the whole batch is fresh.
+    authority_revalidator()
+    inventory = client.list_issues()
+    fresh = [
+        client.fetch_issue(int(row["number"]))
+        if sync.MARKER_RE.search(str(row.get("body") or ""))
+        or sync.LEGACY_MARKER_RE.search(str(row.get("body") or ""))
+        or CREATE_MARKER_TEMPLATE.split("{")[0] in str(row.get("body") or "")
+        else row
+        for row in inventory
+    ]
+    if sync.inventory_sha256(fresh) != plan["remote_inventory_sha256"]:
+        raise ValueError("managed_refresh_stale_inventory")
+    canonical = {row["canonical_id"]: row for row in sync.registry_sync_records(registry)}
+    reviewed = {int(row["number"]): normalise_issue_snapshot(row) for row in remote}
+    evidence: dict[str, Any] = {
+        "execution_allowed": False, "accepted": False, "terminal_status": "pending",
+        "authority_id": authority_record["authority_id"], "updates": [],
+    }
+    for update in authority_record["payload"]["updates"]:
+        number = update["issue_number"]
+        authority_revalidator()
+        if claim_inventory_sha256(client.list_issues()) != claim_inventory_sha256(list(reviewed.values())):
+            evidence["terminal_status"] = "stale_claim_inventory"
+            return evidence
+        pre = normalise_issue_snapshot(client.fetch_issue(number))
+        if pre != reviewed[number] or refresh_observation(update, pre) != "pre":
+            evidence["terminal_status"] = "stale_preimage"
+            return evidence
+        prefix, _, suffix = _refresh_block(pre["body"], update["stable_id"])
+        body = prefix + sync.managed_block(canonical[update["stable_id"]]) + suffix
+        error = False
+        try:
+            client._refresh_managed_body(number, body)
+        except Exception:
+            # Exactly one observation, never a retry or compensating write.
+            error = True
+        try:
+            post = normalise_issue_snapshot(client.fetch_issue(number))
+            observation = refresh_observation(update, post)
+            if post["comments"] != pre["comments"]:
+                observation = "conflict"
+        except Exception:
+            observation = "unobservable"
+        result = {"issue_number": number, "observation": observation, "write_error": error}
+        evidence["updates"].append(result)
+        if observation != "post":
+            evidence["terminal_status"] = (
+                "write_failed_not_applied" if observation == "pre" else observation
+            )
+            return evidence
+        reviewed[number] = post
+    evidence["accepted"] = True
+    evidence["terminal_status"] = "applied_and_verified"
+    return evidence
 
 
 def _validate_plan_authority(plan: dict[str, Any], approved_sha256: str) -> list[dict[str, Any]]:
@@ -2968,6 +3341,16 @@ def _read_gh(args: list[str], *, attempts: int = 3) -> str:
 @dataclass
 class GhMutationTransport:
     repository: str = REPO
+
+    def _refresh_managed_body(self, number: int, body: str) -> None:
+        # Private primitive: only the reviewed managed-refresh gateway owns calls.
+        if self.repository != REPO:
+            raise ValueError("managed_refresh_repository_mismatch")
+        _run_gh(
+            ["api", f"repos/{self.repository}/issues/{number}", "--method", "PATCH",
+             "--input", "-", "-H", "X-GitHub-Api-Version: 2026-03-10"],
+            input_text=json.dumps({"body": body}),
+        )
 
     def _pages(self, endpoint: str) -> list[dict[str, Any]]:
         pages = json.loads(

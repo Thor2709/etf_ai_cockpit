@@ -176,6 +176,7 @@ def plan_actions(
     expected_status_event: dict[str, Any] | None = None,
     authority_records: list[dict[str, Any]] | None = None,
     authority_root: Path | None = None,
+    refresh_remainder_of: str | None = None,
 ) -> dict[str, Any]:
     remote = sorted(
         (normalise_remote_issue(issue) for issue in remote_issues),
@@ -187,6 +188,7 @@ def plan_actions(
             authority_records,
             remote,
             root=authority_root,
+            refresh_remainder_of=refresh_remainder_of,
         )
         if not authority_reconciliation.get("accepted"):
             payload = {
@@ -721,6 +723,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--apply", action="store_true", help="apply only after the approved plan SHA-256 is supplied")
     parser.add_argument("--approved-plan-sha256")
     parser.add_argument("--expected-status-candidate", type=Path)
+    parser.add_argument("--refresh-remainder-of", help="read-only review of a strict partial refresh remainder")
     args = parser.parse_args(argv)
     if args.apply and args.remote_snapshot:
         raise SystemExit("POLICY_ERROR: remote_snapshot_apply_prohibited")
@@ -757,6 +760,7 @@ def main(argv: list[str] | None = None) -> int:
         expected_status_event=expected_status_event,
         authority_records=authority_records,
         authority_root=root,
+        refresh_remainder_of=args.refresh_remainder_of,
     )
     output = args.plan_out or Path(tempfile.gettempdir()) / "etf-ai-cockpit-github-sync-plan.json"
     output.parent.mkdir(parents=True, exist_ok=True)
