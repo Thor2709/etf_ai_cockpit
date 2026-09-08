@@ -119,6 +119,29 @@ def test_guard_accepts_only_complete_projection(migration):
     assert _guard(*migration) == []
 
 
+@pytest.mark.parametrize("mutation", ["replacement", "deletion", "entry_deletion", "tampering", "reordering", "restoration"])
+def test_guard_rejects_reconciliation_corruption(migration, mutation):
+    control, base, proposed_control, proposed = deepcopy(migration)
+    reconciliation = proposed["dependency_reconciliation"]
+    if mutation == "replacement":
+        proposed["dependency_reconciliation"] = [{"fabricated": True}]
+    elif mutation == "deletion":
+        del proposed["dependency_reconciliation"]
+    elif mutation == "entry_deletion":
+        reconciliation.pop()
+    elif mutation == "tampering":
+        reconciliation[0]["reason"] = "fabricated reason"
+    elif mutation == "reordering":
+        reconciliation.reverse()
+    elif mutation == "restoration":
+        reconciliation.append(next(entry for entry in base["dependency_reconciliation"]
+            if (entry["source_id"], entry["dependency"]) in core.DECLARATION_CORRECTION_PAIRS))
+    # _guard recomputes the manifest/status hashes so this proves semantic
+    # rejection even when an attacker refreshes all projection checksums.
+    errors = _guard(control, base, proposed_control, proposed)
+    assert "declaration correction dependency reconciliation projection mismatch" in errors
+
+
 @pytest.mark.parametrize("mutation", ["status", "genuine_edge", "history", "stale_hash", "pair"])
 def test_guard_rejects_unrelated_or_stale_changes(migration, mutation):
     control, base, proposed_control, proposed = deepcopy(migration)

@@ -708,6 +708,35 @@ def _validate_base_refresh_top_level(
         excluded.add("readiness")
     if allow_dependency_reconciliation_change:
         excluded.add("dependency_reconciliation")
+        # The canonical resolver emits one ordered entry per candidate. This
+        # migration removes only these five blocking candidates; every other
+        # reconciliation entry and its order must survive unchanged.
+        base_reconciliation = base_registry.get("dependency_reconciliation")
+        expected_reconciliation = []
+        removed_pairs = set()
+        valid_reconciliation = isinstance(base_reconciliation, list)
+        for entry in base_reconciliation if valid_reconciliation else []:
+            if not isinstance(entry, dict):
+                valid_reconciliation = False
+                break
+            pair = (entry.get("source_id"), entry.get("dependency"))
+            if pair in DECLARATION_CORRECTION_PAIRS:
+                if pair in removed_pairs or entry != {
+                    "source_id": pair[0], "dependency": pair[1],
+                    "candidate_type": "blocking",
+                    "resolved_as": "blocking_dependencies",
+                    "reason": "proposed programme prerequisite",
+                }:
+                    valid_reconciliation = False
+                removed_pairs.add(pair)
+            else:
+                expected_reconciliation.append(entry)
+        if (
+            not valid_reconciliation
+            or removed_pairs != DECLARATION_CORRECTION_PAIRS
+            or proposed_registry.get("dependency_reconciliation") != expected_reconciliation
+        ):
+            _error(errors, "declaration correction dependency reconciliation projection mismatch")
     base_top = {key: value for key, value in base_registry.items() if key not in excluded}
     proposed_top = {
         key: value for key, value in proposed_registry.items() if key not in excluded
