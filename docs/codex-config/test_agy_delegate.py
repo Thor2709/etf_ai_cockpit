@@ -413,6 +413,34 @@ class StagedEditorTests(unittest.TestCase):
         self.assertIn('--sandbox', command)
         self.assertIn('--new-project', command)
 
+    def test_editor_accepts_repeated_json_response_handoff_only(self):
+        handoff = {'assignment_status': 'complete', **{key: [] for key in agy.LIST_FIELDS},
+                   'recommended_next_action': 'Codex verifies source.'}
+        events = [
+            {'event': 'init', 'conversation_id': 'editor-fixture', 'init': {
+                'cwd': str(self.workspace), 'model': agy.DEFAULT_MODEL,
+                'agent': 'codex-flash-editor', 'tools': sorted(agy.EDIT_TOOLS),
+                'permission_mode': 'request-review'}},
+            {'event': 'result', 'result': {'conversation_id': 'editor-fixture', 'status': 'SUCCESS'}}]
+        response = json.dumps(handoff)
+        events[-1]['result']['response'] = response + '\n' + response
+        self.assertEqual(agy.parse_stream('\n'.join(json.dumps(x) for x in events), self.workspace,
+                                          agy.DEFAULT_MODEL, 'codex-flash-editor')['handoff'], handoff)
+
+    def test_editor_rejects_inconsistent_json_response_handoff(self):
+        handoff = {'assignment_status': 'complete', **{key: [] for key in agy.LIST_FIELDS},
+                   'recommended_next_action': 'Codex verifies source.'}
+        events = [
+            {'event': 'init', 'conversation_id': 'editor-fixture', 'init': {
+                'cwd': str(self.workspace), 'model': agy.DEFAULT_MODEL,
+                'agent': 'codex-flash-editor', 'tools': sorted(agy.EDIT_TOOLS),
+                'permission_mode': 'request-review'}},
+            {'event': 'result', 'result': {'conversation_id': 'editor-fixture', 'status': 'SUCCESS'}}]
+        events[-1]['result']['response'] = json.dumps(handoff) + '\n{}'
+        with self.assertRaisesRegex(agy.DelegationError, 'Inconsistent editor handoff'):
+            agy.parse_stream('\n'.join(json.dumps(x) for x in events), self.workspace,
+                             agy.DEFAULT_MODEL, 'codex-flash-editor')
+
     def test_failure_cleans_staging_and_never_promotes(self):
         def mutate(stage):
             (stage / 'owned.txt').write_bytes(b'candidate\n')
@@ -429,8 +457,8 @@ class StagedEditorTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(agy.DelegationError):
                 agy.owned_editor_paths({**self.packet, 'owned_paths': [path]})
 
-    def test_editor_disabled_by_default(self):
-        self.assertEqual(agy.CAPABILITY_STATES['codex-flash-editor'], 'disabled')
+    def test_editor_enabled_only_through_staged_route(self):
+        self.assertEqual(agy.CAPABILITY_STATES['codex-flash-editor'], 'enabled')
 
     def test_project_cleanup_only_removes_new_exact_conversation(self):
         brain = Path(self.temp.name) / '.gemini/antigravity-cli/brain'

@@ -10,7 +10,7 @@ worker, never a V2 role or formal gate. Use only when the expected saving
 exceeds the cost of independently checking its answer. Scout and editor each
 have independent disabled/shadow/enabled states. Scout is enabled for proven
 read-only assignments using the passed fresh-project route with an absolute added workspace;
-editor remains disabled pending staged-promotion smoke validation. Root owns acceptance and any live installation or
+editor is enabled only through the proven staged-promotion route. Root owns acceptance and any live installation or
 synchronization. Promote only proven scout task classes.
 
 Read [routing.md](references/routing.md) to select scout versus editor, then

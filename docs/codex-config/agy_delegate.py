@@ -22,7 +22,7 @@ EDIT_TOOLS = READ_TOOLS | {'write_to_file', 'replace_file_content', 'multi_repla
 AGENTS = {'codex-flash-scout': READ_TOOLS, 'codex-flash-editor': EDIT_TOOLS}
 DEFAULT_MODEL = 'gemini-3.8-flash-medium'
 MODELS = {DEFAULT_MODEL, 'gemini-3.8-flash-high'}
-CAPABILITY_STATES = {'codex-flash-scout': 'enabled', 'codex-flash-editor': 'disabled'}
+CAPABILITY_STATES = {'codex-flash-scout': 'enabled', 'codex-flash-editor': 'enabled'}
 STATES = frozenset({'disabled', 'shadow', 'enabled'})
 LIST_FIELDS = ('files_inspected', 'requirements_addressed', 'candidate_tests', 'uncertainties')
 HANDOFF_SCHEMA = {
@@ -307,6 +307,32 @@ def strict_json(text):
         raise DelegationError('Malformed JSON') from error
 
 
+def strict_json_objects(text):
+    """Decode adjacent JSON objects from AGY's repeated pretty response."""
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            require(key not in result, 'Duplicate JSON field')
+            result[key] = value
+        return result
+    decoder = json.JSONDecoder(object_pairs_hook=pairs,
+                                parse_constant=lambda _: require(False, 'Nonfinite JSON'))
+    values = []
+    position = 0
+    try:
+        while position < len(text):
+            while position < len(text) and text[position].isspace():
+                position += 1
+            if position == len(text):
+                break
+            value, position = decoder.raw_decode(text, position)
+            values.append(value)
+    except (ValueError, TypeError) as error:
+        raise DelegationError('Malformed JSON') from error
+    require(values, 'Missing JSON object')
+    return values
+
+
 def agent_path(repo, name):
     return repo / '.agents' / 'agents' / name / 'agent.md'
 
@@ -446,7 +472,15 @@ def parse_stream(stdout, cwd, model, agent, *, unchanged=False):
     if 'cwd' in result:
         require(isinstance(result['cwd'], str) and Path(result['cwd']).is_absolute()
                 and Path(result['cwd']).resolve() == cwd, 'Wrong result cwd')
-    handoff = validate_handoff(result.get('structured_output'))
+    structured = result.get('structured_output')
+    if structured is None and agent == 'codex-flash-editor':
+        response = result.get('response')
+        require(isinstance(response, str) and response.strip(), 'Missing editor handoff')
+        candidates = strict_json_objects(response)
+        require(candidates and all(candidate == candidates[0] for candidate in candidates),
+                'Inconsistent editor handoff response')
+        structured = candidates[-1]
+    handoff = validate_handoff(structured)
     if denied:
         raise RunDegraded('Denied actions: assignment degraded; use V2 fallback')
     return {'cwd': str(cwd), 'model': model, 'agent': agent, 'status': 'SUCCESS',
