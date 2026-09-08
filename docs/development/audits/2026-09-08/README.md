@@ -65,7 +65,7 @@ Universe/Backtests UI and a handoff. Preserve all four unique commits; do not
 apply the old forty-issue checkpoint wholesale. Merged harness branches are
 history; unmerged product branches are candidate evidence, never reservations.
 
-## Demonstrated unresolved semantic repair
+## Demonstrated semantic repair (resolved in the accepted migration)
 
 `_compact_metadata` in `issue_registry_core.py` parses through `; downstream`:
 
@@ -75,14 +75,13 @@ history; unmerged product branches are candidate evidence, never reservations.
 - `_capability_lane` also assigns0167/0168 to bulk-screening by a numeric range,
   despite their order-accounting/portfolio-forecast contracts.
 
-The correct source boundaries are exposed in `contract_diagnostics`, but no
-edge is waived and no review is fabricated. Fixing the parser alone invalidates
-the control record's exact declared-edge set. The remaining repair must be one
-root-reviewed canonical/parser/GitHub-projection migration preserving original
-edge evidence/history and the existing mutation restrictions. Final parity/core
-certification is blocked until that repair and its formal review are complete.
-Do not call the programme semantically repaired merely because generation is
-byte-clean or the graph is acyclic.
+The accepted F23/F24 migration corrected the parser boundary and capability
+lanes, removed exactly the five source-disputed edges through append-only
+correction events, and regenerated the canonical control, registry, readiness,
+open ledger and reconciliation projections. Original edge evidence/history and
+the existing mutation restrictions remain intact; no issue status or execution
+authority was changed by this repair. The historical observations above remain
+the audit record of the pre-migration state.
 
 ## Local reconciliation evidence — existence unverified
 

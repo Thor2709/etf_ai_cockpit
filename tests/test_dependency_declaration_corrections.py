@@ -2,6 +2,7 @@
 from copy import deepcopy
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,14 @@ from scripts.update_programme_status import deterministic_text, progress_markdow
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_LEDGER_DIGEST = "c" * 64
+BASE_COMMIT = "db41e92857acc2b36faeab1c81d42031b3257529"
+
+
+def _base_snapshot(relative: Path):
+    payload = subprocess.check_output(
+        ["git", "show", f"{BASE_COMMIT}:{relative.as_posix()}"], cwd=ROOT
+    )
+    return json.loads(payload)
 
 
 @pytest.fixture
@@ -58,8 +67,8 @@ def _batch(control):
 
 @pytest.fixture
 def migration(monkeypatch, deferred_semantics):
-    control = core.load_control_state(ROOT)
-    base = json.loads((ROOT / core.REGISTRY_PATH).read_text(encoding="utf-8"))
+    control = _base_snapshot(core.CONTROL_STATE_PATH)
+    base = _base_snapshot(core.REGISTRY_PATH)
     proposed_control = apply_dependency_declaration_corrections(control, root=ROOT, corrections=_batch(control))
     monkeypatch.setattr(core, "load_control_state", lambda root: proposed_control)
     proposed = core.build_registry(ROOT, verify_base=False)
@@ -101,7 +110,7 @@ def test_batch_preserves_history_status_and_genuine_evidence(migration):
 
 @pytest.mark.parametrize("mutation", ["pair", "addition", "evidence", "source", "status", "review", "partial"])
 def test_writer_rejects_invalid_batch_without_mutation(mutation, deferred_semantics):
-    control = core.load_control_state(ROOT)
+    control = _base_snapshot(core.CONTROL_STATE_PATH)
     before = deepcopy(control)
     batch = _batch(control)
     event = batch[0]["event"]
@@ -151,7 +160,7 @@ def test_guard_rejects_expected_ledger_digest_mismatch(migration):
 
 
 def test_writer_rejects_immutable_source_disagreement(monkeypatch, deferred_semantics):
-    control = core.load_control_state(ROOT)
+    control = _base_snapshot(core.CONTROL_STATE_PATH)
     parse = core.parse_final_release_new_issues
     def disagree(text):
         rows = parse(text)

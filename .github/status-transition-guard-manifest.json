@@ -1,9 +1,42 @@
 {
-  "allow_downgrades": false,
-  "allow_other_status_changes": false,
-  "allowed_status_transitions": [],
-  "base_commit": "51bec2b8937f725e9e1c74136249a1d9c7d4851a",
-  "branch": "codex/control-plane-remediation-20260908",
+  "schema_version": "1.3",
+  "base_commit": "db41e92857acc2b36faeab1c81d42031b3257529",
+  "branch": "codex/control-plane-semantic-migration-20260908",
   "issue_ids": [],
-  "schema_version": "1.0"
+  "allowed_status_transitions": [],
+  "allow_other_status_changes": false,
+  "allow_downgrades": false,
+  "allow_downgrade": false,
+  "allowed_dependency_edge_updates": [
+    {
+      "issue_id": "ISSUE-0167",
+      "dependency_id": "ISSUE-0132"
+    },
+    {
+      "issue_id": "ISSUE-0167",
+      "dependency_id": "ISSUE-0133"
+    },
+    {
+      "issue_id": "ISSUE-0167",
+      "dependency_id": "ISSUE-0134"
+    },
+    {
+      "issue_id": "ISSUE-0167",
+      "dependency_id": "ISSUE-0135"
+    },
+    {
+      "issue_id": "ISSUE-0169",
+      "dependency_id": "ISSUE-0152"
+    }
+  ],
+  "registry_migration": {
+    "mode": "generation_base_and_dependency_edge_corrections",
+    "reason": "F23/F24 semantic dependency declaration correction migration",
+    "generator": "scripts/generate_issue_registry.py",
+    "base_registry_sha256": "61642e9b8718994abb29b60d150778f0aa953a9efea36057750d6e1d553c08e8",
+    "proposed_registry_sha256": "d40f751c22222ab3a7c593d9e9246331b33c274c8f5fedcca0a253d0bcaba5fb",
+    "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89",
+    "added_issue_ids": [],
+    "removed_issue_ids": []
+  }
 }
