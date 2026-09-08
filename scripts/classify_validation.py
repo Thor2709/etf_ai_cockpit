@@ -333,7 +333,7 @@ def derive_trusted_evidence(
 
     Optional diagnostics explain rejection without creating another authority.
     """
-    def reject(reason: str) -> None:
+    def reject(reason: str) -> dict[str, object] | None:
         if diagnostics is not None:
             diagnostics.append(reason)
         return None
