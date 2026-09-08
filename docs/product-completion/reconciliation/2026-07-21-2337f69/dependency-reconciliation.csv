@@ -466,10 +466,6 @@ ISSUE-0167,ISSUE-0114,blocking,blocking_dependencies,proposed programme prerequi
 ISSUE-0167,ISSUE-0127,blocking,blocking_dependencies,proposed programme prerequisite
 ISSUE-0167,ISSUE-0130,blocking,blocking_dependencies,proposed programme prerequisite
 ISSUE-0167,ISSUE-0131,blocking,blocking_dependencies,proposed programme prerequisite
-ISSUE-0167,ISSUE-0132,blocking,blocking_dependencies,proposed programme prerequisite
-ISSUE-0167,ISSUE-0133,blocking,blocking_dependencies,proposed programme prerequisite
-ISSUE-0167,ISSUE-0134,blocking,blocking_dependencies,proposed programme prerequisite
-ISSUE-0167,ISSUE-0135,blocking,blocking_dependencies,proposed programme prerequisite
 ISSUE-0168,ISSUE-0108,blocking,blocking_dependencies,proposed programme prerequisite
 ISSUE-0168,ISSUE-0109,blocking,blocking_dependencies,proposed programme prerequisite
 ISSUE-0168,ISSUE-0110,blocking,blocking_dependencies,proposed programme prerequisite
@@ -480,7 +476,6 @@ ISSUE-0168,ISSUE-0161,blocking,blocking_dependencies,proposed programme prerequi
 ISSUE-0169,ISSUE-0074,blocking,blocking_dependencies,proposed programme prerequisite
 ISSUE-0169,ISSUE-0136,blocking,blocking_dependencies,proposed programme prerequisite
 ISSUE-0169,ISSUE-0142,blocking,blocking_dependencies,proposed programme prerequisite
-ISSUE-0169,ISSUE-0152,blocking,blocking_dependencies,proposed programme prerequisite
 ISSUE-0169,ISSUE-0161,blocking,blocking_dependencies,proposed programme prerequisite
 ISSUE-0169,ISSUE-0165,blocking,blocking_dependencies,proposed programme prerequisite
 ISSUE-0169,ISSUE-0167,blocking,blocking_dependencies,proposed programme prerequisite

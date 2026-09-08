@@ -80,12 +80,16 @@ unavailable historical data or a UI stub that fails acceptance. Missing producer
 contracts found during preflight require an evidenced issue-specific correction
 through existing authority, not arbitrary new dependencies or silent waivers.
 
-`contract_diagnostics` exposes demonstrated source/parser disagreements while
-still enforcing the existing canonical edges. The observed compact-metadata
-parser incorrectly absorbs downstream consumers as blockers for ISSUE-0167 and
-ISSUE-0169 (including certification ISSUE-0152). Their guarded semantic migration
-is unresolved: do not infer that an acyclic graph proves semantic correctness,
-waive those edges, or issue final certification before this defect is repaired.
+`contract_diagnostics` previously exposed source/parser disagreements. The
+accepted F23/F24 migration corrected `_compact_metadata` to stop dependency
+clauses at the semicolon boundary and assigned the reviewed capability lanes:
+ISSUE-0167 is `PAPER_BROKER_OPERATIONS` and ISSUE-0168 is `PORTFOLIO_READ_ONLY`.
+Exactly five source-disputed edges were removed through append-only,
+source-bound correction events: ISSUE-0167→0132/0133/0134/0135 and
+ISSUE-0169→0152. Original edge evidence and status history remain preserved;
+generated registry, readiness, open-ledger and reconciliation projections were
+regenerated atomically. No issue status or execution authority changed, and the
+existing GitHub mutation restrictions remain in force.
 
 ## Active work and parallel admission
 

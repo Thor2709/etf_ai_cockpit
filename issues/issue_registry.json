@@ -3323,34 +3323,6 @@
     },
     {
       "candidate_type": "blocking",
-      "dependency": "ISSUE-0132",
-      "reason": "proposed programme prerequisite",
-      "resolved_as": "blocking_dependencies",
-      "source_id": "ISSUE-0167"
-    },
-    {
-      "candidate_type": "blocking",
-      "dependency": "ISSUE-0133",
-      "reason": "proposed programme prerequisite",
-      "resolved_as": "blocking_dependencies",
-      "source_id": "ISSUE-0167"
-    },
-    {
-      "candidate_type": "blocking",
-      "dependency": "ISSUE-0134",
-      "reason": "proposed programme prerequisite",
-      "resolved_as": "blocking_dependencies",
-      "source_id": "ISSUE-0167"
-    },
-    {
-      "candidate_type": "blocking",
-      "dependency": "ISSUE-0135",
-      "reason": "proposed programme prerequisite",
-      "resolved_as": "blocking_dependencies",
-      "source_id": "ISSUE-0167"
-    },
-    {
-      "candidate_type": "blocking",
       "dependency": "ISSUE-0108",
       "reason": "proposed programme prerequisite",
       "resolved_as": "blocking_dependencies",
@@ -3415,13 +3387,6 @@
     {
       "candidate_type": "blocking",
       "dependency": "ISSUE-0142",
-      "reason": "proposed programme prerequisite",
-      "resolved_as": "blocking_dependencies",
-      "source_id": "ISSUE-0169"
-    },
-    {
-      "candidate_type": "blocking",
-      "dependency": "ISSUE-0152",
       "reason": "proposed programme prerequisite",
       "resolved_as": "blocking_dependencies",
       "source_id": "ISSUE-0169"
@@ -7843,30 +7808,6 @@
           "evidence_state": "unresolved",
           "reason_code": "EDGE_UNRESOLVED",
           "resolved": false
-        },
-        {
-          "dependency_id": "ISSUE-0132",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
-        },
-        {
-          "dependency_id": "ISSUE-0133",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
-        },
-        {
-          "dependency_id": "ISSUE-0134",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
-        },
-        {
-          "dependency_id": "ISSUE-0135",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
         }
       ],
       "execution_allowed": false,
@@ -7956,12 +7897,6 @@
         },
         {
           "dependency_id": "ISSUE-0142",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
-        },
-        {
-          "dependency_id": "ISSUE-0152",
           "evidence_state": "unresolved",
           "reason_code": "EDGE_UNRESOLVED",
           "resolved": false
@@ -20188,8 +20123,7 @@
       "downstream_issues": [
         "ISSUE-0133",
         "ISSUE-0135",
-        "ISSUE-0142",
-        "ISSUE-0167"
+        "ISSUE-0142"
       ],
       "epic": "Execution safety",
       "evidence_grade": "High",
@@ -20285,9 +20219,7 @@
           "state": "unresolved"
         }
       },
-      "downstream_issues": [
-        "ISSUE-0167"
-      ],
+      "downstream_issues": [],
       "epic": "Execution",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "The app software can remain free/open; real trading is inherently subject to broker, exchange, tax, commission and market-data terms and costs.",
@@ -20389,9 +20321,7 @@
           "state": "unresolved"
         }
       },
-      "downstream_issues": [
-        "ISSUE-0167"
-      ],
+      "downstream_issues": [],
       "epic": "Execution analytics",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -20493,9 +20423,7 @@
           "state": "unresolved"
         }
       },
-      "downstream_issues": [
-        "ISSUE-0167"
-      ],
+      "downstream_issues": [],
       "epic": "Execution safety",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -22227,8 +22155,7 @@
       "dependency_conversions": [],
       "dependency_edge_evidence": {},
       "downstream_issues": [
-        "ISSUE-0133",
-        "ISSUE-0169"
+        "ISSUE-0133"
       ],
       "epic": "Final certification",
       "evidence_grade": "High",
@@ -24196,14 +24123,10 @@
         "ISSUE-0114",
         "ISSUE-0127",
         "ISSUE-0130",
-        "ISSUE-0131",
-        "ISSUE-0132",
-        "ISSUE-0133",
-        "ISSUE-0134",
-        "ISSUE-0135"
+        "ISSUE-0131"
       ],
       "canonical_id": "ISSUE-0167",
-      "capability_lane": "BULK_SCREENING",
+      "capability_lane": "PAPER_BROKER_OPERATIONS",
       "classification": "proposed_new",
       "contract_markdown": "#### `ISSUE-0167` — Implement settlement, buying-power, cash reservation and deterministic order-state accounting\n\n**Canonical metadata:** P0 before broker writes; owner `trading-safety`; phase `phase-07-backtest-paper-execution`; slice M; depends on `ISSUE-0085`, `ISSUE-0114`, `ISSUE-0127`, `ISSUE-0130`, `ISSUE-0131`; downstream `ISSUE-0132`–`ISSUE-0135`; execution false until later authority.\n\n**Problem**\n\nA valid proposal can overspend or fail because cash, FX, settlement, accrued interest, open orders and broker buying power change between proposal and submission.\n\n**Required outcome**\n\nCreate a deterministic reservation and order-lifecycle service shared by paper and live modes.\n\n**In scope**\n\n- available, settled, unsettled and reserved cash by currency/account;\n- security quantity/face reservation and minimum denomination;\n- fees, tax, accrued interest and FX reservation;\n- local idempotency key plus broker/local/permanent IDs;\n- append-only order lifecycle: draft, approved, reserved, submitting, acknowledged, partial, filled, cancel, rejected, unknown and reconciliation-required;\n- expiry/release/reconciliation of reservations.\n\n**Out of scope:** broker strategy logic; automatic resubmission of unknown/rejected orders; initial margin/leverage.\n\n**Contracts / stores**\n\n```text\nCashAvailability\nOrderReservation\nOrderLifecycleEvent\nOrderStateProjection\n```\n\n**Implementation requirements**\n\n1. Calculate available resources from ledger, broker sync and open reservations.\n2. Reserve atomically before submission.\n3. Use stable idempotency keys and prevent duplicate broker intent.\n4. Handle duplicate, missing and out-of-order callbacks.\n5. Adjust reservation for partial fills/cancels/rejects.\n6. Move uncertain state to `RECONCILIATION_REQUIRED` and block related orders.\n\n**UI requirements:** preview with cash/quantity/settlement, lifecycle timeline and reconciliation break; operator controls subject to authority.\n\n**Acceptance criteria**\n\n- [ ] Concurrent proposals cannot spend the same resources.\n- [ ] Duplicate submission produces one broker intent.\n- [ ] Partial fills adjust reservations exactly.\n- [ ] Unknown state is never automatically retried.\n- [ ] Paper and live use the same lifecycle contract.\n\n**Tests:** concurrent reservation properties; duplicate/out-of-order callbacks; partial/cancel/reject/reconnect; multi-currency and debt accrued settlement.  \n**Audit/export:** every lifecycle event, reservation, ID, reconciliation and operator action.  \n**Roll-out:** must close before broker-write modes; implementation begins in paper/read-only state.",
       "dependency_candidates": [
@@ -24211,11 +24134,7 @@
         "ISSUE-0114",
         "ISSUE-0127",
         "ISSUE-0130",
-        "ISSUE-0131",
-        "ISSUE-0132",
-        "ISSUE-0133",
-        "ISSUE-0134",
-        "ISSUE-0135"
+        "ISSUE-0131"
       ],
       "dependency_conversions": [],
       "dependency_edge_evidence": {
@@ -24258,38 +24177,6 @@
           "reviewer": "",
           "schema_version": "1.0",
           "state": "unresolved"
-        },
-        "ISSUE-0132": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
-          "schema_version": "1.0",
-          "state": "unresolved"
-        },
-        "ISSUE-0133": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
-          "schema_version": "1.0",
-          "state": "unresolved"
-        },
-        "ISSUE-0134": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
-          "schema_version": "1.0",
-          "state": "unresolved"
-        },
-        "ISSUE-0135": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
-          "schema_version": "1.0",
-          "state": "unresolved"
         }
       },
       "downstream_issues": [
@@ -24326,8 +24213,8 @@
       "source_record_id": "ISSUE-0167",
       "source_title": "Implement settlement, buying-power, cash reservation and deterministic order-state accounting",
       "title": "Implement settlement, buying-power, cash reservation and deterministic order-state accounting",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "07c0aeeea9bcce21bbe13562af7c88e7fa4d6426",
+      "verified_date": "2026-09-08",
       "write_conflict_group": "trading-safety"
     },
     {
@@ -24349,7 +24236,7 @@
         "ISSUE-0161"
       ],
       "canonical_id": "ISSUE-0168",
-      "capability_lane": "BULK_SCREENING",
+      "capability_lane": "PORTFOLIO_READ_ONLY",
       "classification": "proposed_new",
       "contract_markdown": "#### `ISSUE-0168` — Add portfolio forecast aggregation and expected gain/loss scenario views\n\n**Canonical metadata:** P1; owner `returns-and-risk`; phase `phase-05-returns-risk-portfolio`; slice M; depends on `ISSUE-0108`–`ISSUE-0111`, `ISSUE-0115`, `ISSUE-0127`, `ISSUE-0161`; execution false.\n\n**Problem**\n\nHolding forecasts cannot be added independently because returns are correlated and coverage/model uncertainty differs.\n\n**Required outcome**\n\nAggregate supported holding distributions into portfolio expected gain/loss and risk scenarios with explicit covariance, coverage and uncertainty.\n\n**In scope**\n\n- current-holdings total-return distribution by selectable horizon;\n- expected gain/loss in the selected output currency and percentage, q05–q95, loss/benchmark/cash probabilities;\n- price, income, FX and cost contribution;\n- covariance/correlation, tail dependence and model disagreement;\n- current versus what-if/target comparison;\n- unknown/unsupported exposure and confidence.\n\n**Out of scope:** summing independent point forecasts; guaranteed target value.\n\n**Contracts:** `PortfolioForecastSnapshot` keyed to portfolio and a compatible set of analysis/risk snapshots.\n\n**Implementation requirements**\n\n1. Resolve horizon-aligned holding distributions and risk model.\n2. Aggregate through scenarios/simulation with saved seeds/configuration.\n3. Treat unsupported assets as unknown/conservative policy, never zero risk.\n4. Store components, covariance and reconciliation.\n5. Show sensitivity to costs and correlation regime.\n\n**UI requirements:** portfolio fan chart, expected selected-currency range, probability cards, contributors, coverage and assumptions.\n\n**Acceptance criteria**\n\n- [ ] One sealed portfolio and compatible analysis set is used.\n- [ ] Unknown coverage affects confidence visibly.\n- [ ] Nonlinear statistics are not falsely decomposed as additive.\n- [ ] Scenario output is reproducible.\n\n**Tests:** analytical correlated two-asset cases; missing coverage; FX/cost/income; seeded scenarios and stress.  \n**Audit/export:** inputs, covariance/risk version, seeds/configuration, coverage and output.  \n**Roll-out:** advisory; may inform optimiser/proposal but no authority.",
       "dependency_candidates": [
@@ -24467,7 +24354,6 @@
         "ISSUE-0074",
         "ISSUE-0136",
         "ISSUE-0142",
-        "ISSUE-0152",
         "ISSUE-0161",
         "ISSUE-0165",
         "ISSUE-0167"
@@ -24480,7 +24366,6 @@
         "ISSUE-0074",
         "ISSUE-0136",
         "ISSUE-0142",
-        "ISSUE-0152",
         "ISSUE-0161",
         "ISSUE-0165",
         "ISSUE-0167"
@@ -24504,14 +24389,6 @@
           "state": "unresolved"
         },
         "ISSUE-0142": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
-          "schema_version": "1.0",
-          "state": "unresolved"
-        },
-        "ISSUE-0152": {
           "contract_reference": "",
           "evidence_references": [],
           "reviewed_date": "",
@@ -24581,8 +24458,8 @@
       "source_record_id": "ISSUE-0169",
       "source_title": "Implement canonical analysis parity and deterministic replay tests across workflows",
       "title": "Implement canonical analysis parity and deterministic replay tests across workflows",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "07c0aeeea9bcce21bbe13562af7c88e7fa4d6426",
+      "verified_date": "2026-09-08",
       "write_conflict_group": "quality-and-release"
     },
     {
@@ -28086,11 +27963,11 @@
       "final_release_spec_sha256": "exact bytes; immutable binary fixture",
       "other_text_inputs": "UTF-8 text with CRLF/CR canonicalised to LF"
     },
-    "open_ledger_sha256": "d879e1ef415744a138878e1255822eaed640a0c275c2774e03f8cd10e22a26a6",
+    "open_ledger_sha256": "e68ee02bb557d8bf0309616c70127868772b8e78542b60b974747f5af403e123",
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "3108a041a798d23e2673ffd8652eec85cb891741c51acd407e6370173b3f32f7",
+    "programme_control_state_sha256": "f89bf7a2f26d3e2c0466d654fb01a536f1a0809c13bee9cd9f0e0255758a5b6f",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
