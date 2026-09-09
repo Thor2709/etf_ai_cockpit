@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from pathlib import Path
 
 import pytest
@@ -233,16 +235,153 @@ def test_missing_thread_id_fails_closed(tmp_path: Path) -> None:
         _attest(tmp_path)
 
 
-def test_live_database_files_are_not_opened_or_modified(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    database = _database(tmp_path)
-    before = {path.name: (path.stat().st_size, path.stat().st_mtime_ns) for path in tmp_path.iterdir()}
+def test_live_database_uses_read_only_uri_and_query_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "state # with % reserved characters"
+    home.mkdir()
+    database = _database(home)
+    before = database.read_bytes()
     real_connect = sqlite3.connect
+    statements = []
+
+    class ObservedConnection(sqlite3.Connection):
+        def execute(self, sql, parameters=()):
+            if sql.startswith("SELECT") or sql.startswith("PRAGMA table_info"):
+                assert self.in_transaction
+                assert super().execute("PRAGMA query_only").fetchone()[0] == 1
+            return super().execute(sql, parameters)
 
     def guarded_connect(target, *args, **kwargs):
-        assert Path(target).resolve() != database.resolve()
-        return real_connect(target, *args, **kwargs)
+        assert target == database.resolve().as_uri() + "?mode=ro"
+        assert kwargs["uri"] is True
+        assert 0 < kwargs["timeout"] <= 1
+        connection = real_connect(target, *args, factory=ObservedConnection, **kwargs)
+        connection.set_trace_callback(statements.append)
+        return connection
 
     monkeypatch.setattr(sqlite3, "connect", guarded_connect)
-    assert _attest(tmp_path)["status"] == "V2_RUNTIME_ATTESTATION_PROVEN"
-    after = {path.name: (path.stat().st_size, path.stat().st_mtime_ns) for path in tmp_path.iterdir()}
-    assert after == before
+    assert _attest(home)["status"] == "V2_RUNTIME_ATTESTATION_PROVEN"
+    assert database.read_bytes() == before
+    assert [p.name for p in home.iterdir()] == [database.name]
+    assert statements == [
+        "PRAGMA query_only=ON", "BEGIN", "PRAGMA query_only",
+        "PRAGMA table_info(threads)", "PRAGMA query_only",
+        "SELECT agent_path, agent_role, created_at, cwd, id, model, reasoning_effort, "
+        "rollout_path, source, updated_at FROM threads WHERE agent_path = '/root/attested-child'",
+    ]
+
+
+@pytest.mark.parametrize("kind", ["missing", "malformed", "schema"])
+def test_invalid_database_is_not_created_or_repaired(tmp_path: Path, kind: str) -> None:
+    database = tmp_path / "state_5.sqlite"
+    if kind == "malformed":
+        database.write_bytes(b"not a SQLite database")
+    elif kind == "schema":
+        with sqlite3.connect(database) as connection:
+            connection.execute("CREATE TABLE threads (id TEXT)")
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    with pytest.raises((AttestationError, sqlite3.DatabaseError)):
+        _attest(tmp_path)
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before
+
+
+@pytest.mark.parametrize(
+    ("column", "value", "reason"),
+    [
+        ("agent_role", "reviewer", "state_db_role_mismatch"),
+        ("reasoning_effort", "low", "state_db_reasoning_effort_mismatch"),
+        ("source", _source("reviewer"), "state_db_spawn_identity_mismatch"),
+        ("source", _source().replace(PARENT_ID, ""), "state_db_spawn_identity_mismatch"),
+        ("cwd", "C:/elsewhere", "runtime_identity_mismatch:cwd"),
+    ],
+)
+def test_contradictory_identity_fails_closed(tmp_path: Path, column: str, value: str, reason: str) -> None:
+    database = _database(tmp_path)
+    with sqlite3.connect(database) as connection:
+        connection.execute(f"UPDATE threads SET {column} = ?", (value,))
+    with pytest.raises(AttestationError, match=reason):
+        _attest(tmp_path)
+
+
+def test_no_exact_row_remains_unresolved(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE threads SET agent_path = ?", (AGENT_PATH + "-other",))
+    with pytest.raises(AttestationError, match="persisted_rollout_identity_absent_or_ambiguous"):
+        _attest(tmp_path)
+
+
+def test_rollout_hint_outside_session_roots_fails_closed(tmp_path: Path) -> None:
+    database = _database(tmp_path, model=None)
+    outside = tmp_path / "outside.jsonl"
+    outside.write_text("{}", encoding="utf-8")
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE threads SET rollout_path = ?", (str(outside),))
+    with pytest.raises(AttestationError, match="rollout_path_outside_codex_session_roots"):
+        _attest(tmp_path)
+
+
+def test_wal_observer_does_not_mutate_database_files(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    writer = sqlite3.connect(database)
+    try:
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("UPDATE threads SET updated_at = 3")
+        writer.commit()
+        # Establish the current WAL read mark before measuring observer contents.
+        with sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True) as reader:
+            reader.execute("SELECT * FROM threads").fetchall()
+        paths = [database, Path(str(database) + "-wal"), Path(str(database) + "-shm")]
+        before = {p.name: p.read_bytes() for p in paths}
+        assert _attest(tmp_path)["source"] == "state_db"
+        assert {p.name: p.read_bytes() for p in paths} == before
+    finally:
+        writer.close()
+
+
+def test_concurrent_wal_commit_preserves_one_read_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = _database(tmp_path)
+    real_connect = sqlite3.connect
+    keeper = real_connect(database)
+    keeper.execute("PRAGMA journal_mode=WAL")
+    keeper.execute("CREATE TABLE unrelated (value INTEGER)")
+    keeper.execute("INSERT INTO unrelated VALUES (0)")
+    keeper.commit()
+    lookup_started = Event()
+    committed = Event()
+
+    def write_unrelated():
+        assert lookup_started.wait(5)
+        with real_connect(database, timeout=1) as writer:
+            writer.execute("UPDATE unrelated SET value = value + 1")
+            writer.commit()
+        committed.set()
+
+    class ConcurrentConnection(sqlite3.Connection):
+        def execute(self, sql, parameters=()):
+            if sql.startswith("SELECT"):
+                assert self.in_transaction
+                lookup_started.set()
+                assert committed.wait(5), "WAL writer must commit while observer transaction is open"
+                # Schema read already pinned the snapshot before the writer committed.
+                assert super().execute("SELECT value FROM unrelated").fetchone()[0] == 0
+            return super().execute(sql, parameters)
+
+    def observed_connect(target, *args, **kwargs):
+        return real_connect(target, *args, factory=ConcurrentConnection, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", observed_connect)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(write_unrelated)
+            result = _attest(tmp_path)
+            future.result(timeout=5)
+        assert result["identity"]["id"] == "child-thread"
+        assert result["identity"]["model"] == "gpt-6-astra"
+        assert result["identity"]["reasoning_effort"] == "medium"
+        assert keeper.execute("SELECT value FROM unrelated").fetchone()[0] == 1
+    finally:
+        keeper.close()
