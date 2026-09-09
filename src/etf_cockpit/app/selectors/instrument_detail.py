@@ -9,6 +9,8 @@ from typing import Any, Mapping
 import pandas as pd
 
 from etf_cockpit.application.ui_facade import (
+    DecisionJournal,
+    JournalIntegrityError,
     BENCHMARK_ATTRIBUTION_PATH,
     CORRELATION_CLUSTERS_PATH,
     FEATURE_DRIVERS_PATH,
@@ -1816,10 +1818,27 @@ def _run_changes_panel(instrument_id: str, history: pd.DataFrame | None = None) 
 
 
 def _journal_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
-    rows = _instrument_rows(frame, instrument_id) if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    # Explicit display fields exclude the private thesis, notes, portfolio context and opaque
+    # references. Never send complete persisted records to the generic renderer.
+    fields = (
+        "journal_entry_id", "journal_id", "created_at", "decision",
+        "outcome", "decision_state", "confidence", "review_date", "supersedes_entry_id",
+    )
+    if frame is None:
+        try:
+            entries = DecisionJournal().list_entries(root=DATA_DIR)
+        except (JournalIntegrityError, OSError, ValueError):
+            return _unavailable("Decision journal unreadable or locked; manual review required.") | {"entries": []}
+        rows = pd.DataFrame([
+            {field: getattr(entry, field, None) for field in fields if field != "journal_id"}
+            for entry in entries if instrument_id in entry.instrument_ids
+        ])
+    else:
+        rows = _instrument_rows(frame, instrument_id)
+        rows = rows[[field for field in fields if field in rows.columns]]
     if rows.empty:
         return _unavailable("Decision journal entries unavailable for this instrument.") | {"entries": []}
-    return {"status": "available", "entries": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
+    return {"status": "available", "entries": rows.to_dict("records"), "execution_allowed": False}
 
 
 def _thesis_diary_panel(instrument_id: str, *, root: Path | None = None) -> dict[str, Any]:
