@@ -733,6 +733,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             subtitle="Dated local score runs and source metadata are shown exactly as recorded; missing values remain unavailable.",
             key="instrument-detail.score-history",
         ),
+        _render_evidence_section(
+            "Score-component metric history",
+            model.sections.get("metric_history"),
+            subtitle="All persisted component/run rows, raw and normalized values, missing reasons and stored provenance.",
+            key="instrument-detail.metric-history",
+        ),
         _render_evidence_section("Decision journal", model.sections.get("journal")),
         _render_evidence_section(
             "LLM thesis diary",
