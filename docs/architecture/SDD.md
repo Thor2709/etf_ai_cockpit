@@ -638,3 +638,15 @@ report availability, and missing model coverage suppresses every selected numeri
 group. The panel exposes the decision time, price and holdings checksums, snapshot
 universe revision and model version. Arbitrary retrospective universe replay and
 historical fund look-through remain unsupported; `execution_allowed=false`.
+
+
+### Instrument Detail score-component history
+
+Instrument Detail reads the existing local `score_metric_history.parquet` through
+`load_score_metric_history_projection`. The facade scopes exact instrument IDs,
+allowlists display columns, retains every stored component/run row and its raw,
+normalized, missing-reason, source, as-of, formula and vintage fields. Missing
+numerics remain null; missing, unreadable, malformed and empty scoped evidence
+have explicit unavailable states. No scores are recalculated or artifacts written.
+These stored snapshots do not establish knowledge-time availability or replay
+guarantees. The display always keeps `execution_allowed=false`.

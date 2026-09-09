@@ -1084,3 +1084,60 @@ def load_bound_factor_risk_panel(snapshot: object, instrument_id: str) -> dict[s
         "holdings_checksum": checksum, "universe_revision": getattr(snapshot, "universe_revision", ""),
         "message": "Factor risk from verified snapshot price/features and no-trade holdings bindings. Historical look-through and arbitrary retrospective universe replay are unsupported.",
     }
+
+
+# Explicit presentation schema: future/private artifact fields are never projected.
+_METRIC_HISTORY_DISPLAY_COLUMNS = (
+    "run_id", "instrument_id", "component_group", "component_name", "source_id",
+    "raw_metric_value", "normalised_score_10", "score_available", "na_reason",
+    "source_dataset", "as_of_date", "freshness_status", "authority_label",
+    "formula_version", "formula_checksum", "source_vintage_hash", "execution_allowed",
+)
+
+
+def load_score_metric_history_projection(instrument_id: str, *, frame=None) -> dict:
+    """Read stored component snapshots without deriving scores or PIT authority."""
+    import math
+    from numbers import Real
+
+    import pandas as pd
+
+    from etf_cockpit.data.trust_artifacts import SCORE_METRIC_HISTORY_PATH
+
+    def unavailable(reason: str) -> dict:
+        return {"status": "unavailable", "reason_code": reason, "rows": [],
+                "message": "Score-component metric history unavailable: " + reason + ".",
+                "execution_allowed": False}
+
+    if frame is None:
+        try:
+            frame = pd.read_parquet(SCORE_METRIC_HISTORY_PATH)
+        except FileNotFoundError:
+            return unavailable("missing_local_artifact")
+        except Exception:
+            return unavailable("unreadable_local_artifact")
+    if (not isinstance(frame, pd.DataFrame) or not frame.columns.is_unique
+            or not set(_METRIC_HISTORY_DISPLAY_COLUMNS).issubset(frame.columns)):
+        return unavailable("malformed_metric_history")
+    rows = frame.loc[frame["instrument_id"].eq(instrument_id), list(_METRIC_HISTORY_DISPLAY_COLUMNS)]
+    if rows.empty:
+        return unavailable("no_instrument_metric_history")
+    records = []
+    for record in rows.to_dict("records"):
+        for field, value in record.items():
+            if not pd.api.types.is_scalar(value):
+                return unavailable("malformed_metric_history")
+            if pd.isna(value):
+                record[field] = None
+        for field in ("run_id", "instrument_id", "component_name"):
+            if not isinstance(record[field], str) or not record[field].strip():
+                return unavailable("malformed_metric_history")
+        for field in ("raw_metric_value", "normalised_score_10"):
+            value = record[field]
+            if value is not None and (isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value)):
+                return unavailable("malformed_metric_history")
+        record["execution_allowed"] = False
+        records.append(record)
+    return {"status": "available", "instrument_id": instrument_id, "rows": records,
+            "message": "Persisted score-component snapshots across local runs. As-of dates and stored provenance do not establish knowledge-time availability or replay guarantees.",
+            "execution_allowed": False}

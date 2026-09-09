@@ -1396,3 +1396,86 @@ def _block_factor_producer(monkeypatch):
 
     monkeypatch.setattr("etf_cockpit.portfolio.factor_risk.build_factor_risk_report", unexpected_calculation)
     monkeypatch.setattr("etf_cockpit.application.ui_facade.build_factor_risk_report", unexpected_calculation)
+
+
+@pytest.mark.parametrize("instrument_id", ["VWCE", "metric-stock"])
+def test_metric_history_local_route_preserves_all_scoped_components(tmp_path, monkeypatch, instrument_id):
+    from etf_cockpit.application.ui_facade import load_score_metric_history_projection
+    from etf_cockpit.data import trust_artifacts
+
+    rows = []
+    for selected in ("VWCE", "metric-stock", "foreign-private"):
+        for run in ("run-one", "run-two"):
+            for component in ("momentum", "risk"):
+                record = dict.fromkeys(trust_artifacts.SCORE_METRIC_HISTORY_COLUMNS, "stored")
+                record.update(instrument_id=selected, run_id=run, component_name=component,
+                              raw_metric_value=1.25 if component == "momentum" else np.nan,
+                              normalised_score_10=7.5 if component == "momentum" else np.nan,
+                              score_available=component == "momentum", na_reason="missing price" if component == "risk" else "",
+                              source_id="source-sentinel", formula_version="formula-sentinel",
+                              formula_checksum="checksum-sentinel", source_vintage_hash="vintage-sentinel",
+                              execution_allowed=False, private_notes="PRIVATE-SENTINEL")
+                rows.append(record)
+    path = tmp_path / "metrics.parquet"
+    pd.DataFrame(rows).to_parquet(path)
+    monkeypatch.setattr(trust_artifacts, "SCORE_METRIC_HISTORY_PATH", path)
+    projection = load_score_metric_history_projection(instrument_id)
+    assert len(projection["rows"]) == 4
+    assert projection["rows"][1]["raw_metric_value"] is None
+    assert projection["rows"][1]["normalised_score_10"] is None
+    assert all(row["execution_allowed"] is False for row in projection["rows"])
+    assert all(row["instrument_id"] == instrument_id for row in projection["rows"])
+    assert "PRIVATE-SENTINEL" not in str(projection)
+    snapshot = build_snapshot()
+    stock = ETFConfig(id="metric-stock", name="Metric Stock", ticker="MET", instrument_type="stock", role="watchlist")
+    snapshot = replace(snapshot, config=snapshot.config.model_copy(update={
+        "universe": snapshot.config.universe.model_copy(update={"etfs": [*snapshot.config.universe.etfs, stock]})
+    }))
+    assert build_instrument_detail(snapshot, instrument_id).sections["metric_history"] == projection
+    state = SimpleNamespace(snapshot=snapshot, selected_etf=instrument_id, last_export_path=None, last_message="Ready")
+    rendered = "\n".join(_text_values(instrument_detail_page(SimpleNamespace(route=f"/instrument/{instrument_id}"), state)))
+    for expected in ("Score-component metric history", "run-one", "run-two", "momentum", "missing price",
+                     "source-sentinel", "formula-sentinel", "checksum-sentinel", "vintage-sentinel", "raw_metric_value=N/A"):
+        assert expected in rendered
+    assert "foreign-private" not in rendered
+    assert "PRIVATE-SENTINEL" not in rendered
+
+
+@pytest.mark.parametrize("state,reason", [
+    ("missing", "missing_local_artifact"), ("corrupt", "unreadable_local_artifact"),
+    ("locked", "unreadable_local_artifact"), ("malformed", "malformed_metric_history"),
+    ("empty", "no_instrument_metric_history"),
+])
+def test_metric_history_local_failures_are_explicit(tmp_path, monkeypatch, state, reason):
+    from etf_cockpit.application.ui_facade import load_score_metric_history_projection
+    from etf_cockpit.data import trust_artifacts
+
+    path = tmp_path / "metrics.parquet"
+    monkeypatch.setattr(trust_artifacts, "SCORE_METRIC_HISTORY_PATH", path)
+    if state == "corrupt":
+        path.write_text("private-corrupt-content")
+    elif state == "locked":
+        def locked(*args, **kwargs):
+            raise PermissionError("PRIVATE-PATH")
+        monkeypatch.setattr(pd, "read_parquet", locked)
+    elif state == "malformed":
+        pd.DataFrame([{"instrument_id": "VWCE"}]).to_parquet(path)
+    elif state == "empty":
+        pd.DataFrame(columns=trust_artifacts.SCORE_METRIC_HISTORY_COLUMNS).to_parquet(path)
+    panel = load_score_metric_history_projection("VWCE")
+    assert panel["reason_code"] == reason
+    assert panel["rows"] == []
+    assert panel["execution_allowed"] is False
+    assert "PRIVATE" not in str(panel)
+
+
+@pytest.mark.parametrize("invalid", [float("inf"), "not-numeric", {"private": "SECRET"}])
+def test_metric_history_rejects_malformed_numeric_values(invalid):
+    from etf_cockpit.application.ui_facade import load_score_metric_history_projection
+    from etf_cockpit.data.trust_artifacts import SCORE_METRIC_HISTORY_COLUMNS
+
+    row = dict.fromkeys(SCORE_METRIC_HISTORY_COLUMNS, None)
+    row.update(instrument_id="VWCE", run_id="run", component_name="momentum", raw_metric_value=invalid)
+    panel = load_score_metric_history_projection("VWCE", frame=pd.DataFrame([row]))
+    assert panel["reason_code"] == "malformed_metric_history"
+    assert panel["rows"] == []
