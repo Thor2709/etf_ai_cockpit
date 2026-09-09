@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import shutil
 import sqlite3
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -52,43 +49,16 @@ def _source_identity(source: Any) -> tuple[str | None, str | None, str | None]:
     return spawn.get("agent_path"), spawn.get("agent_role"), spawn.get("parent_thread_id")
 
 
-def _file_signature(path: Path) -> tuple[bool, int, str]:
-    try:
-        size = path.stat().st_size
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    except FileNotFoundError:
-        return False, 0, ""
-    return True, size, digest
+def _read_sqlite_row(database: Path, agent_path: str) -> dict[str, Any] | None:
+    """Read schema and identity from one snapshot of the active SQLite database."""
 
-
-def _snapshot_database(database: Path, target: Path) -> Path:
-    """Copy a stable SQLite/WAL set without opening Codex's live database."""
-
-    sources = [database, Path(str(database) + "-wal"), Path(str(database) + "-shm")]
     if not database.is_file():
         raise AttestationError("state_db_missing")
-    before = [_file_signature(path) for path in sources]
-    for path, signature in zip(sources, before, strict=True):
-        if signature[0]:
-            shutil.copy2(path, target / path.name)
-            if _file_signature(target / path.name) != signature:
-                raise AttestationError("state_db_snapshot_copy_mismatch")
-    after = [_file_signature(path) for path in sources]
-    if before != after:
-        raise AttestationError("state_db_changed_during_snapshot")
-    return target / database.name
-
-
-def _read_sqlite_row(database: Path, agent_path: str) -> dict[str, Any] | None:
-    with tempfile.TemporaryDirectory(prefix="codex-attestation-") as temporary:
-        snapshot = _snapshot_database(database.resolve(), Path(temporary))
-        return _read_snapshot_row(snapshot, agent_path)
-
-
-def _read_snapshot_row(database: Path, agent_path: str) -> dict[str, Any] | None:
-    connection = sqlite3.connect(database)
+    connection = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=1.0)
     connection.row_factory = sqlite3.Row
     try:
+        connection.execute("PRAGMA query_only=ON")
+        connection.execute("BEGIN")
         columns = {row[1] for row in connection.execute("PRAGMA table_info(threads)")}
         missing = sorted(REQUIRED_COLUMNS - columns)
         if missing:

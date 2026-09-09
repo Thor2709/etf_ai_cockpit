@@ -191,3 +191,10 @@ Local Skill installation and actual loaded V2 configuration remain machine facts
 and synchronise only a reviewed accepted source. No file here proves that a user's
 current desktop loaded the configuration or that its outside-workspace canary
 still matches the approved runtime identity.
+
+After spawning a formal V2 child, run `python scripts/v2_runtime_attestation.py`
+with its exact canonical `--agent-path` and expected configured `--expected-role`,
+`--expected-model`, `--expected-effort`, actual runtime `--expected-cwd` and
+`--codex-home` before consuming its work. Successful persisted attestation is
+required; requested role/TOML and child self-report are not runtime proof.
+Ambiguous, contradictory or unavailable evidence fails closed.

@@ -43,6 +43,13 @@ risk-reviewer and release-verifier gates. Never substitute a worker/self-review
 for a required formal role. Fallback is only for tasks with no matching role;
 record the exception. Children cannot spawn children or integrate.
 
+After spawning a formal V2 child, run `python scripts/v2_runtime_attestation.py`
+with its exact canonical `--agent-path` and expected configured `--expected-role`,
+`--expected-model`, `--expected-effort`, actual runtime `--expected-cwd` and
+`--codex-home` before consuming its work. Successful persisted attestation is
+required; requested role/TOML and child self-report are not runtime proof.
+Ambiguous, contradictory or unavailable evidence fails closed.
+
 Use one useful child normally, usually no more than two; a third needs an
 already-required, dependency-ready, disjoint assignment whose result will be
 consumed. The configured hard ceiling is headroom, not a target. Required
