@@ -650,3 +650,15 @@ numerics remain null; missing, unreadable, malformed and empty scoped evidence
 have explicit unavailable states. No scores are recalculated or artifacts written.
 These stored snapshots do not establish knowledge-time availability or replay
 guarantees. The display always keeps `execution_allowed=false`.
+
+### Instrument Detail stock valuation evidence
+
+The detail selector uses the existing stock-research loader and valuation
+producer through the application facade, scoped to the selected stock and
+snapshot cutoff. The display allowlists relative metrics, model availability
+and statement lineage. ETFs and unsupported types show an explicit
+not-applicable state; missing decision dates or local inputs remain unavailable.
+No market inputs or scenario assumptions are supplied by this integration, so
+assumption-dependent model outputs remain unavailable. This is a read-only
+evidence panel; scenario input controls remain unfinished. Financial formulas
+and storage formats are unchanged, and `execution_allowed=false` remains fixed.

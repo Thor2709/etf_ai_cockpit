@@ -701,6 +701,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             subtitle="Five-section values, statement coverage, source, period, freshness and limitations; execution_allowed=false.",
             key="instrument-detail.fundamentals",
         ),
+        _render_evidence_section(
+            "Stock valuation and scenarios",
+            model.sections.get("valuation"),
+            subtitle="Relative valuation, intrinsic value, reverse DCF and residual income; explicit input limitations and dated source lineage; execution_allowed=false.",
+            key="instrument-detail.valuation",
+        ),
         _render_evidence_section("ETF holdings and exposure", model.sections.get("etf_holdings")),
         _render_evidence_section(
             "ETF direct overlap",
