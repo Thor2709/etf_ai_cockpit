@@ -73,8 +73,68 @@ def test_valuation_missing_decision_time_does_not_load(monkeypatch, cutoff) -> N
 
     def unexpected(*args, **kwargs):
         pytest.fail("Missing decision time must not load statement evidence")
-    monkeypatch.setattr(selector, "load_stock_research_frame", unexpected)
+    monkeypatch.setattr(selector, "load_valuation_evidence", unexpected)
     assert selector._valuation_panel("ACME", "stock", cutoff)["status"] == "unavailable"
+
+
+@pytest.mark.parametrize("field,bad_value", [
+    ("available_at", "0000-not-a-date"), ("available_at", None),
+    ("available_at", "2026-07-01T08:00:00"),
+    ("value", float("inf")), ("value", float("nan")), ("value", True),
+    ("end", ["2025-12-31"]), ("end", "not-a-date"),
+])
+def test_valuation_invalid_selected_evidence_blocks_panel(monkeypatch, field, bad_value) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    valid = {"instrument_id": "ACME", "canonical_metric": "net_income", "value": 10.0,
+             "available_at": "2026-01-01", "filed": "2026-01-01", "end": "2025-12-31", "source_id": "known"}
+    bad = valid | {"canonical_metric": "market_cap", "value": 100.0, field: bad_value}
+    frame = pd.DataFrame([valid, bad])
+    monkeypatch.setattr("etf_cockpit.application.ui_facade.pd.read_parquet", lambda *_args: frame)
+    panel = selector._valuation_panel("ACME", "stock", "2026-07-01T12:00:00Z")
+    assert panel["status"] == "unavailable"
+    assert panel["execution_allowed"] is False
+    assert "relative_metrics" not in panel
+    assert "unavailable" in panel["message"]
+
+
+def test_valuation_exact_same_day_cutoff_and_date_only_precision(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    rows = []
+    for availability, source, cap in (("2026-07-01T08:00:00Z", "morning", 100.0),
+                                      ("2026-07-01T13:00:00Z", "afternoon", 200.0)):
+        for metric, value in (("market_cap", cap), ("net_income", 10.0)):
+            rows.append({"instrument_id": "ACME", "canonical_metric": metric, "value": value,
+                         "available_at": availability, "filed": availability, "end": "2025-12-31", "source_id": source})
+    path = tmp_path / "statements.parquet"
+    pd.DataFrame(rows).to_parquet(path)
+    monkeypatch.setattr(selector, "STATEMENT_FACTS_PATH", path)
+    panel = selector._valuation_panel("ACME", "stock", "2026-07-01T12:00:00Z")
+    assert panel["relative_metrics"]["price_to_earnings"]["value"] == 10.0
+    assert panel["source_lineage"]["source_ids"] == ["morning"]
+    assert panel["source_lineage"]["as_known_at"] == "2026-07-01T12:00:00+00:00"
+    assert panel["source_lineage"]["knowledge_precision"] == ["timestamp"]
+    later = selector._valuation_panel("ACME", "stock", "2026-07-01T14:00:00Z")
+    assert later["relative_metrics"]["price_to_earnings"]["value"] == 20.0
+    for row in rows:
+        row["available_at"] = "2026-07-01"
+    pd.DataFrame(rows).to_parquet(path)
+    assert selector._valuation_panel("ACME", "stock", "2026-07-01T12:00:00Z")["status"] == "unavailable"
+    dated = selector._valuation_panel("ACME", "stock", "2026-07-01")
+    assert dated["status"] == "available"
+    assert dated["source_lineage"]["knowledge_precision"] == ["date_only_utc_end_of_day"]
+
+
+def test_valuation_corrupt_store_is_explicit(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    path = tmp_path / "corrupt.parquet"
+    path.write_bytes(b"invalid parquet")
+    monkeypatch.setattr(selector, "STATEMENT_FACTS_PATH", path)
+    panel = selector._valuation_panel("ACME", "stock", "2026-07-01")
+    assert panel["status"] == "unavailable"
+    assert "unreadable or malformed" in panel["message"]
 
 
 @pytest.mark.parametrize("asset_type", ["stock", "etf"])

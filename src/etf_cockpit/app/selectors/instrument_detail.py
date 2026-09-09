@@ -46,8 +46,7 @@ from etf_cockpit.application.ui_facade import (
     load_manual_news,
     load_simple_scoreboard,
     load_statement_evidence,
-    load_stock_research_frame,
-    valuation_analysis,
+    load_valuation_evidence,
     STATEMENT_FACTS_PATH,
     load_paper_timeline,
     read_document_registry,
@@ -1946,16 +1945,16 @@ def _valuation_panel(instrument_id: str, asset_type: object, decision_time: obje
     """Present canonical local valuation evidence without supplying assumptions."""
     if _safe_text(asset_type) not in {"stock", "equity"}:
         return _unavailable("Stock valuation is not applicable to ETFs or unsupported instrument types.") | {"status": "not_applicable"}
-    cutoff = _safe_datetime_scalar(decision_time)
+    cutoff = normalise_event_decision_time(decision_time)
     if cutoff is None:
         return _unavailable("Snapshot decision time is unavailable; point-in-time valuation cannot be established.")
-    frame = load_stock_research_frame(STATEMENT_FACTS_PATH, instrument_id=instrument_id, as_known_at=cutoff.isoformat())
-    frame = _instrument_rows(frame, instrument_id, columns=("instrument_id",))
-    result = valuation_analysis(frame, instrument_id=instrument_id, as_known_at=cutoff.isoformat())
+    result = load_valuation_evidence(STATEMENT_FACTS_PATH, instrument_id=instrument_id, decision_time=cutoff)
+    if result["status"] != "available":
+        return _unavailable(result["message"])
     metric_fields = ("name", "value", "status", "formula", "period", "source_ids", "confidence", "applicability", "limitation")
     model_fields = ("status", "confidence", "reason", "execution_allowed")
     return {
-        "status": "available" if not frame.empty else "unavailable",
+        "status": "available",
         "message": "Local statement evidence only. External market inputs and explicit valuation/scenario assumptions are unavailable; no defaults are supplied.",
         "instrument_id": instrument_id,
         "decision_time": cutoff.isoformat(),
@@ -1965,7 +1964,7 @@ def _valuation_panel(instrument_id: str, asset_type: object, decision_time: obje
         },
         **{name: {field: result[name].get(field) for field in model_fields} for name in ("intrinsic_value", "reverse_dcf", "residual_income", "model_disagreement")},
         "scenario_status": "unavailable: explicit scenario assumptions required",
-        "source_lineage": {field: result["source_lineage"].get(field) for field in ("statement_view", "as_known_at", "source_ids")},
+        "source_lineage": {field: result["source_lineage"].get(field) for field in ("statement_view", "as_known_at", "source_ids", "knowledge_precision", "cutoff_policy")},
         "execution_allowed": False,
     }
 
