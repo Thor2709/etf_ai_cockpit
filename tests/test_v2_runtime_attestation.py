@@ -108,3 +108,84 @@ def test_contradictory_model_fails_before_rollout(tmp_path: Path) -> None:
     _database(tmp_path, model="wrong-model")
     with pytest.raises(AttestationError, match="state_db_model_mismatch"):
         _attest(tmp_path)
+
+
+def test_fallback_requires_database_and_rollout_binding(tmp_path: Path) -> None:
+    database = _database(tmp_path, model=None, effort=None)
+    rollout = tmp_path / "sessions" / "rollout.jsonl"
+    rollout.parent.mkdir()
+    source = json.loads(_source())
+    records = [
+        {
+            "type": "session_meta",
+            "payload": {
+                "id": "different-thread",
+                "agent_path": AGENT_PATH,
+                "agent_role": "diagnostician",
+                "cwd": "C:/repo",
+                "parent_thread_id": PARENT_ID,
+                "source": source,
+            },
+        },
+        {"type": "turn_context", "payload": {"model": "gpt-6-astra", "effort": "medium"}},
+    ]
+    rollout.write_text("\n".join(map(json.dumps, records)) + "\n", encoding="utf-8")
+    con = sqlite3.connect(database)
+    con.execute("UPDATE threads SET rollout_path = ?", (str(rollout),))
+    con.commit()
+    con.close()
+    with pytest.raises(AttestationError, match="state_db_rollout_binding_mismatch"):
+        _attest(tmp_path)
+
+
+def test_mixed_turn_contexts_fail_closed(tmp_path: Path) -> None:
+    database = _database(tmp_path, model=None, effort=None)
+    rollout = tmp_path / "sessions" / "rollout.jsonl"
+    rollout.parent.mkdir()
+    records = [
+        {
+            "type": "session_meta",
+            "payload": {
+                "id": "child-thread",
+                "agent_path": AGENT_PATH,
+                "agent_role": "diagnostician",
+                "cwd": "C:/repo",
+                "parent_thread_id": PARENT_ID,
+                "source": json.loads(_source()),
+            },
+        },
+        {"type": "turn_context", "payload": {"model": "wrong", "effort": "medium"}},
+        {"type": "turn_context", "payload": {"model": "gpt-6-astra", "effort": "medium"}},
+    ]
+    rollout.write_text("\n".join(map(json.dumps, records)) + "\n", encoding="utf-8")
+    con = sqlite3.connect(database)
+    con.execute("UPDATE threads SET rollout_path = ?", (str(rollout),))
+    con.commit()
+    con.close()
+    with pytest.raises(AttestationError, match="missing_or_ambiguous_rollout_runtime_context"):
+        _attest(tmp_path)
+
+
+def test_missing_thread_id_fails_closed(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    con = sqlite3.connect(database)
+    con.execute("UPDATE threads SET id = NULL")
+    con.commit()
+    con.close()
+    with pytest.raises(AttestationError, match="state_db_spawn_identity_mismatch"):
+        _attest(tmp_path)
+
+
+def test_live_database_files_are_not_opened_or_modified(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    database = _database(tmp_path)
+    before = {path.name: (path.stat().st_size, path.stat().st_mtime_ns) for path in tmp_path.iterdir()}
+    real_connect = sqlite3.connect
+
+    def guarded_connect(target, *args, **kwargs):
+        assert Path(target).resolve() != database.resolve()
+        return real_connect(target, *args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", guarded_connect)
+    assert _attest(tmp_path)["status"] == "V2_RUNTIME_ATTESTATION_PROVEN"
+    after = {path.name: (path.stat().st_size, path.stat().st_mtime_ns) for path in tmp_path.iterdir()}
+    assert after == before

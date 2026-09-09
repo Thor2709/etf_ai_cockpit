@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sqlite3
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -49,9 +51,38 @@ def _source_identity(source: Any) -> tuple[str | None, str | None, str | None]:
     return spawn.get("agent_path"), spawn.get("agent_role"), spawn.get("parent_thread_id")
 
 
+def _file_signature(path: Path) -> tuple[bool, int, int]:
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return False, 0, 0
+    return True, stat.st_size, stat.st_mtime_ns
+
+
+def _snapshot_database(database: Path, target: Path) -> Path:
+    """Copy a stable SQLite/WAL set without opening Codex's live database."""
+
+    sources = [database, Path(str(database) + "-wal"), Path(str(database) + "-shm")]
+    if not database.is_file():
+        raise AttestationError("state_db_missing")
+    before = [_file_signature(path) for path in sources]
+    for path, signature in zip(sources, before, strict=True):
+        if signature[0]:
+            shutil.copy2(path, target / path.name)
+    after = [_file_signature(path) for path in sources]
+    if before != after:
+        raise AttestationError("state_db_changed_during_snapshot")
+    return target / database.name
+
+
 def _read_sqlite_row(database: Path, agent_path: str) -> dict[str, Any] | None:
-    uri = database.resolve().as_uri() + "?mode=ro"
-    connection = sqlite3.connect(uri, uri=True)
+    with tempfile.TemporaryDirectory(prefix="codex-attestation-") as temporary:
+        snapshot = _snapshot_database(database.resolve(), Path(temporary))
+        return _read_snapshot_row(snapshot, agent_path)
+
+
+def _read_snapshot_row(database: Path, agent_path: str) -> dict[str, Any] | None:
+    connection = sqlite3.connect(database)
     connection.row_factory = sqlite3.Row
     try:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(threads)")}
@@ -78,17 +109,18 @@ def _candidate_rollouts(codex_home: Path, agent_path: str) -> list[Path]:
             continue
         for path in folder.rglob("*.jsonl"):
             try:
-                if needle in path.read_bytes():
-                    matches.append(path.resolve())
-            except OSError:
-                continue
+                resolved = path.resolve(strict=True)
+                resolved.relative_to(folder.resolve(strict=True))
+                if needle in resolved.read_bytes():
+                    matches.append(resolved)
+            except (OSError, ValueError) as exc:
+                raise AttestationError(f"rollout_discovery_failed:{path}") from exc
     return matches
 
 
 def _read_rollout_identity(path: Path, agent_path: str) -> dict[str, Any] | None:
-    session: dict[str, Any] | None = None
-    model: str | None = None
-    effort: str | None = None
+    sessions: list[dict[str, Any]] = []
+    contexts: list[tuple[str, str]] = []
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         try:
             record = json.loads(raw_line)
@@ -100,7 +132,7 @@ def _read_rollout_identity(path: Path, agent_path: str) -> dict[str, Any] | None
         if record.get("type") == "session_meta":
             source_path, source_role, parent_id = _source_identity(payload.get("source"))
             if source_path == agent_path and payload.get("agent_path") == agent_path:
-                session = {
+                sessions.append({
                     "id": payload.get("id"),
                     "agent_path": agent_path,
                     "agent_role": payload.get("agent_role") or source_role,
@@ -109,14 +141,53 @@ def _read_rollout_identity(path: Path, agent_path: str) -> dict[str, Any] | None
                     "parent_thread_id": payload.get("parent_thread_id") or parent_id,
                     "cli_version": payload.get("cli_version"),
                     "rollout_path": str(path),
-                }
+                })
         elif record.get("type") == "turn_context":
-            model = payload.get("model") or model
-            effort = payload.get("effort") or payload.get("reasoning_effort") or effort
-    if session is None:
+            model = payload.get("model")
+            effort = payload.get("effort") or payload.get("reasoning_effort")
+            if isinstance(model, str) and model and isinstance(effort, str) and effort:
+                contexts.append((model, effort))
+    if not sessions:
         return None
+    if len(sessions) != 1:
+        raise AttestationError("ambiguous_rollout_session_metadata")
+    unique_contexts = set(contexts)
+    if len(unique_contexts) != 1:
+        raise AttestationError("missing_or_ambiguous_rollout_runtime_context")
+    session = sessions[0]
+    model, effort = next(iter(unique_contexts))
     session.update(model=model, reasoning_effort=effort)
     return session
+
+
+def _require_rollout_path(codex_home: Path, path: Path) -> Path:
+    resolved = path.resolve(strict=True)
+    allowed = [
+        folder.resolve(strict=True)
+        for folder in (codex_home / "sessions", codex_home / "archived_sessions")
+        if folder.exists()
+    ]
+    if not any(resolved.is_relative_to(folder) for folder in allowed):
+        raise AttestationError("rollout_path_outside_codex_session_roots")
+    return resolved
+
+
+def _binding(identity: dict[str, Any]) -> dict[str, Any]:
+    source_path, source_role, parent = _source_identity(identity.get("source"))
+    role = identity.get("agent_role")
+    if role != source_role:
+        raise AttestationError("identity_role_sources_disagree")
+    top_parent = identity.get("parent_thread_id")
+    if top_parent is not None and top_parent != parent:
+        raise AttestationError("identity_parent_sources_disagree")
+    return {
+        "id": identity.get("id"),
+        "agent_path": identity.get("agent_path"),
+        "agent_role": role,
+        "cwd": identity.get("cwd"),
+        "parent_thread_id": top_parent or parent,
+        "source_agent_path": source_path,
+    }
 
 
 def attest_runtime(
@@ -126,46 +197,57 @@ def attest_runtime(
     expected_role: str,
     expected_model: str,
     expected_effort: str,
-    expected_cwd: str | None = None,
+    expected_cwd: str,
 ) -> dict[str, Any]:
     database = codex_home / "state_5.sqlite"
     row = _read_sqlite_row(database, agent_path)
     source_path = source_role = parent_id = None
     if row:
         source_path, source_role, parent_id = _source_identity(row.get("source"))
-        if row.get("agent_role") not in (None, expected_role):
+        if row.get("agent_role") != expected_role:
             raise AttestationError("state_db_role_mismatch")
         if row.get("model") not in (None, expected_model):
             raise AttestationError("state_db_model_mismatch")
         if row.get("reasoning_effort") not in (None, expected_effort):
             raise AttestationError("state_db_reasoning_effort_mismatch")
-        if source_path != agent_path or source_role != expected_role or not parent_id:
+        if (
+            not row.get("id")
+            or not row.get("cwd")
+            or source_path != agent_path
+            or source_role != expected_role
+            or not parent_id
+        ):
             raise AttestationError("state_db_spawn_identity_mismatch")
 
     identity = row
     source_kind = "state_db"
     if row is None or row.get("model") is None or row.get("reasoning_effort") is None:
-        hinted = Path(row["rollout_path"]).resolve() if row and row.get("rollout_path") else None
-        candidates = [hinted] if hinted and hinted.exists() else _candidate_rollouts(codex_home, agent_path)
+        hinted = (
+            _require_rollout_path(codex_home, Path(row["rollout_path"]))
+            if row and row.get("rollout_path")
+            else None
+        )
+        candidates = [hinted] if hinted else _candidate_rollouts(codex_home, agent_path)
         identities = [value for path in candidates if (value := _read_rollout_identity(path, agent_path))]
-        unique = {value.get("id"): value for value in identities}
-        if len(unique) != 1:
+        if len(identities) != 1 or not identities[0].get("id"):
             raise AttestationError("persisted_rollout_identity_absent_or_ambiguous")
-        identity = next(iter(unique.values()))
+        identity = identities[0]
+        if row and _binding(row) != _binding(identity):
+            raise AttestationError("state_db_rollout_binding_mismatch")
         source_kind = "rollout_fallback"
 
     assert identity is not None
-    identity_path, identity_role, identity_parent = _source_identity(identity.get("source"))
-    role = identity.get("agent_role") or identity_role
-    parent = identity.get("parent_thread_id") or identity_parent
+    binding = _binding(identity)
     checks = {
-        "agent_path": identity.get("agent_path") == agent_path and identity_path == agent_path,
-        "agent_role": role == expected_role,
+        "thread_id_non_null": bool(binding["id"]),
+        "agent_path": binding["agent_path"] == agent_path
+        and binding["source_agent_path"] == agent_path,
+        "agent_role": binding["agent_role"] == expected_role,
         "model": identity.get("model") == expected_model,
         "reasoning_effort": identity.get("reasoning_effort") == expected_effort,
-        "parent_thread_non_null": bool(parent),
-        "cwd": expected_cwd is None
-        or _normalise_path(str(identity.get("cwd") or "")) == _normalise_path(expected_cwd),
+        "parent_thread_non_null": bool(binding["parent_thread_id"]),
+        "cwd": bool(binding["cwd"])
+        and _normalise_path(str(binding["cwd"])) == _normalise_path(expected_cwd),
     }
     if not all(checks.values()):
         failed = ",".join(name for name, passed in checks.items() if not passed)
@@ -199,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-role", required=True)
     parser.add_argument("--expected-model", required=True)
     parser.add_argument("--expected-effort", required=True)
-    parser.add_argument("--expected-cwd")
+    parser.add_argument("--expected-cwd", required=True)
     args = parser.parse_args(argv)
     try:
         result = attest_runtime(
