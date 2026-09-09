@@ -73,6 +73,9 @@ def _validate_reviewed_inputs(
     root: Path,
     plan: dict[str, Any],
     remote: list[dict[str, Any]],
+    *,
+    managed_refresh: bool = False,
+    remainder_of_authority_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     plan_sha = str(plan.get("plan_sha256", ""))
     gateway._validate_plan_authority(plan, plan_sha)
@@ -83,16 +86,18 @@ def _validate_reviewed_inputs(
     ):
         raise ValueError("reviewed plan does not match the exact remote snapshot")
     records = gateway.load_authority_ledger(root)
-    reconciliation = gateway.reconcile_authority_ledger(records, remote, root=root)
+    reconciliation = gateway.reconcile_authority_ledger(
+        records, remote, root=root, refresh_remainder_of=remainder_of_authority_id,
+    )
     if not reconciliation.get("accepted"):
         raise ValueError(
             "existing authority ledger is not reconciled: "
             + str(reconciliation.get("error"))
         )
     actions = plan.get("actions")
-    if not isinstance(actions, list) or len(actions) != 1:
+    if not isinstance(actions, list) or (not managed_refresh and len(actions) != 1):
         raise ValueError("preparation requires exactly one reviewed action")
-    return records, actions[0]
+    return records, actions[0] if actions else {}
 
 
 def prepare(
@@ -102,15 +107,36 @@ def prepare(
     *,
     source_sha: str,
     mode: str,
+    remainder_of_authority_id: str | None = None,
 ) -> tuple[bytes | None, bytes, dict[str, Any]]:
     """Return candidate bytes, the next full ledger, and a safe manifest."""
 
     if not SHA_RE.fullmatch(source_sha):
         raise ValueError("source SHA must be one full commit identity")
-    records, action = _validate_reviewed_inputs(root, plan, remote)
+    if remainder_of_authority_id is not None and mode != "managed_refresh":
+        raise ValueError("remainder authority is only supported for managed_refresh")
+    records, action = _validate_reviewed_inputs(
+        root, plan, remote, managed_refresh=mode == "managed_refresh",
+        remainder_of_authority_id=remainder_of_authority_id,
+    )
     plan_sha = str(plan["plan_sha256"])
     candidate_bytes: bytes | None = None
-    if mode == "status_replay":
+    if mode == "managed_refresh":
+        registry, registry_binding = gateway.managed_refresh_registry(root, source_sha)
+        updates = gateway.managed_refresh_updates(registry, plan, remote)
+        if not updates:
+            raise ValueError("zero_action_plan_needs_no_authority")
+        payload = {
+            "source_sha": source_sha, "plan_sha256": plan_sha,
+            "remote_inventory_sha256": plan["remote_inventory_sha256"],
+            "claim_inventory_sha256": plan["claim_inventory_sha256"],
+            **registry_binding, "updates": updates,
+        }
+        if remainder_of_authority_id is not None:
+            if gateway.refresh_remainder_updates(records[-1], remote) != updates:
+                raise ValueError("managed_refresh_remainder_scope_mismatch")
+            payload["remainder_of_authority_id"] = remainder_of_authority_id
+    elif mode == "status_replay":
         if (
             action.get("kind") != "update"
             or action.get("programme_status") != "integrated"
@@ -318,7 +344,7 @@ def prepare(
             "plan_sha256": plan_sha,
         }
     else:
-        raise ValueError("preparation mode must be status, status_replay, or create")
+        raise ValueError("preparation mode must be status, status_replay, create, or managed_refresh")
 
     record = gateway.build_authority_record(
         mode,
@@ -356,7 +382,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--remote-snapshot", type=Path, required=True)
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--main-ref", default="origin/main")
-    parser.add_argument("--mode", choices=("status", "status_replay", "create"), required=True)
+    parser.add_argument("--mode", choices=("status", "status_replay", "create", "managed_refresh"), required=True)
+    parser.add_argument("--remainder-of-authority-id")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args(argv)
 
@@ -371,6 +398,7 @@ def main(argv: list[str] | None = None) -> int:
         _load_list(args.remote_snapshot.resolve()),
         source_sha=args.source_sha,
         mode=args.mode,
+        remainder_of_authority_id=args.remainder_of_authority_id,
     )
     authority_path = output / gateway.AUTHORITY_PATH
     authority_path.parent.mkdir(parents=True, exist_ok=True)
