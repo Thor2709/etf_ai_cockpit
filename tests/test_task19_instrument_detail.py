@@ -39,6 +39,79 @@ REQUIRED_SECTIONS = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _isolated_detail_stores(tmp_path, monkeypatch):
+    from etf_cockpit.app.pages import instrument_detail as detail_page
+    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.core import paths
+    from etf_cockpit.data import bitemporal
+
+    monkeypatch.setattr(paths, "ROOT", tmp_path)
+    monkeypatch.setattr(selector, "DATA_DIR", tmp_path / "data")
+    monkeypatch.setattr(bitemporal, "ROOT", tmp_path)
+    monkeypatch.setattr(detail_page, "ROOT", tmp_path)
+
+
+@pytest.mark.parametrize("instrument_id", ["VWCE", "journal-stock"])
+def test_normal_detail_route_reads_verified_scoped_journal(tmp_path, monkeypatch, instrument_id) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application.ui_facade import DecisionJournal, JournalEntry
+
+    monkeypatch.setattr(selector, "DATA_DIR", tmp_path)
+    store = DecisionJournal()
+    for entry_id, instruments in (("selected-journal", ["VWCE", "journal-stock"]), ("foreign-journal", ["VWCE-extra"])):
+        store.create(JournalEntry(
+            journal_entry_id=entry_id, created_at="2026-07-13T12:00:00Z",
+            thesis=entry_id + " thesis", decision="Hold", outcome="Pending",
+            private_notes="PRIVATE-SENTINEL", portfolio_context={"secret": "CONTEXT-SENTINEL"},
+            instrument_ids=instruments,
+        ), root=tmp_path)
+    snapshot = build_snapshot()
+    stock = ETFConfig(id="journal-stock", name="Journal Stock", ticker="JRN", instrument_type="stock", role="watchlist")
+    snapshot = replace(snapshot, config=snapshot.config.model_copy(update={
+        "universe": snapshot.config.universe.model_copy(update={"etfs": [*snapshot.config.universe.etfs, stock]})
+    }))
+    state = SimpleNamespace(snapshot=snapshot, selected_etf="other", last_export_path=None, last_message="Ready")
+    rendered = "\n".join(_text_values(instrument_detail_page(SimpleNamespace(route=f"/instrument/{instrument_id}"), state)))
+    assert "selected-journal" in rendered
+    assert "selected-journal thesis" not in rendered
+    assert "foreign-journal" not in rendered
+    assert "PRIVATE-SENTINEL" not in rendered
+    assert "CONTEXT-SENTINEL" not in rendered
+    assert selector._journal_panel(instrument_id)["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("state", ["empty", "corrupt", "locked"])
+def test_local_detail_journal_failures_are_explicit(tmp_path, monkeypatch, state) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    monkeypatch.setattr(selector, "DATA_DIR", tmp_path)
+    if state == "corrupt":
+        (tmp_path / "decision_journal").mkdir()
+        (tmp_path / "decision_journal" / "index.json").write_text("invalid", encoding="utf-8")
+    elif state == "locked":
+        def locked(self, *, root):
+            raise PermissionError("PRIVATE-PATH")
+        monkeypatch.setattr(selector.DecisionJournal, "list_entries", locked)
+    panel = selector._journal_panel("VWCE")
+    assert panel["status"] == "unavailable"
+    assert panel["entries"] == []
+    assert panel["execution_allowed"] is False
+    assert "PRIVATE-PATH" not in str(panel)
+    if state != "empty":
+        assert "manual review required" in panel["message"]
+
+
+def test_injected_journal_projection_excludes_private_fields() -> None:
+    from etf_cockpit.app.selectors.instrument_detail import _journal_panel
+
+    panel = _journal_panel("VWCE", pd.DataFrame([{
+        "instrument_id": "VWCE", "journal_id": "public-id", "thesis": "Public thesis",
+        "private_notes": "PRIVATE-SENTINEL", "portfolio_context": {"secret": "SECRET"},
+    }]))
+    assert panel["entries"] == [{"journal_id": "public-id"}]
+
+
 def _candidate_score(instrument_id: str, *, asset_type: str, source_group: str) -> SimpleInstrumentScore:
     component = SimpleScoreComponent(
         "momentum",
