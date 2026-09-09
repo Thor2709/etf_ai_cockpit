@@ -166,6 +166,63 @@ def test_mixed_turn_contexts_fail_closed(tmp_path: Path) -> None:
         _attest(tmp_path)
 
 
+def test_incomplete_conflicting_turn_context_fails_closed(tmp_path: Path) -> None:
+    database = _database(tmp_path, model=None, effort=None)
+    rollout = tmp_path / "sessions" / "rollout.jsonl"
+    rollout.parent.mkdir()
+    records = [
+        {
+            "type": "session_meta",
+            "payload": {
+                "id": "child-thread",
+                "agent_path": AGENT_PATH,
+                "agent_role": "diagnostician",
+                "cwd": "C:/repo",
+                "parent_thread_id": PARENT_ID,
+                "source": json.loads(_source()),
+            },
+        },
+        {"type": "turn_context", "payload": {"model": "gpt-6-astra", "effort": "medium"}},
+        {"type": "turn_context", "payload": {"model": "wrong-model"}},
+    ]
+    rollout.write_text("\n".join(map(json.dumps, records)) + "\n", encoding="utf-8")
+    con = sqlite3.connect(database)
+    con.execute("UPDATE threads SET rollout_path = ?", (str(rollout),))
+    con.commit()
+    con.close()
+    with pytest.raises(AttestationError, match="incomplete_rollout_runtime_context"):
+        _attest(tmp_path)
+
+
+def test_second_session_metadata_fails_closed(tmp_path: Path) -> None:
+    database = _database(tmp_path, model=None, effort=None)
+    rollout = tmp_path / "sessions" / "rollout.jsonl"
+    rollout.parent.mkdir()
+    target = {
+        "type": "session_meta",
+        "payload": {
+            "id": "child-thread",
+            "agent_path": AGENT_PATH,
+            "agent_role": "diagnostician",
+            "cwd": "C:/repo",
+            "parent_thread_id": PARENT_ID,
+            "source": json.loads(_source()),
+        },
+    }
+    other = json.loads(json.dumps(target))
+    other["payload"]["id"] = "other-thread"
+    other["payload"]["agent_path"] = "/root/other"
+    other["payload"]["source"]["subagent"]["thread_spawn"]["agent_path"] = "/root/other"
+    records = [target, other, {"type": "turn_context", "payload": {"model": "gpt-6-astra", "effort": "medium"}}]
+    rollout.write_text("\n".join(map(json.dumps, records)) + "\n", encoding="utf-8")
+    con = sqlite3.connect(database)
+    con.execute("UPDATE threads SET rollout_path = ?", (str(rollout),))
+    con.commit()
+    con.close()
+    with pytest.raises(AttestationError, match="ambiguous_rollout_session_metadata"):
+        _attest(tmp_path)
+
+
 def test_missing_thread_id_fails_closed(tmp_path: Path) -> None:
     database = _database(tmp_path)
     con = sqlite3.connect(database)

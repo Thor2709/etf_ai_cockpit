@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import sqlite3
@@ -51,12 +52,13 @@ def _source_identity(source: Any) -> tuple[str | None, str | None, str | None]:
     return spawn.get("agent_path"), spawn.get("agent_role"), spawn.get("parent_thread_id")
 
 
-def _file_signature(path: Path) -> tuple[bool, int, int]:
+def _file_signature(path: Path) -> tuple[bool, int, str]:
     try:
-        stat = path.stat()
+        size = path.stat().st_size
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
     except FileNotFoundError:
-        return False, 0, 0
-    return True, stat.st_size, stat.st_mtime_ns
+        return False, 0, ""
+    return True, size, digest
 
 
 def _snapshot_database(database: Path, target: Path) -> Path:
@@ -69,6 +71,8 @@ def _snapshot_database(database: Path, target: Path) -> Path:
     for path, signature in zip(sources, before, strict=True):
         if signature[0]:
             shutil.copy2(path, target / path.name)
+            if _file_signature(target / path.name) != signature:
+                raise AttestationError("state_db_snapshot_copy_mismatch")
     after = [_file_signature(path) for path in sources]
     if before != after:
         raise AttestationError("state_db_changed_during_snapshot")
@@ -131,10 +135,9 @@ def _read_rollout_identity(path: Path, agent_path: str) -> dict[str, Any] | None
             continue
         if record.get("type") == "session_meta":
             source_path, source_role, parent_id = _source_identity(payload.get("source"))
-            if source_path == agent_path and payload.get("agent_path") == agent_path:
-                sessions.append({
+            sessions.append({
                     "id": payload.get("id"),
-                    "agent_path": agent_path,
+                    "agent_path": payload.get("agent_path"),
                     "agent_role": payload.get("agent_role") or source_role,
                     "cwd": payload.get("cwd"),
                     "source": payload.get("source"),
@@ -144,13 +147,25 @@ def _read_rollout_identity(path: Path, agent_path: str) -> dict[str, Any] | None
                 })
         elif record.get("type") == "turn_context":
             model = payload.get("model")
-            effort = payload.get("effort") or payload.get("reasoning_effort")
-            if isinstance(model, str) and model and isinstance(effort, str) and effort:
-                contexts.append((model, effort))
+            effort = payload.get("effort")
+            alternate_effort = payload.get("reasoning_effort")
+            if effort is not None and alternate_effort is not None and effort != alternate_effort:
+                raise AttestationError("contradictory_rollout_reasoning_effort")
+            effective_effort = effort or alternate_effort
+            if not (
+                isinstance(model, str)
+                and model
+                and isinstance(effective_effort, str)
+                and effective_effort
+            ):
+                raise AttestationError("incomplete_rollout_runtime_context")
+            contexts.append((model, effective_effort))
     if not sessions:
         return None
     if len(sessions) != 1:
         raise AttestationError("ambiguous_rollout_session_metadata")
+    if sessions[0]["agent_path"] != agent_path:
+        return None
     unique_contexts = set(contexts)
     if len(unique_contexts) != 1:
         raise AttestationError("missing_or_ambiguous_rollout_runtime_context")
