@@ -232,7 +232,6 @@ def screener_page(_page: ft.Page, _state: AppState) -> ft.Control:
             eligible_count,
             status,
             status_colour,
-            narrow=float(getattr(_page, "width", 0) or _state.snapshot.config.ui.window_width) < 760,
         ),
         panel(
             ft.Column(
@@ -340,8 +339,6 @@ def _summary(
     eligible_count: int,
     status: str,
     status_colour: str,
-    *,
-    narrow: bool,
 ) -> ft.Control:
     total = len(frame)
     cards = [
@@ -349,7 +346,9 @@ def _summary(
         metric_card("Complete five-section", str(available_count), "all five values present", theme.GREEN if available_count else theme.AMBER),
         metric_card("Score eligible", str(eligible_count), "eligibility is evidence metadata", theme.CYAN if eligible_count else theme.AMBER),
     ]
-    return ft.Column(cards, spacing=8) if narrow else ft.Row(cards, spacing=12)
+    for card in cards:
+        card.col = {"xs": 12, "sm": 6, "lg": 4}
+    return ft.ResponsiveRow(cards, spacing=12, run_spacing=8)
 
 
 def _table_body(frame: pd.DataFrame, rows: list[ft.DataRow]) -> ft.Control:
