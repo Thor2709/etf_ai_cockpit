@@ -172,7 +172,47 @@ from etf_cockpit.signals.feature_drivers import (  # noqa: F401
 )
 
 
-def load_valuation_evidence(path: Path, *, instrument_id: str, decision_time: object) -> dict[str, object]:
+def _normalise_valuation_assumptions(value: object) -> dict[str, object]:
+    """Accept only the bounded, explicit session scenario contract."""
+    if not isinstance(value, Mapping) or set(value) != {"forecast_years", "discount_rate", "terminal_growth", "scenarios"}:
+        raise ValueError("Explicit forecast years, discount, terminal growth and three scenarios are required")
+    years = value["forecast_years"]
+    if isinstance(years, bool) or not isinstance(years, int) or not 1 <= years <= 50:
+        raise ValueError("Forecast years must be an integer from 1 to 50")
+
+    def number(raw: object) -> float:
+        if isinstance(raw, bool) or not isinstance(raw, Real) or not math.isfinite(raw):
+            raise ValueError("Scenario inputs must be finite numbers")
+        return float(raw)
+
+    discount = number(value["discount_rate"])
+    terminal = number(value["terminal_growth"])
+    if not 0 < discount <= 1 or not -1 <= terminal < discount:
+        raise ValueError("Discount or terminal growth is outside the allowed range")
+    scenarios = value["scenarios"]
+    if not isinstance(scenarios, Mapping) or set(scenarios) != {"bear", "base", "bull"}:
+        raise ValueError("Exactly bear, base and bull scenarios are required")
+    growths = []
+    for name in ("bear", "base", "bull"):
+        row = scenarios[name]
+        if not isinstance(row, Mapping) or set(row) != {"growth"}:
+            raise ValueError("Only explicit growth is allowed for each scenario")
+        growths.append(number(row["growth"]))
+    if not -0.5 <= growths[0] < growths[1] < growths[2] <= 1:
+        raise ValueError("Growth must satisfy -50% <= bear < base < bull <= 100%")
+    return {"forecast_years": years, "discount_rate": discount, "terminal_growth": terminal,
+            "scenarios": {name: {"growth": growth} for name, growth in zip(("bear", "base", "bull"), growths, strict=True)}}
+
+
+def _finite_valuation_result(value: object) -> bool:
+    if isinstance(value, Mapping):
+        return all(_finite_valuation_result(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return all(_finite_valuation_result(item) for item in value)
+    return not isinstance(value, Real) or math.isfinite(value)
+
+
+def load_valuation_evidence(path: Path, *, instrument_id: str, decision_time: object, assumptions: object = None) -> dict[str, object]:
     """Validate raw scoped facts before the date-grained stock research producer.
 
     Exact UTC knowledge filtering precedes the producer's date adapter. A
@@ -185,6 +225,15 @@ def load_valuation_evidence(path: Path, *, instrument_id: str, decision_time: ob
     cutoff = normalise_event_decision_time(decision_time)
     if cutoff is None:
         return unavailable("Snapshot decision time is unavailable; point-in-time valuation cannot be established.")
+    context = {}
+    if assumptions is not None:
+        try:
+            assumptions = _normalise_valuation_assumptions(assumptions)
+        except (ValueError, TypeError, OverflowError):
+            return unavailable("Invalid explicit scenario assumptions; valuation unavailable.")
+        context = {"kind": "local_user_scenario_assumption", "instrument_id": instrument_id,
+                   "decision_time": cutoff.isoformat(), "session_preview_only": True,
+                   "score_authority": False, "execution_allowed": False, "assumptions": assumptions}
     try:
         raw = pd.read_parquet(path)
         if raw.empty:
@@ -208,7 +257,6 @@ def load_valuation_evidence(path: Path, *, instrument_id: str, decision_time: ob
         )
         frame = frame[[field for field in fields if field in frame]].copy()
         knowledge = []
-        precisions = set()
         for row in frame.to_dict("records"):
             if any(not pd.api.types.is_scalar(value) for value in row.values()):
                 return unavailable("Malformed statement row; valuation unavailable.")
@@ -222,7 +270,6 @@ def load_valuation_evidence(path: Path, *, instrument_id: str, decision_time: ob
             if known_at is None:
                 return unavailable("Statement availability is unknown or malformed; valuation unavailable.")
             knowledge.append(known_at)
-            precisions.add("date_only_utc_end_of_day" if len(str(available).strip()) == 10 else "timestamp")
             for field in ("start", "end", "instant", "filed"):
                 date_value = row.get(field)
                 if date_value is not None and pd.notna(date_value):
@@ -233,18 +280,27 @@ def load_valuation_evidence(path: Path, *, instrument_id: str, decision_time: ob
         frame = frame.loc[[known_at <= cutoff for known_at in knowledge]].copy()
         if frame.empty:
             return unavailable("No statement evidence was available at the snapshot decision time.")
+        # Share counts are a sourced-input validity rule, not a valuation formula.
+        # Check only selected, cutoff-eligible facts; future/foreign counts cannot
+        # invalidate the current preview. The producer uses this exact metric name.
+        share_counts = frame.loc[frame["canonical_metric"].eq("shares_outstanding"), "value"]
+        if share_counts.le(0).any():
+            return unavailable("Nonpositive sourced share count; valuation unavailable.")
         # All surviving rows have already passed exact knowledge filtering.
         # Adapt only the producer's internal availability representation, not
         # the persisted facts or the disclosed decision cutoff.
+        precisions = {"date_only_utc_end_of_day" if len(str(value).strip()) == 10 else "timestamp" for value in frame["available_at"]}
         frame["available_at"] = [normalise_event_decision_time(value).date().isoformat() for value in frame["available_at"]]
-        result = valuation_analysis(frame, instrument_id=instrument_id, as_known_at=cutoff.isoformat())
-        if any(metric["value"] is not None and not math.isfinite(metric["value"]) for metric in result["relative_metrics"].values()):
+        result = valuation_analysis(frame, instrument_id=instrument_id, as_known_at=cutoff.isoformat(), assumptions=assumptions)
+        if not _finite_valuation_result(result):
             return unavailable("Nonfinite derived valuation evidence; valuation unavailable.")
         result["source_lineage"]["as_known_at"] = cutoff.isoformat()
         result["source_lineage"]["knowledge_precision"] = sorted(precisions)
         result["source_lineage"]["cutoff_policy"] = "Exact UTC filtering before date-grained canonical calculation; date-only knowledge uses UTC end-of-day."
-        return result | {"status": "available"}
-    except (OSError, ValueError, TypeError, ImportError, OverflowError, KeyError):
+        return result | {"status": "available", "assumption_context": context}
+    except ArithmeticError:
+        return unavailable("Arithmetic failure in canonical valuation; valuation unavailable.")
+    except (OSError, ValueError, TypeError, ImportError, KeyError):
         return unavailable("Canonical statement store is unreadable or malformed; valuation unavailable.")
 
 
