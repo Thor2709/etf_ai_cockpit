@@ -1763,3 +1763,52 @@ def test_metric_history_rejects_malformed_numeric_values(invalid):
     panel = load_score_metric_history_projection("VWCE", frame=pd.DataFrame([row]))
     assert panel["reason_code"] == "malformed_metric_history"
     assert panel["rows"] == []
+
+
+def test_detail_disclosure_keeps_every_record_and_bounds_scroll():
+    import flet as ft
+
+    records = [{"source_id": f"source-{index}", "value": index} for index in range(200)]
+    rendered = _render_evidence_section("Complete history", {"status": "available", "history": records})
+    assert isinstance(rendered, ft.ExpansionTile)
+    assert rendered.title.value == "Complete history"
+    assert rendered.subtitle.value == "available"
+    assert rendered.expanded is False and rendered.maintain_state is True
+    text = "\n".join(_text_values(rendered))
+    assert all(f"source_id=source-{index} | value={index}" in text for index in range(200))
+    assert any(isinstance(control, ft.Column) and control.height == 320 for control in _walk(rendered))
+
+
+def test_valuation_workspace_native_dialog_session_and_focus(monkeypatch):
+    import asyncio
+    import flet as ft
+    from etf_cockpit.app.pages.instrument_detail import _valuation_workspace
+    from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel
+
+    model = InstrumentDetailViewModel("ACME", "Acme", "available", {"asset_type": "stock"}, {"valuation": {"status": "unavailable"}})
+    dialogs = []
+    focused = []
+    async def focus(control):
+        focused.append(control)
+    monkeypatch.setattr(ft.OutlinedButton, "focus", focus)
+    page = SimpleNamespace(show_dialog=dialogs.append, pop_dialog=lambda: dialogs.pop(), update=lambda: None)
+    rendered = _valuation_workspace(page, model, "2026-07-01")
+    opener = next(control for control in _walk(rendered) if getattr(control, "key", None) == "instrument-detail.open-valuation")
+    opener.on_click(None)
+    dialog = dialogs[-1]
+    assert isinstance(dialog, ft.AlertDialog)
+    assert dialog.modal is False  # Native Escape/barrier dismissal remains enabled.
+    assert "Closing this workspace discards" in " ".join(_text_values(dialog.content))
+    fields = [control for control in _walk(dialog.content) if isinstance(control, ft.TextField)]
+    assert len(fields) == 6 and fields[0].autofocus is True
+    fields[-1].value = "private session"
+    buttons = [control.key for control in _walk(dialog.content) if isinstance(control, ft.OutlinedButton)]
+    assert buttons == ["instrument-detail.preview-valuation", "instrument-detail.clear-valuation"]
+    asyncio.run(dialog.actions[0].on_click(None))
+    assert not dialogs and focused == [opener]
+    opener.on_click(None)
+    assert all(control.value == "" for control in _walk(dialogs[-1].content) if isinstance(control, ft.TextField))
+    asyncio.run(dialogs[-1].on_dismiss(None))
+    assert focused[-1] is opener
+    etf = replace(model, identity={"asset_type": "etf"})
+    assert not any(getattr(control, "key", None) == "instrument-detail.open-valuation" for control in _walk(_valuation_workspace(page, etf, "2026-07-01")))

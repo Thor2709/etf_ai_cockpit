@@ -16,7 +16,7 @@ _RUNTIME_TEMP = configure_runtime_environment()
 
 import flet as ft  # noqa: E402
 
-from etf_cockpit.app.router import render_shell, uses_narrow_layout  # noqa: E402
+from etf_cockpit.app.router import relayout_shell, render_shell  # noqa: E402
 from etf_cockpit.app.state import AppState  # noqa: E402
 from etf_cockpit.app.theme import BG  # noqa: E402
 from etf_cockpit.core.session_log import init_session_log, log_event  # noqa: E402
@@ -115,14 +115,8 @@ def initialise_page(page: ft.Page, state: AppState | None = None) -> AppState:
         )
         _render_route(page, state, page.route or state.snapshot.config.ui.default_page)
 
-    layout_state = {"narrow": uses_narrow_layout(page, state)}
-
-    def resize(_event: ft.ControlEvent) -> None:
-        narrow = uses_narrow_layout(page, state)
-        if narrow == layout_state["narrow"]:
-            return
-        layout_state["narrow"] = narrow
-        _render_route(page, state, page.route or state.snapshot.config.ui.default_page)
+    def resize(event: ft.ControlEvent) -> None:
+        relayout_shell(page, state, getattr(event, "width", None))
 
     page.on_route_change = route_change
     page.on_resize = resize

@@ -75,7 +75,6 @@ def _restore_cancelled_result(state: AppState, action_id: str, *controls: ft.Con
 
 
 def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
-    narrow = float(getattr(page, "width", 0) or state.snapshot.config.ui.window_width) < 760
     reference_context = context_from_snapshot(
         state.snapshot,
         purpose="comparison",
@@ -102,7 +101,7 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
     candidate_count = sum(1 for score in scores if score.source_group == "Secondary tier")
     sparebanken_count = sum(1 for score in scores if score.source_group == "Sparebanken")
     model_pairs = _valid_model_pairs(state)
-    cards = _summary_cards(state, best, configured_count, candidate_count, sparebanken_count, model_pairs, narrow=narrow)
+    cards = _summary_cards(state, best, configured_count, candidate_count, sparebanken_count, model_pairs, narrow=False)
 
     return ft.Column(
         [
@@ -634,7 +633,9 @@ def _summary_cards(
         ),
         metric_card("Final mode", mode, "advisory scoring only", theme.RED if mode == "Manual review" else theme.AMBER if mode == "Caution" else theme.GREEN),
     ]
-    return ft.Column(card_controls, spacing=8) if narrow else ft.Row(card_controls, spacing=12)
+    for card in card_controls:
+        card.col = {"xs": 12, "sm": 6, "md": 4, "xl": 2}
+    return ft.ResponsiveRow(card_controls, spacing=12, run_spacing=8)
 
 
 def _action_bar(page: ft.Page, state: AppState) -> ft.Control:
