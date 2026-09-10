@@ -474,3 +474,32 @@ def test_rebalance_preview_blocks_zero_target_exit_for_configured_stock() -> Non
     assert "EUR -21,000.00" not in result_text
     assert "EUR -30,000.00" not in result_text
     assert "execution_allowed=false" in result_text
+
+
+
+def test_analysis_discloses_canonical_service_values_tables_and_binding_warnings():
+    from dataclasses import replace
+
+    state = _state()
+    candidate = portfolio_sandbox.build_portfolio_candidate(state.snapshot, name="Visible evidence", analysis_notional_eur=100000,
+        target_weights={"VWCE": 0.6, "LYP6": 0.3}, cash_weight=0.1)
+    analysis = portfolio_sandbox.analyse_portfolio_candidate(state.snapshot, candidate)
+    evidence = {
+        "optimiser_comparison": {"status": "available", "methods": [{"method": "minimum_variance", "weights": {"VWCE": 0.61}, "feasible": True}],
+            "baseline": {"equal_weight": {"weights": {"VWCE": 0.45}}, "current": {"weights": {"VWCE": 0.4}}}},
+        "factor_risk": {"status": "available", "risk_contributions": {"market": 0.031}},
+        "risk": {"status": "partial", "covariance": {"columns": ["VWCE", "LYP6"], "index": ["VWCE", "LYP6"], "data": [[0.004, 0.002], [0.002, 0.006]]},
+            "risk_contributions": {"VWCE": 0.027}, "warnings": ["ownership cannot be established", "known_at rows excluded"]},
+        "scenarios": {"status": "available", "results": [{"scenario": "recession", "portfolio_return": -0.12}]},
+        "attribution": {"status": "available", "contributions": [{"instrument_id": "VWCE", "return": 0.057}], "source_id": "dated-attribution"},
+        "rebalancing": {"status": "unavailable", "reason": "tax_lots ownership unavailable"},
+    }
+    analysis = replace(analysis, service_evidence=evidence)
+    rendered = portfolio._analysis_view(analysis)
+    text = _text(rendered)
+    for expected in ("minimum_variance", "0.61", "equal_weight", "0.45", "current", "0.4", "0.031", "0.004", "0.006", "0.027", "recession", "-0.12", "0.057", "dated-attribution", "ownership cannot be established", "known_at rows excluded", "tax_lots ownership unavailable"):
+        assert expected in text
+    controls = list(_walk(rendered))
+    assert any(isinstance(control, ft.DataTable) and len(control.rows) == 2 for control in controls)
+    assert any(isinstance(control, ft.ExpansionTile) and control.controls[0].height == 320 for control in controls)
+    assert "execution_allowed=false" in text

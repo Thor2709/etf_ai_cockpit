@@ -953,7 +953,10 @@ def _service_evidence(
     )
     missing_optimizer_ids = tuple(sorted(set(missing_target_ids) | set(missing_current_exit_ids)))
     has_target_exposure = any(weight > 0 for weight in target_weights.values())
-    complete_target_returns = has_target_exposure and not missing_target_ids
+    joint_observations = len(usable_returns.dropna(how="any")) if not usable_returns.empty else 0
+    joint_reason = (f"insufficient_joint_adjusted_returns: at least 2 complete observations required; observed={joint_observations}"
+                    if joint_observations < 2 else "")
+    complete_target_returns = has_target_exposure and not missing_target_ids and not joint_reason
     limits = getattr(getattr(snapshot, "config"), "risks").portfolio_limits
     constraints = OptimiserConstraints(
         cash_weight=analysis.candidate.cash_weight,
@@ -970,7 +973,7 @@ def _service_evidence(
             "execution_allowed": False,
         },
         "optimiser": _unavailable_service("adjusted-price returns unavailable"),
-        "optimiser_comparison": _unavailable_service("adjusted-price returns unavailable"),
+        "optimiser_comparison": _unavailable_service(joint_reason or "adjusted-price returns unavailable"),
         "factor_risk": _unavailable_service("adjusted-price returns or factor descriptors unavailable"),
         "risk": _unavailable_service("adjusted-price returns unavailable"),
         "rebalancing": _unavailable_service("rebalance inputs unavailable"),
@@ -983,6 +986,8 @@ def _service_evidence(
     # of the price universe.
     factor_report: dict[str, object] | None = None
     try:
+        if joint_reason:
+            raise ValueError(joint_reason)
         factor_report = build_factor_risk_report(
             prices if complete_target_returns else pd.DataFrame(),
             target,
@@ -993,13 +998,15 @@ def _service_evidence(
             _report_projection(factor_report, coverage_keys=("coverage",)), missing_target_ids
         )
     except (ArithmeticError, KeyError, TypeError, ValueError):
-        evidence["factor_risk"] = _unavailable_service("factor risk service evidence unavailable")
+        evidence["factor_risk"] = _add_missing_price_evidence(_unavailable_service(joint_reason or "factor risk service evidence unavailable"), missing_target_ids)
 
     try:
         if not has_target_exposure:
             raise ValueError("no invested target exposure")
         if missing_optimizer_ids:
             raise ValueError(f"required instruments missing usable adjusted returns: {', '.join(missing_optimizer_ids)}")
+        if joint_reason:
+            raise ValueError(joint_reason)
         optimiser, returns = build_portfolio_optimiser(prices)
         comparison = optimiser.compare(
             tuple(OPTIMISER_METHODS),
@@ -1049,6 +1056,8 @@ def _service_evidence(
                 raise ValueError("no invested target exposure")
             if missing_optimizer_ids:
                 raise ValueError(f"required instruments missing usable adjusted returns: {', '.join(missing_optimizer_ids)}")
+            if joint_reason:
+                raise ValueError(joint_reason)
             optimiser, returns = build_portfolio_optimiser(prices)
             solution = optimiser.solve("minimum_variance", constraints=constraints, current_weights=current_weights)
             evidence["optimiser"] = _solution_projection(solution)
@@ -1071,16 +1080,18 @@ def _service_evidence(
             evidence["optimiser"] = _unavailable_service(
                 f"required instruments missing usable adjusted returns: {', '.join(missing_optimizer_ids)}"
                 if missing_optimizer_ids
-                else "no invested target exposure" if not has_target_exposure else "portfolio optimiser service evidence unavailable"
+                else "no invested target exposure" if not has_target_exposure else joint_reason or "portfolio optimiser service evidence unavailable"
             )
     except (ArithmeticError, KeyError, TypeError, ValueError):
         evidence["optimiser"] = _unavailable_service(
             f"required instruments missing usable adjusted returns: {', '.join(missing_optimizer_ids)}"
             if missing_optimizer_ids
-            else "no invested target exposure" if not has_target_exposure else "portfolio optimiser service evidence unavailable"
+            else "no invested target exposure" if not has_target_exposure else joint_reason or "portfolio optimiser service evidence unavailable"
         )
 
     try:
+        if joint_reason:
+            raise ValueError(joint_reason)
         risk = build_robust_risk_report(
             prices if complete_target_returns else pd.DataFrame(),
             target,
@@ -1091,7 +1102,7 @@ def _service_evidence(
             _report_projection(risk, coverage_keys=("diagnostics", "coverage")), missing_target_ids
         )
     except (ArithmeticError, KeyError, TypeError, ValueError):
-        evidence["risk"] = _unavailable_service("robust risk service evidence unavailable")
+        evidence["risk"] = _add_missing_price_evidence(_unavailable_service(joint_reason or "robust risk service evidence unavailable"), missing_target_ids)
 
     inapplicable = rebalance_inapplicable_instruments(
         snapshot, _bound_holdings(snapshot, analysis), set(target_weights)
@@ -1344,25 +1355,23 @@ def _bound_optional_frame(
         frame.attrs["sandbox_binding_warning"] = "unavailable: explicit account/portfolio ownership cannot be established"
         return frame
     frame = _filter_financial_scope(frame, binding.account_id, binding.portfolio_id)
+    cutoff = _reference_cutoff(reference_context, binding)
     resolution = None if reference_context is None else reference_context.resolution
-    date_column = "date" if "date" in frame.columns else "as_of_date" if "as_of_date" in frame.columns else None
-    if resolution is not None and date_column is not None:
-        window = resolution.declaration
-        if date_column != "date":
-            frame = frame.rename(columns={date_column: "date"})
-        frame = clip_to_decision_window(
-            frame,
-            start_date=window.start_date,
-            end_date=window.end_date,
-            decision_time=window.decision_time,
-        )
-        if date_column != "date":
-            frame = frame.rename(columns={"date": date_column})
-    if analysis.snapshot_binding is not None and analysis.snapshot_binding.as_of and date_column is not None:
-        cutoff = _snapshot_cutoff(analysis.snapshot_binding.as_of)
-        dates = pd.to_datetime(frame[date_column], errors="coerce", utc=True, format="mixed")
-        frame = frame.loc[dates <= cutoff].copy()
-    return _filter_knowledge_columns(frame, _reference_cutoff(reference_context, analysis.snapshot_binding))
+    lower = None
+    if resolution is not None:
+        lower = pd.to_datetime(resolution.declaration.start_date, utc=True)
+        cutoff = min(cutoff, _snapshot_cutoff(resolution.declaration.end_date))
+    for column in ("effective_at", "date", "as_of", "as_of_date", "trade_date", "transaction_date"):
+        if column in frame:
+            effective = pd.to_datetime(frame[column].map(lambda value: _temporal_claim(value, end_of_day=False)), errors="coerce", utc=True)
+            eligible = effective.notna() & (effective <= cutoff)
+            if lower is not None:
+                eligible &= effective >= lower
+            if not eligible.all():
+                prior = frame.attrs.get("sandbox_binding_warning", "")
+                frame.attrs["sandbox_binding_warning"] = (prior + "; " if prior else "") + f"{column} rows excluded: unavailable effective chronology"
+            frame = frame.loc[eligible].copy()
+    return _filter_knowledge_columns(frame, _reference_cutoff(reference_context, binding))
 
 
 def _filter_financial_scope(frame: pd.DataFrame, account_id: str, portfolio_id: str) -> pd.DataFrame:
@@ -1385,23 +1394,34 @@ def _filter_knowledge_columns(frame: pd.DataFrame, cutoff: pd.Timestamp) -> pd.D
     if result.columns.duplicated().any():
         return result.iloc[0:0].copy()
 
-    def timestamp(value: object) -> pd.Timestamp:
-        if not isinstance(value, (str, date, datetime)):
-            return pd.NaT
-        try:
-            return _snapshot_cutoff(value)
-        except (TypeError, ValueError, OverflowError):
-            return pd.NaT
-
-    for column in ("known_at", "available_at", "imported_at", "ingested_at"):
+    for column in ("known_at", "available_at", "imported_at", "ingested_at", "retrieved_at", "published_at"):
         if column in result:
-            known = pd.to_datetime(result[column].map(timestamp), errors="coerce", utc=True)
+            known = pd.to_datetime(result[column].map(lambda value: _temporal_claim(value, end_of_day=True)), errors="coerce", utc=True)
             eligible = known.notna() & (known <= cutoff)
             if not eligible.all():
                 prior = result.attrs.get("sandbox_binding_warning", "")
                 result.attrs["sandbox_binding_warning"] = (prior + "; " if prior else "") + f"{column} rows excluded: unavailable at cutoff or malformed knowledge"
             result = result.loc[eligible].copy()
     return result
+
+
+def _temporal_claim(value: object, *, end_of_day: bool) -> pd.Timestamp:
+    """Date-only claims have declared UTC precision; datetimes require an offset."""
+    if not isinstance(value, (str, date, datetime)):
+        return pd.NaT
+    try:
+        parsed = pd.Timestamp(value)
+        if pd.isna(parsed):
+            return pd.NaT
+        date_only = (isinstance(value, date) and not isinstance(value, datetime)) or (isinstance(value, str) and value == parsed.date().isoformat())
+        if date_only:
+            parsed = parsed.tz_localize("UTC")
+            return parsed + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1) if end_of_day else parsed
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            return pd.NaT
+        return parsed.tz_convert("UTC")
+    except (TypeError, ValueError, OverflowError):
+        return pd.NaT
 
 
 def _snapshot_cutoff(value: object) -> pd.Timestamp:

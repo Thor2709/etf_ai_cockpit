@@ -1764,7 +1764,7 @@ def test_what_if_targets_are_composed_through_existing_services(monkeypatch) -> 
     snapshot.prices = pd.DataFrame(
         [
             {"date": date, "etf_id": instrument_id, "adjusted_close": price + index}
-            for index, date in enumerate(("2026-07-01", "2026-07-02"))
+            for index, date in enumerate(("2026-07-01", "2026-07-02", "2026-07-03"))
             for instrument_id, price in (("VWCE", 100.0), ("LYP6", 80.0), ("SPYK", 60.0))
         ]
     )
@@ -1807,7 +1807,7 @@ def test_sandbox_composes_target_through_factor_risk_comparison_scenario_and_att
     snapshot.prices = pd.DataFrame(
         [
             {"date": date, "etf_id": instrument_id, "adjusted_close": price + index}
-            for index, date in enumerate(("2026-07-01", "2026-07-02"))
+            for index, date in enumerate(("2026-07-01", "2026-07-02", "2026-07-03"))
             for instrument_id, price in (("VWCE", 100.0), ("LYP6", 80.0), ("SPYK", 60.0))
         ]
     )
@@ -2263,3 +2263,52 @@ def test_sandbox_knowledge_cutoff_intersects_reference_and_date_precision():
     cutoff = sandbox_store._reference_cutoff(reference, binding)
     frame = pd.DataFrame({"known_at": ["2026-07-11T11:00:00Z", "2026-07-11", "2026-07-11T13:00:00Z"], "marker": ["accepted", "date-only", "later"]})
     assert list(sandbox_store._filter_knowledge_columns(frame, cutoff).marker) == ["accepted"]
+
+
+@pytest.mark.parametrize("dates", [("2026-07-01", "2026-07-02", "2026-07-05", "2026-07-06"), ("2026-07-01", "2026-07-02", "2026-07-01", "2026-07-02")])
+def test_covariance_services_reject_insufficient_joint_observations(monkeypatch, dates):
+    snapshot = _snapshot()
+    snapshot.prices = pd.DataFrame([{"date": date, "etf_id": identifier, "adjusted_close": price}
+        for identifier, pair in (("VWCE", dates[:2]), ("LYP6", dates[2:]))
+        for date, price in zip(pair, (100.0, 101.0), strict=True)])
+    def unexpected(*args, **kwargs):
+        pytest.fail("Insufficient joint observations must not reach covariance-dependent services")
+    for name in ("build_portfolio_optimiser", "build_factor_risk_report", "build_robust_risk_report"):
+        monkeypatch.setattr(sandbox_store, name, unexpected)
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+    for name in ("optimiser", "optimiser_comparison", "factor_risk", "risk"):
+        assert analysis.service_evidence[name]["status"] == "unavailable"
+        assert "insufficient_joint_adjusted_returns" in analysis.service_evidence[name]["reason"]
+    assert analysis.service_evidence["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("value", ["2026-07-11T11:00:00", pd.Timestamp("2026-07-11T11:00:00")])
+def test_naive_knowledge_cannot_pass_earlier_than_aware_cutoff(value):
+    frame = pd.DataFrame({"known_at": [value]})
+    result = sandbox_store._filter_knowledge_columns(frame, pd.Timestamp("2026-07-11T12:00:00Z"))
+    assert result.empty
+    assert "malformed knowledge" in result.attrs["sandbox_binding_warning"]
+
+
+@pytest.mark.parametrize("column", ["effective_at", "date", "as_of", "as_of_date", "trade_date", "transaction_date"])
+@pytest.mark.parametrize("bad", ["2027-01-01T00:00:00Z", "malformed", None])
+def test_every_optional_effective_alias_is_bounded_without_reference(column, bad):
+    snapshot = _snapshot()
+    analysis = SimpleNamespace(snapshot_binding=sandbox_store.portfolio_snapshot_binding(snapshot))
+    row = {"known_at": "2026-07-11T00:00:00Z", "date": "2026-07-11", "amount": 5.0}
+    snapshot.costs = pd.DataFrame([row | {column: bad}])
+    assert sandbox_store._bound_optional_frame(snapshot, "costs", analysis, None).empty
+
+
+def test_future_effective_cost_does_not_reach_attribution(monkeypatch):
+    snapshot = _snapshot()
+    snapshot.costs = pd.DataFrame({"effective_at": ["2027-01-01T00:00:00Z"], "known_at": ["2026-07-11T00:00:00Z"], "amount": [999.0]})
+    received = []
+    real = sandbox_store.build_performance_attribution
+    def attribution(*args, **kwargs):
+        received.append(kwargs["costs"])
+        return real(*args, **kwargs)
+    monkeypatch.setattr(sandbox_store, "build_performance_attribution", attribution)
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+    assert received and received[0].empty
+    assert any("effective_at" in warning for warning in analysis.service_evidence["attribution"]["warnings"])

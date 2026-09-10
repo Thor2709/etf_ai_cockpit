@@ -133,3 +133,21 @@ binding warnings and partial/unavailable service evidence. The legacy default
 single-snapshot contract permits absent optional identity columns; any supplied
 identity is still binding. Tax lots share the same scope and temporal adapter as
 other optional financial inputs. No live ledger or financial formula is changed.
+
+
+The service adapter requires at least two complete joint adjusted-return
+observations across the supplied investable universe before calling covariance,
+factor-risk or optimiser services. Disjoint histories and a single common return
+produce explicit unavailable evidence; producer fallback cannot invent zero risk.
+All supported optional effective aliases (`effective_at`, `date`, `as_of`,
+`as_of_date`, `trade_date`, `transaction_date`) are checked even without a resolved
+reference. Naive datetime knowledge is unknown and rejected; date-only knowledge
+retains the declared UTC end-of-day rule. Retrieved/published knowledge aliases
+are checked alongside availability and ingestion claims.
+
+The portfolio results UI displays canonical optimiser methods and baselines,
+weights, risk contributions and covariance axes, scenarios and attribution in
+bounded maintained-state disclosures. Every disclosed row remains reachable;
+wide matrices scroll horizontally. Ownership/chronology warnings and unavailable
+reasons remain visible outside the disclosures. Presentation performs no financial
+calculations.

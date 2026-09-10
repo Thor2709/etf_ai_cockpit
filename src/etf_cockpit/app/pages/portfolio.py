@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 
 import flet as ft
 
@@ -672,6 +673,7 @@ def _analysis_view(analysis: PortfolioAnalysis, *, benchmark_registry: object | 
                             selectable=True,
                             size=11,
                         ),
+                        _portfolio_service_results(analysis),
                     ]
                 )
             ),
@@ -692,6 +694,55 @@ def _analysis_view(analysis: PortfolioAnalysis, *, benchmark_registry: object | 
         ],
         spacing=12,
     )
+
+
+def _service_value(value: object) -> str:
+    if value is None or (isinstance(value, float) and not math.isfinite(value)):
+        return "unavailable"
+    return str(value)
+
+
+def _service_result_controls(label: str, value: object) -> list[ft.Control]:
+    """Display canonical projections, retaining table axes and every disclosed row."""
+    if isinstance(value, Mapping):
+        if {"columns", "index", "data"}.issubset(value):
+            table = ft.DataTable(
+                columns=[ft.DataColumn(ft.Text(str(value.get("index_name") or "row"))),
+                         *[ft.DataColumn(ft.Text(str(column))) for column in value["columns"]]],
+                rows=[ft.DataRow(cells=[ft.DataCell(ft.Text(_service_value(index), selectable=True)),
+                                       *[ft.DataCell(ft.Text(_service_value(item), selectable=True)) for item in row]])
+                      for index, row in zip(value["index"], value["data"], strict=True)],
+            )
+            return [ft.Text(label, color=theme.TEXT), ft.Row([table], scroll=ft.ScrollMode.AUTO)]
+        controls = []
+        for key, item in value.items():
+            controls.extend(_service_result_controls(f"{label} / {key}", item))
+        return controls or [ft.Text(f"{label}: unavailable", color=theme.MUTED)]
+    if isinstance(value, (list, tuple)):
+        return [control for index, item in enumerate(value, start=1)
+                for control in _service_result_controls(f"{label} [{index}]", item)] or [ft.Text(f"{label}: none reported", color=theme.MUTED)]
+    return [ft.Text(f"{label}: {_service_value(value)}", color=theme.MUTED, selectable=True, size=11)]
+
+
+def _portfolio_service_results(analysis: PortfolioAnalysis) -> ft.Control:
+    titles = {"optimiser_comparison": "Optimiser comparisons and baselines", "optimiser": "Selected optimiser",
+              "factor_risk": "Factor risk and contributions", "risk": "Covariance and risk contributions",
+              "rebalancing": "Rebalance and tax evidence", "scenarios": "Scenario results", "attribution": "Performance attribution", "cost": "Cost evidence"}
+    controls: list[ft.Control] = []
+    for name, title in titles.items():
+        result = analysis.service_evidence.get(name)
+        if not isinstance(result, Mapping):
+            result = {"status": "unavailable", "reason": "canonical service result missing"}
+        for warning in result.get("warnings", ()):
+            controls.append(ft.Text(f"{title}: {warning}", color=theme.AMBER, selectable=True, size=11))
+        if result.get("reason"):
+            controls.append(ft.Text(f"{title}: {result['reason']}", color=theme.AMBER, selectable=True, size=11))
+        controls.append(ft.ExpansionTile(
+            title=ft.Text(title), subtitle=ft.Text(str(result.get("status", "unavailable"))),
+            maintain_state=True, expanded_cross_axis_alignment=ft.CrossAxisAlignment.STRETCH,
+            controls=[ft.Column(_service_result_controls(title, result), height=320, scroll=ft.ScrollMode.AUTO)],
+        ))
+    return ft.Column(controls, spacing=6)
 
 
 def _portfolio_service_coverage(analysis: PortfolioAnalysis) -> str:
