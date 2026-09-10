@@ -46,6 +46,8 @@ from etf_cockpit.application.ui_facade import (
     load_manual_news,
     load_simple_scoreboard,
     load_statement_evidence,
+    load_valuation_evidence,
+    STATEMENT_FACTS_PATH,
     load_paper_timeline,
     read_document_registry,
     read_etf_report_records,
@@ -122,6 +124,7 @@ _SECTION_NAMES = (
     "risk",
     "attribution",
     "fundamentals",
+    "valuation",
     "etf_disclosures",
     "etf_structure",
     "etf_holdings",
@@ -1938,6 +1941,34 @@ def _candidate_identity_panel(instrument_id: str, candidate_score: SimpleInstrum
     }
 
 
+def _valuation_panel(instrument_id: str, asset_type: object, decision_time: object) -> dict[str, Any]:
+    """Present canonical local valuation evidence without supplying assumptions."""
+    if _safe_text(asset_type) not in {"stock", "equity"}:
+        return _unavailable("Stock valuation is not applicable to ETFs or unsupported instrument types.") | {"status": "not_applicable"}
+    cutoff = normalise_event_decision_time(decision_time)
+    if cutoff is None:
+        return _unavailable("Snapshot decision time is unavailable; point-in-time valuation cannot be established.")
+    result = load_valuation_evidence(STATEMENT_FACTS_PATH, instrument_id=instrument_id, decision_time=cutoff)
+    if result["status"] != "available":
+        return _unavailable(result["message"])
+    metric_fields = ("name", "value", "status", "formula", "period", "source_ids", "confidence", "applicability", "limitation")
+    model_fields = ("status", "confidence", "reason", "execution_allowed")
+    return {
+        "status": "available",
+        "message": "Local statement evidence only. External market inputs and explicit valuation/scenario assumptions are unavailable; no defaults are supplied.",
+        "instrument_id": instrument_id,
+        "decision_time": cutoff.isoformat(),
+        "relative_metrics": {
+            name: {field: result["relative_metrics"][name].get(field) for field in metric_fields}
+            for name in ("ev_to_sales", "ev_to_ebitda", "price_to_earnings", "price_to_book", "dividend_yield")
+        },
+        **{name: {field: result[name].get(field) for field in model_fields} for name in ("intrinsic_value", "reverse_dcf", "residual_income", "model_disagreement")},
+        "scenario_status": "unavailable: explicit scenario assumptions required",
+        "source_lineage": {field: result["source_lineage"].get(field) for field in ("statement_view", "as_known_at", "source_ids", "knowledge_precision", "cutoff_policy")},
+        "execution_allowed": False,
+    }
+
+
 def build_instrument_detail(
     snapshot: CockpitSnapshot,
     instrument_id: str,
@@ -2187,6 +2218,7 @@ def build_instrument_detail(
                 expected_currency=canonical_currency,
             ),
             "fundamentals": _fundamentals_panel(instrument_id, fundamentals),
+            "valuation": _valuation_panel(instrument_id, identity_panel.get("asset_type"), decision_time),
             "etf_disclosures": disclosure,
             "etf_structure": structure,
             "etf_holdings": disclosure.get("exposure", _unavailable("ETF holdings/exposure unavailable.")),

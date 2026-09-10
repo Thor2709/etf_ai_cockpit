@@ -7,9 +7,15 @@ ports and application commands.
 """
 
 from collections.abc import Mapping
+import math
+from numbers import Real
 from pathlib import Path
 
+import pandas as pd
+
 from etf_cockpit.data.etf_structure import project_etf_structure
+from etf_cockpit.data.event_calendar import normalise_event_decision_time
+from etf_cockpit.data.stock_research import valuation_analysis
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.parsed_disclosures import read_etf_report_records
 from etf_cockpit.features.cash_comparison import (
@@ -164,6 +170,82 @@ from etf_cockpit.signals.feature_drivers import (  # noqa: F401
     _source_vintage_hash,
     normalise_bound_claim,
 )
+
+
+def load_valuation_evidence(path: Path, *, instrument_id: str, decision_time: object) -> dict[str, object]:
+    """Validate raw scoped facts before the date-grained stock research producer.
+
+    Exact UTC knowledge filtering precedes the producer's date adapter. A
+    date-only availability is conservatively eligible at UTC end-of-day;
+    malformed selected evidence blocks the entire panel, never just that row.
+    """
+    def unavailable(reason: str) -> dict[str, object]:
+        return {"status": "unavailable", "message": reason, "execution_allowed": False}
+
+    cutoff = normalise_event_decision_time(decision_time)
+    if cutoff is None:
+        return unavailable("Snapshot decision time is unavailable; point-in-time valuation cannot be established.")
+    try:
+        raw = pd.read_parquet(path)
+        if raw.empty:
+            return unavailable("Canonical local statement evidence is unavailable.")
+        if raw.columns.duplicated().any() or "instrument_id" not in raw:
+            return unavailable("Statement identity is malformed; valuation unavailable.")
+        frame = raw.loc[raw["instrument_id"].map(lambda value: isinstance(value, str) and value == instrument_id)].copy()
+        if frame.empty:
+            return unavailable("No canonical local statements exist for this instrument.")
+        required = {"canonical_metric", "value", "available_at", "source_id"}
+        if not required.issubset(frame.columns):
+            return unavailable("Required statement evidence fields are missing; valuation unavailable.")
+        for alias in ("etf_id", "display_id"):
+            if alias in frame and any(not pd.api.types.is_scalar(value) or (pd.notna(value) and value != instrument_id) for value in frame[alias]):
+                return unavailable("Statement identity conflicts; valuation unavailable.")
+        fields = (
+            "instrument_id", "canonical_metric", "value", "available_at", "source_id", "concept", "unit",
+            "start", "end", "instant", "filed", "form", "accession", "fiscal_year", "fiscal_period",
+            "dimensions", "currency", "period_type", "mapping_status", "mapping_confidence",
+            "manual_review_required", "restatement_kind",
+        )
+        frame = frame[[field for field in fields if field in frame]].copy()
+        knowledge = []
+        precisions = set()
+        for row in frame.to_dict("records"):
+            if any(not pd.api.types.is_scalar(value) for value in row.values()):
+                return unavailable("Malformed statement row; valuation unavailable.")
+            value = row["value"]
+            if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value):
+                return unavailable("Invalid or nonfinite statement numeric input; valuation unavailable.")
+            if any(not isinstance(row[field], str) or not row[field].strip() for field in ("canonical_metric", "source_id")):
+                return unavailable("Statement metric or provenance is missing; valuation unavailable.")
+            available = row["available_at"]
+            known_at = normalise_event_decision_time(available)
+            if known_at is None:
+                return unavailable("Statement availability is unknown or malformed; valuation unavailable.")
+            knowledge.append(known_at)
+            precisions.add("date_only_utc_end_of_day" if len(str(available).strip()) == 10 else "timestamp")
+            for field in ("start", "end", "instant", "filed"):
+                date_value = row.get(field)
+                if date_value is not None and pd.notna(date_value):
+                    if not isinstance(date_value, str) or pd.isna(pd.to_datetime(date_value, errors="coerce", utc=True)):
+                        return unavailable("Malformed statement period or filing date; valuation unavailable.")
+            if not any(isinstance(row.get(field), str) and row[field].strip() for field in ("end", "instant")):
+                return unavailable("Statement period is missing; valuation unavailable.")
+        frame = frame.loc[[known_at <= cutoff for known_at in knowledge]].copy()
+        if frame.empty:
+            return unavailable("No statement evidence was available at the snapshot decision time.")
+        # All surviving rows have already passed exact knowledge filtering.
+        # Adapt only the producer's internal availability representation, not
+        # the persisted facts or the disclosed decision cutoff.
+        frame["available_at"] = [normalise_event_decision_time(value).date().isoformat() for value in frame["available_at"]]
+        result = valuation_analysis(frame, instrument_id=instrument_id, as_known_at=cutoff.isoformat())
+        if any(metric["value"] is not None and not math.isfinite(metric["value"]) for metric in result["relative_metrics"].values()):
+            return unavailable("Nonfinite derived valuation evidence; valuation unavailable.")
+        result["source_lineage"]["as_known_at"] = cutoff.isoformat()
+        result["source_lineage"]["knowledge_precision"] = sorted(precisions)
+        result["source_lineage"]["cutoff_policy"] = "Exact UTC filtering before date-grained canonical calculation; date-only knowledge uses UTC end-of-day."
+        return result | {"status": "available"}
+    except (OSError, ValueError, TypeError, ImportError, OverflowError, KeyError):
+        return unavailable("Canonical statement store is unreadable or malformed; valuation unavailable.")
 
 
 def load_etf_structure_projection(

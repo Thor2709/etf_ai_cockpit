@@ -650,3 +650,19 @@ numerics remain null; missing, unreadable, malformed and empty scoped evidence
 have explicit unavailable states. No scores are recalculated or artifacts written.
 These stored snapshots do not establish knowledge-time availability or replay
 guarantees. The display always keeps `execution_allowed=false`.
+
+### Instrument Detail stock valuation evidence
+
+The application facade scopes raw local statement rows to the selected stock
+before normalization, validates knowledge dates, provenance and finite numeric
+inputs, and filters at the snapshot's UTC cutoff. Date-only knowledge becomes
+available at UTC end-of-day; ambiguous datetimes and malformed selected evidence
+fail closed. Only filtered rows are adapted for the existing date-grained
+valuation producer. Lineage discloses the original cutoff and knowledge precision.
+The display allowlists relative metrics, model availability and statement lineage.
+ETFs and unsupported types show an explicit
+not-applicable state; missing decision dates or local inputs remain unavailable.
+No market inputs or scenario assumptions are supplied by this integration, so
+assumption-dependent model outputs remain unavailable. This is a read-only
+evidence panel; scenario input controls remain unfinished. Financial formulas
+and storage formats are unchanged, and `execution_allowed=false` remains fixed.
