@@ -662,7 +662,28 @@ valuation producer. Lineage discloses the original cutoff and knowledge precisio
 The display allowlists relative metrics, model availability and statement lineage.
 ETFs and unsupported types show an explicit
 not-applicable state; missing decision dates or local inputs remain unavailable.
-No market inputs or scenario assumptions are supplied by this integration, so
-assumption-dependent model outputs remain unavailable. This is a read-only
-evidence panel; scenario input controls remain unfinished. Financial formulas
-and storage formats are unchanged, and `execution_allowed=false` remains fixed.
+Without explicit user assumptions, assumption-dependent model outputs remain
+unavailable. The session scenario controls below extend this read-only evidence
+panel. Financial formulas and storage formats are unchanged, and
+`execution_allowed=false` remains fixed.
+
+
+### Instrument Detail session valuation scenarios (ISSUE-0019)
+
+Stock/equity detail accepts blank-by-default, page-local explicit scenario inputs.
+The facade validates normalized forecast years (integer 1-50), discount rate
+(0, 1], terminal growth [-1, discount), and exactly bear/base/bull growth [-0.5, 1]
+in strictly increasing order. Booleans, nonfinite values, extra fields, margin
+and financial overrides are rejected. The page only converts percentages;
+`valuation_analysis` remains the sole financial producer. Validated local statements
+supply all financial inputs with unchanged exact UTC cutoff filtering before the
+producer's date adapter. Precision labels describe only surviving rows.
+
+The selector allowlists model numeric projections and separately discloses
+`assumption_context` (`local_user_scenario_assumption`, instrument, cutoff,
+`session_preview_only=true`, `score_authority=false`, `execution_allowed=false`).
+User assumptions are not source lineage. Arithmetic failures and recursively
+nonfinite producer results yield explicit unavailable evidence. Input edits and
+invalid submissions remove prior previews; clear and fresh navigation discard
+inputs. Controls update only the page-local result, without rebuilding snapshots,
+persistence, export inclusion or network activity. ETFs remain not applicable.

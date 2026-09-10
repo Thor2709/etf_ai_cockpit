@@ -229,6 +229,9 @@ controls:
   - {key: chatgpt.generate-commentary, route: /chatgpt, control_label: Generate commentary, callback: run_local_llm_audit, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_button_contracts.py, control_type: button}
   - {key: chatgpt.import-audit, route: /chatgpt, control_label: Validate and import, callback: import_audit, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_button_contracts.py, control_type: button}
   - {key: instrument-detail.export-evidence, route: /instrument, control_label: Export audit evidence, callback: export_instrument_evidence, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_task19_instrument_detail.py, control_type: button}
+  - {key: instrument-detail.preview-valuation, route: /instrument, control_label: Preview valuation scenarios, callback: preview_valuation, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_task19_instrument_detail.py, control_type: button}
+  - {key: instrument-detail.clear-valuation, route: /instrument, control_label: Clear scenario inputs, callback: clear_valuation, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_task19_instrument_detail.py, control_type: button}
+  - {key: instrument-detail.valuation-input.*, route: /instrument, control_label: Scenario assumption, callback: invalidate_valuation, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_task19_instrument_detail.py, control_type: input}
   - {key: instrument-detail.preview-capacity, route: /instrument, control_label: Preview capacity, callback: preview, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_etf_economics.py, control_type: button}
 
   # Official parser file pickers and controlled parser callbacks.

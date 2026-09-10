@@ -40,6 +40,165 @@ REQUIRED_SECTIONS = {
 }
 
 
+@pytest.fixture
+def valuation_scenario_evidence(tmp_path, monkeypatch):
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    values = {"free_cash_flow": 10.0, "shares_outstanding": 10.0, "net_debt": 5.0,
+              "market_cap": 150.0, "equity": 80.0, "net_income": 12.0}
+    rows = [{"instrument_id": "ACME", "canonical_metric": metric, "value": value,
+             "available_at": "2026-01-01T08:00:00Z", "end": "2025-12-31", "source_id": "known-filing"}
+            for metric, value in values.items()]
+    # Future date-only rows must not affect precision or financial values.
+    rows.append(rows[0] | {"available_at": "2027-01-01", "value": 900.0, "source_id": "future"})
+    path = tmp_path / "scenario-statements.parquet"
+    pd.DataFrame(rows).to_parquet(path)
+    monkeypatch.setattr(selector, "STATEMENT_FACTS_PATH", path)
+    assumptions = {"forecast_years": 5, "discount_rate": 0.1, "terminal_growth": 0.02,
+                   "scenarios": {"bear": {"growth": -0.1}, "base": {"growth": 0.03}, "bull": {"growth": 0.1}}}
+    return path, assumptions
+
+
+def test_valuation_scenario_results_and_context(valuation_scenario_evidence):
+    from etf_cockpit.app.selectors.instrument_detail import _valuation_panel
+
+    _, assumptions = valuation_scenario_evidence
+    panel = _valuation_panel("ACME", "stock", "2026-07-01", assumptions)
+    scenarios = panel["intrinsic_value"]["scenarios"]
+    assert scenarios["bear"]["per_share"] < scenarios["base"]["per_share"] < scenarios["bull"]["per_share"]
+    assert panel["reverse_dcf"]["status"] == panel["residual_income"]["status"] == "available"
+    assert len(panel["model_disagreement"]["range"]) == 2
+    assert panel["source_lineage"]["source_ids"] == ["known-filing"]
+    assert panel["source_lineage"]["knowledge_precision"] == ["timestamp"]
+    assert "assumptions" not in panel["source_lineage"]
+    assert panel["assumption_context"] == {"kind": "local_user_scenario_assumption", "instrument_id": "ACME",
+        "decision_time": "2026-07-01T23:59:59+00:00", "session_preview_only": True,
+        "score_authority": False, "execution_allowed": False, "assumptions": assumptions}
+    assert panel["execution_allowed"] is False
+    assert _valuation_panel("ACME", "etf", "2026-07-01", assumptions)["status"] == "not_applicable"
+
+
+@pytest.mark.parametrize("patch", [
+    {"forecast_years": True}, {"forecast_years": 1.0}, {"forecast_years": 0}, {"forecast_years": 51},
+    {"discount_rate": 0}, {"discount_rate": 1.01}, {"discount_rate": float("inf")},
+    {"terminal_growth": -1.01}, {"terminal_growth": 0.1}, {"terminal_growth": float("nan")},
+    {"market_cap": 1}, {"cost_of_equity": 0.1}, {"scenarios": {}},
+    {"scenarios": {"bear": {"growth": -0.1}, "base": {"growth": -0.1}, "bull": {"growth": 0.1}}},
+    {"scenarios": {"bear": {"growth": -0.51}, "base": {"growth": 0}, "bull": {"growth": 0.1}}},
+    {"scenarios": {"bear": {"growth": -0.1}, "base": {"growth": 0}, "bull": {"growth": 1.01}}},
+    {"scenarios": {"bear": {"growth": False}, "base": {"growth": 0}, "bull": {"growth": 0.1}}},
+    {"scenarios": {"bear": {"growth": -0.1, "margin": 0.1}, "base": {"growth": 0}, "bull": {"growth": 0.1}}},
+])
+def test_valuation_scenario_rejects_malformed(valuation_scenario_evidence, patch):
+    from etf_cockpit.application.ui_facade import load_valuation_evidence
+
+    path, assumptions = valuation_scenario_evidence
+    result = load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions | patch)
+    assert result["status"] == "unavailable"
+    assert "relative_metrics" not in result
+    assert result["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("years", [1, 50])
+def test_valuation_scenario_accepts_boundaries(valuation_scenario_evidence, years):
+    from etf_cockpit.application.ui_facade import load_valuation_evidence
+
+    path, assumptions = valuation_scenario_evidence
+    assumptions.update(forecast_years=years, discount_rate=1, terminal_growth=-1,
+                       scenarios={"bear": {"growth": -0.5}, "base": {"growth": 0}, "bull": {"growth": 1}})
+    result = load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions)
+    assert result["status"] == "available"
+
+
+@pytest.mark.parametrize("shares", [None, 0.0, -10.0])
+def test_valuation_scenario_missing_nonpositive_shares(valuation_scenario_evidence, monkeypatch, shares):
+    from etf_cockpit.application.ui_facade import load_valuation_evidence
+
+    path, assumptions = valuation_scenario_evidence
+    frame = pd.read_parquet(path)
+    if shares is None:
+        frame = frame.loc[frame.canonical_metric != "shares_outstanding"]
+    else:
+        frame.loc[frame.canonical_metric == "shares_outstanding", "value"] = shares
+    frame.to_parquet(path)
+    if shares is not None:
+        def unexpected_producer(*args, **kwargs):
+            pytest.fail("Nonpositive sourced shares must be rejected before valuation")
+        monkeypatch.setattr("etf_cockpit.application.ui_facade.valuation_analysis", unexpected_producer)
+    result = load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions)
+    assert (result["intrinsic_value"]["status"] if shares is None else result["status"]) == "unavailable"
+    if shares is not None:
+        assert "Nonpositive sourced share count" in result["message"]
+    assert result["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("scope", ["future", "foreign"])
+def test_valuation_scenario_nonpositive_shares_respect_scope(valuation_scenario_evidence, scope):
+    from etf_cockpit.application.ui_facade import load_valuation_evidence
+
+    path, assumptions = valuation_scenario_evidence
+    frame = pd.read_parquet(path)
+    invalid = frame.loc[frame.canonical_metric == "shares_outstanding"].iloc[0].to_dict()
+    invalid.update(value=-10.0, source_id="excluded-negative-shares")
+    invalid.update({"available_at": "2027-01-01"} if scope == "future" else {"instrument_id": "OTHER"})
+    pd.concat([frame, pd.DataFrame([invalid])], ignore_index=True).to_parquet(path)
+    result = load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions)
+    assert result["status"] == result["intrinsic_value"]["status"] == "available"
+    assert all(row["per_share"] > 0 for row in result["intrinsic_value"]["scenarios"].values())
+    assert result["source_lineage"]["source_ids"] == ["known-filing"]
+    assert result["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("failure", ["nested", "arithmetic"])
+def test_valuation_scenario_producer_fail_closed(valuation_scenario_evidence, monkeypatch, failure):
+    from etf_cockpit.application import ui_facade
+
+    path, assumptions = valuation_scenario_evidence
+    def producer(*args, **kwargs):
+        if failure == "arithmetic":
+            raise ZeroDivisionError
+        return {"intrinsic_value": {"scenarios": {"bull": {"per_share": float("inf")}}}}
+    monkeypatch.setattr(ui_facade, "valuation_analysis", producer)
+    assert ui_facade.load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions)["status"] == "unavailable"
+
+
+def test_valuation_scenario_controls_are_local_and_invalidate(valuation_scenario_evidence, monkeypatch):
+    from etf_cockpit.app.pages.instrument_detail import _render_valuation_scenarios
+    from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel, _valuation_panel
+
+    _, assumptions = valuation_scenario_evidence
+    initial = _valuation_panel("ACME", "stock", "2026-07-01")
+    model = InstrumentDetailViewModel("ACME", "Acme", "available", {"asset_type": "stock"}, {"valuation": initial})
+    page = SimpleNamespace(update=lambda: None)
+    view = _render_valuation_scenarios(page, model, "2026-07-01")
+    def controls(root):
+        return {getattr(item, "key", None): item for item in _walk(root)}
+    keyed = controls(view)
+    fields = {name: keyed[f"instrument-detail.valuation-input.{name}"] for name in ("forecast_years", "discount_rate", "terminal_growth", "bear", "base", "bull")}
+    assert all(field.value == "" for field in fields.values())
+    for name, value in {"forecast_years": "5", "discount_rate": "10", "terminal_growth": "2", "bear": "-10", "base": "3", "bull": "10"}.items():
+        fields[name].value = value
+    preview = keyed["instrument-detail.preview-valuation"]
+    preview.on_click(None)
+    assert "local_user_scenario_assumption" in str(_text_values(view))
+    fields["base"].value = "4"
+    fields["base"].on_change(None)
+    assert "Inputs changed" in str(_text_values(view))
+    assert "local_user_scenario_assumption" not in str(_text_values(view))
+    preview.on_click(None)
+    fields["forecast_years"].value = ""
+    preview.on_click(None)
+    assert "Invalid explicit scenario" in str(_text_values(view))
+    assert "local_user_scenario_assumption" not in str(_text_values(view))
+    keyed["instrument-detail.clear-valuation"].on_click(None)
+    assert all(field.value == "" for field in fields.values())
+    assert model.sections["valuation"] == initial
+    fresh = controls(_render_valuation_scenarios(page, model, "2026-07-01"))
+    assert all(fresh[f"instrument-detail.valuation-input.{name}"].value == "" for name in fields)
+    etf = replace(model, identity={"asset_type": "etf"})
+    assert "instrument-detail.preview-valuation" not in controls(_render_valuation_scenarios(page, etf, "2026-07-01"))
+
+
 def test_valuation_uses_only_selected_point_in_time_statements(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app.selectors import instrument_detail as selector
 
