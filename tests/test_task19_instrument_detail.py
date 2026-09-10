@@ -110,8 +110,8 @@ def test_valuation_scenario_accepts_boundaries(valuation_scenario_evidence, year
     assert result["status"] == "available"
 
 
-@pytest.mark.parametrize("shares", [None, 0.0])
-def test_valuation_scenario_missing_zero_shares(valuation_scenario_evidence, shares):
+@pytest.mark.parametrize("shares", [None, 0.0, -10.0])
+def test_valuation_scenario_missing_nonpositive_shares(valuation_scenario_evidence, monkeypatch, shares):
     from etf_cockpit.application.ui_facade import load_valuation_evidence
 
     path, assumptions = valuation_scenario_evidence
@@ -121,8 +121,31 @@ def test_valuation_scenario_missing_zero_shares(valuation_scenario_evidence, sha
     else:
         frame.loc[frame.canonical_metric == "shares_outstanding", "value"] = shares
     frame.to_parquet(path)
+    if shares is not None:
+        def unexpected_producer(*args, **kwargs):
+            pytest.fail("Nonpositive sourced shares must be rejected before valuation")
+        monkeypatch.setattr("etf_cockpit.application.ui_facade.valuation_analysis", unexpected_producer)
     result = load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions)
     assert (result["intrinsic_value"]["status"] if shares is None else result["status"]) == "unavailable"
+    if shares is not None:
+        assert "Nonpositive sourced share count" in result["message"]
+    assert result["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("scope", ["future", "foreign"])
+def test_valuation_scenario_nonpositive_shares_respect_scope(valuation_scenario_evidence, scope):
+    from etf_cockpit.application.ui_facade import load_valuation_evidence
+
+    path, assumptions = valuation_scenario_evidence
+    frame = pd.read_parquet(path)
+    invalid = frame.loc[frame.canonical_metric == "shares_outstanding"].iloc[0].to_dict()
+    invalid.update(value=-10.0, source_id="excluded-negative-shares")
+    invalid.update({"available_at": "2027-01-01"} if scope == "future" else {"instrument_id": "OTHER"})
+    pd.concat([frame, pd.DataFrame([invalid])], ignore_index=True).to_parquet(path)
+    result = load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions)
+    assert result["status"] == result["intrinsic_value"]["status"] == "available"
+    assert all(row["per_share"] > 0 for row in result["intrinsic_value"]["scenarios"].values())
+    assert result["source_lineage"]["source_ids"] == ["known-filing"]
     assert result["execution_allowed"] is False
 
 

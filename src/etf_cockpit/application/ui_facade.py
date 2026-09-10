@@ -280,6 +280,12 @@ def load_valuation_evidence(path: Path, *, instrument_id: str, decision_time: ob
         frame = frame.loc[[known_at <= cutoff for known_at in knowledge]].copy()
         if frame.empty:
             return unavailable("No statement evidence was available at the snapshot decision time.")
+        # Share counts are a sourced-input validity rule, not a valuation formula.
+        # Check only selected, cutoff-eligible facts; future/foreign counts cannot
+        # invalidate the current preview. The producer uses this exact metric name.
+        share_counts = frame.loc[frame["canonical_metric"].eq("shares_outstanding"), "value"]
+        if share_counts.le(0).any():
+            return unavailable("Nonpositive sourced share count; valuation unavailable.")
         # All surviving rows have already passed exact knowledge filtering.
         # Adapt only the producer's internal availability representation, not
         # the persisted facts or the disclosed decision cutoff.
