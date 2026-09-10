@@ -655,15 +655,22 @@ def _analysis_view(analysis: PortfolioAnalysis, *, benchmark_registry: object | 
             panel(
                 ft.Column(
                     [
-                        section_header("Existing service evidence", "What-if targets are passed to the canonical optimiser, robust-risk and cost services; no calculation is duplicated here."),
+                        section_header("Existing service evidence", "What-if targets are passed to canonical factor-risk, covariance, optimiser, rebalance, scenario and attribution services; no calculation is duplicated here."),
                         ft.Text(
                             " | ".join(
                                 f"{name}={value.get('status', 'unavailable')}"
                                 for name, value in analysis.service_evidence.items()
-                                if isinstance(value, dict) and name in {"optimiser", "risk", "cost"}
+                                if isinstance(value, dict)
+                                and name in {"optimiser", "optimiser_comparison", "factor_risk", "risk", "rebalancing", "scenarios", "attribution", "cost"}
                             ) or "service evidence unavailable",
                             color=theme.MUTED,
                             selectable=True,
+                        ),
+                        ft.Text(
+                            _portfolio_service_coverage(analysis),
+                            color=theme.MUTED,
+                            selectable=True,
+                            size=11,
                         ),
                     ]
                 )
@@ -684,6 +691,36 @@ def _analysis_view(analysis: PortfolioAnalysis, *, benchmark_registry: object | 
             ),
         ],
         spacing=12,
+    )
+
+
+def _portfolio_service_coverage(analysis: PortfolioAnalysis) -> str:
+    """Summarise method/coverage evidence without hiding unavailable inputs."""
+
+    comparison = analysis.service_evidence.get("optimiser_comparison")
+    methods = comparison.get("methods", ()) if isinstance(comparison, dict) else ()
+    factor = analysis.service_evidence.get("factor_risk")
+    risk = analysis.service_evidence.get("risk")
+    scenario = analysis.service_evidence.get("scenarios")
+    attribution = analysis.service_evidence.get("attribution")
+    factor_coverage = factor.get("coverage", {}) if isinstance(factor, dict) else {}
+    risk_coverage = risk.get("coverage", {}) if isinstance(risk, dict) else {}
+    scenario_count = len(scenario.get("results", ())) if isinstance(scenario, dict) else 0
+    factor_status = (
+        factor_coverage.get("status", factor.get("status", "unavailable"))
+        if isinstance(factor_coverage, dict) and isinstance(factor, dict)
+        else "unavailable"
+    )
+    risk_status = (
+        risk_coverage.get("status", risk.get("status", "unavailable"))
+        if isinstance(risk_coverage, dict) and isinstance(risk, dict)
+        else "unavailable"
+    )
+    return (
+        f"methods={len(methods) if isinstance(methods, (list, tuple)) else 0} | "
+        f"factor_coverage={factor_status} | "
+        f"covariance_coverage={risk_status} | "
+        f"scenarios={scenario_count} | attribution={attribution.get('status', 'unavailable') if isinstance(attribution, dict) else 'unavailable'} | execution_allowed=false"
     )
 
 
