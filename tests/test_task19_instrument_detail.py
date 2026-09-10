@@ -1805,7 +1805,7 @@ def test_valuation_workspace_native_dialog_session_and_focus(monkeypatch):
     buttons = [control.key for control in _walk(dialog.content) if isinstance(control, ft.OutlinedButton)]
     assert buttons == ["instrument-detail.preview-valuation", "instrument-detail.clear-valuation"]
     asyncio.run(dialog.actions[0].on_click(None))
-    assert not dialogs and focused == [opener]
+    assert dialog.open is False and dialog.content is None and focused == [opener]
     opener.on_click(None)
     assert all(control.value == "" for control in _walk(dialogs[-1].content) if isinstance(control, ft.TextField))
     asyncio.run(dialogs[-1].on_dismiss(None))

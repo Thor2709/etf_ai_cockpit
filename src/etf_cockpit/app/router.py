@@ -486,6 +486,11 @@ def _route_failure_control(state: AppState, route: str, detail: str) -> ft.Contr
 
 
 def render_shell(page: ft.Page, state: AppState, route: str) -> None:
+    dispose_workspace = getattr(page, "_valuation_workspace_dispose", None)
+    if callable(dispose_workspace):
+        page._valuation_workspace_dispose = None
+        dispose_workspace()
+        page.update()
     view = build_shell(page, state, route)
     page.views[:] = [view]
     page.update()

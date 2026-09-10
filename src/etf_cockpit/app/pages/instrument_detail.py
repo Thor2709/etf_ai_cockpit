@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 import flet as ft
 
@@ -575,7 +575,7 @@ def _instrument_alerts_panel(instrument_id: str) -> ft.Control:
     )
 
 
-def _render_valuation_scenarios(page: ft.Page, model: InstrumentDetailViewModel, decision_time: object) -> ft.Control:
+def _render_valuation_scenarios(page: ft.Page, model: InstrumentDetailViewModel, decision_time: object, *, session_active: Callable[[], bool] | None = None) -> ft.Control:
     """Keep private assumptions in this page instance, outside snapshot/export state."""
     subtitle = "Relative valuation, intrinsic value, reverse DCF and residual income; dated source lineage; execution_allowed=false."
     initial = model.sections.get("valuation")
@@ -592,6 +592,8 @@ def _render_valuation_scenarios(page: ft.Page, model: InstrumentDetailViewModel,
             page.update()
 
     def invalidate_valuation(_event: ft.ControlEvent) -> None:
+        if session_active is not None and not session_active():
+            return
         result.content = render({"status": "unavailable", "message": "Inputs changed. Preview valuation scenarios to calculate current inputs.", "execution_allowed": False})
         refresh()
 
@@ -602,6 +604,8 @@ def _render_valuation_scenarios(page: ft.Page, model: InstrumentDetailViewModel,
                                 key=f"instrument-detail.valuation-input.{name}") for name, label in labels.items()}
 
     def preview_valuation(_event: ft.ControlEvent) -> None:
+        if session_active is not None and not session_active():
+            return
         # Only parsing and percentage normalization; no financial formulas.
         try:
             assumptions = {"forecast_years": int(inputs["forecast_years"].value.strip()),
@@ -614,6 +618,8 @@ def _render_valuation_scenarios(page: ft.Page, model: InstrumentDetailViewModel,
         refresh()
 
     def clear_valuation(_event: ft.ControlEvent) -> None:
+        if session_active is not None and not session_active():
+            return
         for control in inputs.values():
             control.value = ""
         result.content = render(initial)
@@ -635,26 +641,53 @@ def _valuation_workspace(page: ft.Page, model: InstrumentDetailViewModel, decisi
     if model.identity.get("asset_type") not in {"stock", "equity"}:
         return evidence
 
-    async def restore_valuation_focus(_event: ft.ControlEvent | None = None) -> None:
-        await opener.focus()
+    owner = {"mounted": True}
+    sessions: list[tuple[dict[str, bool], ft.AlertDialog]] = []
 
-    async def close_valuation_workspace(_event: ft.ControlEvent) -> None:
-        page.pop_dialog()
-        await restore_valuation_focus()
+    def dispose_workspace() -> None:
+        owner["mounted"] = False
+        for session, dialog in sessions:
+            session["active"] = False
+            dialog.open = False
+            dialog.content = None
+        # Flet removes each closed dialog after its native dismiss animation.
+        # Never pop the stack: another feature may own its topmost dialog.
+
+    page._valuation_workspace_dispose = dispose_workspace
 
     def open_valuation_workspace(_event: ft.ControlEvent) -> None:
-        # A fresh native dialog confines traversal to the form. Its content stays
-        # mounted during shell relayout, and closing discards this private session.
+        if not owner["mounted"] or any(session["active"] for session, _dialog in sessions):
+            return
+        session = {"active": True}
+
+        def session_active() -> bool:
+            return owner["mounted"] and session["active"]
+
+        async def restore_valuation_focus(_event: ft.ControlEvent | None = None) -> None:
+            session["active"] = False
+            dialog.content = None
+            if owner["mounted"]:
+                await opener.focus()
+
+        async def close_valuation_workspace(_event: ft.ControlEvent) -> None:
+            session["active"] = False
+            dialog.open = False
+            dialog.content = None
+            page.update()
+            if owner["mounted"]:
+                await opener.focus()
+
         dialog = ft.AlertDialog(
             title=ft.Text("Valuation scenario workspace"), modal=False, scrollable=True,
             inset_padding=12, content_padding=12,
             content=ft.Container(width=620, content=ft.Column([
                 ft.Text("Closing this workspace discards its inputs and results. Resize retains them. Escape or Close returns to Instrument Detail."),
-                _render_valuation_scenarios(page, model, decision_time),
+                _render_valuation_scenarios(page, model, decision_time, session_active=session_active),
             ], tight=True)),
             actions=[ft.TextButton("Close scenario workspace", key="instrument-detail.close-valuation", on_click=close_valuation_workspace)],
             on_dismiss=restore_valuation_focus,
         )
+        sessions.append((session, dialog))
         page.show_dialog(dialog)
 
     opener = ft.OutlinedButton("Open valuation scenarios", key="instrument-detail.open-valuation", on_click=open_valuation_workspace)
