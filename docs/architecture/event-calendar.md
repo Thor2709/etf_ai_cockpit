@@ -14,6 +14,14 @@ normalised to explicit UTC end-of-day; a datetime cutoff without an offset is
 ambiguous and fails closed. Conflicting observations from the same source are
 rejected rather than resolved by last-write-wins.
 
+For timed events, the timestamp's calendar date in the declared timezone must
+match `event_date`. Minute precision permits zero seconds but rejects nonzero
+seconds and fractional components; second precision rejects fractions. Imports
+preserve missing timezone and precision metadata for explicit validation failure
+instead of supplying UTC or date precision. Existing inconsistent ledgers fail
+closed without automatic rewriting; historical defaults cannot retrospectively
+be distinguished from source-supplied metadata.
+
 The canonical append transaction holds one persistent store guard across the
 existing-ledger read, merge and atomic publication, so concurrent local writers
 cannot both succeed while dropping one event. Canonical readback independently
@@ -29,7 +37,8 @@ never discarded during validation.
 
 The calendar is visible on Instrument Detail and News & Context. It is
 filtered through the same availability/ingestion cutoff before either surface
-renders rows. Each rendered row states the decision time and
+renders rows. News & Context discloses event time, precision, source identity and
+authority, timezone, availability and ingestion timestamps. Each rendered row states the decision time and
 `available_at_decision_time=true`; if the snapshot cutoff is absent or invalid,
 no event row is disclosed as decision-time evidence. The mandatory path remains
 local cache, official bulk/public data or user-owned import. Optional remote
