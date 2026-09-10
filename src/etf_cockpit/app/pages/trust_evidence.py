@@ -497,8 +497,14 @@ def _news_context_extra(state: AppState) -> ft.Control:
                 " | ".join(
                     (
                         f"{row.get('event_type', 'event')}={row.get('event_date', 'unavailable')}",
+                        f"event_time={row.get('event_time') or 'unavailable (date precision)'}",
+                        f"precision={row.get('precision', 'unavailable')}",
+                        f"source_id={row.get('source_id', 'unavailable')}",
+                        f"source_authority={row.get('source_authority', 'unavailable')}",
                         f"source_url={row.get('source_url', 'unavailable')}",
                         f"timezone_name={row.get('timezone_name', 'unavailable')}",
+                        f"available_at={row.get('available_at', 'unavailable')}",
+                        f"ingested_at={row.get('ingested_at', 'unavailable')}",
                         f"available_at_decision_time={decision_time is not None}",
                         f"decision_time={decision_label}",
                         "context_only=true",
