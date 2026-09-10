@@ -2155,3 +2155,111 @@ def test_reference_and_snapshot_cutoffs_bound_optional_decisions_and_benchmark_p
     assert attribution["coverage"]["return_observations"] == 3
     assert attribution["coverage"]["decision_status"] == "available"
     assert analysis.service_evidence["optimiser_comparison"]["returns_observations"] == 3
+
+
+@pytest.mark.parametrize("column", ["known_at", "available_at", "imported_at", "ingested_at"])
+@pytest.mark.parametrize("bad", ["2027-01-01T00:00:00Z", None, "malformed", ["2026-01-01"], True, np.int64(123)])
+def test_sandbox_all_explicit_knowledge_columns_bind_every_service_frame(monkeypatch, column, bad):
+    snapshot = _snapshot()
+    snapshot.account_id, snapshot.portfolio_id = "A", "PA"
+    analysis = SimpleNamespace(snapshot_binding=sandbox_store.portfolio_snapshot_binding(snapshot))
+    monkeypatch.setattr(sandbox_store, "_service_allocation", lambda *_: pd.DataFrame({"etf_id": ["VWCE"]}))
+    row = {"etf_id": "VWCE", "date": "2026-07-10", "adjusted_close": 100.0, "account_id": "A", "portfolio_id": "PA",
+           **{name: "2026-07-11T00:00:00Z" for name in ("known_at", "available_at", "imported_at", "ingested_at")}}
+    frame = pd.DataFrame([row | {"marker": "accepted"}, row | {column: bad, "marker": "excluded"}])
+    original = frame.copy(deep=True)
+    snapshot.prices = frame
+    snapshot.latest_features = frame
+    snapshot.costs = frame
+    for result in (sandbox_store._bound_service_prices(snapshot, analysis, None),
+                   sandbox_store._bound_service_features(snapshot, analysis, None),
+                   sandbox_store._bound_optional_frame(snapshot, "costs", analysis, None)):
+        assert list(result.marker) == ["accepted"]
+    pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("name", ["costs", "cashflows", "decisions", "tax_lots"])
+@pytest.mark.parametrize("identity", [{"account_id": "B"}, {"portfolio_id": "PB"}, {"account_id": None}, {"portfolio_id": ""}, {"account_id": ["A"]}])
+def test_sandbox_optional_financial_rows_require_matching_explicit_ownership(name, identity):
+    snapshot = _snapshot()
+    snapshot.account_id, snapshot.portfolio_id = "A", "PA"
+    analysis = SimpleNamespace(snapshot_binding=sandbox_store.portfolio_snapshot_binding(snapshot))
+    row = {"account_id": "A", "portfolio_id": "PA", "date": "2026-07-10", "known_at": "2026-07-11T00:00:00Z"}
+    frame = pd.DataFrame([row | {"marker": "accepted"}, row | identity | {"marker": "excluded"}])
+    frame.attrs["sandbox_binding_warning"] = "UNTRUSTED-ANNOTATION"
+    original = frame.copy(deep=True)
+    setattr(snapshot, name, frame)
+    result = sandbox_store._bound_optional_frame(snapshot, name, analysis, None)
+    assert list(result.marker) == ["accepted"]
+    assert "ownership" in result.attrs["sandbox_binding_warning"]
+    assert "UNTRUSTED-ANNOTATION" not in str(result.attrs)
+    pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("name", ["costs", "cashflows", "decisions", "tax_lots"])
+def test_sandbox_explicit_snapshot_does_not_invent_optional_frame_ownership(name):
+    snapshot = _snapshot()
+    setattr(snapshot, name, pd.DataFrame({"date": ["2026-07-10"], "amount": [1.0]}))
+    legacy_analysis = SimpleNamespace(snapshot_binding=sandbox_store.portfolio_snapshot_binding(snapshot))
+    assert len(sandbox_store._bound_optional_frame(snapshot, name, legacy_analysis, None)) == 1
+    snapshot.account_id, snapshot.portfolio_id = "A", "PA"
+    scoped_analysis = SimpleNamespace(snapshot_binding=sandbox_store.portfolio_snapshot_binding(snapshot))
+    result = sandbox_store._bound_optional_frame(snapshot, name, scoped_analysis, None)
+    assert result.empty
+    assert "ownership cannot be established" in result.attrs["sandbox_binding_warning"]
+
+
+@pytest.mark.parametrize("patch", [{"account_id": "B"}, {"portfolio_id": None}, {"known_at": "2027-01-01"}, {"available_at": None}, {"ingested_at": "malformed"}])
+def test_sandbox_invalid_holdings_fail_before_financial_analysis(monkeypatch, patch):
+    snapshot = _snapshot()
+    snapshot.account_id, snapshot.portfolio_id = "A", "PA"
+    snapshot.holdings = snapshot.holdings.assign(account_id="A", portfolio_id="PA")
+    for key, value in patch.items():
+        snapshot.holdings[key] = value
+    def unexpected(*args, **kwargs):
+        pytest.fail("Invalid selected holdings must not reach financial calculations")
+    monkeypatch.setattr(sandbox_store, "analyse_candidate", unexpected)
+    with pytest.raises(ValueError, match="holdings account/portfolio or knowledge binding"):
+        _candidate(snapshot)
+
+
+def test_sandbox_account_and_temporal_scope_reaches_canonical_services(monkeypatch):
+    snapshot = _snapshot()
+    snapshot.account_id, snapshot.portfolio_id = "A", "PA"
+    snapshot.prices = pd.DataFrame([{"etf_id": identifier, "date": f"2026-07-{day:02}", "adjusted_close": 100.0 + day,
+                                    "available_at": "2026-07-12T00:00:00Z"}
+                                   for identifier in ("VWCE", "LYP6") for day in (9, 10, 11)])
+    row = {"account_id": "A", "portfolio_id": "PA", "date": "2026-07-10", "instrument_id": "VWCE", "amount": 1.0,
+           "known_at": "2026-07-11T00:00:00Z", "available_at": "2026-07-11T00:00:00Z", "ingested_at": "2026-07-11T00:00:00Z"}
+    for name in ("tax_lots", "costs", "cashflows", "decisions"):
+        setattr(snapshot, name, pd.DataFrame([row | {"marker": "accepted"}, row | {"account_id": "B", "portfolio_id": "PB", "marker": "foreign"},
+                                            row | {"ingested_at": "2027-01-01", "marker": "future"}]))
+    originals = {name: getattr(snapshot, name).copy(deep=True) for name in ("holdings", "prices", "tax_lots", "costs", "cashflows", "decisions")}
+    received = {}
+    real_rebalance = sandbox_store.build_rebalance_report
+    real_attribution = sandbox_store.build_performance_attribution
+    def rebalance(*args, **kwargs):
+        received["tax_lots"] = kwargs["tax_lots"].copy(deep=True)
+        return real_rebalance(*args, **kwargs)
+    def attribution(*args, **kwargs):
+        received.update({name: kwargs[name].copy(deep=True) for name in ("costs", "cashflows", "decisions")})
+        return real_attribution(*args, **kwargs)
+    monkeypatch.setattr(sandbox_store, "build_rebalance_report", rebalance)
+    monkeypatch.setattr(sandbox_store, "build_performance_attribution", attribution)
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+    assert set(received) == {"tax_lots", "costs", "cashflows", "decisions"}
+    assert all(list(frame.marker) == ["accepted"] for frame in received.values())
+    assert analysis.service_evidence["execution_allowed"] is False
+    assert any("ownership" in warning for warning in analysis.service_evidence["attribution"]["warnings"])
+    assert any("ingested_at" in warning for warning in analysis.service_evidence["rebalancing"]["warnings"])
+    for name, original in originals.items():
+        pd.testing.assert_frame_equal(getattr(snapshot, name), original)
+
+
+def test_sandbox_knowledge_cutoff_intersects_reference_and_date_precision():
+    snapshot = _snapshot()
+    binding = sandbox_store.portfolio_snapshot_binding(snapshot)
+    reference = SimpleNamespace(resolution=SimpleNamespace(declaration=SimpleNamespace(decision_time="2026-07-11T12:00:00Z")))
+    cutoff = sandbox_store._reference_cutoff(reference, binding)
+    frame = pd.DataFrame({"known_at": ["2026-07-11T11:00:00Z", "2026-07-11", "2026-07-11T13:00:00Z"], "marker": ["accepted", "date-only", "later"]})
+    assert list(sandbox_store._filter_knowledge_columns(frame, cutoff).marker) == ["accepted"]

@@ -111,3 +111,25 @@ analysing or exporting a sandbox candidate cannot mutate live portfolio state.
 Optimiser internals (ISSUE-0113), full ETF overlap/look-through (ISSUE-0022),
 order submission and the broader generic export registry are outside this
 boundary.
+
+
+### Snapshot input boundary
+
+Global adjusted prices and features retain compatibility with schemas that omit
+account and knowledge columns. Every supplied `known_at`, `available_at`,
+`imported_at` and `ingested_at` value must independently be valid and no later
+than the intersected snapshot/reference cutoff; date-only knowledge becomes
+eligible at end of day. A first valid column cannot mask another missing,
+malformed or future knowledge claim. Input frames are copied, never rewritten.
+
+Holdings are the required selected snapshot exposure: supplied account/portfolio
+columns and knowledge claims are validated before candidate/analysis construction.
+Contradictory holdings fail explicitly rather than being deleted and relabelled as
+cash. Optional costs, cashflows, decisions and tax lots are different: explicit
+account/portfolio snapshots require both identity columns on these dynamic frames.
+Absent ownership is unavailable, not inferred from placement on the snapshot.
+Mismatched or unknown rows are excluded before canonical service calls, with
+binding warnings and partial/unavailable service evidence. The legacy default
+single-snapshot contract permits absent optional identity columns; any supplied
+identity is still binding. Tax lots share the same scope and temporal adapter as
+other optional financial inputs. No live ledger or financial formula is changed.

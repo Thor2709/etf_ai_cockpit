@@ -8,7 +8,7 @@ import json
 import math
 from pathlib import Path
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime
 from types import MappingProxyType
 from typing import Mapping
 
@@ -568,6 +568,10 @@ def portfolio_snapshot_binding(
     selected_account = _bound_snapshot_identity(snapshot, "account_id", account_id, "default")
     selected_portfolio = _bound_snapshot_identity(snapshot, "portfolio_id", portfolio_id, "default")
     selected_snapshot = _bound_snapshot_identity(snapshot, "snapshot_id", snapshot_id, "current")
+    scoped = _filter_financial_scope(holdings, selected_account, selected_portfolio)
+    eligible = _filter_knowledge_columns(scoped, _snapshot_cutoff(_source_as_of(snapshot)))
+    if len(eligible) != len(holdings):
+        raise ValueError("holdings account/portfolio or knowledge binding is invalid for the selected snapshot")
     holdings_sources = tuple(
         sorted(
             set(_holding_evidence_values(holdings, "source"))
@@ -925,6 +929,8 @@ def _service_evidence(
     unavailable state is retained when an input is missing.
     """
 
+    bound_optional = {name: _bound_optional_frame(snapshot, name, analysis, reference_context)
+                      for name in ("tax_lots", "costs", "cashflows", "decisions")}
     prices = _bound_service_prices(snapshot, analysis, reference_context)
     benchmark_prices = _bound_service_prices(snapshot, analysis, reference_context, investable_only=False)
     allocation = _service_allocation(snapshot, analysis)
@@ -1106,7 +1112,7 @@ def _service_evidence(
                     cash_buffer_weight=float(getattr(limits, "cash_min_weight", 0.0)),
                     min_trade_eur=float(getattr(limits, "min_trade_value_eur", 0.0)),
                 ),
-                tax_lots=_optional_frame(snapshot, "tax_lots"),
+                tax_lots=bound_optional["tax_lots"],
             )
             evidence["rebalancing"] = {
                 "status": "available" if rebalance.feasible else "partial",
@@ -1129,9 +1135,9 @@ def _service_evidence(
             target,
             factor_returns=_frame_value(factor_report, "factor_returns"),
             factor_exposures=_frame_value(factor_report, "exposure_matrix"),
-            costs=_bound_optional_frame(snapshot, "costs", analysis, reference_context),
-            cashflows=_bound_optional_frame(snapshot, "cashflows", analysis, reference_context),
-            decisions=_bound_optional_frame(snapshot, "decisions", analysis, reference_context),
+            costs=bound_optional["costs"],
+            cashflows=bound_optional["cashflows"],
+            decisions=bound_optional["decisions"],
             reference_context=reference_context,
         )
         evidence["attribution"] = _add_missing_price_evidence(
@@ -1140,6 +1146,14 @@ def _service_evidence(
     except (ArithmeticError, KeyError, TypeError, ValueError):
         evidence["attribution"] = _unavailable_service("portfolio attribution service evidence unavailable")
 
+    for service, names in (("rebalancing", ("tax_lots",)), ("attribution", ("costs", "cashflows", "decisions"))):
+        warnings = [f"{name}: {bound_optional[name].attrs['sandbox_binding_warning']}" for name in names
+                    if bound_optional[name] is not None and bound_optional[name].attrs.get("sandbox_binding_warning")]
+        if warnings:
+            projection = evidence[service]
+            projection["warnings"] = list(projection.get("warnings", ())) + warnings
+            if projection.get("status") == "available":
+                projection["status"] = "partial"
     evidence["scenarios"] = _scenario_evidence(
         snapshot,
         _target_allocation(_service_allocation(snapshot, analysis, include_unsupported=True)),
@@ -1233,7 +1247,7 @@ def _bound_service_prices(
     universe = set(_service_allocation(snapshot, analysis).get("etf_id", pd.Series(dtype=str)).astype(str))
     if investable_only and "etf_id" in result.columns:
         result = result.loc[result["etf_id"].astype(str).isin(universe)].copy()
-    return result
+    return _filter_knowledge_columns(result, _reference_cutoff(reference_context, analysis.snapshot_binding))
 
 
 def _bound_service_features(
@@ -1270,12 +1284,7 @@ def _bound_service_features(
             result = result.loc[dates <= cutoff].copy()
     if date_column is not None:
         result[date_column] = pd.to_datetime(result[date_column], errors="coerce", utc=True, format="mixed")
-    knowledge_column = next((column for column in ("known_at", "available_at", "imported_at") if column in result.columns), None)
-    if knowledge_column is not None:
-        cutoff = _reference_cutoff(reference_context, analysis.snapshot_binding)
-        known = pd.to_datetime(result[knowledge_column], errors="coerce", utc=True, format="mixed")
-        result = result.loc[known <= cutoff].copy()
-    return result
+    return _filter_knowledge_columns(result, _reference_cutoff(reference_context, analysis.snapshot_binding))
 
 
 def _add_missing_price_evidence(projection: dict[str, object], missing: tuple[str, ...]) -> dict[str, object]:
@@ -1298,14 +1307,24 @@ def _bound_holdings(snapshot: object, analysis: PortfolioAnalysis) -> pd.DataFra
     holdings = getattr(snapshot, "holdings", pd.DataFrame())
     view = "combined" if analysis.snapshot_binding is None else analysis.snapshot_binding.holdings_view
     try:
-        return select_holdings_view(holdings, view)
+        selected = select_holdings_view(holdings, view)
+        binding = analysis.snapshot_binding
+        if binding is None:
+            return selected.iloc[0:0].copy()
+        scoped = _filter_financial_scope(selected, binding.account_id, binding.portfolio_id)
+        eligible = _filter_knowledge_columns(scoped, _snapshot_cutoff(binding.as_of))
+        return selected if len(eligible) == len(selected) else selected.iloc[0:0].copy()
     except (TypeError, ValueError):
         return pd.DataFrame()
 
 
 def _optional_frame(snapshot: object, name: str) -> pd.DataFrame | None:
     value = getattr(snapshot, name, None)
-    return value.copy(deep=True) if isinstance(value, pd.DataFrame) else None
+    if not isinstance(value, pd.DataFrame):
+        return None
+    result = value.copy(deep=True)
+    result.attrs.pop("sandbox_binding_warning", None)
+    return result
 
 
 def _bound_optional_frame(
@@ -1317,6 +1336,14 @@ def _bound_optional_frame(
     frame = _optional_frame(snapshot, name)
     if frame is None:
         return None
+    binding = analysis.snapshot_binding
+    if binding is None:
+        return frame.iloc[0:0].copy()
+    if (getattr(snapshot, "account_id", None) is not None or getattr(snapshot, "portfolio_id", None) is not None) and not {"account_id", "portfolio_id"}.issubset(frame.columns):
+        frame = frame.iloc[0:0].copy()
+        frame.attrs["sandbox_binding_warning"] = "unavailable: explicit account/portfolio ownership cannot be established"
+        return frame
+    frame = _filter_financial_scope(frame, binding.account_id, binding.portfolio_id)
     resolution = None if reference_context is None else reference_context.resolution
     date_column = "date" if "date" in frame.columns else "as_of_date" if "as_of_date" in frame.columns else None
     if resolution is not None and date_column is not None:
@@ -1335,12 +1362,46 @@ def _bound_optional_frame(
         cutoff = _snapshot_cutoff(analysis.snapshot_binding.as_of)
         dates = pd.to_datetime(frame[date_column], errors="coerce", utc=True, format="mixed")
         frame = frame.loc[dates <= cutoff].copy()
-    knowledge_column = next((column for column in ("known_at", "available_at", "imported_at") if column in frame.columns), None)
-    if knowledge_column is not None:
-        cutoff = _reference_cutoff(reference_context, analysis.snapshot_binding)
-        known = pd.to_datetime(frame[knowledge_column], errors="coerce", utc=True, format="mixed")
-        frame = frame.loc[known <= cutoff].copy()
-    return frame
+    return _filter_knowledge_columns(frame, _reference_cutoff(reference_context, analysis.snapshot_binding))
+
+
+def _filter_financial_scope(frame: pd.DataFrame, account_id: str, portfolio_id: str) -> pd.DataFrame:
+    """Absent identity columns inherit the selected snapshot, never override it."""
+    result = frame.copy(deep=True)
+    if result.columns.duplicated().any():
+        return result.iloc[0:0].copy()
+    for field, selected in (("account_id", account_id), ("portfolio_id", portfolio_id)):
+        if field in result:
+            matches = result[field].map(lambda value: isinstance(value, str) and bool(value.strip()) and value.strip() == selected)
+            if not matches.all():
+                result.attrs["sandbox_binding_warning"] = "explicit account/portfolio rows excluded: mismatched or unknown ownership"
+            result = result.loc[matches].copy()
+    return result
+
+
+def _filter_knowledge_columns(frame: pd.DataFrame, cutoff: pd.Timestamp) -> pd.DataFrame:
+    """Every explicit knowledge claim must independently be known by the cutoff."""
+    result = frame.copy(deep=True)
+    if result.columns.duplicated().any():
+        return result.iloc[0:0].copy()
+
+    def timestamp(value: object) -> pd.Timestamp:
+        if not isinstance(value, (str, date, datetime)):
+            return pd.NaT
+        try:
+            return _snapshot_cutoff(value)
+        except (TypeError, ValueError, OverflowError):
+            return pd.NaT
+
+    for column in ("known_at", "available_at", "imported_at", "ingested_at"):
+        if column in result:
+            known = pd.to_datetime(result[column].map(timestamp), errors="coerce", utc=True)
+            eligible = known.notna() & (known <= cutoff)
+            if not eligible.all():
+                prior = result.attrs.get("sandbox_binding_warning", "")
+                result.attrs["sandbox_binding_warning"] = (prior + "; " if prior else "") + f"{column} rows excluded: unavailable at cutoff or malformed knowledge"
+            result = result.loc[eligible].copy()
+    return result
 
 
 def _snapshot_cutoff(value: object) -> pd.Timestamp:
