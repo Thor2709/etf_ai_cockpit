@@ -1941,29 +1941,41 @@ def _candidate_identity_panel(instrument_id: str, candidate_score: SimpleInstrum
     }
 
 
-def _valuation_panel(instrument_id: str, asset_type: object, decision_time: object) -> dict[str, Any]:
-    """Present canonical local valuation evidence without supplying assumptions."""
+def _valuation_panel(instrument_id: str, asset_type: object, decision_time: object, assumptions: object = None) -> dict[str, Any]:
+    """Project canonical evidence and separately identified session assumptions."""
     if _safe_text(asset_type) not in {"stock", "equity"}:
         return _unavailable("Stock valuation is not applicable to ETFs or unsupported instrument types.") | {"status": "not_applicable"}
     cutoff = normalise_event_decision_time(decision_time)
     if cutoff is None:
         return _unavailable("Snapshot decision time is unavailable; point-in-time valuation cannot be established.")
-    result = load_valuation_evidence(STATEMENT_FACTS_PATH, instrument_id=instrument_id, decision_time=cutoff)
+    result = load_valuation_evidence(STATEMENT_FACTS_PATH, instrument_id=instrument_id, decision_time=cutoff, assumptions=assumptions)
     if result["status"] != "available":
         return _unavailable(result["message"])
     metric_fields = ("name", "value", "status", "formula", "period", "source_ids", "confidence", "applicability", "limitation")
-    model_fields = ("status", "confidence", "reason", "execution_allowed")
+    model_fields = ("status", "confidence", "reason", "execution_allowed", "forecast_years", "discount_rate", "terminal_growth", "implied_growth", "target_equity_value", "equity_value", "per_share", "range")
+    context = result.get("assumption_context", {})
+    assumption_context = {field: context.get(field) for field in ("kind", "instrument_id", "decision_time", "session_preview_only", "score_authority", "execution_allowed")} if context else {}
+    if context:
+        normalized = context.get("assumptions", {})
+        assumption_context["assumptions"] = {field: normalized.get(field) for field in ("forecast_years", "discount_rate", "terminal_growth")}
+        assumption_context["assumptions"]["scenarios"] = {name: {"growth": normalized.get("scenarios", {}).get(name, {}).get("growth")} for name in ("bear", "base", "bull")}
+    models = {name: {field: result[name].get(field) for field in model_fields if field in result[name]} for name in ("intrinsic_value", "reverse_dcf", "residual_income", "model_disagreement")}
+    models["intrinsic_value"]["scenarios"] = {
+        name: {field: row.get(field) for field in ("growth", "enterprise_value", "equity_value", "per_share", "confidence", "execution_allowed")}
+        for name, row in result["intrinsic_value"].get("scenarios", {}).items() if name in {"bear", "base", "bull"}
+    }
     return {
         "status": "available",
-        "message": "Local statement evidence only. External market inputs and explicit valuation/scenario assumptions are unavailable; no defaults are supplied.",
+        "message": "Session-only user scenario preview; no score authority." if context else "Local statement evidence only. External market inputs and explicit valuation/scenario assumptions are unavailable; no defaults are supplied.",
         "instrument_id": instrument_id,
         "decision_time": cutoff.isoformat(),
         "relative_metrics": {
             name: {field: result["relative_metrics"][name].get(field) for field in metric_fields}
             for name in ("ev_to_sales", "ev_to_ebitda", "price_to_earnings", "price_to_book", "dividend_yield")
         },
-        **{name: {field: result[name].get(field) for field in model_fields} for name in ("intrinsic_value", "reverse_dcf", "residual_income", "model_disagreement")},
-        "scenario_status": "unavailable: explicit scenario assumptions required",
+        **models,
+        "assumption_context": assumption_context,
+        "scenario_status": models["intrinsic_value"]["status"] if context else "unavailable: explicit scenario assumptions required",
         "source_lineage": {field: result["source_lineage"].get(field) for field in ("statement_view", "as_known_at", "source_ids", "knowledge_precision", "cutoff_policy")},
         "execution_allowed": False,
     }

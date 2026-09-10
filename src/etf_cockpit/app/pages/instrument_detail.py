@@ -8,7 +8,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
 from etf_cockpit.app.components.states import state_panel
-from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel, build_etf_disclosure_panel, build_etf_structure_panel, build_etf_liquidity_panel, build_instrument_detail
+from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel, _valuation_panel, build_etf_disclosure_panel, build_etf_structure_panel, build_etf_liquidity_panel, build_instrument_detail
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.alerts import AlertReadback, read_local_alerts
 from etf_cockpit.application.ui_facade import bitemporal_history_summary
@@ -566,6 +566,60 @@ def _instrument_alerts_panel(instrument_id: str) -> ft.Control:
     )
 
 
+def _render_valuation_scenarios(page: ft.Page, model: InstrumentDetailViewModel, decision_time: object) -> ft.Control:
+    """Keep private assumptions in this page instance, outside snapshot/export state."""
+    subtitle = "Relative valuation, intrinsic value, reverse DCF and residual income; dated source lineage; execution_allowed=false."
+    initial = model.sections.get("valuation")
+
+    def render(projection: object) -> ft.Control:
+        return _render_evidence_section("Stock valuation and scenarios", projection, subtitle=subtitle, key="instrument-detail.valuation")
+
+    result = ft.Container(content=render(initial))
+    if model.identity.get("asset_type") not in {"stock", "equity"}:
+        return result
+
+    def refresh() -> None:
+        if page is not None and callable(getattr(page, "update", None)):
+            page.update()
+
+    def invalidate_valuation(_event: ft.ControlEvent) -> None:
+        result.content = render({"status": "unavailable", "message": "Inputs changed. Preview valuation scenarios to calculate current inputs.", "execution_allowed": False})
+        refresh()
+
+    labels = {"forecast_years": "Forecast years (1-50)", "discount_rate": "Discount rate (%) >0 to 100",
+              "terminal_growth": "Terminal growth (%) >=-100; below discount",
+              "bear": "Bear growth (%) >=-50", "base": "Base growth (%)", "bull": "Bull growth (%) <=100"}
+    inputs = {name: ft.TextField(label=label, value="", width=240, on_change=invalidate_valuation,
+                                key=f"instrument-detail.valuation-input.{name}") for name, label in labels.items()}
+
+    def preview_valuation(_event: ft.ControlEvent) -> None:
+        # Only parsing and percentage normalization; no financial formulas.
+        try:
+            assumptions = {"forecast_years": int(inputs["forecast_years"].value.strip()),
+                           "discount_rate": float(inputs["discount_rate"].value) / 100,
+                           "terminal_growth": float(inputs["terminal_growth"].value) / 100,
+                           "scenarios": {name: {"growth": float(inputs[name].value) / 100} for name in ("bear", "base", "bull")}}
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            assumptions = {}  # An invalid submission replaces any previous result.
+        result.content = render(_valuation_panel(model.instrument_id, model.identity.get("asset_type"), decision_time, assumptions))
+        refresh()
+
+    def clear_valuation(_event: ft.ControlEvent) -> None:
+        for control in inputs.values():
+            control.value = ""
+        result.content = render(initial)
+        refresh()
+
+    return ft.Column([
+        ft.Text("Session-only scenario assumptions. Enter every input; bear < base < bull. Inputs are not saved or exported and do not change scores. execution_allowed=false.", selectable=True),
+        ft.Row(list(inputs.values()), wrap=True),
+        ft.Row([
+            ft.OutlinedButton("Preview valuation scenarios", key="instrument-detail.preview-valuation", on_click=preview_valuation),
+            ft.OutlinedButton("Clear scenario inputs", key="instrument-detail.clear-valuation", on_click=clear_valuation),
+        ], wrap=True), result,
+    ])
+
+
 def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
     route = str(getattr(page, "route", "") or "") if page is not None else ""
     selected = route.split("/", 2)[-1].split("?", 1)[0].split("#", 1)[0] if route.startswith("/instrument/") else state.selected_etf
@@ -701,12 +755,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             subtitle="Five-section values, statement coverage, source, period, freshness and limitations; execution_allowed=false.",
             key="instrument-detail.fundamentals",
         ),
-        _render_evidence_section(
-            "Stock valuation and scenarios",
-            model.sections.get("valuation"),
-            subtitle="Relative valuation, intrinsic value, reverse DCF and residual income; explicit input limitations and dated source lineage; execution_allowed=false.",
-            key="instrument-detail.valuation",
-        ),
+        _render_valuation_scenarios(page, model, getattr(getattr(state.snapshot, "data_report", None), "as_of_date", None)),
         _render_evidence_section("ETF holdings and exposure", model.sections.get("etf_holdings")),
         _render_evidence_section(
             "ETF direct overlap",
