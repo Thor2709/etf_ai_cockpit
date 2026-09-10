@@ -563,3 +563,61 @@ def test_malformed_event_ledger_is_unavailable_in_both_ui_surfaces(monkeypatch) 
 
     collect(rendered)
     assert "event records are available at decision_time=" not in "\n".join(values)
+
+
+@pytest.mark.parametrize("zone,timestamp,local_date", [
+    ("America/New_York", "2026-07-31T01:30:00Z", "2026-07-30"),
+    ("Asia/Tokyo", "2026-07-29T16:30:00Z", "2026-07-30"),
+    ("Europe/Berlin", "2026-07-30T00:30:00+02:00", "2026-07-30"),
+])
+def test_event_timed_date_matches_declared_timezone(zone, timestamp, local_date):
+    event = _event(timezone_name=zone, event_time=timestamp, event_date=local_date, precision="minute")
+    assert validate_event(event).status == "valid_context"
+    contradictory = _event(timezone_name=zone, event_time=timestamp, event_date="2026-08-01", precision="minute")
+    assert validate_event(contradictory).status == "inconsistent_event_date"
+    assert events_available_as_of(pd.DataFrame([_canonical_row(contradictory)]), datetime(2026, 7, 2, tzinfo=timezone.utc)).empty
+
+
+@pytest.mark.parametrize("precision,timestamp,expected", [
+    ("minute", "2026-07-30T08:00:01Z", "inconsistent_time_precision"),
+    ("minute", "2026-07-30T08:00:00.1Z", "inconsistent_time_precision"),
+    ("second", "2026-07-30T08:00:01.000000001Z", "inconsistent_time_precision"),
+    ("second", "2026-07-30T08:00:01.000Z", "inconsistent_time_precision"),
+    ("second", "2026-07-30T08:00:01,5Z", "inconsistent_time_precision"),
+    ("minute", "2026-07-30T08:00Z", "valid_context"),
+    ("minute", "2026-07-30T08:00:00Z", "valid_context"),
+    ("second", "2026-07-30T08:00:01Z", "valid_context"),
+])
+def test_event_declared_precision_is_enforced(precision, timestamp, expected):
+    result = validate_event(_event(event_time=timestamp, precision=precision))
+    assert result.status == expected
+    assert result.execution_allowed is False
+    assert result.context_only is True
+
+
+def test_news_context_discloses_timed_event_provenance(monkeypatch):
+    from types import SimpleNamespace
+    from etf_cockpit.app.pages import trust_evidence
+
+    event = _event(event_time="2026-07-30T08:00:01Z", precision="second", timezone_name="Europe/Berlin")
+    monkeypatch.setattr(trust_evidence, "load_news_items", lambda *_: pd.DataFrame())
+    monkeypatch.setattr(trust_evidence, "load_manual_news", lambda *_: pd.DataFrame())
+    monkeypatch.setattr(trust_evidence, "load_calendar_events", lambda *_: pd.DataFrame([
+        _canonical_row(event), _canonical_row(_event(event_id="future", source_id="FUTURE-SENTINEL", ingested_at="2026-08-01T00:00:00Z")),
+    ]))
+    state = SimpleNamespace(snapshot=SimpleNamespace(prices=pd.DataFrame(), data_report=SimpleNamespace(as_of_date="2026-07-02")))
+    rendered = trust_evidence._news_context_extra(state)
+    def texts(node):
+        values = [str(getattr(node, "value", ""))]
+        for child in getattr(node, "controls", []) or []:
+            values.extend(texts(child))
+        content = getattr(node, "content", None)
+        if content is not None:
+            values.extend(texts(content))
+        return values
+    text = "\n".join(texts(rendered))
+    for field in ("event_time", "precision", "source_id", "source_authority", "timezone_name", "available_at", "ingested_at"):
+        assert f"{field}={getattr(event, field)}" in text
+    assert "available_at_decision_time=True" in text
+    assert "context_only=true" in text and "execution_allowed=false" in text
+    assert "FUTURE-SENTINEL" not in text
