@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 import flet as ft
 
@@ -199,7 +199,7 @@ def _driver_table(label: str, rows: list[dict[str, object]]) -> ft.Control:
     return ft.Column(
         [
             ft.Text(label, color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12),
-            ft.DataTable(columns=[ft.DataColumn(ft.Text(column, color=theme.TEXT)) for column in columns], rows=table_rows),
+            ft.Row([ft.DataTable(columns=[ft.DataColumn(ft.Text(column, color=theme.TEXT)) for column in columns], rows=table_rows)], scroll=ft.ScrollMode.AUTO),
         ],
         spacing=4,
     )
@@ -374,7 +374,15 @@ def _render_record_group(label: str, records: object) -> ft.Control:
                 lines.extend(_structured_record_lines(f"{label} {index} / {field}", value))
         else:
             lines.extend(_structured_record_lines(f"{label} {index}", record))
-    return ft.Column(lines, spacing=4, scroll=ft.ScrollMode.AUTO)
+    return ft.Column(lines, spacing=4, height=320 if len(lines) > 12 else None, scroll=ft.ScrollMode.AUTO)
+
+
+def _detail_disclosure(title: str, content: ft.Control, status: object = "Evidence and explicit limitations", *, expanded: bool = False) -> ft.Control:
+    return ft.ExpansionTile(
+        title=ft.Text(title, color=theme.TEXT), subtitle=ft.Text(str(status), color=theme.MUTED, size=11),
+        controls=[content], expanded=expanded, maintain_state=True,
+        expanded_cross_axis_alignment=ft.CrossAxisAlignment.STRETCH,
+    )
 
 
 def _render_evidence_section(
@@ -383,9 +391,10 @@ def _render_evidence_section(
     *,
     subtitle: str = "Canonical local evidence is shown as stored; unavailable values remain explicit.",
     key: str | None = None,
+    expanded: bool = False,
 ) -> ft.Control:
     if not isinstance(value, dict):
-        return panel(ft.Column([section_header(title, subtitle), ft.Text(str(value), color=theme.MUTED, selectable=True)], key=key, spacing=6))
+        return _detail_disclosure(title, panel(ft.Column([section_header(title, subtitle), ft.Text(str(value), color=theme.MUTED, selectable=True)], key=key, spacing=6)), value, expanded=expanded)
     lines: list[ft.Control] = [_render_evidence_badges(value)]
     for field_name, item in value.items():
         if field_name in {
@@ -424,7 +433,7 @@ def _render_evidence_section(
             lines.append(ft.Text(f"{field_name}: {item if item is not None else 'N/A'}", color=theme.MUTED, size=11, selectable=True))
     if not lines:
         lines.append(ft.Text("Unavailable", color=theme.MUTED, size=11, selectable=True))
-    return panel(ft.Column([section_header(title, subtitle), *lines], key=key, spacing=5))
+    return _detail_disclosure(title, panel(ft.Column([section_header(title, subtitle), *lines], key=key, spacing=5)), value.get("status", "Evidence and explicit limitations"), expanded=expanded)
 
 
 def _render_etf_order_preview(page: ft.Page | None, state: AppState, instrument_id: str, report: object) -> ft.Control:
@@ -566,13 +575,13 @@ def _instrument_alerts_panel(instrument_id: str) -> ft.Control:
     )
 
 
-def _render_valuation_scenarios(page: ft.Page, model: InstrumentDetailViewModel, decision_time: object) -> ft.Control:
+def _render_valuation_scenarios(page: ft.Page, model: InstrumentDetailViewModel, decision_time: object, *, session_active: Callable[[], bool] | None = None) -> ft.Control:
     """Keep private assumptions in this page instance, outside snapshot/export state."""
     subtitle = "Relative valuation, intrinsic value, reverse DCF and residual income; dated source lineage; execution_allowed=false."
     initial = model.sections.get("valuation")
 
     def render(projection: object) -> ft.Control:
-        return _render_evidence_section("Stock valuation and scenarios", projection, subtitle=subtitle, key="instrument-detail.valuation")
+        return _render_evidence_section("Stock valuation and scenarios", projection, subtitle=subtitle, key="instrument-detail.valuation", expanded=True)
 
     result = ft.Container(content=render(initial))
     if model.identity.get("asset_type") not in {"stock", "equity"}:
@@ -583,16 +592,20 @@ def _render_valuation_scenarios(page: ft.Page, model: InstrumentDetailViewModel,
             page.update()
 
     def invalidate_valuation(_event: ft.ControlEvent) -> None:
+        if session_active is not None and not session_active():
+            return
         result.content = render({"status": "unavailable", "message": "Inputs changed. Preview valuation scenarios to calculate current inputs.", "execution_allowed": False})
         refresh()
 
     labels = {"forecast_years": "Forecast years (1-50)", "discount_rate": "Discount rate (%) >0 to 100",
-              "terminal_growth": "Terminal growth (%) >=-100; below discount",
+              "terminal_growth": "Terminal growth (%)",
               "bear": "Bear growth (%) >=-50", "base": "Base growth (%)", "bull": "Bull growth (%) <=100"}
-    inputs = {name: ft.TextField(label=label, value="", width=240, on_change=invalidate_valuation,
+    inputs = {name: ft.TextField(label=label, value="", col={"xs": 12, "sm": 6}, autofocus=name == "forecast_years", on_change=invalidate_valuation,
                                 key=f"instrument-detail.valuation-input.{name}") for name, label in labels.items()}
 
     def preview_valuation(_event: ft.ControlEvent) -> None:
+        if session_active is not None and not session_active():
+            return
         # Only parsing and percentage normalization; no financial formulas.
         try:
             assumptions = {"forecast_years": int(inputs["forecast_years"].value.strip()),
@@ -605,6 +618,8 @@ def _render_valuation_scenarios(page: ft.Page, model: InstrumentDetailViewModel,
         refresh()
 
     def clear_valuation(_event: ft.ControlEvent) -> None:
+        if session_active is not None and not session_active():
+            return
         for control in inputs.values():
             control.value = ""
         result.content = render(initial)
@@ -612,12 +627,71 @@ def _render_valuation_scenarios(page: ft.Page, model: InstrumentDetailViewModel,
 
     return ft.Column([
         ft.Text("Session-only scenario assumptions. Enter every input; bear < base < bull. Inputs are not saved or exported and do not change scores. execution_allowed=false.", selectable=True),
-        ft.Row(list(inputs.values()), wrap=True),
+        ft.Text("Terminal growth must be at least -100% and below the discount rate.", size=11),
+        ft.ResponsiveRow(list(inputs.values()), spacing=8, run_spacing=8),
         ft.Row([
             ft.OutlinedButton("Preview valuation scenarios", key="instrument-detail.preview-valuation", on_click=preview_valuation),
             ft.OutlinedButton("Clear scenario inputs", key="instrument-detail.clear-valuation", on_click=clear_valuation),
         ], wrap=True), result,
     ])
+
+
+def _valuation_workspace(page: ft.Page, model: InstrumentDetailViewModel, decision_time: object) -> ft.Control:
+    evidence = _render_evidence_section("Stock valuation and scenarios", model.sections.get("valuation"), key="instrument-detail.valuation")
+    if model.identity.get("asset_type") not in {"stock", "equity"}:
+        return evidence
+
+    owner = {"mounted": True}
+    sessions: list[tuple[dict[str, bool], ft.AlertDialog]] = []
+
+    def dispose_workspace() -> None:
+        owner["mounted"] = False
+        for session, dialog in sessions:
+            session["active"] = False
+            dialog.open = False
+            dialog.content = None
+        # Flet removes each closed dialog after its native dismiss animation.
+        # Never pop the stack: another feature may own its topmost dialog.
+
+    page._valuation_workspace_dispose = dispose_workspace
+
+    def open_valuation_workspace(_event: ft.ControlEvent) -> None:
+        if not owner["mounted"] or any(session["active"] for session, _dialog in sessions):
+            return
+        session = {"active": True}
+
+        def session_active() -> bool:
+            return owner["mounted"] and session["active"]
+
+        async def restore_valuation_focus(_event: ft.ControlEvent | None = None) -> None:
+            session["active"] = False
+            dialog.content = None
+            if owner["mounted"]:
+                await opener.focus()
+
+        async def close_valuation_workspace(_event: ft.ControlEvent) -> None:
+            session["active"] = False
+            dialog.open = False
+            dialog.content = None
+            page.update()
+            if owner["mounted"]:
+                await opener.focus()
+
+        dialog = ft.AlertDialog(
+            title=ft.Text("Valuation scenario workspace"), modal=False, scrollable=True,
+            inset_padding=12, content_padding=12,
+            content=ft.Container(width=620, content=ft.Column([
+                ft.Text("Closing this workspace discards its inputs and results. Resize retains them. Escape or Close returns to Instrument Detail."),
+                _render_valuation_scenarios(page, model, decision_time, session_active=session_active),
+            ], tight=True)),
+            actions=[ft.TextButton("Close scenario workspace", key="instrument-detail.close-valuation", on_click=close_valuation_workspace)],
+            on_dismiss=restore_valuation_focus,
+        )
+        sessions.append((session, dialog))
+        page.show_dialog(dialog)
+
+    opener = ft.OutlinedButton("Open valuation scenarios", key="instrument-detail.open-valuation", on_click=open_valuation_workspace)
+    return ft.Column([opener, evidence])
 
 
 def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
@@ -755,7 +829,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             subtitle="Five-section values, statement coverage, source, period, freshness and limitations; execution_allowed=false.",
             key="instrument-detail.fundamentals",
         ),
-        _render_valuation_scenarios(page, model, getattr(getattr(state.snapshot, "data_report", None), "as_of_date", None)),
+        _valuation_workspace(page, model, getattr(getattr(state.snapshot, "data_report", None), "as_of_date", None)),
         _render_evidence_section("ETF holdings and exposure", model.sections.get("etf_holdings")),
         _render_evidence_section(
             "ETF direct overlap",
@@ -808,8 +882,10 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         [
             panel(ft.Column([
                 section_header(f"Instrument Detail: {model.display_name}", "Canonical identity, score evidence, data freshness and unavailable states are shown without recalculating authority in the UI."),
-                _render_evidence_badges(model.identity),
-                _render_record_group(
+                ft.Row([export_control, export_status], wrap=True),
+            ], spacing=8)),
+            ft.Column([
+                _detail_disclosure("Identity and provenance", ft.Column([_render_evidence_badges(model.identity), _render_record_group(
                     "Identity",
                     [
                         {
@@ -834,18 +910,16 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
                             if field in model.identity
                         }
                     ],
-                ),
-                ft.Row([export_control, export_status], wrap=True),
-            ], spacing=8)),
-            _instrument_alerts_panel(selected),
-            _render_feature_driver_panel(model.sections.get("feature_drivers")),
-            _render_crowding_attribution_panel(model.sections),
-            render_etf_disclosure_panel(model),
-            render_etf_structure_panel(model),
-            render_news_context_panel(model),
-            render_event_calendar_panel(model),
+                )])),
+            _detail_disclosure("Instrument alerts", _instrument_alerts_panel(selected)),
+            _detail_disclosure("Feature drivers", _render_feature_driver_panel(model.sections.get("feature_drivers"))),
+            _detail_disclosure("Crowding and attribution", _render_crowding_attribution_panel(model.sections)),
+            _detail_disclosure("ETF disclosure evidence", render_etf_disclosure_panel(model)),
+            _detail_disclosure("ETF structure", render_etf_structure_panel(model)),
+            _detail_disclosure("News context", render_news_context_panel(model)),
+            _detail_disclosure("Event calendar", render_event_calendar_panel(model)),
             *rows,
+            ], expand=True, scroll=ft.ScrollMode.AUTO),
         ],
         expand=True,
-        scroll=ft.ScrollMode.AUTO,
     )

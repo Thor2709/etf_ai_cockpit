@@ -203,3 +203,45 @@ def test_fallback_port_skips_busy_port(monkeypatch) -> None:
     monkeypatch.setattr(flet_app, "_is_port_listening", lambda host, port: port == 8550)
 
     assert flet_app._fallback_port_if_busy(8550) == 8551
+
+
+def test_resize_preserves_mounted_route_and_session_without_builder(monkeypatch):
+    from etf_cockpit.app import router
+
+    built = []
+    def builder(page, state):
+        field = ft.TextField(value="initial")
+        built.append(field)
+        return ft.Column([field])
+    monkeypatch.setitem(router.PAGES, "/backtests", ("Backtests", builder))
+    monkeypatch.setitem(router.PAGES, "/signals", ("Signals", builder))
+    ui = SimpleNamespace(window_width=1280, window_height=900, window_min_width=320,
+                         window_min_height=500, default_page="/backtests")
+    state = SimpleNamespace(snapshot=SimpleNamespace(config=SimpleNamespace(ui=ui),
+        data_report=SimpleNamespace(as_of_date="2026-07-01")), evidence_mode="simple", current_activity=None, last_message="Ready")
+    page = FakePage("/backtests")
+    page.width = 1280
+    initialise_page(page, state)
+    view = page.views[0]
+    field = built[0]
+    field.value = "private session"
+    updates = page.update_count
+    def walk(node):
+        yield node
+        for child in getattr(node, "controls", []) or []:
+            yield from walk(child)
+        if getattr(node, "content", None) is not None:
+            yield from walk(node.content)
+    for width, expected_updates in [(1200, 0), (390, 1), (400, 1), (1280, 2)]:
+        # Event width is authoritative even if page width is still stale.
+        page.on_resize(SimpleNamespace(width=width))
+        assert page.views[0] is view
+        assert built == [field] and field.value == "private session"
+        assert any(node is field for node in walk(view))
+        assert page.update_count == updates + expected_updates
+        sidebar = next(node for node in walk(view) if getattr(node, "key", None) == "shell.sidebar")
+        assert sidebar.visible is (width >= 1100)
+    page.route = "/signals"
+    page.on_route_change(None)
+    assert len(built) == 2 and built[-1] is not field
+    assert page.views[0].route == "/signals"
