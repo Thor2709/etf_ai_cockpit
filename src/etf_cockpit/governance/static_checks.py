@@ -191,6 +191,7 @@ _POLICY = {
     "violation_codes": [
         "EXECUTION_AUTHORITY_ENABLED",
         "PROHIBITED_BROKER_DEPENDENCY",
+        "PROHIBITED_EXECUTION_TRANSPORT",
         "PROHIBITED_CREDENTIAL_RESOURCE",
         "PROHIBITED_ORDER_ENDPOINT",
         "PROHIBITED_ORDER_SYMBOL",
@@ -346,6 +347,73 @@ def _literal_strings(node: ast.AST) -> Iterator[str]:
             yield child.value
 
 
+_AUTHORITY_KEYS = frozenset({"execution_allowed", "executable_authority"})
+_DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "importlib.import_module", "import_module"})
+_TRANSPORT_IMPORTS = frozenset({"httpx", "requests", "socket", "subprocess", "urllib", "urllib3"})
+_TRANSPORT_CONTEXT_RE = re.compile(r"(?i)(?:^|[_/.-])(?:broker|order|execution)(?:$|[_/.-])")
+_BROKER_ENDPOINT_CONTEXT_RE = re.compile(r"(?i)(?:broker|order|execution|trade|fill|position|account)")
+
+
+def _literal_truthy(node: ast.AST | None) -> bool:
+    """Return whether an AST value is an explicit enabled/truthy literal."""
+
+    if isinstance(node, ast.Constant):
+        return _is_truthy(node.value)
+    return False
+
+
+def _resolved_strings(node: ast.AST | None, bindings: Mapping[str, tuple[str, ...]], *, depth: int = 0) -> tuple[str, ...]:
+    """Resolve small literal URL fragments without evaluating production code."""
+
+    if node is None or depth > 4:
+        return ()
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return (node.value,)
+    if isinstance(node, ast.Name):
+        return bindings.get(node.id, ())
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _resolved_strings(node.left, bindings, depth=depth + 1)
+        right = _resolved_strings(node.right, bindings, depth=depth + 1)
+        combined = tuple(f"{item}{other}" for item in left for other in right)
+        return tuple(dict.fromkeys((*combined, *left, *right)))
+    if isinstance(node, ast.JoinedStr):
+        fragments: list[tuple[str, ...]] = []
+        for value in node.values:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                fragments.append((value.value,))
+            elif isinstance(value, ast.FormattedValue):
+                fragments.append(_resolved_strings(value.value, bindings, depth=depth + 1))
+        if not fragments or any(not fragment for fragment in fragments):
+            return tuple(_literal_strings(node))
+        values = ("",)
+        for fragment in fragments:
+            values = tuple(f"{prefix}{suffix}" for prefix in values for suffix in fragment)
+        return values
+    return tuple(_literal_strings(node))
+
+
+def _is_broker_context(path: Path, node: ast.AST | None = None) -> bool:
+    """Identify explicit broker/execution context for generic transports."""
+
+    path_text = "/".join(path.parts)
+    if _TRANSPORT_CONTEXT_RE.search(path_text):
+        return True
+    if node is not None:
+        return any(_BROKER_ENDPOINT_CONTEXT_RE.search(value) for value in _literal_strings(node))
+    return False
+
+
+def _transport_import_is_broker(node: ast.Import | ast.ImportFrom, path: Path) -> bool:
+    for alias in node.names:
+        module = alias.name.casefold()
+        root_module = module.split(".", 1)[0]
+        if root_module in _TRANSPORT_IMPORTS and _is_broker_context(path, node):
+            return True
+        if node.__class__ is ast.ImportFrom and alias.name.casefold() == "urlopen":
+            return _is_broker_context(path, node)
+    return False
+
+
 def _ui_control_target(targets: Sequence[str]) -> bool:
     for target in targets:
         normalised = _normalise_symbol(target)
@@ -427,20 +495,25 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
     safe_local_symbols = _SAFE_LOCAL_ORDER_SYMBOLS.get(relative_path, frozenset())
     parents = {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     string_bindings: dict[str, tuple[str, ...]] = {}
-    for binding in ast.walk(tree):
-        if isinstance(binding, ast.Assign):
-            targets: list[str] = []
-            for target in binding.targets:
-                targets.extend(_target_names(target))
-            literals = tuple(_literal_strings(binding.value))
-        elif isinstance(binding, ast.AnnAssign):
-            targets = _target_names(binding.target)
-            literals = tuple(_literal_strings(binding.value)) if binding.value is not None else ()
-        else:
-            continue
-        if literals:
-            for target in targets:
-                string_bindings[target] = literals
+    # Resolve only small literal expressions.  This catches an endpoint built
+    # from ``base + path`` without evaluating imports, calls, or application
+    # code.  A few passes cover assignments in either source order.
+    for _ in range(4):
+        for binding in ast.walk(tree):
+            if isinstance(binding, ast.Assign):
+                targets: list[str] = []
+                for target in binding.targets:
+                    targets.extend(_target_names(target))
+                value = binding.value
+            elif isinstance(binding, ast.AnnAssign):
+                targets = _target_names(binding.target)
+                value = binding.value
+            else:
+                continue
+            literals = _resolved_strings(value, string_bindings)
+            if literals:
+                for target in targets:
+                    string_bindings[target] = literals
     ui_path = "app" in {part.lower() for part in path.relative_to(root).parts} or path.stem.lower().endswith("ui") or "ui" in path.stem.lower()
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -504,6 +577,17 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                             evidence=alias.name,
                         )
                     )
+            if _transport_import_is_broker(node, path):
+                violations.append(
+                    _violation(
+                        root,
+                        path,
+                        "PROHIBITED_EXECUTION_TRANSPORT",
+                        "Generic transport imports are not permitted in broker or execution context.",
+                        node=node,
+                        evidence=", ".join(alias.name for alias in aliases),
+                    )
+                )
 
         if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
             targets: list[str] = []
@@ -516,6 +600,17 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                 value = node.value
             for target in targets:
                 normalised = _normalise_symbol(target)
+                if normalised in _AUTHORITY_KEYS and _literal_truthy(value):
+                    violations.append(
+                        _violation(
+                            root,
+                            path,
+                            "EXECUTION_AUTHORITY_ENABLED",
+                            "Python source must keep execution authority disabled.",
+                            node=node,
+                            evidence=f"{target}={next(iter(_literal_strings(value)), value)!r}",
+                        )
+                    )
                 if (normalised.endswith("_endpoint") or normalised.endswith("_url")) and any(
                     part in normalised for part in ("broker", "order", "execution")
                 ):
@@ -558,10 +653,25 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                             )
                         )
 
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values, strict=False):
+                if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    if _normalise_symbol(key.value) in _AUTHORITY_KEYS and _literal_truthy(value):
+                        violations.append(
+                            _violation(
+                                root,
+                                path,
+                                "EXECUTION_AUTHORITY_ENABLED",
+                                "Python source must keep execution authority disabled.",
+                                node=node,
+                                evidence=f"{key.value}={next(iter(_literal_strings(value)), value)!r}",
+                            )
+                        )
+
         if isinstance(node, ast.Call):
             function_name = _dotted_name(node.func).lower()
-            if function_name in {"importlib.import_module", "import_module"} and node.args:
-                for literal in _literal_strings(node.args[0]):
+            if function_name in _DYNAMIC_IMPORT_CALLS and node.args:
+                for literal in _resolved_strings(node.args[0], string_bindings):
                     module = literal.split(".", 1)[0].lower()
                     if module in _PROHIBITED_IMPORTS:
                         violations.append(
@@ -575,6 +685,30 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                             )
                         )
                         break
+                    if module in _TRANSPORT_IMPORTS and _is_broker_context(path, node):
+                        violations.append(
+                            _violation(
+                                root,
+                                path,
+                                "PROHIBITED_EXECUTION_TRANSPORT",
+                                "Dynamic transport imports are not permitted in broker or execution context.",
+                                node=node,
+                                evidence=literal,
+                            )
+                        )
+                        break
+            for keyword in node.keywords:
+                if keyword.arg and _normalise_symbol(keyword.arg) in _AUTHORITY_KEYS and _literal_truthy(keyword.value):
+                    violations.append(
+                        _violation(
+                            root,
+                            path,
+                            "EXECUTION_AUTHORITY_ENABLED",
+                            "Python source must keep execution authority disabled.",
+                            node=keyword,
+                            evidence=f"{keyword.arg}={next(iter(_literal_strings(keyword.value)), keyword.value)!r}",
+                        )
+                    )
             if ui_path and any(
                 marker in _normalise_symbol(function_name)
                 for marker in ("button", "order_control", "trade_control")
@@ -596,17 +730,42 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                         )
             call_literals: list[str] = []
             for argument in (*node.args, *(keyword.value for keyword in node.keywords)):
-                call_literals.extend(_literal_strings(argument))
-                if isinstance(argument, ast.Name):
-                    call_literals.extend(string_bindings.get(argument.id, ()))
+                call_literals.extend(_resolved_strings(argument, string_bindings))
             if any(_ORDER_ENDPOINT_RE.search(value) for value in call_literals):
-                if function_name.rsplit(".", 1)[-1] in {"post", "put", "patch", "request", "send", "get"}:
+                if function_name.rsplit(".", 1)[-1] in {
+                    "delete",
+                    "get",
+                    "open",
+                    "patch",
+                    "post",
+                    "put",
+                    "request",
+                    "send",
+                    "urlopen",
+                }:
                     violations.append(
                         _violation(
                             root,
                             path,
                             "PROHIBITED_ORDER_ENDPOINT",
                             "HTTP client call targets an order endpoint.",
+                            node=node,
+                            evidence=function_name,
+                        )
+                    )
+            transport_function = function_name.rsplit(".", 1)[-1]
+            if transport_function in {"call", "check_call", "check_output", "connect", "create_connection", "open", "open_url", "popen", "request", "run", "send", "socket", "submit", "transmit", "urlopen"}:
+                broker_context = _is_broker_context(path, node) or any(
+                    _BROKER_ENDPOINT_CONTEXT_RE.search(value) or _ORDER_ENDPOINT_RE.search(value)
+                    for value in call_literals
+                )
+                if broker_context:
+                    violations.append(
+                        _violation(
+                            root,
+                            path,
+                            "PROHIBITED_EXECUTION_TRANSPORT",
+                            "Generic transport calls are not permitted for broker or order submission.",
                             node=node,
                             evidence=function_name,
                         )

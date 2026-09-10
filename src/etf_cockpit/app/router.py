@@ -6,6 +6,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.command_palette import search_commands
 from etf_cockpit.app.components.cards import panel
 from etf_cockpit.app.components.flet_compat import border_only, padding_symmetric
+from etf_cockpit.app.content.user_guidance import get_page_guidance
 from etf_cockpit.app.pages.backtests import backtests_page
 from etf_cockpit.app.pages.catalogue import catalogue_page
 from etf_cockpit.app.pages.comparison import comparison_page
@@ -171,6 +172,25 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
     title = page_entry[0] if page_entry is not None else "Route unavailable"
     builder = page_entry[1] if page_entry is not None else None
     narrow = uses_narrow_layout(page, state)
+    page_guidance = get_page_guidance(canonical_route)
+    page_help_topic = page_guidance[0] if page_guidance else None
+
+    def open_page_help(_event: ft.ControlEvent) -> None:
+        if page_help_topic is None:
+            return
+        navigate_to(page, state, f"/help#{page_help_topic.slug}")
+
+    page_help = ft.TextButton(
+        "Page help",
+        key="shell.page-help",
+        tooltip=(
+            f"Open help: {page_help_topic.title}"
+            if page_help_topic is not None
+            else "Page help is unavailable for this route"
+        ),
+        on_click=open_page_help if page_help_topic is not None else None,
+        disabled=page_help_topic is None,
+    )
 
     def nav_button(path: str, label: str) -> ft.Container:
         selected = path == canonical_route
@@ -340,7 +360,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
     if narrow:
         header_content = ft.Column(
             [
-                ft.Row([title_column, evidence_mode], spacing=theme.SPACE_2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Row([title_column, page_help, evidence_mode], spacing=theme.SPACE_2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 palette_field,
             ],
             spacing=theme.SPACE_2,
@@ -351,6 +371,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
                 title_column,
                 palette_field,
                 ft.Text(state.last_message, color=theme.MUTED, size=theme.FONT_XS, text_align=ft.TextAlign.RIGHT),
+                page_help,
                 evidence_mode,
             ],
             spacing=theme.SPACE_2,

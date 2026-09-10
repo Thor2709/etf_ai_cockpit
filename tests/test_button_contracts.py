@@ -24,6 +24,7 @@ def test_button_inventory_covers_workflow_and_recovery_actions() -> None:
     assert "dashboard.refresh-yfinance" in keys
     assert "dashboard.export-audit" in keys
     assert "navigation.diagnostics" in keys
+    assert "shell.page-help" in keys
     assert "filings.fetch-sec" in keys
     assert "filings.import-manual-official" in keys
     assert {"portfolio.export", "portfolio.draft-proposal"} <= keys
