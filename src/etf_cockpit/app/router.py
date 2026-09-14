@@ -135,10 +135,10 @@ def workspace_for_route(route: str) -> str:
     return "Home"
 
 
-def uses_narrow_layout(page: ft.Page, state: AppState) -> bool:
+def uses_narrow_layout(page: ft.Page, state: AppState, width: float | None = None) -> bool:
     """Return whether the shell should use its stacked, sidebar-free layout."""
 
-    page_width = float(getattr(page, "width", 0) or state.snapshot.config.ui.window_width)
+    page_width = float(width or getattr(page, "width", 0) or state.snapshot.config.ui.window_width)
     return page_width < NARROW_LAYOUT_BREAKPOINT
 
 
@@ -149,9 +149,14 @@ def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: 
             state.selected_etf = selected
             state.selected_instrument_score = candidate_score
     go = getattr(page, "go", None)
-    if callable(go):
+    native_transition = (
+        isinstance(page, ft.Page)
+        and callable(getattr(page, "on_route_change", None))
+        and page.route != route
+    )
+    if callable(go) and page.route != route:
         go(route)
-    else:
+    elif not callable(go):
         page.route = route
     log_event(
         event_type="button_click",
@@ -162,7 +167,10 @@ def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: 
         operation="navigate_to",
         status="started",
     )
-    render_shell(page, state, route)
+    # Native go() queues a browser event; that handler owns the render.
+    # Same-route refreshes and non-native test/embedded pages render directly.
+    if not native_transition:
+        render_shell(page, state, route)
 
 
 def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
@@ -293,6 +301,8 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         on_submit=submit_palette,
     )
     sidebar = ft.Container(
+        key="shell.sidebar",
+        visible=not narrow,
         width=220,
         bgcolor=theme.SURFACE,
         border=border_only(right=ft.BorderSide(width=1, color=theme.BORDER)),
@@ -310,6 +320,8 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         ),
     )
     mobile_nav = ft.Container(
+        key="shell.mobile-navigation",
+        visible=narrow,
         bgcolor=theme.SURFACE,
         border=border_only(bottom=ft.BorderSide(width=1, color=theme.BORDER)),
         padding=padding_symmetric(horizontal=theme.SPACE_3, vertical=theme.SPACE_2),
@@ -323,7 +335,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
                 ft.Text(f"Workspace: {active_workspace}", color=theme.CYAN, size=theme.FONT_XS),
-                ft.Row(navigation_controls(), spacing=theme.SPACE_1, wrap=True, scroll=ft.ScrollMode.AUTO),
+                ft.ExpansionTile(title=ft.Text("Navigation"), controls=[ft.Column(navigation_controls(), height=260, scroll=ft.ScrollMode.AUTO)], maintain_state=True),
             ],
             spacing=theme.SPACE_2,
         ),
@@ -337,25 +349,11 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         spacing=theme.SPACE_1,
         expand=True,
     )
-    if narrow:
-        header_content = ft.Column(
-            [
-                ft.Row([title_column, evidence_mode], spacing=theme.SPACE_2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                palette_field,
-            ],
-            spacing=theme.SPACE_2,
-        )
-    else:
-        header_content = ft.Row(
-            [
-                title_column,
-                palette_field,
-                ft.Text(state.last_message, color=theme.MUTED, size=theme.FONT_XS, text_align=ft.TextAlign.RIGHT),
-                evidence_mode,
-            ],
-            spacing=theme.SPACE_2,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        )
+    title_column.col = {"xs": 12, "sm": 6, "lg": 4}
+    palette_field.col = {"xs": 12, "sm": 6, "lg": 4}
+    evidence_mode.col = {"xs": 12, "sm": 6, "lg": 4}
+    message_text = ft.Text(state.last_message, color=theme.MUTED, size=theme.FONT_XS, visible=not narrow, col=12)
+    header_content = ft.ResponsiveRow([title_column, palette_field, evidence_mode, message_text], spacing=8, run_spacing=8)
     header = ft.Container(
         bgcolor=theme.BG,
         border=border_only(bottom=ft.BorderSide(width=1, color=theme.BORDER)),
@@ -417,12 +415,13 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
                 route,
                 f"The page could not be rendered safely ({type(exc).__name__}).",
             )
+    content_container = ft.Container(content=page_content, expand=True, padding=theme.SPACE_3 if narrow else theme.SPACE_5)
     body = ft.Column(
         [
             header,
             palette_results,
             progress_strip,
-            ft.Container(content=page_content, expand=True, padding=theme.SPACE_3 if narrow else theme.SPACE_5),
+            content_container,
             ft.Container(
                 height=28,
                 bgcolor=theme.SURFACE,
@@ -434,12 +433,36 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         expand=True,
         spacing=0,
     )
-    controls: list[ft.Control]
-    if narrow:
-        controls = [ft.Column([mobile_nav, body], expand=True, spacing=0)]
-    else:
-        controls = [ft.Row([sidebar, body], expand=True, spacing=0)]
-    return ft.View(route=route, controls=controls, bgcolor=theme.BG, padding=0)
+    view = ft.View(route=route, controls=[ft.Column([
+        mobile_nav, ft.Row([sidebar, body], expand=True, spacing=0),
+    ], expand=True, spacing=0)], bgcolor=theme.BG, padding=0)
+    layout_state = {"narrow": narrow}
+
+    def relayout(width: float | None = None) -> bool:
+        next_narrow = uses_narrow_layout(page, state, width)
+        if layout_state["narrow"] == next_narrow:
+            return False
+        layout_state["narrow"] = next_narrow
+        sidebar.visible = not next_narrow
+        mobile_nav.visible = next_narrow
+        message_text.visible = not next_narrow
+        content_container.padding = theme.SPACE_3 if next_narrow else theme.SPACE_5
+        header.padding = padding_symmetric(horizontal=theme.SPACE_3 if next_narrow else theme.SPACE_5, vertical=theme.SPACE_2 if next_narrow else theme.SPACE_3)
+        title_column.controls[0].size = theme.FONT_LG if next_narrow else theme.FONT_XL
+        return True
+
+    # Page content remains mounted at the same position; resize changes chrome only.
+    view.data = {"relayout": relayout}
+    return view
+
+
+def relayout_shell(page: ft.Page, state: AppState, width: float | None = None) -> None:
+    if not page.views:
+        return
+    layout = page.views[-1].data
+    if isinstance(layout, dict) and callable(layout.get("relayout")) and layout["relayout"](width):
+        page.update()
+
 
 
 def _route_failure_control(state: AppState, route: str, detail: str) -> ft.Control:
@@ -471,6 +494,11 @@ def _route_failure_control(state: AppState, route: str, detail: str) -> ft.Contr
 
 
 def render_shell(page: ft.Page, state: AppState, route: str) -> None:
+    dispose_workspace = getattr(page, "_valuation_workspace_dispose", None)
+    if callable(dispose_workspace):
+        page._valuation_workspace_dispose = None
+        dispose_workspace()
+        page.update()
     view = build_shell(page, state, route)
     page.views[:] = [view]
     page.update()

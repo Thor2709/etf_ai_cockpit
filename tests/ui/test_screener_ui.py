@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import flet as ft
 import pandas as pd
 
 from etf_cockpit.app.router import PAGES
@@ -22,7 +23,7 @@ def _walk(control):
             content = getattr(cell, "content", None)
             if content is not None:
                 yield from _walk(content)
-    for column in getattr(control, "columns", []) or []:
+    for column in control.columns if isinstance(control, ft.DataTable) else []:
         content = getattr(column, "label", None)
         if content is not None:
             yield from _walk(content)

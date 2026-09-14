@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import flet as ft
 import pandas as pd
 
 from etf_cockpit.app.pages.instrument_detail import _driver_table
@@ -170,7 +171,7 @@ def test_selector_fail_closes_malformed_evidence_and_ui_exposes_traceability(mon
     assert row["peer_percentile"] == "unavailable"
 
     table = _driver_table("Missing / N/A", [row])
-    data_table = table.controls[1]
+    data_table = next(control for control in table.controls[1].controls if isinstance(control, ft.DataTable))
     labels = [column.label.value for column in data_table.columns]
     assert {"Peer group", "Peer percentile", "Historical contribution", "Coverage", "Uncertainty", "Interaction", "Counterfactual sensitivity", "Source authority", "Source span", "Source vintage hash", "Claim hash", "Missingness", "Conflict", "Contribution"} <= set(labels)
 
@@ -315,7 +316,7 @@ def test_mixed_numeric_evidence_fails_closed_and_zero_survives_write_readback_an
     assert all(row["execution_allowed"] is False for row in rows.values())
 
     table = _driver_table("Mixed evidence", [rows["valid-zero"], rows["malformed"]])
-    data_table = table.controls[1]
+    data_table = next(control for control in table.controls[1].controls if isinstance(control, ft.DataTable))
     labels = [column.label.value for column in data_table.columns]
     first = dict(zip(labels, (cell.content.value for cell in data_table.rows[0].cells), strict=True))
     second = dict(zip(labels, (cell.content.value for cell in data_table.rows[1].cells), strict=True))
