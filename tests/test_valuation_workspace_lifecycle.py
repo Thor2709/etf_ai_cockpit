@@ -1,5 +1,6 @@
 """Scenario ownership follows real shell renders, not viewport relayout."""
 import asyncio
+import gc
 import weakref
 from types import SimpleNamespace
 
@@ -17,6 +18,57 @@ def _walk(node):
         yield from _walk(child)
     if getattr(node, "content", None) is not None:
         yield from _walk(node.content)
+
+
+@pytest.mark.parametrize("close_button", [False, True])
+def test_repeated_workspace_dismissal_releases_sessions(monkeypatch, close_button):
+    class Session:
+        index = {}
+
+        async def after_event(self, control):
+            pass
+
+    page_session = Session()
+    page = ft.Page(page_session)
+    page._dialogs._parent = weakref.ref(page)
+    monkeypatch.setattr(ft.Page, "update", lambda *_: None)
+    monkeypatch.setattr(type(page._dialogs), "update", lambda *_: None)
+
+    async def focus(control):
+        pass
+
+    monkeypatch.setattr(ft.OutlinedButton, "focus", focus)
+    computed = []
+
+    def preview(*args):
+        computed.append(args)
+        return {"status": "unavailable", "execution_allowed": False}
+
+    monkeypatch.setattr(detail, "_valuation_panel", preview)
+    model = InstrumentDetailViewModel("OLD", "OLD", "available", {"asset_type": "stock"}, {"valuation": {"status": "unavailable"}})
+    workspace = detail._valuation_workspace(page, model, "2026-07-01")
+    opener = workspace.controls[0]
+
+    def open_and_dismiss():
+        opener.on_click(None)
+        dialog = page._dialogs.controls[-1]
+        fields = [control for control in _walk(dialog.content) if isinstance(control, ft.TextField)]
+        assert all(field.value == "" for field in fields)
+        fields[0].value = "5"
+        preview_control = next(control for control in _walk(dialog.content) if getattr(control, "key", None) == "instrument-detail.preview-valuation")
+        if close_button:
+            asyncio.run(dialog.actions[0].on_click(None))
+        asyncio.run(dialog.on_dismiss(SimpleNamespace(data=None)))
+        assert dialog.content is None
+        assert dialog not in page._dialogs.controls
+        preview_control.on_click(None)
+        assert computed == []
+        return weakref.ref(dialog)
+
+    for _ in range(5):
+        dismissed = open_and_dismiss()
+        gc.collect()
+        assert dismissed() is None
 
 
 @pytest.mark.parametrize("target", ["/instrument/NEW", "/instrument/OLD"])

@@ -650,6 +650,7 @@ def _valuation_workspace(page: ft.Page, model: InstrumentDetailViewModel, decisi
             session["active"] = False
             dialog.open = False
             dialog.content = None
+        sessions.clear()
         # Flet removes each closed dialog after its native dismiss animation.
         # Never pop the stack: another feature may own its topmost dialog.
 
@@ -663,16 +664,19 @@ def _valuation_workspace(page: ft.Page, model: InstrumentDetailViewModel, decisi
         def session_active() -> bool:
             return owner["mounted"] and session["active"]
 
-        async def restore_valuation_focus(_event: ft.ControlEvent | None = None) -> None:
+        def release_session() -> None:
             session["active"] = False
             dialog.content = None
+            sessions[:] = [(state, owned_dialog) for state, owned_dialog in sessions if owned_dialog is not dialog]
+
+        async def restore_valuation_focus(_event: ft.ControlEvent | None = None) -> None:
+            release_session()
             if owner["mounted"]:
                 await opener.focus()
 
         async def close_valuation_workspace(_event: ft.ControlEvent) -> None:
-            session["active"] = False
+            release_session()
             dialog.open = False
-            dialog.content = None
             page.update()
             if owner["mounted"]:
                 await opener.focus()
