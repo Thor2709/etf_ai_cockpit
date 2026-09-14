@@ -245,3 +245,69 @@ def test_resize_preserves_mounted_route_and_session_without_builder(monkeypatch)
     page.on_route_change(None)
     assert len(built) == 2 and built[-1] is not field
     assert page.views[0].route == "/signals"
+
+
+def test_native_queued_navigation_has_one_render_owner(monkeypatch):
+    from etf_cockpit.app import router
+
+    class FakeSession:
+        pass
+
+    session = FakeSession()
+    page = ft.Page(session)
+    page.route = "/backtests"
+    page.width = 1280
+    updates = []
+    queued = []
+    built = []
+    monkeypatch.setattr(ft.Page, "update", lambda *_: updates.append(page.route))
+    monkeypatch.setattr(ft.Page, "go", lambda _, route: queued.append(route))
+
+    def builder(page, state):
+        field = ft.TextField(value="fresh")
+        built.append((page.route, field))
+        return ft.Column([field])
+
+    for route in ("/backtests", "/signals", "/instrument"):
+        monkeypatch.setitem(router.PAGES, route, ("Workspace", builder))
+    ui = SimpleNamespace(window_width=1280, window_height=900, window_min_width=320,
+                         window_min_height=500, default_page="/backtests")
+    state = SimpleNamespace(snapshot=SimpleNamespace(config=SimpleNamespace(ui=ui),
+        data_report=SimpleNamespace(as_of_date="2026-07-01")), evidence_mode="simple", current_activity=None, last_message="Ready")
+    initialise_page(page, state)
+    assert len(built) == len(updates) == 1
+    for route in ("/signals", "/instrument/ABC"):
+        count = len(built)
+        previous_route = page.route
+        view = page.views[0]
+        navigate_to(page, state, route, candidate_score=7.5)
+        assert queued == [route]
+        assert len(built) == len(updates) == count
+        assert page.route == previous_route
+        assert page.views[0] is view
+        # Browser dispatch occurs after the click callback has returned.
+        page.route = queued.pop()
+        page.on_route_change(SimpleNamespace(route=page.route))
+        assert len(built) == len(updates) == count + 1
+        assert built[-1][0] == updates[-1] == route
+        assert page.views[0].route == route
+    assert state.selected_etf == "ABC"
+    assert state.selected_instrument_score == 7.5
+    field = built[-1][1]
+    field.value = "session"
+    page.on_resize(SimpleNamespace(width=390))
+    assert built[-1][1] is field and field.value == "session"
+    count = len(built)
+    update_count = len(updates)
+    navigate_to(page, state, page.route)
+    assert queued == []
+    assert len(built) == count + 1 and built[-1][1] is not field
+    assert len(updates) == update_count + 1
+    # Browser back/forward events retain the same rendering owner.
+    for route in ("/signals", "/instrument/ABC"):
+        count = len(built)
+        update_count = len(updates)
+        page.route = route
+        page.on_route_change(SimpleNamespace(route=route))
+        assert len(built) == count + 1
+        assert len(updates) == update_count + 1

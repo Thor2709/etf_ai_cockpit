@@ -149,9 +149,14 @@ def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: 
             state.selected_etf = selected
             state.selected_instrument_score = candidate_score
     go = getattr(page, "go", None)
-    if callable(go):
+    native_transition = (
+        isinstance(page, ft.Page)
+        and callable(getattr(page, "on_route_change", None))
+        and page.route != route
+    )
+    if callable(go) and page.route != route:
         go(route)
-    else:
+    elif not callable(go):
         page.route = route
     log_event(
         event_type="button_click",
@@ -162,7 +167,10 @@ def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: 
         operation="navigate_to",
         status="started",
     )
-    render_shell(page, state, route)
+    # Native go() queues a browser event; that handler owns the render.
+    # Same-route refreshes and non-native test/embedded pages render directly.
+    if not native_transition:
+        render_shell(page, state, route)
 
 
 def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
