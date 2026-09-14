@@ -674,17 +674,49 @@
       "verified_date": "2026-08-11"
     },
     "ISSUE-0019": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #732 https://github.com/Thor2709/etf_ai_cockpit/pull/732; product head 79451f884e6b0986b54d2493a5c0d5979dcbd131; merge a15cafae968ee66fca4f0762407a7ecd81d9755e; release run 34066717436.",
+            "PR #744 https://github.com/Thor2709/etf_ai_cockpit/pull/744; product head 83322d89e234079906fc0e658b1cf9f088ef201a; merge 1a3bef4dae4b737d3d1edbc849b80b3a2ec05a13; release run 34416164358.",
+            "PR #745 https://github.com/Thor2709/etf_ai_cockpit/pull/745; product head 0645d7cf754182faab01ba5bd59f7649b384df4e; merge 0d91436bbae04b1b37bed96e7f20284b2478ccde; release run 34423470795; audit/export acceptance included.",
+            "PR #747 https://github.com/Thor2709/etf_ai_cockpit/pull/747; exact product head fa61ae05f6cdc6c09e17159e093c391506308adb; merge b17f33e48e3e3b3664452fa597706f99e290dade; exact-head release run 34826849607: preflight, supply-chain, Linux and Windows packaged gates successful; 4,737 tests per platform.",
+            "Fresh post-merge clean-runtime browser acceptance: C:/dev/etf-issue0019-browser-final-evidence-20260914/browser-evidence.json; 390px compact layout/no document overflow, JEDI row-to-detail, six-field keyboard flow, resize retention, Escape and Close focus restoration/discard, audit export reachability, explicit unavailable/no-execution states."
+          ],
+          "review_reference": "Exact product head fa61ae05f6cdc6c09e17159e093c391506308adb: Codex whole-diff reviewer APPROVE; Codex risk reviewer PASS; release verifier READY; browser acceptance refreshed post-merge at C:/dev/etf-issue0019-browser-final-evidence-20260914/browser-evidence.json.",
+          "reviewed_date": "2026-09-14",
+          "reviewer": "Codex independent whole-diff reviewer, risk reviewer, release verifier, browser acceptance, and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-01-governance-scope",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "Exact product head fa61ae05f6cdc6c09e17159e093c391506308adb: Codex whole-diff reviewer APPROVE; Codex risk reviewer PASS; release verifier READY; browser acceptance refreshed post-merge at C:/dev/etf-issue0019-browser-final-evidence-20260914/browser-evidence.json.",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #732 https://github.com/Thor2709/etf_ai_cockpit/pull/732; product head 79451f884e6b0986b54d2493a5c0d5979dcbd131; merge a15cafae968ee66fca4f0762407a7ecd81d9755e; release run 34066717436.",
+            "PR #744 https://github.com/Thor2709/etf_ai_cockpit/pull/744; product head 83322d89e234079906fc0e658b1cf9f088ef201a; merge 1a3bef4dae4b737d3d1edbc849b80b3a2ec05a13; release run 34416164358.",
+            "PR #745 https://github.com/Thor2709/etf_ai_cockpit/pull/745; product head 0645d7cf754182faab01ba5bd59f7649b384df4e; merge 0d91436bbae04b1b37bed96e7f20284b2478ccde; release run 34423470795; audit/export acceptance included.",
+            "PR #747 https://github.com/Thor2709/etf_ai_cockpit/pull/747; exact product head fa61ae05f6cdc6c09e17159e093c391506308adb; merge b17f33e48e3e3b3664452fa597706f99e290dade; exact-head release run 34826849607: preflight, supply-chain, Linux and Windows packaged gates successful; 4,737 tests per platform.",
+            "Fresh post-merge clean-runtime browser acceptance: C:/dev/etf-issue0019-browser-final-evidence-20260914/browser-evidence.json; 390px compact layout/no document overflow, JEDI row-to-detail, six-field keyboard flow, resize retention, Escape and Close focus restoration/discard, audit export reachability, explicit unavailable/no-execution states."
+          ],
+          "from": "implemented_initially",
+          "review_reference": "Exact product head fa61ae05f6cdc6c09e17159e093c391506308adb: Codex whole-diff reviewer APPROVE; Codex risk reviewer PASS; release verifier READY; browser acceptance refreshed post-merge at C:/dev/etf-issue0019-browser-final-evidence-20260914/browser-evidence.json.",
+          "reviewed_date": "2026-09-14",
+          "reviewer": "Codex independent whole-diff reviewer, risk reviewer, release verifier, browser acceptance, and root orchestrator",
+          "to": "integrated",
+          "verified_commit": "fa61ae05f6cdc6c09e17159e093c391506308adb"
+        }
+      ],
+      "verified_commit": "fa61ae05f6cdc6c09e17159e093c391506308adb",
+      "verified_date": "2026-09-14"
     },
     "ISSUE-0020": {
       "acceptance_evidence": [],
