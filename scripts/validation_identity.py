@@ -17,6 +17,7 @@ DURABLE_HARNESS_PATHS = (
     "docs/codex-config/enforce-agent-routing.ps1",
     "docs/codex-config/codex-skills",
     "docs/development/CONTROL_PLANE.md",
+    "docs/development/FAST_BUILD_MODE_COCKPIT.md",
     "docs/architecture/decisions/ADR-0008-control-plane-observation-and-authority.md",
     "plans/ACTIVE_CODEX_GOAL.md",
     "plans/BATCH-B04-ANALYSIS-SPINE.md",
