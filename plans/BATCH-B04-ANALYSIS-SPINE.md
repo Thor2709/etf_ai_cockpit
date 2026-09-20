@@ -11,6 +11,13 @@ legacy code as candidate evidence and admit any continuation under Codex ownersh
 Product integration, canonical completion and GitHub projection are distinct;
 a historical checkpoint cannot certify any of them on a new head.
 
+Current root lane (2026-09-14): ISSUE-0019 lifecycle completion from main
+`b17f33e48e3e3b3664452fa597706f99e290dade`. Product implementation is merged;
+exact product-head H-tier, review, risk-review and clean-runtime browser evidence
+are complete. No product blocker remains. Next action: append the single legal
+`implemented_initially -> integrated` transition, generate its guarded GitHub
+status-only candidate for open issue #23, and validate the frozen lifecycle head.
+
 The former 5,981-line chronology, including original review failures, accepted
 heads, local paths and product/lifecycle handoffs, remains byte-for-byte at
 `plans/archive/2026-09-08-control-plane/plans/BATCH-B04-ANALYSIS-SPINE.md`.
