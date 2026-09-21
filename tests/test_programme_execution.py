@@ -283,7 +283,13 @@ def test_protected_groups_include_tests_harness_delivery_and_checkout_policy() -
     from scripts.validation_summary import IDENTITY_KEYS
     assert set(groups) == IDENTITY_KEYS
     assert "tests" in groups["source"]
-    for path in (".gitattributes", "docs/product-completion/DELIVERY_WORKFLOW.md", "docs/codex-config/agy_delegate.py", ".agents/agents"):
+    for path in (
+        ".gitattributes",
+        "docs/product-completion/DELIVERY_WORKFLOW.md",
+        "docs/codex-config/agy_delegate.py",
+        "docs/development/FAST_BUILD_MODE_COCKPIT.md",
+        ".agents/agents",
+    ):
         assert path in groups["policy"]
     assert "requirements-github-mutation-runtime.txt" in groups["environment"]
     groups["policy"] = ()
@@ -327,7 +333,15 @@ def test_real_source_equivalence_still_allows_base_anchored_reuse(tmp_path: Path
     assert report["package_gate_required"] is False
 
 
-@pytest.mark.parametrize("path", ["tests/test_product.py", "docs/codex-config/agy_delegate.py", ".agents/agents/codex-flash-editor/agent.md"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tests/test_product.py",
+        "docs/codex-config/agy_delegate.py",
+        "docs/development/FAST_BUILD_MODE_COCKPIT.md",
+        ".agents/agents/codex-flash-editor/agent.md",
+    ],
+)
 def test_intervening_test_or_harness_change_invalidates_reuse(tmp_path: Path, path: str) -> None:
     _, reference, seed = evidence_fixture(tmp_path)
     target = tmp_path / path
