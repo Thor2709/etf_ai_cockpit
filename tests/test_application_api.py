@@ -80,8 +80,10 @@ def test_typed_paper_account_exposes_provenanced_marks_and_orders(tmp_path: Path
     assert api.get_paper_orders().total == 0
 
 
-def test_typed_proposal_review_stays_inside_application_boundary(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("use_event_policy", [False, True])
+def test_typed_proposal_review_stays_inside_application_boundary(tmp_path, monkeypatch, use_event_policy) -> None:
     import etf_cockpit.portfolio.proposal_policy as proposal_policy
+    from etf_cockpit.application.contracts import EventBlockPolicy
 
     capabilities = tuple(
         SimpleNamespace(capability_id=capability_id, authority_stage=stage, availability="mandatory")
@@ -114,12 +116,15 @@ def test_typed_proposal_review_stays_inside_application_boundary(tmp_path, monke
             as_of=datetime(2026, 7, 19, tzinfo=timezone.utc),
             expires_at=datetime(2026, 7, 20, tzinfo=timezone.utc),
             authority_policy_checksum="a" * 64,
+            event_policy=EventBlockPolicy(policy_id="test", version="1") if use_event_policy else None,
         )
     )
 
     assert view.outcome == "manual_review"
     assert view.execution_allowed is False
-    assert view.failed_gate_count == 9
+    assert view.failed_gate_count == (9 if use_event_policy else 8)
+    assert view.event_control["status"] == ("evidence_unavailable" if use_event_policy else "context_only")
+    assert view.quantity_delta == 0
     assert api.query(QueryRequest(resource="proposals")).total == 1
 
 

@@ -94,7 +94,36 @@ def test_complete_inputs_create_deterministic_non_executable_proposal() -> None:
     assert first.gate_policy_version == "2026-07-12"
     assert len(first.gate_policy_checksum) == 64
     assert {item.name for item in first.alternatives} == {"no_trade", "defer", "reduce", "manual_review"}
-    assert all(item.gate_id in REQUIRED_GATES for item in first.gates)
+    assert {item.gate_id for item in first.gates} == {*REQUIRED_GATES, "event_risk"}
+
+
+def test_event_gate_is_internal_and_explicit_missing_policy_evidence_blocks(tmp_path):
+    from etf_cockpit.portfolio.event_controls import EventBlockPolicy
+
+    with pytest.raises(ValueError, match="reserved"):
+        build_proposal_decision(_request(gate_evidence=(GateEvidence("event_risk", True, "forged"),)))
+    decision = build_proposal_decision(_request(event_policy=EventBlockPolicy(policy_id="test", version="1"), event_calendar_path=tmp_path / "missing"))
+    assert decision.outcome == "manual_review"
+    assert not decision.proposal_allowed and decision.quantity_delta == 0
+    assert decision.input_material["event_control"]["status"] == "evidence_unavailable"
+    save_proposal_decision(decision, directory=tmp_path)
+    assert load_proposal_records(directory=tmp_path)[0]["input_material"]["event_control"] == decision.input_material["event_control"]
+
+
+def test_matching_event_blocks_otherwise_ready_proposal_without_generating_quantity(tmp_path):
+    from etf_cockpit.data.event_calendar import CalendarEvent, persist_calendar_events
+    from etf_cockpit.portfolio.event_controls import EventBlockPolicy
+
+    path = tmp_path / "clean" / "event_calendar.parquet"
+    persist_calendar_events([CalendarEvent(event_id="e", instrument_id="VWCE", event_type="earnings", event_date="2026-07-19",
+        available_at="2026-07-18T00:00:00+00:00", ingested_at="2026-07-18T01:00:00+00:00", source_id="issuer", source_authority="issuer", risk_level="high")],
+        clean_path=path, raw_dir=tmp_path / "raw" / "event_calendar")
+    assert build_proposal_decision(_request(event_calendar_path=path)).proposal_allowed
+    blocked = build_proposal_decision(_request(event_calendar_path=path, event_policy=EventBlockPolicy(policy_id="test", version="1")))
+    assert blocked.outcome == "manual_review" and blocked.quantity_delta == 0
+    assert blocked.input_material["event_control"]["status"] == "blocked"
+    assert not blocked.execution_allowed
+    assert next(item for item in blocked.gates if item.gate_id == "event_risk").passed is False
 
 
 def test_policy_resolves_registered_stage_and_rejects_caller_escalation() -> None:
@@ -195,7 +224,8 @@ def test_headline_or_score_only_input_is_manual_review_with_explicit_missing_gat
     assert decision.outcome == "manual_review"
     assert decision.proposal_allowed is False
     assert decision.quantity_delta == 0.0
-    assert all(not item.passed for item in decision.gates)
+    assert all(not item.passed for item in decision.gates if item.gate_id != "event_risk")
+    assert next(item for item in decision.gates if item.gate_id == "event_risk").passed
     assert {item.gate_id for item in decision.gates if not item.passed} >= {
         "optimizer_output",
         "portfolio_state",

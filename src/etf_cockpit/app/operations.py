@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
@@ -8,6 +9,8 @@ from typing import Literal
 
 from etf_cockpit.core.atomic_io import atomic_write_json
 from etf_cockpit.core.paths import OPERATIONS_DIR
+from etf_cockpit.data.event_calendar import EVENT_CLEAN_PATH
+from etf_cockpit.portfolio.event_controls import EventBlockPolicy, evaluate_event_control, verify_event_control
 
 OperationEnvironment = Literal["paper", "live"]
 OperationStatus = Literal["preview", "queued", "running", "completed", "cancelled", "failed", "blocked"]
@@ -60,6 +63,9 @@ def build_operation_preview(
     instrument_id: str,
     quantity: float,
     currency: str = "EUR",
+    event_policy: EventBlockPolicy | None = None,
+    decision_time: datetime | None = None,
+    event_calendar_path: Path = EVENT_CLEAN_PATH,
 ) -> OperationRecord:
     """Create a deterministic proposal before any workflow is submitted."""
 
@@ -71,20 +77,19 @@ def build_operation_preview(
     if environment not in {"paper", "live"}:
         raise ValueError(f"Unsupported operation environment: {environment}")
 
-    identity = json.dumps(
-        {"action": "proposal_preview", "environment": environment, "instrument_id": instrument, "quantity": quantity, "currency": currency},
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    operation_id = f"op_{hashlib.sha256(identity).hexdigest()[:20]}"
+    if event_policy is not None and decision_time is None:
+        raise ValueError("Explicit event policy requires an aware decision time")
+    event_decision = evaluate_event_control(policy=event_policy, target="order_preview", instrument_id=instrument,
+        decision_time=decision_time, calendar_path=event_calendar_path)
+    operation_id = _preview_id(environment, instrument, quantity, currency, event_decision.to_payload())
     live = environment == "live"
-    authority = {
+    authority: dict[str, object] = {
         "stage": "live_disabled" if live else "paper_preview",
         "execution_allowed": False,
-        "submission_allowed": False if live else True,
-        "reason": "Live order submission is disabled by product policy." if live else "Paper preview only; no order is transmitted.",
+        "submission_allowed": not live and not event_decision.blocks,
+        "reason": "Live order submission is disabled by product policy." if live else event_decision.reason if event_decision.blocks else "Paper preview only; no order is transmitted.",
     }
-    status: OperationStatus = "blocked" if live else "preview"
+    status: OperationStatus = "blocked" if live or event_decision.blocks else "preview"
     message = authority["reason"]
     return OperationRecord(
         operation_id=operation_id,
@@ -103,7 +108,7 @@ def build_operation_preview(
         },
         authority=authority,
         result={"status": status, "message": message},
-        audit={"record_id": operation_id, "workflow_id": None, "event_chain": "local_durable_scheduler"},
+        audit={"record_id": operation_id, "workflow_id": None, "event_chain": "local_durable_scheduler", "event_control": event_decision.to_payload()},
     )
 
 
@@ -111,6 +116,15 @@ def save_operation_record(record: OperationRecord, *, directory: Path = OPERATIO
     path = directory / f"{record.operation_id}.json"
     atomic_write_json(path, record.to_payload())
     return path
+
+
+def _preview_id(environment: str, instrument: str, quantity: float, currency: str, event_control: dict) -> str:
+    identity = json.dumps(
+        {"action": "proposal_preview", "environment": environment, "instrument_id": instrument,
+         "quantity": float(quantity), "currency": str(currency).strip().upper() or "EUR", "event_control": event_control},
+        sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    return f"op_{hashlib.sha256(identity).hexdigest()[:20]}"
 
 
 def load_operation_records(*, directory: Path = OPERATIONS_DIR) -> tuple[dict[str, object], ...]:
@@ -123,6 +137,18 @@ def load_operation_records(*, directory: Path = OPERATIONS_DIR) -> tuple[dict[st
         except (OSError, json.JSONDecodeError):
             continue
         if isinstance(payload, dict):
+            try:
+                event = payload.get("audit", {}).get("event_control")
+                if event is not None:
+                    decision = verify_event_control(event, target="order_preview", instrument_id=payload["instrument_id"])
+                    if payload.get("operation_id") != _preview_id(payload["environment"], payload["instrument_id"], payload["quantity"], payload["currency"], event):
+                        continue
+                    if payload.get("authority", {}).get("execution_allowed") is not False:
+                        continue
+                    if decision.blocks and payload.get("authority", {}).get("submission_allowed") is not False:
+                        continue
+            except (ValueError, KeyError, TypeError, AttributeError):
+                continue
             records.append(payload)
     return tuple(records)
 

@@ -680,6 +680,8 @@ class LocalApplicationApi:
                 ),
                 rationale=request.rationale,
                 approvals=request.approvals,
+                event_policy=request.event_policy,
+                event_calendar_path=self._root / "data" / "clean" / "event_calendar.parquet",
             )
         )
         save_proposal_decision(decision, directory=self._root / "data" / "operations" / "proposals")
@@ -792,7 +794,11 @@ def _proposal_view_model(item: Mapping[str, object]) -> ProposalViewModel:
         for alternative in raw_alternatives
         if isinstance(alternative, Mapping)
     ) if isinstance(raw_alternatives, (tuple, list)) else ()
+    input_material = item.get("input_material", {})
+    raw_event_control = input_material.get("event_control", {}) if isinstance(input_material, Mapping) else {}
+    event_control = dict(raw_event_control) if isinstance(raw_event_control, Mapping) else {}
     return ProposalViewModel(
+        event_control=event_control,
         proposal_id=str(item.get("proposal_id", "")),
         instrument_id=str(item.get("instrument_id", "")),
         outcome=str(item.get("outcome", "manual_review")),

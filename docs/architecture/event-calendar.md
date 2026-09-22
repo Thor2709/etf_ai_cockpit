@@ -48,3 +48,27 @@ The calendar is descriptive evidence only: `context_only=true`,
 `executable_authority=false` are forced at persistence and presentation
 boundaries. Remote provider refresh, broker actions, score changes and order
 creation remain outside this slice.
+
+Explicit preview blackout policies are the sole exception to non-blocking
+context. `EventBlockPolicy` is immutable and checksummed and selects only
+`proposal_preview` and/or `order_preview`, event types, risk levels and elapsed
+pre/post minutes. Both type and risk selections must match. No policy means
+`context_only`; missing or corrupt calendar evidence is non-blocking in that
+case. An applicable explicit policy requires the complete canonical local
+bundle; unavailable evidence blocks that preview with `evidence_unavailable`.
+
+Evaluation filters availability and ingestion at the aware decision timestamp
+before matching. Date-only observations cover the complete local IANA calendar
+day (including DST), with an exclusive next-midnight boundary. Timed events use
+their explicit instant and inclusive blackout endpoints. Extra minutes extend
+these boundaries as elapsed UTC time. The decision binds target, instrument,
+timestamp, complete policy and policy checksum, visible calendar-frame checksum,
+matched event identities/checksums, status and reason in a decision checksum.
+Future observations cannot enter the visible-frame checksum. Persisted replay
+verifies these bindings without querying today's calendar.
+
+Operations exposes an opt-in local earnings/high-risk, high/critical policy with
+a 24-hour pre/post window. It defaults off. A blocked preview retains its audit
+evidence but cannot be confirmed or submitted as a local preview workflow. Live
+execution remains independently disabled. Event controls never generate scores,
+signals, targets, quantities, proposals, orders or execution authority.

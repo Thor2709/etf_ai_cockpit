@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from collections.abc import Mapping
 import threading
 
 import flet as ft
@@ -11,6 +12,7 @@ from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.formatting import format_currency, format_number
 from etf_cockpit.app.operations import OperationRecord, build_operation_preview, load_operation_records, save_operation_record
 from etf_cockpit.app.state import AppState
+from etf_cockpit.portfolio.event_controls import EventBlockPolicy
 from etf_cockpit.application.contracts import (
     ApiStatus,
     CancelWorkflowCommand,
@@ -83,6 +85,8 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
     paper_incident_button = ft.TextButton("Record incident", key="operations.paper-incident", icon=ft.Icons.WARNING)
     instrument = ft.TextField(label="Instrument", value=state.selected_etf or "VWCE", key="operations.instrument", width=180)
     quantity = ft.TextField(label="Quantity", value="1", key="operations.quantity", width=130, keyboard_type=ft.KeyboardType.NUMBER)
+    event_policy_enabled = ft.Checkbox(label="Apply local high-risk event blackout (earnings/high-risk; high/critical; ±24 hours)", value=False, key="operations.event-policy")
+    event_evidence = ft.Text("Event policy: off · context_only · execution_allowed=false", selectable=True, color=theme.MUTED)
     environment = ft.Dropdown(
         label="Environment",
         value="paper",
@@ -98,6 +102,18 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
     active_record: OperationRecord | None = None
     busy = False
 
+    def selected_event_policy() -> EventBlockPolicy | None:
+        return EventBlockPolicy(policy_id="local-high-risk-preview", version="1", pre_minutes=1440, post_minutes=1440) if event_policy_enabled.value else None
+
+    def change_event_policy(_event: ft.ControlEvent) -> None:
+        nonlocal active_record
+        active_record = None
+        confirm_button.disabled = True
+        event_evidence.value = "Event policy changed; create a fresh preview. execution_allowed=false"
+        _safe_update(page)
+
+    event_policy_enabled.on_change = change_event_policy
+
     def set_record(record: OperationRecord) -> None:
         nonlocal active_record
         active_record = record
@@ -109,6 +125,9 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
         )
         result_text.value = f"Result: {record.result.get('status')} · {record.result.get('message')}"
         audit_text.value = f"Audit: record={record.audit.get('record_id')} · workflow={record.audit.get('workflow_id') or 'not submitted'} · event chain={record.audit.get('event_chain')}"
+        raw_evidence = record.audit.get("event_control", {})
+        evidence = raw_evidence if isinstance(raw_evidence, Mapping) else {}
+        event_evidence.value = f"Event evidence: {evidence}"
 
     def refresh_records() -> None:
         records_body.controls = []
@@ -116,10 +135,12 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
         if not records:
             records_body.controls.append(ft.Text("No local paper/live operation records yet.", color=theme.MUTED, selectable=True))
         for record in records[:6]:
+            raw_audit = record.get("audit", {})
+            audit = raw_audit if isinstance(raw_audit, Mapping) else {}
             records_body.controls.append(
                 ft.Text(
                     f"{record.get('operation_id')} · {record.get('environment')} · {record.get('status')} · "
-                    f"{record.get('instrument_id')} · workflow={record.get('audit', {}).get('workflow_id') or 'none'}",
+                    f"{record.get('instrument_id')} · workflow={audit.get('workflow_id') or 'none'}",
                     color=theme.TEXT,
                     size=theme.FONT_XS,
                     selectable=True,
@@ -175,6 +196,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
                     as_of=as_of,
                     expires_at=as_of + timedelta(days=1),
                     authority_policy_checksum=api.get_authority_policy_checksum(),
+                    event_policy=selected_event_policy(),
                     rationale="Manual input is shown as review-only until validated optimiser and portfolio evidence is supplied.",
                 )
             )
@@ -183,6 +205,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
             gate_summary = ", ".join(f"{item.gate_id}={'passed' if item.passed else 'failed'}" for item in decision.gates)
             proposal_state.value = f"Proposal review: {decision.outcome} · authority={decision.authority_stage} · allowed={str(decision.proposal_allowed).lower()}"
             proposal_evidence.value = f"Proposal evidence: {failed} gate(s) failed; gates={gate_summary}; alternatives={alternatives}; execution_allowed=false. {decision.rationale}"
+            event_evidence.value = f"Event evidence: {decision.event_control}"
             message.value = "Proposal review recorded locally. No order or draft-order authority was created."
             _safe_update(page)
         except (OSError, TypeError, ValueError) as exc:
@@ -376,11 +399,13 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 environment=selected_environment,  # type: ignore[arg-type]
                 instrument_id=str(instrument.value or ""),
                 quantity=selected_quantity,
+                event_policy=selected_event_policy(),
+                decision_time=datetime.now(timezone.utc) if event_policy_enabled.value else None,
             )
             save_operation_record(record)
             set_record(record)
-            if selected_environment == "live":
-                message.value = "Live operation blocked by policy; preview retained locally and no workflow was submitted."
+            if not record.authority["submission_allowed"]:
+                message.value = f"Operation blocked by policy: {record.authority['reason']} Preview retained locally; no workflow submitted."
                 confirm_button.disabled = True
                 refresh_records()
                 _safe_update(page)
@@ -400,7 +425,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
             message.value = "Duplicate click ignored: the current operation is already running."
             _safe_update(page)
             return
-        if active_record is None or active_record.status != "preview" or active_record.environment != "paper":
+        if active_record is None or active_record.status != "preview" or active_record.environment != "paper" or not active_record.authority.get("submission_allowed"):
             message.value = "Confirmation blocked: create a valid paper preview first."
             _safe_update(page)
             return
@@ -491,6 +516,8 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
                         section_header("Preview and confirm", "A command preview is stored before a local workflow is acknowledged. The selected environment is never inferred from colour."),
                         ft.ResponsiveRow([ft.Container(content=instrument, col={"sm": 12, "md": 3}), ft.Container(content=quantity, col={"sm": 12, "md": 2}), ft.Container(content=environment, col={"sm": 12, "md": 3})], spacing=8),
                         ft.Row([preview_button, proposal_button, confirm_button, cancel_button], wrap=True),
+                        event_policy_enabled,
+                        event_evidence,
                         operation_state,
                         preview_text,
                         authority_text,
