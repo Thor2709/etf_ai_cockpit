@@ -4,8 +4,9 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 import hashlib
 import json
+import math
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Mapping
 
 from etf_cockpit.core.atomic_io import atomic_write_json
 from etf_cockpit.core.paths import OPERATIONS_DIR
@@ -127,6 +128,62 @@ def _preview_id(environment: str, instrument: str, quantity: float, currency: st
     return f"op_{hashlib.sha256(identity).hexdigest()[:20]}"
 
 
+def validate_operation_record(payload: Mapping[str, object], *, for_submission: bool = False) -> None:
+    """Verify preview identity and restrictions; legacy records are read-only."""
+    if payload.get("schema_version") != "operations.v1" or payload.get("action") != "proposal_preview":
+        raise ValueError("Unsupported operation schema or action")
+    environment = payload.get("environment")
+    instrument = payload.get("instrument_id")
+    currency = payload.get("currency")
+    quantity = payload.get("quantity")
+    authority = payload.get("authority")
+    audit = payload.get("audit")
+    if environment not in {"paper", "live"} or not isinstance(environment, str):
+        raise ValueError("Invalid operation environment")
+    if not isinstance(instrument, str) or not instrument or instrument != instrument.strip().upper():
+        raise ValueError("Invalid operation instrument")
+    if not isinstance(currency, str) or not currency or currency != currency.strip().upper():
+        raise ValueError("Invalid operation currency")
+    if isinstance(quantity, bool) or not isinstance(quantity, (int, float)) or not math.isfinite(quantity) or quantity <= 0:
+        raise ValueError("Invalid operation quantity")
+    if not isinstance(authority, Mapping) or not isinstance(audit, Mapping):
+        raise ValueError("Missing operation authority or audit")
+    if authority.get("execution_allowed") is not False or audit.get("record_id") != payload.get("operation_id"):
+        raise ValueError("Invalid operation authority or audit identity")
+    blocked = environment == "live"
+    if "event_control" in audit:
+        event = audit["event_control"]
+        if not isinstance(event, dict):
+            raise ValueError("Missing event-control evidence")
+        decision = verify_event_control(event, target="order_preview", instrument_id=instrument)
+        if payload.get("operation_id") != _preview_id(environment, instrument, quantity, currency, event):
+            raise ValueError("Operation identity does not match event evidence")
+        blocked = blocked or decision.blocks
+    else:
+        # Original v1 IDs hashed these exact fields before quantity was stored
+        # as float. Accept either original numeric representation, never an
+        # arbitrary op_* ID or a new event-bound ID stripped of its audit.
+        quantities = [float(quantity)]
+        if float(quantity).is_integer():
+            quantities.append(int(quantity))
+        legacy_ids = set()
+        for original_quantity in quantities:
+            identity = json.dumps({"action": "proposal_preview", "environment": environment,
+                "instrument_id": instrument, "quantity": original_quantity, "currency": currency},
+                sort_keys=True, separators=(",", ":")).encode("utf-8")
+            legacy_ids.add(f"op_{hashlib.sha256(identity).hexdigest()[:20]}")
+        if payload.get("operation_id") not in legacy_ids or for_submission:
+            raise ValueError("Legacy identity cannot be verified; create a fresh preview")
+    if authority.get("stage") != ("live_disabled" if environment == "live" else "paper_preview"):
+        raise ValueError("Operation authority stage mismatch")
+    if authority.get("submission_allowed") is not (not blocked):
+        raise ValueError("Operation submission authority mismatch")
+    if blocked and payload.get("status") != "blocked":
+        raise ValueError("Blocked operation status mismatch")
+    if for_submission and (blocked or payload.get("status") != "preview"):
+        raise ValueError("Operation policy blocks workflow submission")
+
+
 def load_operation_records(*, directory: Path = OPERATIONS_DIR) -> tuple[dict[str, object], ...]:
     if not directory.exists():
         return ()
@@ -138,19 +195,11 @@ def load_operation_records(*, directory: Path = OPERATIONS_DIR) -> tuple[dict[st
             continue
         if isinstance(payload, dict):
             try:
-                event = payload.get("audit", {}).get("event_control")
-                if event is not None:
-                    decision = verify_event_control(event, target="order_preview", instrument_id=payload["instrument_id"])
-                    if payload.get("operation_id") != _preview_id(payload["environment"], payload["instrument_id"], payload["quantity"], payload["currency"], event):
-                        continue
-                    if payload.get("authority", {}).get("execution_allowed") is not False:
-                        continue
-                    if decision.blocks and payload.get("authority", {}).get("submission_allowed") is not False:
-                        continue
+                validate_operation_record(payload)
             except (ValueError, KeyError, TypeError, AttributeError):
                 continue
             records.append(payload)
     return tuple(records)
 
 
-__all__ = ["OperationRecord", "build_operation_preview", "load_operation_records", "save_operation_record"]
+__all__ = ["OperationRecord", "build_operation_preview", "load_operation_records", "save_operation_record", "validate_operation_record"]

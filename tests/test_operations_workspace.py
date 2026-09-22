@@ -112,6 +112,45 @@ def test_operation_event_audit_tampering_is_rejected(tmp_path):
     assert load_operation_records(directory=tmp_path) == ()
 
 
+@pytest.mark.parametrize("tamper", ["deleted", "null", "execution", "submission", "stage"])
+def test_new_operation_cannot_fall_back_to_legacy_or_change_authority(tmp_path, tamper):
+    import json
+
+    record = build_operation_preview(environment="paper", instrument_id="VWCE", quantity=3)
+    payload = record.to_payload()
+    if tamper == "deleted":
+        del payload["audit"]["event_control"]
+    elif tamper == "null":
+        payload["audit"]["event_control"] = None
+    elif tamper == "execution":
+        payload["authority"]["execution_allowed"] = True
+    elif tamper == "submission":
+        payload["authority"]["submission_allowed"] = False
+    else:
+        payload["authority"]["stage"] = "live_enabled"
+    (tmp_path / f"{record.operation_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+    assert load_operation_records(directory=tmp_path) == ()
+
+
+@pytest.mark.parametrize("original_quantity", [3, 3.0, 3.5])
+def test_verified_original_operation_identity_remains_readable(tmp_path, original_quantity):
+    import hashlib
+    import json
+    from etf_cockpit.app.operations import validate_operation_record
+
+    identity = {"action": "proposal_preview", "environment": "paper", "instrument_id": "VWCE",
+        "quantity": original_quantity, "currency": "EUR"}
+    operation_id = "op_" + hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:20]
+    payload = build_operation_preview(environment="paper", instrument_id="VWCE", quantity=original_quantity).to_payload()
+    payload["operation_id"] = operation_id
+    payload["audit"]["record_id"] = operation_id
+    del payload["audit"]["event_control"]
+    (tmp_path / f"{operation_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+    assert load_operation_records(directory=tmp_path) == (payload,)
+    with pytest.raises(ValueError, match="fresh preview"):
+        validate_operation_record(payload, for_submission=True)
+
+
 def test_operations_explicit_policy_disables_confirmation_on_missing_calendar(tmp_path, monkeypatch):
     import etf_cockpit.app.pages.operations as module
 

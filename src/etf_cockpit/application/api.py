@@ -732,6 +732,14 @@ class LocalApplicationApi:
         return str(getattr(snapshot, "universe_revision", "") or "unknown")
 
     def _execute_new(self, command: ApplicationCommand) -> CommandResult:
+        if isinstance(command, SubmitWorkflowCommand) and command.workflow_type == "paper_proposal_preview":
+            from etf_cockpit.app.operations import validate_operation_record
+
+            try:
+                validate_operation_record(command.input_payload, for_submission=True)
+            except (ValueError, TypeError, KeyError):
+                return _result(command, ApiStatus.FAILED, revision=self.revision,
+                    error_code="operation_policy_blocked", error_message="Operation evidence or policy blocks workflow submission; create a fresh permitted preview.")
         handler = self._command_handlers.get(command.kind)
         if handler is not None:
             try:

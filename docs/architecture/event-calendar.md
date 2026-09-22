@@ -72,3 +72,13 @@ a 24-hour pre/post window. It defaults off. A blocked preview retains its audit
 evidence but cannot be confirmed or submitted as a local preview workflow. Live
 execution remains independently disabled. Event controls never generate scores,
 signals, targets, quantities, proposals, orders or execution authority.
+
+The application command boundary verifies the same operation identity, event
+decision and authority restrictions before submitting a paper-preview workflow,
+including calls that bypass the UI. Invalid or blocked evidence cannot reach the
+scheduler. Readback accepts an event-free legacy `operations.v1` record only when
+its original five-field identity hash can be reconstructed from its canonical
+stored fields (including either integer or float quantity representation).
+Null event evidence is never legacy. Legacy records remain readable evidence;
+submission requires a fresh event-bound preview. Unverifiable legacy identities
+are withheld rather than guessed from lost pre-normalization input.
