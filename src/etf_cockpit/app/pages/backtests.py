@@ -26,6 +26,14 @@ from etf_cockpit.application.ui_facade import NEWS_TIMESTAMP_VALIDATION_PATH, co
 from etf_cockpit.application.validation import build_validation_preview
 
 
+def _open_gap_warning_label(row: dict[str, object]) -> str:
+    warning = row.get("open_gap_warning")
+    if type(warning) is not bool:
+        return "unavailable"
+    limit = _format_number(row.get("open_gap_warning_threshold"), percent=True)
+    return f"WARNING: |gap| >= {limit}" if warning else f"within {limit}"
+
+
 def _format_number(value: object, *, percent: bool = False, money: bool = False, decimals: int = 2) -> str:
     if value is None or value != value:
         return "n/a"
@@ -256,6 +264,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                     ft.DataCell(ft.Text(str(row.get("next_period_reference_basis", "unavailable")), color=theme.TEXT, size=11)),
                     ft.DataCell(ft.Text(str(row.get("next_period_source_identity", "unavailable")), color=theme.TEXT, size=11)),
                     ft.DataCell(ft.Text(_format_number(row.get("close_to_next_open_gap"), percent=True), color=theme.TEXT, size=11)),
+                    ft.DataCell(ft.Text(_open_gap_warning_label(row), color=theme.AMBER if row.get("open_gap_warning") is True else theme.TEXT, size=11)),
                     ft.DataCell(ft.Text(str(row.get("price_provenance", "unavailable")), color=theme.TEXT, size=11)),
                     ft.DataCell(ft.Text(str(row.get("arrival_price_assumption", "unavailable")), color=theme.TEXT, size=11)),
                     ft.DataCell(ft.Text(str(row.get("execution_delay_sessions", "unavailable")), color=theme.TEXT, size=11)),
@@ -354,6 +363,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                                 ft.DataColumn(ft.Text("Next-close basis")),
                                 ft.DataColumn(ft.Text("Next-close source")),
                                 ft.DataColumn(ft.Text("Close→open gap")),
+                                ft.DataColumn(ft.Text("Open-gap warning")),
                                 ft.DataColumn(ft.Text("Price provenance")),
                                 ft.DataColumn(ft.Text("Arrival assumption")),
                                 ft.DataColumn(ft.Text("Delay sessions")),

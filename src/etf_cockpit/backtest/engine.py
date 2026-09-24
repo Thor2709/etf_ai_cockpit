@@ -704,6 +704,7 @@ def _execution_evidence(
     cost_spread_assumption_source: str | None = None,
     estimated_cost_bps: float | None = None,
     estimated_cost_bps_source: str | None = None,
+    open_gap_warning_threshold: float | None = None,
 ) -> dict[str, object]:
     decision_price = _weighted_reference_price(current_prices, changed_weights)
     next_open_reference = _weighted_reference_price(next_open, changed_weights)
@@ -727,6 +728,8 @@ def _execution_evidence(
             value is not None for value in (decision_price, next_open_reference, next_close_reference)
         ) else "unavailable",
         "close_to_next_open_gap": close_to_next_open,
+        "open_gap_warning": _open_gap_warning(close_to_next_open, open_gap_warning_threshold),
+        "open_gap_warning_threshold": open_gap_warning_threshold,
         "arrival_price_assumption": arrival_assumption,
         "spread_proxy": spread_proxy,
         "observed_range_spread_proxy": spread_proxy,
@@ -745,6 +748,14 @@ def _execution_evidence(
         "order_lifecycle": None,
         "execution_allowed": False,
     }
+
+
+def _open_gap_warning(gap: float | None, threshold: float | None) -> bool | None:
+    """Flag a large close-to-next-open gap; unknown stays unknown."""
+
+    if gap is None or threshold is None or not np.isfinite(gap):
+        return None
+    return bool(abs(gap) >= threshold)
 
 
 def _instrument_operational_evidence(
@@ -775,6 +786,7 @@ def _instrument_operational_evidence(
     decision_price_source_identity: object = None,
     next_open_source_identity: object = None,
     next_period_source_identity: object = None,
+    open_gap_warning_threshold: float | None = None,
 ) -> dict[str, object]:
     """Build one strict, instrument-scoped operational evidence record.
 
@@ -974,6 +986,8 @@ def _instrument_operational_evidence(
         "next_open_source_identity": next_open_source_identity,
         "next_period_source_identity": next_period_source_identity,
         "close_to_next_open_gap": gap,
+        "open_gap_warning": _open_gap_warning(gap, open_gap_warning_threshold),
+        "open_gap_warning_threshold": open_gap_warning_threshold,
         "observed_range_spread_proxy": observed_spread,
         "spread_proxy": observed_spread,
         "cost_spread_assumption_bps": cost_spread,
@@ -1079,6 +1093,7 @@ def run_backtest(
     adjusted_open_pivot = _corporate_action_adjusted_pivot(prices, "open", columns)
     adjusted_high_pivot = _corporate_action_adjusted_pivot(prices, "high", columns)
     adjusted_low_pivot = _corporate_action_adjusted_pivot(prices, "low", columns)
+    open_gap_warning_threshold = float(config.costs.cost_model.open_gap_warning_threshold)
     calendar_service = MarketCalendarService.from_correction_ledger(
         CONFIG_DIR / "market_calendar_corrections.yaml"
     )
@@ -1428,6 +1443,7 @@ def run_backtest(
                             if transaction_cost_bps is None
                             else "explicit_transaction_cost_bps"
                         ),
+                        open_gap_warning_threshold=open_gap_warning_threshold,
                     )
                     for instrument_id in diff.index[diff > 0]:
                         instrument_cost_matches = instrument_costs.get(str(instrument_id), [])
@@ -1535,6 +1551,7 @@ def run_backtest(
                                     instrument_id,
                                     pivot.index[i + 1],
                                 ),
+                                open_gap_warning_threshold=open_gap_warning_threshold,
                             )
                         )
                     trade_rows.append(

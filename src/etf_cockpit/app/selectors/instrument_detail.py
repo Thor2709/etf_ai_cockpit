@@ -1663,6 +1663,25 @@ def _latest_operational_row(rows: object) -> dict[str, object]:
     return dict(max(valid_rows, key=sort_key, default={}))
 
 
+def _open_gap_warning_consistent(record: Mapping[str, object]) -> bool:
+    """A stored open-gap warning must equal |gap| >= its recorded threshold."""
+
+    warning = record.get("open_gap_warning")
+    threshold = record.get("open_gap_warning_threshold")
+    # Rows written before the warning existed carry neither field.
+    if _is_missing_scalar(warning) and _is_missing_scalar(threshold):
+        return True
+    values = []
+    for value in (threshold, record.get("close_to_next_open_gap")):
+        if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(float(value)):
+            return False
+        values.append(float(value))
+    limit, gap = values
+    if not 0 < limit <= 1 or type(warning) is not bool:
+        return False
+    return warning is (abs(gap) >= limit)
+
+
 def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str, Any]:
     """Project only strict exact-instrument simulated evidence."""
 
@@ -1880,6 +1899,7 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
             and explicit_unavailable(record.get("paper_fill_source"))
             and explicit_unavailable(record.get("reconciled_fill_source"))
             and calendar_is_canonical(record, signal_ts, execution_ts, signal_date, execution_date)
+            and _open_gap_warning_consistent(record)
         )
         if safe:
             safe_rows.append(record)
