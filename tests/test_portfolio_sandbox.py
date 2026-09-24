@@ -848,8 +848,9 @@ def test_changed_registry_source_hash_rejects_persisted_result_on_load(tmp_path)
         root=tmp_path,
     )
     snapshot.benchmark_reference_registry = _benchmark_registry("b" * 64)
-    with pytest.raises(ValueError, match="does not match canonical recomputation"):
-        load_portfolio_candidate(snapshot, "Registry stale result", root=tmp_path)
+    loaded = load_portfolio_candidate(snapshot, "Registry stale result", root=tmp_path)
+    assert loaded.source_stale is True
+    assert loaded.result_payload is None
 
 
 def test_candidate_overlap_excludes_evidence_known_after_snapshot_as_of(monkeypatch) -> None:
@@ -1760,7 +1761,13 @@ def test_failed_atomic_export_preserves_prior_file(tmp_path, monkeypatch) -> Non
 
 def test_what_if_targets_are_composed_through_existing_services(monkeypatch) -> None:
     snapshot = _snapshot()
-    snapshot.prices = pd.DataFrame([{"date": "2026-07-01", "etf_id": "VWCE", "adjusted_close": 100.0}])
+    snapshot.prices = pd.DataFrame(
+        [
+            {"date": date, "etf_id": instrument_id, "adjusted_close": price + index}
+            for index, date in enumerate(("2026-07-01", "2026-07-02", "2026-07-03"))
+            for instrument_id, price in (("VWCE", 100.0), ("LYP6", 80.0), ("SPYK", 60.0))
+        ]
+    )
     calls: dict[str, object] = {}
 
     class Solution:
@@ -1790,6 +1797,518 @@ def test_what_if_targets_are_composed_through_existing_services(monkeypatch) -> 
 
     assert "prices" in calls and "optimiser" in calls and "risk" in calls
     assert calls["optimiser"][0] == "minimum_variance"
-    assert calls["optimiser"][1]["VWCE"] == pytest.approx(0.6)
+    assert calls["optimiser"][1]["VWCE"] == pytest.approx(0.4)
     assert analysis.service_evidence["optimiser"]["model_version"] == "test-optimiser"
     assert analysis.service_evidence["risk"]["model_version"] == "test-risk"
+
+
+def test_sandbox_composes_target_through_factor_risk_comparison_scenario_and_attribution(monkeypatch) -> None:
+    snapshot = _snapshot()
+    snapshot.prices = pd.DataFrame(
+        [
+            {"date": date, "etf_id": instrument_id, "adjusted_close": price + index}
+            for index, date in enumerate(("2026-07-01", "2026-07-02", "2026-07-03"))
+            for instrument_id, price in (("VWCE", 100.0), ("LYP6", 80.0), ("SPYK", 60.0))
+        ]
+    )
+    from etf_cockpit.portfolio.stress_testing import StressScenario
+
+    snapshot.portfolio_scenarios = (StressScenario("equity-down", "Equity down", {"equity": -0.1}),)
+    calls: dict[str, object] = {}
+
+    def fake_factor(prices, allocation, latest_features=None, holdings=None, **kwargs):
+        calls["factor"] = allocation.copy()
+        return {
+            "status": "partial",
+            "coverage": {"status": "partial", "instrument_count": 2},
+            "factor_exposures": pd.DataFrame([{"instrument_id": "VWCE", "factor": "market", "exposure": 1.0}]),
+            "exposure_matrix": pd.DataFrame(),
+            "factor_returns": pd.DataFrame(),
+            "warnings": ["fixture_warning"],
+            "execution_allowed": False,
+        }
+
+    class Optimiser:
+        def compare(self, methods, *, constraints, current_weights):
+            calls["comparison"] = (tuple(methods), dict(current_weights), constraints)
+            return pd.DataFrame([{"method": "equal_weight", "status": "success", "feasible": True, "weight_sum": 0.9}])
+
+    def fake_optimiser(prices):
+        calls["optimiser_prices"] = prices.copy()
+        return Optimiser(), pd.DataFrame({"VWCE": [0.01], "LYP6": [0.02]})
+
+    def fake_risk(prices, allocation, *, factor_report=None, **kwargs):
+        calls["risk"] = (allocation.copy(), factor_report)
+        return {"status": "partial", "selected_estimator": "factor_model", "warnings": [], "execution_allowed": False}
+
+    def fake_rebalance(config, holdings, targets, **kwargs):
+        calls["rebalancing"] = (holdings.copy(), dict(targets))
+        return SimpleNamespace(
+            feasible=True,
+            model_version="rebalance-fixture",
+            trades=(),
+            warnings=(),
+            tax_status="unavailable",
+            tax_jurisdiction="not_provided",
+            assumptions={},
+        )
+
+    def fake_attribution(prices, allocation, **kwargs):
+        calls["attribution"] = (allocation.copy(), kwargs)
+        return {"status": "available", "coverage": {"status": "available"}, "execution_allowed": False}
+
+    def fake_stress(scenario, allocation, **kwargs):
+        calls["scenario"] = (scenario, allocation.copy(), kwargs)
+        return SimpleNamespace(to_payload=lambda: {"scenario": scenario.to_payload(), "status": "available", "coverage": {}})
+
+    monkeypatch.setattr(sandbox_store, "build_factor_risk_report", fake_factor)
+    monkeypatch.setattr(sandbox_store, "build_portfolio_optimiser", fake_optimiser)
+    monkeypatch.setattr(sandbox_store, "build_robust_risk_report", fake_risk)
+    monkeypatch.setattr(sandbox_store, "build_rebalance_report", fake_rebalance)
+    monkeypatch.setattr(sandbox_store, "build_performance_attribution", fake_attribution)
+    monkeypatch.setattr(sandbox_store, "run_stress_scenario", fake_stress)
+
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+
+    assert calls["factor"].loc[calls["factor"]["etf_id"].eq("VWCE"), "target_weight"].iloc[0] == pytest.approx(0.6)
+    assert calls["risk"][0].set_index("etf_id").loc["VWCE", "target_weight"] == pytest.approx(0.6)
+    assert calls["risk"][1]["status"] == "partial"
+    assert calls["comparison"][1]["VWCE"] == pytest.approx(0.4)
+    assert calls["comparison"][1]["LYP6"] == pytest.approx(0.2)
+    assert set(calls["optimiser_prices"]["etf_id"]) == {"VWCE", "LYP6"}
+    assert calls["attribution"][0].set_index("etf_id").loc["VWCE", "target_weight"] == pytest.approx(0.6)
+    assert calls["scenario"][1].set_index("instrument_id").loc["VWCE", "current_weight"] == pytest.approx(0.6)
+    assert analysis.service_evidence["optimiser_comparison"]["methods"][0]["method"] == "equal_weight"
+    assert analysis.service_evidence["optimiser_comparison"]["baseline"]["equal_weight"]["method"] == "equal_weight"
+    assert analysis.service_evidence["optimiser_comparison"]["baseline"]["current"]["weights"]["VWCE"] == pytest.approx(0.4)
+    assert analysis.service_evidence["scenarios"]["status"] == "available"
+    assert analysis.service_evidence["attribution"]["status"] == "available"
+    assert analysis.service_evidence["execution_allowed"] is False
+
+
+def test_real_services_use_target_weights_actual_turnover_and_governed_price_universe() -> None:
+    snapshot = _snapshot()
+    snapshot.prices = pd.DataFrame(
+        [
+            {"date": f"2026-07-{day:02d}", "etf_id": instrument_id, "adjusted_close": base + day * step}
+            for day in range(1, 75)
+            for instrument_id, base, step in (("VWCE", 100.0, 1.0), ("LYP6", 80.0, 0.4), ("SPYK", 60.0, 2.0))
+        ]
+    )
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+    comparison = analysis.service_evidence["optimiser_comparison"]
+    risk = analysis.service_evidence["risk"]
+
+    assert "SPYK" not in analysis.service_evidence["optimiser"]["weights"]
+    assert comparison["baseline"]["current"]["weights"] == {"LYP6": 0.2, "VWCE": 0.4}
+    assert comparison["baseline"]["current"]["turnover"] == 0.0
+    assert risk["portfolio"]["weight_sum"] == pytest.approx(0.9)
+    assert {"columns", "index", "data"}.issubset(risk["covariances"]["sample"])
+    assert all(item.get("execution_allowed") is False for item in analysis.service_evidence.values() if isinstance(item, dict))
+
+
+def test_missing_positive_target_price_is_explicitly_unavailable() -> None:
+    snapshot = _snapshot()
+    snapshot.prices = pd.DataFrame(
+        [
+            {"date": f"2026-07-{day:02d}", "etf_id": "VWCE", "adjusted_close": 100.0 + day}
+            for day in range(1, 10)
+        ]
+    )
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+
+    assert analysis.service_evidence["optimiser"]["status"] == "unavailable"
+    assert "LYP6" in analysis.service_evidence["optimiser"]["reason"]
+    assert any("LYP6" in warning for warning in analysis.service_evidence["risk"]["warnings"])
+
+
+def test_real_stress_service_receives_target_adapter_without_weight_collision() -> None:
+    from etf_cockpit.portfolio.stress_testing import StressScenario
+
+    snapshot = _snapshot()
+    snapshot.portfolio_scenarios = (StressScenario("equity-down", "Equity down", {"equity": -0.1}),)
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+    scenarios = analysis.service_evidence["scenarios"]
+
+    assert scenarios["status"] == "available"
+    assert scenarios["source_snapshot"] == "current"
+    assert scenarios["results"][0]["coverage"]["covered_instruments"] == 2
+
+
+def test_stress_scenario_reports_unsupported_candidate_exposure() -> None:
+    from etf_cockpit.portfolio.stress_testing import StressScenario
+
+    snapshot = _snapshot()
+    snapshot.holdings = pd.DataFrame(
+        [
+            {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0},
+            {"etf_id": "LYP6", "current_weight": 0.2, "market_value_eur": 20_000.0},
+            {
+                "etf_id": "COIN",
+                "asset_type": "crypto",
+                "security_type": "token",
+                "cfi_code": "E",
+                "current_weight": 0.0,
+                "market_value_eur": 0.0,
+            },
+        ]
+    )
+    snapshot.prices = pd.DataFrame(
+        [
+            {"date": f"2026-07-{day:02d}", "etf_id": instrument_id, "adjusted_close": base + day * step}
+            for day in range(1, 20)
+            for instrument_id, base, step in (("VWCE", 100.0, 1.0), ("LYP6", 80.0, 0.4))
+        ]
+    )
+    snapshot.portfolio_scenarios = (StressScenario("equity-down", "Equity down", {"equity": -0.1}),)
+    candidate = build_portfolio_candidate(
+        snapshot,
+        name="Unsupported scenario exposure",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.6, "LYP6": 0.2, "COIN": 0.1},
+        cash_weight=0.1,
+    )
+
+    analysis = analyse_portfolio_candidate(snapshot, candidate)
+    scenario = analysis.service_evidence["scenarios"]
+    result = scenario["results"][0]
+
+    assert scenario["status"] == "partial"
+    assert result["status"] == "partial"
+    assert result["coverage"]["candidate_instrument_count"] == 3
+    assert result["coverage"]["missing_exposure"] == [
+        {"instrument_id": "COIN", "weight": pytest.approx(0.1), "reason": "unsupported"}
+    ]
+
+
+def test_consumed_feature_change_invalidates_saved_result_as_stale(tmp_path) -> None:
+    snapshot = _snapshot()
+    snapshot.latest_features = pd.DataFrame([{"date": "2026-07-18", "etf_id": "VWCE", "score": 1.0}])
+    save_portfolio_candidate(
+        snapshot,
+        name="Feature-bound result",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.6, "LYP6": 0.3},
+        cash_weight=0.1,
+        expected_revision=0,
+        root=tmp_path,
+    )
+    snapshot.latest_features.loc[0, "score"] = 2.0
+
+    loaded = load_portfolio_candidate(snapshot, "Feature-bound result", root=tmp_path)
+
+    assert loaded.source_stale is True
+    assert loaded.result_payload is None
+
+
+def test_reference_window_clips_real_optimizer_input_before_service_composition() -> None:
+    snapshot = _snapshot()
+    anchor = _vwce_anchor()
+    snapshot.benchmark_reference_registry = _canonical_reference_registry(anchor)
+    snapshot.benchmark_reference_instrument = {"asset_class": "equity"}
+    snapshot.benchmark_reference_currency = "EUR"
+    snapshot.benchmark_reference_horizon_years = 1.0
+    snapshot.benchmark_reference_start_date = "2024-02-01"
+    snapshot.benchmark_reference_end_date = "2025-02-01"
+    snapshot.benchmark_reference_decision_time = "2025-02-02T00:00:00Z"
+    snapshot.benchmark_reference_portfolio_ids = ("reference:equal_weight",)
+    snapshot.prices = pd.DataFrame(
+        [
+            {"date": date, "etf_id": instrument_id, "adjusted_close": base + index}
+            for index, date in enumerate(("2024-02-01", "2024-02-02", "2025-02-01", "2027-01-01"))
+            for instrument_id, base in (("VWCE", 100.0), ("LYP6", 80.0))
+        ]
+    )
+
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+
+    assert analysis.service_evidence["benchmark_reference"]["status"] == "available"
+    assert analysis.service_evidence["optimiser_comparison"]["returns_observations"] == 2
+
+
+def test_all_cash_target_does_not_fabricate_invested_risk() -> None:
+    snapshot = _snapshot()
+    snapshot.prices = pd.DataFrame(
+        [
+            {"date": f"2026-07-{day:02d}", "etf_id": instrument_id, "adjusted_close": base + day * step}
+            for day in range(1, 20)
+            for instrument_id, base, step in (("VWCE", 100.0, 1.0), ("LYP6", 80.0, 0.4))
+        ]
+    )
+    candidate = build_portfolio_candidate(
+        snapshot,
+        name="All cash",
+        analysis_notional_eur=100_000,
+        target_weights={},
+        cash_weight=1.0,
+    )
+
+    analysis = analyse_portfolio_candidate(snapshot, candidate)
+
+    assert analysis.service_evidence["optimiser"]["status"] == "unavailable"
+    assert analysis.service_evidence["optimiser"]["reason"] == "no invested target exposure"
+    assert analysis.service_evidence["risk"]["status"] == "unavailable"
+    assert analysis.service_evidence["risk"]["portfolio"]["weight_sum"] == pytest.approx(0.0)
+
+
+def test_single_positive_price_is_not_usable_return_coverage() -> None:
+    snapshot = _snapshot()
+    snapshot.prices = pd.DataFrame(
+        [
+            *[
+                {"date": f"2026-07-{day:02d}", "etf_id": instrument_id, "adjusted_close": base + day * step}
+                for day in range(1, 12)
+                for instrument_id, base, step in (("VWCE", 100.0, 1.0), ("LYP6", 80.0, 0.4))
+            ],
+            {"date": "2026-07-01", "etf_id": "SPYK", "adjusted_close": 60.0},
+        ]
+    )
+    candidate = build_portfolio_candidate(
+        snapshot,
+        name="Single price target",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.5, "LYP6": 0.3, "SPYK": 0.1},
+        cash_weight=0.1,
+    )
+
+    analysis = analyse_portfolio_candidate(snapshot, candidate)
+
+    assert analysis.service_evidence["optimiser"]["status"] == "unavailable"
+    assert "SPYK" in analysis.service_evidence["optimiser"]["reason"]
+    assert any("SPYK" in warning for warning in analysis.service_evidence["risk"]["warnings"])
+
+
+def test_unpriced_positive_current_exit_blocks_optimizer_turnover_claim() -> None:
+    snapshot = _snapshot()
+    snapshot.holdings = pd.DataFrame(
+        [
+            {"etf_id": "VWCE", "current_weight": 0.3, "market_value_eur": 30_000.0},
+            {"etf_id": "LYP6", "current_weight": 0.3, "market_value_eur": 30_000.0},
+            {"etf_id": "SPYK", "current_weight": 0.3, "market_value_eur": 30_000.0},
+        ]
+    )
+    snapshot.prices = pd.DataFrame(
+        [
+            {"date": f"2026-07-{day:02d}", "etf_id": instrument_id, "adjusted_close": base + day * step}
+            for day in range(1, 20)
+            for instrument_id, base, step in (("VWCE", 100.0, 1.0), ("LYP6", 80.0, 0.4))
+        ]
+    )
+    candidate = build_portfolio_candidate(
+        snapshot,
+        name="Unpriced exit",
+        analysis_notional_eur=100_000,
+        target_weights={"VWCE": 0.3, "LYP6": 0.3},
+        cash_weight=0.4,
+    )
+
+    analysis = analyse_portfolio_candidate(snapshot, candidate)
+
+    assert analysis.service_evidence["optimiser"]["status"] == "unavailable"
+    assert "SPYK" in analysis.service_evidence["optimiser"]["reason"]
+
+
+def test_reference_and_snapshot_cutoffs_bound_optional_decisions_and_benchmark_prices() -> None:
+    snapshot = _snapshot()
+    anchor = _vwce_anchor()
+    snapshot.benchmark_reference_registry = _canonical_reference_registry(anchor)
+    snapshot.benchmark_reference_instrument = {"asset_class": "equity"}
+    snapshot.benchmark_reference_currency = "EUR"
+    snapshot.benchmark_reference_horizon_years = 1.0
+    snapshot.benchmark_reference_start_date = "2024-02-01"
+    snapshot.benchmark_reference_end_date = "2027-02-01"
+    snapshot.benchmark_reference_decision_time = "2027-02-02T00:00:00Z"
+    snapshot.benchmark_reference_portfolio_ids = ("reference:equal_weight",)
+    snapshot.prices = pd.DataFrame(
+        [
+            {"date": date, "etf_id": instrument_id, "adjusted_close": base + index}
+            for index, date in enumerate(("2024-02-01", "2024-02-02", "2024-02-03", "2026-07-18 12:00:00", "2027-01-01"))
+            for instrument_id, base in (("VWCE", 100.0), ("LYP6", 80.0))
+        ]
+    )
+    snapshot.decisions = pd.DataFrame(
+        [
+            {
+                "date": "2026-07-18",
+                "known_at": "2026-07-18T12:00:00Z",
+                "decision": "accepted",
+                "instrument_id": "VWCE",
+                "model_weight": 0.5,
+                "approved_weight": 0.6,
+                "realised_weight": 0.6,
+            },
+            {
+                "date": "2026-07-18",
+                "known_at": "2027-01-01T00:00:00Z",
+                "decision": "future",
+                "instrument_id": "VWCE",
+                "model_weight": 0.1,
+                "approved_weight": 0.2,
+                "realised_weight": 0.2,
+            },
+        ]
+    )
+
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+    attribution = analysis.service_evidence["attribution"]
+
+    assert attribution["coverage"]["return_observations"] == 3
+    assert attribution["coverage"]["decision_status"] == "available"
+    assert analysis.service_evidence["optimiser_comparison"]["returns_observations"] == 3
+
+
+@pytest.mark.parametrize("column", ["known_at", "available_at", "imported_at", "ingested_at"])
+@pytest.mark.parametrize("bad", ["2027-01-01T00:00:00Z", None, "malformed", ["2026-01-01"], True, np.int64(123)])
+def test_sandbox_all_explicit_knowledge_columns_bind_every_service_frame(monkeypatch, column, bad):
+    snapshot = _snapshot()
+    snapshot.account_id, snapshot.portfolio_id = "A", "PA"
+    analysis = SimpleNamespace(snapshot_binding=sandbox_store.portfolio_snapshot_binding(snapshot))
+    monkeypatch.setattr(sandbox_store, "_service_allocation", lambda *_: pd.DataFrame({"etf_id": ["VWCE"]}))
+    row = {"etf_id": "VWCE", "date": "2026-07-10", "adjusted_close": 100.0, "account_id": "A", "portfolio_id": "PA",
+           **{name: "2026-07-11T00:00:00Z" for name in ("known_at", "available_at", "imported_at", "ingested_at")}}
+    frame = pd.DataFrame([row | {"marker": "accepted"}, row | {column: bad, "marker": "excluded"}])
+    original = frame.copy(deep=True)
+    snapshot.prices = frame
+    snapshot.latest_features = frame
+    snapshot.costs = frame
+    for result in (sandbox_store._bound_service_prices(snapshot, analysis, None),
+                   sandbox_store._bound_service_features(snapshot, analysis, None),
+                   sandbox_store._bound_optional_frame(snapshot, "costs", analysis, None)):
+        assert list(result.marker) == ["accepted"]
+    pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("name", ["costs", "cashflows", "decisions", "tax_lots"])
+@pytest.mark.parametrize("identity", [{"account_id": "B"}, {"portfolio_id": "PB"}, {"account_id": None}, {"portfolio_id": ""}, {"account_id": ["A"]}])
+def test_sandbox_optional_financial_rows_require_matching_explicit_ownership(name, identity):
+    snapshot = _snapshot()
+    snapshot.account_id, snapshot.portfolio_id = "A", "PA"
+    analysis = SimpleNamespace(snapshot_binding=sandbox_store.portfolio_snapshot_binding(snapshot))
+    row = {"account_id": "A", "portfolio_id": "PA", "date": "2026-07-10", "known_at": "2026-07-11T00:00:00Z"}
+    frame = pd.DataFrame([row | {"marker": "accepted"}, row | identity | {"marker": "excluded"}])
+    frame.attrs["sandbox_binding_warning"] = "UNTRUSTED-ANNOTATION"
+    original = frame.copy(deep=True)
+    setattr(snapshot, name, frame)
+    result = sandbox_store._bound_optional_frame(snapshot, name, analysis, None)
+    assert list(result.marker) == ["accepted"]
+    assert "ownership" in result.attrs["sandbox_binding_warning"]
+    assert "UNTRUSTED-ANNOTATION" not in str(result.attrs)
+    pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("name", ["costs", "cashflows", "decisions", "tax_lots"])
+def test_sandbox_explicit_snapshot_does_not_invent_optional_frame_ownership(name):
+    snapshot = _snapshot()
+    setattr(snapshot, name, pd.DataFrame({"date": ["2026-07-10"], "amount": [1.0]}))
+    legacy_analysis = SimpleNamespace(snapshot_binding=sandbox_store.portfolio_snapshot_binding(snapshot))
+    assert len(sandbox_store._bound_optional_frame(snapshot, name, legacy_analysis, None)) == 1
+    snapshot.account_id, snapshot.portfolio_id = "A", "PA"
+    scoped_analysis = SimpleNamespace(snapshot_binding=sandbox_store.portfolio_snapshot_binding(snapshot))
+    result = sandbox_store._bound_optional_frame(snapshot, name, scoped_analysis, None)
+    assert result.empty
+    assert "ownership cannot be established" in result.attrs["sandbox_binding_warning"]
+
+
+@pytest.mark.parametrize("patch", [{"account_id": "B"}, {"portfolio_id": None}, {"known_at": "2027-01-01"}, {"available_at": None}, {"ingested_at": "malformed"}])
+def test_sandbox_invalid_holdings_fail_before_financial_analysis(monkeypatch, patch):
+    snapshot = _snapshot()
+    snapshot.account_id, snapshot.portfolio_id = "A", "PA"
+    snapshot.holdings = snapshot.holdings.assign(account_id="A", portfolio_id="PA")
+    for key, value in patch.items():
+        snapshot.holdings[key] = value
+    def unexpected(*args, **kwargs):
+        pytest.fail("Invalid selected holdings must not reach financial calculations")
+    monkeypatch.setattr(sandbox_store, "analyse_candidate", unexpected)
+    with pytest.raises(ValueError, match="holdings account/portfolio or knowledge binding"):
+        _candidate(snapshot)
+
+
+def test_sandbox_account_and_temporal_scope_reaches_canonical_services(monkeypatch):
+    snapshot = _snapshot()
+    snapshot.account_id, snapshot.portfolio_id = "A", "PA"
+    snapshot.prices = pd.DataFrame([{"etf_id": identifier, "date": f"2026-07-{day:02}", "adjusted_close": 100.0 + day,
+                                    "available_at": "2026-07-12T00:00:00Z"}
+                                   for identifier in ("VWCE", "LYP6") for day in (9, 10, 11)])
+    row = {"account_id": "A", "portfolio_id": "PA", "date": "2026-07-10", "instrument_id": "VWCE", "amount": 1.0,
+           "known_at": "2026-07-11T00:00:00Z", "available_at": "2026-07-11T00:00:00Z", "ingested_at": "2026-07-11T00:00:00Z"}
+    for name in ("tax_lots", "costs", "cashflows", "decisions"):
+        setattr(snapshot, name, pd.DataFrame([row | {"marker": "accepted"}, row | {"account_id": "B", "portfolio_id": "PB", "marker": "foreign"},
+                                            row | {"ingested_at": "2027-01-01", "marker": "future"}]))
+    originals = {name: getattr(snapshot, name).copy(deep=True) for name in ("holdings", "prices", "tax_lots", "costs", "cashflows", "decisions")}
+    received = {}
+    real_rebalance = sandbox_store.build_rebalance_report
+    real_attribution = sandbox_store.build_performance_attribution
+    def rebalance(*args, **kwargs):
+        received["tax_lots"] = kwargs["tax_lots"].copy(deep=True)
+        return real_rebalance(*args, **kwargs)
+    def attribution(*args, **kwargs):
+        received.update({name: kwargs[name].copy(deep=True) for name in ("costs", "cashflows", "decisions")})
+        return real_attribution(*args, **kwargs)
+    monkeypatch.setattr(sandbox_store, "build_rebalance_report", rebalance)
+    monkeypatch.setattr(sandbox_store, "build_performance_attribution", attribution)
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+    assert set(received) == {"tax_lots", "costs", "cashflows", "decisions"}
+    assert all(list(frame.marker) == ["accepted"] for frame in received.values())
+    assert analysis.service_evidence["execution_allowed"] is False
+    assert any("ownership" in warning for warning in analysis.service_evidence["attribution"]["warnings"])
+    assert any("ingested_at" in warning for warning in analysis.service_evidence["rebalancing"]["warnings"])
+    for name, original in originals.items():
+        pd.testing.assert_frame_equal(getattr(snapshot, name), original)
+
+
+def test_sandbox_knowledge_cutoff_intersects_reference_and_date_precision():
+    snapshot = _snapshot()
+    binding = sandbox_store.portfolio_snapshot_binding(snapshot)
+    reference = SimpleNamespace(resolution=SimpleNamespace(declaration=SimpleNamespace(decision_time="2026-07-11T12:00:00Z")))
+    cutoff = sandbox_store._reference_cutoff(reference, binding)
+    frame = pd.DataFrame({"known_at": ["2026-07-11T11:00:00Z", "2026-07-11", "2026-07-11T13:00:00Z"], "marker": ["accepted", "date-only", "later"]})
+    assert list(sandbox_store._filter_knowledge_columns(frame, cutoff).marker) == ["accepted"]
+
+
+@pytest.mark.parametrize("dates", [("2026-07-01", "2026-07-02", "2026-07-05", "2026-07-06"), ("2026-07-01", "2026-07-02", "2026-07-01", "2026-07-02")])
+def test_covariance_services_reject_insufficient_joint_observations(monkeypatch, dates):
+    snapshot = _snapshot()
+    snapshot.prices = pd.DataFrame([{"date": date, "etf_id": identifier, "adjusted_close": price}
+        for identifier, pair in (("VWCE", dates[:2]), ("LYP6", dates[2:]))
+        for date, price in zip(pair, (100.0, 101.0), strict=True)])
+    def unexpected(*args, **kwargs):
+        pytest.fail("Insufficient joint observations must not reach covariance-dependent services")
+    for name in ("build_portfolio_optimiser", "build_factor_risk_report", "build_robust_risk_report"):
+        monkeypatch.setattr(sandbox_store, name, unexpected)
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+    for name in ("optimiser", "optimiser_comparison", "factor_risk", "risk"):
+        assert analysis.service_evidence[name]["status"] == "unavailable"
+        assert "insufficient_joint_adjusted_returns" in analysis.service_evidence[name]["reason"]
+    assert analysis.service_evidence["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("value", ["2026-07-11T11:00:00", pd.Timestamp("2026-07-11T11:00:00")])
+def test_naive_knowledge_cannot_pass_earlier_than_aware_cutoff(value):
+    frame = pd.DataFrame({"known_at": [value]})
+    result = sandbox_store._filter_knowledge_columns(frame, pd.Timestamp("2026-07-11T12:00:00Z"))
+    assert result.empty
+    assert "malformed knowledge" in result.attrs["sandbox_binding_warning"]
+
+
+@pytest.mark.parametrize("column", ["effective_at", "date", "as_of", "as_of_date", "trade_date", "transaction_date"])
+@pytest.mark.parametrize("bad", ["2027-01-01T00:00:00Z", "malformed", None])
+def test_every_optional_effective_alias_is_bounded_without_reference(column, bad):
+    snapshot = _snapshot()
+    analysis = SimpleNamespace(snapshot_binding=sandbox_store.portfolio_snapshot_binding(snapshot))
+    row = {"known_at": "2026-07-11T00:00:00Z", "date": "2026-07-11", "amount": 5.0}
+    snapshot.costs = pd.DataFrame([row | {column: bad}])
+    assert sandbox_store._bound_optional_frame(snapshot, "costs", analysis, None).empty
+
+
+def test_future_effective_cost_does_not_reach_attribution(monkeypatch):
+    snapshot = _snapshot()
+    snapshot.costs = pd.DataFrame({"effective_at": ["2027-01-01T00:00:00Z"], "known_at": ["2026-07-11T00:00:00Z"], "amount": [999.0]})
+    received = []
+    real = sandbox_store.build_performance_attribution
+    def attribution(*args, **kwargs):
+        received.append(kwargs["costs"])
+        return real(*args, **kwargs)
+    monkeypatch.setattr(sandbox_store, "build_performance_attribution", attribution)
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+    assert received and received[0].empty
+    assert any("effective_at" in warning for warning in analysis.service_evidence["attribution"]["warnings"])

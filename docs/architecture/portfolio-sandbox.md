@@ -47,10 +47,27 @@ capability bypass.
 Each result contains current/target weights, signed marginal weight effect,
 applicable constraint outcomes, explicit no-trade/inapplicable/blocked
 `why_not` reasons, before/after rows, direct/look-through holdings and source
-binding. Target weights are passed to the existing
-`PortfolioOptimiser.solve()`, `build_robust_risk_report()` and
-`estimate_rebalance_cost()` services. No optimiser, covariance, risk or cost
-calculation is duplicated in the UI.
+binding. The application attaches the selected holdings/reference binding
+before service composition. Target-based risk, factor, attribution and stress
+producers receive an adapter containing the candidate target weights; actual
+current weights remain separate for baselines and optimiser turnover limits.
+The existing optimiser comparison, factor-risk, robust-risk, rebalance,
+attribution and scenario producers retain their calculation authority. Prices
+and dated features use the resolved reference window and decision cutoff,
+and producers share the governed candidate universe. Missing positive-target
+prices, optional scenario inputs and unsupported mixed-asset rebalance cases
+remain explicit limitations, not invented zero exposure or available trades.
+No optimiser, covariance, risk or cost calculation is duplicated in the UI.
+
+Usable adjusted returns, not the presence of a price row, determine input
+coverage. Positive current exits remain part of optimiser turnover coverage;
+an unpriced exit cannot disappear from the constraint. A cash-only target does
+not invoke an equal-weight invested fallback. Benchmark prices remain available
+to attribution separately from the investable universe, and scenario coverage
+retains unsupported positive candidate exposure as an explicit limitation.
+The reference window is intersected with the snapshot cutoff (date-only
+snapshots include that complete day); dated optional features, costs, cashflows
+and decisions are also bounded by their effective and knowledge times.
 
 The result is stored separately as `portfolio_sandbox_result` so the saved
 `portfolio_sandbox.v1` candidate remains intent-only and backward compatible.
@@ -67,6 +84,14 @@ readable when an unconfigured instrument later leaves current holdings; its
 derived result becomes stale and is recomputed under current capability rules.
 Candidate and result records are read in one SQLite read snapshot, preventing
 a mixed-revision pair.
+
+Service evidence identity additionally binds the consumed feature, tax-lot,
+cost, cashflow, decision and scenario inputs, reference identity and holdings
+view. Changed inputs invalidate derived evidence rather than being confused
+with tampering of an unchanged saved result. DataFrame projections retain
+columns, row indexes and values so dates and covariance/exposure axes survive
+the existing result/export serialization boundary. No general persistence or
+publication mechanism is introduced.
 
 ## Proposal and execution boundary
 
@@ -86,3 +111,43 @@ analysing or exporting a sandbox candidate cannot mutate live portfolio state.
 Optimiser internals (ISSUE-0113), full ETF overlap/look-through (ISSUE-0022),
 order submission and the broader generic export registry are outside this
 boundary.
+
+
+### Snapshot input boundary
+
+Global adjusted prices and features retain compatibility with schemas that omit
+account and knowledge columns. Every supplied `known_at`, `available_at`,
+`imported_at` and `ingested_at` value must independently be valid and no later
+than the intersected snapshot/reference cutoff; date-only knowledge becomes
+eligible at end of day. A first valid column cannot mask another missing,
+malformed or future knowledge claim. Input frames are copied, never rewritten.
+
+Holdings are the required selected snapshot exposure: supplied account/portfolio
+columns and knowledge claims are validated before candidate/analysis construction.
+Contradictory holdings fail explicitly rather than being deleted and relabelled as
+cash. Optional costs, cashflows, decisions and tax lots are different: explicit
+account/portfolio snapshots require both identity columns on these dynamic frames.
+Absent ownership is unavailable, not inferred from placement on the snapshot.
+Mismatched or unknown rows are excluded before canonical service calls, with
+binding warnings and partial/unavailable service evidence. The legacy default
+single-snapshot contract permits absent optional identity columns; any supplied
+identity is still binding. Tax lots share the same scope and temporal adapter as
+other optional financial inputs. No live ledger or financial formula is changed.
+
+
+The service adapter requires at least two complete joint adjusted-return
+observations across the supplied investable universe before calling covariance,
+factor-risk or optimiser services. Disjoint histories and a single common return
+produce explicit unavailable evidence; producer fallback cannot invent zero risk.
+All supported optional effective aliases (`effective_at`, `date`, `as_of`,
+`as_of_date`, `trade_date`, `transaction_date`) are checked even without a resolved
+reference. Naive datetime knowledge is unknown and rejected; date-only knowledge
+retains the declared UTC end-of-day rule. Retrieved/published knowledge aliases
+are checked alongside availability and ingestion claims.
+
+The portfolio results UI displays canonical optimiser methods and baselines,
+weights, risk contributions and covariance axes, scenarios and attribution in
+bounded maintained-state disclosures. Every disclosed row remains reachable;
+wide matrices scroll horizontally. Ownership/chronology warnings and unavailable
+reasons remain visible outside the disclosures. Presentation performs no financial
+calculations.
