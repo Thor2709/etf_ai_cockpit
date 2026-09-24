@@ -4,22 +4,22 @@
   "allowed_status_transitions": [
     {
       "from": "implemented_initially",
-      "issue_id": "ISSUE-0019",
+      "issue_id": "ISSUE-0024",
       "to": "integrated"
     }
   ],
-  "base_commit": "b17f33e48e3e3b3664452fa597706f99e290dade",
-  "branch": "codex/post-pr747-20260914",
+  "base_commit": "8b34fb3af07d2fa90b075c304d15dfe2ddf47701",
+  "branch": "claude/issue0024-lifecycle-20260924",
   "issue_ids": [
-    "ISSUE-0019"
+    "ISSUE-0024"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "d40f751c22222ab3a7c593d9e9246331b33c274c8f5fedcca0a253d0bcaba5fb",
+    "base_registry_sha256": "5ae449c6874598d752937946db33672285b63c41ae38bf04e6fb883497bdeec2",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "5ae449c6874598d752937946db33672285b63c41ae38bf04e6fb883497bdeec2",
-    "reason": "Integrate only ISSUE-0019 from implemented_initially to integrated after merged product PRs #732, #744, #745 and #747, exact-head independent review and risk review, fresh H-tier Linux/Windows packaged evidence, and refreshed clean-runtime browser acceptance; preserve dependencies, GitHub issue #23 open state, external authority and execution_allowed=false.",
+    "proposed_registry_sha256": "e19a21212d4695e98f7c7412ef31c25ca257125111c867325f1791b4e9bc786a",
+    "reason": "Integrate only ISSUE-0024 from implemented_initially to integrated after merged product PRs #678 and #751, exact-head H-tier Linux/Windows packaged evidence (run 36029387022) and owner-authorised Claude Code root self-review in place of Codex V2 reviewer/risk-reviewer; preserve dependencies, GitHub issue #28 open state, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

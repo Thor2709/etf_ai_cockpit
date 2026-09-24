@@ -3,7 +3,7 @@
   "outputs": [
     {
       "path": ".github/status-transition-guard-manifest.json",
-      "sha256": "950a0aebf45903838b933944a493647434eed27c4a1df262a59e92a0b3a1005a"
+      "sha256": "27757dde4d30931b4758efea1b7dc1be239a72da54cbeb5eb62ffc18a0fb9925"
     },
     {
       "path": "CHANGELOG.md",
@@ -15,7 +15,7 @@
     },
     {
       "path": "docs/product-completion/CURRENT_STATUS.json",
-      "sha256": "47a094caccdee4b764492b3106d8a31ddba590853c2ef72ddb7e3a0ba981b7c1"
+      "sha256": "3ea766267c238d295b154cb005a4834a57422dab20559468b2317b414d1fb549"
     },
     {
       "path": "docs/product-completion/DELIVERY_WORKFLOW.md",
@@ -23,7 +23,7 @@
     },
     {
       "path": "docs/product-completion/PROGRESS.md",
-      "sha256": "0c2d24ad6f084c54cefb2c7b0a54ddb8897ed905acb67d56e7950b4e5f8f0afc"
+      "sha256": "7325d76e0bfe3a1e2ca5b2cce1f146c248006be2a05715a83a06ace9c3703058"
     },
     {
       "path": "docs/product-completion/programme/git-workflow.md",
@@ -35,7 +35,7 @@
     },
     {
       "path": "docs/product-completion/programme/phases/phase-01-governance-scope.md",
-      "sha256": "4b8d2d664fab7fae1d9b067cfa582cdb9f9e73575c90f8f6aadd3dd0cea12bd3"
+      "sha256": "32122243a6d19d1458bc484a05097fc5e83c0846b6418bef5a938b850832c3e1"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-02-data-policy-identity.md",
@@ -83,11 +83,11 @@
     },
     {
       "path": "docs/product-completion/programme/readiness.json",
-      "sha256": "18f604530ec9f721d185552f60e5b6202bc1f1d119593acb97c4beb0d8a656b6"
+      "sha256": "6c5b32d45eb3c22e10cdf5f917e9324f82184eddd55e568f7bd90f492eb0dc20"
     },
     {
       "path": "docs/product-completion/programme/roadmap.md",
-      "sha256": "740e710aba752dbb4f97e2e2137ab0867ef29cc28683c975dde32fb7cb1689b3"
+      "sha256": "c2a0e647817f78b003b6bb573922126db95f868040ea57fb3235523cf892b37b"
     },
     {
       "path": "docs/product-completion/programme/test-and-performance-strategy.md",
@@ -147,11 +147,11 @@
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/source-to-canonical.csv",
-      "sha256": "9d42a706d49ac98bec88062418be2cc94a68c979f66a341b450b5dae63b4e228"
+      "sha256": "1cc620e699074dbd5f47c3adbf93d9156bf67b2e6f587f7957ae87ed978b7c8d"
     },
     {
       "path": "issues/issue_registry.json",
-      "sha256": "5ae449c6874598d752937946db33672285b63c41ae38bf04e6fb883497bdeec2"
+      "sha256": "e19a21212d4695e98f7c7412ef31c25ca257125111c867325f1791b4e9bc786a"
     },
     {
       "path": "issues/open.md",
@@ -159,7 +159,7 @@
     },
     {
       "path": "issues/programme_control_state.json",
-      "sha256": "8f15a59651beebfd4fe5ec146b21d281745317a540ea5d1f334c205f073edab3"
+      "sha256": "569500d7ef43b17181e6ccb7fdf107a0482a391fdbbbc48c6fbf8fab846e9b96"
     }
   ],
   "schema_version": "programme-generation.v1"

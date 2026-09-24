@@ -62,7 +62,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0018` | `P0/P1` | `integrated` | `programme-governance` | - | - | `ISSUE-0165` | `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0126`, `UPDATEV2-0011` |
 | `ISSUE-0019` | `P0/P1` | `integrated` | `programme-governance` | - | - | - | `ISSUE-0091`, `ISSUE-0116`, `ISSUE-0138` |
 | `ISSUE-0021` | `P1` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0113`, `ISSUE-0116` | `ISSUE-0110`, `ISSUE-0116`, `ISSUE-0130` |
-| `ISSUE-0024` | `P1/P2` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0163` | `ISSUE-0073`, `ISSUE-0084`, `ISSUE-0085`, `ISSUE-0130` |
+| `ISSUE-0024` | `P1/P2` | `integrated` | `programme-governance` | - | - | `ISSUE-0163` | `ISSUE-0073`, `ISSUE-0084`, `ISSUE-0085`, `ISSUE-0130` |
 | `ISSUE-0026` | `P1/P2` | `implemented_initially` | `programme-governance` | - | - | - | `ISSUE-0073`, `ISSUE-0088`, `ISSUE-0115` |
 | `ISSUE-0027` | `P1` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0117` | `ISSUE-0117`, `ISSUE-0124`, `ISSUE-0139` |
 | `ISSUE-0033` | `P2` | `planned` | `programme-governance` | - | - | - | `ISSUE-0024`, `ISSUE-0077`, `ISSUE-0132`, `ISSUE-0135` |
