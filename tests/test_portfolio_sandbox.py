@@ -2273,10 +2273,10 @@ def test_covariance_services_reject_insufficient_joint_observations(monkeypatch,
         for date, price in zip(pair, (100.0, 101.0), strict=True)])
     def unexpected(*args, **kwargs):
         pytest.fail("Insufficient joint observations must not reach covariance-dependent services")
-    for name in ("build_portfolio_optimiser", "build_factor_risk_report", "build_robust_risk_report"):
+    for name in ("build_portfolio_optimiser", "build_factor_risk_report", "build_robust_risk_report", "return_correlation_matrix"):
         monkeypatch.setattr(sandbox_store, name, unexpected)
     analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
-    for name in ("optimiser", "optimiser_comparison", "factor_risk", "risk"):
+    for name in ("optimiser", "optimiser_comparison", "factor_risk", "risk", "correlation"):
         assert analysis.service_evidence[name]["status"] == "unavailable"
         assert "insufficient_joint_adjusted_returns" in analysis.service_evidence[name]["reason"]
     assert analysis.service_evidence["execution_allowed"] is False
@@ -2312,3 +2312,40 @@ def test_future_effective_cost_does_not_reach_attribution(monkeypatch):
     analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
     assert received and received[0].empty
     assert any("effective_at" in warning for warning in analysis.service_evidence["attribution"]["warnings"])
+
+
+def test_sandbox_correlation_matrix_uses_canonical_service_on_bound_target_universe() -> None:
+    from etf_cockpit.portfolio.risk_analytics import return_correlation_matrix
+
+    snapshot = _snapshot()
+    snapshot.prices = pd.DataFrame(
+        [
+            {"date": (pd.Timestamp("2026-04-01") + pd.Timedelta(days=day)).date().isoformat(), "etf_id": instrument_id,
+             "adjusted_close": base + day * step + (day % 3) * wiggle}
+            for day in range(1, 75)
+            for instrument_id, base, step, wiggle in (("VWCE", 100.0, 1.0, 0.5), ("LYP6", 80.0, 0.4, -0.3), ("SPYK", 60.0, 2.0, 0.2))
+        ]
+    )
+    analysis = analyse_portfolio_candidate(snapshot, _candidate(snapshot))
+    correlation = analysis.service_evidence["correlation"]
+    expected = return_correlation_matrix(snapshot.prices, ["LYP6", "VWCE"], window=120)
+
+    assert correlation["status"] == "available"
+    assert correlation["model_id"] == "risk_analytics.return_correlation_matrix"
+    assert correlation["matrix"]["index"] == ["LYP6", "VWCE"] == correlation["matrix"]["columns"]
+    assert correlation["matrix"]["data"][0][0] == pytest.approx(1.0)
+    assert correlation["matrix"]["data"][0][1] == pytest.approx(expected.loc["LYP6", "VWCE"])
+    assert all(-1.0 <= value <= 1.0 for row in correlation["matrix"]["data"] for value in row)
+    assert correlation["execution_allowed"] is False
+
+
+def test_sandbox_correlation_matrix_with_one_priced_target_is_unavailable_not_zero() -> None:
+    snapshot = _snapshot()
+    snapshot.prices = pd.DataFrame(
+        [{"date": f"2026-07-{day:02d}", "etf_id": "VWCE", "adjusted_close": 100.0 + day} for day in range(1, 10)]
+    )
+    correlation = analyse_portfolio_candidate(snapshot, _candidate(snapshot)).service_evidence["correlation"]
+
+    assert correlation["status"] == "unavailable"
+    assert "matrix" not in correlation
+    assert any("LYP6" in warning for warning in correlation["warnings"])

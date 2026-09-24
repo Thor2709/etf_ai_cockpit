@@ -55,6 +55,7 @@ from etf_cockpit.portfolio.optimiser import OptimiserConstraints
 from etf_cockpit.portfolio.optimiser import METHODS as OPTIMISER_METHODS
 from etf_cockpit.portfolio.optimiser import returns_from_adjusted_prices
 from etf_cockpit.portfolio.rebalancing import RebalanceConstraints, build_rebalance_report
+from etf_cockpit.portfolio.risk_analytics import return_correlation_matrix
 from etf_cockpit.portfolio.robust_risk import build_robust_risk_report
 from etf_cockpit.portfolio.stress_testing import StressScenario, StressScenarioError, run_stress_scenario
 from etf_cockpit.governance.capability_scope import InstrumentDescriptor, resolve_instrument_capability
@@ -979,6 +980,7 @@ def _service_evidence(
         "rebalancing": _unavailable_service("rebalance inputs unavailable"),
         "scenarios": _unavailable_service("no explicit scenario is bound to this snapshot"),
         "attribution": _unavailable_service("adjusted-price returns unavailable"),
+        "correlation": _unavailable_service("adjusted-price returns unavailable"),
     }
 
     # Factor risk is a direct input to robust covariance.  Use the complete
@@ -1104,6 +1106,32 @@ def _service_evidence(
     except (ArithmeticError, KeyError, TypeError, ValueError):
         evidence["risk"] = _add_missing_price_evidence(_unavailable_service(joint_reason or "robust risk service evidence unavailable"), missing_target_ids)
 
+    # Same canonical correlation service and window as the Risk page, applied
+    # to the bound point-in-time target universe.  An incomplete matrix is
+    # unavailable evidence, never a displayed zero correlation.
+    correlation_ids = sorted(identifier for identifier, weight in target_weights.items() if weight > 0 and identifier in usable_ids)
+    try:
+        if joint_reason:
+            raise ValueError(joint_reason)
+        if len(correlation_ids) < 2:
+            raise ValueError("at least two invested target instruments with usable adjusted returns are required")
+        matrix = return_correlation_matrix(prices, correlation_ids, window=CORRELATION_WINDOW)
+        if matrix.empty or matrix.isna().to_numpy().any():
+            raise ValueError("canonical correlation service reported insufficient joint adjusted returns")
+        evidence["correlation"] = _add_missing_price_evidence(
+            {
+                "status": "available",
+                "model_id": "risk_analytics.return_correlation_matrix",
+                "window": CORRELATION_WINDOW,
+                "matrix": _projection_value(matrix),
+                "limitations": ["Log-return correlation over the latest joint observations; zero-variance instruments are reported as 0 by the canonical service."],
+                "execution_allowed": False,
+            },
+            missing_target_ids,
+        )
+    except (ArithmeticError, KeyError, TypeError, ValueError) as exc:
+        evidence["correlation"] = _add_missing_price_evidence(_unavailable_service(str(exc) or "correlation service evidence unavailable"), missing_target_ids)
+
     inapplicable = rebalance_inapplicable_instruments(
         snapshot, _bound_holdings(snapshot, analysis), set(target_weights)
     )
@@ -1173,6 +1201,9 @@ def _service_evidence(
     )
     evidence["execution_allowed"] = False
     return evidence
+
+
+CORRELATION_WINDOW = 120
 
 
 def _unavailable_service(reason: str) -> dict[str, object]:
