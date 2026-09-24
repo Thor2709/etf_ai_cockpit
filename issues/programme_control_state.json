@@ -771,17 +771,47 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0024": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #678 https://github.com/Thor2709/etf_ai_cockpit/pull/678; calendar product head 89634f179eb947d4f0af8685cf4ef025685dd618; merge 4f7082d06d1695158d8998563dc083e86fe5e364 (ancestor of main): availability-aware earnings, dividend, split/corporate-action, filing, guidance, fund-rebalance, index-change, review-date and high-risk events with timezone, source, precision and decision-time availability, shown in Instrument Detail and News & Context with explicit unavailable/malformed/conflict states.",
+            "PR #751 https://github.com/Thor2709/etf_ai_cockpit/pull/751; exact product head ccb4f2c85c07dce0effec068fa4c4f87dea4ede0; merge 8b34fb3af07d2fa90b075c304d15dfe2ddf47701; exact-head release run 36029387022: classifier, preflight, supply-chain, Linux and Windows packaged gates and validation-summary successful. Adds opt-in checksummed EventBlockPolicy preview blackout for proposal/paper-order previews; context_only by default; execution_allowed=false.",
+            "Acceptance tests: tests/test_event_calendar.py (event parsing/validation, missing and malformed ledgers, point-in-time availability, both UI surfaces), tests/test_event_controls.py, tests/test_proposal_policy.py, tests/test_operations_workspace.py; 204 focused cases passed locally on the lane before the gate.",
+            "Context-only authority recorded in docs/architecture/event-calendar.md and docs/architecture/proposal-policy.md (plan.md is an immutable historical pointer since 2026-09-08); event data never grants score, signal, order or execution authority."
+          ],
+          "review_reference": "Exact product head ccb4f2c85c07dce0effec068fa4c4f87dea4ede0: Claude Code (claude-opus-5-5) root self-review, owner-authorised on 2026-09-24 to take over the Codex lane; no Codex V2 reviewer/risk-reviewer verdict exists for this head. Self-review found and fixed a naive as_of regression (b88a9ce0) and a presentation-boundary import violation (ccb4f2c8); exact-head H-tier release run 36029387022 passed.",
+          "reviewed_date": "2026-09-24",
+          "reviewer": "Claude Code root orchestrator self-review (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-01-governance-scope",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "Exact product head ccb4f2c85c07dce0effec068fa4c4f87dea4ede0: Claude Code (claude-opus-5-5) root self-review, owner-authorised on 2026-09-24 to take over the Codex lane; no Codex V2 reviewer/risk-reviewer verdict exists for this head. Self-review found and fixed a naive as_of regression (b88a9ce0) and a presentation-boundary import violation (ccb4f2c8); exact-head H-tier release run 36029387022 passed.",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #678 https://github.com/Thor2709/etf_ai_cockpit/pull/678; calendar product head 89634f179eb947d4f0af8685cf4ef025685dd618; merge 4f7082d06d1695158d8998563dc083e86fe5e364 (ancestor of main): availability-aware earnings, dividend, split/corporate-action, filing, guidance, fund-rebalance, index-change, review-date and high-risk events with timezone, source, precision and decision-time availability, shown in Instrument Detail and News & Context with explicit unavailable/malformed/conflict states.",
+            "PR #751 https://github.com/Thor2709/etf_ai_cockpit/pull/751; exact product head ccb4f2c85c07dce0effec068fa4c4f87dea4ede0; merge 8b34fb3af07d2fa90b075c304d15dfe2ddf47701; exact-head release run 36029387022: classifier, preflight, supply-chain, Linux and Windows packaged gates and validation-summary successful. Adds opt-in checksummed EventBlockPolicy preview blackout for proposal/paper-order previews; context_only by default; execution_allowed=false.",
+            "Acceptance tests: tests/test_event_calendar.py (event parsing/validation, missing and malformed ledgers, point-in-time availability, both UI surfaces), tests/test_event_controls.py, tests/test_proposal_policy.py, tests/test_operations_workspace.py; 204 focused cases passed locally on the lane before the gate.",
+            "Context-only authority recorded in docs/architecture/event-calendar.md and docs/architecture/proposal-policy.md (plan.md is an immutable historical pointer since 2026-09-08); event data never grants score, signal, order or execution authority."
+          ],
+          "from": "implemented_initially",
+          "review_reference": "Exact product head ccb4f2c85c07dce0effec068fa4c4f87dea4ede0: Claude Code (claude-opus-5-5) root self-review, owner-authorised on 2026-09-24 to take over the Codex lane; no Codex V2 reviewer/risk-reviewer verdict exists for this head. Self-review found and fixed a naive as_of regression (b88a9ce0) and a presentation-boundary import violation (ccb4f2c8); exact-head H-tier release run 36029387022 passed.",
+          "reviewed_date": "2026-09-24",
+          "reviewer": "Claude Code root orchestrator self-review (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "to": "integrated",
+          "verified_commit": "ccb4f2c85c07dce0effec068fa4c4f87dea4ede0"
+        }
+      ],
+      "verified_commit": "ccb4f2c85c07dce0effec068fa4c4f87dea4ede0",
+      "verified_date": "2026-09-24"
     },
     "ISSUE-0025": {
       "acceptance_evidence": [],
