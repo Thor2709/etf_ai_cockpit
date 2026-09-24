@@ -248,7 +248,7 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
                     wrap=True,
                 ),
                 _sanity_warning_text(item),
-                _score_history_panel(item, history_rows),
+                _score_history_panel(item, history_rows, persistence_warning=getattr(state, "score_history_warning", None)),
                 ft.Text(item.strategy_template_descriptions, color=theme.MUTED, size=11),
                 ft.Column([_component_row(component) for component in item.components], spacing=6),
             ],
@@ -328,12 +328,32 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
     )
 
 
-def _score_history_panel(item: SimpleInstrumentScore, history_rows: list[dict[str, object]]) -> ft.Control:
+def _score_history_panel(
+    item: SimpleInstrumentScore,
+    history_rows: list[dict[str, object]],
+    *,
+    persistence_warning: str | None = None,
+) -> ft.Control:
     valid_rows = [
         row
         for row in history_rows
         if _history_score(row) is not None
     ]
+    if persistence_warning:
+        # A failed history write must not look like a genuine first run.
+        stored = f" {len(valid_rows)} earlier stored point(s) do not include this run." if valid_rows else ""
+        return ft.Container(
+            bgcolor=theme.SURFACE_2,
+            border_radius=6,
+            padding=10,
+            content=ft.Column(
+                [
+                    ft.Text("Score history unavailable", color=theme.AMBER, size=12, weight=ft.FontWeight.BOLD),
+                    ft.Text(f"{persistence_warning}{stored}", color=theme.MUTED, size=11),
+                ],
+                spacing=4,
+            ),
+        )
     if not valid_rows:
         return ft.Container(
             bgcolor=theme.SURFACE_2,
