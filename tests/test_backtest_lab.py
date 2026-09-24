@@ -1171,19 +1171,11 @@ def test_backtest_signal_replay_is_nonpublishing_and_deterministically_timestamp
     }
 
     report = run_backtest(config, prices, rebalance_frequency_days=42)
-    class Store:
-        def close(self) -> None:
-            pass
-
-    monkeypatch.setattr(
-        services,
-        "_open_backtest_calendar_identity_resolver",
-        lambda: (
-            Store(),
-            lambda instrument_id, _timestamp: identities[instrument_id],
-        ),
+    replay = services._run_backtest_compatibly(
+        config,
+        prices,
+        calendar_identity_resolver=lambda instrument_id, _timestamp: identities[instrument_id],
     )
-    replay = services._replay_backtest_for_cache(config, prices, {})
 
     assert isinstance(report, BacktestReport)
     assert isinstance(replay, BacktestReport)
@@ -1470,8 +1462,8 @@ def test_backtest_resolves_canonical_identity_at_aware_signal_close() -> None:
     assert report.operational_evidence["evidence_status"].eq("available").any()
 
 
-def test_cached_operational_replay_normalises_only_producer_dates() -> None:
-    replayed = [
+def test_cached_operational_rows_normalise_only_producer_dates() -> None:
+    produced = [
         {
             "signal_date": date(2026, 6, 1),
             "execution_date": date(2026, 6, 2),
@@ -1488,15 +1480,47 @@ def test_cached_operational_replay_normalises_only_producer_dates() -> None:
         }
     ]
 
-    assert services._operational_evidence_rows_match_replay(persisted, replayed)
-    assert not services._operational_evidence_rows_match_replay(
-        persisted,
-        [{**replayed[0], "execution_delay_sessions": True}],
-    )
-    assert not services._operational_evidence_rows_match_replay(
-        persisted,
-        [replayed[0], replayed[0]],
-    )
+    assert services._normalise_operational_evidence_rows(produced) == persisted
+    assert services._normalise_operational_evidence_rows(persisted) == persisted
+    assert services._normalise_operational_evidence_rows([{1: "non-string key"}]) is None
+    assert services._normalise_operational_evidence_rows({"rows": persisted}) is None
+    assert services._normalise_operational_evidence_rows(["not-a-row"]) is None
+
+
+def test_operational_evidence_input_binding_tracks_every_non_price_input(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.data.local_storage import storage_layout
+
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    corrections = config_dir / "market_calendar_corrections.yaml"
+    corrections.write_text("corrections: []\n", encoding="utf-8")
+    identity_path = tmp_path / "root" / "data" / "reference" / "identity.parquet"
+    monkeypatch.setattr(services, "CONFIG_DIR", config_dir)
+    monkeypatch.setattr(services, "IDENTITY_PATH", identity_path)
+    store = storage_layout(identity_path.parents[2]).transactional_path
+    config = load_config()
+
+    baseline = services._operational_evidence_input_binding(config)
+    assert isinstance(baseline, str) and len(baseline) == 64
+    assert services._operational_evidence_input_binding(config) == baseline
+
+    corrections.write_text("corrections: [changed]\n", encoding="utf-8")
+    changed_calendar = services._operational_evidence_input_binding(config)
+    assert changed_calendar != baseline
+
+    store.parent.mkdir(parents=True, exist_ok=True)
+    store.write_bytes(b"store-v1")
+    with_store = services._operational_evidence_input_binding(config)
+    assert with_store != changed_calendar
+    Path(f"{store}-wal").write_bytes(b"uncheckpointed")
+    with_wal = services._operational_evidence_input_binding(config)
+    assert with_wal != with_store
+    Path(f"{store}-shm").write_bytes(b"index-only")
+    assert services._operational_evidence_input_binding(config) == with_wal
+
+    cost_model = config.costs.cost_model.model_copy(update={"open_gap_warning_threshold": 0.05})
+    changed_costs = config.model_copy(update={"costs": config.costs.model_copy(update={"cost_model": cost_model})})
+    assert services._operational_evidence_input_binding(changed_costs) != with_wal
 
 
 def test_sample_calendar_identity_config_rejects_non_mapping_yaml(
@@ -1617,13 +1641,6 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     service = services.BacktestService(config, universe_revision="test-revision")
 
     generated = service.run_backtest()
-    # This test owns persistence/type round-trip behavior. Dedicated replay
-    # adversarial tests exercise independent full derivation.
-    monkeypatch.setattr(
-        services,
-        "_replay_backtest_for_cache",
-        lambda *_args, **_kwargs: generated,
-    )
     monkeypatch.setattr(
         services,
         "structure_confidence_caps",
@@ -1670,38 +1687,11 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     assert service._load_cached_backtest() is None
     metadata_path.write_bytes(original_metadata)
 
-    for field, forged_value in (
-        ("strategy", "forged_strategy"),
-        ("signal_timestamp", "2000-01-01T00:00:00+00:00"),
-        ("execution_timestamp", "2000-01-02T00:00:00+00:00"),
-        ("cost_spread_assumption_bps", 123.0),
-        ("cost_spread_assumption_source", "forged-cost-source"),
-        ("estimated_cost_bps", 456.0),
-        ("estimated_cost_bps_source", "forged-estimated-cost-source"),
-    ):
-        forged_metadata = json.loads(original_metadata)
-        forged_row = next(
-            item
-            for item in forged_metadata["operational_evidence_rows"]
-            if item["evidence_status"] == "available"
-        )
-        forged_row[field] = forged_value
-        write_metadata(forged_metadata)
-        assert service._load_cached_backtest() is None
-
-    downgraded_metadata = json.loads(original_metadata)
-    downgraded_row = next(
-        item
-        for item in downgraded_metadata["operational_evidence_rows"]
-        if item["evidence_status"] == "available"
-    )
-    downgraded_row["evidence_status"] = "unavailable"
-    downgraded_row["decision_price"] = 999_999.0
-    write_metadata(downgraded_metadata)
-    assert service._load_cached_backtest() is None
-    metadata_path.write_bytes(original_metadata)
-    metadata_sidecar_path.write_bytes(original_metadata_sidecar)
-
+    # Owner decision 2026-09-25 (option B): cached operational rows are bound
+    # to their inputs instead of being re-derived by a full backtest replay on
+    # every read.  A forged row with a recomputed sidecar is outside the
+    # local-first threat model and is accepted by the cache, but the display
+    # boundary still refuses a row whose calendar lineage does not verify.
     forged_metadata = json.loads(original_metadata)
     forged_row = next(
         item
@@ -1709,12 +1699,13 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
         if item["evidence_status"] == "available"
     )
     forged_row["calendar_session_lineage_hash"] = "f" * 64
-    forged_payload = json.dumps(forged_metadata).encode("utf-8")
-    forged_sidecar = json.loads(original_metadata_sidecar)
-    forged_sidecar["payload_sha256"] = hashlib.sha256(forged_payload).hexdigest()
-    metadata_path.write_bytes(forged_payload)
-    metadata_sidecar_path.write_text(json.dumps(forged_sidecar), encoding="utf-8")
-    assert service._load_cached_backtest() is None
+    write_metadata(forged_metadata)
+    forged_cache = service._load_cached_backtest()
+    assert forged_cache is not None
+    forged_panel = selector._operational_evidence_panel(forged_cache, str(forged_row["instrument_id"]))
+    assert forged_panel["status"] != "available" or all(
+        row.get("calendar_session_lineage_hash") != "f" * 64 for row in forged_panel["rows"]
+    )
     metadata_path.write_bytes(original_metadata)
     metadata_sidecar_path.write_bytes(original_metadata_sidecar)
 
@@ -1792,30 +1783,15 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     metadata_sidecar_path.write_bytes(original_metadata_sidecar)
     results_path.write_bytes(original_results)
     sidecar_path.write_bytes(original_sidecar)
-    empty_replay = BacktestReport(
-        results=generated.results,
-        equity_curves=generated.equity_curves,
-        trade_log=generated.trade_log,
-        signal_log=generated.signal_log,
-        ai_added_value=generated.ai_added_value,
-        quality_label=generated.quality_label,
-        quality_notes=generated.quality_notes,
-        metadata={**generated.metadata, "operational_evidence_rows": []},
-        quality_momentum_evidence=generated.quality_momentum_evidence,
-    )
     empty_metadata = json.loads(original_metadata)
     empty_metadata["operational_evidence_rows"] = []
     write_metadata(empty_metadata)
-    monkeypatch.setattr(
-        services,
-        "_replay_backtest_for_cache",
-        lambda *_args, **_kwargs: empty_replay,
-    )
     assert service._load_cached_backtest() is not None
+    # Any change to a non-price operational input makes the cache stale.
     monkeypatch.setattr(
         services,
-        "_replay_backtest_for_cache",
-        lambda *_args, **_kwargs: generated,
+        "_operational_evidence_input_binding",
+        lambda *_args, **_kwargs: "0" * 64,
     )
     assert service._load_cached_backtest() is None
 
@@ -1866,13 +1842,6 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
     service = services.BacktestService(config, universe_revision="test-revision")
 
     generated = service.run_backtest()
-    # Preserve the real persisted diagnostics while avoiding a second full
-    # backtest in this type-round-trip test; replay has separate coverage.
-    monkeypatch.setattr(
-        services,
-        "_replay_backtest_for_cache",
-        lambda *_args, **_kwargs: generated,
-    )
     counts = generated.results["high_volatility_loss_sessions"]
     assert counts.notna().any() and counts.isna().any()
     durations = generated.results["worst_drawdown_duration_days"]
@@ -1953,14 +1922,7 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
     )
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
     service = services.BacktestService(config, universe_revision="test-revision")
-    generated = service.run_backtest()
-    # This test isolates one atomic cache-file snapshot. Full operational
-    # evidence replay is validated independently.
-    monkeypatch.setattr(
-        services,
-        "_replay_backtest_for_cache",
-        lambda *_args, **_kwargs: generated,
-    )
+    service.run_backtest()
 
     real_read = services.read_atomic_group
     real_write = services.atomic_write_group

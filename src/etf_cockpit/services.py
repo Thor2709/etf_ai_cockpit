@@ -35,6 +35,7 @@ from etf_cockpit.core.atomic_io import (
 from etf_cockpit.core.logging import append_jsonl, configure_logging
 from etf_cockpit.core.paths import (
     BACKTESTS_DIR,
+    CONFIG_DIR,
     ETF_BENCHMARK_TOTAL_RETURN_PATH,
     ETF_FUND_TOTAL_RETURN_PATH,
     FORECASTS_DIR,
@@ -330,48 +331,41 @@ def _normalise_operational_evidence_rows(rows: object) -> list[dict[str, object]
     return normalised
 
 
-def _operational_evidence_rows_match_replay(
-    cached_rows: object, replayed_rows: object
-) -> bool:
-    cached = _normalise_operational_evidence_rows(cached_rows)
-    replayed = _normalise_operational_evidence_rows(replayed_rows)
-    if cached is None or replayed is None or len(cached) != len(replayed):
-        return False
-    try:
-        for cached_row, replayed_row in zip(cached, replayed, strict=True):
-            if set(cached_row) != set(replayed_row):
-                return False
-            for key in cached_row:
-                cached_value = cached_row[key]
-                replayed_value = replayed_row[key]
-                if type(cached_value) is not type(replayed_value) or cached_value != replayed_value:
-                    return False
-        return True
-    except (TypeError, ValueError):
-        return False
+OPERATIONAL_EVIDENCE_INPUT_BINDING_VERSION = "operational-evidence-inputs.v1"
 
 
-def _replay_backtest_for_cache(
-    config: AppConfig,
-    prices: pd.DataFrame,
-    runner_kwargs: Mapping[str, object],
-) -> BacktestReport | None:
-    identity_store: IdentityMasterStore | None = None
+def _operational_evidence_input_binding(config: AppConfig) -> str | None:
+    """Fingerprint every non-price input of persisted operational evidence.
+
+    Prices, settings and reference context are bound by the existing cache
+    checks.  Returns None when an input cannot be read, so no cache matches.
+    """
+
+    def digest(path: Path) -> str | None:
+        return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+
     try:
-        identity_store, calendar_identity_resolver = _open_backtest_calendar_identity_resolver()
-        if identity_store is None and calendar_identity_resolver is not None:
-            return None
-        replay_kwargs = dict(runner_kwargs)
-        replay_kwargs["calendar_identity_resolver"] = calendar_identity_resolver
-        report = _run_backtest_compatibly(config, prices, **replay_kwargs)
-        if not isinstance(report, BacktestReport) or not isinstance(report.metadata, dict):
-            return None
-        return report
-    except Exception:
+        identity_path = Path(IDENTITY_PATH).resolve()
+        identity_store: dict[str, str | None] | None = None
+        if len(identity_path.parents) >= 3:
+            source = storage_layout(identity_path.parents[2]).transactional_path
+            # The SQLite -shm index changes without data changes; the store
+            # file and any committed-but-uncheckpointed WAL/journal carry data.
+            identity_store = {
+                name: digest(Path(f"{source}{suffix}"))
+                for name, suffix in (("store", ""), ("wal", "-wal"), ("journal", "-journal"))
+            }
+        payload = {
+            "version": OPERATIONAL_EVIDENCE_INPUT_BINDING_VERSION,
+            "calendar_corrections": digest(CONFIG_DIR / "market_calendar_corrections.yaml"),
+            "identity_store": identity_store,
+            "cost_model": config.costs.cost_model.model_dump(mode="json"),
+        }
+    except OSError:
         return None
-    finally:
-        if identity_store is not None:
-            identity_store.close()
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
 
 
 def _open_backtest_calendar_identity_resolver() -> tuple[
@@ -2139,6 +2133,7 @@ class BacktestService:
             structure_evidence = _load_local_structural_evidence()
         except Exception:
             structure_evidence = None
+        operational_input_binding = _operational_evidence_input_binding(self.config)
         identity_store, calendar_identity_resolver = _open_backtest_calendar_identity_resolver()
         try:
             runner_kwargs = _backtest_runner_kwargs(
@@ -2159,6 +2154,7 @@ class BacktestService:
             # before publication, including older local runner seams.
             reference_binding = _reference_binding(reference_context)
             report.metadata.update(reference_binding)
+            report.metadata["operational_evidence_input_binding"] = operational_input_binding
             report.results["benchmark_strategy"] = reference_binding["benchmark_strategy"]
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
@@ -2334,22 +2330,15 @@ class BacktestService:
             if not isinstance(metadata, dict):
                 return None
             fundamentals = load_fundamental_evidence()
-            replay = _replay_backtest_for_cache(
-                self.config,
-                prices,
-                _backtest_runner_kwargs(
-                    reference_context,
-                    fundamentals,
-                    structure_document_registry=(structure_evidence.document_registry if structure_evidence else None),
-                    structure_report_records=(structure_evidence.report_records if structure_evidence else None),
-                    structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),
-                    structure_holdings=(structure_evidence.holdings if structure_evidence else None),
-                    calendar_identity_resolver=None,
-                ),
-            )
-            if replay is None or not _operational_evidence_rows_match_replay(
-                metadata.get("operational_evidence_rows"),
-                replay.metadata.get("operational_evidence_rows"),
+            # Operational evidence is bound to every non-price input it reads
+            # (calendar corrections, identity store, cost model).  A changed
+            # input invalidates the cache; re-deriving a full backtest to
+            # validate a cache read would defeat the cache.
+            input_binding = metadata.get("operational_evidence_input_binding")
+            if (
+                type(input_binding) is not str
+                or input_binding != _operational_evidence_input_binding(self.config)
+                or _normalise_operational_evidence_rows(metadata.get("operational_evidence_rows")) is None
             ):
                 return None
             if not _cached_backtest_binding_matches(metadata, reference_context):
