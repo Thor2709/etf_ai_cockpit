@@ -12,10 +12,10 @@ from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.formatting import format_currency, format_number
 from etf_cockpit.app.operations import OperationRecord, build_operation_preview, load_operation_records, save_operation_record
 from etf_cockpit.app.state import AppState
-from etf_cockpit.portfolio.event_controls import EventBlockPolicy
 from etf_cockpit.application.contracts import (
     ApiStatus,
     CancelWorkflowCommand,
+    EventBlockPolicy,
     PaperCorporateActionRequest,
     PaperAccountOpenRequest,
     PaperFillRequest,
