@@ -3,7 +3,7 @@
   "outputs": [
     {
       "path": ".github/status-transition-guard-manifest.json",
-      "sha256": "ee458c167ebc232275790d86cfc1bd67be5f7a1c9908157568842920d557cb2f"
+      "sha256": "27757dde4d30931b4758efea1b7dc1be239a72da54cbeb5eb62ffc18a0fb9925"
     },
     {
       "path": "CHANGELOG.md",
@@ -15,7 +15,7 @@
     },
     {
       "path": "docs/product-completion/CURRENT_STATUS.json",
-      "sha256": "60a19257e1dbfec11fb513f2da22b77f3c5c3e931a944db4d02f4651a750da28"
+      "sha256": "3ea766267c238d295b154cb005a4834a57422dab20559468b2317b414d1fb549"
     },
     {
       "path": "docs/product-completion/DELIVERY_WORKFLOW.md",
@@ -23,7 +23,7 @@
     },
     {
       "path": "docs/product-completion/PROGRESS.md",
-      "sha256": "5a899c8f2e73aeff75178813d4bd6e49a14f9cf290910b5e68e0bc6713325932"
+      "sha256": "7325d76e0bfe3a1e2ca5b2cce1f146c248006be2a05715a83a06ace9c3703058"
     },
     {
       "path": "docs/product-completion/programme/git-workflow.md",
@@ -35,7 +35,7 @@
     },
     {
       "path": "docs/product-completion/programme/phases/phase-01-governance-scope.md",
-      "sha256": "b687f03f5be1c1df7ab6b11fcbe1cedb14cd1e9c06bc433101f90e6ce3f562eb"
+      "sha256": "32122243a6d19d1458bc484a05097fc5e83c0846b6418bef5a938b850832c3e1"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-02-data-policy-identity.md",
@@ -79,15 +79,15 @@
     },
     {
       "path": "docs/product-completion/programme/prompt-2-handoff.md",
-      "sha256": "e587f0edd210317a62b85e4b9568ddfed2f2e947eac9ea113a098cf66549fb94"
+      "sha256": "ae3aa3345565a13fa2a36b252f657b00618ca32564d38189ae061c84c8ab731c"
     },
     {
       "path": "docs/product-completion/programme/readiness.json",
-      "sha256": "4ff66bb0c4e594c5611df1acc4efe651977da67c2010f357bcb43c6e75ba7add"
+      "sha256": "6c5b32d45eb3c22e10cdf5f917e9324f82184eddd55e568f7bd90f492eb0dc20"
     },
     {
       "path": "docs/product-completion/programme/roadmap.md",
-      "sha256": "5985b28f01c97d718a33ac4b419e1d3860f9107d71834abbf288148ed528e414"
+      "sha256": "c2a0e647817f78b003b6bb573922126db95f868040ea57fb3235523cf892b37b"
     },
     {
       "path": "docs/product-completion/programme/test-and-performance-strategy.md",
@@ -147,11 +147,11 @@
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/source-to-canonical.csv",
-      "sha256": "0381262ed5869e07a06d6b1233c62e1cd6b1ee884bbdcefd48b8b361cb825095"
+      "sha256": "1cc620e699074dbd5f47c3adbf93d9156bf67b2e6f587f7957ae87ed978b7c8d"
     },
     {
       "path": "issues/issue_registry.json",
-      "sha256": "d40f751c22222ab3a7c593d9e9246331b33c274c8f5fedcca0a253d0bcaba5fb"
+      "sha256": "e19a21212d4695e98f7c7412ef31c25ca257125111c867325f1791b4e9bc786a"
     },
     {
       "path": "issues/open.md",
@@ -159,7 +159,7 @@
     },
     {
       "path": "issues/programme_control_state.json",
-      "sha256": "f89bf7a2f26d3e2c0466d654fb01a536f1a0809c13bee9cd9f0e0255758a5b6f"
+      "sha256": "569500d7ef43b17181e6ccb7fdf107a0482a391fdbbbc48c6fbf8fab846e9b96"
     }
   ],
   "schema_version": "programme-generation.v1"

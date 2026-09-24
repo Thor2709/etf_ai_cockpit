@@ -86,6 +86,94 @@ def test_operation_records_are_local_versioned_json(tmp_path: Path) -> None:
     assert records[0]["authority"]["execution_allowed"] is False
 
 
+def test_explicit_event_policy_blocks_preview_and_audits_decision(tmp_path):
+    from datetime import datetime, timezone
+    from etf_cockpit.portfolio.event_controls import EventBlockPolicy
+
+    record = build_operation_preview(environment="paper", instrument_id="VWCE", quantity=3,
+        event_policy=EventBlockPolicy(policy_id="test", version="1"), decision_time=datetime(2026, 7, 30, tzinfo=timezone.utc), event_calendar_path=tmp_path / "missing")
+    assert record.status == "blocked"
+    assert record.authority["submission_allowed"] is False
+    assert record.authority["execution_allowed"] is False
+    save_operation_record(record, directory=tmp_path)
+    assert load_operation_records(directory=tmp_path)[0]["audit"]["event_control"]["status"] == "evidence_unavailable"
+    default = build_operation_preview(environment="paper", instrument_id="VWCE", quantity=3)
+    assert record.operation_id != default.operation_id
+
+
+def test_operation_event_audit_tampering_is_rejected(tmp_path):
+    import json
+
+    record = build_operation_preview(environment="paper", instrument_id="VWCE", quantity=3)
+    path = save_operation_record(record, directory=tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["audit"]["event_control"]["instrument_id"] = "MSFT"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert load_operation_records(directory=tmp_path) == ()
+
+
+@pytest.mark.parametrize("tamper", ["deleted", "null", "execution", "submission", "stage"])
+def test_new_operation_cannot_fall_back_to_legacy_or_change_authority(tmp_path, tamper):
+    import json
+
+    record = build_operation_preview(environment="paper", instrument_id="VWCE", quantity=3)
+    payload = record.to_payload()
+    if tamper == "deleted":
+        del payload["audit"]["event_control"]
+    elif tamper == "null":
+        payload["audit"]["event_control"] = None
+    elif tamper == "execution":
+        payload["authority"]["execution_allowed"] = True
+    elif tamper == "submission":
+        payload["authority"]["submission_allowed"] = False
+    else:
+        payload["authority"]["stage"] = "live_enabled"
+    (tmp_path / f"{record.operation_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+    assert load_operation_records(directory=tmp_path) == ()
+
+
+@pytest.mark.parametrize("original_quantity", [3, 3.0, 3.5])
+def test_verified_original_operation_identity_remains_readable(tmp_path, original_quantity):
+    import hashlib
+    import json
+    from etf_cockpit.app.operations import validate_operation_record
+
+    identity = {"action": "proposal_preview", "environment": "paper", "instrument_id": "VWCE",
+        "quantity": original_quantity, "currency": "EUR"}
+    operation_id = "op_" + hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:20]
+    payload = build_operation_preview(environment="paper", instrument_id="VWCE", quantity=original_quantity).to_payload()
+    payload["operation_id"] = operation_id
+    payload["audit"]["record_id"] = operation_id
+    del payload["audit"]["event_control"]
+    (tmp_path / f"{operation_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+    assert load_operation_records(directory=tmp_path) == (payload,)
+    with pytest.raises(ValueError, match="fresh preview"):
+        validate_operation_record(payload, for_submission=True)
+
+
+def test_operations_explicit_policy_disables_confirmation_on_missing_calendar(tmp_path, monkeypatch):
+    import etf_cockpit.app.pages.operations as module
+
+    monkeypatch.setattr(module, "save_operation_record", lambda record: save_operation_record(record, directory=tmp_path))
+    monkeypatch.setattr(module, "load_operation_records", lambda: load_operation_records(directory=tmp_path))
+    original = module.build_operation_preview
+    monkeypatch.setattr(module, "build_operation_preview", lambda **kwargs: original(**kwargs, event_calendar_path=tmp_path / "missing"))
+    snapshot = build_snapshot()
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    state.application_api = type(state.application_api)(lambda: state.snapshot, root=tmp_path)
+    rendered = module.operations_page(None, state)
+    controls = {getattr(item, "key", None): item for item in _walk(rendered)}
+    assert controls["operations.event-policy"].value is False
+    controls["operations.event-policy"].value = True
+    controls["operations.event-policy"].on_change(None)
+    controls["operations.preview"].on_click(None)
+    assert controls["operations.confirm"].disabled
+    controls["operations.confirm"].on_click(None)
+    assert state.application_api.get_jobs().total == 0
+    assert "evidence_unavailable" in _text(rendered)
+    assert load_operation_records(directory=tmp_path)[0]["audit"]["event_control"]["policy"]["policy_id"] == "local-high-risk-preview"
+
+
 def test_operations_workspace_exposes_paper_live_training_and_audit_states() -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)

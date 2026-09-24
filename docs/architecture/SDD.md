@@ -687,3 +687,22 @@ nonfinite producer results yield explicit unavailable evidence. Input edits and
 invalid submissions remove prior previews; clear and fresh navigation discard
 inputs. Controls update only the page-local result, without rebuilding snapshots,
 persistence, export inclusion or network activity. ETFs remain not applicable.
+
+
+### Instrument Detail responsive presentation and scenario workspace
+
+Viewport changes relayout the mounted shell chrome and padding; they do not invoke
+route builders or recalculate evidence. The content remains at the same control-tree
+position, preserving active page fields and open native dialogs. Route navigation and
+explicit refresh still build fresh content. Dashboard summary cards use native
+responsive columns. Narrow navigation is collapsed with a bounded scrolling list.
+
+Instrument Detail keeps its identity summary and export above the research scroll.
+Research sections use native maintained-state disclosure tiles with visible titles
+and status; long record groups scroll within a bounded height without dropping rows
+or fields. Wide driver tables scroll horizontally. Stock scenario controls open in a
+native dialog with autofocus, native contained traversal and Escape dismissal, an
+explicit Close action and focus return to the opener. Closing discards the private
+scenario session, as stated in the workspace; resize preserves it. The canonical
+valuation producer, provenance, unavailable states and execution prohibition remain
+unchanged.

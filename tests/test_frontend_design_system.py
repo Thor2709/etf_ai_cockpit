@@ -225,3 +225,25 @@ def test_unknown_and_failed_routes_render_a_visible_controlled_failure(monkeypat
     visible = " ".join(str(control.value) for control in failed_controls if isinstance(control, ft.Text))
     assert "could not be rendered safely (RuntimeError)" in visible
     assert "private detail" not in visible
+
+
+def test_dashboard_summary_cards_are_inherently_responsive():
+    from etf_cockpit.app.pages.dashboard import _summary_cards
+
+    state = SimpleNamespace(snapshot=SimpleNamespace(data_report=SimpleNamespace(status="Clean", as_of_date="2026-07-01")))
+    cards = _summary_cards(state, None, 1, 2, 3, 0, narrow=False)
+    assert isinstance(cards, ft.ResponsiveRow)
+    assert len(cards.controls) == 6
+    assert all(card.col == {"xs": 12, "sm": 6, "md": 4, "xl": 2} for card in cards.controls)
+
+
+def test_mobile_navigation_is_collapsed_and_bounded(monkeypatch):
+    monkeypatch.setitem(router.PAGES, "/", ("Home", lambda *_: ft.Text("Page")))
+    state = SimpleNamespace(snapshot=SimpleNamespace(config=SimpleNamespace(ui=SimpleNamespace(window_width=390)),
+        data_report=SimpleNamespace(as_of_date="2026-07-01")), evidence_mode="simple", current_activity=None, last_message="Ready")
+    view = build_shell(SimpleNamespace(width=390), state, "/")
+    controls = list(_walk(view))
+    mobile = next(control for control in controls if getattr(control, "key", None) == "shell.mobile-navigation")
+    tile = next(control for control in _walk(mobile) if isinstance(control, ft.ExpansionTile))
+    assert tile.expanded is False and tile.controls[0].height == 260
+    assert any(getattr(control, "key", None) == "navigation.universe" for control in _walk(tile))

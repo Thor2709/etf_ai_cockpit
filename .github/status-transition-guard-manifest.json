@@ -1,42 +1,27 @@
 {
-  "schema_version": "1.3",
-  "base_commit": "8c922d5a7941b0c60c07ae19d015244281bbdda1",
-  "branch": "codex/control-plane-semantic-migration-20260908",
-  "issue_ids": [],
-  "allowed_status_transitions": [],
-  "allow_other_status_changes": false,
   "allow_downgrades": false,
-  "allow_downgrade": false,
-  "allowed_dependency_edge_updates": [
+  "allow_other_status_changes": false,
+  "allowed_status_transitions": [
     {
-      "issue_id": "ISSUE-0167",
-      "dependency_id": "ISSUE-0132"
-    },
-    {
-      "issue_id": "ISSUE-0167",
-      "dependency_id": "ISSUE-0133"
-    },
-    {
-      "issue_id": "ISSUE-0167",
-      "dependency_id": "ISSUE-0134"
-    },
-    {
-      "issue_id": "ISSUE-0167",
-      "dependency_id": "ISSUE-0135"
-    },
-    {
-      "issue_id": "ISSUE-0169",
-      "dependency_id": "ISSUE-0152"
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0024",
+      "to": "integrated"
     }
   ],
+  "base_commit": "8b34fb3af07d2fa90b075c304d15dfe2ddf47701",
+  "branch": "claude/issue0024-lifecycle-20260924",
+  "issue_ids": [
+    "ISSUE-0024"
+  ],
   "registry_migration": {
-    "mode": "generation_base_and_dependency_edge_corrections",
-    "reason": "F23/F24 semantic dependency declaration correction migration",
-    "generator": "scripts/generate_issue_registry.py",
-    "base_registry_sha256": "61642e9b8718994abb29b60d150778f0aa953a9efea36057750d6e1d553c08e8",
-    "proposed_registry_sha256": "d40f751c22222ab3a7c593d9e9246331b33c274c8f5fedcca0a253d0bcaba5fb",
-    "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89",
     "added_issue_ids": [],
-    "removed_issue_ids": []
-  }
+    "base_registry_sha256": "5ae449c6874598d752937946db33672285b63c41ae38bf04e6fb883497bdeec2",
+    "generator": "scripts/generate_issue_registry.py",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "e19a21212d4695e98f7c7412ef31c25ca257125111c867325f1791b4e9bc786a",
+    "reason": "Integrate only ISSUE-0024 from implemented_initially to integrated after merged product PRs #678 and #751, exact-head H-tier Linux/Windows packaged evidence (run 36029387022) and owner-authorised Claude Code root self-review in place of Codex V2 reviewer/risk-reviewer; preserve dependencies, GitHub issue #28 open state, external authority and execution_allowed=false.",
+    "removed_issue_ids": [],
+    "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
+  },
+  "schema_version": "1.2"
 }

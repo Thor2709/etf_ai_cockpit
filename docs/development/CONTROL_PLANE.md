@@ -1,8 +1,9 @@
 # Development control plane
 
-## Fresh root: two reads, one derived view
+## Fresh root: three reads, one derived view
 
-Read `AGENTS.md` and this page once. Fetch and verify
+Read `AGENTS.md`, this page and
+`docs/development/FAST_BUILD_MODE_COCKPIT.md` once. Fetch and verify
 `Thor2709/etf_ai_cockpit`/`origin/main`; use a clean exact-main checkout. Run:
 
 ```text

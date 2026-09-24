@@ -20,6 +20,8 @@ from typing import Literal, Mapping
 import yaml
 
 from etf_cockpit.core.paths import OPERATIONS_DIR
+from etf_cockpit.data.event_calendar import EVENT_CLEAN_PATH
+from etf_cockpit.portfolio.event_controls import EventBlockPolicy, evaluate_event_control, verify_event_control
 from etf_cockpit.governance.models import AuthorityMatrixPolicy
 from etf_cockpit.governance.product_scope import AUTHORITY_MATRIX_PATH, load_authority_matrix, load_gate_policy
 
@@ -44,7 +46,6 @@ REQUIRED_GATES = (
     "portfolio_state",
     "data_freshness",
     "model_confidence",
-    "event_risk",
     "liquidity",
     "cost",
     "concentration",
@@ -97,6 +98,8 @@ class ProposalRequest:
     gate_evidence: tuple[GateEvidence, ...] = ()
     rationale: str = ""
     approvals: tuple[str, ...] = ()
+    event_policy: EventBlockPolicy | None = None
+    event_calendar_path: Path = EVENT_CLEAN_PATH
 
 
 @dataclass(frozen=True)
@@ -181,8 +184,15 @@ def build_proposal_decision(request: ProposalRequest) -> ProposalDecision:
     gate_policy_version, gate_policy_checksum = _gate_policy_metadata()
 
     gates_by_id = {item.gate_id: item for item in request.gate_evidence}
+    if "event_risk" in gates_by_id:
+        raise ValueError("event_risk is reserved for internally evaluated event policy")
     if len(gates_by_id) != len(request.gate_evidence):
         raise ValueError("gate evidence IDs must be unique")
+    # Same naive-as-UTC interpretation as the persisted `as_of` timestamp.
+    event_decision = evaluate_event_control(policy=request.event_policy, target="proposal_preview",
+        instrument_id=instrument_id, decision_time=datetime.fromisoformat(_timestamp(request.as_of)),
+        calendar_path=request.event_calendar_path)
+    gates_by_id["event_risk"] = GateEvidence("event_risk", not event_decision.blocks, event_decision.reason)
     missing_inputs = {
         "optimizer_output": not str(request.optimiser_output_id or "").strip(),
         "portfolio_state": not str(request.portfolio_revision or "").strip(),
@@ -198,6 +208,7 @@ def build_proposal_decision(request: ProposalRequest) -> ProposalDecision:
         else:
             gates.append(gate)
     gates.extend(sorted((item for item in request.gate_evidence if item.gate_id not in REQUIRED_GATES), key=lambda item: item.gate_id))
+    gates.append(gates_by_id["event_risk"])
 
     authority_stage = _lowest_stage(resolved_stages)
     quantity_delta = round(float(request.target_quantity - request.current_quantity), 8)
@@ -237,6 +248,7 @@ def build_proposal_decision(request: ProposalRequest) -> ProposalDecision:
         ProposalAlternative("manual_review", rationale, 0.0, outcome == "manual_review"),
     )
     canonical_input = {
+        "event_control": event_decision.to_payload(),
         "instrument_id": instrument_id,
         "current_quantity": request.current_quantity,
         "target_quantity": request.target_quantity,
@@ -369,6 +381,21 @@ def _valid_record(payload: Mapping[str, object]) -> bool:
     input_material = payload.get("input_material")
     if not isinstance(input_material, Mapping) or _checksum(input_material) != input_checksum:
         return False
+    if "event_control" in input_material:
+        try:
+            stored_event = input_material["event_control"]
+            stored_gates = payload.get("gates", ())
+            if not isinstance(stored_event, dict) or not isinstance(stored_gates, (tuple, list)):
+                return False
+            event = verify_event_control(stored_event, target="proposal_preview",
+                instrument_id=str(payload["instrument_id"]), decision_time=datetime.fromisoformat(str(input_material["as_of"])))
+            if event.blocks and (payload.get("proposal_allowed") is not False or payload.get("quantity_delta") != 0):
+                return False
+            expected_gate = GateEvidence("event_risk", not event.blocks, event.reason).to_payload()
+            if expected_gate not in stored_gates:
+                return False
+        except (ValueError, TypeError, KeyError):
+            return False
     decision_checksum = str(payload.get("decision_checksum", ""))
     if len(decision_checksum) != 64:
         return False
@@ -474,7 +501,7 @@ def _load_proposal_authority() -> tuple[AuthorityMatrixPolicy, str]:
 
 def _timestamp(value: datetime) -> str:
     aware = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-    return aware.astimezone(timezone.utc).isoformat(timespec="seconds")
+    return aware.astimezone(timezone.utc).isoformat()
 
 
 def _checksum(payload: Mapping[str, object]) -> str:

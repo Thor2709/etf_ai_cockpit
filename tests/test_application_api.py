@@ -80,8 +80,10 @@ def test_typed_paper_account_exposes_provenanced_marks_and_orders(tmp_path: Path
     assert api.get_paper_orders().total == 0
 
 
-def test_typed_proposal_review_stays_inside_application_boundary(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("use_event_policy", [False, True])
+def test_typed_proposal_review_stays_inside_application_boundary(tmp_path, monkeypatch, use_event_policy) -> None:
     import etf_cockpit.portfolio.proposal_policy as proposal_policy
+    from etf_cockpit.application.contracts import EventBlockPolicy
 
     capabilities = tuple(
         SimpleNamespace(capability_id=capability_id, authority_stage=stage, availability="mandatory")
@@ -114,12 +116,15 @@ def test_typed_proposal_review_stays_inside_application_boundary(tmp_path, monke
             as_of=datetime(2026, 7, 19, tzinfo=timezone.utc),
             expires_at=datetime(2026, 7, 20, tzinfo=timezone.utc),
             authority_policy_checksum="a" * 64,
+            event_policy=EventBlockPolicy(policy_id="test", version="1") if use_event_policy else None,
         )
     )
 
     assert view.outcome == "manual_review"
     assert view.execution_allowed is False
-    assert view.failed_gate_count == 9
+    assert view.failed_gate_count == (9 if use_event_policy else 8)
+    assert view.event_control["status"] == ("evidence_unavailable" if use_event_policy else "context_only")
+    assert view.quantity_delta == 0
     assert api.query(QueryRequest(resource="proposals")).total == 1
 
 
@@ -200,6 +205,56 @@ def test_workflow_commands_use_the_single_local_scheduler_and_are_cancelable(tmp
     cancelled = api.execute(CancelWorkflowCommand(idempotency_key="cancel-001", workflow_id=submitted.resource_id))
     assert cancelled.status is ApiStatus.ACCEPTED
     assert api.get_jobs().items[0].status == "cancelled"
+
+
+@pytest.mark.parametrize("case", ["blocked", "unavailable", "tampered", "deleted", "null", "authority"])
+def test_paper_preview_restrictions_stop_direct_scheduler_submission(tmp_path, monkeypatch, case):
+    from unittest.mock import Mock
+    from etf_cockpit.app.operations import build_operation_preview
+    from etf_cockpit.application.contracts import EventBlockPolicy
+    from etf_cockpit.data.event_calendar import CalendarEvent, persist_calendar_events
+
+    path = tmp_path / "data" / "clean" / "event_calendar.parquet"
+    if case == "blocked":
+        persist_calendar_events([CalendarEvent(event_id="e", instrument_id="ETF1", event_type="earnings", event_date="2026-07-19",
+            available_at="2026-07-18T00:00:00+00:00", ingested_at="2026-07-18T01:00:00+00:00",
+            source_id="issuer", source_authority="issuer", risk_level="high")], clean_path=path,
+            raw_dir=tmp_path / "data" / "raw" / "event_calendar")
+    payload = build_operation_preview(environment="paper", instrument_id="ETF1", quantity=1,
+        event_policy=EventBlockPolicy(policy_id="test", version="1"),
+        decision_time=datetime(2026, 7, 19, tzinfo=timezone.utc), event_calendar_path=path).to_payload()
+    if case == "tampered":
+        payload["audit"]["event_control"]["status"] = "clear"
+    elif case == "deleted":
+        del payload["audit"]["event_control"]
+    elif case == "null":
+        payload["audit"]["event_control"] = None
+    elif case == "authority":
+        payload["authority"]["submission_allowed"] = True
+        payload["status"] = "preview"
+    api = LocalApplicationApi(_snapshot, root=tmp_path)
+    submit = Mock(side_effect=AssertionError("Forbidden scheduler submission"))
+    monkeypatch.setattr(api._scheduler, "submit", submit)
+    command = SubmitWorkflowCommand(idempotency_key="blocked-preview", workflow_type="paper_proposal_preview",
+        label="Preview", input_payload=payload, job_keys=("preview",))
+    result = api.execute(command)
+    assert result.status is ApiStatus.FAILED
+    assert result.error_code == "operation_policy_blocked"
+    assert api.execute(command).error_code == "operation_policy_blocked"
+    submit.assert_not_called()
+
+
+def test_default_paper_preview_remains_submittable_and_idempotent(tmp_path):
+    from etf_cockpit.app.operations import build_operation_preview
+
+    api = LocalApplicationApi(_snapshot, root=tmp_path)
+    record = build_operation_preview(environment="paper", instrument_id="ETF1", quantity=1)
+    command = SubmitWorkflowCommand(idempotency_key="default-preview", workflow_type="paper_proposal_preview",
+        label="Preview", input_payload=record.to_payload(), job_keys=("preview",))
+    first = api.execute(command)
+    assert first.status is ApiStatus.ACCEPTED
+    assert api.execute(command).status is ApiStatus.REPLAYED
+    assert api.get_jobs().total == 1
 
 
 def test_app_state_runtime_uses_persisted_profile_for_submission_and_claim(tmp_path, monkeypatch) -> None:

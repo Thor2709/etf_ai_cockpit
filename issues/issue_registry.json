@@ -9918,7 +9918,21 @@
       "write_conflict_group": "programme-governance"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #732 https://github.com/Thor2709/etf_ai_cockpit/pull/732; product head 79451f884e6b0986b54d2493a5c0d5979dcbd131; merge a15cafae968ee66fca4f0762407a7ecd81d9755e; release run 34066717436.",
+            "PR #744 https://github.com/Thor2709/etf_ai_cockpit/pull/744; product head 83322d89e234079906fc0e658b1cf9f088ef201a; merge 1a3bef4dae4b737d3d1edbc849b80b3a2ec05a13; release run 34416164358.",
+            "PR #745 https://github.com/Thor2709/etf_ai_cockpit/pull/745; product head 0645d7cf754182faab01ba5bd59f7649b384df4e; merge 0d91436bbae04b1b37bed96e7f20284b2478ccde; release run 34423470795; audit/export acceptance included.",
+            "PR #747 https://github.com/Thor2709/etf_ai_cockpit/pull/747; exact product head fa61ae05f6cdc6c09e17159e093c391506308adb; merge b17f33e48e3e3b3664452fa597706f99e290dade; exact-head release run 34826849607: preflight, supply-chain, Linux and Windows packaged gates successful; 4,737 tests per platform.",
+            "Fresh post-merge clean-runtime browser acceptance: C:/dev/etf-issue0019-browser-final-evidence-20260914/browser-evidence.json; 390px compact layout/no document overflow, JEDI row-to-detail, six-field keyboard flow, resize retention, Escape and Close focus restoration/discard, audit export reachability, explicit unavailable/no-execution states."
+          ],
+          "review_reference": "Exact product head fa61ae05f6cdc6c09e17159e093c391506308adb: Codex whole-diff reviewer APPROVE; Codex risk reviewer PASS; release verifier READY; browser acceptance refreshed post-merge at C:/dev/etf-issue0019-browser-final-evidence-20260914/browser-evidence.json.",
+          "reviewed_date": "2026-09-14",
+          "reviewer": "Codex independent whole-diff reviewer, risk reviewer, release verifier, browser acceptance, and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0019",
@@ -9942,7 +9956,7 @@
       "package_status": "Implementation complete; closure pending",
       "phase": "phase-01-governance-scope",
       "priority": "P0/P1",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -9967,8 +9981,8 @@
       "source_record_id": "ISSUE-0019",
       "source_title": "Proper instrument detail page",
       "title": "Proper instrument detail page",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "fa61ae05f6cdc6c09e17159e093c391506308adb",
+      "verified_date": "2026-09-14",
       "why": "The instrument page is the primary research hub and must explain every output and limitation.",
       "write_conflict_group": "programme-governance"
     },
@@ -10237,7 +10251,20 @@
       "write_conflict_group": "data-and-evidence"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #678 https://github.com/Thor2709/etf_ai_cockpit/pull/678; calendar product head 89634f179eb947d4f0af8685cf4ef025685dd618; merge 4f7082d06d1695158d8998563dc083e86fe5e364 (ancestor of main): availability-aware earnings, dividend, split/corporate-action, filing, guidance, fund-rebalance, index-change, review-date and high-risk events with timezone, source, precision and decision-time availability, shown in Instrument Detail and News & Context with explicit unavailable/malformed/conflict states.",
+            "PR #751 https://github.com/Thor2709/etf_ai_cockpit/pull/751; exact product head ccb4f2c85c07dce0effec068fa4c4f87dea4ede0; merge 8b34fb3af07d2fa90b075c304d15dfe2ddf47701; exact-head release run 36029387022: classifier, preflight, supply-chain, Linux and Windows packaged gates and validation-summary successful. Adds opt-in checksummed EventBlockPolicy preview blackout for proposal/paper-order previews; context_only by default; execution_allowed=false.",
+            "Acceptance tests: tests/test_event_calendar.py (event parsing/validation, missing and malformed ledgers, point-in-time availability, both UI surfaces), tests/test_event_controls.py, tests/test_proposal_policy.py, tests/test_operations_workspace.py; 204 focused cases passed locally on the lane before the gate.",
+            "Context-only authority recorded in docs/architecture/event-calendar.md and docs/architecture/proposal-policy.md (plan.md is an immutable historical pointer since 2026-09-08); event data never grants score, signal, order or execution authority."
+          ],
+          "review_reference": "Exact product head ccb4f2c85c07dce0effec068fa4c4f87dea4ede0: Claude Code (claude-opus-5-5) root self-review, owner-authorised on 2026-09-24 to take over the Codex lane; no Codex V2 reviewer/risk-reviewer verdict exists for this head. Self-review found and fixed a naive as_of regression (b88a9ce0) and a presentation-boundary import violation (ccb4f2c8); exact-head H-tier release run 36029387022 passed.",
+          "reviewed_date": "2026-09-24",
+          "reviewer": "Claude Code root orchestrator self-review (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0024",
@@ -10264,7 +10291,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P1/P2",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -10290,8 +10317,8 @@
       "source_record_id": "ISSUE-0024",
       "source_title": "Earnings, dividends and event calendar",
       "title": "Earnings, dividends and event calendar",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "ccb4f2c85c07dce0effec068fa4c4f87dea4ede0",
+      "verified_date": "2026-09-24",
       "why": "Event timing affects interpretation, model validity and order risk, but must not leak into earlier backtests.",
       "write_conflict_group": "programme-governance"
     },
@@ -27967,7 +27994,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "f89bf7a2f26d3e2c0466d654fb01a536f1a0809c13bee9cd9f0e0255758a5b6f",
+    "programme_control_state_sha256": "569500d7ef43b17181e6ccb7fdf107a0482a391fdbbbc48c6fbf8fab846e9b96",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
