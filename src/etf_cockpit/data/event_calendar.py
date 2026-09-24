@@ -181,6 +181,18 @@ def load_calendar_events(path: Path = EVENT_CLEAN_PATH, *, raw_dir: Path | None 
     return sort_calendar_events(_read_clean(Path(path), raw_dir=raw_dir, audit_path=audit_path))
 
 
+def load_calendar_events_strict(path: Path = EVENT_CLEAN_PATH) -> pd.DataFrame:
+    """Require the complete persisted bundle for an explicit blocking policy."""
+    if not Path(path).is_file():
+        raise ValueError("Required calendar ledger is missing")
+    return sort_calendar_events(_read_clean_strict(Path(path)))
+
+
+def calendar_frame_checksum(frame: pd.DataFrame) -> str:
+    _validate_canonical_frame(frame)
+    return _frame_checksum(sort_calendar_events(frame))
+
+
 def sort_calendar_events(frame: pd.DataFrame) -> pd.DataFrame:
     if not isinstance(frame, pd.DataFrame) or frame.empty:
         return frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame(columns=EVENT_COLUMNS)
