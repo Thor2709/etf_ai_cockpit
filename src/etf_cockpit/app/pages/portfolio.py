@@ -662,7 +662,7 @@ def _analysis_view(analysis: PortfolioAnalysis, *, benchmark_registry: object | 
                                 f"{name}={value.get('status', 'unavailable')}"
                                 for name, value in analysis.service_evidence.items()
                                 if isinstance(value, dict)
-                                and name in {"optimiser", "optimiser_comparison", "factor_risk", "risk", "rebalancing", "scenarios", "attribution", "cost"}
+                                and name in {"optimiser", "optimiser_comparison", "factor_risk", "risk", "correlation", "rebalancing", "scenarios", "attribution", "cost"}
                             ) or "service evidence unavailable",
                             color=theme.MUTED,
                             selectable=True,
@@ -727,6 +727,7 @@ def _service_result_controls(label: str, value: object) -> list[ft.Control]:
 def _portfolio_service_results(analysis: PortfolioAnalysis) -> ft.Control:
     titles = {"optimiser_comparison": "Optimiser comparisons and baselines", "optimiser": "Selected optimiser",
               "factor_risk": "Factor risk and contributions", "risk": "Covariance and risk contributions",
+              "correlation": "Correlation matrix",
               "rebalancing": "Rebalance and tax evidence", "scenarios": "Scenario results", "attribution": "Performance attribution", "cost": "Cost evidence"}
     controls: list[ft.Control] = []
     for name, title in titles.items():
