@@ -503,3 +503,22 @@ def test_analysis_discloses_canonical_service_values_tables_and_binding_warnings
     assert any(isinstance(control, ft.DataTable) and len(control.rows) == 2 for control in controls)
     assert any(isinstance(control, ft.ExpansionTile) and control.controls[0].height == 320 for control in controls)
     assert "execution_allowed=false" in text
+
+
+def test_analysis_discloses_sandbox_correlation_matrix_or_its_unavailable_reason():
+    from dataclasses import replace
+
+    state = _state()
+    candidate = portfolio_sandbox.build_portfolio_candidate(state.snapshot, name="Correlation evidence", analysis_notional_eur=100000,
+        target_weights={"VWCE": 0.6, "LYP6": 0.3}, cash_weight=0.1)
+    analysis = portfolio_sandbox.analyse_portfolio_candidate(state.snapshot, candidate)
+    available = {"status": "available", "matrix": {"columns": ["LYP6", "VWCE"], "index_name": "etf_id", "index": ["LYP6", "VWCE"],
+        "data": [[1.0, 0.734], [0.734, 1.0]]}, "execution_allowed": False}
+    rendered = portfolio._analysis_view(replace(analysis, service_evidence={"correlation": available}))
+    text = _text(rendered)
+    assert "Correlation matrix / matrix" in text and "0.734" in text and "LYP6" in text
+    assert any(isinstance(control, ft.DataTable) and len(control.rows) == 2 and len(control.columns) == 3 for control in _walk(rendered))
+
+    unavailable = {"status": "unavailable", "reason": "insufficient_joint_adjusted_returns: observed=1", "execution_allowed": False}
+    text = _text(portfolio._analysis_view(replace(analysis, service_evidence={"correlation": unavailable})))
+    assert "Correlation matrix: insufficient_joint_adjusted_returns: observed=1" in text

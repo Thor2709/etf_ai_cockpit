@@ -732,17 +732,49 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0021": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #376/#677 https://github.com/Thor2709/etf_ai_cockpit/pull/677 (merge 6784b054): local portfolio sandbox with candidate create/edit, targets, current vs target, drift, sector/region/currency exposure, ETF overlap, rebalance cost, risk contribution and concentration warnings; saved candidate is intent-only; no broker execution.",
+            "PR #711 (commits preserved into #748): snapshot selector, direct vs look-through holdings, capability-matrix mixed assets (stocks, ETFs, supported bonds, cash, FX), marginal effect and why-not, draft-only ISSUE-0130 hand-off, result store and export.",
+            "PR #748 https://github.com/Thor2709/etf_ai_cockpit/pull/748; exact product head d105c6fa37249bcfbbaac61095c42652dc91e64a; merge 0627c55d6ca9cc0a0d3cf77e88abe5905c5743fb; exact-head release run 36042024643 (preflight, supply-chain, Linux and Windows packaged gates, validation-summary successful): what-if targets composed through canonical factor-risk, robust covariance, multiple optimisers with equal-weight/current baselines, constraints, turnover/cost/tax-lot rebalance, scenarios and attribution; point-in-time and ownership binding; explicit unavailable evidence.",
+            "PR #753 https://github.com/Thor2709/etf_ai_cockpit/pull/753; exact product head c02dc4a1a7a220ee4600bab20f73698b313690c4; merge 444fef857435260d2bab5b36261ec1c37ec4de41; exact-head release run 36047085436 successful: sandbox correlation matrix via canonical risk_analytics.return_correlation_matrix, unavailable rather than zero-filled.",
+            "Acceptance tests: tests/test_portfolio_sandbox.py and tests/ui/test_portfolio_sandbox_ui.py (allocation math, validation, persistence, isolation, constraint and mixed-asset fixtures, UI create/edit smoke). No-execution authority recorded in docs/architecture/portfolio-sandbox.md; execution_allowed=false."
+          ],
+          "review_reference": "Exact product heads d105c6fa37249bcfbbaac61095c42652dc91e64a (#748) and c02dc4a1a7a220ee4600bab20f73698b313690c4 (#753): Claude Code (claude-opus-5-5) root self-review, owner-authorised on 2026-09-24 in place of Codex V2 reviewer/risk-reviewer. The PR #748 description records that both independently attested Codex reviewers approved its pre-refresh head 286b76305313657ccd78ab1c95883ebfc35787b3. Self-review acceptance audit found and closed the missing sandbox correlation matrix (#753). Both exact heads passed H-tier release gates.",
+          "reviewed_date": "2026-09-24",
+          "reviewer": "Claude Code root orchestrator self-review (owner-authorised substitute for Codex V2 reviewer and risk reviewer); Codex reviews reported in PR #748 for the pre-refresh head",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-01-governance-scope",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "Exact product heads d105c6fa37249bcfbbaac61095c42652dc91e64a (#748) and c02dc4a1a7a220ee4600bab20f73698b313690c4 (#753): Claude Code (claude-opus-5-5) root self-review, owner-authorised on 2026-09-24 in place of Codex V2 reviewer/risk-reviewer. The PR #748 description records that both independently attested Codex reviewers approved its pre-refresh head 286b76305313657ccd78ab1c95883ebfc35787b3. Self-review acceptance audit found and closed the missing sandbox correlation matrix (#753). Both exact heads passed H-tier release gates.",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #376/#677 https://github.com/Thor2709/etf_ai_cockpit/pull/677 (merge 6784b054): local portfolio sandbox with candidate create/edit, targets, current vs target, drift, sector/region/currency exposure, ETF overlap, rebalance cost, risk contribution and concentration warnings; saved candidate is intent-only; no broker execution.",
+            "PR #711 (commits preserved into #748): snapshot selector, direct vs look-through holdings, capability-matrix mixed assets (stocks, ETFs, supported bonds, cash, FX), marginal effect and why-not, draft-only ISSUE-0130 hand-off, result store and export.",
+            "PR #748 https://github.com/Thor2709/etf_ai_cockpit/pull/748; exact product head d105c6fa37249bcfbbaac61095c42652dc91e64a; merge 0627c55d6ca9cc0a0d3cf77e88abe5905c5743fb; exact-head release run 36042024643 (preflight, supply-chain, Linux and Windows packaged gates, validation-summary successful): what-if targets composed through canonical factor-risk, robust covariance, multiple optimisers with equal-weight/current baselines, constraints, turnover/cost/tax-lot rebalance, scenarios and attribution; point-in-time and ownership binding; explicit unavailable evidence.",
+            "PR #753 https://github.com/Thor2709/etf_ai_cockpit/pull/753; exact product head c02dc4a1a7a220ee4600bab20f73698b313690c4; merge 444fef857435260d2bab5b36261ec1c37ec4de41; exact-head release run 36047085436 successful: sandbox correlation matrix via canonical risk_analytics.return_correlation_matrix, unavailable rather than zero-filled.",
+            "Acceptance tests: tests/test_portfolio_sandbox.py and tests/ui/test_portfolio_sandbox_ui.py (allocation math, validation, persistence, isolation, constraint and mixed-asset fixtures, UI create/edit smoke). No-execution authority recorded in docs/architecture/portfolio-sandbox.md; execution_allowed=false."
+          ],
+          "from": "implemented_initially",
+          "review_reference": "Exact product heads d105c6fa37249bcfbbaac61095c42652dc91e64a (#748) and c02dc4a1a7a220ee4600bab20f73698b313690c4 (#753): Claude Code (claude-opus-5-5) root self-review, owner-authorised on 2026-09-24 in place of Codex V2 reviewer/risk-reviewer. The PR #748 description records that both independently attested Codex reviewers approved its pre-refresh head 286b76305313657ccd78ab1c95883ebfc35787b3. Self-review acceptance audit found and closed the missing sandbox correlation matrix (#753). Both exact heads passed H-tier release gates.",
+          "reviewed_date": "2026-09-24",
+          "reviewer": "Claude Code root orchestrator self-review (owner-authorised substitute for Codex V2 reviewer and risk reviewer); Codex reviews reported in PR #748 for the pre-refresh head",
+          "to": "integrated",
+          "verified_commit": "c02dc4a1a7a220ee4600bab20f73698b313690c4"
+        }
+      ],
+      "verified_commit": "c02dc4a1a7a220ee4600bab20f73698b313690c4",
+      "verified_date": "2026-09-24"
     },
     "ISSUE-0022": {
       "acceptance_evidence": [],

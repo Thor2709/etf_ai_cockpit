@@ -148,6 +148,10 @@ are checked alongside availability and ingestion claims.
 The portfolio results UI displays canonical optimiser methods and baselines,
 weights, risk contributions and covariance axes, scenarios and attribution in
 bounded maintained-state disclosures. Every disclosed row remains reachable;
-wide matrices scroll horizontally. Ownership/chronology warnings and unavailable
+wide matrices scroll horizontally. The target-universe correlation matrix is produced by the
+canonical `risk_analytics.return_correlation_matrix` service (the Risk page's
+120-observation log-return window) on the same bound point-in-time prices; fewer
+than two priced targets or an incomplete matrix is unavailable, never zero-filled
+by the sandbox. Ownership/chronology warnings and unavailable
 reasons remain visible outside the disclosures. Presentation performs no financial
 calculations.
