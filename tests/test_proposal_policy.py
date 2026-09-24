@@ -312,3 +312,13 @@ def test_loading_rejects_tampered_derived_decision_fields(tmp_path, field, value
     path.write_text(json.dumps(payload), encoding="utf-8")
 
     assert load_proposal_records(directory=tmp_path) == ()
+
+
+def test_naive_as_of_without_event_policy_is_interpreted_as_utc(tmp_path) -> None:
+    aware = build_proposal_decision(_request())
+    naive = build_proposal_decision(_request(as_of=datetime(2026, 7, 19, 0, 0), expires_at=datetime(2026, 7, 20, 0, 0)))
+
+    assert naive == aware
+    assert naive.input_material["event_control"]["status"] == "context_only"
+    save_proposal_decision(naive, directory=tmp_path)
+    assert load_proposal_records(directory=tmp_path)[0]["proposal_id"] == naive.proposal_id

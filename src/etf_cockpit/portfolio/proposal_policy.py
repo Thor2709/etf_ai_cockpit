@@ -188,8 +188,10 @@ def build_proposal_decision(request: ProposalRequest) -> ProposalDecision:
         raise ValueError("event_risk is reserved for internally evaluated event policy")
     if len(gates_by_id) != len(request.gate_evidence):
         raise ValueError("gate evidence IDs must be unique")
+    # Same naive-as-UTC interpretation as the persisted `as_of` timestamp.
     event_decision = evaluate_event_control(policy=request.event_policy, target="proposal_preview",
-        instrument_id=instrument_id, decision_time=request.as_of, calendar_path=request.event_calendar_path)
+        instrument_id=instrument_id, decision_time=datetime.fromisoformat(_timestamp(request.as_of)),
+        calendar_path=request.event_calendar_path)
     gates_by_id["event_risk"] = GateEvidence("event_risk", not event_decision.blocks, event_decision.reason)
     missing_inputs = {
         "optimizer_output": not str(request.optimiser_output_id or "").strip(),
