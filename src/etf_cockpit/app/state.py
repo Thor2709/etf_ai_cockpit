@@ -358,6 +358,7 @@ class AppState:
     innovation_projection: dict[str, object] | None = None
     innovation_source_digest: str | None = None
     evidence_mode: str = "default"
+    score_history_warning: str | None = None
     application_api: LocalApplicationApi = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -804,7 +805,7 @@ class AppState:
             if getattr(service, "last_operation_succeeded", True):
                 self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)
                 self._write_current_scoreboard()
-                self.last_message = "YFinance data refreshed."
+                self.last_message = self._with_score_history_warning("YFinance data refreshed.")
             else:
                 self.last_message = message
                 raise ActivityUnavailableError(message)
@@ -819,9 +820,9 @@ class AppState:
             )
             self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)
             scoreboard_path = self._write_current_scoreboard()
-            self.last_message = "Algorithms refreshed from yfinance data."
+            self.last_message = self._with_score_history_warning("Algorithms refreshed from yfinance data.")
             summary = message.split(" Report:", 1)[0]
-            return f"{summary}. Scoreboard updated: {scoreboard_path.name}."
+            return self._with_score_history_warning(f"{summary}. Scoreboard updated: {scoreboard_path.name}.")
 
     @_tracked_activity("Run forecasting models", "Running baseline forecasts")
     def run_forecasting_models(self) -> str:
@@ -850,9 +851,13 @@ class AppState:
                 self.snapshot = build_snapshot(force_sample=False)
             scoreboard_path = self._write_current_scoreboard()
             self.update_activity("Forecasts and scoreboard complete", completed_units=4, total_units=4, output_path=scoreboard_path)
-            self.last_message = "Fast forecasts refreshed from yfinance data for the 60-trading-day scoring horizon."
+            self.last_message = self._with_score_history_warning(
+                "Fast forecasts refreshed from yfinance data for the 60-trading-day scoring horizon."
+            )
             summary = "; ".join(line.split(". Output:", 1)[0] for line in message.splitlines() if line.strip())
-            return f"{summary}. Optional TimesFM/Toto live models are kept out of the main workflow if they are not already cached. Scoreboard updated: {scoreboard_path.name}."
+            return self._with_score_history_warning(
+                f"{summary}. Optional TimesFM/Toto live models are kept out of the main workflow if they are not already cached. Scoreboard updated: {scoreboard_path.name}."
+            )
 
     @_tracked_activity("Rollback prices", "Searching previous clean price snapshot")
     def rollback_latest_prices(self) -> str:
@@ -1569,7 +1574,7 @@ class AppState:
             publish_guard=self.activity_publication,
         )
         self.last_export_path = path
-        self.last_message = f"Audit packet exported: {path}"
+        self.last_message = self._with_score_history_warning(f"Audit packet exported: {path}")
         return path
 
     def export_chatgpt_pack(self) -> Path:
@@ -1639,9 +1644,44 @@ class AppState:
                     simple_scoreboard_frame(scores),
                     prices=self.snapshot.prices,
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            # The scoreboard itself is published; only the trust artifacts
+            # (score history, components, evidence ledger, drivers) are missing.
+            # Keep that absence explicit instead of looking like a first run.
+            self._record_score_history_failure(exc, path)
+        else:
+            self.score_history_warning = None
         return path
+
+    def _record_score_history_failure(self, exc: Exception, scoreboard_path: Path) -> None:
+        reason = redact_text(" ".join(f"{type(exc).__name__}: {exc}".split()))[:240]
+        warning = (
+            f"Score history was not persisted ({reason}). "
+            f"Scoreboard {scoreboard_path.name} was written; score history, components, evidence ledger "
+            "and feature drivers for this run are unavailable, not empty. Scores and actions are unchanged."
+        )
+        self.score_history_warning = warning
+        self.last_message = warning
+        action_id = self.shared_activity_id or (self.current_activity.action_id if self.current_activity else None)
+        log_event(
+            event_type="score_history_not_persisted",
+            severity="warning",
+            action_id=action_id,
+            component="app_state",
+            feature="Write scoreboard",
+            operation="write_trust_artifacts_for_scores",
+            status="unavailable",
+            file_paths=scoreboard_path,
+            warnings="score_history_not_persisted",
+            user_message=warning,
+            exception_type=type(exc).__name__,
+            exception_message_redacted=reason,
+            path=ACTIVITY_LOG_PATH,
+        )
+
+    def _with_score_history_warning(self, message: str) -> str:
+        warning = self.score_history_warning
+        return f"{message} {warning}" if warning else message
 
 
 MAX_LOCAL_ESEF_BYTES = 300 * 1024 * 1024
