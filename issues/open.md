@@ -1834,7 +1834,7 @@ Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_F
 **Priority:** P0
 **Owner:** trading-safety
 **Phase:** phase-07-backtest-paper-execution
-**Blocking dependencies:** `ISSUE-0085`, `ISSUE-0114`, `ISSUE-0127`, `ISSUE-0130`, `ISSUE-0131`, `ISSUE-0132`, `ISSUE-0133`, `ISSUE-0134`, `ISSUE-0135`
+**Blocking dependencies:** `ISSUE-0085`, `ISSUE-0114`, `ISSUE-0127`, `ISSUE-0130`, `ISSUE-0131`
 **Execution allowed:** false
 
 Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0167` — Implement settlement, buying-power, cash reservation and deterministic order-state accounting
@@ -1858,7 +1858,7 @@ Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_F
 **Priority:** P0
 **Owner:** quality-and-release
 **Phase:** phase-09-quality-release-security
-**Blocking dependencies:** `ISSUE-0074`, `ISSUE-0136`, `ISSUE-0142`, `ISSUE-0152`, `ISSUE-0161`, `ISSUE-0165`, `ISSUE-0167`
+**Blocking dependencies:** `ISSUE-0074`, `ISSUE-0136`, `ISSUE-0142`, `ISSUE-0161`, `ISSUE-0165`, `ISSUE-0167`
 **Execution allowed:** false
 
 Canonical contract: `docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md` (#### `ISSUE-0169` — Implement canonical analysis parity and deterministic replay tests across workflows

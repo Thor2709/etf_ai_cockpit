@@ -1,0 +1,297 @@
+{
+  "acceptance_authority": false,
+  "findings": [
+    {
+      "category": "safety/validation",
+      "causal": true,
+      "consequence": "Under-classifies a financial deletion plus ordinary edit as O.",
+      "evidence": "scripts/classify_validation.py:_git_changed_paths; baseline-defect-reproductions.json",
+      "finding": "Deleted protected files and rename origins are omitted by ACMRTUXB/name-only selection.",
+      "id": "F01",
+      "severity": "high",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Read NUL-delimited Git paths with removals and both rename ends; regression fixtures."
+    },
+    {
+      "category": "safety/Antigravity",
+      "causal": true,
+      "consequence": "A mistaken root packet can promote a canonical-state file despite the prose prohibition.",
+      "evidence": "docs/codex-config/agy_delegate.py:owned_editor_paths",
+      "finding": "Editor ownership accepts issues/ programme authority paths.",
+      "id": "F02",
+      "severity": "high",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Deny canonical/control/configuration roots and root projections before any CLI discovery; preserve whole-candidate rejection."
+    },
+    {
+      "category": "evidence/validation",
+      "causal": true,
+      "consequence": "Past evidence may survive an intervening harness or test change; terminal policy digest cannot match reuse policy digest.",
+      "evidence": "scripts/classify_validation.py:derive_trusted_evidence; scripts/validation_summary.py:collect_summary",
+      "finding": "Terminal and reuse consumers calculate different policy identities, and neither binds all durable harness/test inputs.",
+      "id": "F03",
+      "severity": "high",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "One shared identity-group definition; include durable harness, policy, test and environment inputs; explicitly invalidate legacy records without rewriting them."
+    },
+    {
+      "category": "CI/harness",
+      "causal": true,
+      "consequence": "Normal packaged pytest does not exercise containment regressions; clean-host test fails before intended packet validation.",
+      "evidence": "pyproject.toml:testpaths; docs/codex-config/test_agy_delegate.py; baseline-harness-tests.log",
+      "finding": "Harness tests live outside configured testpaths; one baseline test depends on installed AGY.",
+      "id": "F04",
+      "severity": "high",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Collect offline harness tests through tests/; validate editor packets before executable lookup."
+    },
+    {
+      "category": "authority/validation",
+      "causal": true,
+      "consequence": "Operational instructions can change under an evidence-only classification.",
+      "evidence": "scripts/classify_validation.py:CHECKPOINT_CHRONOLOGY_PATHS",
+      "finding": "Active instruction files have unconditional chronology-only E exemptions.",
+      "id": "F05",
+      "severity": "high",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Archive unchanged chronology; keep new entry points durable and H-protected; runtime observations remain untracked."
+    },
+    {
+      "category": "programme/planning",
+      "causal": true,
+      "consequence": "A root using readiness alone can select finished, non-product or explicitly blocked work.",
+      "evidence": "scripts/issue_registry_core.py:readiness_projection,ready_records",
+      "finding": "Dependency readiness includes integrated records, research-only records and blocked final certification.",
+      "id": "F06",
+      "severity": "high",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Add a read-only execution selector that intersects readiness with lifecycle/ledger/activation boundaries without changing readiness semantics."
+    },
+    {
+      "category": "context/staleness",
+      "causal": true,
+      "consequence": "New roots must arbitrate stale heads, lanes and instructions; chronological order is not consistent.",
+      "evidence": "plans/ACTIVE_CODEX_GOAL.md; plans/BATCH-B04-ANALYSIS-SPINE.md",
+      "finding": "Active goal and B04 contain 9,942 lines/652,129 bytes of mixed-era checkpoints.",
+      "id": "F07",
+      "severity": "medium",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Archive exact original blobs; replace with compact durable entry points and derived current observations."
+    },
+    {
+      "category": "harness/contradiction",
+      "causal": true,
+      "consequence": "Conflicting routing decisions and unnecessary setup/reconciliation work.",
+      "evidence": "AGENTS.md; docs/codex-config/README.md; docs/product-completion/DELIVERY_WORKFLOW.md; plans/ACTIVE_CODEX_GOAL.md",
+      "finding": "Main enables staged Editor in code/root rules but disables it in other current instructions.",
+      "id": "F08",
+      "severity": "high",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Use adapter capability state and durable role configuration as authorities; eliminate duplicated operational status prose or test retained statements."
+    },
+    {
+      "category": "ownership/concurrency",
+      "causal": true,
+      "consequence": "Separate worktrees are mistaken for safe concurrency and obsolete lanes retain reservations.",
+      "evidence": "plans/BATCH-B04-ANALYSIS-SPINE.md; PR #721 lane template",
+      "finding": "Live ownership is carried by historical prose without exact machine-verifiable path/runtime and head records.",
+      "id": "F09",
+      "severity": "high",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Admit root-owned local lane observations against exact programme/main/head/PR identity; reject overlap, unknown resources and stale ownership."
+    },
+    {
+      "category": "harness/local evidence",
+      "causal": true,
+      "consequence": "Repository documentation cannot establish another machine's current live state.",
+      "evidence": "PR #735 exact patch at 6db1c07d4bf0abe55fd47b66eb1e62206df79ea8",
+      "finding": "PR #735 treats the source tree as proof that a personal Skill is currently installed/synchronised.",
+      "id": "F10",
+      "severity": "medium",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Preserve historical installation evidence; report live state as unverified until local exact source/live hashes match."
+    },
+    {
+      "category": "GitHub/legacy work",
+      "causal": true,
+      "consequence": "Age-based closure would discard useful work; leaving obsolete ownership current invites duplicate implementation.",
+      "evidence": "pull-request-audit.json; accepted PRs #597/#633; canonical statuses",
+      "finding": "Old PRs #560/#562 are superseded; #698/#711/#721/#725 contain distinct candidate work.",
+      "id": "F11",
+      "severity": "medium",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Close only positively superseded proposals; preserve branches/tests/evidence and give each other PR an explicit non-authority disposition."
+    },
+    {
+      "category": "historical accumulation",
+      "causal": true,
+      "consequence": "Default broad search/generation encounters extensive historical duplication.",
+      "evidence": "docs/product-completion/reconciliation; scripts/generate_programme.py",
+      "finding": "170 reconciliation directories occupy about 79 MiB; many are hard-linked by historical evidence references.",
+      "id": "F12",
+      "severity": "medium",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Retain audit evidence; route fresh sessions to the current generation manifest and issue-specific evidence, not directory-wide archaeology."
+    },
+    {
+      "category": "programme/dependencies",
+      "causal": true,
+      "consequence": "Repeated sessions may treat these as missing product implementations or waive them unsafely.",
+      "evidence": "programme-summary.json; canonical edge evidence",
+      "finding": "13 incomplete issues have only unresolved edge evidence for already-integrated parents.",
+      "id": "F13",
+      "severity": "medium",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Expose evidence-only blockers separately; require existing reviewed edge-authority process, not automatic waivers."
+    },
+    {
+      "category": "programme/semantic authority",
+      "causal": true,
+      "consequence": "A narrow registry-only card can lose unfinished requirements.",
+      "evidence": "issues/open.md; immutable July sources; scripts/issue_registry_core.py:source_fields",
+      "finding": "Many legacy issue requirements/acceptance clauses are in source ledgers and normative amendments rather than a single registry acceptance field.",
+      "id": "F14",
+      "severity": "medium",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Produce issue cards containing primary requirement fields, source ledger section and all normative amendments with provenance."
+    },
+    {
+      "category": "programme/phase structure",
+      "causal": true,
+      "consequence": "Phase names and owner labels can imply unsupported sequencing or safe concurrency.",
+      "evidence": "canonical phase definitions; owner_for; phase_for",
+      "finding": "Phase 01 mixes governance, UI, providers and operations; owner groups are not path ownership.",
+      "id": "F15",
+      "severity": "medium",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Preserve reviewed phase precedence; expose structural critical paths and require explicit path/runtime ownership rather than relabelling the graph casually."
+    },
+    {
+      "category": "programme/issue quality",
+      "causal": true,
+      "consequence": "Graph-ready does not establish implementation feasibility or authorise fabricated outputs.",
+      "evidence": "B04 current parallel checkpoint; ISSUE-0027 required_change and related_issues",
+      "finding": "ISSUE-0027 has no formal blockers although recent scope review identifies missing forecast/training/resource identity inputs.",
+      "id": "F16",
+      "severity": "high",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Flag contract preflight; retain current semantic dependencies unless a reviewed issue-specific correction is evidenced."
+    },
+    {
+      "category": "generated-state architecture",
+      "causal": true,
+      "consequence": "Treating DELIVERY_WORKFLOW or control state as an uneditable generated view targets the wrong upstream layer.",
+      "evidence": "scripts/generate_programme.py:_copy_tracked_tree,_run_generators,required_outputs",
+      "finding": "Manifest membership includes editable pass-through inputs, not only rendered projections.",
+      "id": "F17",
+      "severity": "medium",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Document semantic authority → edit source → generator/pass-through → projection → consumer explicitly; preserve atomic publish and byte checks."
+    },
+    {
+      "category": "evidence/discovery",
+      "causal": true,
+      "consequence": "Stale active context invites reimplementation rather than bounded lifecycle verification.",
+      "evidence": "accepted PR #732; issues/programme_control_state.json",
+      "finding": "Accepted product PRs and canonical lifecycle completion are distinct; ISSUE-0019 product PR #732 is merged while its status is implemented_initially.",
+      "id": "F18",
+      "severity": "medium",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Index exact existing product/review/gate references and verify Git identity; never equate merged product with canonical completion."
+    },
+    {
+      "category": "GitHub/authority",
+      "causal": true,
+      "consequence": "Green checks and mergeability are not equivalent to enforced acceptance.",
+      "evidence": "fresh branches/main; DELIVERY_WORKFLOW.md",
+      "finding": "GitHub main is unprotected by server rules; the repository already documents process-only enforcement.",
+      "id": "F19",
+      "severity": "medium",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Retain exact-head/root/formal gates; do not silently alter repository administrative permissions."
+    },
+    {
+      "category": "GitHub/mapping",
+      "causal": false,
+      "consequence": "Open GitHub issues are intentionally not the canonical incomplete count.",
+      "evidence": "sync-evidence.json; fresh incremental issue query returned no changes",
+      "finding": "The complete 298-issue/208-comment snapshot reconciles with zero actions; historical duplicates are already explicitly mapped.",
+      "id": "F20",
+      "severity": "information",
+      "status": "candidate_remediation_or_explicit_preservation",
+      "treatment": "Preserve the mapping/authority ledger; avoid mass-closing integrated or duplicate historical issues."
+    },
+    {
+      "category": "CI identity",
+      "causal": true,
+      "evidence": "release-gate.yml source checkout versus classifier head_sha",
+      "finding": "Default PR checkout can be a synthetic merge while terminal records PR head.",
+      "id": "F21",
+      "severity": "high",
+      "status": "candidate_or_preserved",
+      "treatment": "Candidate pins and verifies actual source head plus fetched-main ancestry; platform requirements retained."
+    },
+    {
+      "category": "Evidence identity",
+      "causal": true,
+      "evidence": "protected-evidence-manifest.json / derive_trusted_evidence",
+      "finding": "Protected artifact source head was not bound to the source recorded in the reusable sidecar.",
+      "id": "F22",
+      "severity": "high",
+      "status": "candidate_or_preserved",
+      "treatment": "Candidate verifies certified-head ancestry, exact schema, terminal/platform metadata and unchanged protected identities before reuse."
+    },
+    {
+      "category": "Canonical/parser semantic defect",
+      "causal": true,
+      "evidence": "issue_registry_core.py:_compact_metadata; immutable final-release canonical metadata",
+      "finding": "Compact dependency parser consumes downstream clauses for 0167 and 0169, including final certification 0152.",
+      "id": "F23",
+      "severity": "high",
+      "status": "unresolved",
+      "treatment": "UNRESOLVED. Read-only diagnostics expose mismatch. Requires reviewed canonical/parser and GitHub-projection migration, not waived blockers or forged review."
+    },
+    {
+      "category": "Capability semantics",
+      "causal": true,
+      "evidence": "issue_registry_core.py:_capability_lane and source amendments",
+      "finding": "Numeric 0165-0169 range labels order accounting0167 and portfolio forecast0168 as bulk-screening.",
+      "id": "F24",
+      "severity": "medium",
+      "status": "unresolved",
+      "treatment": "UNRESOLVED. Preserve original control evidence; correct under the same reviewed semantic migration."
+    },
+    {
+      "category": "Legacy implementation discovery",
+      "causal": true,
+      "evidence": "codex/antigravity-next-20260904 at6e4efc149036bbef44b479cde7a954e6f802279d",
+      "finding": "Unmerged successor AGY branch has unique research and partial accessible-table/Universe/Backtests work beyond PR725.",
+      "id": "F25",
+      "severity": "medium",
+      "status": "candidate_or_preserved",
+      "treatment": "Preserved and indexed; no forty-issue ownership; research-only remains excluded."
+    },
+    {
+      "category": "Ownership safety",
+      "causal": true,
+      "evidence": "active_work.py local-path preflight",
+      "finding": "Path strings alone do not establish disjoint runtime resources when symlink/reparse ancestors alias them.",
+      "id": "F26",
+      "severity": "high",
+      "status": "candidate_or_preserved",
+      "treatment": "Candidate rejects aliasing boundaries; frozen/blocked lanes reserve but do not dispatch; missing census fails closed."
+    },
+    {
+      "category": "Harness contradiction",
+      "causal": true,
+      "evidence": "docs/codex-config/global-AGENTS.md",
+      "finding": "Global fixed one-implementation-lane quota conflicted with project proven-parallel admission.",
+      "id": "F27",
+      "severity": "medium",
+      "status": "candidate_or_preserved",
+      "treatment": "Candidate keeps sole serial integration and root capacity/risk admission, replaces accidental fixed lane quota; live config not changed."
+    }
+  ],
+  "observed_main": "51bec2b8937f725e9e1c74136249a1d9c7d4851a",
+  "schema_version": "one-time-control-findings.v1"
+}

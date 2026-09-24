@@ -1799,8 +1799,12 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     primary_checkout = next(
         step for step in preflight_steps if step.get("name") == "Check out source"
     )
-    assert primary_checkout["uses"] == "actions/checkout@v4"
-    assert primary_checkout["with"] == {"fetch-depth": 0}
+    assert primary_checkout["uses"] == "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+    assert primary_checkout["with"] == {
+        "ref": "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}",
+        "fetch-depth": 0,
+        "persist-credentials": False,
+    }
     authority_checkout = next(
         step
         for step in preflight_steps

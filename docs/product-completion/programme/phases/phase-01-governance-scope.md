@@ -60,9 +60,9 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0014` | `P0/P1` | `integrated` | `programme-governance` | - | - | - | `ISSUE-0045`, `ISSUE-0143`, `ISSUE-0152` |
 | `ISSUE-0015` | `P1` | `integrated` | `programme-governance` | - | - | - | `ISSUE-0070`, `ISSUE-0075`, `ISSUE-0152` |
 | `ISSUE-0018` | `P0/P1` | `integrated` | `programme-governance` | - | - | `ISSUE-0165` | `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0126`, `UPDATEV2-0011` |
-| `ISSUE-0019` | `P0/P1` | `implemented_initially` | `programme-governance` | - | - | - | `ISSUE-0091`, `ISSUE-0116`, `ISSUE-0138` |
+| `ISSUE-0019` | `P0/P1` | `integrated` | `programme-governance` | - | - | - | `ISSUE-0091`, `ISSUE-0116`, `ISSUE-0138` |
 | `ISSUE-0021` | `P1` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0113`, `ISSUE-0116` | `ISSUE-0110`, `ISSUE-0116`, `ISSUE-0130` |
-| `ISSUE-0024` | `P1/P2` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0163` | `ISSUE-0073`, `ISSUE-0084`, `ISSUE-0085`, `ISSUE-0130` |
+| `ISSUE-0024` | `P1/P2` | `integrated` | `programme-governance` | - | - | `ISSUE-0163` | `ISSUE-0073`, `ISSUE-0084`, `ISSUE-0085`, `ISSUE-0130` |
 | `ISSUE-0026` | `P1/P2` | `implemented_initially` | `programme-governance` | - | - | - | `ISSUE-0073`, `ISSUE-0088`, `ISSUE-0115` |
 | `ISSUE-0027` | `P1` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0117` | `ISSUE-0117`, `ISSUE-0124`, `ISSUE-0139` |
 | `ISSUE-0033` | `P2` | `planned` | `programme-governance` | - | - | - | `ISSUE-0024`, `ISSUE-0077`, `ISSUE-0132`, `ISSUE-0135` |
@@ -94,9 +94,9 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0079` | `P0` | `hardening_required` | `security-and-release` | `ISSUE-0145`, `ISSUE-0149` | - | `ISSUE-0085` | - |
 | `ISSUE-0179` | `P1` | `integrated` | `programme-control` | `ISSUE-0178` | - | - | `ISSUE-0152` |
 | `UPDATEV2-0010` | `P3` | `closed` | `data-and-evidence` | - | - | - | - |
-| `UPDATEV2-0012` | `P0` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0087`, `ISSUE-0091` | `ISSUE-0073`, `ISSUE-0081`, `ISSUE-0091` |
+| `UPDATEV2-0012` | `P0` | `integrated` | `programme-governance` | - | - | `ISSUE-0087`, `ISSUE-0091` | `ISSUE-0073`, `ISSUE-0081`, `ISSUE-0091` |
 | `UPDATEV2-0013` | `P3` | `closed` | `data-and-evidence` | - | - | - | - |
-| `UPDATEV2-0014` | `P1` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0087` | `ISSUE-0076`, `ISSUE-0087` |
+| `UPDATEV2-0014` | `P1` | `integrated` | `programme-governance` | - | - | `ISSUE-0087` | `ISSUE-0076`, `ISSUE-0087` |
 | `UPDATEV2-0017` | `P1` | `closed` | `programme-governance` | - | - | - | `ISSUE-0103`, `ISSUE-0104` |
 | `UPDATEV2-0019` | `P1` | `closed` | `programme-governance` | - | - | - | `ISSUE-0105`, `ISSUE-0112` |
 | `UPDATEV2-0020` | `P1` | `planned` | `programme-governance` | - | - | - | `ISSUE-0104`, `ISSUE-0149`, `UPDATEV2-0015` |

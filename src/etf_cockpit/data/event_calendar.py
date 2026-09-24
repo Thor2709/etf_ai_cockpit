@@ -94,8 +94,19 @@ def validate_event(event: CalendarEvent, decision_time: datetime | None = None) 
         return _invalid("invalid_event_date", "Event date must be an ISO calendar date.")
     if precision == "date" and str(event.event_time).strip():
         return _invalid("unexpected_event_time", "Date-precision events must not include an event time.")
-    if precision != "date" and _parse_aware(event.event_time) is None:
-        return _invalid("ambiguous_event_time", "Timed events require an explicit timezone.")
+    if precision != "date":
+        event_time = _parse_aware(event.event_time)
+        if event_time is None:
+            return _invalid("ambiguous_event_time", "Timed events require an explicit timezone.")
+        # Inspect lexical fractions as datetime truncates sub-microsecond digits.
+        if re.search(r"[.,]\d+", event.event_time) or (precision == "minute" and event_time.second != 0):
+            return _invalid("inconsistent_time_precision", "Event time exceeds the declared precision.")
+        try:
+            local_date = event_time.astimezone(ZoneInfo(str(event.timezone_name).strip())).date().isoformat()
+        except (OverflowError, ValueError):
+            return _invalid("invalid_event_date", "Event time is outside the declared timezone calendar range.")
+        if local_date != event_date:
+            return _invalid("inconsistent_event_date", "Event date must agree with event time in the declared timezone.")
     available = _parse_aware(event.available_at)
     ingested = _parse_aware(event.ingested_at)
     if available is None or ingested is None:
@@ -168,6 +179,18 @@ def persist_calendar_events(
 
 def load_calendar_events(path: Path = EVENT_CLEAN_PATH, *, raw_dir: Path | None = None, audit_path: Path | None = None) -> pd.DataFrame:
     return sort_calendar_events(_read_clean(Path(path), raw_dir=raw_dir, audit_path=audit_path))
+
+
+def load_calendar_events_strict(path: Path = EVENT_CLEAN_PATH) -> pd.DataFrame:
+    """Require the complete persisted bundle for an explicit blocking policy."""
+    if not Path(path).is_file():
+        raise ValueError("Required calendar ledger is missing")
+    return sort_calendar_events(_read_clean_strict(Path(path)))
+
+
+def calendar_frame_checksum(frame: pd.DataFrame) -> str:
+    _validate_canonical_frame(frame)
+    return _frame_checksum(sort_calendar_events(frame))
 
 
 def sort_calendar_events(frame: pd.DataFrame) -> pd.DataFrame:

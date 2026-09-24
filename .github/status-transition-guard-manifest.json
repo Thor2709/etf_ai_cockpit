@@ -4,22 +4,22 @@
   "allowed_status_transitions": [
     {
       "from": "implemented_initially",
-      "issue_id": "ISSUE-0049",
+      "issue_id": "ISSUE-0024",
       "to": "integrated"
     }
   ],
-  "base_commit": "19b3157f5033e82b68fd1618785b6b5d96d000b0",
-  "branch": "codex/issue0049-lifecycle-20260824",
+  "base_commit": "8b34fb3af07d2fa90b075c304d15dfe2ddf47701",
+  "branch": "claude/issue0024-lifecycle-20260924",
   "issue_ids": [
-    "ISSUE-0049"
+    "ISSUE-0024"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "3f4b3531408f956761aca9a453626f3ea34fc4a4c66a1845f02b4be53528757a",
+    "base_registry_sha256": "5ae449c6874598d752937946db33672285b63c41ae38bf04e6fb883497bdeec2",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "38f0a383b989a7e68c7f590c91112d264fe3eacd44d5851b560d1081992b192f",
-    "reason": "Integrate only ISSUE-0049 from implemented_initially to integrated against merged and independently reviewed product PR #696 and exact O-tier evidence; preserve dependencies, product code, external authority and execution_allowed=false.",
+    "proposed_registry_sha256": "e19a21212d4695e98f7c7412ef31c25ca257125111c867325f1791b4e9bc786a",
+    "reason": "Integrate only ISSUE-0024 from implemented_initially to integrated after merged product PRs #678 and #751, exact-head H-tier Linux/Windows packaged evidence (run 36029387022) and owner-authorised Claude Code root self-review in place of Codex V2 reviewer/risk-reviewer; preserve dependencies, GitHub issue #28 open state, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

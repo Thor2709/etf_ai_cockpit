@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 
 import flet as ft
 
@@ -655,16 +656,24 @@ def _analysis_view(analysis: PortfolioAnalysis, *, benchmark_registry: object | 
             panel(
                 ft.Column(
                     [
-                        section_header("Existing service evidence", "What-if targets are passed to the canonical optimiser, robust-risk and cost services; no calculation is duplicated here."),
+                        section_header("Existing service evidence", "What-if targets are passed to canonical factor-risk, covariance, optimiser, rebalance, scenario and attribution services; no calculation is duplicated here."),
                         ft.Text(
                             " | ".join(
                                 f"{name}={value.get('status', 'unavailable')}"
                                 for name, value in analysis.service_evidence.items()
-                                if isinstance(value, dict) and name in {"optimiser", "risk", "cost"}
+                                if isinstance(value, dict)
+                                and name in {"optimiser", "optimiser_comparison", "factor_risk", "risk", "rebalancing", "scenarios", "attribution", "cost"}
                             ) or "service evidence unavailable",
                             color=theme.MUTED,
                             selectable=True,
                         ),
+                        ft.Text(
+                            _portfolio_service_coverage(analysis),
+                            color=theme.MUTED,
+                            selectable=True,
+                            size=11,
+                        ),
+                        _portfolio_service_results(analysis),
                     ]
                 )
             ),
@@ -684,6 +693,85 @@ def _analysis_view(analysis: PortfolioAnalysis, *, benchmark_registry: object | 
             ),
         ],
         spacing=12,
+    )
+
+
+def _service_value(value: object) -> str:
+    if value is None or (isinstance(value, float) and not math.isfinite(value)):
+        return "unavailable"
+    return str(value)
+
+
+def _service_result_controls(label: str, value: object) -> list[ft.Control]:
+    """Display canonical projections, retaining table axes and every disclosed row."""
+    if isinstance(value, Mapping):
+        if {"columns", "index", "data"}.issubset(value):
+            table = ft.DataTable(
+                columns=[ft.DataColumn(ft.Text(str(value.get("index_name") or "row"))),
+                         *[ft.DataColumn(ft.Text(str(column))) for column in value["columns"]]],
+                rows=[ft.DataRow(cells=[ft.DataCell(ft.Text(_service_value(index), selectable=True)),
+                                       *[ft.DataCell(ft.Text(_service_value(item), selectable=True)) for item in row]])
+                      for index, row in zip(value["index"], value["data"], strict=True)],
+            )
+            return [ft.Text(label, color=theme.TEXT), ft.Row([table], scroll=ft.ScrollMode.AUTO)]
+        controls = []
+        for key, item in value.items():
+            controls.extend(_service_result_controls(f"{label} / {key}", item))
+        return controls or [ft.Text(f"{label}: unavailable", color=theme.MUTED)]
+    if isinstance(value, (list, tuple)):
+        return [control for index, item in enumerate(value, start=1)
+                for control in _service_result_controls(f"{label} [{index}]", item)] or [ft.Text(f"{label}: none reported", color=theme.MUTED)]
+    return [ft.Text(f"{label}: {_service_value(value)}", color=theme.MUTED, selectable=True, size=11)]
+
+
+def _portfolio_service_results(analysis: PortfolioAnalysis) -> ft.Control:
+    titles = {"optimiser_comparison": "Optimiser comparisons and baselines", "optimiser": "Selected optimiser",
+              "factor_risk": "Factor risk and contributions", "risk": "Covariance and risk contributions",
+              "rebalancing": "Rebalance and tax evidence", "scenarios": "Scenario results", "attribution": "Performance attribution", "cost": "Cost evidence"}
+    controls: list[ft.Control] = []
+    for name, title in titles.items():
+        result = analysis.service_evidence.get(name)
+        if not isinstance(result, Mapping):
+            result = {"status": "unavailable", "reason": "canonical service result missing"}
+        for warning in result.get("warnings", ()):
+            controls.append(ft.Text(f"{title}: {warning}", color=theme.AMBER, selectable=True, size=11))
+        if result.get("reason"):
+            controls.append(ft.Text(f"{title}: {result['reason']}", color=theme.AMBER, selectable=True, size=11))
+        controls.append(ft.ExpansionTile(
+            title=ft.Text(title), subtitle=ft.Text(str(result.get("status", "unavailable"))),
+            maintain_state=True, expanded_cross_axis_alignment=ft.CrossAxisAlignment.STRETCH,
+            controls=[ft.Column(_service_result_controls(title, result), height=320, scroll=ft.ScrollMode.AUTO)],
+        ))
+    return ft.Column(controls, spacing=6)
+
+
+def _portfolio_service_coverage(analysis: PortfolioAnalysis) -> str:
+    """Summarise method/coverage evidence without hiding unavailable inputs."""
+
+    comparison = analysis.service_evidence.get("optimiser_comparison")
+    methods = comparison.get("methods", ()) if isinstance(comparison, dict) else ()
+    factor = analysis.service_evidence.get("factor_risk")
+    risk = analysis.service_evidence.get("risk")
+    scenario = analysis.service_evidence.get("scenarios")
+    attribution = analysis.service_evidence.get("attribution")
+    factor_coverage = factor.get("coverage", {}) if isinstance(factor, dict) else {}
+    risk_coverage = risk.get("coverage", {}) if isinstance(risk, dict) else {}
+    scenario_count = len(scenario.get("results", ())) if isinstance(scenario, dict) else 0
+    factor_status = (
+        factor_coverage.get("status", factor.get("status", "unavailable"))
+        if isinstance(factor_coverage, dict) and isinstance(factor, dict)
+        else "unavailable"
+    )
+    risk_status = (
+        risk_coverage.get("status", risk.get("status", "unavailable"))
+        if isinstance(risk_coverage, dict) and isinstance(risk, dict)
+        else "unavailable"
+    )
+    return (
+        f"methods={len(methods) if isinstance(methods, (list, tuple)) else 0} | "
+        f"factor_coverage={factor_status} | "
+        f"covariance_coverage={risk_status} | "
+        f"scenarios={scenario_count} | attribution={attribution.get('status', 'unavailable') if isinstance(attribution, dict) else 'unavailable'} | execution_allowed=false"
     )
 
 

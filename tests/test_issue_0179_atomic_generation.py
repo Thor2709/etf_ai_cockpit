@@ -8,6 +8,44 @@ import pytest
 from scripts import generate_programme
 
 
+def test_registry_generation_converges_from_stale_ledger_in_one_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scripts import generate_issue_registry, issue_registry_core as core
+
+    source_root = Path(__file__).resolve().parents[1]
+    for relative in (
+        core.PACKAGE_JSON, core.SOURCE_MANIFEST, core.FINAL_RELEASE_SOURCE,
+        core.FINAL_RELEASE_MANIFEST, core.CONTROL_STATE_PATH,
+        core.OPEN_LEDGER, core.CLOSED_LEDGER, core.REGISTRY_PATH,
+    ):
+        _write(tmp_path, relative.as_posix(), (source_root / relative).read_bytes())
+    ledger = tmp_path / core.OPEN_LEDGER
+    ledger.write_bytes(core.render_open_ledger_with_final_release(tmp_path).replace(
+        b"# Final-release adopted issues", b"# Stale final-release adopted issues",
+    ))
+    stale = ledger.read_bytes()
+    prior_registry = (tmp_path / core.REGISTRY_PATH).read_bytes()
+    # The isolated fixture has no Git authority refs. Exercise the real parser,
+    # renderer, registry builder and validator; only Git-base admission is skipped.
+    monkeypatch.setattr(generate_issue_registry, "build_registry",
+        lambda root: core.build_registry(root, verify_base=False))
+    args = ["--root", str(tmp_path)]
+    assert generate_issue_registry.main([*args, "--check"]) == 1
+    assert ledger.read_bytes() == stale
+    assert (tmp_path / core.REGISTRY_PATH).read_bytes() == prior_registry
+    assert generate_issue_registry.main(args) == 0
+    first = {path: (tmp_path / path).read_bytes() for path in (core.OPEN_LEDGER, core.REGISTRY_PATH)}
+    registry = json.loads(first[core.REGISTRY_PATH])
+    assert registry["source_of_truth"]["open_ledger_sha256"] == core.sha256_text_file(ledger)
+    assert core.validate_registry(registry,
+        open_ids=set(core.parse_open_ledger(ledger)),
+        closed_ids=set(core.parse_closed_index(tmp_path / core.CLOSED_LEDGER))) == []
+    assert generate_issue_registry.main([*args, "--check"]) == 0
+    assert generate_issue_registry.main(args) == 0
+    assert {path: (tmp_path / path).read_bytes() for path in first} == first
+
+
 def _write(root: Path, relative: str, payload: bytes) -> None:
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)

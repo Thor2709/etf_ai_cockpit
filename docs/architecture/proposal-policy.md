@@ -6,6 +6,17 @@ data revisions plus every required freshness, confidence, event, liquidity,
 cost, concentration and account-authority gate. A headline score or a manual
 UI quantity cannot satisfy those inputs.
 
+The `event_risk` gate is reserved and evaluated internally. It is not part of
+caller-supplied `REQUIRED_GATES`; supplying it is rejected. Without an explicit
+`EventBlockPolicy`, it passes as `context_only`. An applicable policy evaluates
+the strict local calendar bundle as of the request's aware timestamp. Matching
+blackouts or unavailable required evidence produce `manual_review`,
+`proposal_allowed=false` and zero decision quantity. All other gates remain
+independent. The complete checksummed event decision is included in immutable
+`input_material`, persisted with the proposal, and exposed in the API/UI audit.
+Stored event target, instrument, timestamp and policy checksum must agree at
+readback. No supplied event decision or caller gate can grant authority.
+
 Each decision records deterministic input and complete-decision checksums,
 proposal policy version,
 authority-matrix checksum, gate-policy version/checksum, gate table, rationale,

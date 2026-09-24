@@ -183,6 +183,72 @@ def apply_transition(
     return value
 
 
+def apply_dependency_declaration_corrections(
+    value: dict[str, object],
+    *,
+    root: Path,
+    corrections: list[dict[str, object]],
+) -> dict[str, object]:
+    """Stage the entire reviewed F23/F24 removal batch without partial mutation.
+
+    Each item contains only issue_id and event. The caller retains publication
+    authority and must pass real review metadata; this function writes no files.
+    """
+    try:
+        from scripts.issue_registry_core import (
+            DECLARATION_CORRECTION_PAIRS, _final_release_source,
+            parse_final_release_new_issues,
+        )
+    except ModuleNotFoundError:
+        from issue_registry_core import (
+            DECLARATION_CORRECTION_PAIRS, _final_release_source,
+            parse_final_release_new_issues,
+        )
+    source, _ = _final_release_source(root)
+    declared = {row["issue_id"]: set(row["dependencies"]) for row in parse_final_release_new_issues(source)}
+    staged = deepcopy(value)
+    records = staged.get("records")
+    if not isinstance(records, dict):
+        raise ValueError("declaration correction requires canonical records")
+    seen = set()
+    review_identity = None
+    for item in corrections:
+        if not isinstance(item, dict) or set(item) != {"issue_id", "event"}:
+            raise ValueError("declaration correction item fields are malformed")
+        issue_id, event = item["issue_id"], item["event"]
+        if not isinstance(issue_id, str) or not isinstance(event, dict):
+            raise ValueError("declaration correction item is invalid")
+        record = records.get(issue_id)
+        if not isinstance(record, dict):
+            raise ValueError("declaration correction issue is unknown")
+        # Every member is reviewed against the same unmodified predecessor.
+        validate_control_transition_event(issue_id, value["records"][issue_id], event)
+        dependency = event["dependency_edge"]["dependency"]
+        pair = (issue_id, dependency)
+        if pair in seen or dependency in declared.get(issue_id, set()):
+            raise ValueError("declaration correction is duplicate or contradicts source")
+        seen.add(pair)
+        identity = {key: event[key] for key in (
+            "review_reference", "evidence_references", "reviewer", "reviewed_date", "verified_commit",
+        )}
+        if review_identity is not None and identity != review_identity:
+            raise ValueError("declaration correction batch review metadata differs")
+        review_identity = identity
+        history = record.setdefault("transition_history", [])
+        if not isinstance(history, list):
+            raise ValueError("declaration correction history is invalid")
+        history.append(deepcopy(event))
+        del record["dependency_edge_evidence"][dependency]
+        record["verified_commit"] = event["verified_commit"]
+        record["verified_date"] = event["reviewed_date"]
+    if seen != DECLARATION_CORRECTION_PAIRS:
+        raise ValueError("declaration correction requires exactly the five approved pairs")
+    for issue_id, _ in seen:
+        if set(records[issue_id]["dependency_edge_evidence"]) != declared[issue_id]:
+            raise ValueError("declaration correction projection disagrees with immutable source")
+    return staged
+
+
 def apply_dependency_edge_update(
     value: dict[str, object],
     *,

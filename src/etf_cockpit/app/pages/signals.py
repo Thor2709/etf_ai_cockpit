@@ -69,7 +69,6 @@ def _signals_operational_evidence(scores: list[object], report: object) -> ft.Co
 
 
 def signals_page(_page: ft.Page, state: AppState) -> ft.Control:
-    narrow = float(getattr(_page, "width", 0) or state.snapshot.config.ui.window_width) < 760
     reference_context = context_from_snapshot(
         state.snapshot,
         purpose="comparison",
@@ -117,8 +116,10 @@ def signals_page(_page: ft.Page, state: AppState) -> ft.Control:
             open_help=open_help,
         )
 
+    for card in card_controls:
+        card.col = {"xs": 12, "sm": 6, "md": 4, "xl": 2}
     controls: list[ft.Control] = [
-        ft.Column(card_controls, spacing=8) if narrow else ft.Row(card_controls, spacing=12),
+        ft.ResponsiveRow(card_controls, spacing=12, run_spacing=8),
         simple_score_legend(),
     ]
     if gate_summary is not None:

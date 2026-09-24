@@ -7,9 +7,15 @@ ports and application commands.
 """
 
 from collections.abc import Mapping
+import math
+from numbers import Real
 from pathlib import Path
 
+import pandas as pd
+
 from etf_cockpit.data.etf_structure import project_etf_structure
+from etf_cockpit.data.event_calendar import normalise_event_decision_time
+from etf_cockpit.data.stock_research import valuation_analysis
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.parsed_disclosures import read_etf_report_records
 from etf_cockpit.features.cash_comparison import (
@@ -132,11 +138,13 @@ from etf_cockpit.core.versioning import *  # noqa: F401,F403
 from etf_cockpit.core.job_scheduler import *  # noqa: F401,F403
 from etf_cockpit.core.resource_profiles import *  # noqa: F401,F403
 from etf_cockpit.models.forecast_scores import *  # noqa: F401,F403
+from etf_cockpit.models.model_zoo import *  # noqa: F401,F403
 from etf_cockpit.models.coverage_audit import *  # noqa: F401,F403
 from etf_cockpit.models.local_weights import *  # noqa: F401,F403
 from etf_cockpit.portfolio.allocation import *  # noqa: F401,F403
 from etf_cockpit.portfolio.costs import *  # noqa: F401,F403
 from etf_cockpit.portfolio.factor_risk import *  # noqa: F401,F403
+from etf_cockpit.portfolio.factor_risk import build_factor_risk_report
 from etf_cockpit.portfolio.attribution import *  # noqa: F401,F403
 from etf_cockpit.portfolio.rebalancing import *  # noqa: F401,F403
 from etf_cockpit.portfolio.proposal_policy import *  # noqa: F401,F403
@@ -162,6 +170,138 @@ from etf_cockpit.signals.feature_drivers import (  # noqa: F401
     _source_vintage_hash,
     normalise_bound_claim,
 )
+
+
+def _normalise_valuation_assumptions(value: object) -> dict[str, object]:
+    """Accept only the bounded, explicit session scenario contract."""
+    if not isinstance(value, Mapping) or set(value) != {"forecast_years", "discount_rate", "terminal_growth", "scenarios"}:
+        raise ValueError("Explicit forecast years, discount, terminal growth and three scenarios are required")
+    years = value["forecast_years"]
+    if isinstance(years, bool) or not isinstance(years, int) or not 1 <= years <= 50:
+        raise ValueError("Forecast years must be an integer from 1 to 50")
+
+    def number(raw: object) -> float:
+        if isinstance(raw, bool) or not isinstance(raw, Real) or not math.isfinite(raw):
+            raise ValueError("Scenario inputs must be finite numbers")
+        return float(raw)
+
+    discount = number(value["discount_rate"])
+    terminal = number(value["terminal_growth"])
+    if not 0 < discount <= 1 or not -1 <= terminal < discount:
+        raise ValueError("Discount or terminal growth is outside the allowed range")
+    scenarios = value["scenarios"]
+    if not isinstance(scenarios, Mapping) or set(scenarios) != {"bear", "base", "bull"}:
+        raise ValueError("Exactly bear, base and bull scenarios are required")
+    growths = []
+    for name in ("bear", "base", "bull"):
+        row = scenarios[name]
+        if not isinstance(row, Mapping) or set(row) != {"growth"}:
+            raise ValueError("Only explicit growth is allowed for each scenario")
+        growths.append(number(row["growth"]))
+    if not -0.5 <= growths[0] < growths[1] < growths[2] <= 1:
+        raise ValueError("Growth must satisfy -50% <= bear < base < bull <= 100%")
+    return {"forecast_years": years, "discount_rate": discount, "terminal_growth": terminal,
+            "scenarios": {name: {"growth": growth} for name, growth in zip(("bear", "base", "bull"), growths, strict=True)}}
+
+
+def _finite_valuation_result(value: object) -> bool:
+    if isinstance(value, Mapping):
+        return all(_finite_valuation_result(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return all(_finite_valuation_result(item) for item in value)
+    return not isinstance(value, Real) or math.isfinite(value)
+
+
+def load_valuation_evidence(path: Path, *, instrument_id: str, decision_time: object, assumptions: object = None) -> dict[str, object]:
+    """Validate raw scoped facts before the date-grained stock research producer.
+
+    Exact UTC knowledge filtering precedes the producer's date adapter. A
+    date-only availability is conservatively eligible at UTC end-of-day;
+    malformed selected evidence blocks the entire panel, never just that row.
+    """
+    def unavailable(reason: str) -> dict[str, object]:
+        return {"status": "unavailable", "message": reason, "execution_allowed": False}
+
+    cutoff = normalise_event_decision_time(decision_time)
+    if cutoff is None:
+        return unavailable("Snapshot decision time is unavailable; point-in-time valuation cannot be established.")
+    context = {}
+    if assumptions is not None:
+        try:
+            assumptions = _normalise_valuation_assumptions(assumptions)
+        except (ValueError, TypeError, OverflowError):
+            return unavailable("Invalid explicit scenario assumptions; valuation unavailable.")
+        context = {"kind": "local_user_scenario_assumption", "instrument_id": instrument_id,
+                   "decision_time": cutoff.isoformat(), "session_preview_only": True,
+                   "score_authority": False, "execution_allowed": False, "assumptions": assumptions}
+    try:
+        raw = pd.read_parquet(path)
+        if raw.empty:
+            return unavailable("Canonical local statement evidence is unavailable.")
+        if raw.columns.duplicated().any() or "instrument_id" not in raw:
+            return unavailable("Statement identity is malformed; valuation unavailable.")
+        frame = raw.loc[raw["instrument_id"].map(lambda value: isinstance(value, str) and value == instrument_id)].copy()
+        if frame.empty:
+            return unavailable("No canonical local statements exist for this instrument.")
+        required = {"canonical_metric", "value", "available_at", "source_id"}
+        if not required.issubset(frame.columns):
+            return unavailable("Required statement evidence fields are missing; valuation unavailable.")
+        for alias in ("etf_id", "display_id"):
+            if alias in frame and any(not pd.api.types.is_scalar(value) or (pd.notna(value) and value != instrument_id) for value in frame[alias]):
+                return unavailable("Statement identity conflicts; valuation unavailable.")
+        fields = (
+            "instrument_id", "canonical_metric", "value", "available_at", "source_id", "concept", "unit",
+            "start", "end", "instant", "filed", "form", "accession", "fiscal_year", "fiscal_period",
+            "dimensions", "currency", "period_type", "mapping_status", "mapping_confidence",
+            "manual_review_required", "restatement_kind",
+        )
+        frame = frame[[field for field in fields if field in frame]].copy()
+        knowledge = []
+        for row in frame.to_dict("records"):
+            if any(not pd.api.types.is_scalar(value) for value in row.values()):
+                return unavailable("Malformed statement row; valuation unavailable.")
+            value = row["value"]
+            if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value):
+                return unavailable("Invalid or nonfinite statement numeric input; valuation unavailable.")
+            if any(not isinstance(row[field], str) or not row[field].strip() for field in ("canonical_metric", "source_id")):
+                return unavailable("Statement metric or provenance is missing; valuation unavailable.")
+            available = row["available_at"]
+            known_at = normalise_event_decision_time(available)
+            if known_at is None:
+                return unavailable("Statement availability is unknown or malformed; valuation unavailable.")
+            knowledge.append(known_at)
+            for field in ("start", "end", "instant", "filed"):
+                date_value = row.get(field)
+                if date_value is not None and pd.notna(date_value):
+                    if not isinstance(date_value, str) or pd.isna(pd.to_datetime(date_value, errors="coerce", utc=True)):
+                        return unavailable("Malformed statement period or filing date; valuation unavailable.")
+            if not any(isinstance(row.get(field), str) and row[field].strip() for field in ("end", "instant")):
+                return unavailable("Statement period is missing; valuation unavailable.")
+        frame = frame.loc[[known_at <= cutoff for known_at in knowledge]].copy()
+        if frame.empty:
+            return unavailable("No statement evidence was available at the snapshot decision time.")
+        # Share counts are a sourced-input validity rule, not a valuation formula.
+        # Check only selected, cutoff-eligible facts; future/foreign counts cannot
+        # invalidate the current preview. The producer uses this exact metric name.
+        share_counts = frame.loc[frame["canonical_metric"].eq("shares_outstanding"), "value"]
+        if share_counts.le(0).any():
+            return unavailable("Nonpositive sourced share count; valuation unavailable.")
+        # All surviving rows have already passed exact knowledge filtering.
+        # Adapt only the producer's internal availability representation, not
+        # the persisted facts or the disclosed decision cutoff.
+        precisions = {"date_only_utc_end_of_day" if len(str(value).strip()) == 10 else "timestamp" for value in frame["available_at"]}
+        frame["available_at"] = [normalise_event_decision_time(value).date().isoformat() for value in frame["available_at"]]
+        result = valuation_analysis(frame, instrument_id=instrument_id, as_known_at=cutoff.isoformat(), assumptions=assumptions)
+        if not _finite_valuation_result(result):
+            return unavailable("Nonfinite derived valuation evidence; valuation unavailable.")
+        result["source_lineage"]["as_known_at"] = cutoff.isoformat()
+        result["source_lineage"]["knowledge_precision"] = sorted(precisions)
+        result["source_lineage"]["cutoff_policy"] = "Exact UTC filtering before date-grained canonical calculation; date-only knowledge uses UTC end-of-day."
+        return result | {"status": "available", "assumption_context": context}
+    except ArithmeticError:
+        return unavailable("Arithmetic failure in canonical valuation; valuation unavailable.")
+    except (OSError, ValueError, TypeError, ImportError, KeyError):
+        return unavailable("Canonical statement store is unreadable or malformed; valuation unavailable.")
 
 
 def load_etf_structure_projection(
@@ -740,6 +880,51 @@ def load_paper_trade_rows(root: Path) -> tuple[dict[str, object], ...]:
         return ()
 
 
+def load_paper_timeline(
+    root: Path,
+    instrument_id: str,
+    *,
+    account_id: str = "local-paper",
+) -> dict[str, object]:
+    """Read one paper account's validated lifecycle history for presentation."""
+
+    from etf_cockpit.portfolio.paper_trading import (
+        PaperLedger,
+        PaperLedgerError,
+        PaperLedgerIntegrityError,
+    )
+
+    ledger = PaperLedger(root, account_id=account_id)
+    if not ledger.path.exists():
+        return {
+            "status": "unavailable",
+            "instrument_id": str(instrument_id),
+            "rows": [],
+            "reason_code": "paper_ledger_missing",
+            "source_authority": "local_paper_ledger",
+            "execution_allowed": False,
+        }
+    try:
+        rows = ledger.timeline_rows(instrument_id)
+    except (OSError, PaperLedgerIntegrityError, PaperLedgerError, ValueError):
+        return {
+            "status": "invalid",
+            "instrument_id": str(instrument_id),
+            "rows": [],
+            "reason_code": "paper_ledger_invalid",
+            "source_authority": "local_paper_ledger",
+            "execution_allowed": False,
+        }
+    return {
+        "status": "available",
+        "instrument_id": str(instrument_id),
+        "rows": list(rows),
+        "source_authority": "local_paper_ledger",
+        "message": "Recorded paper lifecycle history; this is not a historical account reconstruction.",
+        "execution_allowed": False,
+    }
+
+
 def _load_market_series_projection(
     prices: object,
     instrument_id: str,
@@ -863,3 +1048,234 @@ def load_market_series_projection(
             "frame": pd.DataFrame(),
             "execution_allowed": False,
         }
+
+
+def load_bound_factor_risk_panel(snapshot: object, instrument_id: str) -> dict[str, object]:
+    """Project canonical factor risk only from replayed snapshot input bindings."""
+    import math as numeric_math
+    from numbers import Real
+    import pandas as pandas
+    from etf_cockpit.application.benchmark_reference import adjusted_price_snapshot_binding, clip_to_decision_window
+    from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry, ReferencePortfolioDefinition
+    from etf_cockpit.portfolio.sandbox import holdings_checksum
+
+    def source_knowledge(frame, effective_times, decision, *, price_rows=False):
+        # Replay the no-trade builder's explicit per-row knowledge contract.
+        authority_columns = tuple(column for column in ("known_at", "imported_at", "available_at") if column in frame)
+        if not authority_columns:
+            raise ValueError("explicit source knowledge is missing")
+        columns = authority_columns + tuple(column for column in ("retrieved_at", "published_at") if price_rows and column in frame)
+        times = []
+        for (_, row), effective_time in zip(frame.iterrows(), effective_times):
+            declared = {}
+            for column in columns:
+                value = row[column]
+                if value is None or pandas.isna(value):
+                    continue
+                parsed = pandas.to_datetime(value, errors="coerce")
+                if pandas.isna(parsed) or getattr(parsed, "tzinfo", None) is None:
+                    raise ValueError("source knowledge must contain valid aware timestamps")
+                declared[column] = pandas.Timestamp(parsed).tz_convert("UTC")
+            if not any(column in declared for column in authority_columns):
+                raise ValueError("each source row requires explicit knowledge")
+            row_known = max(declared.values())
+            if row_known < effective_time or row_known > decision:
+                raise ValueError("source knowledge contradicts the effective time or decision cutoff")
+            times.append(row_known)
+        return max(times), {
+            "status": "validated", "row_count": len(times), "fields": list(columns),
+            "latest_known_at": max(times).isoformat(), "earliest_known_at": min(times).isoformat(),
+        }
+
+    empty = {
+        "status": "unavailable", "instrument_id": instrument_id,
+        "factor_exposures": [], "specific_risk": [], "instrument_contributions": [],
+        "global_coverage": {}, "global_diagnostics": {}, "global_report_status": "unavailable",
+        "coverage": {"status": "unavailable", "instrument_id": instrument_id},
+        "coverage_scope": "selected_instrument", "historical_binding_status": "unavailable",
+        "selected_instrument_status": "unverified", "warnings": [],
+        "lookthrough_status": "unsupported", "retrospective_universe_replay": "unsupported",
+        "execution_allowed": False,
+    }
+    try:
+        prices = getattr(snapshot, "prices", None)
+        features = getattr(snapshot, "features", None)
+        holdings = getattr(snapshot, "holdings", None)
+        if any(not isinstance(frame, pandas.DataFrame) or frame.empty or not frame.columns.is_unique for frame in (prices, features, holdings)):
+            raise ValueError("complete unambiguous snapshot frames are required")
+        binding = features.attrs.get("price_binding")
+        if not isinstance(binding, Mapping) or not isinstance(binding.get("calculation_window"), Mapping):
+            raise ValueError("full feature price binding is unavailable")
+        window = binding["calculation_window"]
+        replayed = adjusted_price_snapshot_binding(prices, calculation_window=window)
+        if replayed is None or dict(binding) != replayed:
+            raise ValueError("feature price binding does not match replayed adjusted prices")
+        decision = pandas.Timestamp(window["decision_time"])
+        as_of = pandas.Timestamp(getattr(getattr(snapshot, "data_report", None), "as_of_date", None))
+        if pandas.isna(as_of) or decision.tzinfo is None or as_of.date().isoformat() != window["end_date"]:
+            raise ValueError("snapshot cutoff does not match the bound calculation window")
+        scoped_prices = clip_to_decision_window(prices, **window)
+        scoped_features = clip_to_decision_window(features, **window)
+        price_effective = pandas.to_datetime(scoped_prices["date"], errors="coerce", utc=True, format="mixed")
+        _, price_knowledge = source_knowledge(scoped_prices, price_effective, decision, price_rows=True)
+        if len(scoped_features) != len(features) or scoped_features.empty:
+            raise ValueError("feature rows fall outside the bound decision window")
+        for frame in (scoped_prices, scoped_features, holdings):
+            if "etf_id" not in frame or any(not isinstance(value, str) or not value or value != value.strip() for value in frame["etf_id"]):
+                raise ValueError("exact canonical source identifiers are required")
+        if scoped_features.duplicated(["etf_id", "date"]).any():
+            raise ValueError("feature identity and dates must be unambiguous")
+        # A price checksum binds inputs, not supplied descriptor values. Replay
+        # the canonical calculation before accepting those descriptors as bound.
+        from etf_cockpit.features.feature_pipeline import compute_features
+        replay_prices = scoped_prices.copy()
+        if "volume" not in replay_prices:
+            replay_prices["volume"] = float("nan")  # FeatureService's explicit missing-volume convention.
+        replay_features = compute_features(replay_prices)
+        descriptor_columns = ["etf_id", "date", "momentum_120d", "momentum_60d", "return_60d_log", "vol_60d_ann", "vol_120d_ann", "ewma_vol_ann"]
+        if not set(descriptor_columns).issubset(scoped_features):
+            raise ValueError("canonical factor descriptors are incomplete")
+        supplied = scoped_features[descriptor_columns].copy()
+        canonical = replay_features[descriptor_columns].copy()
+        for frame in (supplied, canonical):
+            frame["date"] = pandas.to_datetime(frame["date"], errors="coerce", utc=True, format="mixed")
+        try:
+            pandas.testing.assert_frame_equal(
+                supplied.sort_values(["etf_id", "date"]).reset_index(drop=True),
+                canonical.sort_values(["etf_id", "date"]).reset_index(drop=True),
+                check_dtype=False, check_exact=True,
+            )
+        except AssertionError as exc:
+            raise ValueError("supplied factor descriptors differ from canonical price replay") from exc
+        required = ("current_weight", "market_value_eur", "as_of_date")
+        if not set(required).issubset(holdings) or holdings["etf_id"].duplicated().any():
+            raise ValueError("holdings allocation fields are incomplete")
+        for column in required[:2]:
+            if any(isinstance(value, bool) or not isinstance(value, Real) or not numeric_math.isfinite(value) or value < 0 for value in holdings[column]):
+                raise ValueError("holdings allocation values are invalid")
+        holding_dates = pandas.to_datetime(holdings["as_of_date"], errors="coerce", utc=True, format="mixed")
+        if holding_dates.isna().any() or set(holding_dates.dt.date) != {as_of.date()}:
+            raise ValueError("holdings are not effective at the snapshot cutoff")
+        holdings_known, holdings_knowledge = source_knowledge(
+            holdings, [pandas.Timestamp(as_of.date(), tz="UTC")] * len(holdings), decision
+        )
+        registry = getattr(snapshot, "benchmark_reference_registry", None)
+        if not isinstance(registry, CanonicalBenchmarkRegistry):
+            raise ValueError("canonical no-trade reference is unavailable")
+        references = [item for item in registry.reference_portfolios if item.portfolio_id == "reference:no_trade"]
+        checksum = holdings_checksum(holdings)
+        if len(references) != 1 or not isinstance(references[0], ReferencePortfolioDefinition):
+            raise ValueError("exactly one canonical no-trade reference is required")
+        reference = references[0]
+        known = pandas.Timestamp(reference.known_at)
+        effective = pandas.Timestamp(reference.effective_at)
+        if known != holdings_known:
+            raise ValueError("no-trade reference knowledge differs from the source row maximum")
+        if (reference.method != "no_trade" or tuple(reference.source_hashes) != (checksum,)
+                or known.tzinfo is None or known > decision or effective != pandas.Timestamp(as_of.date(), tz="UTC")):
+            raise ValueError("no-trade reference holdings provenance does not match the cutoff")
+        held_ids = set(holdings["etf_id"])
+        weights = dict(reference.current_weights or {})
+        if set(weights) != held_ids | {f"cash:{reference.currency}"}:
+            raise ValueError("no-trade reference does not prove the complete held universe")
+        for row in holdings.itertuples():
+            if weights[row.etf_id] != row.current_weight:
+                raise ValueError("no-trade weights differ from bound holdings")
+        universe = sorted(set(scoped_prices["etf_id"]) & set(scoped_features["etf_id"]))
+        if not held_ids.issubset(universe):
+            raise ValueError("held instruments lack bound price or feature evidence")
+        # An absent position in the complete bound holdings set has zero
+        # portfolio weight; its unknown market-value descriptor remains missing.
+        allocation = pandas.DataFrame({"etf_id": universe}).merge(
+            holdings[["etf_id", "current_weight", "market_value_eur"]], on="etf_id", how="left", validate="one_to_one"
+        )
+        allocation.loc[~allocation["etf_id"].isin(held_ids), "current_weight"] = 0.0
+
+        report = build_factor_risk_report(
+            scoped_prices.loc[scoped_prices["etf_id"].isin(universe)], allocation,
+            scoped_features.loc[scoped_features["etf_id"].isin(universe), descriptor_columns], holdings=None,
+        )
+    except (ArithmeticError, AttributeError, KeyError, OSError, TypeError, ValueError) as exc:
+        return empty | {"message": f"Factor-risk binding unavailable: {exc}."}
+    selected = {}
+    for key in ("factor_exposures", "specific_risk", "instrument_contributions"):
+        frame = report.get(key)
+        selected[key] = frame.loc[frame["instrument_id"].eq(instrument_id)].copy() if isinstance(frame, pandas.DataFrame) and "instrument_id" in frame else pandas.DataFrame()
+    risk = selected["specific_risk"]
+    covered = (report.get("status") in {"available", "partial"} and not risk.empty
+               and "specific_vol_ann" in risk and pandas.to_numeric(risk["specific_vol_ann"], errors="coerce").map(numeric_math.isfinite).all())
+    return empty | {
+        "status": report.get("status") if covered else "unavailable",
+        "historical_binding_status": "verified_snapshot",
+        "selected_instrument_status": "available" if covered else "absent" if instrument_id not in universe else "insufficient_model_coverage",
+        "coverage": {"status": "available" if covered else "unavailable", "instrument_id": instrument_id},
+        **{key: frame.astype(object).where(pandas.notna(frame), None).to_dict("records") if covered else [] for key, frame in selected.items()},
+        "global_report_status": report.get("status", "unavailable"),
+        "global_coverage": report.get("coverage", {}), "global_diagnostics": report.get("diagnostics", {}),
+        "global_coverage_scope": "estimation_universe", "global_diagnostics_scope": "estimation_universe",
+        "warnings": report.get("warnings", []), "model_version": report.get("model_version", "unavailable"),
+        "decision_time": window["decision_time"], "price_snapshot_checksum": replayed["price_snapshot_checksum"],
+        "source_knowledge": {
+            "prices": price_knowledge | {"checksum_scope": "price checksum binds values only; row knowledge validated separately"},
+            "holdings": holdings_knowledge | {"holdings_checksum": checksum, "reference_content_hash": reference.content_hash},
+        },
+        "holdings_checksum": checksum, "universe_revision": getattr(snapshot, "universe_revision", ""),
+        "message": "Factor risk from verified snapshot price/features and no-trade holdings bindings. Historical look-through and arbitrary retrospective universe replay are unsupported.",
+    }
+
+
+# Explicit presentation schema: future/private artifact fields are never projected.
+_METRIC_HISTORY_DISPLAY_COLUMNS = (
+    "run_id", "instrument_id", "component_group", "component_name", "source_id",
+    "raw_metric_value", "normalised_score_10", "score_available", "na_reason",
+    "source_dataset", "as_of_date", "freshness_status", "authority_label",
+    "formula_version", "formula_checksum", "source_vintage_hash", "execution_allowed",
+)
+
+
+def load_score_metric_history_projection(instrument_id: str, *, frame=None) -> dict:
+    """Read stored component snapshots without deriving scores or PIT authority."""
+    import math
+    from numbers import Real
+
+    import pandas as pd
+
+    from etf_cockpit.data.trust_artifacts import SCORE_METRIC_HISTORY_PATH
+
+    def unavailable(reason: str) -> dict:
+        return {"status": "unavailable", "reason_code": reason, "rows": [],
+                "message": "Score-component metric history unavailable: " + reason + ".",
+                "execution_allowed": False}
+
+    if frame is None:
+        try:
+            frame = pd.read_parquet(SCORE_METRIC_HISTORY_PATH)
+        except FileNotFoundError:
+            return unavailable("missing_local_artifact")
+        except Exception:
+            return unavailable("unreadable_local_artifact")
+    if (not isinstance(frame, pd.DataFrame) or not frame.columns.is_unique
+            or not set(_METRIC_HISTORY_DISPLAY_COLUMNS).issubset(frame.columns)):
+        return unavailable("malformed_metric_history")
+    rows = frame.loc[frame["instrument_id"].eq(instrument_id), list(_METRIC_HISTORY_DISPLAY_COLUMNS)]
+    if rows.empty:
+        return unavailable("no_instrument_metric_history")
+    records = []
+    for record in rows.to_dict("records"):
+        for field, value in record.items():
+            if not pd.api.types.is_scalar(value):
+                return unavailable("malformed_metric_history")
+            if pd.isna(value):
+                record[field] = None
+        for field in ("run_id", "instrument_id", "component_name"):
+            if not isinstance(record[field], str) or not record[field].strip():
+                return unavailable("malformed_metric_history")
+        for field in ("raw_metric_value", "normalised_score_10"):
+            value = record[field]
+            if value is not None and (isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value)):
+                return unavailable("malformed_metric_history")
+        record["execution_allowed"] = False
+        records.append(record)
+    return {"status": "available", "instrument_id": instrument_id, "rows": records,
+            "message": "Persisted score-component snapshots across local runs. As-of dates and stored provenance do not establish knowledge-time availability or replay guarantees.",
+            "execution_allowed": False}

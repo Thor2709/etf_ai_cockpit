@@ -1,0 +1,161 @@
+{
+  "blocking_cycle": false,
+  "blocking_edges": 300,
+  "evidence_only_blocked": [
+    "ISSUE-0092",
+    "ISSUE-0093",
+    "ISSUE-0094",
+    "ISSUE-0096",
+    "ISSUE-0105",
+    "ISSUE-0107",
+    "ISSUE-0126",
+    "ISSUE-0128",
+    "ISSUE-0137",
+    "ISSUE-0143",
+    "ISSUE-0147",
+    "ISSUE-0149",
+    "ISSUE-0151"
+  ],
+  "incomplete": 109,
+  "incomplete_dependency_ready": 49,
+  "observed_main": "51bec2b8937f725e9e1c74136249a1d9c7d4851a",
+  "phases": 11,
+  "ready_but_excluded": {
+    "ISSUE-0061": "research_only",
+    "ISSUE-0062": "research_only",
+    "ISSUE-0152": "blocked"
+  },
+  "records": 202,
+  "statuses": {
+    "blocked": 1,
+    "closed": 17,
+    "hardening_required": 4,
+    "implemented_initially": 47,
+    "in_progress": 4,
+    "integrated": 76,
+    "planned": 51,
+    "research_only": 2
+  },
+  "top_bottlenecks": [
+    {
+      "graph_depth": 9,
+      "incomplete_descendants": 19,
+      "issue": "ISSUE-0149",
+      "status": "hardening_required"
+    },
+    {
+      "graph_depth": 8,
+      "incomplete_descendants": 17,
+      "issue": "ISSUE-0027",
+      "status": "implemented_initially"
+    },
+    {
+      "graph_depth": 7,
+      "incomplete_descendants": 16,
+      "issue": "ISSUE-0117",
+      "status": "implemented_initially"
+    },
+    {
+      "graph_depth": 5,
+      "incomplete_descendants": 16,
+      "issue": "ISSUE-0127",
+      "status": "planned"
+    },
+    {
+      "graph_depth": 8,
+      "incomplete_descendants": 15,
+      "issue": "ISSUE-0079",
+      "status": "hardening_required"
+    },
+    {
+      "graph_depth": 6,
+      "incomplete_descendants": 14,
+      "issue": "ISSUE-0119",
+      "status": "implemented_initially"
+    },
+    {
+      "graph_depth": 6,
+      "incomplete_descendants": 13,
+      "issue": "ISSUE-0105",
+      "status": "planned"
+    },
+    {
+      "graph_depth": 5,
+      "incomplete_descendants": 13,
+      "issue": "ISSUE-0120",
+      "status": "implemented_initially"
+    },
+    {
+      "graph_depth": 7,
+      "incomplete_descendants": 12,
+      "issue": "ISSUE-0052",
+      "status": "implemented_initially"
+    },
+    {
+      "graph_depth": 6,
+      "incomplete_descendants": 12,
+      "issue": "ISSUE-0096",
+      "status": "implemented_initially"
+    },
+    {
+      "graph_depth": 5,
+      "incomplete_descendants": 11,
+      "issue": "ISSUE-0108",
+      "status": "planned"
+    },
+    {
+      "graph_depth": 5,
+      "incomplete_descendants": 10,
+      "issue": "ISSUE-0137",
+      "status": "implemented_initially"
+    },
+    {
+      "graph_depth": 5,
+      "incomplete_descendants": 8,
+      "issue": "ISSUE-0021",
+      "status": "implemented_initially"
+    },
+    {
+      "graph_depth": 5,
+      "incomplete_descendants": 8,
+      "issue": "ISSUE-0066",
+      "status": "planned"
+    },
+    {
+      "graph_depth": 4,
+      "incomplete_descendants": 8,
+      "issue": "ISSUE-0109",
+      "status": "implemented_initially"
+    },
+    {
+      "graph_depth": 4,
+      "incomplete_descendants": 8,
+      "issue": "ISSUE-0123",
+      "status": "planned"
+    },
+    {
+      "graph_depth": 4,
+      "incomplete_descendants": 7,
+      "issue": "ISSUE-0131",
+      "status": "planned"
+    },
+    {
+      "graph_depth": 4,
+      "incomplete_descendants": 7,
+      "issue": "ISSUE-0139",
+      "status": "implemented_initially"
+    },
+    {
+      "graph_depth": 4,
+      "incomplete_descendants": 7,
+      "issue": "ISSUE-0159",
+      "status": "planned"
+    },
+    {
+      "graph_depth": 4,
+      "incomplete_descendants": 6,
+      "issue": "ISSUE-0138",
+      "status": "implemented_initially"
+    }
+  ]
+}

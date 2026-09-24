@@ -32,8 +32,12 @@ def main(argv: list[str] | None = None) -> int:
     target = root / REGISTRY_PATH
     ledger_target = root / OPEN_LEDGER
     try:
-        payload = deterministic_json(build_registry(root))
         ledger_payload = render_open_ledger_with_final_release(root)
+        if not args.check:
+            # Registry provenance hashes the ledger on disk. Publish the
+            # rendered ledger first inside the outer programme staging tree.
+            ledger_target.write_bytes(ledger_payload)
+        payload = deterministic_json(build_registry(root))
     except ValueError as exc:
         print(f"{'STALE' if args.check else 'ERROR'}: {exc}")
         return 1
@@ -46,7 +50,6 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"FRESH: {target}")
         return 0
-    ledger_target.write_bytes(ledger_payload)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(payload)
     print(f"WROTE: {target}")

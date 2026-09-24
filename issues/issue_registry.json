@@ -3323,34 +3323,6 @@
     },
     {
       "candidate_type": "blocking",
-      "dependency": "ISSUE-0132",
-      "reason": "proposed programme prerequisite",
-      "resolved_as": "blocking_dependencies",
-      "source_id": "ISSUE-0167"
-    },
-    {
-      "candidate_type": "blocking",
-      "dependency": "ISSUE-0133",
-      "reason": "proposed programme prerequisite",
-      "resolved_as": "blocking_dependencies",
-      "source_id": "ISSUE-0167"
-    },
-    {
-      "candidate_type": "blocking",
-      "dependency": "ISSUE-0134",
-      "reason": "proposed programme prerequisite",
-      "resolved_as": "blocking_dependencies",
-      "source_id": "ISSUE-0167"
-    },
-    {
-      "candidate_type": "blocking",
-      "dependency": "ISSUE-0135",
-      "reason": "proposed programme prerequisite",
-      "resolved_as": "blocking_dependencies",
-      "source_id": "ISSUE-0167"
-    },
-    {
-      "candidate_type": "blocking",
       "dependency": "ISSUE-0108",
       "reason": "proposed programme prerequisite",
       "resolved_as": "blocking_dependencies",
@@ -3415,13 +3387,6 @@
     {
       "candidate_type": "blocking",
       "dependency": "ISSUE-0142",
-      "reason": "proposed programme prerequisite",
-      "resolved_as": "blocking_dependencies",
-      "source_id": "ISSUE-0169"
-    },
-    {
-      "candidate_type": "blocking",
-      "dependency": "ISSUE-0152",
       "reason": "proposed programme prerequisite",
       "resolved_as": "blocking_dependencies",
       "source_id": "ISSUE-0169"
@@ -7843,30 +7808,6 @@
           "evidence_state": "unresolved",
           "reason_code": "EDGE_UNRESOLVED",
           "resolved": false
-        },
-        {
-          "dependency_id": "ISSUE-0132",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
-        },
-        {
-          "dependency_id": "ISSUE-0133",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
-        },
-        {
-          "dependency_id": "ISSUE-0134",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
-        },
-        {
-          "dependency_id": "ISSUE-0135",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
         }
       ],
       "execution_allowed": false,
@@ -7956,12 +7897,6 @@
         },
         {
           "dependency_id": "ISSUE-0142",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
-        },
-        {
-          "dependency_id": "ISSUE-0152",
           "evidence_state": "unresolved",
           "reason_code": "EDGE_UNRESOLVED",
           "resolved": false
@@ -9983,7 +9918,21 @@
       "write_conflict_group": "programme-governance"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #732 https://github.com/Thor2709/etf_ai_cockpit/pull/732; product head 79451f884e6b0986b54d2493a5c0d5979dcbd131; merge a15cafae968ee66fca4f0762407a7ecd81d9755e; release run 34066717436.",
+            "PR #744 https://github.com/Thor2709/etf_ai_cockpit/pull/744; product head 83322d89e234079906fc0e658b1cf9f088ef201a; merge 1a3bef4dae4b737d3d1edbc849b80b3a2ec05a13; release run 34416164358.",
+            "PR #745 https://github.com/Thor2709/etf_ai_cockpit/pull/745; product head 0645d7cf754182faab01ba5bd59f7649b384df4e; merge 0d91436bbae04b1b37bed96e7f20284b2478ccde; release run 34423470795; audit/export acceptance included.",
+            "PR #747 https://github.com/Thor2709/etf_ai_cockpit/pull/747; exact product head fa61ae05f6cdc6c09e17159e093c391506308adb; merge b17f33e48e3e3b3664452fa597706f99e290dade; exact-head release run 34826849607: preflight, supply-chain, Linux and Windows packaged gates successful; 4,737 tests per platform.",
+            "Fresh post-merge clean-runtime browser acceptance: C:/dev/etf-issue0019-browser-final-evidence-20260914/browser-evidence.json; 390px compact layout/no document overflow, JEDI row-to-detail, six-field keyboard flow, resize retention, Escape and Close focus restoration/discard, audit export reachability, explicit unavailable/no-execution states."
+          ],
+          "review_reference": "Exact product head fa61ae05f6cdc6c09e17159e093c391506308adb: Codex whole-diff reviewer APPROVE; Codex risk reviewer PASS; release verifier READY; browser acceptance refreshed post-merge at C:/dev/etf-issue0019-browser-final-evidence-20260914/browser-evidence.json.",
+          "reviewed_date": "2026-09-14",
+          "reviewer": "Codex independent whole-diff reviewer, risk reviewer, release verifier, browser acceptance, and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0019",
@@ -10007,7 +9956,7 @@
       "package_status": "Implementation complete; closure pending",
       "phase": "phase-01-governance-scope",
       "priority": "P0/P1",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -10032,8 +9981,8 @@
       "source_record_id": "ISSUE-0019",
       "source_title": "Proper instrument detail page",
       "title": "Proper instrument detail page",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "fa61ae05f6cdc6c09e17159e093c391506308adb",
+      "verified_date": "2026-09-14",
       "why": "The instrument page is the primary research hub and must explain every output and limitation.",
       "write_conflict_group": "programme-governance"
     },
@@ -10302,7 +10251,20 @@
       "write_conflict_group": "data-and-evidence"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #678 https://github.com/Thor2709/etf_ai_cockpit/pull/678; calendar product head 89634f179eb947d4f0af8685cf4ef025685dd618; merge 4f7082d06d1695158d8998563dc083e86fe5e364 (ancestor of main): availability-aware earnings, dividend, split/corporate-action, filing, guidance, fund-rebalance, index-change, review-date and high-risk events with timezone, source, precision and decision-time availability, shown in Instrument Detail and News & Context with explicit unavailable/malformed/conflict states.",
+            "PR #751 https://github.com/Thor2709/etf_ai_cockpit/pull/751; exact product head ccb4f2c85c07dce0effec068fa4c4f87dea4ede0; merge 8b34fb3af07d2fa90b075c304d15dfe2ddf47701; exact-head release run 36029387022: classifier, preflight, supply-chain, Linux and Windows packaged gates and validation-summary successful. Adds opt-in checksummed EventBlockPolicy preview blackout for proposal/paper-order previews; context_only by default; execution_allowed=false.",
+            "Acceptance tests: tests/test_event_calendar.py (event parsing/validation, missing and malformed ledgers, point-in-time availability, both UI surfaces), tests/test_event_controls.py, tests/test_proposal_policy.py, tests/test_operations_workspace.py; 204 focused cases passed locally on the lane before the gate.",
+            "Context-only authority recorded in docs/architecture/event-calendar.md and docs/architecture/proposal-policy.md (plan.md is an immutable historical pointer since 2026-09-08); event data never grants score, signal, order or execution authority."
+          ],
+          "review_reference": "Exact product head ccb4f2c85c07dce0effec068fa4c4f87dea4ede0: Claude Code (claude-opus-5-5) root self-review, owner-authorised on 2026-09-24 to take over the Codex lane; no Codex V2 reviewer/risk-reviewer verdict exists for this head. Self-review found and fixed a naive as_of regression (b88a9ce0) and a presentation-boundary import violation (ccb4f2c8); exact-head H-tier release run 36029387022 passed.",
+          "reviewed_date": "2026-09-24",
+          "reviewer": "Claude Code root orchestrator self-review (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0024",
@@ -10329,7 +10291,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P1/P2",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -10355,8 +10317,8 @@
       "source_record_id": "ISSUE-0024",
       "source_title": "Earnings, dividends and event calendar",
       "title": "Earnings, dividends and event calendar",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "ccb4f2c85c07dce0effec068fa4c4f87dea4ede0",
+      "verified_date": "2026-09-24",
       "why": "Event timing affects interpretation, model validity and order risk, but must not leak into earlier backtests.",
       "write_conflict_group": "programme-governance"
     },
@@ -20188,8 +20150,7 @@
       "downstream_issues": [
         "ISSUE-0133",
         "ISSUE-0135",
-        "ISSUE-0142",
-        "ISSUE-0167"
+        "ISSUE-0142"
       ],
       "epic": "Execution safety",
       "evidence_grade": "High",
@@ -20285,9 +20246,7 @@
           "state": "unresolved"
         }
       },
-      "downstream_issues": [
-        "ISSUE-0167"
-      ],
+      "downstream_issues": [],
       "epic": "Execution",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "The app software can remain free/open; real trading is inherently subject to broker, exchange, tax, commission and market-data terms and costs.",
@@ -20389,9 +20348,7 @@
           "state": "unresolved"
         }
       },
-      "downstream_issues": [
-        "ISSUE-0167"
-      ],
+      "downstream_issues": [],
       "epic": "Execution analytics",
       "evidence_grade": "Moderate",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -20493,9 +20450,7 @@
           "state": "unresolved"
         }
       },
-      "downstream_issues": [
-        "ISSUE-0167"
-      ],
+      "downstream_issues": [],
       "epic": "Execution safety",
       "evidence_grade": "High",
       "free_no_quota_policy": "Mandatory implementation is local-first and must not depend on a paid plan, API key or per-call vendor quota.",
@@ -22227,8 +22182,7 @@
       "dependency_conversions": [],
       "dependency_edge_evidence": {},
       "downstream_issues": [
-        "ISSUE-0133",
-        "ISSUE-0169"
+        "ISSUE-0133"
       ],
       "epic": "Final certification",
       "evidence_grade": "High",
@@ -24196,14 +24150,10 @@
         "ISSUE-0114",
         "ISSUE-0127",
         "ISSUE-0130",
-        "ISSUE-0131",
-        "ISSUE-0132",
-        "ISSUE-0133",
-        "ISSUE-0134",
-        "ISSUE-0135"
+        "ISSUE-0131"
       ],
       "canonical_id": "ISSUE-0167",
-      "capability_lane": "BULK_SCREENING",
+      "capability_lane": "PAPER_BROKER_OPERATIONS",
       "classification": "proposed_new",
       "contract_markdown": "#### `ISSUE-0167` — Implement settlement, buying-power, cash reservation and deterministic order-state accounting\n\n**Canonical metadata:** P0 before broker writes; owner `trading-safety`; phase `phase-07-backtest-paper-execution`; slice M; depends on `ISSUE-0085`, `ISSUE-0114`, `ISSUE-0127`, `ISSUE-0130`, `ISSUE-0131`; downstream `ISSUE-0132`–`ISSUE-0135`; execution false until later authority.\n\n**Problem**\n\nA valid proposal can overspend or fail because cash, FX, settlement, accrued interest, open orders and broker buying power change between proposal and submission.\n\n**Required outcome**\n\nCreate a deterministic reservation and order-lifecycle service shared by paper and live modes.\n\n**In scope**\n\n- available, settled, unsettled and reserved cash by currency/account;\n- security quantity/face reservation and minimum denomination;\n- fees, tax, accrued interest and FX reservation;\n- local idempotency key plus broker/local/permanent IDs;\n- append-only order lifecycle: draft, approved, reserved, submitting, acknowledged, partial, filled, cancel, rejected, unknown and reconciliation-required;\n- expiry/release/reconciliation of reservations.\n\n**Out of scope:** broker strategy logic; automatic resubmission of unknown/rejected orders; initial margin/leverage.\n\n**Contracts / stores**\n\n```text\nCashAvailability\nOrderReservation\nOrderLifecycleEvent\nOrderStateProjection\n```\n\n**Implementation requirements**\n\n1. Calculate available resources from ledger, broker sync and open reservations.\n2. Reserve atomically before submission.\n3. Use stable idempotency keys and prevent duplicate broker intent.\n4. Handle duplicate, missing and out-of-order callbacks.\n5. Adjust reservation for partial fills/cancels/rejects.\n6. Move uncertain state to `RECONCILIATION_REQUIRED` and block related orders.\n\n**UI requirements:** preview with cash/quantity/settlement, lifecycle timeline and reconciliation break; operator controls subject to authority.\n\n**Acceptance criteria**\n\n- [ ] Concurrent proposals cannot spend the same resources.\n- [ ] Duplicate submission produces one broker intent.\n- [ ] Partial fills adjust reservations exactly.\n- [ ] Unknown state is never automatically retried.\n- [ ] Paper and live use the same lifecycle contract.\n\n**Tests:** concurrent reservation properties; duplicate/out-of-order callbacks; partial/cancel/reject/reconnect; multi-currency and debt accrued settlement.  \n**Audit/export:** every lifecycle event, reservation, ID, reconciliation and operator action.  \n**Roll-out:** must close before broker-write modes; implementation begins in paper/read-only state.",
       "dependency_candidates": [
@@ -24211,11 +24161,7 @@
         "ISSUE-0114",
         "ISSUE-0127",
         "ISSUE-0130",
-        "ISSUE-0131",
-        "ISSUE-0132",
-        "ISSUE-0133",
-        "ISSUE-0134",
-        "ISSUE-0135"
+        "ISSUE-0131"
       ],
       "dependency_conversions": [],
       "dependency_edge_evidence": {
@@ -24258,38 +24204,6 @@
           "reviewer": "",
           "schema_version": "1.0",
           "state": "unresolved"
-        },
-        "ISSUE-0132": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
-          "schema_version": "1.0",
-          "state": "unresolved"
-        },
-        "ISSUE-0133": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
-          "schema_version": "1.0",
-          "state": "unresolved"
-        },
-        "ISSUE-0134": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
-          "schema_version": "1.0",
-          "state": "unresolved"
-        },
-        "ISSUE-0135": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
-          "schema_version": "1.0",
-          "state": "unresolved"
         }
       },
       "downstream_issues": [
@@ -24326,8 +24240,8 @@
       "source_record_id": "ISSUE-0167",
       "source_title": "Implement settlement, buying-power, cash reservation and deterministic order-state accounting",
       "title": "Implement settlement, buying-power, cash reservation and deterministic order-state accounting",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "07c0aeeea9bcce21bbe13562af7c88e7fa4d6426",
+      "verified_date": "2026-09-08",
       "write_conflict_group": "trading-safety"
     },
     {
@@ -24349,7 +24263,7 @@
         "ISSUE-0161"
       ],
       "canonical_id": "ISSUE-0168",
-      "capability_lane": "BULK_SCREENING",
+      "capability_lane": "PORTFOLIO_READ_ONLY",
       "classification": "proposed_new",
       "contract_markdown": "#### `ISSUE-0168` — Add portfolio forecast aggregation and expected gain/loss scenario views\n\n**Canonical metadata:** P1; owner `returns-and-risk`; phase `phase-05-returns-risk-portfolio`; slice M; depends on `ISSUE-0108`–`ISSUE-0111`, `ISSUE-0115`, `ISSUE-0127`, `ISSUE-0161`; execution false.\n\n**Problem**\n\nHolding forecasts cannot be added independently because returns are correlated and coverage/model uncertainty differs.\n\n**Required outcome**\n\nAggregate supported holding distributions into portfolio expected gain/loss and risk scenarios with explicit covariance, coverage and uncertainty.\n\n**In scope**\n\n- current-holdings total-return distribution by selectable horizon;\n- expected gain/loss in the selected output currency and percentage, q05–q95, loss/benchmark/cash probabilities;\n- price, income, FX and cost contribution;\n- covariance/correlation, tail dependence and model disagreement;\n- current versus what-if/target comparison;\n- unknown/unsupported exposure and confidence.\n\n**Out of scope:** summing independent point forecasts; guaranteed target value.\n\n**Contracts:** `PortfolioForecastSnapshot` keyed to portfolio and a compatible set of analysis/risk snapshots.\n\n**Implementation requirements**\n\n1. Resolve horizon-aligned holding distributions and risk model.\n2. Aggregate through scenarios/simulation with saved seeds/configuration.\n3. Treat unsupported assets as unknown/conservative policy, never zero risk.\n4. Store components, covariance and reconciliation.\n5. Show sensitivity to costs and correlation regime.\n\n**UI requirements:** portfolio fan chart, expected selected-currency range, probability cards, contributors, coverage and assumptions.\n\n**Acceptance criteria**\n\n- [ ] One sealed portfolio and compatible analysis set is used.\n- [ ] Unknown coverage affects confidence visibly.\n- [ ] Nonlinear statistics are not falsely decomposed as additive.\n- [ ] Scenario output is reproducible.\n\n**Tests:** analytical correlated two-asset cases; missing coverage; FX/cost/income; seeded scenarios and stress.  \n**Audit/export:** inputs, covariance/risk version, seeds/configuration, coverage and output.  \n**Roll-out:** advisory; may inform optimiser/proposal but no authority.",
       "dependency_candidates": [
@@ -24467,7 +24381,6 @@
         "ISSUE-0074",
         "ISSUE-0136",
         "ISSUE-0142",
-        "ISSUE-0152",
         "ISSUE-0161",
         "ISSUE-0165",
         "ISSUE-0167"
@@ -24480,7 +24393,6 @@
         "ISSUE-0074",
         "ISSUE-0136",
         "ISSUE-0142",
-        "ISSUE-0152",
         "ISSUE-0161",
         "ISSUE-0165",
         "ISSUE-0167"
@@ -24504,14 +24416,6 @@
           "state": "unresolved"
         },
         "ISSUE-0142": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
-          "schema_version": "1.0",
-          "state": "unresolved"
-        },
-        "ISSUE-0152": {
           "contract_reference": "",
           "evidence_references": [],
           "reviewed_date": "",
@@ -24581,8 +24485,8 @@
       "source_record_id": "ISSUE-0169",
       "source_title": "Implement canonical analysis parity and deterministic replay tests across workflows",
       "title": "Implement canonical analysis parity and deterministic replay tests across workflows",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "07c0aeeea9bcce21bbe13562af7c88e7fa4d6426",
+      "verified_date": "2026-09-08",
       "write_conflict_group": "quality-and-release"
     },
     {
@@ -26402,7 +26306,20 @@
       "write_conflict_group": "data-and-evidence"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #727 merged exact independently approved head cd557ea8b3e82831e8b21c26ce421957ee0a0405 as efa68f18ae52640a23b97f0942dfd97edece9cef; merge tree 9243dd7603141f9b683e0d8213e590079268baa3 matches validated tree.",
+            "H run 34008261224 passed all required jobs and 4342 tests on each platform. Terminal artifact 9982160996 SHA256 6a1e10d51e61f585fd5f045d07c707d9a871a10ac05cec20301b7bd30bf903d3 passed exact-head validator and independent release verification.",
+            "Acceptance: explicit local and provider-owned bulk companyfacts/submissions workflows, resumable exact-content checkpoints, retained raw evidence and acquisition time, canonical statements, guarded recovery, partial coverage, UI callbacks and bounded audit export; execution_allowed=false.",
+            "Live SEC: submissions archive 1562265619 bytes SHA256 80c8cc6660ccd37411fe867ef23dfb92765dfd4815cab18b4093e9092b6a75ec; companyfacts archive 1408249354 bytes SHA256 1c6ab59f38e405631d0fd223fa2cde11281352e2d0775901a5d2766bbd9f0560. Isolated CIK 0000789019 import retained 32580 facts and five explicit ambiguous-unit warnings; archives and contact configuration remain local."
+          ],
+          "review_reference": "PR #727 exact-head V2 whole-diff and risk approvals, H validation and independent release evidence verification",
+          "reviewed_date": "2026-09-06",
+          "reviewer": "Codex reviewer gpt-6-astra low, risk_reviewer gpt-6-astra medium, release_verifier gpt-5.6-sol medium and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "UPDATEV2-0012",
@@ -26429,7 +26346,7 @@
       "package_status": "Implementation complete; closure pending",
       "phase": "phase-01-governance-scope",
       "priority": "P0",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26454,8 +26371,8 @@
       "source_record_id": "UPDATEV2-0012",
       "source_title": "SEC EDGAR official statement importer",
       "title": "SEC EDGAR official statement importer (original update ISSUE-0012)",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "cd557ea8b3e82831e8b21c26ce421957ee0a0405",
+      "verified_date": "2026-09-06",
       "why": "SEC is an official no-key source, but fair-access and point-in-time correctness still matter.",
       "write_conflict_group": "programme-governance"
     },
@@ -26503,7 +26420,19 @@
       "write_conflict_group": "data-and-evidence"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #730 merged approved ad8a1d76341749ac21d9cde4ecf68d2c85049b43 as ad79d38749ee6b7279e65ace170518dbc552d589 with identical product tree.",
+            "H run34029549970 passed all mandatory jobs and4389 tests per platform; terminal artifact9988762644 extracted SHA256 b99ce78c3db7afd412785983aa7c542d243f739ee4e4181a7f02fe342fe8cc89 passed validator and independent release verification.",
+            "Explicit local CSV/JSON/XML OAM imports preserve immutable manual provenance, observed availability, complete export validation, exact source identity, guarded upserts, UI no-publication rejection and execution_allowed=false."
+          ],
+          "review_reference": "PR #730 exact-head V2 paired approvals and verified H evidence",
+          "reviewed_date": "2026-09-06",
+          "reviewer": "Codex reviewer gpt-6-astra low, risk_reviewer gpt-6-astra medium, release_verifier gpt-5.6-sol medium and root",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "UPDATEV2-0014",
@@ -26528,7 +26457,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P1",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26552,8 +26481,8 @@
       "source_record_id": "UPDATEV2-0014",
       "source_title": "France DILA and Netherlands AFM OAM discovery adapters",
       "title": "France DILA and Netherlands AFM OAM discovery adapters (original update ISSUE-0014)",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "ad8a1d76341749ac21d9cde4ecf68d2c85049b43",
+      "verified_date": "2026-09-06",
       "why": "Official European filing discovery is fragmented before a complete single access point.",
       "write_conflict_group": "programme-governance"
     },
@@ -28061,11 +27990,11 @@
       "final_release_spec_sha256": "exact bytes; immutable binary fixture",
       "other_text_inputs": "UTF-8 text with CRLF/CR canonicalised to LF"
     },
-    "open_ledger_sha256": "d879e1ef415744a138878e1255822eaed640a0c275c2774e03f8cd10e22a26a6",
+    "open_ledger_sha256": "e68ee02bb557d8bf0309616c70127868772b8e78542b60b974747f5af403e123",
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "320a9f400fdae1a05dd30c3b3366063f8fee22d3ff1f837e0166ad0211a28253",
+    "programme_control_state_sha256": "569500d7ef43b17181e6ccb7fdf107a0482a391fdbbbc48c6fbf8fab846e9b96",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

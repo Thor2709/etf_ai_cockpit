@@ -1,0 +1,29 @@
+{
+  "schema_version": "codex-active-work.v1",
+  "observed_main": "REPLACE_WITH_FRESH_FULL_MAIN_SHA",
+  "programme_sha256": "REPLACE_WITH_PLANNER_PROGRAMME_SHA256",
+  "root_session": "REPLACE_WITH_ACTUAL_ROOT_SESSION_ID",
+  "all_active_writers_reconciled": false,
+  "children_in_use": 0,
+  "reviewers_running": 0,
+  "lanes": [
+    {
+      "lane_id": "example-ISSUE-0019",
+      "issue": "ISSUE-0019",
+      "branch": "codex/example-issue-0019",
+      "worktree": "REPLACE_WITH_ABSOLUTE_REGISTERED_WORKTREE",
+      "base": "REPLACE_WITH_FRESH_FULL_MAIN_SHA",
+      "head": "REPLACE_WITH_ACTUAL_FULL_HEAD_SHA",
+      "pr": null,
+      "writer": "codex-v2",
+      "state": "planned",
+      "owned_paths": ["src/REPLACE_WITH_EXACT_OWNED_PATH.py"],
+      "owned_tests": ["tests/test_REPLACE_WITH_OWNED_TEST.py"],
+      "runtime_roots": ["REPLACE_WITH_ABSOLUTE_NAMESPACED_RUNTIME_ROOT"],
+      "ports": [],
+      "resources": [],
+      "blocker": "Example only: inspect issue contract, local work and GitHub before replacing any fields.",
+      "next_action": "Root records observed identity and validates before admission."
+    }
+  ]
+}

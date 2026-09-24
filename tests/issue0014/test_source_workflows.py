@@ -299,6 +299,8 @@ def test_recovery_restores_valid_interrupted_generation_and_writes_audit_event(t
     assert event["event_hash"]
 
 
+# This subprocess composes the full local workflow and needs uncontended runtime.
+@pytest.mark.serial
 def test_canonical_main_workflow_composes_real_local_apis_without_network(tmp_path: Path) -> None:
     runtime_root = copy_repository_runtime(tmp_path / "runtime")
     completed = subprocess.run(

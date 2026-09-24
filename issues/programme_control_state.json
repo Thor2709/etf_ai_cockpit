@@ -674,17 +674,49 @@
       "verified_date": "2026-08-11"
     },
     "ISSUE-0019": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #732 https://github.com/Thor2709/etf_ai_cockpit/pull/732; product head 79451f884e6b0986b54d2493a5c0d5979dcbd131; merge a15cafae968ee66fca4f0762407a7ecd81d9755e; release run 34066717436.",
+            "PR #744 https://github.com/Thor2709/etf_ai_cockpit/pull/744; product head 83322d89e234079906fc0e658b1cf9f088ef201a; merge 1a3bef4dae4b737d3d1edbc849b80b3a2ec05a13; release run 34416164358.",
+            "PR #745 https://github.com/Thor2709/etf_ai_cockpit/pull/745; product head 0645d7cf754182faab01ba5bd59f7649b384df4e; merge 0d91436bbae04b1b37bed96e7f20284b2478ccde; release run 34423470795; audit/export acceptance included.",
+            "PR #747 https://github.com/Thor2709/etf_ai_cockpit/pull/747; exact product head fa61ae05f6cdc6c09e17159e093c391506308adb; merge b17f33e48e3e3b3664452fa597706f99e290dade; exact-head release run 34826849607: preflight, supply-chain, Linux and Windows packaged gates successful; 4,737 tests per platform.",
+            "Fresh post-merge clean-runtime browser acceptance: C:/dev/etf-issue0019-browser-final-evidence-20260914/browser-evidence.json; 390px compact layout/no document overflow, JEDI row-to-detail, six-field keyboard flow, resize retention, Escape and Close focus restoration/discard, audit export reachability, explicit unavailable/no-execution states."
+          ],
+          "review_reference": "Exact product head fa61ae05f6cdc6c09e17159e093c391506308adb: Codex whole-diff reviewer APPROVE; Codex risk reviewer PASS; release verifier READY; browser acceptance refreshed post-merge at C:/dev/etf-issue0019-browser-final-evidence-20260914/browser-evidence.json.",
+          "reviewed_date": "2026-09-14",
+          "reviewer": "Codex independent whole-diff reviewer, risk reviewer, release verifier, browser acceptance, and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-01-governance-scope",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "Exact product head fa61ae05f6cdc6c09e17159e093c391506308adb: Codex whole-diff reviewer APPROVE; Codex risk reviewer PASS; release verifier READY; browser acceptance refreshed post-merge at C:/dev/etf-issue0019-browser-final-evidence-20260914/browser-evidence.json.",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #732 https://github.com/Thor2709/etf_ai_cockpit/pull/732; product head 79451f884e6b0986b54d2493a5c0d5979dcbd131; merge a15cafae968ee66fca4f0762407a7ecd81d9755e; release run 34066717436.",
+            "PR #744 https://github.com/Thor2709/etf_ai_cockpit/pull/744; product head 83322d89e234079906fc0e658b1cf9f088ef201a; merge 1a3bef4dae4b737d3d1edbc849b80b3a2ec05a13; release run 34416164358.",
+            "PR #745 https://github.com/Thor2709/etf_ai_cockpit/pull/745; product head 0645d7cf754182faab01ba5bd59f7649b384df4e; merge 0d91436bbae04b1b37bed96e7f20284b2478ccde; release run 34423470795; audit/export acceptance included.",
+            "PR #747 https://github.com/Thor2709/etf_ai_cockpit/pull/747; exact product head fa61ae05f6cdc6c09e17159e093c391506308adb; merge b17f33e48e3e3b3664452fa597706f99e290dade; exact-head release run 34826849607: preflight, supply-chain, Linux and Windows packaged gates successful; 4,737 tests per platform.",
+            "Fresh post-merge clean-runtime browser acceptance: C:/dev/etf-issue0019-browser-final-evidence-20260914/browser-evidence.json; 390px compact layout/no document overflow, JEDI row-to-detail, six-field keyboard flow, resize retention, Escape and Close focus restoration/discard, audit export reachability, explicit unavailable/no-execution states."
+          ],
+          "from": "implemented_initially",
+          "review_reference": "Exact product head fa61ae05f6cdc6c09e17159e093c391506308adb: Codex whole-diff reviewer APPROVE; Codex risk reviewer PASS; release verifier READY; browser acceptance refreshed post-merge at C:/dev/etf-issue0019-browser-final-evidence-20260914/browser-evidence.json.",
+          "reviewed_date": "2026-09-14",
+          "reviewer": "Codex independent whole-diff reviewer, risk reviewer, release verifier, browser acceptance, and root orchestrator",
+          "to": "integrated",
+          "verified_commit": "fa61ae05f6cdc6c09e17159e093c391506308adb"
+        }
+      ],
+      "verified_commit": "fa61ae05f6cdc6c09e17159e093c391506308adb",
+      "verified_date": "2026-09-14"
     },
     "ISSUE-0020": {
       "acceptance_evidence": [],
@@ -739,17 +771,47 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0024": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #678 https://github.com/Thor2709/etf_ai_cockpit/pull/678; calendar product head 89634f179eb947d4f0af8685cf4ef025685dd618; merge 4f7082d06d1695158d8998563dc083e86fe5e364 (ancestor of main): availability-aware earnings, dividend, split/corporate-action, filing, guidance, fund-rebalance, index-change, review-date and high-risk events with timezone, source, precision and decision-time availability, shown in Instrument Detail and News & Context with explicit unavailable/malformed/conflict states.",
+            "PR #751 https://github.com/Thor2709/etf_ai_cockpit/pull/751; exact product head ccb4f2c85c07dce0effec068fa4c4f87dea4ede0; merge 8b34fb3af07d2fa90b075c304d15dfe2ddf47701; exact-head release run 36029387022: classifier, preflight, supply-chain, Linux and Windows packaged gates and validation-summary successful. Adds opt-in checksummed EventBlockPolicy preview blackout for proposal/paper-order previews; context_only by default; execution_allowed=false.",
+            "Acceptance tests: tests/test_event_calendar.py (event parsing/validation, missing and malformed ledgers, point-in-time availability, both UI surfaces), tests/test_event_controls.py, tests/test_proposal_policy.py, tests/test_operations_workspace.py; 204 focused cases passed locally on the lane before the gate.",
+            "Context-only authority recorded in docs/architecture/event-calendar.md and docs/architecture/proposal-policy.md (plan.md is an immutable historical pointer since 2026-09-08); event data never grants score, signal, order or execution authority."
+          ],
+          "review_reference": "Exact product head ccb4f2c85c07dce0effec068fa4c4f87dea4ede0: Claude Code (claude-opus-5-5) root self-review, owner-authorised on 2026-09-24 to take over the Codex lane; no Codex V2 reviewer/risk-reviewer verdict exists for this head. Self-review found and fixed a naive as_of regression (b88a9ce0) and a presentation-boundary import violation (ccb4f2c8); exact-head H-tier release run 36029387022 passed.",
+          "reviewed_date": "2026-09-24",
+          "reviewer": "Claude Code root orchestrator self-review (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-01-governance-scope",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "Exact product head ccb4f2c85c07dce0effec068fa4c4f87dea4ede0: Claude Code (claude-opus-5-5) root self-review, owner-authorised on 2026-09-24 to take over the Codex lane; no Codex V2 reviewer/risk-reviewer verdict exists for this head. Self-review found and fixed a naive as_of regression (b88a9ce0) and a presentation-boundary import violation (ccb4f2c8); exact-head H-tier release run 36029387022 passed.",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #678 https://github.com/Thor2709/etf_ai_cockpit/pull/678; calendar product head 89634f179eb947d4f0af8685cf4ef025685dd618; merge 4f7082d06d1695158d8998563dc083e86fe5e364 (ancestor of main): availability-aware earnings, dividend, split/corporate-action, filing, guidance, fund-rebalance, index-change, review-date and high-risk events with timezone, source, precision and decision-time availability, shown in Instrument Detail and News & Context with explicit unavailable/malformed/conflict states.",
+            "PR #751 https://github.com/Thor2709/etf_ai_cockpit/pull/751; exact product head ccb4f2c85c07dce0effec068fa4c4f87dea4ede0; merge 8b34fb3af07d2fa90b075c304d15dfe2ddf47701; exact-head release run 36029387022: classifier, preflight, supply-chain, Linux and Windows packaged gates and validation-summary successful. Adds opt-in checksummed EventBlockPolicy preview blackout for proposal/paper-order previews; context_only by default; execution_allowed=false.",
+            "Acceptance tests: tests/test_event_calendar.py (event parsing/validation, missing and malformed ledgers, point-in-time availability, both UI surfaces), tests/test_event_controls.py, tests/test_proposal_policy.py, tests/test_operations_workspace.py; 204 focused cases passed locally on the lane before the gate.",
+            "Context-only authority recorded in docs/architecture/event-calendar.md and docs/architecture/proposal-policy.md (plan.md is an immutable historical pointer since 2026-09-08); event data never grants score, signal, order or execution authority."
+          ],
+          "from": "implemented_initially",
+          "review_reference": "Exact product head ccb4f2c85c07dce0effec068fa4c4f87dea4ede0: Claude Code (claude-opus-5-5) root self-review, owner-authorised on 2026-09-24 to take over the Codex lane; no Codex V2 reviewer/risk-reviewer verdict exists for this head. Self-review found and fixed a naive as_of regression (b88a9ce0) and a presentation-boundary import violation (ccb4f2c8); exact-head H-tier release run 36029387022 passed.",
+          "reviewed_date": "2026-09-24",
+          "reviewer": "Claude Code root orchestrator self-review (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "to": "integrated",
+          "verified_commit": "ccb4f2c85c07dce0effec068fa4c4f87dea4ede0"
+        }
+      ],
+      "verified_commit": "ccb4f2c85c07dce0effec068fa4c4f87dea4ede0",
+      "verified_date": "2026-09-24"
     },
     "ISSUE-0025": {
       "acceptance_evidence": [],
@@ -3698,7 +3760,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #545 merged the sole ISSUE-0099→ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
+            "PR #545 merged the sole ISSUE-0099\u2192ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies the required adapter registration, point-in-time cohort, robust statistics, lineage and replay boundary while ISSUE-0099 retains financial-sector implementation"
           ],
           "review_reference": "B04 ISSUE-0099 readiness after complete ISSUE-0098 dependency review",
@@ -3791,7 +3853,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #545 merged the sole ISSUE-0099→ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
+            "PR #545 merged the sole ISSUE-0099\u2192ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies the required adapter registration, point-in-time cohort, robust statistics, lineage and replay boundary while ISSUE-0099 retains financial-sector implementation"
           ],
           "from": "planned",
@@ -3850,7 +3912,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #551 merged the sole ISSUE-0100→ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
+            "PR #551 merged the sole ISSUE-0100\u2192ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0100 retains all REIT, utility and infrastructure implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -3945,7 +4007,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #551 merged the sole ISSUE-0100→ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
+            "PR #551 merged the sole ISSUE-0100\u2192ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0100 retains all REIT, utility and infrastructure implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -4006,7 +4068,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #557 merged the sole ISSUE-0101→ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
+            "PR #557 merged the sole ISSUE-0101\u2192ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0101 retains all energy, materials and industrial implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -4101,7 +4163,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #557 merged the sole ISSUE-0101→ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
+            "PR #557 merged the sole ISSUE-0101\u2192ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0101 retains all energy, materials and industrial implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -4162,7 +4224,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #638 merged the sole ISSUE-0102→ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
+            "PR #638 merged the sole ISSUE-0102\u2192ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
             "Release run 30737461361 passed classifier, preflight, supply-chain, authoritative Linux and Windows package gates and terminal validation summary; standalone status guard 30737461338 passed",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology implementation scope; convergence run 30738361187 was zero action and execution_allowed remains false"
           ],
@@ -4257,7 +4319,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #638 merged the sole ISSUE-0102→ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
+            "PR #638 merged the sole ISSUE-0102\u2192ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
             "Release run 30737461361 passed classifier, preflight, supply-chain, authoritative Linux and Windows package gates and terminal validation summary; standalone status guard 30737461338 passed",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology implementation scope; convergence run 30738361187 was zero action and execution_allowed remains false"
           ],
@@ -7955,38 +8017,6 @@
           "reviewer": "",
           "schema_version": "1.0",
           "state": "unresolved"
-        },
-        "ISSUE-0132": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
-          "schema_version": "1.0",
-          "state": "unresolved"
-        },
-        "ISSUE-0133": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
-          "schema_version": "1.0",
-          "state": "unresolved"
-        },
-        "ISSUE-0134": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
-          "schema_version": "1.0",
-          "state": "unresolved"
-        },
-        "ISSUE-0135": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
-          "schema_version": "1.0",
-          "state": "unresolved"
         }
       },
       "phase": "phase-07-backtest-paper-execution",
@@ -7996,8 +8026,110 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "planned"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0132",
+            "operation": "remove",
+            "prior_evidence": {
+              "contract_reference": "",
+              "evidence_references": [],
+              "reviewed_date": "",
+              "reviewer": "",
+              "schema_version": "1.0",
+              "state": "unresolved"
+            }
+          },
+          "event_type": "dependency_edge_declaration_correction",
+          "evidence_references": [
+            "Immutable final-release specification 2026-07-21 clauses for F23/F24 dependency declarations",
+            "Focused F23/F24 parser, lane, and correction-reconciliation tests"
+          ],
+          "review_reference": "F23/F24 semantic dependency declaration correction review",
+          "reviewed_date": "2026-09-08",
+          "reviewer": "Codex root orchestrator",
+          "source_reference": "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#ISSUE-0167",
+          "source_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
+          "verified_commit": "07c0aeeea9bcce21bbe13562af7c88e7fa4d6426"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0133",
+            "operation": "remove",
+            "prior_evidence": {
+              "contract_reference": "",
+              "evidence_references": [],
+              "reviewed_date": "",
+              "reviewer": "",
+              "schema_version": "1.0",
+              "state": "unresolved"
+            }
+          },
+          "event_type": "dependency_edge_declaration_correction",
+          "evidence_references": [
+            "Immutable final-release specification 2026-07-21 clauses for F23/F24 dependency declarations",
+            "Focused F23/F24 parser, lane, and correction-reconciliation tests"
+          ],
+          "review_reference": "F23/F24 semantic dependency declaration correction review",
+          "reviewed_date": "2026-09-08",
+          "reviewer": "Codex root orchestrator",
+          "source_reference": "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#ISSUE-0167",
+          "source_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
+          "verified_commit": "07c0aeeea9bcce21bbe13562af7c88e7fa4d6426"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0134",
+            "operation": "remove",
+            "prior_evidence": {
+              "contract_reference": "",
+              "evidence_references": [],
+              "reviewed_date": "",
+              "reviewer": "",
+              "schema_version": "1.0",
+              "state": "unresolved"
+            }
+          },
+          "event_type": "dependency_edge_declaration_correction",
+          "evidence_references": [
+            "Immutable final-release specification 2026-07-21 clauses for F23/F24 dependency declarations",
+            "Focused F23/F24 parser, lane, and correction-reconciliation tests"
+          ],
+          "review_reference": "F23/F24 semantic dependency declaration correction review",
+          "reviewed_date": "2026-09-08",
+          "reviewer": "Codex root orchestrator",
+          "source_reference": "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#ISSUE-0167",
+          "source_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
+          "verified_commit": "07c0aeeea9bcce21bbe13562af7c88e7fa4d6426"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0135",
+            "operation": "remove",
+            "prior_evidence": {
+              "contract_reference": "",
+              "evidence_references": [],
+              "reviewed_date": "",
+              "reviewer": "",
+              "schema_version": "1.0",
+              "state": "unresolved"
+            }
+          },
+          "event_type": "dependency_edge_declaration_correction",
+          "evidence_references": [
+            "Immutable final-release specification 2026-07-21 clauses for F23/F24 dependency declarations",
+            "Focused F23/F24 parser, lane, and correction-reconciliation tests"
+          ],
+          "review_reference": "F23/F24 semantic dependency declaration correction review",
+          "reviewed_date": "2026-09-08",
+          "reviewer": "Codex root orchestrator",
+          "source_reference": "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#ISSUE-0167",
+          "source_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
+          "verified_commit": "07c0aeeea9bcce21bbe13562af7c88e7fa4d6426"
+        }
+      ],
+      "verified_commit": "07c0aeeea9bcce21bbe13562af7c88e7fa4d6426",
+      "verified_date": "2026-09-08"
     },
     "ISSUE-0168": {
       "acceptance_evidence": [],
@@ -8096,14 +8228,6 @@
           "schema_version": "1.0",
           "state": "unresolved"
         },
-        "ISSUE-0152": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
-          "schema_version": "1.0",
-          "state": "unresolved"
-        },
         "ISSUE-0161": {
           "contract_reference": "",
           "evidence_references": [],
@@ -8136,8 +8260,35 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "planned"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0152",
+            "operation": "remove",
+            "prior_evidence": {
+              "contract_reference": "",
+              "evidence_references": [],
+              "reviewed_date": "",
+              "reviewer": "",
+              "schema_version": "1.0",
+              "state": "unresolved"
+            }
+          },
+          "event_type": "dependency_edge_declaration_correction",
+          "evidence_references": [
+            "Immutable final-release specification 2026-07-21 clauses for F23/F24 dependency declarations",
+            "Focused F23/F24 parser, lane, and correction-reconciliation tests"
+          ],
+          "review_reference": "F23/F24 semantic dependency declaration correction review",
+          "reviewed_date": "2026-09-08",
+          "reviewer": "Codex root orchestrator",
+          "source_reference": "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#ISSUE-0169",
+          "source_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
+          "verified_commit": "07c0aeeea9bcce21bbe13562af7c88e7fa4d6426"
+        }
+      ],
+      "verified_commit": "07c0aeeea9bcce21bbe13562af7c88e7fa4d6426",
+      "verified_date": "2026-09-08"
     },
     "ISSUE-0170": {
       "acceptance_evidence": [],
@@ -9711,17 +9862,47 @@
       "verified_date": "2026-07-21"
     },
     "UPDATEV2-0012": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #727 merged exact independently approved head cd557ea8b3e82831e8b21c26ce421957ee0a0405 as efa68f18ae52640a23b97f0942dfd97edece9cef; merge tree 9243dd7603141f9b683e0d8213e590079268baa3 matches validated tree.",
+            "H run 34008261224 passed all required jobs and 4342 tests on each platform. Terminal artifact 9982160996 SHA256 6a1e10d51e61f585fd5f045d07c707d9a871a10ac05cec20301b7bd30bf903d3 passed exact-head validator and independent release verification.",
+            "Acceptance: explicit local and provider-owned bulk companyfacts/submissions workflows, resumable exact-content checkpoints, retained raw evidence and acquisition time, canonical statements, guarded recovery, partial coverage, UI callbacks and bounded audit export; execution_allowed=false.",
+            "Live SEC: submissions archive 1562265619 bytes SHA256 80c8cc6660ccd37411fe867ef23dfb92765dfd4815cab18b4093e9092b6a75ec; companyfacts archive 1408249354 bytes SHA256 1c6ab59f38e405631d0fd223fa2cde11281352e2d0775901a5d2766bbd9f0560. Isolated CIK 0000789019 import retained 32580 facts and five explicit ambiguous-unit warnings; archives and contact configuration remain local."
+          ],
+          "review_reference": "PR #727 exact-head V2 whole-diff and risk approvals, H validation and independent release evidence verification",
+          "reviewed_date": "2026-09-06",
+          "reviewer": "Codex reviewer gpt-6-astra low, risk_reviewer gpt-6-astra medium, release_verifier gpt-5.6-sol medium and root orchestrator",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-01-governance-scope",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "PR #727 exact-head V2 whole-diff and risk approvals, H validation and independent release evidence verification",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #727 merged exact independently approved head cd557ea8b3e82831e8b21c26ce421957ee0a0405 as efa68f18ae52640a23b97f0942dfd97edece9cef; merge tree 9243dd7603141f9b683e0d8213e590079268baa3 matches validated tree.",
+            "H run 34008261224 passed all required jobs and 4342 tests on each platform. Terminal artifact 9982160996 SHA256 6a1e10d51e61f585fd5f045d07c707d9a871a10ac05cec20301b7bd30bf903d3 passed exact-head validator and independent release verification.",
+            "Acceptance: explicit local and provider-owned bulk companyfacts/submissions workflows, resumable exact-content checkpoints, retained raw evidence and acquisition time, canonical statements, guarded recovery, partial coverage, UI callbacks and bounded audit export; execution_allowed=false.",
+            "Live SEC: submissions archive 1562265619 bytes SHA256 80c8cc6660ccd37411fe867ef23dfb92765dfd4815cab18b4093e9092b6a75ec; companyfacts archive 1408249354 bytes SHA256 1c6ab59f38e405631d0fd223fa2cde11281352e2d0775901a5d2766bbd9f0560. Isolated CIK 0000789019 import retained 32580 facts and five explicit ambiguous-unit warnings; archives and contact configuration remain local."
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #727 exact-head V2 whole-diff and risk approvals, H validation and independent release evidence verification",
+          "reviewed_date": "2026-09-06",
+          "reviewer": "Codex reviewer gpt-6-astra low, risk_reviewer gpt-6-astra medium, release_verifier gpt-5.6-sol medium and root orchestrator",
+          "to": "integrated",
+          "verified_commit": "cd557ea8b3e82831e8b21c26ce421957ee0a0405"
+        }
+      ],
+      "verified_commit": "cd557ea8b3e82831e8b21c26ce421957ee0a0405",
+      "verified_date": "2026-09-06"
     },
     "UPDATEV2-0013": {
       "acceptance_evidence": [],
@@ -9737,17 +9918,45 @@
       "verified_date": "2026-07-21"
     },
     "UPDATEV2-0014": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #730 merged approved ad8a1d76341749ac21d9cde4ecf68d2c85049b43 as ad79d38749ee6b7279e65ace170518dbc552d589 with identical product tree.",
+            "H run34029549970 passed all mandatory jobs and4389 tests per platform; terminal artifact9988762644 extracted SHA256 b99ce78c3db7afd412785983aa7c542d243f739ee4e4181a7f02fe342fe8cc89 passed validator and independent release verification.",
+            "Explicit local CSV/JSON/XML OAM imports preserve immutable manual provenance, observed availability, complete export validation, exact source identity, guarded upserts, UI no-publication rejection and execution_allowed=false."
+          ],
+          "review_reference": "PR #730 exact-head V2 paired approvals and verified H evidence",
+          "reviewed_date": "2026-09-06",
+          "reviewer": "Codex reviewer gpt-6-astra low, risk_reviewer gpt-6-astra medium, release_verifier gpt-5.6-sol medium and root",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-01-governance-scope",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "PR #730 exact-head V2 paired approvals and verified H evidence",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "PR #730 merged approved ad8a1d76341749ac21d9cde4ecf68d2c85049b43 as ad79d38749ee6b7279e65ace170518dbc552d589 with identical product tree.",
+            "H run34029549970 passed all mandatory jobs and4389 tests per platform; terminal artifact9988762644 extracted SHA256 b99ce78c3db7afd412785983aa7c542d243f739ee4e4181a7f02fe342fe8cc89 passed validator and independent release verification.",
+            "Explicit local CSV/JSON/XML OAM imports preserve immutable manual provenance, observed availability, complete export validation, exact source identity, guarded upserts, UI no-publication rejection and execution_allowed=false."
+          ],
+          "from": "implemented_initially",
+          "review_reference": "PR #730 exact-head V2 paired approvals and verified H evidence",
+          "reviewed_date": "2026-09-06",
+          "reviewer": "Codex reviewer gpt-6-astra low, risk_reviewer gpt-6-astra medium, release_verifier gpt-5.6-sol medium and root",
+          "to": "integrated",
+          "verified_commit": "ad8a1d76341749ac21d9cde4ecf68d2c85049b43"
+        }
+      ],
+      "verified_commit": "ad8a1d76341749ac21d9cde4ecf68d2c85049b43",
+      "verified_date": "2026-09-06"
     },
     "UPDATEV2-0015": {
       "acceptance_evidence": [],

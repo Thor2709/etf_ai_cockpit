@@ -10,6 +10,8 @@ from typing import Any, Mapping
 import pandas as pd
 
 from etf_cockpit.application.ui_facade import (
+    DecisionJournal,
+    JournalIntegrityError,
     BENCHMARK_ATTRIBUTION_PATH,
     CORRELATION_CLUSTERS_PATH,
     FEATURE_DRIVERS_PATH,
@@ -46,13 +48,19 @@ from etf_cockpit.application.ui_facade import (
     load_manual_news,
     load_simple_scoreboard,
     load_statement_evidence,
-    load_paper_trade_rows,
+    load_valuation_evidence,
+    STATEMENT_FACTS_PATH,
+    load_paper_timeline,
     read_document_registry,
     read_etf_report_records,
     read_index_methodology_records,
     read_priips_kid_records,
     score_history_frame,
+    load_score_metric_history_projection,
     sort_news_items,
+    load_bound_factor_risk_panel,
+    allocation_frame,
+    model_zoo_frame,
 )
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.core.paths import ETF_QUOTES_PATH
@@ -118,6 +126,7 @@ _SECTION_NAMES = (
     "risk",
     "attribution",
     "fundamentals",
+    "valuation",
     "etf_disclosures",
     "etf_structure",
     "etf_holdings",
@@ -127,7 +136,10 @@ _SECTION_NAMES = (
     "forecasts",
     "backtests",
     "paper_trades",
+    "model_cards",
+    "factor_risk",
     "history",
+    "metric_history",
     "journal",
     "thesis_diary",
     "run_changes",
@@ -1900,9 +1912,19 @@ def _operational_evidence_panel(report: object, instrument_id: str) -> dict[str,
 
 
 def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
-    source = frame if isinstance(frame, pd.DataFrame) else _load_parquet(PAPER_TRADES_PATH)
-    if not isinstance(frame, pd.DataFrame) and source.empty:
-        source = pd.DataFrame(load_paper_trade_rows(PAPER_TRADES_PATH.parents[1].parent))
+    if isinstance(frame, pd.DataFrame):
+        source = frame
+    else:
+        try:
+            timeline = load_paper_timeline(PAPER_TRADES_PATH.parents[1].parent, instrument_id)
+        except (OSError, TypeError, ValueError):
+            return _unavailable("Paper-trade history unavailable; the local paper ledger could not be read safely.") | {"rows": [], "timeline": []}
+        timeline_rows = timeline.get("rows")
+        if not isinstance(timeline_rows, list):
+            timeline_rows = []
+        # Timeline status is authoritative.  In particular, do not fall back
+        # to trade_rows(), whose write lock can create a missing ledger lock.
+        return dict(timeline) | {"rows": timeline_rows, "timeline": timeline_rows}
     rows = _instrument_rows(source, instrument_id)
     if rows.empty:
         return _unavailable("Paper-trade history unavailable; no local paper-trade records are registered.") | {"rows": []}
@@ -1951,6 +1973,144 @@ def _paper_trade_panel(instrument_id: str, frame: pd.DataFrame | None = None) ->
     return {"status": "available", "source": "paper_trade_ledger", "fill_source": "paper", "rows": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
 
 
+def _model_cards_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[str, Any]:
+    """Expose deterministic model capability cards, never forecast provenance."""
+
+    optional_status = getattr(snapshot, "model_status", None)
+    try:
+        frame = model_zoo_frame(
+            optional_status=optional_status if isinstance(optional_status, Mapping) else None,
+            horizons=(5, 20, 60, 120, 180),
+        )
+    except (TypeError, ValueError):
+        return _unavailable("Model catalogue unavailable; no deterministic local cards are registered.") | {"rows": [], "cards": [], "forecast_model_matches": []}
+    cards = frame.where(pd.notna(frame), None).to_dict("records")
+    forecasts = _instrument_rows(getattr(snapshot, "forecasts", None), instrument_id)
+    forecast_ids: list[str] = []
+    if not forecasts.empty:
+        for column in ("model_id", "model_name", "model"):
+            if column not in forecasts.columns:
+                continue
+            forecast_ids.extend(
+                str(value).strip()
+                for value in forecasts[column].tolist()
+                if not _is_missing_scalar(value) and str(value).strip()
+            )
+            if forecast_ids:
+                break
+    known = {str(item.get("model_id")) for item in cards}
+    matches = [
+        {"model_id": model_id, "matched": model_id in known, "forecast_rows": int(sum(1 for value in forecast_ids if value == model_id))}
+        for model_id in dict.fromkeys(forecast_ids)
+    ]
+    return {
+        "status": "available",
+        "instrument_id": instrument_id,
+        "rows": cards,
+        "cards": cards,
+        "catalogue_only": True,
+        "message": "Model cards describe deterministic catalogue capabilities; they do not prove a model produced this instrument's forecast.",
+        "forecast_model_matches": matches,
+        "unmatched_forecast_model_ids": [item["model_id"] for item in matches if not item["matched"]],
+        "execution_allowed": False,
+    }
+
+
+def _factor_risk_panel(snapshot: CockpitSnapshot, instrument_id: str) -> dict[str, Any]:
+    """Fail numeric risk closed until all snapshot inputs have a PIT binding."""
+
+    full_features = getattr(snapshot, "features", None)
+    if isinstance(full_features, pd.DataFrame) and full_features.attrs.get("price_binding") is not None:
+        return load_bound_factor_risk_panel(snapshot, instrument_id)
+
+    prices = getattr(snapshot, "prices", None)
+    features = getattr(snapshot, "latest_features", None)
+    if not isinstance(features, pd.DataFrame) or features.empty:
+        features = getattr(snapshot, "features", None)
+    holdings = getattr(snapshot, "holdings", None)
+    unavailable_details = {
+        "factor_exposures": [], "specific_risk": [], "instrument_contributions": [], "global_coverage": {}, "global_diagnostics": {}, "warnings": []
+    }
+    if not isinstance(prices, pd.DataFrame) or prices.empty or not isinstance(features, pd.DataFrame) or features.empty or not isinstance(holdings, pd.DataFrame):
+        return _unavailable("Factor-risk evidence unavailable; complete snapshot allocation, adjusted prices, features and holdings are required.") | {
+            **unavailable_details
+        }
+    try:
+        required_columns = ("etf_id", "current_weight", "market_value_eur")
+        if any(list(holdings.columns).count(column) != 1 for column in required_columns):
+            return _unavailable("Factor-risk evidence unavailable; snapshot holdings lack unambiguous canonical allocation fields.") | {
+                **unavailable_details, "allocation_status": "invalid"
+            }
+        raw_ids = holdings["etf_id"].tolist()
+        if any(not isinstance(value, str) or not value or value != value.strip() for value in raw_ids) or any(
+            isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value) or value < 0
+            for column in ("current_weight", "market_value_eur")
+            for value in holdings[column].tolist()
+        ):
+            return _unavailable("Factor-risk evidence unavailable; exact source IDs and finite nonnegative holdings values are required.") | {
+                **unavailable_details, "allocation_status": "invalid"
+            }
+        # Validate source fields before the canonical allocation merge can
+        # replace missing values with its normal target-only zero defaults.
+        allocation = allocation_frame(snapshot.config, holdings)
+        enabled_ids = {
+            str(item.id)
+            for item in getattr(getattr(snapshot.config, "universe", None), "etfs", ())
+            if bool(getattr(item, "enabled", True))
+        }
+        target_ids = {str(value) for value in getattr(snapshot.config.targets, "positions", {}).keys()}
+        held_ids = set(raw_ids)
+        allocation_ids = set(allocation["etf_id"].astype(str)) if "etf_id" in allocation.columns else set()
+        if (
+            not enabled_ids
+            or not target_ids
+            or not target_ids.issubset(enabled_ids)
+            or held_ids != target_ids
+            or len(holdings) != len(held_ids)
+            or allocation_ids != target_ids
+        ):
+            return _unavailable("Factor-risk evidence unavailable; snapshot holdings, enabled universe and target allocation are incomplete or inconsistent.") | {
+                **unavailable_details,
+                "allocation_status": "incomplete",
+                "enabled_universe_count": len(enabled_ids),
+                "target_count": len(target_ids),
+                "held_count": len(held_ids),
+                "missing_target_ids": sorted(target_ids - held_ids),
+                "non_target_held_ids": sorted(held_ids - target_ids),
+            }
+        selected_sources = {
+            "prices": "etf_id" in prices.columns and bool(prices["etf_id"].eq(instrument_id).any()),
+            "features": "etf_id" in features.columns and bool(features["etf_id"].eq(instrument_id).any()),
+            "holdings": instrument_id in held_ids,
+            "allocation": instrument_id in allocation_ids,
+        }
+    except (ArithmeticError, KeyError, OSError, TypeError, ValueError):
+        return _unavailable("Factor-risk evidence is invalid; manual review is required.") | {
+            **unavailable_details
+        }
+    # CockpitSnapshot carries current holdings/configuration and descriptor
+    # frames, not a verified, jointly cutoff-bound factor input projection.
+    # Row dates alone cannot prove historical availability or revision identity.
+    # Do not calculate with those inputs, even when prices have a cutoff.
+    missing_sources = [name for name, present in selected_sources.items() if not present]
+    return _unavailable(
+        "Numeric factor-risk evidence unavailable: the snapshot does not bind prices, "
+        "features, holdings and allocation to one verified historical cutoff."
+        + (" The selected instrument is absent from: " + ", ".join(missing_sources) + "." if missing_sources else "")
+    ) | {
+        **unavailable_details,
+        "instrument_id": instrument_id,
+        "historical_binding_status": "unavailable",
+        "allocation_status": "complete",
+        "selected_instrument_status": "absent" if missing_sources else "unverified",
+        "selected_instrument_missing_sources": missing_sources,
+        "global_report_status": "unavailable",
+        "coverage_scope": "selected_instrument",
+        "coverage": {"status": "unavailable", "instrument_id": instrument_id},
+    }
+
+
+
 def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:
     try:
         source = history if isinstance(history, pd.DataFrame) else score_history_frame()
@@ -1959,7 +2119,7 @@ def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> d
     rows = _instrument_rows(source, instrument_id)
     if rows.empty:
         return _unavailable("Score history unavailable; a second local score run is required.") | {"rows": []}
-    return {"status": "available", "rows": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
+    return {"status": "available", "rows": rows.where(pd.notna(rows), None).to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
 
 
 def _run_changes_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:
@@ -1979,10 +2139,27 @@ def _run_changes_panel(instrument_id: str, history: pd.DataFrame | None = None) 
 
 
 def _journal_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
-    rows = _instrument_rows(frame, instrument_id) if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    # Explicit display fields exclude the private thesis, notes, portfolio context and opaque
+    # references. Never send complete persisted records to the generic renderer.
+    fields = (
+        "journal_entry_id", "journal_id", "created_at", "decision",
+        "outcome", "decision_state", "confidence", "review_date", "supersedes_entry_id",
+    )
+    if frame is None:
+        try:
+            entries = DecisionJournal().list_entries(root=DATA_DIR)
+        except (JournalIntegrityError, OSError, ValueError):
+            return _unavailable("Decision journal unreadable or locked; manual review required.") | {"entries": []}
+        rows = pd.DataFrame([
+            {field: getattr(entry, field, None) for field in fields if field != "journal_id"}
+            for entry in entries if instrument_id in entry.instrument_ids
+        ])
+    else:
+        rows = _instrument_rows(frame, instrument_id)
+        rows = rows[[field for field in fields if field in rows.columns]]
     if rows.empty:
         return _unavailable("Decision journal entries unavailable for this instrument.") | {"entries": []}
-    return {"status": "available", "entries": rows.to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
+    return {"status": "available", "entries": rows.to_dict("records"), "execution_allowed": False}
 
 
 def _thesis_diary_panel(instrument_id: str, *, root: Path | None = None) -> dict[str, Any]:
@@ -2080,6 +2257,46 @@ def _candidate_identity_panel(instrument_id: str, candidate_score: SimpleInstrum
     }
 
 
+def _valuation_panel(instrument_id: str, asset_type: object, decision_time: object, assumptions: object = None) -> dict[str, Any]:
+    """Project canonical evidence and separately identified session assumptions."""
+    if _safe_text(asset_type) not in {"stock", "equity"}:
+        return _unavailable("Stock valuation is not applicable to ETFs or unsupported instrument types.") | {"status": "not_applicable"}
+    cutoff = normalise_event_decision_time(decision_time)
+    if cutoff is None:
+        return _unavailable("Snapshot decision time is unavailable; point-in-time valuation cannot be established.")
+    result = load_valuation_evidence(STATEMENT_FACTS_PATH, instrument_id=instrument_id, decision_time=cutoff, assumptions=assumptions)
+    if result["status"] != "available":
+        return _unavailable(result["message"])
+    metric_fields = ("name", "value", "status", "formula", "period", "source_ids", "confidence", "applicability", "limitation")
+    model_fields = ("status", "confidence", "reason", "execution_allowed", "forecast_years", "discount_rate", "terminal_growth", "implied_growth", "target_equity_value", "equity_value", "per_share", "range")
+    context = result.get("assumption_context", {})
+    assumption_context = {field: context.get(field) for field in ("kind", "instrument_id", "decision_time", "session_preview_only", "score_authority", "execution_allowed")} if context else {}
+    if context:
+        normalized = context.get("assumptions", {})
+        assumption_context["assumptions"] = {field: normalized.get(field) for field in ("forecast_years", "discount_rate", "terminal_growth")}
+        assumption_context["assumptions"]["scenarios"] = {name: {"growth": normalized.get("scenarios", {}).get(name, {}).get("growth")} for name in ("bear", "base", "bull")}
+    models = {name: {field: result[name].get(field) for field in model_fields if field in result[name]} for name in ("intrinsic_value", "reverse_dcf", "residual_income", "model_disagreement")}
+    models["intrinsic_value"]["scenarios"] = {
+        name: {field: row.get(field) for field in ("growth", "enterprise_value", "equity_value", "per_share", "confidence", "execution_allowed")}
+        for name, row in result["intrinsic_value"].get("scenarios", {}).items() if name in {"bear", "base", "bull"}
+    }
+    return {
+        "status": "available",
+        "message": "Session-only user scenario preview; no score authority." if context else "Local statement evidence only. External market inputs and explicit valuation/scenario assumptions are unavailable; no defaults are supplied.",
+        "instrument_id": instrument_id,
+        "decision_time": cutoff.isoformat(),
+        "relative_metrics": {
+            name: {field: result["relative_metrics"][name].get(field) for field in metric_fields}
+            for name in ("ev_to_sales", "ev_to_ebitda", "price_to_earnings", "price_to_book", "dividend_yield")
+        },
+        **models,
+        "assumption_context": assumption_context,
+        "scenario_status": models["intrinsic_value"]["status"] if context else "unavailable: explicit scenario assumptions required",
+        "source_lineage": {field: result["source_lineage"].get(field) for field in ("statement_view", "as_known_at", "source_ids", "knowledge_precision", "cutoff_policy")},
+        "execution_allowed": False,
+    }
+
+
 def build_instrument_detail(
     snapshot: CockpitSnapshot,
     instrument_id: str,
@@ -2094,6 +2311,7 @@ def build_instrument_detail(
     news: pd.DataFrame | None = None,
     events: pd.DataFrame | None = None,
     score_history: pd.DataFrame | None = None,
+    metric_history: pd.DataFrame | None = None,
     paper_trades: pd.DataFrame | None = None,
     journal: pd.DataFrame | None = None,
     thesis_diary_root: Path | None = None,
@@ -2328,6 +2546,7 @@ def build_instrument_detail(
                 expected_currency=canonical_currency,
             ),
             "fundamentals": _fundamentals_panel(instrument_id, fundamentals),
+            "valuation": _valuation_panel(instrument_id, identity_panel.get("asset_type"), decision_time),
             "etf_disclosures": disclosure,
             "etf_structure": structure,
             "etf_holdings": disclosure.get("exposure", _unavailable("ETF holdings/exposure unavailable.")),
@@ -2337,7 +2556,10 @@ def build_instrument_detail(
             "forecasts": _forecast_panel(snapshot, instrument_id),
             "backtests": _backtest_panel(snapshot, instrument_id, scoreboard),
             "paper_trades": _paper_trade_panel(instrument_id, paper_trades),
+            "model_cards": _model_cards_panel(snapshot, instrument_id),
+            "factor_risk": _factor_risk_panel(snapshot, instrument_id),
             "history": _history_panel(instrument_id, score_history),
+            "metric_history": load_score_metric_history_projection(instrument_id, frame=metric_history),
             "journal": _journal_panel(instrument_id, journal),
             "thesis_diary": _thesis_diary_panel(instrument_id, root=thesis_diary_root),
             "run_changes": _run_changes_panel(instrument_id, score_history),

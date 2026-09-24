@@ -523,6 +523,39 @@ def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, m
     assert "{'instrument_id'" not in " ".join(texts)
 
 
+def test_factor_risk_nested_groups_render_as_ordered_labelled_rows() -> None:
+    from etf_cockpit.app.pages.instrument_detail import _render_evidence_section
+
+    panel = {
+        "status": "available",
+        "factor_exposures": [
+            {"factor": "market", "exposure": 0.4},
+            {"factor": "value", "exposure": -0.2},
+        ],
+        "specific_risk": [{"instrument_id": "VWCE", "specific_risk": 0.1}],
+        "instrument_contributions": [{
+            "instrument_id": "VWCE",
+            "contribution": 0.8,
+            "instrument_beta": [
+                {"instrument_id": "AIR", "beta": 0.9},
+                {"instrument_id": "AM", "beta": 1.1},
+            ],
+        }],
+        "unavailable_group": [],
+        "execution_allowed": False,
+    }
+    rendered = _render_evidence_section("Factor risk", panel)
+    texts = [str(getattr(item, "value", "")) for item in _walk_controls(rendered) if hasattr(item, "value")]
+    joined = "\n".join(texts)
+    assert "factor_exposures 1: factor=market" in joined
+    assert "factor_exposures 2: factor=value" in joined
+    assert "specific_risk 1: instrument_id=VWCE" in joined
+    assert "instrument_contributions 1 / instrument_beta [1] / instrument_id: AIR" in joined
+    assert "instrument_contributions 1 / instrument_beta [2] / instrument_id: AM" in joined
+    assert "unavailable_group: unavailable" in joined
+    assert "{'factor'" not in joined
+
+
 def test_instrument_detail_driver_panel_normalises_legacy_store_columns(tmp_path, monkeypatch, snapshot) -> None:
     from etf_cockpit.app.selectors import instrument_detail as selector
 
@@ -1163,3 +1196,25 @@ def test_instrument_detail_surfaces_cost_edge_fields_and_unavailable_state(tmp_p
     unavailable = build_instrument_detail(snapshot, instrument_id)
     assert unavailable.sections["scores"]["friction"]["status"] == "unavailable"
     assert unavailable.sections["scores"]["friction"]["gross_expected_edge_bps"] is None
+
+
+def test_detail_summary_stays_outside_research_scroll(monkeypatch):
+    from types import SimpleNamespace
+    import flet as ft
+    from etf_cockpit.app.pages import instrument_detail as detail
+    from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel
+
+    model = InstrumentDetailViewModel("ACME", "Acme", "available", {"instrument_id": "ACME", "asset_type": "stock"}, {})
+    monkeypatch.setattr(detail, "build_instrument_detail", lambda *args, **kwargs: model)
+    monkeypatch.setattr(detail, "bitemporal_history_summary", lambda *_: {})
+    for name in ("_instrument_alerts_panel", "_render_feature_driver_panel", "_render_crowding_attribution_panel",
+                 "render_etf_disclosure_panel", "render_etf_structure_panel", "render_news_context_panel", "render_event_calendar_panel"):
+        monkeypatch.setattr(detail, name, lambda *_: ft.Text("Preserved evidence"))
+    state = SimpleNamespace(snapshot=SimpleNamespace(data_report=SimpleNamespace(as_of_date="2026-07-01")), selected_etf="ACME")
+    rendered = detail.instrument_detail_page(SimpleNamespace(route="/instrument/ACME"), state)
+    summary, research = rendered.controls
+    assert any(getattr(control, "key", None) == "instrument-detail.export-evidence" for control in _walk_controls(summary))
+    assert research.expand is True and research.scroll == ft.ScrollMode.AUTO
+    titles = [control.title.value for control in _walk_controls(research) if isinstance(control, ft.ExpansionTile)]
+    assert "Identity and provenance" in titles and "Stock valuation and scenarios" in titles
+    assert not any(isinstance(control, ft.ExpansionTile) for control in _walk_controls(summary))

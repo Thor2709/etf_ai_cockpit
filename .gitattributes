@@ -15,3 +15,6 @@ docs/product-completion/**/*.csv text eol=lf
 docs/product-completion/**/*.md text eol=lf
 docs/product-completion/**/*.sha256 text eol=lf
 docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md -text -diff
+
+# Exact historical evidence copies: preserve original blob bytes on every platform.
+plans/archive/2026-09-08-control-plane/** -text

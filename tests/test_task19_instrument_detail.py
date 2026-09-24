@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date
 import json
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -20,6 +21,7 @@ from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, SimpleScore
 
 
 REQUIRED_SECTIONS = {
+    "valuation",
     "identity",
     "price",
     "scores",
@@ -31,9 +33,367 @@ REQUIRED_SECTIONS = {
     "forecasts",
     "backtests",
     "paper_trades",
+    "model_cards",
+    "factor_risk",
     "journal",
     "run_changes",
 }
+
+
+@pytest.fixture
+def valuation_scenario_evidence(tmp_path, monkeypatch):
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    values = {"free_cash_flow": 10.0, "shares_outstanding": 10.0, "net_debt": 5.0,
+              "market_cap": 150.0, "equity": 80.0, "net_income": 12.0}
+    rows = [{"instrument_id": "ACME", "canonical_metric": metric, "value": value,
+             "available_at": "2026-01-01T08:00:00Z", "end": "2025-12-31", "source_id": "known-filing"}
+            for metric, value in values.items()]
+    # Future date-only rows must not affect precision or financial values.
+    rows.append(rows[0] | {"available_at": "2027-01-01", "value": 900.0, "source_id": "future"})
+    path = tmp_path / "scenario-statements.parquet"
+    pd.DataFrame(rows).to_parquet(path)
+    monkeypatch.setattr(selector, "STATEMENT_FACTS_PATH", path)
+    assumptions = {"forecast_years": 5, "discount_rate": 0.1, "terminal_growth": 0.02,
+                   "scenarios": {"bear": {"growth": -0.1}, "base": {"growth": 0.03}, "bull": {"growth": 0.1}}}
+    return path, assumptions
+
+
+def test_valuation_scenario_results_and_context(valuation_scenario_evidence):
+    from etf_cockpit.app.selectors.instrument_detail import _valuation_panel
+
+    _, assumptions = valuation_scenario_evidence
+    panel = _valuation_panel("ACME", "stock", "2026-07-01", assumptions)
+    scenarios = panel["intrinsic_value"]["scenarios"]
+    assert scenarios["bear"]["per_share"] < scenarios["base"]["per_share"] < scenarios["bull"]["per_share"]
+    assert panel["reverse_dcf"]["status"] == panel["residual_income"]["status"] == "available"
+    assert len(panel["model_disagreement"]["range"]) == 2
+    assert panel["source_lineage"]["source_ids"] == ["known-filing"]
+    assert panel["source_lineage"]["knowledge_precision"] == ["timestamp"]
+    assert "assumptions" not in panel["source_lineage"]
+    assert panel["assumption_context"] == {"kind": "local_user_scenario_assumption", "instrument_id": "ACME",
+        "decision_time": "2026-07-01T23:59:59+00:00", "session_preview_only": True,
+        "score_authority": False, "execution_allowed": False, "assumptions": assumptions}
+    assert panel["execution_allowed"] is False
+    assert _valuation_panel("ACME", "etf", "2026-07-01", assumptions)["status"] == "not_applicable"
+
+
+@pytest.mark.parametrize("patch", [
+    {"forecast_years": True}, {"forecast_years": 1.0}, {"forecast_years": 0}, {"forecast_years": 51},
+    {"discount_rate": 0}, {"discount_rate": 1.01}, {"discount_rate": float("inf")},
+    {"terminal_growth": -1.01}, {"terminal_growth": 0.1}, {"terminal_growth": float("nan")},
+    {"market_cap": 1}, {"cost_of_equity": 0.1}, {"scenarios": {}},
+    {"scenarios": {"bear": {"growth": -0.1}, "base": {"growth": -0.1}, "bull": {"growth": 0.1}}},
+    {"scenarios": {"bear": {"growth": -0.51}, "base": {"growth": 0}, "bull": {"growth": 0.1}}},
+    {"scenarios": {"bear": {"growth": -0.1}, "base": {"growth": 0}, "bull": {"growth": 1.01}}},
+    {"scenarios": {"bear": {"growth": False}, "base": {"growth": 0}, "bull": {"growth": 0.1}}},
+    {"scenarios": {"bear": {"growth": -0.1, "margin": 0.1}, "base": {"growth": 0}, "bull": {"growth": 0.1}}},
+])
+def test_valuation_scenario_rejects_malformed(valuation_scenario_evidence, patch):
+    from etf_cockpit.application.ui_facade import load_valuation_evidence
+
+    path, assumptions = valuation_scenario_evidence
+    result = load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions | patch)
+    assert result["status"] == "unavailable"
+    assert "relative_metrics" not in result
+    assert result["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("years", [1, 50])
+def test_valuation_scenario_accepts_boundaries(valuation_scenario_evidence, years):
+    from etf_cockpit.application.ui_facade import load_valuation_evidence
+
+    path, assumptions = valuation_scenario_evidence
+    assumptions.update(forecast_years=years, discount_rate=1, terminal_growth=-1,
+                       scenarios={"bear": {"growth": -0.5}, "base": {"growth": 0}, "bull": {"growth": 1}})
+    result = load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions)
+    assert result["status"] == "available"
+
+
+@pytest.mark.parametrize("shares", [None, 0.0, -10.0])
+def test_valuation_scenario_missing_nonpositive_shares(valuation_scenario_evidence, monkeypatch, shares):
+    from etf_cockpit.application.ui_facade import load_valuation_evidence
+
+    path, assumptions = valuation_scenario_evidence
+    frame = pd.read_parquet(path)
+    if shares is None:
+        frame = frame.loc[frame.canonical_metric != "shares_outstanding"]
+    else:
+        frame.loc[frame.canonical_metric == "shares_outstanding", "value"] = shares
+    frame.to_parquet(path)
+    if shares is not None:
+        def unexpected_producer(*args, **kwargs):
+            pytest.fail("Nonpositive sourced shares must be rejected before valuation")
+        monkeypatch.setattr("etf_cockpit.application.ui_facade.valuation_analysis", unexpected_producer)
+    result = load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions)
+    assert (result["intrinsic_value"]["status"] if shares is None else result["status"]) == "unavailable"
+    if shares is not None:
+        assert "Nonpositive sourced share count" in result["message"]
+    assert result["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("scope", ["future", "foreign"])
+def test_valuation_scenario_nonpositive_shares_respect_scope(valuation_scenario_evidence, scope):
+    from etf_cockpit.application.ui_facade import load_valuation_evidence
+
+    path, assumptions = valuation_scenario_evidence
+    frame = pd.read_parquet(path)
+    invalid = frame.loc[frame.canonical_metric == "shares_outstanding"].iloc[0].to_dict()
+    invalid.update(value=-10.0, source_id="excluded-negative-shares")
+    invalid.update({"available_at": "2027-01-01"} if scope == "future" else {"instrument_id": "OTHER"})
+    pd.concat([frame, pd.DataFrame([invalid])], ignore_index=True).to_parquet(path)
+    result = load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions)
+    assert result["status"] == result["intrinsic_value"]["status"] == "available"
+    assert all(row["per_share"] > 0 for row in result["intrinsic_value"]["scenarios"].values())
+    assert result["source_lineage"]["source_ids"] == ["known-filing"]
+    assert result["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("failure", ["nested", "arithmetic"])
+def test_valuation_scenario_producer_fail_closed(valuation_scenario_evidence, monkeypatch, failure):
+    from etf_cockpit.application import ui_facade
+
+    path, assumptions = valuation_scenario_evidence
+    def producer(*args, **kwargs):
+        if failure == "arithmetic":
+            raise ZeroDivisionError
+        return {"intrinsic_value": {"scenarios": {"bull": {"per_share": float("inf")}}}}
+    monkeypatch.setattr(ui_facade, "valuation_analysis", producer)
+    assert ui_facade.load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions)["status"] == "unavailable"
+
+
+def test_valuation_scenario_controls_are_local_and_invalidate(valuation_scenario_evidence, monkeypatch):
+    from etf_cockpit.app.pages.instrument_detail import _render_valuation_scenarios
+    from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel, _valuation_panel
+
+    _, assumptions = valuation_scenario_evidence
+    initial = _valuation_panel("ACME", "stock", "2026-07-01")
+    model = InstrumentDetailViewModel("ACME", "Acme", "available", {"asset_type": "stock"}, {"valuation": initial})
+    page = SimpleNamespace(update=lambda: None)
+    view = _render_valuation_scenarios(page, model, "2026-07-01")
+    def controls(root):
+        return {getattr(item, "key", None): item for item in _walk(root)}
+    keyed = controls(view)
+    fields = {name: keyed[f"instrument-detail.valuation-input.{name}"] for name in ("forecast_years", "discount_rate", "terminal_growth", "bear", "base", "bull")}
+    assert all(field.value == "" for field in fields.values())
+    for name, value in {"forecast_years": "5", "discount_rate": "10", "terminal_growth": "2", "bear": "-10", "base": "3", "bull": "10"}.items():
+        fields[name].value = value
+    preview = keyed["instrument-detail.preview-valuation"]
+    preview.on_click(None)
+    assert "local_user_scenario_assumption" in str(_text_values(view))
+    fields["base"].value = "4"
+    fields["base"].on_change(None)
+    assert "Inputs changed" in str(_text_values(view))
+    assert "local_user_scenario_assumption" not in str(_text_values(view))
+    preview.on_click(None)
+    fields["forecast_years"].value = ""
+    preview.on_click(None)
+    assert "Invalid explicit scenario" in str(_text_values(view))
+    assert "local_user_scenario_assumption" not in str(_text_values(view))
+    keyed["instrument-detail.clear-valuation"].on_click(None)
+    assert all(field.value == "" for field in fields.values())
+    assert model.sections["valuation"] == initial
+    fresh = controls(_render_valuation_scenarios(page, model, "2026-07-01"))
+    assert all(fresh[f"instrument-detail.valuation-input.{name}"].value == "" for name in fields)
+    etf = replace(model, identity={"asset_type": "etf"})
+    assert "instrument-detail.preview-valuation" not in controls(_render_valuation_scenarios(page, etf, "2026-07-01"))
+
+
+def test_valuation_uses_only_selected_point_in_time_statements(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    rows = []
+    for instrument, available, source, market_cap in (
+        ("ACME", "2026-01-01", "known-filing", 100.0),
+        ("ACME", "2026-08-01", "future-filing", 900.0),
+        ("OTHER", "2026-01-01", "foreign-filing", 700.0),
+    ):
+        for metric, value in (("market_cap", market_cap), ("net_income", 10.0)):
+            rows.append({"instrument_id": instrument, "canonical_metric": metric, "value": value,
+                         "available_at": available, "filed": available, "end": "2025-12-31",
+                         "period_type": "annual", "source_id": source, "private_notes": "PRIVATE-SENTINEL"})
+    path = tmp_path / "statements.parquet"
+    pd.DataFrame(rows).to_parquet(path)
+    monkeypatch.setattr(selector, "STATEMENT_FACTS_PATH", path)
+    panel = selector._valuation_panel("ACME", "stock", "2026-07-01")
+    assert panel["relative_metrics"]["price_to_earnings"]["value"] == 10.0
+    assert panel["source_lineage"]["source_ids"] == ["known-filing"]
+    assert panel["source_lineage"]["statement_view"] == "as_known_at"
+    assert panel["intrinsic_value"]["status"] == "unavailable"
+    assert panel["reverse_dcf"]["status"] == "unavailable"
+    assert panel["execution_allowed"] is False
+    assert "PRIVATE-SENTINEL" not in str(panel)
+    assert selector._valuation_panel("ACME", "stock", "2025-01-01")["status"] == "unavailable"
+
+
+@pytest.mark.parametrize("cutoff", [None, "invalid", ["2026-01-01"]])
+def test_valuation_missing_decision_time_does_not_load(monkeypatch, cutoff) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Missing decision time must not load statement evidence")
+    monkeypatch.setattr(selector, "load_valuation_evidence", unexpected)
+    assert selector._valuation_panel("ACME", "stock", cutoff)["status"] == "unavailable"
+
+
+@pytest.mark.parametrize("field,bad_value", [
+    ("available_at", "0000-not-a-date"), ("available_at", None),
+    ("available_at", "2026-07-01T08:00:00"),
+    ("value", float("inf")), ("value", float("nan")), ("value", True),
+    ("end", ["2025-12-31"]), ("end", "not-a-date"),
+])
+def test_valuation_invalid_selected_evidence_blocks_panel(monkeypatch, field, bad_value) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    valid = {"instrument_id": "ACME", "canonical_metric": "net_income", "value": 10.0,
+             "available_at": "2026-01-01", "filed": "2026-01-01", "end": "2025-12-31", "source_id": "known"}
+    bad = valid | {"canonical_metric": "market_cap", "value": 100.0, field: bad_value}
+    frame = pd.DataFrame([valid, bad])
+    monkeypatch.setattr("etf_cockpit.application.ui_facade.pd.read_parquet", lambda *_args: frame)
+    panel = selector._valuation_panel("ACME", "stock", "2026-07-01T12:00:00Z")
+    assert panel["status"] == "unavailable"
+    assert panel["execution_allowed"] is False
+    assert "relative_metrics" not in panel
+    assert "unavailable" in panel["message"]
+
+
+def test_valuation_exact_same_day_cutoff_and_date_only_precision(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    rows = []
+    for availability, source, cap in (("2026-07-01T08:00:00Z", "morning", 100.0),
+                                      ("2026-07-01T13:00:00Z", "afternoon", 200.0)):
+        for metric, value in (("market_cap", cap), ("net_income", 10.0)):
+            rows.append({"instrument_id": "ACME", "canonical_metric": metric, "value": value,
+                         "available_at": availability, "filed": availability, "end": "2025-12-31", "source_id": source})
+    path = tmp_path / "statements.parquet"
+    pd.DataFrame(rows).to_parquet(path)
+    monkeypatch.setattr(selector, "STATEMENT_FACTS_PATH", path)
+    panel = selector._valuation_panel("ACME", "stock", "2026-07-01T12:00:00Z")
+    assert panel["relative_metrics"]["price_to_earnings"]["value"] == 10.0
+    assert panel["source_lineage"]["source_ids"] == ["morning"]
+    assert panel["source_lineage"]["as_known_at"] == "2026-07-01T12:00:00+00:00"
+    assert panel["source_lineage"]["knowledge_precision"] == ["timestamp"]
+    later = selector._valuation_panel("ACME", "stock", "2026-07-01T14:00:00Z")
+    assert later["relative_metrics"]["price_to_earnings"]["value"] == 20.0
+    for row in rows:
+        row["available_at"] = "2026-07-01"
+    pd.DataFrame(rows).to_parquet(path)
+    assert selector._valuation_panel("ACME", "stock", "2026-07-01T12:00:00Z")["status"] == "unavailable"
+    dated = selector._valuation_panel("ACME", "stock", "2026-07-01")
+    assert dated["status"] == "available"
+    assert dated["source_lineage"]["knowledge_precision"] == ["date_only_utc_end_of_day"]
+
+
+def test_valuation_corrupt_store_is_explicit(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    path = tmp_path / "corrupt.parquet"
+    path.write_bytes(b"invalid parquet")
+    monkeypatch.setattr(selector, "STATEMENT_FACTS_PATH", path)
+    panel = selector._valuation_panel("ACME", "stock", "2026-07-01")
+    assert panel["status"] == "unavailable"
+    assert "unreadable or malformed" in panel["message"]
+
+
+@pytest.mark.parametrize("asset_type", ["stock", "etf"])
+def test_valuation_visible_in_detail_for_stock_and_etf(tmp_path, monkeypatch, asset_type) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    monkeypatch.setattr(selector, "STATEMENT_FACTS_PATH", tmp_path / "missing.parquet")
+    report = BacktestReport(
+        results=pd.DataFrame({"strategy_name": ["signal_strategy"], "backtest_quality": ["low"], "calmar": [0.0]}),
+        equity_curves=pd.DataFrame({"signal_strategy": [1.0]}),
+        trade_log=pd.DataFrame(columns=["strategy_name", "etf_id", "date"]),
+        signal_log=pd.DataFrame(columns=["strategy_name", "etf_id", "date"]),
+        ai_added_value=False,
+        quality_momentum_evidence=pd.DataFrame(columns=["etf_id", "date"]),
+    )
+    monkeypatch.setattr("etf_cockpit.services.run_backtest", lambda *_args, **_kwargs: report)
+    snapshot = build_snapshot(force_sample=True)
+    instrument = ETFConfig(id="valuation-example", name="Valuation Example", ticker="VAL", instrument_type=asset_type, role="watchlist")
+    snapshot = replace(snapshot, config=snapshot.config.model_copy(update={
+        "universe": snapshot.config.universe.model_copy(update={"etfs": [instrument]})
+    }))
+    panel = build_instrument_detail(snapshot, instrument.id).sections["valuation"]
+    assert panel["status"] == ("not_applicable" if asset_type == "etf" else "unavailable")
+    state = SimpleNamespace(snapshot=snapshot, selected_etf=instrument.id, last_export_path=None, last_message="Ready")
+    rendered = "\n".join(_text_values(instrument_detail_page(SimpleNamespace(route=f"/instrument/{instrument.id}"), state)))
+    assert "Stock valuation and scenarios" in rendered
+    assert "execution_allowed=false" in rendered
+
+
+@pytest.fixture(autouse=True)
+def _isolated_detail_stores(tmp_path, monkeypatch):
+    from etf_cockpit.app.pages import instrument_detail as detail_page
+    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.core import paths
+    from etf_cockpit.data import bitemporal
+
+    monkeypatch.setattr(paths, "ROOT", tmp_path)
+    monkeypatch.setattr(selector, "DATA_DIR", tmp_path / "data")
+    monkeypatch.setattr(bitemporal, "ROOT", tmp_path)
+    monkeypatch.setattr(detail_page, "ROOT", tmp_path)
+
+
+@pytest.mark.parametrize("instrument_id", ["VWCE", "journal-stock"])
+def test_normal_detail_route_reads_verified_scoped_journal(tmp_path, monkeypatch, instrument_id) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application.ui_facade import DecisionJournal, JournalEntry
+
+    monkeypatch.setattr(selector, "DATA_DIR", tmp_path)
+    store = DecisionJournal()
+    for entry_id, instruments in (("selected-journal", ["VWCE", "journal-stock"]), ("foreign-journal", ["VWCE-extra"])):
+        store.create(JournalEntry(
+            journal_entry_id=entry_id, created_at="2026-07-13T12:00:00Z",
+            thesis=entry_id + " thesis", decision="Hold", outcome="Pending",
+            private_notes="PRIVATE-SENTINEL", portfolio_context={"secret": "CONTEXT-SENTINEL"},
+            instrument_ids=instruments,
+        ), root=tmp_path)
+    snapshot = build_snapshot()
+    stock = ETFConfig(id="journal-stock", name="Journal Stock", ticker="JRN", instrument_type="stock", role="watchlist")
+    snapshot = replace(snapshot, config=snapshot.config.model_copy(update={
+        "universe": snapshot.config.universe.model_copy(update={"etfs": [*snapshot.config.universe.etfs, stock]})
+    }))
+    state = SimpleNamespace(snapshot=snapshot, selected_etf="other", last_export_path=None, last_message="Ready")
+    rendered = "\n".join(_text_values(instrument_detail_page(SimpleNamespace(route=f"/instrument/{instrument_id}"), state)))
+    assert "selected-journal" in rendered
+    assert "selected-journal thesis" not in rendered
+    assert "foreign-journal" not in rendered
+    assert "PRIVATE-SENTINEL" not in rendered
+    assert "CONTEXT-SENTINEL" not in rendered
+    assert selector._journal_panel(instrument_id)["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("state", ["empty", "corrupt", "locked"])
+def test_local_detail_journal_failures_are_explicit(tmp_path, monkeypatch, state) -> None:
+    from etf_cockpit.app.selectors import instrument_detail as selector
+
+    monkeypatch.setattr(selector, "DATA_DIR", tmp_path)
+    if state == "corrupt":
+        (tmp_path / "decision_journal").mkdir()
+        (tmp_path / "decision_journal" / "index.json").write_text("invalid", encoding="utf-8")
+    elif state == "locked":
+        def locked(self, *, root):
+            raise PermissionError("PRIVATE-PATH")
+        monkeypatch.setattr(selector.DecisionJournal, "list_entries", locked)
+    panel = selector._journal_panel("VWCE")
+    assert panel["status"] == "unavailable"
+    assert panel["entries"] == []
+    assert panel["execution_allowed"] is False
+    assert "PRIVATE-PATH" not in str(panel)
+    if state != "empty":
+        assert "manual review required" in panel["message"]
+
+
+def test_injected_journal_projection_excludes_private_fields() -> None:
+    from etf_cockpit.app.selectors.instrument_detail import _journal_panel
+
+    panel = _journal_panel("VWCE", pd.DataFrame([{
+        "instrument_id": "VWCE", "journal_id": "public-id", "thesis": "Public thesis",
+        "private_notes": "PRIVATE-SENTINEL", "portfolio_context": {"secret": "SECRET"},
+    }]))
+    assert panel["entries"] == [{"journal_id": "public-id"}]
 
 
 def _candidate_score(instrument_id: str, *, asset_type: str, source_group: str) -> SimpleInstrumentScore:
@@ -92,6 +452,70 @@ def test_instrument_detail_assembles_all_required_sections_and_derived_fields() 
     assert "blocked_gates" in model.sections["scores"]
     assert {"momentum", "trend", "relative_strength", "volatility", "drawdown", "liquidity", "cost"} <= set(model.sections["risk"])
     assert {"alpha", "beta", "correlation"} <= set(model.sections["attribution"])
+    assert model.sections["model_cards"]["catalogue_only"] is True
+    assert model.sections["model_cards"]["execution_allowed"] is False
+    assert all(row["execution_allowed"] is False for row in model.sections["model_cards"]["cards"])
+    assert model.sections["factor_risk"]["execution_allowed"] is False
+
+
+def test_factor_risk_rejects_non_target_holdings_before_canonical_producer(monkeypatch) -> None:
+    from etf_cockpit.app.selectors import instrument_detail
+
+    config = SimpleNamespace(
+        universe=SimpleNamespace(etfs=[SimpleNamespace(id="VWCE", enabled=True), SimpleNamespace(id="EXTRA", enabled=True)]),
+        targets=SimpleNamespace(positions={"VWCE": object()}),
+    )
+    snapshot = SimpleNamespace(
+        config=config,
+        prices=pd.DataFrame([{"date": "2026-07-13", "etf_id": "VWCE", "adjusted_close": 100.0}]),
+        latest_features=pd.DataFrame([{"etf_id": "VWCE", "momentum_120d": 0.1}]),
+        features=pd.DataFrame(),
+        holdings=pd.DataFrame([
+            {"etf_id": "VWCE", "current_weight": 1.0, "market_value_eur": 100.0},
+            {"etf_id": "EXTRA", "current_weight": 0.0, "market_value_eur": 0.0},
+        ]),
+        data_report=SimpleNamespace(as_of_date=None),
+    )
+    monkeypatch.setattr(instrument_detail, "allocation_frame", lambda _config, _holdings: pd.DataFrame({"etf_id": ["VWCE"]}))
+    monkeypatch.setattr("etf_cockpit.portfolio.factor_risk.build_factor_risk_report", lambda *_args: (_ for _ in ()).throw(AssertionError("incomplete allocation reached producer")))
+    panel = instrument_detail._factor_risk_panel(snapshot, "VWCE")
+    assert panel["status"] == "unavailable"
+    assert panel["allocation_status"] == "incomplete"
+    assert panel["non_target_held_ids"] == ["EXTRA"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("etf_id", " VWCE "),
+        ("current_weight", float("nan")),
+        ("current_weight", float("inf")),
+        ("current_weight", -0.1),
+        ("current_weight", True),
+        ("market_value_eur", float("nan")),
+        ("market_value_eur", -1.0),
+    ],
+)
+def test_factor_risk_rejects_invalid_source_before_lossy_allocation(field, value, monkeypatch) -> None:
+    from etf_cockpit.app.selectors import instrument_detail
+
+    row = {"etf_id": "VWCE", "current_weight": 1.0, "market_value_eur": 100.0}
+    row[field] = value
+    snapshot = SimpleNamespace(
+        config=SimpleNamespace(),
+        prices=pd.DataFrame([{"date": "2026-07-13", "etf_id": "VWCE", "adjusted_close": 100.0}]),
+        latest_features=pd.DataFrame([{"etf_id": "VWCE", "momentum_120d": 0.1}]),
+        holdings=pd.DataFrame([row]),
+    )
+    monkeypatch.setattr(instrument_detail, "allocation_frame", lambda *_args: (_ for _ in ()).throw(AssertionError("invalid source reached lossy allocation")))
+    monkeypatch.setattr("etf_cockpit.portfolio.factor_risk.build_factor_risk_report", lambda *_args: (_ for _ in ()).throw(AssertionError("invalid source reached factor producer")))
+
+    panel = instrument_detail._factor_risk_panel(snapshot, "VWCE")
+
+    assert panel["status"] == "unavailable"
+    assert panel["allocation_status"] == "invalid"
+    assert panel["instrument_contributions"] == []
+    assert panel["execution_allowed"] is False
 
 
 def test_instrument_detail_uses_canonical_id_for_stock_and_sparebanken_rows() -> None:
@@ -1183,3 +1607,208 @@ def test_risk_panel_rejects_container_dates(date_value) -> None:
     panel = _risk_panel(frame, {}, {})
     assert panel["status"] in {"unavailable", "manual_review"}
     assert panel["execution_allowed"] is False
+
+@pytest.mark.parametrize("feature_source", ["latest_features", "features"])
+@pytest.mark.parametrize("holding_date", [None, "2026-09-01", "2020-01-01"])
+def test_factor_risk_unbound_historical_inputs_never_reach_producer(monkeypatch, feature_source, holding_date):
+    from etf_cockpit.app.selectors import instrument_detail
+
+    snapshot = _unbound_factor_snapshot()
+    snapshot.latest_features = pd.DataFrame()
+    snapshot.features = pd.DataFrame()
+    setattr(snapshot, feature_source, pd.DataFrame([
+        {"etf_id": "VWCE", "date": "2026-09-01", "momentum_120d": 9.0},
+    ]))
+    if holding_date is not None:
+        snapshot.holdings["as_of_date"] = holding_date
+    _block_factor_producer(monkeypatch)
+    monkeypatch.setattr(instrument_detail, "allocation_frame", lambda *_args: pd.DataFrame({"etf_id": ["VWCE"]}))
+
+    panel = instrument_detail._factor_risk_panel(snapshot, "VWCE")
+
+    assert panel["status"] == "unavailable"
+    assert panel["historical_binding_status"] == "unavailable"
+    assert panel["selected_instrument_status"] == "unverified"
+    assert panel["global_report_status"] == "unavailable"
+    assert panel["factor_exposures"] == []
+    assert panel["specific_risk"] == []
+    assert panel["instrument_contributions"] == []
+    assert panel["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("missing_source", ["all", "prices", "features"])
+def test_factor_risk_selected_instrument_absence_is_explicit(monkeypatch, missing_source):
+    from etf_cockpit.app.selectors import instrument_detail
+
+    snapshot = _unbound_factor_snapshot()
+    selected = "OTHER" if missing_source == "all" else "VWCE"
+    if missing_source == "prices":
+        snapshot.prices["etf_id"] = "OTHER"
+    elif missing_source == "features":
+        snapshot.latest_features["etf_id"] = "OTHER"
+    _block_factor_producer(monkeypatch)
+    monkeypatch.setattr(instrument_detail, "allocation_frame", lambda *_args: pd.DataFrame({"etf_id": ["VWCE"]}))
+
+    panel = instrument_detail._factor_risk_panel(snapshot, selected)
+
+    assert panel["selected_instrument_status"] == "absent"
+    expected = ["prices", "features", "holdings", "allocation"] if missing_source == "all" else [missing_source]
+    assert panel["selected_instrument_missing_sources"] == expected
+    assert panel["coverage"] == {"status": "unavailable", "instrument_id": selected}
+    assert panel["coverage_scope"] == "selected_instrument"
+    assert panel["global_coverage"] == {}
+    assert panel["status"] == "unavailable"
+    assert panel["execution_allowed"] is False
+
+
+def _unbound_factor_snapshot():
+    return SimpleNamespace(
+        config=SimpleNamespace(
+            universe=SimpleNamespace(etfs=[SimpleNamespace(id="VWCE", enabled=True)]),
+            targets=SimpleNamespace(positions={"VWCE": object()}),
+        ),
+        prices=pd.DataFrame([{"etf_id": "VWCE", "date": "2020-01-01", "adjusted_close": 100.0}]),
+        latest_features=pd.DataFrame([{"etf_id": "VWCE", "date": "2020-01-01", "momentum_120d": 0.1}]),
+        holdings=pd.DataFrame([{"etf_id": "VWCE", "current_weight": 1.0, "market_value_eur": 100.0}]),
+        data_report=SimpleNamespace(as_of_date=date(2020, 1, 1)),
+    )
+
+
+def _block_factor_producer(monkeypatch):
+    def unexpected_calculation(*args, **kwargs):
+        pytest.fail("Unbound snapshot inputs reached numeric factor calculation")
+
+    monkeypatch.setattr("etf_cockpit.portfolio.factor_risk.build_factor_risk_report", unexpected_calculation)
+    monkeypatch.setattr("etf_cockpit.application.ui_facade.build_factor_risk_report", unexpected_calculation)
+
+
+@pytest.mark.parametrize("instrument_id", ["VWCE", "metric-stock"])
+def test_metric_history_local_route_preserves_all_scoped_components(tmp_path, monkeypatch, instrument_id):
+    from etf_cockpit.application.ui_facade import load_score_metric_history_projection
+    from etf_cockpit.data import trust_artifacts
+
+    rows = []
+    for selected in ("VWCE", "metric-stock", "foreign-private"):
+        for run in ("run-one", "run-two"):
+            for component in ("momentum", "risk"):
+                record = dict.fromkeys(trust_artifacts.SCORE_METRIC_HISTORY_COLUMNS, "stored")
+                record.update(instrument_id=selected, run_id=run, component_name=component,
+                              raw_metric_value=1.25 if component == "momentum" else np.nan,
+                              normalised_score_10=7.5 if component == "momentum" else np.nan,
+                              score_available=component == "momentum", na_reason="missing price" if component == "risk" else "",
+                              source_id="source-sentinel", formula_version="formula-sentinel",
+                              formula_checksum="checksum-sentinel", source_vintage_hash="vintage-sentinel",
+                              execution_allowed=False, private_notes="PRIVATE-SENTINEL")
+                rows.append(record)
+    path = tmp_path / "metrics.parquet"
+    pd.DataFrame(rows).to_parquet(path)
+    monkeypatch.setattr(trust_artifacts, "SCORE_METRIC_HISTORY_PATH", path)
+    projection = load_score_metric_history_projection(instrument_id)
+    assert len(projection["rows"]) == 4
+    assert projection["rows"][1]["raw_metric_value"] is None
+    assert projection["rows"][1]["normalised_score_10"] is None
+    assert all(row["execution_allowed"] is False for row in projection["rows"])
+    assert all(row["instrument_id"] == instrument_id for row in projection["rows"])
+    assert "PRIVATE-SENTINEL" not in str(projection)
+    snapshot = build_snapshot()
+    stock = ETFConfig(id="metric-stock", name="Metric Stock", ticker="MET", instrument_type="stock", role="watchlist")
+    snapshot = replace(snapshot, config=snapshot.config.model_copy(update={
+        "universe": snapshot.config.universe.model_copy(update={"etfs": [*snapshot.config.universe.etfs, stock]})
+    }))
+    assert build_instrument_detail(snapshot, instrument_id).sections["metric_history"] == projection
+    state = SimpleNamespace(snapshot=snapshot, selected_etf=instrument_id, last_export_path=None, last_message="Ready")
+    rendered = "\n".join(_text_values(instrument_detail_page(SimpleNamespace(route=f"/instrument/{instrument_id}"), state)))
+    for expected in ("Score-component metric history", "run-one", "run-two", "momentum", "missing price",
+                     "source-sentinel", "formula-sentinel", "checksum-sentinel", "vintage-sentinel", "raw_metric_value=N/A"):
+        assert expected in rendered
+    assert "foreign-private" not in rendered
+    assert "PRIVATE-SENTINEL" not in rendered
+
+
+@pytest.mark.parametrize("state,reason", [
+    ("missing", "missing_local_artifact"), ("corrupt", "unreadable_local_artifact"),
+    ("locked", "unreadable_local_artifact"), ("malformed", "malformed_metric_history"),
+    ("empty", "no_instrument_metric_history"),
+])
+def test_metric_history_local_failures_are_explicit(tmp_path, monkeypatch, state, reason):
+    from etf_cockpit.application.ui_facade import load_score_metric_history_projection
+    from etf_cockpit.data import trust_artifacts
+
+    path = tmp_path / "metrics.parquet"
+    monkeypatch.setattr(trust_artifacts, "SCORE_METRIC_HISTORY_PATH", path)
+    if state == "corrupt":
+        path.write_text("private-corrupt-content")
+    elif state == "locked":
+        def locked(*args, **kwargs):
+            raise PermissionError("PRIVATE-PATH")
+        monkeypatch.setattr(pd, "read_parquet", locked)
+    elif state == "malformed":
+        pd.DataFrame([{"instrument_id": "VWCE"}]).to_parquet(path)
+    elif state == "empty":
+        pd.DataFrame(columns=trust_artifacts.SCORE_METRIC_HISTORY_COLUMNS).to_parquet(path)
+    panel = load_score_metric_history_projection("VWCE")
+    assert panel["reason_code"] == reason
+    assert panel["rows"] == []
+    assert panel["execution_allowed"] is False
+    assert "PRIVATE" not in str(panel)
+
+
+@pytest.mark.parametrize("invalid", [float("inf"), "not-numeric", {"private": "SECRET"}])
+def test_metric_history_rejects_malformed_numeric_values(invalid):
+    from etf_cockpit.application.ui_facade import load_score_metric_history_projection
+    from etf_cockpit.data.trust_artifacts import SCORE_METRIC_HISTORY_COLUMNS
+
+    row = dict.fromkeys(SCORE_METRIC_HISTORY_COLUMNS, None)
+    row.update(instrument_id="VWCE", run_id="run", component_name="momentum", raw_metric_value=invalid)
+    panel = load_score_metric_history_projection("VWCE", frame=pd.DataFrame([row]))
+    assert panel["reason_code"] == "malformed_metric_history"
+    assert panel["rows"] == []
+
+
+def test_detail_disclosure_keeps_every_record_and_bounds_scroll():
+    import flet as ft
+
+    records = [{"source_id": f"source-{index}", "value": index} for index in range(200)]
+    rendered = _render_evidence_section("Complete history", {"status": "available", "history": records})
+    assert isinstance(rendered, ft.ExpansionTile)
+    assert rendered.title.value == "Complete history"
+    assert rendered.subtitle.value == "available"
+    assert rendered.expanded is False and rendered.maintain_state is True
+    text = "\n".join(_text_values(rendered))
+    assert all(f"source_id=source-{index} | value={index}" in text for index in range(200))
+    assert any(isinstance(control, ft.Column) and control.height == 320 for control in _walk(rendered))
+
+
+def test_valuation_workspace_native_dialog_session_and_focus(monkeypatch):
+    import asyncio
+    import flet as ft
+    from etf_cockpit.app.pages.instrument_detail import _valuation_workspace
+    from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel
+
+    model = InstrumentDetailViewModel("ACME", "Acme", "available", {"asset_type": "stock"}, {"valuation": {"status": "unavailable"}})
+    dialogs = []
+    focused = []
+    async def focus(control):
+        focused.append(control)
+    monkeypatch.setattr(ft.OutlinedButton, "focus", focus)
+    page = SimpleNamespace(show_dialog=dialogs.append, pop_dialog=lambda: dialogs.pop(), update=lambda: None)
+    rendered = _valuation_workspace(page, model, "2026-07-01")
+    opener = next(control for control in _walk(rendered) if getattr(control, "key", None) == "instrument-detail.open-valuation")
+    opener.on_click(None)
+    dialog = dialogs[-1]
+    assert isinstance(dialog, ft.AlertDialog)
+    assert dialog.modal is False  # Native Escape/barrier dismissal remains enabled.
+    assert "Closing this workspace discards" in " ".join(_text_values(dialog.content))
+    fields = [control for control in _walk(dialog.content) if isinstance(control, ft.TextField)]
+    assert len(fields) == 6 and fields[0].autofocus is True
+    fields[-1].value = "private session"
+    buttons = [control.key for control in _walk(dialog.content) if isinstance(control, ft.OutlinedButton)]
+    assert buttons == ["instrument-detail.preview-valuation", "instrument-detail.clear-valuation"]
+    asyncio.run(dialog.actions[0].on_click(None))
+    assert dialog.open is False and dialog.content is None and focused == [opener]
+    opener.on_click(None)
+    assert all(control.value == "" for control in _walk(dialogs[-1].content) if isinstance(control, ft.TextField))
+    asyncio.run(dialogs[-1].on_dismiss(None))
+    assert focused[-1] is opener
+    etf = replace(model, identity={"asset_type": "etf"})
+    assert not any(getattr(control, "key", None) == "instrument-detail.open-valuation" for control in _walk(_valuation_workspace(page, etf, "2026-07-01")))

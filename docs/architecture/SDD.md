@@ -608,3 +608,101 @@ pairs or unavailable states for market, rating, currency, duration, size and
 history. Source and raw SHA-256 lineage is retained. Missing tape or bid/ask
 evidence, stale/evaluated labels and provider conflicts never grant precise
 liquidity or execution claims; `execution_allowed` is always false.
+
+### Instrument Detail factor-risk availability
+
+The application facade replays the full feature frame's canonical `price_binding`
+against adjusted prices and its declared calculation window. The canonical feature
+calculation is replayed over those prices, and every supplied factor descriptor
+must match exactly before the factor producer can run. Feature rows outside
+that window are rejected; latest-feature fallbacks cannot grant numeric authority.
+A single canonical `reference:no_trade` must bind the exact holdings checksum,
+effective date, weights and knowledge time to the snapshot cutoff. Each price and
+holdings row must declare valid timezone-aware source knowledge within the
+decision cutoff. The reference knowledge time must equal the maximum holdings
+row knowledge, replaying the canonical no-trade construction rule. Price source
+knowledge is validated separately from the value-only adjusted-price checksum;
+missing knowledge never acquires historical authority from an observation date.
+The panel exposes these source-knowledge checks and the holdings/reference
+identities explicitly. Missing or
+conflicting bindings keep the numeric panel unavailable.
+
+The estimation universe is the verified price/feature intersection, including
+unheld instruments. Bound held positions retain their actual portfolio weights
+and market values. Proven nonheld positions receive zero portfolio weight while
+their unknown market-value descriptor remains missing. Only price-derived feature
+descriptors reach the existing canonical factor producer; undated configuration
+classifications and fund look-through holdings are omitted. No financial formula
+is duplicated. Selected-instrument model coverage is independent of global
+report availability, and missing model coverage suppresses every selected numeric
+group. The panel exposes the decision time, price and holdings checksums, snapshot
+universe revision and model version. Arbitrary retrospective universe replay and
+historical fund look-through remain unsupported; `execution_allowed=false`.
+
+
+### Instrument Detail score-component history
+
+Instrument Detail reads the existing local `score_metric_history.parquet` through
+`load_score_metric_history_projection`. The facade scopes exact instrument IDs,
+allowlists display columns, retains every stored component/run row and its raw,
+normalized, missing-reason, source, as-of, formula and vintage fields. Missing
+numerics remain null; missing, unreadable, malformed and empty scoped evidence
+have explicit unavailable states. No scores are recalculated or artifacts written.
+These stored snapshots do not establish knowledge-time availability or replay
+guarantees. The display always keeps `execution_allowed=false`.
+
+### Instrument Detail stock valuation evidence
+
+The application facade scopes raw local statement rows to the selected stock
+before normalization, validates knowledge dates, provenance and finite numeric
+inputs, and filters at the snapshot's UTC cutoff. Date-only knowledge becomes
+available at UTC end-of-day; ambiguous datetimes and malformed selected evidence
+fail closed. Only filtered rows are adapted for the existing date-grained
+valuation producer. Lineage discloses the original cutoff and knowledge precision.
+The display allowlists relative metrics, model availability and statement lineage.
+ETFs and unsupported types show an explicit
+not-applicable state; missing decision dates or local inputs remain unavailable.
+Without explicit user assumptions, assumption-dependent model outputs remain
+unavailable. The session scenario controls below extend this read-only evidence
+panel. Financial formulas and storage formats are unchanged, and
+`execution_allowed=false` remains fixed.
+
+
+### Instrument Detail session valuation scenarios (ISSUE-0019)
+
+Stock/equity detail accepts blank-by-default, page-local explicit scenario inputs.
+The facade validates normalized forecast years (integer 1-50), discount rate
+(0, 1], terminal growth [-1, discount), and exactly bear/base/bull growth [-0.5, 1]
+in strictly increasing order. Booleans, nonfinite values, extra fields, margin
+and financial overrides are rejected. The page only converts percentages;
+`valuation_analysis` remains the sole financial producer. Validated local statements
+supply all financial inputs with unchanged exact UTC cutoff filtering before the
+producer's date adapter. Precision labels describe only surviving rows.
+
+The selector allowlists model numeric projections and separately discloses
+`assumption_context` (`local_user_scenario_assumption`, instrument, cutoff,
+`session_preview_only=true`, `score_authority=false`, `execution_allowed=false`).
+User assumptions are not source lineage. Arithmetic failures and recursively
+nonfinite producer results yield explicit unavailable evidence. Input edits and
+invalid submissions remove prior previews; clear and fresh navigation discard
+inputs. Controls update only the page-local result, without rebuilding snapshots,
+persistence, export inclusion or network activity. ETFs remain not applicable.
+
+
+### Instrument Detail responsive presentation and scenario workspace
+
+Viewport changes relayout the mounted shell chrome and padding; they do not invoke
+route builders or recalculate evidence. The content remains at the same control-tree
+position, preserving active page fields and open native dialogs. Route navigation and
+explicit refresh still build fresh content. Dashboard summary cards use native
+responsive columns. Narrow navigation is collapsed with a bounded scrolling list.
+
+Instrument Detail keeps its identity summary and export above the research scroll.
+Research sections use native maintained-state disclosure tiles with visible titles
+and status; long record groups scroll within a bounded height without dropping rows
+or fields. Wide driver tables scroll horizontally. Stock scenario controls open in a
+native dialog with autofocus, native contained traversal and Escape dismissal, an
+explicit Close action and focus return to the opener. Closing discards the private
+scenario session, as stated in the workspace; resize preserves it. The canonical
+valuation producer, provenance, unavailable states and execution prohibition remain
+unchanged.

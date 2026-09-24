@@ -1380,6 +1380,10 @@ def run(
                 )
             )
         authority = records[-1]
+        refresh_remainder_of = (
+            authority["payload"].get("remainder_of_authority_id")
+            if authority["authority_type"] == "managed_refresh" else None
+        )
         evidence["authority"] = git_binding
         registry = json.loads((root / REGISTRY_PATH).read_text(encoding="utf-8"))
         remote = remote_reader()
@@ -1391,7 +1395,7 @@ def run(
         )
         if prior_records:
             prior_reconciliation = mutation_gateway.reconcile_authority_ledger(
-                prior_records, remote, root=root
+                prior_records, remote, root=root, refresh_remainder_of=refresh_remainder_of,
             )
             if not prior_reconciliation.get("accepted"):
                 raise ValueError(
@@ -1418,9 +1422,31 @@ def run(
             historical_map=historical_map,
             authority_records=prior_records,
             authority_root=root,
+            refresh_remainder_of=refresh_remainder_of,
         )
         payload = authority["payload"]
-        if authority["authority_type"] == "status":
+        if authority["authority_type"] == "managed_refresh":
+            mutation_gateway.validate_reviewed_managed_refresh(
+                root, plan, remote, authority_record=authority,
+                git_binding=git_binding, attestation=attestation,
+            )
+            evidence["action_scope"] = payload["updates"]
+            if not apply:
+                evidence["terminal_status"] = "validated"
+                print("VALIDATED_MANAGED_REFRESH_AUTHORITY")
+                return
+            gateway_evidence = mutation_gateway.apply_reviewed_managed_refresh(
+                root, plan, remote, authority_record=authority,
+                git_binding=git_binding, attestation=attestation,
+                transport=mutation_transport,
+                authority_revalidator=lambda: revalidate_live_authority(
+                    root, expected_parent=expected_parent, expected_head=expected_head,
+                    main_ref=main_ref, attestation=attestation,
+                    run_reader=actions_run_reader, main_fetcher=main_fetcher,
+                    caller_proof_verifier=proof_revalidator,  # type: ignore[arg-type]
+                ),
+            )
+        elif authority["authority_type"] == "status":
             candidate_bytes = candidate_path.read_bytes()
             candidate = load_candidate(candidate_bytes)
             validate_git_bindings(

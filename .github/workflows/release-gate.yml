@@ -34,9 +34,33 @@ jobs:
       parallel_pilot_reason: ${{ steps.classify.outputs.parallel_pilot_reason }}
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact source checkout
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          EXPECTED_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || '' }}
+        run: |
+          if [[ ! "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse HEAD)" != "$EXPECTED_SOURCE_SHA" ]]; then
+            echo "Source checkout does not match the exact event head" >&2
+            exit 1
+          fi
+          if [[ -n "$EXPECTED_BASE_SHA" ]]; then
+            if [[ "$EXPECTED_BASE_REF" != "main" ]] || [[ ! "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse origin/main)" != "$EXPECTED_BASE_SHA" ]]; then
+              echo "Validation base is not the freshly fetched canonical main" >&2
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$EXPECTED_BASE_SHA" "$EXPECTED_SOURCE_SHA"; then
+              echo "Head must incorporate the exact validated base; stale integration is not evidence" >&2
+              exit 1
+            fi
+          fi
 
       - name: Classify validation tier
         id: classify
@@ -253,9 +277,33 @@ jobs:
           if-no-files-found: error
 
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact source checkout
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          EXPECTED_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || '' }}
+        run: |
+          if [[ ! "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse HEAD)" != "$EXPECTED_SOURCE_SHA" ]]; then
+            echo "Source checkout does not match the exact event head" >&2
+            exit 1
+          fi
+          if [[ -n "$EXPECTED_BASE_SHA" ]]; then
+            if [[ "$EXPECTED_BASE_REF" != "main" ]] || [[ ! "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse origin/main)" != "$EXPECTED_BASE_SHA" ]]; then
+              echo "Validation base is not the freshly fetched canonical main" >&2
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$EXPECTED_BASE_SHA" "$EXPECTED_SOURCE_SHA"; then
+              echo "Head must incorporate the exact validated base; stale integration is not evidence" >&2
+              exit 1
+            fi
+          fi
 
       - name: Set up pinned Python
         uses: actions/setup-python@v5
@@ -303,9 +351,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact source checkout
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          EXPECTED_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || '' }}
+        run: |
+          if [[ ! "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse HEAD)" != "$EXPECTED_SOURCE_SHA" ]]; then
+            echo "Source checkout does not match the exact event head" >&2
+            exit 1
+          fi
+          if [[ -n "$EXPECTED_BASE_SHA" ]]; then
+            if [[ "$EXPECTED_BASE_REF" != "main" ]] || [[ ! "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse origin/main)" != "$EXPECTED_BASE_SHA" ]]; then
+              echo "Validation base is not the freshly fetched canonical main" >&2
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$EXPECTED_BASE_SHA" "$EXPECTED_SOURCE_SHA"; then
+              echo "Head must incorporate the exact validated base; stale integration is not evidence" >&2
+              exit 1
+            fi
+          fi
 
       - name: Set up pinned Python
         uses: actions/setup-python@v5
@@ -345,9 +417,33 @@ jobs:
     timeout-minutes: 50
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact source checkout
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          EXPECTED_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || '' }}
+        run: |
+          if [[ ! "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse HEAD)" != "$EXPECTED_SOURCE_SHA" ]]; then
+            echo "Source checkout does not match the exact event head" >&2
+            exit 1
+          fi
+          if [[ -n "$EXPECTED_BASE_SHA" ]]; then
+            if [[ "$EXPECTED_BASE_REF" != "main" ]] || [[ ! "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse origin/main)" != "$EXPECTED_BASE_SHA" ]]; then
+              echo "Validation base is not the freshly fetched canonical main" >&2
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$EXPECTED_BASE_SHA" "$EXPECTED_SOURCE_SHA"; then
+              echo "Head must incorporate the exact validated base; stale integration is not evidence" >&2
+              exit 1
+            fi
+          fi
 
       - name: Pin reviewed canonical generation base
         shell: bash
@@ -449,12 +545,38 @@ jobs:
           - platform: windows
             os: windows-latest
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # The first exact-head Windows run reached the 120m ceiling before evidence upload;
+    # retain both repetitions and allow runner setup/upload variance on the slower host.
+    timeout-minutes: 180
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact source checkout
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          EXPECTED_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || '' }}
+        run: |
+          if [[ ! "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse HEAD)" != "$EXPECTED_SOURCE_SHA" ]]; then
+            echo "Source checkout does not match the exact event head" >&2
+            exit 1
+          fi
+          if [[ -n "$EXPECTED_BASE_SHA" ]]; then
+            if [[ "$EXPECTED_BASE_REF" != "main" ]] || [[ ! "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse origin/main)" != "$EXPECTED_BASE_SHA" ]]; then
+              echo "Validation base is not the freshly fetched canonical main" >&2
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$EXPECTED_BASE_SHA" "$EXPECTED_SOURCE_SHA"; then
+              echo "Head must incorporate the exact validated base; stale integration is not evidence" >&2
+              exit 1
+            fi
+          fi
 
       - name: Pin reviewed canonical generation base
         shell: bash
@@ -562,7 +684,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact source checkout
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          EXPECTED_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || '' }}
+        run: |
+          if [[ ! "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse HEAD)" != "$EXPECTED_SOURCE_SHA" ]]; then
+            echo "Source checkout does not match the exact event head" >&2
+            exit 1
+          fi
+          if [[ -n "$EXPECTED_BASE_SHA" ]]; then
+            if [[ "$EXPECTED_BASE_REF" != "main" ]] || [[ ! "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse origin/main)" != "$EXPECTED_BASE_SHA" ]]; then
+              echo "Validation base is not the freshly fetched canonical main" >&2
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$EXPECTED_BASE_SHA" "$EXPECTED_SOURCE_SHA"; then
+              echo "Head must incorporate the exact validated base; stale integration is not evidence" >&2
+              exit 1
+            fi
+          fi
 
       - name: Prepare aggregate evidence directory
         shell: bash
@@ -596,9 +744,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact source checkout
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          EXPECTED_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || '' }}
+        run: |
+          if [[ ! "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse HEAD)" != "$EXPECTED_SOURCE_SHA" ]]; then
+            echo "Source checkout does not match the exact event head" >&2
+            exit 1
+          fi
+          if [[ -n "$EXPECTED_BASE_SHA" ]]; then
+            if [[ "$EXPECTED_BASE_REF" != "main" ]] || [[ ! "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse origin/main)" != "$EXPECTED_BASE_SHA" ]]; then
+              echo "Validation base is not the freshly fetched canonical main" >&2
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$EXPECTED_BASE_SHA" "$EXPECTED_SOURCE_SHA"; then
+              echo "Head must incorporate the exact validated base; stale integration is not evidence" >&2
+              exit 1
+            fi
+          fi
 
       - name: Download exact validation artifacts
         uses: actions/download-artifact@v4

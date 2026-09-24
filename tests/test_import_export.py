@@ -143,6 +143,8 @@ def test_event_calendar_import_uses_availability_aware_contract(tmp_path: Path) 
             "instrument_id": ["VWCE"],
             "event_type": ["earnings"],
             "event_date": ["2026-07-30"],
+            "timezone_name": ["UTC"],
+            "precision": ["date"],
             "available_at": ["2026-07-01T09:00:00+00:00"],
             "ingested_at": ["2026-07-01T09:01:00+00:00"],
             "source_id": ["issuer-calendar"],
@@ -589,3 +591,23 @@ def test_settings_references_actual_version_and_changelog_files() -> None:
     source = inspect.getsource(settings_page)
     assert "pyproject.toml" in source
     assert "CHANGELOG.md" in source
+
+
+@pytest.mark.parametrize("field", ["timezone_name", "precision"])
+@pytest.mark.parametrize("missing", ["absent", "blank", "null"])
+def test_event_import_preserves_missing_temporal_metadata(tmp_path, field, missing):
+    row = {"event_id": "event-1", "instrument_id": "ACME", "event_type": "earnings",
+           "event_date": "2026-07-30", "timezone_name": "UTC", "precision": "date",
+           "available_at": "2026-07-01T09:00:00Z", "ingested_at": "2026-07-01T09:01:00Z",
+           "source_id": "issuer-calendar", "source_authority": "issuer"}
+    if missing == "absent":
+        del row[field]
+    else:
+        row[field] = "" if missing == "blank" else None
+    event = import_export._event_from_row(pd.Series(row), 0)
+    assert getattr(event, field) == ""
+    source = tmp_path / "missing-temporal.csv"
+    pd.DataFrame([row]).to_csv(source, index=False)
+    preview = validate_import("event_calendar", source)
+    assert preview.valid is False
+    assert any("timezone" in error if field == "timezone_name" else "precision" in error for error in preview.errors)

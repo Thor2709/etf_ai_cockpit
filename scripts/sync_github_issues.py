@@ -103,8 +103,13 @@ def marker_ids(remote_issues: Iterable[dict[str, Any]]) -> dict[str, list[dict[s
     return result
 
 
-def normalise_remote_issue(issue: dict[str, Any]) -> dict[str, Any]:
-    value = mutation_gateway.normalise_issue_snapshot(issue)
+def normalise_remote_issue(
+    issue: dict[str, Any], *, include_refresh_protected: bool = False,
+) -> dict[str, Any]:
+    value = (
+        mutation_gateway.normalise_refresh_snapshot(issue)
+        if include_refresh_protected else mutation_gateway.normalise_issue_snapshot(issue)
+    )
     projection = mutation_gateway.project_status_events(value)
     value["status_projection"] = projection
     value["create_acceptance"] = mutation_gateway.validate_create_acceptance(value)
@@ -176,9 +181,10 @@ def plan_actions(
     expected_status_event: dict[str, Any] | None = None,
     authority_records: list[dict[str, Any]] | None = None,
     authority_root: Path | None = None,
+    refresh_remainder_of: str | None = None,
 ) -> dict[str, Any]:
     remote = sorted(
-        (normalise_remote_issue(issue) for issue in remote_issues),
+        (normalise_remote_issue(issue, include_refresh_protected=True) for issue in remote_issues),
         key=lambda issue: issue["number"],
     )
     authority_reconciliation = None
@@ -187,6 +193,7 @@ def plan_actions(
             authority_records,
             remote,
             root=authority_root,
+            refresh_remainder_of=refresh_remainder_of,
         )
         if not authority_reconciliation.get("accepted"):
             payload = {
@@ -721,6 +728,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--apply", action="store_true", help="apply only after the approved plan SHA-256 is supplied")
     parser.add_argument("--approved-plan-sha256")
     parser.add_argument("--expected-status-candidate", type=Path)
+    parser.add_argument("--refresh-remainder-of", help="read-only review of a strict partial refresh remainder")
     args = parser.parse_args(argv)
     if args.apply and args.remote_snapshot:
         raise SystemExit("POLICY_ERROR: remote_snapshot_apply_prohibited")
@@ -733,7 +741,7 @@ def main(argv: list[str] | None = None) -> int:
     if not isinstance(remote, list):
         raise SystemExit("remote snapshot must be a JSON list")
     normalised_remote = sorted(
-        (normalise_remote_issue(issue) for issue in remote),
+        (normalise_remote_issue(issue, include_refresh_protected=True) for issue in remote),
         key=lambda issue: issue["number"],
     )
     if args.inventory_out:
@@ -757,6 +765,7 @@ def main(argv: list[str] | None = None) -> int:
         expected_status_event=expected_status_event,
         authority_records=authority_records,
         authority_root=root,
+        refresh_remainder_of=args.refresh_remainder_of,
     )
     output = args.plan_out or Path(tempfile.gettempdir()) / "etf-ai-cockpit-github-sync-plan.json"
     output.parent.mkdir(parents=True, exist_ok=True)

@@ -14,6 +14,11 @@ from typing import Any, Callable, Mapping
 try:
     from scripts.issue_registry_core import (
         CONTROL_STATE_PATH,
+        DECLARATION_CORRECTION_EVENT,
+        DECLARATION_CORRECTION_PAIRS,
+        FINAL_RELEASE_SPEC_SHA256,
+        _compact_metadata,
+        parse_issue_refs_expanded,
         OPEN_LEDGER,
         PROGRESS_PATH,
         PROGRAMME_STATUSES,
@@ -36,6 +41,11 @@ try:
 except ModuleNotFoundError:
     from issue_registry_core import (  # type: ignore[no-redef]
         CONTROL_STATE_PATH,
+        DECLARATION_CORRECTION_EVENT,
+        DECLARATION_CORRECTION_PAIRS,
+        FINAL_RELEASE_SPEC_SHA256,
+        _compact_metadata,
+        parse_issue_refs_expanded,
         OPEN_LEDGER,
         PROGRESS_PATH,
         PROGRAMME_STATUSES,
@@ -108,6 +118,7 @@ HIGH_STATUS = {
 }
 BASE_REFRESH_TRANSITION_MODE = "generation_base_and_status_transitions"
 BASE_REFRESH_EDGE_MODE = "generation_base_and_dependency_edge_evidence"
+BASE_REFRESH_CORRECTION_MODE = "generation_base_and_dependency_edge_corrections"
 TRANSITION_REGISTRY_FIELDS = frozenset(
     {
         "programme_status",
@@ -320,13 +331,14 @@ def _manifest_errors(
             "canonical_schema_and_intake",
             BASE_REFRESH_TRANSITION_MODE,
             BASE_REFRESH_EDGE_MODE,
+            BASE_REFRESH_CORRECTION_MODE,
         }:
             _error(errors, "manifest registry_migration mode is unsupported")
         elif mode == "canonical_schema_and_intake" and schema_version != "1.1":
             _error(errors, "canonical schema migration requires manifest schema_version 1.1")
         elif mode == BASE_REFRESH_TRANSITION_MODE and schema_version != "1.2":
             _error(errors, "generation-base transition mode requires manifest schema_version 1.2")
-        elif mode == BASE_REFRESH_EDGE_MODE and schema_version != "1.3":
+        elif mode in {BASE_REFRESH_EDGE_MODE, BASE_REFRESH_CORRECTION_MODE} and schema_version != "1.3":
             _error(errors, "dependency-edge mode requires manifest schema_version 1.3")
         reason = candidate.get("reason")
         if not isinstance(reason, str) or not reason.strip():
@@ -367,13 +379,15 @@ def _manifest_errors(
                 _error(errors, "generation-base transition mode requires empty added and removed issue IDs")
             if not issue_ids or not transitions:
                 _error(errors, "generation-base transition mode requires status transitions")
-        if mode == BASE_REFRESH_EDGE_MODE:
+        if mode in {BASE_REFRESH_EDGE_MODE, BASE_REFRESH_CORRECTION_MODE}:
             if migration_ids["added_issue_ids"] or migration_ids["removed_issue_ids"]:
                 _error(errors, "dependency-edge mode requires empty added and removed issue IDs")
             if not edge_declarations:
                 _error(errors, "dependency-edge mode requires declared dependency edges")
         if manifest.get("allow_downgrade", False) is not False:
             _error(errors, "manifest registry_migration cannot allow a downgrade")
+        if mode == BASE_REFRESH_CORRECTION_MODE and set(edge_declarations) != DECLARATION_CORRECTION_PAIRS:
+            _error(errors, "manifest registry_migration requires exactly the five declaration corrections")
         if not any(error.startswith("manifest registry_migration") for error in errors):
             registry_migration = candidate
     return errors, issue_ids, transitions, registry_migration, tuple(edge_declarations)
@@ -601,17 +615,129 @@ def _validate_dependency_edge_record(
         _error(errors, f"dependency-edge record does not match the canonical registry projection: {issue_id}")
 
 
+def _validate_declaration_correction_projection(
+    base_by_id: Mapping[str, Any], proposed_by_id: Mapping[str, Any],
+    base_control: Mapping[str, Any] | None, latest_control: Mapping[str, Any] | None,
+    proposed_control: Mapping[str, Any] | None, errors: list[str],
+    ancestry: Callable[[str], bool] | None,
+) -> None:
+    """Replay the complete removal batch and compare every registry/control field."""
+    if base_control is None or proposed_control is None or latest_control != base_control:
+        _error(errors, "declaration corrections require matching base/latest canonical control")
+        return
+    try:
+        expected_control = deepcopy(dict(base_control))
+        expected_records = expected_control["records"]
+        proposed_records = proposed_control["records"]
+        expected_registry = deepcopy(dict(base_by_id))
+        targets = {issue for issue, _ in DECLARATION_CORRECTION_PAIRS}
+        review_identity = None
+        for issue_id in sorted(targets):
+            previous = base_control["records"][issue_id]
+            proposed = proposed_records[issue_id]
+            prefix = previous.get("transition_history", [])
+            history = proposed.get("transition_history")
+            if not isinstance(history, list) or history[:len(prefix)] != prefix:
+                raise ValueError("declaration correction history is not append-only")
+            suffix = history[len(prefix):]
+            expected_pairs = {pair for pair in DECLARATION_CORRECTION_PAIRS if pair[0] == issue_id}
+            seen = set()
+            record = expected_records[issue_id]
+            registry_record = expected_registry[issue_id]
+            if registry_record["provenance"]["final_release_spec_sha256"] != FINAL_RELEASE_SPEC_SHA256:
+                raise ValueError("declaration correction source provenance mismatch")
+            source_dependencies = parse_issue_refs_expanded(
+                _compact_metadata(registry_record["contract_markdown"])["Blocking dependencies"]
+            )
+            for event in suffix:
+                if not isinstance(event, dict) or event.get("event_type") != DECLARATION_CORRECTION_EVENT:
+                    raise ValueError("declaration correction contains unrelated history")
+                validate_control_transition_event(issue_id, previous, event)
+                dependency = event["dependency_edge"]["dependency"]
+                pair = (issue_id, dependency)
+                if pair in seen or pair not in expected_pairs or dependency in source_dependencies:
+                    raise ValueError("declaration correction pair/source mismatch")
+                seen.add(pair)
+                identity = {key: event[key] for key in (
+                    "verified_commit", "reviewed_date", "reviewer", "review_reference", "evidence_references",
+                )}
+                if review_identity is not None and review_identity != identity:
+                    raise ValueError("declaration correction review metadata differs")
+                review_identity = identity
+                commit = event["verified_commit"]
+                if ancestry is None or not ancestry(commit):
+                    raise ValueError("declaration correction verified commit ancestry is unproved")
+                record.setdefault("transition_history", []).append(deepcopy(event))
+                del record["dependency_edge_evidence"][dependency]
+                del registry_record["dependency_edge_evidence"][dependency]
+                for field in ("blocking_dependencies", "dependency_candidates"):
+                    registry_record[field].remove(dependency)
+                expected_registry[dependency]["downstream_issues"].remove(issue_id)
+                for projected in (record, registry_record):
+                    projected["verified_commit"] = commit
+                    projected["verified_date"] = event["reviewed_date"]
+            if seen != expected_pairs or registry_record["blocking_dependencies"] != source_dependencies:
+                raise ValueError("declaration corrections do not exactly match source blockers")
+        expected_registry["ISSUE-0167"]["capability_lane"] = "PAPER_BROKER_OPERATIONS"
+        expected_registry["ISSUE-0168"]["capability_lane"] = "PORTFOLIO_READ_ONLY"
+        if expected_registry != proposed_by_id:
+            raise ValueError("declaration correction has unrelated registry changes")
+        metadata = expected_control["metadata"]
+        proposed_metadata = proposed_control["metadata"]
+        commit = proposed_metadata.get("generation_base_commit")
+        if not isinstance(commit, str) or not COMMIT_RE.fullmatch(commit):
+            raise ValueError("declaration correction generation base is invalid")
+        metadata.update(generation_base_commit=commit, generation_base_ref="origin/main", bootstrap=False, bootstrap_reason="")
+        if expected_control != proposed_control:
+            raise ValueError("declaration correction has unrelated canonical control changes")
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        _error(errors, f"invalid declaration correction projection: {exc}")
+
+
 def _validate_base_refresh_top_level(
     base_registry: Mapping[str, Any],
     proposed_registry: Mapping[str, Any],
     *,
     manifest_base: object,
     allow_readiness_change: bool,
+    allow_dependency_reconciliation_change: bool = False,
+    expected_open_ledger_sha256: str | None = None,
     errors: list[str],
 ) -> None:
     excluded = {"records", "source_of_truth"}
     if allow_readiness_change:
         excluded.add("readiness")
+    if allow_dependency_reconciliation_change:
+        excluded.add("dependency_reconciliation")
+        # The canonical resolver emits one ordered entry per candidate. This
+        # migration removes only these five blocking candidates; every other
+        # reconciliation entry and its order must survive unchanged.
+        base_reconciliation = base_registry.get("dependency_reconciliation")
+        expected_reconciliation = []
+        removed_pairs = set()
+        valid_reconciliation = isinstance(base_reconciliation, list)
+        for entry in base_reconciliation if valid_reconciliation else []:
+            if not isinstance(entry, dict):
+                valid_reconciliation = False
+                break
+            pair = (entry.get("source_id"), entry.get("dependency"))
+            if pair in DECLARATION_CORRECTION_PAIRS:
+                if pair in removed_pairs or entry != {
+                    "source_id": pair[0], "dependency": pair[1],
+                    "candidate_type": "blocking",
+                    "resolved_as": "blocking_dependencies",
+                    "reason": "proposed programme prerequisite",
+                }:
+                    valid_reconciliation = False
+                removed_pairs.add(pair)
+            else:
+                expected_reconciliation.append(entry)
+        if (
+            not valid_reconciliation
+            or removed_pairs != DECLARATION_CORRECTION_PAIRS
+            or proposed_registry.get("dependency_reconciliation") != expected_reconciliation
+        ):
+            _error(errors, "declaration correction dependency reconciliation projection mismatch")
     base_top = {key: value for key, value in base_registry.items() if key not in excluded}
     proposed_top = {
         key: value for key, value in proposed_registry.items() if key not in excluded
@@ -629,6 +755,10 @@ def _validate_base_refresh_top_level(
         _error(errors, "source_of_truth must remain an object during generation-base transition")
         return
     for key in sorted(set(base_source) | set(proposed_source)):
+        if allow_dependency_reconciliation_change and key == OPEN_LEDGER_REFRESH_SOURCE_FIELD:
+            if expected_open_ledger_sha256 is None or proposed_source.get(key) != expected_open_ledger_sha256:
+                _error(errors, "declaration correction open-ledger digest mismatch")
+            continue
         if key not in BASE_REFRESH_SOURCE_FIELDS and base_source.get(key) != proposed_source.get(key):
             _error(errors, f"non-allowlisted source_of_truth change: {key}")
     proposed_baseline = proposed_source.get("baseline_commit")
@@ -737,7 +867,7 @@ def guard_proposal(
     removed_issue_ids = base_ids - proposed_ids
     if migration_mode == BASE_REFRESH_TRANSITION_MODE and (added_issue_ids or removed_issue_ids):
         _error(errors, "generation-base transition mode cannot add or remove issue IDs")
-    elif migration_mode == BASE_REFRESH_EDGE_MODE and (added_issue_ids or removed_issue_ids):
+    elif migration_mode in {BASE_REFRESH_EDGE_MODE, BASE_REFRESH_CORRECTION_MODE} and (added_issue_ids or removed_issue_ids):
         _error(errors, "dependency-edge mode cannot add or remove issue IDs")
     if registry_migration is None:
         for issue_id in sorted(base_ids - proposed_ids):
@@ -815,6 +945,11 @@ def guard_proposal(
                 )
             elif base_record != proposed_record:
                 _error(errors, f"non-allowlisted registry change: {issue_id}")
+    if migration_mode == BASE_REFRESH_CORRECTION_MODE:
+        _validate_declaration_correction_projection(
+            base_by_id, proposed_by_id, base_control_state, latest_control_state,
+            proposed_control_state, errors, verified_commit_is_ancestor,
+        )
     if migration_requested and migration_mode == "canonical_schema_and_intake":
         for issue_id in sorted(changed_statuses):
             _error(errors, f"registry migration cannot change programme_status: {issue_id}")
@@ -832,14 +967,18 @@ def guard_proposal(
             top_level["source_of_truth"] = source_of_truth
     if registry_migration is None and base_top_level != proposed_top_level:
         _error(errors, "non-allowlisted registry change: top-level registry data")
-    elif migration_mode in {BASE_REFRESH_TRANSITION_MODE, BASE_REFRESH_EDGE_MODE}:
+    elif migration_mode in {BASE_REFRESH_TRANSITION_MODE, BASE_REFRESH_EDGE_MODE, BASE_REFRESH_CORRECTION_MODE}:
         _validate_base_refresh_top_level(
             base_registry,
             proposed_registry,
             manifest_base=manifest_base,
             allow_readiness_change=(
-                edge_transition_count > 0 or migration_mode == BASE_REFRESH_EDGE_MODE
+                edge_transition_count > 0 or migration_mode in {BASE_REFRESH_EDGE_MODE, BASE_REFRESH_CORRECTION_MODE}
             ),
+            allow_dependency_reconciliation_change=(
+                migration_mode == BASE_REFRESH_CORRECTION_MODE
+            ),
+            expected_open_ledger_sha256=expected_open_ledger_sha256,
             errors=errors,
         )
 

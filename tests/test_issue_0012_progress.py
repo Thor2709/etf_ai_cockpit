@@ -849,6 +849,15 @@ def test_normal_return_unavailable_results_are_failed_activities(action_kind, tm
 
 def test_cache_cleanup_unavailable_is_failed_and_ui_uses_redacted_error(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "cache.jsonl")
+    terminal_refresh = threading.Event()
+    refresh_activity_shell = jobs_page_module._refresh_activity_shell
+
+    def refresh_and_signal(page, state) -> None:
+        refresh_activity_shell(page, state)
+        if state.current_activity is None:
+            terminal_refresh.set()
+
+    monkeypatch.setattr(jobs_page_module, "_refresh_activity_shell", refresh_and_signal)
     monkeypatch.setattr(
         jobs_page_module,
         "generated_cache_cleanup",
@@ -868,6 +877,9 @@ def test_cache_cleanup_unavailable_is_failed_and_ui_uses_redacted_error(tmp_path
     while state.current_activity is not None and time.time() < deadline:
         time.sleep(0.01)
 
+    # Activity completion precedes the worker's final UI callback. Do not let
+    # that callback escape into the next test's monkeypatched module globals.
+    assert terminal_refresh.wait(2)
     assert state.recent_activity[-1].status == "failed"
     assert "raw-cache-secret" not in " ".join(_texts(control))
     assert "***redacted***" in " ".join(_texts(control))
@@ -1834,11 +1846,28 @@ def test_disclosure_browser_picker_bytes_retain_registry_source_after_worker(
     monkeypatch.setattr(trust_evidence_module, "RAW_DIR", tmp_path / "raw")
     registry_path = tmp_path / "fund_documents.parquet"
     holdings_path = tmp_path / "fund_holdings.parquet"
+    entered = threading.Event()
+    release = threading.Event()
+    workers = []
+    run_picker = trust_evidence_module._run_picker_activity
+
+    def capture_worker(*args, **kwargs):
+        worker = run_picker(*args, **kwargs)
+        if worker is not None:
+            workers.append(worker)
+        return worker
+
+    monkeypatch.setattr(trust_evidence_module, "_run_picker_activity", capture_worker)
+
+    def await_release():
+        entered.set()
+        assert release.wait(30), "test did not release disclosure import worker"
 
     if control_key.endswith("document"):
         import_document = trust_evidence_module.import_etf_document
 
         def import_document_with_destination(path, **kwargs):
+            await_release()
             return import_document(path, destination=registry_path, **kwargs)
 
         monkeypatch.setattr(trust_evidence_module, "import_etf_document", import_document_with_destination)
@@ -1847,6 +1876,7 @@ def test_disclosure_browser_picker_bytes_retain_registry_source_after_worker(
         import_holdings = trust_evidence_module.import_etf_holdings_with_document
 
         def import_holdings_with_destinations(path, *args, **kwargs):
+            await_release()
             return import_holdings(
                 path,
                 *args,
@@ -1863,11 +1893,20 @@ def test_disclosure_browser_picker_bytes_retain_registry_source_after_worker(
     controls = trust_evidence_module._disclosure_import_controls(page, state)
     button = next(control for control in _walk(controls) if getattr(control, "key", None) == control_key)
 
-    asyncio.run(button.on_click(SimpleNamespace(control=button)))
-    deadline = time.time() + 2
-    while state.current_activity is not None and time.time() < deadline:
-        time.sleep(0.01)
+    try:
+        asyncio.run(button.on_click(SimpleNamespace(control=button)))
+        assert len(workers) == 1, f"expected one disclosure worker, got {len(workers)}"
+        assert entered.wait(30), f"disclosure worker did not enter import: {state.last_message}"
+        assert workers[0].is_alive(), "worker must remain blocked until the test releases import"
+        assert state.current_activity is not None
+    finally:
+        release.set()
+        for worker in workers:
+            worker.join(timeout=30)
+            assert not worker.is_alive(), f"disclosure worker did not finish: {state.last_message}"
 
+    assert state.current_activity is None, state.last_message
+    assert state.recent_activity, f"worker completed without terminal history: {state.last_message}"
     assert state.recent_activity[-1].status == "success", state.last_message
     registry = trust_evidence_module.read_document_registry(path=registry_path)
     registered = registry.loc[

@@ -3945,30 +3945,6 @@
           "evidence_state": "unresolved",
           "reason_code": "EDGE_UNRESOLVED",
           "resolved": false
-        },
-        {
-          "dependency_id": "ISSUE-0132",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
-        },
-        {
-          "dependency_id": "ISSUE-0133",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
-        },
-        {
-          "dependency_id": "ISSUE-0134",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
-        },
-        {
-          "dependency_id": "ISSUE-0135",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
         }
       ],
       "execution_allowed": false,
@@ -4058,12 +4034,6 @@
         },
         {
           "dependency_id": "ISSUE-0142",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
-        },
-        {
-          "dependency_id": "ISSUE-0152",
           "evidence_state": "unresolved",
           "reason_code": "EDGE_UNRESOLVED",
           "resolved": false
@@ -4963,5 +4933,5 @@
   ],
   "execution_allowed": false,
   "schema_version": "1.0",
-  "source_registry_sha256": "38f0a383b989a7e68c7f590c91112d264fe3eacd44d5851b560d1081992b192f"
+  "source_registry_sha256": "e19a21212d4695e98f7c7412ef31c25ca257125111c867325f1791b4e9bc786a"
 }

@@ -2,12 +2,11 @@
 # Core model and session settings
 # =============================================================================
 
-model = "gpt-5.6-sol"
-model_reasoning_effort = "medium"
-plan_mode_reasoning_effort = "high"
+model = "gpt-6-astra"
+model_reasoning_effort = "low"
+plan_mode_reasoning_effort = "medium"
 model_verbosity = "low"
 personality = "pragmatic"
-model_catalog_json = 'C:\Users\thor2\.codex\models-v1.json'
 
 
 
@@ -34,8 +33,7 @@ network_access = true
 
 [agents]
 enabled = true
-max_concurrent_threads_per_session = 2
-max_depth = 1
+max_concurrent_threads_per_session = 6
 default_subagent_model = "gpt-5.6-luna"
 default_subagent_reasoning_effort = "high"
 interrupt_message = true
@@ -262,7 +260,7 @@ CODEX_CLI_PATH = 'C:\Users\thor2\AppData\Local\OpenAI\Codex\bin\d7e8094cfb76a267
 js_repl = false
 unified_exec = false
 multi_agent = true
-multi_agent_v2 = false
+multi_agent_v2 = true
 
 [projects.'c:\users\thor2\desktop\trading app\etf_ai_cockpit']
 trust_level = "trusted"

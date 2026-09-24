@@ -1,0 +1,56 @@
+{
+  "agy_branches": [
+    {
+      "branch": "codex/antigravity-completion-20260904",
+      "classification": "reviewed-pr-disposition",
+      "delete_authority": false,
+      "head": "6c086e4ed0ae5b09aadc18b5bce28ad3ad52c132",
+      "pr": 725
+    },
+    {
+      "branch": "codex/antigravity-flash-harness-20260907",
+      "classification": "historical-ancestor-preserve",
+      "delete_authority": false,
+      "head": "8db357ea810c9137d56195551db088d150f5703a",
+      "pr": null
+    },
+    {
+      "branch": "codex/antigravity-next-20260904",
+      "classification": "uncertain-unmerged-preserve",
+      "delete_authority": false,
+      "head": "6e4efc149036bbef44b479cde7a954e6f802279d",
+      "pr": null
+    },
+    {
+      "branch": "codex/antigravity-staged-editor-20260908",
+      "classification": "historical-ancestor-preserve",
+      "delete_authority": false,
+      "head": "3d9b21d82ae9c697183f5519f2f27ec1baf87314",
+      "pr": null
+    },
+    {
+      "branch": "codex/antigravity-state-reconcile-20260908",
+      "classification": "reviewed-pr-disposition",
+      "delete_authority": false,
+      "head": "6db1c07d4bf0abe55fd47b66eb1e62206df79ea8",
+      "pr": 735
+    }
+  ],
+  "count": 423,
+  "counts": {
+    "canonical/current": 1,
+    "historical-ancestor-preserve": 316,
+    "reviewed-pr-disposition": 8,
+    "uncertain-unmerged-preserve": 98
+  },
+  "observed_main": "51bec2b8937f725e9e1c74136249a1d9c7d4851a",
+  "rule": "No branches deleted. Ancestor does not prove local dirty/untracked work redundant. Unmerged heads outside explicit PR dispositions are uncertain/preserve. Full heads are in branches.json and repository.bundle in source artifact.",
+  "schema_version": "historical-branch-census.v1",
+  "source_artifact": {
+    "archive_sha256": "9e625431a874c919f0751d66d0d5a2776f19e8e6eefa3a4be812e2df883796a3",
+    "artifact_id": 10038049565,
+    "artifact_name": "control-plane-forensic-snapshot-34178420220",
+    "retention_expiry": "2026-10-08",
+    "run_id": 34178420220
+  }
+}

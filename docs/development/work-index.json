@@ -1,0 +1,107 @@
+{
+  "apply_authority": false,
+  "items": [
+    {
+      "branch": "codex/issue0019-product-20260907",
+      "head": "79451f884e6b0986b54d2493a5c0d5979dcbd131",
+      "issue_ids": [
+        "ISSUE-0019"
+      ],
+      "merge": "a15cafae968ee66fca4f0762407a7ecd81d9755e",
+      "pr": 732,
+      "purpose": "Merged product locator; verify exact review/gate evidence and remaining canonical lifecycle, not a completion assertion."
+    },
+    {
+      "branch": "codex/issue0024-product-20260812",
+      "head": "89634f179eb947d4f0af8685cf4ef025685dd618",
+      "issue_ids": [
+        "ISSUE-0024"
+      ],
+      "merge": "4f7082d06d1695158d8998563dc083e86fe5e364",
+      "pr": 678,
+      "purpose": "Merged calendar product locator; verify actual accepted head rather than stale PR-body SHA."
+    },
+    {
+      "branch": "codex/issue-0068-rebuild-20260728",
+      "head": "0ccd50d630ef51c02aa5d2846c3f895a3fad0807",
+      "issue_ids": [
+        "ISSUE-0068"
+      ],
+      "merge": "4119de77e0bbc9d30939855945247223443c8e19",
+      "pr": 597,
+      "purpose": "Accepted replacement locator for stale PR #562; retain original branch/evidence."
+    },
+    {
+      "branch": "codex/issue0101-canonical-payload-20260801",
+      "head": "c572f2f6e680ba0ef2b7162e96511ade06c60ea0",
+      "issue_ids": [
+        "ISSUE-0101"
+      ],
+      "merge": "0680429aa5c30477dc854ef80367a3cc5ff4010e",
+      "pr": 633,
+      "purpose": "Accepted replacement locator for stale PR #560; retain original branch/evidence."
+    },
+    {
+      "branch": "codex/issue0050-product-20260824",
+      "head": "3fcbd7316ccdc1ad96ecd92c460fe9151f18d2eb",
+      "issue_ids": [
+        "ISSUE-0050"
+      ],
+      "merge": null,
+      "pr": 698,
+      "purpose": "Preserve unique operational evidence, replay-parity/performance and fixture work. Old reviews/runs are not current-head acceptance."
+    },
+    {
+      "branch": "codex/issue0021-parallel-20260831",
+      "head": "109425c33aef5901ad42d562933a3f6ea6454c77",
+      "issue_ids": [
+        "ISSUE-0021"
+      ],
+      "merge": null,
+      "pr": 711,
+      "purpose": "Preserve corrected portfolio sandbox bindings and tests; not a canonical completion claim."
+    },
+    {
+      "branch": "docs/codex-throughput-sparebank-20260831",
+      "head": "0beb296ac04bcf98b35196bc0a622905f16fbd67",
+      "issue_ids": [],
+      "merge": null,
+      "pr": 721,
+      "purpose": "Preserve unmerged Sparebank scope and task/lane templates. Old candidate model routing is not current configuration."
+    },
+    {
+      "branch": "codex/antigravity-completion-20260904",
+      "head": "6c086e4ed0ae5b09aadc18b5bce28ad3ad52c132",
+      "issue_ids": [
+        "ISSUE-0032",
+        "ISSUE-0043"
+      ],
+      "merge": null,
+      "pr": 725,
+      "purpose": "Legacy independent AGY ownership is retired. Preserve future-only broker scaffold/help implementation and tests; any continuation is Codex-owned staged work, not a forty-issue reservation."
+    },
+    {
+      "branch": "codex/antigravity-state-reconcile-20260908",
+      "head": "6db1c07d4bf0abe55fd47b66eb1e62206df79ea8",
+      "issue_ids": [],
+      "merge": null,
+      "pr": 735,
+      "purpose": "Narrow post-734 wording candidate; new control-plane documents replace its factual corrections. Do not infer live Skill installation from repository prose."
+    },
+    {
+      "branch": "codex/antigravity-next-20260904",
+      "head": "6e4efc149036bbef44b479cde7a954e6f802279d",
+      "issue_ids": [
+        "ISSUE-0041",
+        "ISSUE-0061",
+        "ISSUE-0062"
+      ],
+      "merge": null,
+      "pr": null,
+      "purpose": "Preserve successor to PR725: pair/triple-barrier research documentation and tests, partial accessible-table/Universe/Backtests UI, handoff. Research-only remains research-only; no current ownership or acceptance. Do not transplant the forty-issue checkpoint wholesale."
+    }
+  ],
+  "schema_version": "programme-work-locators.v1",
+  "source_observed_at": "2026-09-08T01:59:08Z",
+  "source_observed_main": "51bec2b8937f725e9e1c74136249a1d9c7d4851a"
+}
