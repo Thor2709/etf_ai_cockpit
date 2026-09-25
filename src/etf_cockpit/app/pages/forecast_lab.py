@@ -7,17 +7,18 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import metric_card, panel, section_header
 from etf_cockpit.app.pages.dashboard import _run_action
 from etf_cockpit.app.state import AppState
-from etf_cockpit.features.forecast_lab import build_forecast_lab_report
+from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace
 
 
 def forecast_lab_page(page: ft.Page, state: AppState) -> ft.Control:
     """Render local forecast comparison and validation evidence."""
 
-    report = build_forecast_lab_report(state.snapshot.forecasts, state.snapshot.prices)
+    report = build_forecast_lab_workspace(state.snapshot.config, state.snapshot.forecasts, state.snapshot.prices)
     models = report["models"]
     model_catalogue = report["model_catalogue"]
     runs = report["runs"]
     splits = report["walk_forward_splits"]
+    fold_evaluation = report["walk_forward_evaluation"]
     status = str(report["status"])
     available_models = ", ".join(
         f"{name}={'available' if available else 'unavailable'}"
@@ -86,7 +87,7 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> ft.Control:
             ),
             ft.Row(
                 [
-                    _split_panel(splits),
+                    _split_panel(splits, fold_evaluation),
                     panel(
                         ft.Column(
                             [
@@ -96,7 +97,17 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> ft.Control:
                                 ft.Text(f"Observed forecast horizons: {observed_horizons}", color=theme.MUTED, selectable=True),
                                 ft.Text("Promotion: shadow_only; execution_allowed=false", color=theme.MUTED, selectable=True),
                                 ft.Text("Conformal intervals are diagnostic until minimum prior matured samples exist.", color=theme.MUTED, selectable=True),
-                                ft.Text("Resource and latency metadata: not recorded", color=theme.MUTED, selectable=True),
+                                ft.Text(
+                                    "Net value: forecast direction x matured adjusted return less the canonical round-trip cost; "
+                                    "unavailable when a cost is unavailable.",
+                                    color=theme.MUTED,
+                                    selectable=True,
+                                ),
+                                ft.Text(
+                                    "Resource use: latest measured local run duration per model family; not_recorded until a run is timed.",
+                                    color=theme.MUTED,
+                                    selectable=True,
+                                ),
                                 unavailable,
                             ],
                             spacing=8,
@@ -154,8 +165,17 @@ def _model_panel(frame: pd.DataFrame) -> ft.Container:
                     ft.DataCell(ft.Text(str(row["status_summary"]), color=theme.MUTED, size=12)),
                     ft.DataCell(ft.Text(_metric(row["mase"]), color=theme.MUTED, size=12)),
                     ft.DataCell(ft.Text(_metric(row["directional_accuracy"]), color=theme.MUTED, size=12)),
+                    ft.DataCell(ft.Text(_net_value(row), color=theme.MUTED, size=12)),
+                    ft.DataCell(
+                        ft.Text(
+                            f"{_metric(row['interval_coverage'])} / {_metric(row['conformal_coverage'])}",
+                            color=theme.MUTED,
+                            size=12,
+                        )
+                    ),
                     ft.DataCell(ft.Text(str(row["calibration_status"]), color=theme.MUTED, size=12)),
-                    ft.DataCell(ft.Text(str(row["drift_status"]), color=theme.MUTED, size=12)),
+                    ft.DataCell(ft.Text(_drift(row), color=theme.MUTED, size=12)),
+                    ft.DataCell(ft.Text(_runtime(row), color=theme.MUTED, size=12)),
                 ]
             )
         )
@@ -169,20 +189,62 @@ def _model_panel(frame: pd.DataFrame) -> ft.Container:
                 ft.DataColumn(ft.Text("Statuses")),
                 ft.DataColumn(ft.Text("MASE")),
                 ft.DataColumn(ft.Text("Direction")),
+                ft.DataColumn(ft.Text("Net value")),
+                ft.DataColumn(ft.Text("Coverage int/conf")),
                 ft.DataColumn(ft.Text("Calibration")),
                 ft.DataColumn(ft.Text("Drift")),
+                ft.DataColumn(ft.Text("Runtime")),
             ],
             rows=rows,
         )
     return panel(ft.Column([section_header("Model comparison", "Metrics are descriptive; no model is promoted or made executable."), body], scroll=ft.ScrollMode.AUTO), expand=True)
 
 
-def _split_panel(frame: pd.DataFrame) -> ft.Container:
+def _split_panel(frame: pd.DataFrame, evaluation: pd.DataFrame) -> ft.Container:
     if frame.empty:
         body: ft.Control = ft.Text("Not enough distinct forecast dates for a walk-forward split.", color=theme.MUTED)
     else:
         body = ft.Text("\n".join(f"{r.split_id}: train through {r.train_end}; test {r.test_start}–{r.test_end}" for r in frame.itertuples()), color=theme.MUTED, selectable=True)
-    return panel(ft.Column([section_header("Walk-forward protocol", "Expanding date folds prevent future rows entering an earlier evaluation window."), body], spacing=8), expand=True)
+    rows = [
+        ft.DataRow(
+            cells=[
+                ft.DataCell(ft.Text(str(row["split_id"]), color=theme.TEXT, size=12)),
+                ft.DataCell(ft.Text(str(row["model_name"]), color=theme.MUTED, size=12)),
+                ft.DataCell(ft.Text(str(int(row["matured_rows"])), color=theme.MUTED, size=12)),
+                ft.DataCell(ft.Text(_metric(row["mae"]), color=theme.MUTED, size=12)),
+                ft.DataCell(ft.Text(_metric(row["directional_accuracy"]), color=theme.MUTED, size=12)),
+                ft.DataCell(ft.Text(_net_value(row), color=theme.MUTED, size=12)),
+            ]
+        )
+        for _, row in evaluation.head(40).iterrows()
+    ]
+    fold_body: ft.Control = (
+        ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Fold")),
+                ft.DataColumn(ft.Text("Model")),
+                ft.DataColumn(ft.Text("Matured")),
+                ft.DataColumn(ft.Text("MAE")),
+                ft.DataColumn(ft.Text("Direction")),
+                ft.DataColumn(ft.Text("Net value")),
+            ],
+            rows=rows,
+        )
+        if rows
+        else ft.Text("No matured forecasts fall inside a walk-forward test window yet.", color=theme.MUTED)
+    )
+    return panel(
+        ft.Column(
+            [
+                section_header("Walk-forward protocol", "Expanding date folds prevent future rows entering an earlier evaluation window."),
+                body,
+                fold_body,
+            ],
+            spacing=8,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
 
 
 def _catalogue_panel(frame: pd.DataFrame) -> ft.Container:
@@ -230,3 +292,25 @@ def _metric(value: object) -> str:
     if value is None or pd.isna(value):
         return "pending"
     return f"{float(value):.3f}"
+
+
+def _net_value(row: pd.Series) -> str:
+    status = str(row["net_value_status"])
+    value = row["net_forward_value"]
+    if value is None or pd.isna(value):
+        return status
+    return f"{float(value):+.4f} ({status})"
+
+
+def _drift(row: pd.Series) -> str:
+    score = row["drift_score"]
+    if score is None or pd.isna(score):
+        return str(row["drift_status"])
+    return f"{row['drift_status']} ({float(score):.2f})"
+
+
+def _runtime(row: pd.Series) -> str:
+    runtime = row["runtime_ms"]
+    if runtime is None or pd.isna(runtime):
+        return str(row["resource_status"])
+    return f"{float(runtime):.0f} ms"
