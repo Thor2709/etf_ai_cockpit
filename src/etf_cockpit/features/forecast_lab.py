@@ -194,14 +194,14 @@ def build_forecast_lab_report(
             "execution_allowed": False,
         }
 
-    price_frame["date"] = pd.to_datetime(price_frame["date"], errors="coerce")
+    price_frame["date"] = _naive_utc(price_frame["date"])
     price_frame["adjusted_close"] = pd.to_numeric(price_frame["adjusted_close"], errors="coerce")
     price_frame = price_frame.dropna(subset=["etf_id", "date", "adjusted_close"])
 
     frame = forecasts.copy()
     frame["model_name"] = frame["model_name"].astype(str).str.lower()
     frame["etf_id"] = frame["etf_id"].astype(str)
-    frame["forecast_date"] = pd.to_datetime(frame["forecast_date"], errors="coerce")
+    frame["forecast_date"] = _naive_utc(frame["forecast_date"])
     frame["horizon_days"] = pd.to_numeric(frame["horizon_days"], errors="coerce")
     for column in ("expected_return", "q10_return", "q90_return"):
         frame[column] = pd.to_numeric(frame.get(column), errors="coerce")
@@ -225,7 +225,9 @@ def build_forecast_lab_report(
             "execution_allowed": False,
         }
 
-    requested_as_of = pd.to_datetime(as_of_date, errors="coerce") if as_of_date is not None else pd.NaT
+    requested_as_of = (
+        _naive_utc(pd.Series([as_of_date])).iloc[0] if as_of_date is not None else pd.NaT
+    )
     effective_as_of = requested_as_of if pd.notna(requested_as_of) else frame["forecast_date"].max()
     frame = frame.loc[frame["forecast_date"] <= effective_as_of].copy()
     if frame.empty:
@@ -267,6 +269,9 @@ def build_forecast_lab_report(
     return {
         "status": "ok",
         "as_of_date": effective_as_of.date().isoformat(),
+        "outcomes_through": (
+            known_prices["date"].max().date().isoformat() if not known_prices.empty else None
+        ),
         "models": model_rows,
         "model_catalogue": model_catalogue,
         "runs": run_rows,
@@ -339,9 +344,10 @@ def _matured_rows(
         if row["status"] != "ok" or not np.isfinite(row.get("expected_return", np.nan)):
             continue
         series = price_lookup.get(str(row["etf_id"]))
-        actual = _actual_return(series, row["forecast_date"], int(row["horizon_days"])) if series is not None else None
-        if actual is None:
+        outcome = _actual_return(series, row["forecast_date"], int(row["horizon_days"])) if series is not None else None
+        if outcome is None:
             continue
+        actual, target_date = outcome
         expected = float(row["expected_return"])
         q10 = _finite_or_none(row.get("q10_return"))
         q90 = _finite_or_none(row.get("q90_return"))
@@ -358,6 +364,7 @@ def _matured_rows(
                 "model_name": str(row["model_name"]),
                 "etf_id": str(row["etf_id"]),
                 "forecast_date": row["forecast_date"],
+                "target_date": target_date,
                 "horizon_days": int(row["horizon_days"]),
                 "expected_return": expected,
                 "actual_return": actual,
@@ -391,7 +398,7 @@ def _model_summaries(
         drift_score, drift_status = _drift(expected)
         interval = evaluated["interval_hit"].dropna() if not evaluated.empty else pd.Series(dtype=float)
         net_value, net_status = _net_value(evaluated)
-        runtime = _finite_or_none((model_runtime_ms or {}).get(str(model_name)))
+        runtime = _finite_or_none((model_runtime_ms or {}).get(str(model_name))) if ok_count else None
         rows.append(
             {
                 "model_name": model_name,
@@ -409,7 +416,7 @@ def _model_summaries(
                 "calibration_status": conformal["status"],
                 "drift_status": drift_status,
                 "drift_score": drift_score,
-                "resource_status": "measured" if runtime is not None else "not_recorded",
+                "resource_status": "measured" if runtime is not None else ("not_recorded" if ok_count else "not_run"),
                 "runtime_ms": None if runtime is None else round(runtime, 1),
                 "promotion_state": "shadow_only",
                 "execution_allowed": False,
@@ -453,18 +460,23 @@ def _conformal_diagnostics(evaluated: pd.DataFrame, minimum_samples: int) -> dic
     calibrated_hits = []
     for _, group in evaluated.groupby(["etf_id", "horizon_days"], sort=True):
         group = group.sort_values("forecast_date")
-        prior_errors: list[float] = []
+        earlier: list[tuple[pd.Timestamp, float]] = []
         for _, row in group.iterrows():
+            # A residual is known only once its own target session has passed;
+            # overlapping multi-day horizons must not calibrate earlier views.
+            prior_errors = [error for target, error in earlier if target <= row["forecast_date"]]
             if len(prior_errors) >= minimum_samples:
                 radius = float(np.quantile(prior_errors, 0.90, method="higher"))
                 calibrated_hits.append(float(abs(float(row["actual_return"]) - float(row["expected_return"])) <= radius))
-            prior_errors.append(float(row["absolute_error"]))
+            earlier.append((row["target_date"], float(row["absolute_error"])))
     if not calibrated_hits:
         return {"coverage": None, "status": "conformal_pending"}
     return {"coverage": _rounded(float(np.mean(calibrated_hits))), "status": "conformal_diagnostic"}
 
 
-def _actual_return(series: pd.Series | None, forecast_date: pd.Timestamp, horizon_days: int) -> float | None:
+def _actual_return(
+    series: pd.Series | None, forecast_date: pd.Timestamp, horizon_days: int
+) -> tuple[float, pd.Timestamp] | None:
     if series is None or horizon_days <= 0:
         return None
     clean = series.dropna().sort_index()
@@ -475,7 +487,13 @@ def _actual_return(series: pd.Series | None, forecast_date: pd.Timestamp, horizo
     start_value, target_value = float(clean.iloc[start]), float(clean.iloc[target])
     if start_value <= 0 or target_value <= 0:
         return None
-    return target_value / start_value - 1.0
+    return target_value / start_value - 1.0, pd.Timestamp(clean.index[target])
+
+
+def _naive_utc(values: pd.Series) -> pd.Series:
+    """Parse dates to tz-naive UTC so aware and naive sources compare safely."""
+
+    return pd.to_datetime(values, errors="coerce", utc=True, format="mixed").dt.tz_convert(None)
 
 
 def _naive_scale(actual: pd.Series) -> float | None:

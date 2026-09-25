@@ -174,17 +174,53 @@ def test_resource_use_reports_latest_measured_runtime_per_model_family() -> None
         {"action_id": "backtest", "step": "model:baseline", "duration_ms": 999.0},
         {"action_id": "forecasts", "step": "model:baseline", "duration_ms": 120.44},
         {"action_id": "forecasts", "step": "model:toto", "duration_ms": "not-a-number"},
+        {"action_id": "forecasts", "step": "model:timesfm", "duration_ms": 0.05},
     ]
-    assert latest_forecast_runtimes(records) == {"baseline": 120.44}
+    assert latest_forecast_runtimes(records) == {"baseline": 120.44, "timesfm": 0.05}
 
     report = build_forecast_lab_workspace(load_config(), _forecasts(), _prices(), timing_records=records)
 
     models = report["models"].set_index("model_name")
     assert models.loc["baseline", "resource_status"] == "measured"
     assert models.loc["baseline", "runtime_ms"] == 120.4
-    assert models.loc["timesfm", "resource_status"] == "not_recorded"
+    # TimesFM produced no ok rows, so its near-zero skip timing is not resource use.
+    assert models.loc["timesfm", "resource_status"] == "not_run"
     assert pd.isna(models.loc["timesfm", "runtime_ms"])
     assert models.loc["baseline", "net_value_status"] in {"positive_net_edge", "no_net_edge"}
+
+
+def test_conformal_calibration_uses_only_residuals_whose_target_has_passed() -> None:
+    dates = pd.bdate_range("2026-01-01", periods=7)
+    forecasts = pd.DataFrame(
+        {
+            "model_name": "baseline",
+            "etf_id": "AAA",
+            "forecast_date": dates,
+            "horizon_days": 5,
+            "expected_return": 0.01,
+            "status": "ok",
+        }
+    )
+
+    report = build_forecast_lab_report(forecasts, _prices())
+
+    baseline = report["models"].set_index("model_name").loc["baseline"]
+    # All seven overlapping 5-day forecasts mature, but at the last forecast
+    # date only two earlier targets have passed: fewer than three samples.
+    assert baseline["matured_rows"] == 7
+    assert baseline["calibration_status"] == "conformal_pending"
+    assert baseline["conformal_coverage"] is None
+
+
+def test_timezone_aware_prices_compare_with_naive_forecasts_and_as_of() -> None:
+    prices = _prices()
+    prices["date"] = pd.to_datetime(prices["date"]).dt.tz_localize("UTC")
+
+    report = build_forecast_lab_report(_forecasts(), prices, as_of_date="2026-01-06")
+
+    baseline = report["models"].set_index("model_name").loc["baseline"]
+    assert baseline["matured_rows"] == 3
+    assert report["outcomes_through"] == "2026-01-06"
 
 
 def test_round_trip_cost_uses_the_canonical_one_way_cost_twice() -> None:

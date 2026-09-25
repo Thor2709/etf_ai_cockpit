@@ -202,9 +202,17 @@ def _model_panel(frame: pd.DataFrame) -> ft.Container:
 
 def _split_panel(frame: pd.DataFrame, evaluation: pd.DataFrame) -> ft.Container:
     if frame.empty:
-        body: ft.Control = ft.Text("Not enough distinct forecast dates for a walk-forward split.", color=theme.MUTED)
-    else:
-        body = ft.Text("\n".join(f"{r.split_id}: train through {r.train_end}; test {r.test_start}–{r.test_end}" for r in frame.itertuples()), color=theme.MUTED, selectable=True)
+        return panel(
+            ft.Column(
+                [
+                    section_header("Walk-forward protocol", "Expanding date folds prevent future rows entering an earlier evaluation window."),
+                    ft.Text("Not enough distinct forecast dates for a walk-forward split.", color=theme.MUTED),
+                ],
+                spacing=8,
+            ),
+            expand=True,
+        )
+    body = ft.Text("\n".join(f"{r.split_id}: train through {r.train_end}; test {r.test_start}–{r.test_end}" for r in frame.itertuples()), color=theme.MUTED, selectable=True)
     rows = [
         ft.DataRow(
             cells=[
