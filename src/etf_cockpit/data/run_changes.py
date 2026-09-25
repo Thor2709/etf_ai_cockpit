@@ -38,21 +38,26 @@ UPSTREAM_CHANGE_FIELDS: dict[str, tuple[str, ...]] = {
         "formula_checksum",
         "gate_policy_version",
         "gate_policy_checksum",
-        "score_schema_version",
     ),
     "portfolio_targets": ("portfolio_snapshot_checksum",),
 }
+# A dimension counts as recorded only when one of its identity fields was
+# written by the run itself; history-normaliser defaults (for example a
+# legacy "legacy_unbound" dependency status) must not look like evidence.
+UPSTREAM_IDENTITY_FIELDS: dict[str, tuple[str, ...]] = {
+    "source_revisions": ("source_snapshot_hash", "source_vintage_hash"),
+    "classification": ("classification_version_id", "classification_invalidation_hash"),
+    "policy_versions": ("formula_version", "formula_checksum", "gate_policy_version", "gate_policy_checksum"),
+    "portfolio_targets": ("portfolio_snapshot_checksum",),
+}
 UPSTREAM_CHANGE_DIMENSIONS = tuple(UPSTREAM_CHANGE_FIELDS)
-# Plain-English dependency path from each changed upstream input to the result.
+# Plain-English dependency path from each changed upstream input to the result;
+# only emitted when both runs recorded that input.
 CAUSAL_PATHS: dict[str, str] = {
     "source_revisions": "source data revision -> features -> score",
     "classification": "classification version -> eligibility gate -> action",
     "policy_versions": "formula or gate-policy version -> score and action",
     "portfolio_targets": "portfolio snapshot and targets -> portfolio review state",
-    "freshness": "data freshness -> quality gate -> action",
-    "model_availability": "model availability -> forecast evidence -> score",
-    "forecasts": "forecast status -> forecast evidence -> score",
-    "backtest_trust": "backtest trust -> evidence weight -> score",
 }
 
 
@@ -243,9 +248,16 @@ def _change_for(instrument_id: str, current: Mapping[str, Any], old: Mapping[str
     values["lineage"] = (current_lineage, previous_lineage, dimensions["lineage"])
     upstream: dict[str, tuple[str, str | None, bool]] = {}
     for key, fields in UPSTREAM_CHANGE_FIELDS.items():
-        current_value = _composite_marker(current, fields)
-        previous_value = None if old is None else _composite_marker(old, fields)
-        changed = old is not None and current_value != previous_value
+        identity = UPSTREAM_IDENTITY_FIELDS[key]
+        current_value = _composite_marker(current, fields, identity)
+        previous_value = None if old is None else _composite_marker(old, fields, identity)
+        # Only two recorded values can explain a change; a missing side
+        # (legacy history or a removed instrument) is not evidence of one.
+        changed = (
+            previous_value is not None
+            and "unavailable" not in (current_value, previous_value)
+            and current_value != previous_value
+        )
         dimensions[key] = changed
         upstream[key] = (current_value, previous_value, changed)
     causal_paths = tuple(path for key, path in CAUSAL_PATHS.items() if dimensions.get(key))
@@ -430,13 +442,12 @@ def _stable_marker(value: Any) -> str:
     return str(value).strip() or "unavailable"
 
 
-def _composite_marker(row: Mapping[str, Any], fields: tuple[str, ...]) -> str:
-    """Join recorded field values; unavailable only when none were recorded."""
+def _composite_marker(row: Mapping[str, Any], fields: tuple[str, ...], identity: tuple[str, ...]) -> str:
+    """Join recorded values; unavailable unless an identity field was recorded."""
 
-    values = {name: _stable_marker(_first(row, name)) for name in fields}
-    if all(value == "unavailable" for value in values.values()):
+    if all(_stable_marker(_first(row, name)) == "unavailable" for name in identity):
         return "unavailable"
-    return "|".join(f"{name}={value}" for name, value in values.items())
+    return "|".join(f"{name}={_stable_marker(_first(row, name))}" for name in fields)
 
 
 def _lineage_marker(row: Mapping[str, Any]) -> str:

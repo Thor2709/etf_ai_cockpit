@@ -98,6 +98,7 @@ def test_corrections_are_read_point_in_time_at_each_run(monkeypatch, tmp_path) -
         later = decision_time.startswith("2026-09-02")
         return {
             "status": "available",
+            "finding_count": 1,
             "invalidation_token": "t-2" if later else "t-1",
             "correction_count": 2 if later else 1,
             "unresolved_count": 0 if later else 1,
@@ -218,3 +219,64 @@ def test_what_changed_page_renders_upstream_reasons_and_context(monkeypatch) -> 
         "Causal paths: classification version -> eligibility gate -> action",
     ):
         assert expected in text
+
+
+def test_legacy_history_defaults_are_not_mistaken_for_recorded_upstream_inputs() -> None:
+    from etf_cockpit.data.score_history import _normalise_history_frame as normalise
+
+    legacy = normalise(pd.DataFrame([{"run_id": "old", "instrument_id": "A", "final_combined_score_10": 5.0}]))
+    modern = pd.DataFrame([_row("new", "2026-09-02T10:00:00+00:00")])
+    history = pd.concat([legacy, modern], ignore_index=True)
+
+    change = compare_runs(history, "new", "old").changes[0]
+
+    assert change.upstream_changes["classification"][1] == "unavailable"
+    assert not any(changed for _current, _previous, changed in change.upstream_changes.values())
+    assert change.causal_paths == ()
+
+
+def test_removed_instruments_carry_no_upstream_reasons() -> None:
+    history = pd.DataFrame([_row("old", "2026-09-01T10:00:00+00:00"), _row("new", "2026-09-02T10:00:00+00:00", instrument_id="B")])
+
+    removed = next(change for change in compare_runs(history, "new", "old").changes if change.instrument_id == "A")
+
+    assert removed.current_action == "unavailable"
+    assert removed.causal_paths == ()
+    assert "upstream changed" not in removed.summary
+
+
+def test_empty_readable_anomaly_ledger_reports_zero_not_unavailable(tmp_path) -> None:
+    from etf_cockpit.data.local_storage import TransactionalStore
+
+    TransactionalStore(tmp_path).close()
+
+    corrections = upstream_run_context(_history(), "new", "old", root=tmp_path)["corrections"]
+
+    assert corrections["status"] == "available"
+    assert corrections["changed"] is False
+    assert (corrections["previous_corrections"], corrections["current_corrections"]) == (0, 0)
+
+
+def test_naive_completion_time_is_not_used_as_a_knowledge_cutoff(tmp_path) -> None:
+    history = _history()
+    history["run_completed_at"] = ["2026-09-01", "2026-09-02"]
+
+    corrections = upstream_run_context(history, "new", "old", root=tmp_path)["corrections"]
+
+    assert corrections["status"] == "unavailable"
+    assert "timezone" in corrections["reason"]
+
+
+def test_storage_errors_fail_closed_instead_of_breaking_the_page(monkeypatch, tmp_path) -> None:
+    import sqlite3
+
+    def locked(self, *, root, decision_time):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(run_change_context.AnomalyLedger, "summary", locked)
+
+    context = upstream_run_context(_history(), "new", "old", root=tmp_path)
+
+    assert context["corrections"]["status"] == "unavailable"
+    assert "OperationalError" in context["corrections"]["reason"]
+    assert context["execution_allowed"] is False

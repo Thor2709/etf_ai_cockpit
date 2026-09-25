@@ -18,7 +18,7 @@ Everything here is informational and never grants execution authority.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import json
 from pathlib import Path
 
@@ -37,11 +37,27 @@ def upstream_run_context(
 ) -> dict[str, object]:
     base = Path(root) if root is not None else ROOT
     return {
-        "corrections": _corrections(history, current_run_id, previous_run_id, base),
-        "dependencies": _dependencies(current_run_id, previous_run_id, base),
-        "paper_state": _paper_state(base),
+        "corrections": _fail_closed(lambda: _corrections(history, current_run_id, previous_run_id, base)),
+        "dependencies": _fail_closed(lambda: _dependencies(current_run_id, previous_run_id, base)),
+        "paper_state": _fail_closed(lambda: _paper_state(base)),
         "execution_allowed": False,
     }
+
+
+def _fail_closed(section: Callable[[], dict[str, object]]) -> dict[str, object]:
+    # Context is informational: any storage failure (including sqlite3
+    # errors from a locked or damaged store) shows as unavailable instead of
+    # breaking the What Changed page.
+    try:
+        return section()
+    except Exception as exc:  # noqa: BLE001 - deliberate fail-closed boundary
+        return {
+            "status": "unavailable",
+            "comparison": "unavailable",
+            "reason": f"{type(exc).__name__}: context could not be read",
+            "changed": False,
+            "changed_artifacts": (),
+        }
 
 
 def _completed_at(history: pd.DataFrame, run_id: str | None) -> str | None:
@@ -51,13 +67,20 @@ def _completed_at(history: pd.DataFrame, run_id: str | None) -> str | None:
         return None
     values = history.loc[history["run_id"].astype(str) == str(run_id), "run_completed_at"].dropna().astype(str)
     values = values[values.str.strip() != ""]
-    return str(values.iloc[0]) if not values.empty else None
+    if values.empty:
+        return None
+    parsed = pd.to_datetime(values.iloc[0], errors="coerce")
+    # A knowledge-time cutoff needs an explicit timezone; a bare date or
+    # naive time would be a guess, so it is treated as not recorded.
+    if pd.isna(parsed) or parsed.tzinfo is None:
+        return None
+    return str(values.iloc[0])
 
 
-def _corrections_marker(summary: Mapping[str, object]) -> str:
-    if summary.get("status") != "available":
-        return "unavailable"
-    return f"{summary.get('invalidation_token')}"
+def _readable(summary: Mapping[str, object]) -> bool:
+    # The ledger reports counts whenever its store could be read, including a
+    # clean run with zero findings; otherwise it returns only a reason.
+    return "finding_count" in summary
 
 
 def _corrections(
@@ -71,7 +94,7 @@ def _corrections(
     if current_time is None or previous_time is None:
         return {
             "status": "unavailable",
-            "reason": "a run completion time is not recorded, so corrections cannot be read point-in-time",
+            "reason": "a run completion time with timezone is not recorded, so corrections cannot be read point-in-time",
             "changed": False,
         }
     ledger = AnomalyLedger()
@@ -80,15 +103,16 @@ def _corrections(
         previous = ledger.summary(root=root, decision_time=previous_time)
     except (OSError, TypeError, ValueError) as exc:
         return {"status": "unavailable", "reason": f"{type(exc).__name__}: anomaly ledger unreadable", "changed": False}
-    if current.get("status") != "available" and previous.get("status") != "available":
+    if not (_readable(current) and _readable(previous)):
+        unreadable = current if not _readable(current) else previous
         return {
             "status": "unavailable",
-            "reason": str(current.get("reason") or "no anomaly findings were recorded at either run"),
+            "reason": str(unreadable.get("reason") or "anomaly ledger could not be read"),
             "changed": False,
         }
     return {
         "status": "available",
-        "changed": _corrections_marker(current) != _corrections_marker(previous),
+        "changed": current.get("invalidation_token") != previous.get("invalidation_token"),
         "current_corrections": current.get("correction_count"),
         "previous_corrections": previous.get("correction_count"),
         "current_unresolved": current.get("unresolved_count"),
