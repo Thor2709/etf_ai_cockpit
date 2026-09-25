@@ -34,16 +34,30 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Add ROMER as an ad-hoc candidate for this run only
+      - name: Apply runtime-only Yahoo repair and add ROMER candidate
         shell: bash
         run: |
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          path = Path("configs/universe.yaml")
+          payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+          dead = {"JEDI", "SPCX", "RABO", "JAEREN", "SADG"}
+          changed = []
+          for row in payload.get("etfs", []):
+              if str(row.get("id")) in dead and row.get("enabled", True):
+                  row["enabled"] = False
+                  changed.append(str(row.get("id")))
+          path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
+          print("Runtime-disabled Yahoo rows:", ",".join(changed))
+          PY
           mkdir -p data/raw/trade_candidates
           cat > data/raw/trade_candidates/yahoo_trade_candidates_2026-09-25_sparebanken.csv <<'CSV'
           instrument_id,name,isin,yahoo_symbol,shares,currency,analysis_tier,data_policy,instrument_type
           ROMER,Romerike Sparebank,,ROMER.OL,0,NOK,sparebanken,yfinance_only,equity_certificate
           CSV
 
-      - name: Run the current BAT/source workflow
+      - name: Run repaired current BAT/source workflow
         shell: bash
         run: |
           mkdir -p artifacts/sparebanken
@@ -53,26 +67,26 @@ jobs:
           import os
           import traceback
           from pathlib import Path
+          import pandas as pd
 
           root = Path(os.environ["ETF_COCKPIT_ROOT"])
           os.chdir(root)
 
           from etf_cockpit.app.state import AppState
+          from etf_cockpit.data.trade_candidate_analysis import refresh_candidate_analysis
 
+          targets = {"NONG", "SBNOR", "ROMER"}
           audit = {
-              "requested_instruments": ["NONG", "SBNOR", "ROMER"],
+              "requested_instruments": sorted(targets),
               "source_commit": os.environ.get("GITHUB_SHA"),
               "workflow": "current BAT/source AppState workflow",
+              "runtime_only_disabled_ids": ["JEDI", "SPCX", "RABO", "JAEREN", "SADG"],
+              "runtime_repair_reason": "Unmodified current config rejected the full Yahoo refresh because these five configured symbols returned no rows.",
               "steps": {},
           }
 
-          state = None
-          try:
-              state = AppState.load()
-              audit["steps"]["load"] = {"ok": True}
-          except Exception as exc:
-              audit["steps"]["load"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc()}
-              raise
+          state = AppState.load()
+          audit["steps"]["load"] = {"ok": True}
 
           for name, fn in (
               ("refresh_yfinance_data", state.refresh_yfinance_data),
@@ -101,31 +115,156 @@ jobs:
 
           out = root / "artifacts" / "sparebanken"
           out.mkdir(parents=True, exist_ok=True)
-          (out / "workflow_audit.json").write_text(json.dumps(audit, indent=2, default=str), encoding="utf-8")
 
-          # Produce a compact final extract from the exact files the app wrote.
-          extract = {"source_commit": os.environ.get("GITHUB_SHA"), "instruments": {}, "files": {}}
+          extract = {
+              "source_commit": os.environ.get("GITHUB_SHA"),
+              "runtime_only_disabled_ids": audit["runtime_only_disabled_ids"],
+              "instruments": {},
+              "latest_features": {},
+              "candidate_fundamentals": {},
+              "forecast_rows": {},
+              "backtest_results": [],
+              "latest_signal_log": {},
+              "files": {},
+          }
+
           scoreboard = root / "data" / "derived" / "scoreboard.json"
           if scoreboard.exists():
               rows = json.loads(scoreboard.read_text(encoding="utf-8"))
               for row in rows:
                   display_id = str(row.get("display_id") or row.get("instrument_id") or "")
-                  if display_id in {"NONG", "SBNOR", "ROMER"}:
+                  if display_id in targets:
                       extract["instruments"][display_id] = row
               extract["files"]["scoreboard"] = str(scoreboard.relative_to(root))
 
+          # Exact latest configured feature rows for NONG/SBNOR from the repaired live Yahoo refresh.
+          latest = getattr(state.snapshot, "latest_features", pd.DataFrame())
+          if isinstance(latest, pd.DataFrame) and not latest.empty and "etf_id" in latest:
+              for _, row in latest[latest["etf_id"].astype(str).isin({"NONG","SBNOR"})].iterrows():
+                  extract["latest_features"][str(row["etf_id"])] = {
+                      key: (None if pd.isna(value) else value)
+                      for key, value in row.to_dict().items()
+                  }
+
+          # Run the app's own candidate fundamental/technical path for all three,
+          # without replacing the configured scoreboard above.
+          all3 = root / "artifacts" / "sparebanken" / "all3_candidates.csv"
+          all3.write_text(
+              "instrument_id,name,isin,yahoo_symbol,shares,currency,analysis_tier,data_policy,instrument_type\n"
+              "NONG,SpareBank 1 Nord-Norge,NO0006000801,NONG.OL,0,NOK,sparebanken,yfinance_only,equity_certificate\n"
+              "SBNOR,Sparebanken Norge,,SBNOR.OL,0,NOK,secondary,yfinance_only,stock\n"
+              "ROMER,Romerike Sparebank,,ROMER.OL,0,NOK,sparebanken,yfinance_only,equity_certificate\n",
+              encoding="utf-8",
+          )
+          try:
+              cand = refresh_candidate_analysis(state.snapshot.config, years=5, candidate_path=all3)
+              candidate_rows = json.loads(cand.json_path.read_text(encoding="utf-8"))
+              for row in candidate_rows:
+                  iid = str(row.get("instrument_id") or "")
+                  if iid in targets:
+                      extract["candidate_fundamentals"][iid] = row
+              audit["steps"]["all3_candidate_fundamentals"] = {"ok": True, "path": str(cand.json_path)}
+          except Exception as exc:
+              audit["steps"]["all3_candidate_fundamentals"] = {
+                  "ok": False, "error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc()
+              }
+
+          # Exact forecast rows written by the current source.
+          for path in sorted((root / "data" / "forecasts").glob("*.csv")):
+              try:
+                  frame = pd.read_csv(path)
+              except Exception:
+                  continue
+              id_col = next((c for c in ("etf_id","instrument_id") if c in frame.columns), None)
+              if id_col is None:
+                  continue
+              subset = frame[frame[id_col].astype(str).isin(targets)]
+              if not subset.empty:
+                  extract["forecast_rows"][str(path.relative_to(root))] = [
+                      {k: (None if pd.isna(v) else v) for k,v in row.items()}
+                      for row in subset.to_dict(orient="records")
+                  ]
+
+          # Backtest output produced by build_snapshot/current app.
+          backtest_path = root / "data" / "backtests" / "backtest_results.csv"
+          if backtest_path.exists():
+              bt = pd.read_csv(backtest_path)
+              preferred = [
+                  "strategy_name","cagr","volatility","sharpe","sortino","max_drawdown","calmar",
+                  "turnover","cost_drag","n_walk_forward_periods","trade_count","return_hit_rate",
+                  "average_win_return","average_loss_return","payoff_ratio","expected_value_per_period",
+                  "probabilistic_sharpe","deflated_sharpe","pbo_probability_backtest_overfitting",
+                  "parameter_sensitivity_status","backtest_quality","worst_1d_return","worst_5d_return",
+                  "worst_10d_return","worst_12m_return","loss_cluster_max_days","overfitting_warning"
+              ]
+              cols=[c for c in preferred if c in bt.columns]
+              extract["backtest_results"] = [
+                  {k: (None if pd.isna(v) else v) for k,v in row.items()}
+                  for row in bt[cols].to_dict(orient="records")
+              ]
+
+          signal_path = root / "data" / "backtests" / "signal_log.csv"
+          if signal_path.exists():
+              sig = pd.read_csv(signal_path)
+              if "etf_id" in sig.columns:
+                  for iid in ("NONG","SBNOR"):
+                      rows = sig[sig["etf_id"].astype(str) == iid].tail(3)
+                      extract["latest_signal_log"][iid] = [
+                          {k: (None if pd.isna(v) else v) for k,v in row.items()}
+                          for row in rows.to_dict(orient="records")
+                      ]
+
           forecast_files = sorted((root / "data" / "forecasts").glob("*.csv"))
           extract["files"]["forecasts"] = [str(p.relative_to(root)) for p in forecast_files]
-
           reports = sorted((root / "data" / "reports").glob("yfinance*"))
           extract["files"]["reports"] = [str(p.relative_to(root)) for p in reports]
-
           backtests = sorted((root / "data" / "backtests").glob("*"))
           extract["files"]["backtests"] = [str(p.relative_to(root)) for p in backtests if p.is_file()]
 
+          (out / "workflow_audit.json").write_text(json.dumps(audit, indent=2, default=str), encoding="utf-8")
           (out / "final_extract.json").write_text(json.dumps(extract, indent=2, default=str), encoding="utf-8")
+
+          # Print bounded summaries so results remain recoverable from Actions logs.
+          score_keys = [
+              "current_price","latest_price_date","evidence_score_10","evidence_quality_10","risk_friction_10",
+              "final_label","decision","canonical_attractiveness_10","canonical_expected_return_10",
+              "canonical_risk_implementation_10","canonical_evidence_confidence_10","canonical_coverage",
+              "data_quality_score_10","momentum_score_10","trend_score_10","risk_score_10",
+              "relative_strength_score_10","liquidity_cost_score_10","stock_value_score_10",
+              "stock_quality_score_10","analyst_revision_score_10","baseline_score_10",
+              "timesfm_score_10","toto_score_10","backtest_trust_score_10","backtest_validity",
+              "analysis_status","formula_version"
+          ]
+          compact = {
+              iid: {k: extract["instruments"].get(iid, {}).get(k) for k in score_keys}
+              for iid in sorted(targets)
+          }
+          fundamental_keys = [
+              "latest_date","latest_price","rows","return_1w","return_1m","return_3m","return_6m","return_12m",
+              "volatility_20d_ann","volatility_60d_ann","current_drawdown","max_drawdown_12m",
+              "distance_from_52w_high","sma50_signal","sma200_signal","median_volume_60d",
+              "median_turnover_60d_eur","high_low_spread_proxy_20","market_cap","trailing_pe","forward_pe",
+              "price_to_book","earnings_yield","fcf_yield","roe","operating_margin","profit_margin",
+              "debt_to_equity","recommendation_mean","value_score_10","quality_score_10",
+              "analyst_revision_score_10","fundamental_available","fundamental_missing_fields","fundamental_warnings",
+              "technical_score","advisory_status","blocked_by"
+          ]
+          compact_fundamentals = {
+              iid: {k: extract["candidate_fundamentals"].get(iid, {}).get(k) for k in fundamental_keys}
+              for iid in sorted(targets)
+          }
+          print("===AUDIT===")
           print(json.dumps(audit, indent=2, default=str))
-          print(json.dumps(extract, indent=2, default=str))
+          print("===COMPACT_SCORES===")
+          print(json.dumps(compact, indent=2, default=str))
+          print("===CANDIDATE_FUNDAMENTALS===")
+          print(json.dumps(compact_fundamentals, indent=2, default=str))
+          print("===LATEST_FEATURES===")
+          print(json.dumps(extract["latest_features"], indent=2, default=str))
+          print("===FORECAST_ROWS===")
+          print(json.dumps(extract["forecast_rows"], indent=2, default=str))
+          print("===BACKTEST_RESULTS===")
+          print(json.dumps(extract["backtest_results"], indent=2, default=str))
           PY
           set -o pipefail
           python /tmp/run_sparebanken.py 2>&1 | tee artifacts/sparebanken/run.log
@@ -142,6 +281,7 @@ jobs:
           cp -a data/features artifacts/sparebanken/ 2>/dev/null || true
           cp -a data/clean artifacts/sparebanken/ 2>/dev/null || true
           cp -a data/raw/trade_candidates artifacts/sparebanken/ 2>/dev/null || true
+          cp configs/universe.yaml artifacts/sparebanken/runtime_universe.yaml
           git rev-parse HEAD > artifacts/sparebanken/source_commit.txt
           python -m pip freeze > artifacts/sparebanken/pip_freeze.txt
 
