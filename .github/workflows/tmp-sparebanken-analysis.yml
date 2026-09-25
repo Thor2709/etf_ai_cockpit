@@ -153,6 +153,13 @@ jobs:
               print("===AUDIT==="); print(json.dumps(audit,indent=2,default=str))
               raise RuntimeError("Sanitised live Yahoo prices still fail current app validation")
 
+          # Export a full five-year ROMER feature history directly through the
+          # current app feature engine, using VWCE as the benchmark.
+          from etf_cockpit.features.feature_pipeline import compute_features
+          full_features = compute_features(clean, benchmark_etf_id="VWCE")
+          romer_full_features = full_features[full_features["etf_id"].astype(str)=="ROMER"].copy()
+          romer_full_features.to_csv(out/"romer_features_full5y.csv", index=False)
+
           # Replace the clean-run sample store with validator-passing live Yahoo prices.
           write_prices(clean)
           state.snapshot=build_snapshot(force_sample=False)
