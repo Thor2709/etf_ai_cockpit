@@ -50,6 +50,20 @@ jobs:
                   changed.append(str(row.get("id")))
           path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
           print("Runtime-disabled Yahoo rows:", ",".join(changed))
+
+          # Keep the runtime-only companion settings identity consistent with
+          # the temporary universe. This does not touch main and is discarded
+          # with the Actions runner.
+          from etf_cockpit.application.settings import SettingsControls, _base_bundle, _revision_for
+          settings_path = Path("configs/settings.yaml")
+          settings_raw = yaml.safe_load(settings_path.read_text(encoding="utf-8")) or {}
+          controls = SettingsControls.model_validate(settings_raw.get("controls", {}))
+          base = _base_bundle(Path(".").resolve(), controls).model_copy(
+              update={"settings_version": int(settings_raw.get("settings_version", 0)), "revision": ""}
+          )
+          settings_raw["revision"] = _revision_for(base)
+          settings_path.write_text(yaml.safe_dump(settings_raw, sort_keys=False, allow_unicode=True), encoding="utf-8")
+          print("Runtime settings revision rebound:", settings_raw["revision"])
           PY
           mkdir -p data/raw/trade_candidates
           cat > data/raw/trade_candidates/yahoo_trade_candidates_2026-09-25_sparebanken.csv <<'CSV'
