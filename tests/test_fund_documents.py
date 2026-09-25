@@ -35,15 +35,17 @@ def test_document_registry_rejects_unknown_type_and_bad_date(tmp_path: Path) -> 
         register_document(path, "kid", "VWCE", "https://issuer.example/kid.pdf", "issuer", document_date="not-a-date")
 
 
-@pytest.mark.parametrize(
-    "future_date",
-    [
-        datetime.now(timezone.utc) + timedelta(days=1),
-        date.today() + timedelta(days=1),
-        (date.today() + timedelta(days=1)).isoformat(),
-    ],
-)
-def test_document_registry_rejects_future_dates_fail_closed(tmp_path: Path, future_date: object) -> None:
+@pytest.mark.parametrize("kind", ["aware_datetime", "date", "iso_date"])
+def test_document_registry_rejects_future_dates_fail_closed(tmp_path: Path, kind: str) -> None:
+    # Build the future value at run time with a two-day margin: collection-time
+    # values embedded the date in the test ID and could stop being "future"
+    # when a run crossed midnight.
+    tomorrow_plus = date.today() + timedelta(days=2)
+    future_date = {
+        "aware_datetime": datetime.now(timezone.utc) + timedelta(days=2),
+        "date": tomorrow_plus,
+        "iso_date": tomorrow_plus.isoformat(),
+    }[kind]
     path = tmp_path / "factsheet.pdf"
     path.write_bytes(b"fixture")
     with pytest.raises(ValueError, match="future document_date"):

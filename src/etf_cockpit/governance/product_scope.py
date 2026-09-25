@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from functools import lru_cache
 import hashlib
 import json
 from dataclasses import dataclass
@@ -461,6 +462,13 @@ def _contract_error(model_class: type[PolicyClassT], payload: Mapping[str, Any],
     return None
 
 
+@lru_cache(maxsize=32)
+def _parse_yaml_text(text: str) -> object:
+    """Parse one exact policy text once; callers receive private copies."""
+
+    return yaml.safe_load(text)
+
+
 def _load_policy(
     path: Path,
     model_class: type[PolicyClassT],
@@ -475,7 +483,7 @@ def _load_policy(
 
     checksum = _sha256_bytes(raw_bytes)
     try:
-        loaded = yaml.safe_load(raw_bytes.decode("utf-8"))
+        loaded = deepcopy(_parse_yaml_text(raw_bytes.decode("utf-8")))
     except (UnicodeDecodeError, yaml.YAMLError) as exc:
         return _diagnostic(schema_version="unknown", checksum=checksum, message=f"{policy_name} policy could not be parsed: {exc}")  # type: ignore[return-value]
     if not isinstance(loaded, Mapping):

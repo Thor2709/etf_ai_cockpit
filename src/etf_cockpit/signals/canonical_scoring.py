@@ -8,8 +8,10 @@ move to the separated outputs.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import date
+from functools import lru_cache
 import hashlib
 import json
 import math
@@ -165,11 +167,18 @@ class CanonicalScore:
         }
 
 
+@lru_cache(maxsize=32)
+def _parse_yaml_text(text: str) -> object:
+    """Parse one exact policy text once; callers receive private copies."""
+
+    return yaml.safe_load(text)
+
+
 def load_score_policy(asset_type: str = "ETF", *, path: Path = FORMULA_PATH) -> ScorePolicy:
     try:
         raw_bytes = path.read_bytes()
         normalised_bytes = raw_bytes.replace(b"\r\n", b"\n")
-        payload = yaml.safe_load(normalised_bytes.decode("utf-8")) or {}
+        payload = deepcopy(_parse_yaml_text(normalised_bytes.decode("utf-8"))) or {}
         formula_version = str(payload.get("formula_version") or "").strip()
         horizons = payload.get("horizons") or {}
         horizon = str(horizons.get("primary") or "").strip()
