@@ -277,6 +277,39 @@ jobs:
           cp -a data/reports artifacts/sparebanken/ 2>/dev/null || true
           cp -a data/features artifacts/sparebanken/ 2>/dev/null || true
           cp -a data/validated artifacts/sparebanken/ 2>/dev/null || true
+          python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+          out = Path("artifacts/sparebanken")
+          raw = pd.read_parquet("data/validated/prices/prices_daily.parquet")
+          raw[raw["etf_id"].astype(str)=="ROMER"].sort_values("date").to_csv(out/"romer_daily_raw.csv", index=False)
+          feats = pd.read_parquet("data/features/features_daily.parquet")
+          feats[feats["etf_id"].astype(str)=="ROMER"].sort_values("date").to_csv(out/"romer_daily_features.csv", index=False)
+          # A convenient date-aligned view containing every raw and feature column.
+          rr = raw[raw["etf_id"].astype(str)=="ROMER"].copy()
+          ff = feats[feats["etf_id"].astype(str)=="ROMER"].copy()
+          rr["date"] = pd.to_datetime(rr["date"])
+          ff["date"] = pd.to_datetime(ff["date"])
+          merged = rr.merge(ff, on=["date","etf_id"], how="left", suffixes=("_raw","_feature"))
+          merged.sort_values("date").to_csv(out/"romer_daily_combined.csv", index=False)
+          # Extract ROMER rows from row-wise CSV outputs where an instrument key exists.
+          for src, dst in [
+              ("data/backtests/signal_log.csv","romer_signal_log.csv"),
+              ("data/backtests/quality_momentum_evidence.csv","romer_quality_momentum_evidence.csv"),
+              ("data/derived/score_components.csv","romer_score_components.csv"),
+              ("data/derived/score_history.csv","romer_score_history.csv"),
+              ("data/derived/score_metric_history.csv","romer_score_metric_history.csv"),
+              ("data/derived/evidence_ledger.csv","romer_evidence_ledger.csv"),
+              ("data/derived/feature_drivers.csv","romer_feature_drivers.csv"),
+              ("data/derived/scoreboard.csv","romer_scoreboard.csv"),
+          ]:
+              p=Path(src)
+              if not p.exists(): continue
+              frame=pd.read_csv(p)
+              key=next((c for c in ("etf_id","instrument_id","display_id") if c in frame.columns),None)
+              if key:
+                  frame[frame[key].astype(str)=="ROMER"].to_csv(out/dst,index=False)
+          PY
           cp configs/universe.yaml artifacts/sparebanken/runtime_universe.yaml
           git rev-parse HEAD > artifacts/sparebanken/source_commit.txt
           python -m pip freeze > artifacts/sparebanken/pip_freeze.txt
