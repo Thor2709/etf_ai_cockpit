@@ -15,6 +15,7 @@ jobs:
     env:
       ETF_COCKPIT_ROOT: ${{ github.workspace }}
       PYTHONUNBUFFERED: "1"
+      PYTHONPATH: ${{ github.workspace }}/src
     steps:
       - name: Checkout exact analysis branch
         uses: actions/checkout@v4
