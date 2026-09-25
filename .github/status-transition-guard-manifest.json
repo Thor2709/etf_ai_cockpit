@@ -4,22 +4,22 @@
   "allowed_status_transitions": [
     {
       "from": "implemented_initially",
-      "issue_id": "ISSUE-0021",
+      "issue_id": "ISSUE-0050",
       "to": "integrated"
     }
   ],
-  "base_commit": "444fef857435260d2bab5b36261ec1c37ec4de41",
-  "branch": "claude/issue0021-lifecycle-20260924",
+  "base_commit": "7029d0075daafd0e66c6419cea2383339c4926ee",
+  "branch": "claude/issue0050-lifecycle-20260925",
   "issue_ids": [
-    "ISSUE-0021"
+    "ISSUE-0050"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "e19a21212d4695e98f7c7412ef31c25ca257125111c867325f1791b4e9bc786a",
+    "base_registry_sha256": "5a8dced0117727d06b635c4ec012931ca5c61b5bdbafb1b97f1258baf7067db9",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "5a8dced0117727d06b635c4ec012931ca5c61b5bdbafb1b97f1258baf7067db9",
-    "reason": "Integrate only ISSUE-0021 from implemented_initially to integrated after merged product PRs #677, #748 and #753, exact-head H-tier Linux/Windows packaged evidence (runs 36042024643 and 36047085436) and owner-authorised Claude Code root self-review in place of Codex V2 reviewer/risk-reviewer; preserve dependencies, GitHub issue #25 open state, external authority and execution_allowed=false.",
+    "proposed_registry_sha256": "e9b034ee2357f59e86d6571a4e2bcf007c02c24399c55560f5e226cfb0e87ce7",
+    "reason": "Integrate only ISSUE-0050 from implemented_initially to integrated after merged product PR #698, exact-head H-tier Linux/Windows packaged evidence (run 36072044529) and owner-authorised Claude Code root self-review in place of Codex V2 reviewer/risk-reviewer; preserve dependencies, GitHub issue #105 open state, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },

@@ -11860,7 +11860,20 @@
       "write_conflict_group": "programme-governance"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "PR #698 https://github.com/Thor2709/etf_ai_cockpit/pull/698; exact product head 6ab186332138a171a7a59dea6a7d395de6268c37; merge 7029d0075daafd0e66c6419cea2383339c4926ee; exact-head release run 36072044529: classifier, preflight, supply-chain, Linux and Windows packaged gates and validation-summary successful. The report-only parallel pilot passed all 4,965 tests in every lane on both platforms but reported divergent collection parity from a pre-existing date-parametrized test ID crossing midnight UTC.",
+            "Operational evidence in Backtests, Signals and Instrument Detail: signal timestamp, decision price (adjusted close), next-open reference (raw OHLC scaled by the same row's adjusted-close factor), next-period close, close-to-next-open gap, open-gap warning (display-only, CostModel.open_gap_warning_threshold default 0.02), arrival-price assumption, high/low spread proxy, cost assumptions with sources, one-session execution delay and verified same-bar avoidance; missing OHLC, calendar or identity evidence stays explicitly unavailable; execution_allowed=false.",
+            "Tests: tests/test_backtest_lab.py (no same-bar, next-open reference and adjusted OHLC, causal feature reuse parity, cache input binding), tests/test_open_gap_warning.py, tests/test_instrument_detail.py, tests/test_task19_instrument_detail.py, tests/test_market_calendar.py and tests/test_market_calendar_ui.py (UI smoke).",
+            "Cross-links to ISSUE-0005 (cost/slippage stress) and ISSUE-0028 (backtest lab) recorded in docs/architecture/event-driven-backtest.md; plan.md is an immutable historical pointer since 2026-09-08."
+          ],
+          "review_reference": "Exact product head 6ab186332138a171a7a59dea6a7d395de6268c37: Claude Code (claude-opus-5-5) root self-review, owner-authorised on 2026-09-24/25 in place of Codex V2 reviewer/risk-reviewer. Self-review verified causal feature reuse (no look-ahead) and same-row adjusted OHLC, closed the open-gap-warning acceptance gap, fixed two render fixtures that already failed on the Codex head, and replaced a full-backtest cache replay with an input binding per the owner's 2026-09-25 decision (option B).",
+          "reviewed_date": "2026-09-25",
+          "reviewer": "Claude Code root orchestrator self-review (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0050",
@@ -11887,7 +11900,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P1",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -11913,8 +11926,8 @@
       "source_record_id": "ISSUE-0050",
       "source_title": "Operational evidence panel for next-open/decision-price realism",
       "title": "Operational evidence panel for next-open/decision-price realism",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "6ab186332138a171a7a59dea6a7d395de6268c37",
+      "verified_date": "2026-09-25",
       "why": "Same-bar or stale-price assumptions can invalidate otherwise sound analysis.",
       "write_conflict_group": "programme-governance"
     },
@@ -28008,7 +28021,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "be0d0730535cbf350ad61afabea052d824a38e9d3a63caafb8b5dae2e0915ec6",
+    "programme_control_state_sha256": "c5269905ddb110b5d65cdf55b7096ced57a59757914f964b5e107787ae3219de",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
