@@ -15,6 +15,8 @@ from etf_cockpit.data.market_calendar import (
     MarketCalendarService,
     MarketClockError,
     SettlementCalendarEvidence,
+    _parse_datetime,
+    _parse_date,
     load_calendar_corrections,
 )
 
@@ -320,6 +322,95 @@ corrections:
     corrections = load_calendar_corrections(ledger)
     assert corrections[0].source_version == "notice-v1"
     assert corrections[0].known_at == datetime(2024, 1, 2, 12, 0, tzinfo=UTC)
+
+
+def test_correction_ledger_rejects_non_string_source_version(tmp_path) -> None:
+    ledger = tmp_path / "calendar-corrections.yaml"
+    ledger.write_text(
+        """schema_version: market-calendar-corrections.v1
+corrections:
+  - correction_id: nyse-2024-01-03-v1
+    mic: XNYS
+    session_date: 2024-01-03
+    kind: exceptional_closure
+    revision: 1
+    reason: Exchange-declared closure.
+    source_id: exchange-notice:test
+    source_checksum: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    timezone: America/New_York
+    source_version: 123
+    valid_from: 2024-01-03
+    known_at: 2024-01-02T12:00:00Z
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(MarketClockError):
+        load_calendar_corrections(ledger)
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        datetime(2024, 1, 3, 12, 0, tzinfo=UTC),
+        "2024-01-03T12:00:00Z",
+        "2024-01-03T12:00:00+00:00",
+    ),
+)
+def test_parse_date_accepts_equivalent_timezone_aware_yaml_values(value: object) -> None:
+    assert _parse_date(value) == date(2024, 1, 3)
+
+
+def test_parse_date_normalizes_native_and_string_offsets_to_the_same_utc_date() -> None:
+    offset = timezone(timedelta(hours=2))
+    native = datetime(2024, 1, 3, 0, 30, tzinfo=offset)
+
+    assert _parse_date(native) == _parse_date(native.isoformat()) == date(2024, 1, 2)
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        "2024-01-03T12:00:00Z",
+        "2024-01-03T12:00:00+00:00",
+        "2024-01-03T13:30:00+01:30",
+        datetime(2024, 1, 3, 12, 0, tzinfo=UTC),
+    ),
+)
+def test_parse_datetime_accepts_canonical_aware_values_and_normalizes_to_utc(
+    value: object,
+) -> None:
+    assert _parse_datetime(value) == datetime(2024, 1, 3, 12, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        "2024-01-03 12:00:00+00:00",
+        "2024-01-03T12:00:00+0000",
+        "2024-01-03T12:00:00",
+        "2024-01-03T12:00:00z",
+        "2024-01-03T12:00:00+00:00 ",
+        datetime(2024, 1, 3, 12, 0),
+    ),
+)
+def test_parse_datetime_rejects_naive_or_noncanonical_values(value: object) -> None:
+    with pytest.raises(MarketClockError):
+        _parse_datetime(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        datetime(2024, 1, 3, 12, 0),
+        "2024-01-03T12:00:00",
+        "2024-01-03 12:00:00+00:00",
+        "2024-01-03T12:00:00+0000",
+    ),
+)
+def test_parse_date_rejects_naive_or_noncanonical_yaml_values(value: object) -> None:
+    with pytest.raises(MarketClockError):
+        _parse_date(value)
 
 
 @pytest.mark.parametrize(

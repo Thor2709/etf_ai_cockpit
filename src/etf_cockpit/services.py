@@ -35,6 +35,7 @@ from etf_cockpit.core.atomic_io import (
 from etf_cockpit.core.logging import append_jsonl, configure_logging
 from etf_cockpit.core.paths import (
     BACKTESTS_DIR,
+    CONFIG_DIR,
     ETF_BENCHMARK_TOTAL_RETURN_PATH,
     ETF_FUND_TOTAL_RETURN_PATH,
     FORECASTS_DIR,
@@ -64,6 +65,11 @@ from etf_cockpit.data.fx_data import commit_fx_import, fx_data_inventory, load_f
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.fundamentals import load_fundamental_evidence
+from etf_cockpit.data.identity_master import (
+    IdentityMasterSchemaError,
+    IdentityMasterStore,
+)
+from etf_cockpit.data.local_storage import storage_layout
 from etf_cockpit.data.import_pipeline import commit_price_import, rollback_latest_price_import as rollback_price_store
 from etf_cockpit.data.manual_notes import commit_manual_news_import, load_manual_news, validate_manual_news
 from etf_cockpit.data.parsed_disclosures import read_etf_report_records
@@ -76,6 +82,7 @@ from etf_cockpit.data.reference_data import (
     validate_reference_dataset,
 )
 from etf_cockpit.data.sample_data import ensure_sample_files
+from etf_cockpit.data.trust_artifacts import IDENTITY_PATH
 from etf_cockpit.data.trade_candidate_analysis import (
     fetch_candidate_prices,
     load_candidate_price_binding,
@@ -282,6 +289,135 @@ def _run_backtest_compatibly(config: AppConfig, prices: pd.DataFrame, **kwargs: 
     accepts_kwargs = any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
     supported = kwargs if accepts_kwargs else {key: value for key, value in kwargs.items() if key in parameters}
     return run_backtest(config, prices, **supported)
+
+
+def _backtest_runner_kwargs(
+    reference_context: CanonicalReferenceContext,
+    fundamentals: pd.DataFrame,
+    *,
+    structure_document_registry: object,
+    structure_report_records: object,
+    structure_supplemental_rows: object,
+    structure_holdings: object,
+    calendar_identity_resolver: Callable[[str, object], Mapping[str, object] | None] | None,
+) -> dict[str, object]:
+    return {
+        "fundamentals": fundamentals,
+        "structure_document_registry": structure_document_registry,
+        "structure_report_records": structure_report_records,
+        "structure_supplemental_rows": structure_supplemental_rows,
+        "structure_holdings": structure_holdings,
+        "benchmark_data_id": reference_context.benchmark_data_id,
+        "benchmark_reference": reference_context.projection,
+        "reference_identity": reference_context.identity,
+        "benchmark_registry": reference_context.registry,
+        "calendar_identity_resolver": calendar_identity_resolver,
+    }
+
+
+def _normalise_operational_evidence_rows(rows: object) -> list[dict[str, object]] | None:
+    if not isinstance(rows, list) or any(not isinstance(row, Mapping) for row in rows):
+        return None
+    normalised: list[dict[str, object]] = []
+    for row in rows:
+        if any(type(key) is not str for key in row):
+            return None
+        normalised.append(
+            {
+                key: value.isoformat() if type(value) is date else value
+                for key, value in row.items()
+            }
+        )
+    return normalised
+
+
+OPERATIONAL_EVIDENCE_INPUT_BINDING_VERSION = "operational-evidence-inputs.v1"
+
+
+def _operational_evidence_input_binding(config: AppConfig) -> str | None:
+    """Fingerprint every non-price input of persisted operational evidence.
+
+    Prices, settings and reference context are bound by the existing cache
+    checks.  Returns None when an input cannot be read, so no cache matches.
+    """
+
+    def digest(path: Path) -> str | None:
+        return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+
+    try:
+        identity_path = Path(IDENTITY_PATH).resolve()
+        identity_store: dict[str, str | None] | None = None
+        if len(identity_path.parents) >= 3:
+            source = storage_layout(identity_path.parents[2]).transactional_path
+            # The SQLite -shm index changes without data changes; the store
+            # file and any committed-but-uncheckpointed WAL/journal carry data.
+            identity_store = {
+                name: digest(Path(f"{source}{suffix}"))
+                for name, suffix in (("store", ""), ("wal", "-wal"), ("journal", "-journal"))
+            }
+        payload = {
+            "version": OPERATIONAL_EVIDENCE_INPUT_BINDING_VERSION,
+            "calendar_corrections": digest(CONFIG_DIR / "market_calendar_corrections.yaml"),
+            "identity_store": identity_store,
+            "cost_model": config.costs.cost_model.model_dump(mode="json"),
+        }
+    except OSError:
+        return None
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+
+
+def _open_backtest_calendar_identity_resolver() -> tuple[
+    IdentityMasterStore | None,
+    Callable[[str, object], Mapping[str, object] | None] | None,
+]:
+    """Open one read-only logical identity view for the complete backtest run."""
+
+    def unavailable_projection(instrument_id: str, reason: str) -> Mapping[str, object]:
+        return {
+            "status": "unavailable",
+            "instrument_id": instrument_id,
+            "reason": reason,
+            "execution_allowed": False,
+        }
+
+    def unavailable(instrument_id: str, _signal_timestamp: object) -> Mapping[str, object]:
+        return unavailable_projection(instrument_id, "canonical_identity_store_unreadable")
+
+    identity_path = Path(IDENTITY_PATH).resolve()
+    if len(identity_path.parents) < 3:
+        return None, None
+    root = identity_path.parents[2]
+    try:
+        if not storage_layout(root).transactional_path.is_file():
+            return None, None
+        store = IdentityMasterStore(root, read_only=True)
+    except (IdentityMasterSchemaError, OSError, ValueError):
+        return None, unavailable
+    cache: dict[tuple[str, str], Mapping[str, object] | None] = {}
+
+    def resolve(instrument_id: str, signal_timestamp: object) -> Mapping[str, object] | None:
+        try:
+            timestamp = pd.Timestamp(signal_timestamp)
+            if pd.isna(timestamp) or timestamp.tzinfo is None or timestamp.utcoffset() is None:
+                return unavailable_projection(
+                    instrument_id, "canonical_identity_point_in_time_unavailable"
+                )
+            timestamp = timestamp.tz_convert("UTC")
+            point_in_time = timestamp.isoformat()
+            key = (instrument_id, point_in_time)
+            if key not in cache:
+                cache[key] = store.projection(
+                    instrument_id,
+                    effective_at=point_in_time,
+                    decision_time=point_in_time,
+                )
+            return cache[key]
+        except (IdentityMasterSchemaError, KeyError, TypeError, ValueError, OverflowError):
+            return unavailable(instrument_id, signal_timestamp)
+
+    return store, resolve
 
 
 def _load_structure_caps(instrument_ids: object, decision_time: object) -> dict[str, float]:
@@ -1997,27 +2133,34 @@ class BacktestService:
             structure_evidence = _load_local_structural_evidence()
         except Exception:
             structure_evidence = None
+        operational_input_binding = _operational_evidence_input_binding(self.config)
+        identity_store, calendar_identity_resolver = _open_backtest_calendar_identity_resolver()
         try:
-            report = _run_backtest_compatibly(
-                self.config,
-                prices,
-                fundamentals=fundamentals,
+            runner_kwargs = _backtest_runner_kwargs(
+                reference_context,
+                fundamentals,
                 structure_document_registry=(structure_evidence.document_registry if structure_evidence else None),
                 structure_report_records=(structure_evidence.report_records if structure_evidence else None),
                 structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),
                 structure_holdings=(structure_evidence.holdings if structure_evidence else None),
-                benchmark_data_id=reference_context.benchmark_data_id,
-                benchmark_reference=reference_context.projection,
-                reference_identity=reference_context.identity,
-                benchmark_registry=reference_context.registry,
+                calendar_identity_resolver=calendar_identity_resolver,
+            )
+            report = _run_backtest_compatibly(
+                self.config,
+                prices,
+                **runner_kwargs,
             )
             # Bind every runner result to the freshly resolved readback context
             # before publication, including older local runner seams.
             reference_binding = _reference_binding(reference_context)
             report.metadata.update(reference_binding)
+            report.metadata["operational_evidence_input_binding"] = operational_input_binding
             report.results["benchmark_strategy"] = reference_binding["benchmark_strategy"]
         except BacktestDataUnavailableError as exc:
             return _empty_backtest_report(str(exc))
+        finally:
+            if identity_store is not None:
+                identity_store.close()
         run_id = settings_bound_run_id("backtest", settings_identity=settings_identity)
         with publication_scope(publish_guard):
             ensure_run_manifest(
@@ -2044,6 +2187,9 @@ class BacktestService:
             persisted_results["largest_negative_contribution_periods"] = persisted_results[
                 "largest_negative_contribution_periods"
             ].map(lambda value: json.dumps(value, default=str, separators=(",", ":")))
+        metadata_payload = json.dumps(
+            report.metadata, default=str, sort_keys=True, indent=2
+        ).encode("utf-8")
         payloads = {
             BACKTESTS_DIR / "backtest_results.csv": (
                 persisted_results.to_csv(index=False).encode("utf-8"),
@@ -2065,6 +2211,10 @@ class BacktestService:
                 report.quality_momentum_evidence.to_csv(index=False).encode("utf-8"),
                 lambda path: _validate_csv(path),
             ),
+            BACKTESTS_DIR / "backtest_metadata.json": (
+                metadata_payload,
+                lambda path: json.loads(path.read_text(encoding="utf-8")),
+            ),
         }
         settings_revision = str(settings_identity["settings_revision"])
         requests = [
@@ -2083,13 +2233,6 @@ class BacktestService:
                 lambda path: json.loads(path.read_text(encoding="utf-8")),
             )
             for path, (payload, _validator) in payloads.items()
-        )
-        requests.append(
-            AtomicWriteRequest(
-                BACKTESTS_DIR / "backtest_metadata.json",
-                json.dumps(report.metadata, default=str, sort_keys=True, indent=2).encode("utf-8"),
-                lambda path: json.loads(path.read_text(encoding="utf-8")),
-            )
         )
         with timed_step("backtest", "write_outputs"):
             with publication_scope(publish_guard):
@@ -2117,9 +2260,10 @@ class BacktestService:
             trade_path,
             signal_path,
             quality_evidence_path,
+            metadata_path,
         )
         sidecar_paths = tuple(_universe_cache_meta_path(path) for path in payload_paths)
-        snapshot_paths = payload_paths + sidecar_paths + (metadata_path,)
+        snapshot_paths = payload_paths + sidecar_paths
         if any(not path.is_file() for path in snapshot_paths):
             return None
         try:
@@ -2182,10 +2326,22 @@ class BacktestService:
             if structural_hashes.eq("").any() or structural_hashes.str.casefold().isin({"nan", "none"}).any():
                 return None
             quality_momentum_evidence = pd.read_csv(BytesIO(payload_bytes[quality_evidence_path]))
-            metadata = json.loads(snapshot[metadata_path].decode("utf-8"))
-            if not isinstance(metadata, dict) or not _cached_backtest_binding_matches(
-                metadata, reference_context
+            metadata = json.loads(payload_bytes[metadata_path].decode("utf-8"))
+            if not isinstance(metadata, dict):
+                return None
+            fundamentals = load_fundamental_evidence()
+            # Operational evidence is bound to every non-price input it reads
+            # (calendar corrections, identity store, cost model).  A changed
+            # input invalidates the cache; re-deriving a full backtest to
+            # validate a cache read would defeat the cache.
+            input_binding = metadata.get("operational_evidence_input_binding")
+            if (
+                type(input_binding) is not str
+                or input_binding != _operational_evidence_input_binding(self.config)
+                or _normalise_operational_evidence_rows(metadata.get("operational_evidence_rows")) is None
             ):
+                return None
+            if not _cached_backtest_binding_matches(metadata, reference_context):
                 return None
             expected_benchmark_strategy = metadata["benchmark_strategy"]
             if (
@@ -2208,7 +2364,7 @@ class BacktestService:
             if metadata.get("input_checksum") != backtest_input_checksum(
                 self.config,
                 checksum_prices,
-                load_fundamental_evidence(),
+                fundamentals,
                 structure_document_registry=(structure_evidence.document_registry if structure_evidence else None),
                 structure_report_records=(structure_evidence.report_records if structure_evidence else None),
                 structure_supplemental_rows=(structure_evidence.supplemental_rows if structure_evidence else None),

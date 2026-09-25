@@ -226,8 +226,11 @@ def test_backtest_output_is_published_only_after_settings_bound_manifest_reserva
     services.BacktestService(load_config(), universe_revision="revision").run_backtest()
 
     assert events[:2] == [("manifest", "backtest__scccccccc:cccccccc"), ("output", "backtest")]
+    payloads = [request for request in published if not str(request.destination).endswith(".meta.json")]
+    assert len(payloads) == 6
+    assert any(str(request.destination).endswith("backtest_metadata.json") for request in payloads)
     sidecars = [request for request in published if str(request.destination).endswith(".meta.json")]
-    assert len(sidecars) == 5
+    assert len(sidecars) == 6
     assert {
         json.loads(request.payload)["settings_revision"][:8]
         for request in sidecars

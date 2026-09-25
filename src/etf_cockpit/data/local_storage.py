@@ -97,6 +97,47 @@ def connect_storage(root: Path) -> sqlite3.Connection:
     return connection
 
 
+def connect_storage_read_only(root: Path) -> sqlite3.Connection:
+    """Open one verified in-memory snapshot without touching source storage."""
+
+    layout = storage_layout(root)
+    source = layout.transactional_path
+    if not source.is_file():
+        raise StorageSchemaError(f"transactional store is missing: {source}")
+    sidecars = tuple(Path(f"{source}{suffix}") for suffix in ("-wal", "-shm", "-journal"))
+    if any(path.exists() for path in sidecars):
+        raise StorageSchemaError("transactional store has an active SQLite journal")
+    try:
+        snapshot = source.read_bytes()
+        verified = source.read_bytes()
+    except OSError as exc:
+        raise StorageSchemaError(f"transactional store snapshot is unavailable: {exc}") from exc
+    if snapshot != verified or any(path.exists() for path in sidecars):
+        raise StorageSchemaError("transactional store changed while its snapshot was read")
+    if len(snapshot) < 100 or snapshot[:16] != b"SQLite format 3\x00":
+        raise StorageSchemaError("transactional store snapshot has an invalid SQLite header")
+    memory_image = bytearray(snapshot)
+    if memory_image[18] not in {1, 2} or memory_image[19] not in {1, 2}:
+        raise StorageSchemaError("transactional store snapshot has invalid journal metadata")
+    # The source store uses WAL.  The detached image has no WAL file by
+    # construction, so mark only the in-memory copy as a rollback-journal
+    # image before deserialising it.
+    memory_image[18] = 1
+    memory_image[19] = 1
+
+    connection = sqlite3.connect(":memory:", timeout=30.0)
+    try:
+        connection.deserialize(bytes(memory_image))
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA busy_timeout = 30000")
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA query_only = ON")
+    except Exception:
+        connection.close()
+        raise
+    return connection
+
+
 def _enable_wal(connection: sqlite3.Connection) -> None:
     """Enable WAL with a bounded retry for SQLite's journal-mode lock race."""
 
@@ -389,9 +430,14 @@ def _migration_v4(connection: sqlite3.Connection) -> None:
 class TransactionalStore:
     """Small ACID store for user-owned state; analytical data remains Parquet."""
 
-    def __init__(self, root: Path):
-        self.layout = initialise_storage(root)
-        self.connection = connect_storage(self.layout.root)
+    def __init__(self, root: Path, *, read_only: bool = False):
+        self.read_only = read_only
+        if read_only:
+            self.layout = storage_layout(root)
+            self.connection = connect_storage_read_only(self.layout.root)
+        else:
+            self.layout = initialise_storage(root)
+            self.connection = connect_storage(self.layout.root)
 
     def close(self) -> None:
         self.connection.close()
@@ -425,7 +471,10 @@ class TransactionalStore:
             self.connection.rollback()
             raise
         else:
-            self.connection.commit()
+            if self.read_only:
+                self.connection.rollback()
+            else:
+                self.connection.commit()
 
     def put(
         self,

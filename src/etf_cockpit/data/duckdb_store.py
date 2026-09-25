@@ -25,7 +25,38 @@ HOLDINGS_CSV = PORTFOLIOS_DIR / "current_holdings.csv"
 def read_price_csv(path: Path) -> pd.DataFrame:
     frame = pd.read_csv(path)
     frame["date"] = pd.to_datetime(frame["date"]).dt.date
+    if "calendar_identity" in frame.columns:
+        frame["calendar_identity"] = frame["calendar_identity"].map(
+            _normalise_calendar_identity
+        )
     return frame
+
+
+def _normalise_calendar_identity(value: object) -> dict[str, object] | None:
+    if isinstance(value, Mapping):
+        payload: object = dict(value)
+    elif isinstance(value, str) and value.strip():
+        try:
+            payload = json.loads(value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+    else:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    try:
+        return json.loads(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        )
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _serialise_calendar_identity(value: object) -> str | None:
+    normalised = _normalise_calendar_identity(value)
+    if normalised is None:
+        return None
+    return json.dumps(normalised, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
 def initialise_store(
@@ -50,6 +81,10 @@ def write_prices(prices: pd.DataFrame, path: Path = PRICE_PARQUET) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     frame = prices.copy()
     frame["date"] = pd.to_datetime(frame["date"])
+    if "calendar_identity" in frame.columns:
+        frame["calendar_identity"] = frame["calendar_identity"].map(
+            _serialise_calendar_identity
+        )
     frame.to_parquet(path, index=False)
 
 
@@ -59,6 +94,10 @@ def load_prices(path: Path = PRICE_PARQUET) -> pd.DataFrame:
     wait_for_atomic_group(path)
     frame = pd.read_parquet(path)
     frame["date"] = pd.to_datetime(frame["date"]).dt.date
+    if "calendar_identity" in frame.columns:
+        frame["calendar_identity"] = frame["calendar_identity"].map(
+            _normalise_calendar_identity
+        )
     return frame
 
 

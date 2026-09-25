@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import flet as ft
+import pytest
 
 from etf_cockpit.app.pages.instrument_detail import _render_evidence_section
 from etf_cockpit.application.market_clock import build_market_clock_diagnostics
@@ -108,6 +109,25 @@ def test_application_facade_keeps_uncertified_identity_explicitly_unavailable() 
     assert result["phase"] == "unknown"
     assert result["execution_allowed"] is False
     assert "conflicted" in str(result["message"])
+
+
+@pytest.mark.parametrize(
+    ("field_name", "malformed"),
+    (("calendar_source_version", 123), ("opening_auction_minutes", "5")),
+)
+def test_application_facade_rejects_malformed_calendar_field_types(
+    field_name: str, malformed: object
+) -> None:
+    projection = _identity_projection()
+    projection["identity_objects"][0]["fields"][field_name] = malformed  # type: ignore[index]
+
+    result = build_market_clock_diagnostics(
+        projection,
+        decision_time="2024-11-29T17:30:00Z",
+    )
+
+    assert result["status"] == "unavailable"
+    assert result["execution_allowed"] is False
 
 
 def test_instrument_market_clock_panel_has_acceptance_key_and_authority_warning() -> (

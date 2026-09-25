@@ -745,7 +745,7 @@ def test_instrument_detail_renders_scoped_records_for_etf_panels() -> None:
     model = build_instrument_detail(
         custom,
         instrument_id,
-        paper_trades=pd.DataFrame([{"instrument_id": instrument_id, "paper_trade_id": "paper-etf-1", "status": "open"}]),
+        paper_trades=pd.DataFrame([{"instrument_id": instrument_id, "paper_trade_id": "paper-etf-1", "status": "open", "source_authority": "local_paper_ledger"}]),
         journal=pd.DataFrame([{"instrument_id": instrument_id, "journal_id": "journal-etf-1", "thesis": "ETF thesis"}]),
         score_history=history,
     )
@@ -773,7 +773,7 @@ def test_instrument_detail_renders_scoped_records_for_stock() -> None:
         prices=pd.concat([snapshot.prices, pd.DataFrame([{"etf_id": "stock-render", "date": "2026-07-13", "adjusted_close": 123.45}])], ignore_index=True),
         forecasts=pd.DataFrame([{"etf_id": "stock-render", "forecast_id": "forecast-stock-1", "status": "ok"}]),
     )
-    model = build_instrument_detail(custom, "stock-render", paper_trades=pd.DataFrame([{"instrument_id": "stock-render", "paper_trade_id": "paper-stock-1"}]))
+    model = build_instrument_detail(custom, "stock-render", paper_trades=pd.DataFrame([{"instrument_id": "stock-render", "paper_trade_id": "paper-stock-1", "source_authority": "local_paper_ledger"}]))
     rendered = "\n".join(_text_values(_render_evidence_section("Price history", model.sections["price"])))
     rendered += "\n".join(_text_values(_render_evidence_section("Forecast evidence", model.sections["forecasts"])))
     rendered += "\n".join(_text_values(_render_evidence_section("Paper-trade history", model.sections["paper_trades"])))

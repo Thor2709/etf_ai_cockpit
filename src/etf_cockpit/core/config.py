@@ -152,6 +152,9 @@ class CostModel(BaseModel):
     max_participation_rate: float = 0.10
     uncertainty_multiplier: float = 1.25
     gap_stress_bps: float = 0.0
+    # Display-only operational warning for |next open / decision close - 1|;
+    # it never gates, reprices or grants execution authority.
+    open_gap_warning_threshold: float = Field(default=0.02, gt=0.0, le=1.0)
     commission_stress_multiplier: float = 1.0
     model_version: str = "execution-cost-v1"
 

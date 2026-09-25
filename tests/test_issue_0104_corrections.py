@@ -1281,6 +1281,7 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
                 "input_checksum": checksum,
                 "quality_momentum_strategy_version": QUALITY_MOMENTUM_VERSION,
                 "quality_momentum_evidence_checksum": services.quality_momentum_evidence_checksum(evidence),
+                "operational_evidence_rows": [],
             },
             quality_momentum_evidence=evidence,
         )
@@ -1301,6 +1302,11 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
         return None
 
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path / "backtests")
+    monkeypatch.setattr(
+        services,
+        "IDENTITY_PATH",
+        tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
+    )
     monkeypatch.setattr(services, "FUND_HOLDINGS_PATH", holdings_path)
     monkeypatch.setattr(services, "ETF_METADATA_CLEAN_PATH", factsheet_path)
     monkeypatch.setattr(services, "load_prices", lambda: prices)
@@ -1433,6 +1439,7 @@ def test_backtest_cache_is_invalidated_when_structural_loader_raises(tmp_path, m
         "trade_log.csv",
         "signal_log.csv",
         "quality_momentum_evidence.csv",
+        "backtest_metadata.json",
     ):
         services._write_universe_cache_metadata(
             backtests / filename,
