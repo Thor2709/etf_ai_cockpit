@@ -1,0 +1,154 @@
+name: Temporary Sparebanken current-source analysis
+
+on:
+  push:
+    branches:
+      - tmp-sparebanken-analysis-20260925
+
+permissions:
+  contents: read
+
+jobs:
+  analyse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ETF_COCKPIT_ROOT: ${{ github.workspace }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout exact analysis branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install BAT/source dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Add ROMER as an ad-hoc candidate for this run only
+        shell: bash
+        run: |
+          mkdir -p data/raw/trade_candidates
+          cat > data/raw/trade_candidates/yahoo_trade_candidates_2026-09-25_sparebanken.csv <<'CSV'
+          instrument_id,name,isin,yahoo_symbol,shares,currency,analysis_tier,data_policy,instrument_type
+          ROMER,Romerike Sparebank,,ROMER.OL,0,NOK,sparebanken,yfinance_only,equity_certificate
+          CSV
+
+      - name: Run the current BAT/source workflow
+        shell: bash
+        run: |
+          mkdir -p artifacts/sparebanken
+          cat > /tmp/run_sparebanken.py <<'PY'
+          from __future__ import annotations
+          import json
+          import os
+          import traceback
+          from pathlib import Path
+
+          root = Path(os.environ["ETF_COCKPIT_ROOT"])
+          os.chdir(root)
+
+          from etf_cockpit.app.state import AppState
+
+          audit = {
+              "requested_instruments": ["NONG", "SBNOR", "ROMER"],
+              "source_commit": os.environ.get("GITHUB_SHA"),
+              "workflow": "current BAT/source AppState workflow",
+              "steps": {},
+          }
+
+          state = None
+          try:
+              state = AppState.load()
+              audit["steps"]["load"] = {"ok": True}
+          except Exception as exc:
+              audit["steps"]["load"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc()}
+              raise
+
+          for name, fn in (
+              ("refresh_yfinance_data", state.refresh_yfinance_data),
+              ("run_algorithm_scores", state.run_algorithm_scores),
+              ("run_forecasting_models", state.run_forecasting_models),
+          ):
+              try:
+                  result = fn()
+                  audit["steps"][name] = {"ok": True, "result": str(result)}
+              except Exception as exc:
+                  audit["steps"][name] = {
+                      "ok": False,
+                      "error": f"{type(exc).__name__}: {exc}",
+                      "traceback": traceback.format_exc(),
+                  }
+
+          try:
+              path = state._write_current_scoreboard()
+              audit["steps"]["final_scoreboard_write"] = {"ok": True, "path": str(path)}
+          except Exception as exc:
+              audit["steps"]["final_scoreboard_write"] = {
+                  "ok": False,
+                  "error": f"{type(exc).__name__}: {exc}",
+                  "traceback": traceback.format_exc(),
+              }
+
+          out = root / "artifacts" / "sparebanken"
+          out.mkdir(parents=True, exist_ok=True)
+          (out / "workflow_audit.json").write_text(json.dumps(audit, indent=2, default=str), encoding="utf-8")
+
+          # Produce a compact final extract from the exact files the app wrote.
+          extract = {"source_commit": os.environ.get("GITHUB_SHA"), "instruments": {}, "files": {}}
+          scoreboard = root / "data" / "derived" / "scoreboard.json"
+          if scoreboard.exists():
+              rows = json.loads(scoreboard.read_text(encoding="utf-8"))
+              for row in rows:
+                  display_id = str(row.get("display_id") or row.get("instrument_id") or "")
+                  if display_id in {"NONG", "SBNOR", "ROMER"}:
+                      extract["instruments"][display_id] = row
+              extract["files"]["scoreboard"] = str(scoreboard.relative_to(root))
+
+          forecast_files = sorted((root / "data" / "forecasts").glob("*.csv"))
+          extract["files"]["forecasts"] = [str(p.relative_to(root)) for p in forecast_files]
+
+          reports = sorted((root / "data" / "reports").glob("yfinance*"))
+          extract["files"]["reports"] = [str(p.relative_to(root)) for p in reports]
+
+          backtests = sorted((root / "data" / "backtests").glob("*"))
+          extract["files"]["backtests"] = [str(p.relative_to(root)) for p in backtests if p.is_file()]
+
+          (out / "final_extract.json").write_text(json.dumps(extract, indent=2, default=str), encoding="utf-8")
+          print(json.dumps(audit, indent=2, default=str))
+          print(json.dumps(extract, indent=2, default=str))
+          PY
+          set -o pipefail
+          python /tmp/run_sparebanken.py 2>&1 | tee artifacts/sparebanken/run.log
+
+      - name: Collect exact app outputs
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts/sparebanken
+          cp -a data/derived artifacts/sparebanken/ 2>/dev/null || true
+          cp -a data/forecasts artifacts/sparebanken/ 2>/dev/null || true
+          cp -a data/backtests artifacts/sparebanken/ 2>/dev/null || true
+          cp -a data/reports artifacts/sparebanken/ 2>/dev/null || true
+          cp -a data/features artifacts/sparebanken/ 2>/dev/null || true
+          cp -a data/clean artifacts/sparebanken/ 2>/dev/null || true
+          cp -a data/raw/trade_candidates artifacts/sparebanken/ 2>/dev/null || true
+          git rev-parse HEAD > artifacts/sparebanken/source_commit.txt
+          python -m pip freeze > artifacts/sparebanken/pip_freeze.txt
+
+      - name: Upload exact current-source outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sparebanken-current-source-${{ github.sha }}
+          path: artifacts/sparebanken
+          if-no-files-found: error
+          retention-days: 7
