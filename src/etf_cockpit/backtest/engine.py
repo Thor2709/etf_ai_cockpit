@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from collections.abc import Callable, Mapping
@@ -1224,6 +1225,28 @@ def run_backtest(
     signal_rows: list[dict[str, object]] = []
     quality_evidence_rows: list[dict[str, object]] = []
     price_source_identity_cache: dict[tuple[object, pd.Timestamp], str | None] = {}
+    # Partition once so each exact-row lookup scans one instrument and one
+    # day, not the whole price history; other rows can never match.
+    prices_by_instrument: dict[object, tuple[pd.DataFrame, pd.Series]] = {}
+    if isinstance(prices, pd.DataFrame) and {"etf_id", "date"}.issubset(prices.columns):
+        for key, frame in prices.groupby("etf_id", sort=False):
+            prices_by_instrument[key] = (
+                frame,
+                pd.to_datetime(frame["date"], errors="coerce").dt.normalize(),
+            )
+    calendar_identity_cache: dict[object, Mapping[str, object] | None] = {}
+
+    def cached_calendar_identity(instrument_id: object) -> Mapping[str, object] | None:
+        # Prices are fixed for the whole run, so the persisted identity of one
+        # instrument cannot change between rebalances.
+        if instrument_id not in calendar_identity_cache:
+            entry = prices_by_instrument.get(instrument_id)
+            calendar_identity_cache[instrument_id] = _calendar_identity_from_price_rows(
+                prices if entry is None else entry[0],
+                instrument_id,
+            )
+        identity = calendar_identity_cache[instrument_id]
+        return None if identity is None else deepcopy(identity)
 
     def cached_price_source_identity(
         instrument_id: object,
@@ -1232,8 +1255,9 @@ def run_backtest(
         observed_timestamp = pd.Timestamp(observed_date).normalize()
         key = (instrument_id, observed_timestamp)
         if key not in price_source_identity_cache:
+            entry = prices_by_instrument.get(instrument_id)
             price_source_identity_cache[key] = _price_source_identity(
-                prices,
+                prices if entry is None else entry[0].loc[entry[1] == observed_timestamp],
                 instrument_id,
                 observed_date,
             )
@@ -1448,9 +1472,7 @@ def run_backtest(
                     for instrument_id in diff.index[diff > 0]:
                         instrument_cost_matches = instrument_costs.get(str(instrument_id), [])
                         instrument_cost = instrument_cost_matches[0] if len(instrument_cost_matches) == 1 else None
-                        initial_calendar_identity = _calendar_identity_from_price_rows(
-                            prices, instrument_id
-                        )
+                        initial_calendar_identity = cached_calendar_identity(instrument_id)
                         explicit_daily_cutoff = pd.Timestamp(dt)
                         explicit_daily_cutoff = (
                             explicit_daily_cutoff.tz_localize(timezone.utc)

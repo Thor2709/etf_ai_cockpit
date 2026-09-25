@@ -37,6 +37,9 @@ from etf_cockpit.app.pages.signals import _latest_operational_row
 from etf_cockpit.app.selectors.instrument_detail import _operational_evidence_panel
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit import services
+from etf_cockpit.data.contracts import SourceAuthority
+from etf_cockpit.data.identity_master import IdentityClaim, IdentityMasterStore
+from etf_cockpit.data.local_storage import TransactionalStore
 
 
 def _flat_calendar_identity(**updates: object) -> dict[str, object]:
@@ -1508,15 +1511,42 @@ def test_operational_evidence_input_binding_tracks_every_non_price_input(tmp_pat
     changed_calendar = services._operational_evidence_input_binding(config)
     assert changed_calendar != baseline
 
-    store.parent.mkdir(parents=True, exist_ok=True)
-    store.write_bytes(b"store-v1")
+    root = identity_path.parents[2]
+    IdentityMasterStore(root).close()
     with_store = services._operational_evidence_input_binding(config)
     assert with_store != changed_calendar
+    with IdentityMasterStore(root) as identity_store:
+        identity_store.append_claims(
+            (
+                IdentityClaim(
+                    "VWCE",
+                    "ticker",
+                    "VWCE",
+                    "fixture",
+                    SourceAuthority.OFFICIAL,
+                    "fixture:ticker",
+                    valid_from="2024-01-01T00:00:00Z",
+                    available_at="2024-01-02T00:00:00Z",
+                ),
+            )
+        )
+    with_claim = services._operational_evidence_input_binding(config)
+    assert with_claim != with_store
+    assert "unreadable" not in {with_store, with_claim}
+
+    # Unrelated records in the shared transactional store leave the binding
+    # unchanged, so they cannot force a full backtest recompute.
+    with TransactionalStore(root) as shared_store:
+        shared_store.put("unrelated_ledger_v1", "row-1", {"value": 1})
+    assert services._operational_evidence_input_binding(config) == with_claim
+
+    # A read-only resolver cannot read a store with an active WAL, so the
+    # evidence it produces differs and the binding must differ too.
     Path(f"{store}-wal").write_bytes(b"uncheckpointed")
     with_wal = services._operational_evidence_input_binding(config)
-    assert with_wal != with_store
-    Path(f"{store}-shm").write_bytes(b"index-only")
-    assert services._operational_evidence_input_binding(config) == with_wal
+    assert with_wal != with_claim
+    Path(f"{store}-wal").unlink()
+    assert services._operational_evidence_input_binding(config) == with_claim
 
     cost_model = config.costs.cost_model.model_copy(update={"open_gap_warning_threshold": 0.05})
     changed_costs = config.model_copy(update={"costs": config.costs.model_copy(update={"cost_model": cost_model})})

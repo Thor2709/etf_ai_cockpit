@@ -68,6 +68,7 @@ from etf_cockpit.data.fundamentals import load_fundamental_evidence
 from etf_cockpit.data.identity_master import (
     IdentityMasterSchemaError,
     IdentityMasterStore,
+    identity_master_content_digest,
 )
 from etf_cockpit.data.local_storage import storage_layout
 from etf_cockpit.data.import_pipeline import commit_price_import, rollback_latest_price_import as rollback_price_store
@@ -331,7 +332,7 @@ def _normalise_operational_evidence_rows(rows: object) -> list[dict[str, object]
     return normalised
 
 
-OPERATIONAL_EVIDENCE_INPUT_BINDING_VERSION = "operational-evidence-inputs.v1"
+OPERATIONAL_EVIDENCE_INPUT_BINDING_VERSION = "operational-evidence-inputs.v2"
 
 
 def _operational_evidence_input_binding(config: AppConfig) -> str | None:
@@ -346,15 +347,13 @@ def _operational_evidence_input_binding(config: AppConfig) -> str | None:
 
     try:
         identity_path = Path(IDENTITY_PATH).resolve()
-        identity_store: dict[str, str | None] | None = None
+        identity_store: str | None = None
         if len(identity_path.parents) >= 3:
-            source = storage_layout(identity_path.parents[2]).transactional_path
-            # The SQLite -shm index changes without data changes; the store
-            # file and any committed-but-uncheckpointed WAL/journal carry data.
-            identity_store = {
-                name: digest(Path(f"{source}{suffix}"))
-                for name, suffix in (("store", ""), ("wal", "-wal"), ("journal", "-journal"))
-            }
+            # Bind the logical identity records the backtest resolver reads, not
+            # the raw bytes of the shared transactional store: unrelated writes
+            # (classification, fixed income, ledgers) must not invalidate the
+            # cache and force a full backtest recompute.
+            identity_store = identity_master_content_digest(identity_path.parents[2])
         payload = {
             "version": OPERATIONAL_EVIDENCE_INPUT_BINDING_VERSION,
             "calendar_corrections": digest(CONFIG_DIR / "market_calendar_corrections.yaml"),

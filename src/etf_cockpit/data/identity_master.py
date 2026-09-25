@@ -31,6 +31,7 @@ from etf_cockpit.data.local_storage import (
     StorageRevisionConflict,
     StorageSchemaError,
     TransactionalStore,
+    connect_storage_read_only,
     storage_layout,
 )
 
@@ -601,6 +602,42 @@ class IdentityMasterStore:
                 )
             )
         return tuple(conflicts)
+
+
+IDENTITY_CONTENT_UNREADABLE = "unreadable"
+
+
+def identity_master_content_digest(root: Path) -> str | None:
+    """Digest the logical identity-master records a read-only reader would see.
+
+    Unrelated records in the shared transactional store do not affect the
+    digest.  Returns None when no store exists and ``IDENTITY_CONTENT_UNREADABLE``
+    when a read-only reader cannot open it (for example an active WAL), because
+    such a reader resolves every identity as unavailable.
+    """
+
+    if not storage_layout(root).transactional_path.is_file():
+        return None
+    try:
+        connection = connect_storage_read_only(root)
+    except (StorageSchemaError, sqlite3.DatabaseError, OSError):
+        return IDENTITY_CONTENT_UNREADABLE
+    try:
+        rows = connection.execute(
+            "SELECT entity_type, entity_id, payload_json, revision, deleted_at "
+            "FROM transactional_records WHERE entity_type IN (?, ?, ?, ?) "
+            "ORDER BY entity_type, entity_id",
+            (_META_TYPE, _ROW_TYPE, _CLAIM_TYPE, _REVIEW_TYPE),
+        ).fetchall()
+    except sqlite3.DatabaseError:
+        return IDENTITY_CONTENT_UNREADABLE
+    finally:
+        connection.close()
+    digest = hashlib.sha256()
+    for row in rows:
+        digest.update(json.dumps(list(row), separators=(",", ":")).encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
 
 
 def identity_master_exists(root: Path) -> bool:
