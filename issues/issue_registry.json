@@ -12896,7 +12896,19 @@
       "write_conflict_group": "trading-safety"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #187 https://github.com/Thor2709/etf_ai_cockpit/pull/187 (Wave 4 Task 17: score history, run comparison and feature drivers) merged exact head e83edfc0dadf69078fce0949b7cfe617915320bf as 265b7982b85ad531a1ecde571c7ad18bc9d018e7; the implementation is carried unchanged on current main.",
+            "H-tier release run 36053132101 (tree identical to main 6003dca6) and release run 36146335202 on the ISSUE-0050 lifecycle head over main d29a3093 passed classifier, preflight, supply chain, Linux and Windows packaged full-suite gates and validation-summary, including tests/test_score_history.py.",
+            "Browser acceptance 2026-09-25 (Claude Code, Flet web offline, 800x600, clean checkout of main 6003dca6): with no history the expanded row states 'No score history available yet' and that Pending/N/A rows do not affect actions; after two persisted score runs (118 rows, 2 runs, 59 instruments) the expanded row shows latest/previous/delta, a per-instrument score evolution mini chart and 'Local score history is informational only and cannot directly change the current action', fitting without horizontal scroll; execution_allowed=false."
+          ],
+          "review_reference": "PR #187 merged product (265b7982) acceptance re-verified on current main by Claude Code (claude-opus-5-5) root self-review with browser acceptance on 2026-09-25, owner-authorised in place of Codex V2 reviewer/risk-reviewer.",
+          "reviewed_date": "2026-09-26",
+          "reviewer": "Claude Code root orchestrator self-review (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "status": "in_progress"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0067",
@@ -12918,7 +12930,7 @@
       "package_status": "Open, implementation complete through Wave 4 Task 17 / PR 187; ordinary product tests and release checks remain pending. Historical generated closure material is not retained in this checkout.",
       "phase": "phase-01-governance-scope",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -12942,8 +12954,8 @@
       "source_record_id": "ISSUE-0067",
       "source_title": "Local score history and per-instrument score evolution mini charts",
       "title": "Local score history and per-instrument score evolution mini charts",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "265b7982b85ad531a1ecde571c7ad18bc9d018e7",
+      "verified_date": "2026-09-26",
       "write_conflict_group": "frontend-and-api"
     },
     {
@@ -28022,7 +28034,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "eee97f330e5a3b4c3e0356a9171cbb0e904760f0a5af025badc279445416c25c",
+    "programme_control_state_sha256": "31d8c96a5fd1e5452e3cae4ce4f50ece2aea7b04a855bdc2ab64e39a20d64747",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
