@@ -34,15 +34,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Build runtime-only live analysis universe
+      - name: Build runtime-only analysis universe
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
           import yaml
 
-          # Preserve VWCE as the app's canonical reference and analyse exactly
-          # the three requested Norwegian bank instruments.
           path = Path("configs/universe.yaml")
           payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
           keep = {"VWCE", "SBNOR"}
@@ -53,44 +51,23 @@ jobs:
               if iid == "ROMER":
                   found_romer = True
                   row.update({
-                      "name": "Romerike Sparebank",
-                      "ticker": "ROMER.OL",
-                      "provider_symbol": "ROMER.OL",
-                      "currency": "NOK",
-                      "asset_class": "equity",
-                      "instrument_type": "equity_certificate",
-                      "analysis_tier": "sparebanken",
-                      "data_policy": "yfinance_only",
-                      "region": "Norway",
-                      "sector": "Banks",
-                      "theme": "Norwegian savings-bank equity certificates",
-                      "role": "watchlist",
-                      "enabled": True,
+                      "name":"Romerike Sparebank","ticker":"ROMER.OL","provider_symbol":"ROMER.OL",
+                      "currency":"NOK","asset_class":"equity","instrument_type":"equity_certificate",
+                      "analysis_tier":"sparebanken","data_policy":"yfinance_only","region":"Norway",
+                      "sector":"Banks","theme":"Norwegian savings-bank equity certificates",
+                      "role":"watchlist","enabled":True,
                   })
           if not found_romer:
               payload.setdefault("etfs", []).append({
-                  "id": "ROMER",
-                  "name": "Romerike Sparebank",
-                  "isin": "needs_verification",
-                  "ticker": "ROMER.OL",
-                  "provider_symbol": "ROMER.OL",
-                  "exchange": "OSE",
-                  "currency": "NOK",
-                  "asset_class": "equity",
-                  "instrument_type": "equity_certificate",
-                  "analysis_tier": "sparebanken",
-                  "data_policy": "yfinance_only",
-                  "region": "Norway",
-                  "sector": "Banks",
-                  "theme": "Norwegian savings-bank equity certificates",
-                  "role": "watchlist",
-                  "isin_status": "needs_verification",
-                  "enabled": True,
+                  "id":"ROMER","name":"Romerike Sparebank","isin":"needs_verification",
+                  "ticker":"ROMER.OL","provider_symbol":"ROMER.OL","exchange":"OSE","currency":"NOK",
+                  "asset_class":"equity","instrument_type":"equity_certificate","analysis_tier":"sparebanken",
+                  "data_policy":"yfinance_only","region":"Norway","sector":"Banks",
+                  "theme":"Norwegian savings-bank equity certificates","role":"watchlist",
+                  "isin_status":"needs_verification","enabled":True,
               })
           path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
-          # Canonical Sparebanken fallback overrides same-ID YAML records.
-          # Keep only NONG enabled from that fallback for this disposable run.
           store = Path("src/etf_cockpit/data/universe_store.py")
           text = store.read_text(encoding="utf-8")
           old = '{"name": name, "symbol": symbol, "yahoo_symbol": ticker, "isin": isin, "analysis_tier": "sparebanken"},'
@@ -99,7 +76,6 @@ jobs:
               raise SystemExit("Sparebanken fallback patch target not found")
           store.write_text(text.replace(old, new, 1), encoding="utf-8")
 
-          # Rebind settings identity to the temporary companion configuration.
           from etf_cockpit.application.settings import SettingsControls, _base_bundle, _revision_for
           settings_path = Path("configs/settings.yaml")
           settings_raw = yaml.safe_load(settings_path.read_text(encoding="utf-8")) or {}
@@ -109,157 +85,154 @@ jobs:
           )
           settings_raw["revision"] = _revision_for(base)
           settings_path.write_text(yaml.safe_dump(settings_raw, sort_keys=False, allow_unicode=True), encoding="utf-8")
-
-          print("Runtime live universe: VWCE, NONG, SBNOR, ROMER")
-          print("Runtime settings revision:", settings_raw["revision"])
+          print("Runtime universe: VWCE, NONG, SBNOR, ROMER")
           PY
 
-      - name: Run live current-source analysis
+      - name: Run validated live Yahoo analysis
         shell: bash
         run: |
           mkdir -p artifacts/sparebanken
           cat > /tmp/run_live.py <<'PY'
           from __future__ import annotations
-          import json
-          import os
-          import traceback
+          import json, os
+          from datetime import date
           from pathlib import Path
           import pandas as pd
 
-          root = Path(os.environ["ETF_COCKPIT_ROOT"])
-          os.chdir(root)
-
+          root=Path(os.environ["ETF_COCKPIT_ROOT"]); os.chdir(root)
           from etf_cockpit.app.state import AppState
           from etf_cockpit.services import DataService, build_snapshot
           from etf_cockpit.models.forecast_scores import configured_forecast_request_identity
+          from etf_cockpit.data.yfinance_provider import YFinanceProvider
+          from etf_cockpit.data.validation import validate_prices
+          from etf_cockpit.data.duckdb_store import write_prices
           from etf_cockpit.data.trade_candidate_analysis import refresh_candidate_analysis
 
-          targets = {"NONG", "SBNOR", "ROMER"}
-          out = root / "artifacts" / "sparebanken"
-          audit = {
-              "requested_instruments": sorted(targets),
-              "base_main_commit": "7029d0075daafd0e66c6419cea2383339c4926ee",
-              "workflow_commit": os.environ.get("GITHUB_SHA"),
-              "runtime_universe": ["VWCE","NONG","SBNOR","ROMER"],
-              "steps": {},
+          targets={"NONG","SBNOR","ROMER"}
+          out=root/"artifacts"/"sparebanken"
+          audit={
+              "base_main_commit":"7029d0075daafd0e66c6419cea2383339c4926ee",
+              "workflow_commit":os.environ.get("GITHUB_SHA"),
+              "runtime_universe":["VWCE","NONG","SBNOR","ROMER"],
+              "sanitisation_rule":"drop only rows that violate current validate_prices OHLC inequalities",
+              "steps":{},
           }
 
-          state = AppState.load()
-          audit["steps"]["load"] = {"ok": True}
+          state=AppState.load()
+          config=state.snapshot.config
+          audit["steps"]["load"]={"ok":True}
 
-          # This must succeed; otherwise the run is not a genuine live result.
-          try:
-              msg = state.refresh_yfinance_data()
-              audit["steps"]["live_yahoo_refresh"] = {"ok": True, "result": str(msg)}
-          except Exception as exc:
-              audit["steps"]["live_yahoo_refresh"] = {
-                  "ok": False, "error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc()
-              }
-              (out / "workflow_audit.json").write_text(json.dumps(audit, indent=2, default=str), encoding="utf-8")
-              print("===AUDIT==="); print(json.dumps(audit, indent=2, default=str))
-              raise
+          end=date.today()
+          start=end.replace(year=end.year-5)
+          result=YFinanceProvider.from_config(config).fetch_prices([],start,end)
+          if not result.ok or result.data is None:
+              raise RuntimeError(str(result.message))
+          raw=result.data.copy()
+          raw["date"]=pd.to_datetime(raw["date"])
+          bad=(
+              (raw["open"]<=0) | (raw["close"]<=0) | (raw["high"]<raw["low"]) |
+              (raw["high"]<raw[["open","close"]].max(axis=1)) |
+              (raw["low"]>raw[["open","close"]].min(axis=1))
+          )
+          dropped=raw.loc[bad,["date","etf_id","open","high","low","close","adjusted_close","provider_symbol"]].copy()
+          clean=raw.loc[~bad].copy()
+          clean["date"]=clean["date"].dt.date
+          dropped["date"]=dropped["date"].dt.date
+          report=validate_prices(clean,as_of_date=end)
+          blockers=[{
+              "etf_id":i.etf_id,"code":i.code,"message":i.message
+          } for i in report.issues if i.severity=="block"]
+          audit["steps"]["live_yahoo_fetch"]={
+              "ok":True,"raw_rows":int(len(raw)),"clean_rows":int(len(clean)),
+              "dropped_ohlc_rows":int(len(dropped)),
+              "dropped_by_instrument":{str(k):int(v) for k,v in dropped.groupby("etf_id").size().items()},
+              "remaining_blockers":blockers,
+          }
+          if blockers:
+              (out/"workflow_audit.json").write_text(json.dumps(audit,indent=2,default=str),encoding="utf-8")
+              print("===AUDIT==="); print(json.dumps(audit,indent=2,default=str))
+              raise RuntimeError("Sanitised live Yahoo prices still fail current app validation")
 
-          # Forecast the stable configured universe; no candidate CSV is placed
-          # under data/raw, so the universe identity cannot change underneath it.
-          service = DataService(state.snapshot.config)
-          request = configured_forecast_request_identity(state.snapshot.config)
-          msg = service.run_yfinance_forecasts(
+          # Replace the clean-run sample store with validator-passing live Yahoo prices.
+          write_prices(clean)
+          state.snapshot=build_snapshot(force_sample=False)
+          audit["steps"]["live_snapshot"]={"ok":True,"as_of":str(state.snapshot.data_report.as_of_date)}
+
+          service=DataService(state.snapshot.config)
+          request=configured_forecast_request_identity(state.snapshot.config)
+          msg=service.run_yfinance_forecasts(
               include_candidates=False,
               horizons=list(request["requested_horizons"]),
               live_optional_models=bool(request["live_optional_models"]),
               use_cache=False,
           )
-          audit["steps"]["live_forecasts"] = {"ok": bool(service.last_operation_succeeded), "result": str(msg)}
+          audit["steps"]["forecasts"]={"ok":bool(service.last_operation_succeeded),"result":str(msg)}
+          state.snapshot=build_snapshot(force_sample=False)
+          score_path=state._write_current_scoreboard()
+          audit["steps"]["scoreboard"]={"ok":True,"path":str(score_path)}
 
-          # Rebuild so the just-written forecast cache is loaded into the score engine.
-          state.snapshot = build_snapshot(force_sample=False)
-          scoreboard_path = state._write_current_scoreboard()
-          audit["steps"]["final_scoreboard"] = {"ok": True, "path": str(scoreboard_path)}
-
-          # Use the app's own Yahoo fundamental/technical candidate analyser
-          # from /tmp only; it cannot mutate/import the canonical universe.
-          all3 = Path("/tmp/all3_candidates.csv")
+          # Fundamentals/technical context via current app code, isolated in /tmp.
+          all3=Path("/tmp/all3.csv")
           all3.write_text(
               "instrument_id,name,isin,yahoo_symbol,shares,currency,analysis_tier,data_policy,instrument_type\n"
               "NONG,SpareBank 1 Nord-Norge,NO0006000801,NONG.OL,0,NOK,sparebanken,yfinance_only,equity_certificate\n"
               "SBNOR,Sparebanken Norge,,SBNOR.OL,0,NOK,secondary,yfinance_only,stock\n"
               "ROMER,Romerike Sparebank,,ROMER.OL,0,NOK,sparebanken,yfinance_only,equity_certificate\n",
-              encoding="utf-8",
+              encoding="utf-8"
           )
-          cand = refresh_candidate_analysis(state.snapshot.config, years=5, candidate_path=all3)
-          audit["steps"]["live_fundamentals"] = {"ok": True, "path": str(cand.json_path)}
-          fundamentals = {
-              str(row.get("instrument_id")): row
-              for row in json.loads(cand.json_path.read_text(encoding="utf-8"))
-              if str(row.get("instrument_id")) in targets
-          }
+          cand=refresh_candidate_analysis(state.snapshot.config,years=5,candidate_path=all3)
+          fundamentals={str(x.get("instrument_id")):x for x in json.loads(cand.json_path.read_text(encoding="utf-8")) if str(x.get("instrument_id")) in targets}
 
-          scoreboard = json.loads((root/"data"/"derived"/"scoreboard.json").read_text(encoding="utf-8"))
-          instruments = {
-              str(row.get("display_id") or row.get("instrument_id")): row
-              for row in scoreboard
-              if str(row.get("display_id") or row.get("instrument_id")) in targets
-          }
+          scoreboard=json.loads((root/"data"/"derived"/"scoreboard.json").read_text(encoding="utf-8"))
+          instruments={str(x.get("display_id") or x.get("instrument_id")):x for x in scoreboard if str(x.get("display_id") or x.get("instrument_id")) in targets}
 
-          forecasts = {}
-          for path in sorted((root/"data"/"forecasts").glob("*.csv")):
-              frame = pd.read_csv(path)
-              if "model_name" not in frame.columns or "etf_id" not in frame.columns:
-                  continue
-              subset = frame[frame["etf_id"].astype(str).isin(targets)]
-              if not subset.empty:
-                  forecasts[str(path.relative_to(root))] = [
-                      {k: (None if pd.isna(v) else v) for k,v in row.items()}
-                      for row in subset.to_dict(orient="records")
+          forecasts={}
+          for p in sorted((root/"data"/"forecasts").glob("*.csv")):
+              frame=pd.read_csv(p)
+              if "model_name" not in frame.columns or "etf_id" not in frame.columns: continue
+              sub=frame[frame["etf_id"].astype(str).isin(targets)]
+              if not sub.empty:
+                  forecasts[str(p.relative_to(root))]=[
+                      {k:(None if pd.isna(v) else v) for k,v in row.items()}
+                      for row in sub.to_dict(orient="records")
                   ]
 
-          bt_path = root/"data"/"backtests"/"backtest_results.csv"
-          backtests = []
-          if bt_path.exists():
-              bt = pd.read_csv(bt_path)
-              cols = [c for c in [
+          bt=[]
+          bp=root/"data"/"backtests"/"backtest_results.csv"
+          if bp.exists():
+              frame=pd.read_csv(bp)
+              cols=[c for c in [
                   "strategy_name","cagr","volatility","sharpe","sortino","max_drawdown","calmar",
                   "turnover","cost_drag","n_walk_forward_periods","trade_count","return_hit_rate",
-                  "average_win_return","average_loss_return","payoff_ratio","expected_value_per_period",
                   "probabilistic_sharpe","deflated_sharpe","pbo_probability_backtest_overfitting",
                   "parameter_sensitivity_status","backtest_quality","worst_1d_return","worst_5d_return",
                   "worst_10d_return","worst_12m_return","loss_cluster_max_days","overfitting_warning"
-              ] if c in bt.columns]
-              backtests = [
-                  {k: (None if pd.isna(v) else v) for k,v in row.items()}
-                  for row in bt[cols].to_dict(orient="records")
-              ]
+              ] if c in frame.columns]
+              bt=[{k:(None if pd.isna(v) else v) for k,v in row.items()} for row in frame[cols].to_dict(orient="records")]
 
-          clean_prices = root/"data"/"validated"/"prices"/"prices_daily.parquet"
-          live_price_proof = {}
-          if clean_prices.exists():
-              px = pd.read_parquet(clean_prices)
-              px["date"] = pd.to_datetime(px["date"])
-              for iid in targets:
-                  rows = px[px["etf_id"].astype(str)==iid].sort_values("date")
-                  if not rows.empty:
-                      last=rows.iloc[-1]
-                      live_price_proof[iid]={
-                          "rows": int(len(rows)),
-                          "date": str(last["date"].date()),
-                          "close": float(last["close"]),
-                          "adjusted_close": float(last["adjusted_close"]),
-                          "source": str(last.get("source","")),
-                          "provider_symbol": str(last.get("provider_symbol","")),
-                      }
+          proof={}
+          for iid in sorted(targets):
+              rows=clean[clean["etf_id"].astype(str)==iid].sort_values("date")
+              if not rows.empty:
+                  last=rows.iloc[-1]
+                  proof[iid]={
+                      "rows":int(len(rows)),"date":str(last["date"]),"close":float(last["close"]),
+                      "adjusted_close":float(last["adjusted_close"]),"provider_symbol":str(last.get("provider_symbol","")),
+                      "source":str(last.get("source",""))
+                  }
 
-          extract = {
-              "base_main_commit": audit["base_main_commit"],
-              "workflow_commit": audit["workflow_commit"],
-              "runtime_universe": audit["runtime_universe"],
-              "live_price_proof": live_price_proof,
-              "instruments": instruments,
-              "fundamentals": fundamentals,
-              "forecasts": forecasts,
-              "backtests": backtests,
+          extract={
+              "audit":audit,
+              "dropped_ohlc_rows":dropped.to_dict(orient="records"),
+              "live_price_proof":proof,
+              "instruments":instruments,
+              "fundamentals":fundamentals,
+              "forecasts":forecasts,
+              "backtests":bt,
           }
-          (out/"workflow_audit.json").write_text(json.dumps(audit, indent=2, default=str), encoding="utf-8")
-          (out/"final_extract.json").write_text(json.dumps(extract, indent=2, default=str), encoding="utf-8")
+          (out/"workflow_audit.json").write_text(json.dumps(audit,indent=2,default=str),encoding="utf-8")
+          (out/"final_extract.json").write_text(json.dumps(extract,indent=2,default=str),encoding="utf-8")
+          dropped.to_csv(out/"dropped_invalid_ohlc_rows.csv",index=False)
 
           score_keys=[
               "current_price","latest_price_date","evidence_score_10","evidence_quality_10","risk_friction_10",
@@ -283,12 +256,12 @@ jobs:
           ]
           compact_f={iid:{k:fundamentals.get(iid,{}).get(k) for k in fkeys} for iid in sorted(targets)}
 
-          print("===AUDIT==="); print(json.dumps(audit, indent=2, default=str))
-          print("===LIVE_PRICE_PROOF==="); print(json.dumps(live_price_proof, indent=2, default=str))
-          print("===COMPACT_SCORES==="); print(json.dumps(compact, indent=2, default=str))
-          print("===FUNDAMENTALS==="); print(json.dumps(compact_f, indent=2, default=str))
-          print("===FORECASTS==="); print(json.dumps(forecasts, indent=2, default=str))
-          print("===BACKTESTS==="); print(json.dumps(backtests, indent=2, default=str))
+          print("===AUDIT==="); print(json.dumps(audit,indent=2,default=str))
+          print("===LIVE_PRICE_PROOF==="); print(json.dumps(proof,indent=2,default=str))
+          print("===COMPACT_SCORES==="); print(json.dumps(compact,indent=2,default=str))
+          print("===FUNDAMENTALS==="); print(json.dumps(compact_f,indent=2,default=str))
+          print("===FORECASTS==="); print(json.dumps(forecasts,indent=2,default=str))
+          print("===BACKTESTS==="); print(json.dumps(bt,indent=2,default=str))
           PY
           set -o pipefail
           python /tmp/run_live.py 2>&1 | tee artifacts/sparebanken/run.log
@@ -308,11 +281,11 @@ jobs:
           git rev-parse HEAD > artifacts/sparebanken/source_commit.txt
           python -m pip freeze > artifacts/sparebanken/pip_freeze.txt
 
-      - name: Upload exact current-source outputs
+      - name: Upload exact outputs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sparebanken-live-current-source-${{ github.sha }}
+          name: sparebanken-live-sanitised-${{ github.sha }}
           path: artifacts/sparebanken
           if-no-files-found: error
           retention-days: 7
