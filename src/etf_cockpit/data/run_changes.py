@@ -23,6 +23,38 @@ REQUIRED_CHANGE_DIMENSIONS = (
     "lineage",
 )
 
+# Upstream reasons persisted on every score-history row.  Each compares the
+# run's own recorded values, so a previous run is never re-derived from
+# current configuration.
+UPSTREAM_CHANGE_FIELDS: dict[str, tuple[str, ...]] = {
+    "source_revisions": ("source_snapshot_hash", "source_vintage_hash"),
+    "classification": (
+        "classification_version_id",
+        "classification_invalidation_hash",
+        "classification_dependency_status",
+    ),
+    "policy_versions": (
+        "formula_version",
+        "formula_checksum",
+        "gate_policy_version",
+        "gate_policy_checksum",
+        "score_schema_version",
+    ),
+    "portfolio_targets": ("portfolio_snapshot_checksum",),
+}
+UPSTREAM_CHANGE_DIMENSIONS = tuple(UPSTREAM_CHANGE_FIELDS)
+# Plain-English dependency path from each changed upstream input to the result.
+CAUSAL_PATHS: dict[str, str] = {
+    "source_revisions": "source data revision -> features -> score",
+    "classification": "classification version -> eligibility gate -> action",
+    "policy_versions": "formula or gate-policy version -> score and action",
+    "portfolio_targets": "portfolio snapshot and targets -> portfolio review state",
+    "freshness": "data freshness -> quality gate -> action",
+    "model_availability": "model availability -> forecast evidence -> score",
+    "forecasts": "forecast status -> forecast evidence -> score",
+    "backtest_trust": "backtest trust -> evidence weight -> score",
+}
+
 
 @dataclass(frozen=True)
 class RunChange:
@@ -65,6 +97,8 @@ class RunChange:
     previous_lineage: str | None = None
     dimension_changes: Mapping[str, bool] = field(default_factory=dict)
     summary: str = ""
+    upstream_changes: Mapping[str, tuple[str, str | None, bool]] = field(default_factory=dict)
+    causal_paths: tuple[str, ...] = ()
 
     @property
     def rank_changed(self) -> bool:
@@ -207,6 +241,14 @@ def _change_for(instrument_id: str, current: Mapping[str, Any], old: Mapping[str
     previous_lineage = None if old is None else _lineage_marker(old)
     dimensions["lineage"] = old is not None and current_lineage != previous_lineage
     values["lineage"] = (current_lineage, previous_lineage, dimensions["lineage"])
+    upstream: dict[str, tuple[str, str | None, bool]] = {}
+    for key, fields in UPSTREAM_CHANGE_FIELDS.items():
+        current_value = _composite_marker(current, fields)
+        previous_value = None if old is None else _composite_marker(old, fields)
+        changed = old is not None and current_value != previous_value
+        dimensions[key] = changed
+        upstream[key] = (current_value, previous_value, changed)
+    causal_paths = tuple(path for key, path in CAUSAL_PATHS.items() if dimensions.get(key))
     dimensions["score"] = old is not None and score_delta not in (None, 0)
     dimensions["rank"] = old is not None and rank_delta not in (None, 0)
     warnings_added, warnings_removed = _warning_delta(values["warnings"][0], values["warnings"][1])
@@ -214,6 +256,10 @@ def _change_for(instrument_id: str, current: Mapping[str, Any], old: Mapping[str
     risk_delta = _numeric_delta(_first(current, "portfolio_risk", "portfolio_risk_status", "portfolio_fit_score_10"), _first(old or {}, "portfolio_risk", "portfolio_risk_status", "portfolio_fit_score_10"))
 
     summary = _change_summary(score_delta, rank_delta, current_action, previous_action, values, old is not None, warnings_added, warnings_removed)
+    upstream_labels = [key.replace("_", " ") for key, (_current, _previous, changed) in upstream.items() if changed]
+    if upstream_labels:
+        prefix = "" if summary == "No tracked changes." else summary.rstrip(".") + "; "
+        summary = f"{prefix}upstream changed: {', '.join(upstream_labels)}."
     return RunChange(
         instrument_id=instrument_id,
         score_delta=score_delta,
@@ -254,6 +300,8 @@ def _change_for(instrument_id: str, current: Mapping[str, Any], old: Mapping[str
         previous_lineage=values["lineage"][1],
         dimension_changes=dimensions,
         summary=summary,
+        upstream_changes=upstream,
+        causal_paths=causal_paths,
     )
 
 
@@ -380,6 +428,15 @@ def _stable_marker(value: Any) -> str:
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value).strip() or "unavailable"
+
+
+def _composite_marker(row: Mapping[str, Any], fields: tuple[str, ...]) -> str:
+    """Join recorded field values; unavailable only when none were recorded."""
+
+    values = {name: _stable_marker(_first(row, name)) for name in fields}
+    if all(value == "unavailable" for value in values.values()):
+        return "unavailable"
+    return "|".join(f"{name}={value}" for name, value in values.items())
 
 
 def _lineage_marker(row: Mapping[str, Any]) -> str:

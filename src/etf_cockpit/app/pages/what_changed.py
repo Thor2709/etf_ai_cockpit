@@ -7,10 +7,12 @@ from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
     REQUIRED_CHANGE_DIMENSIONS,
+    UPSTREAM_CHANGE_DIMENSIONS,
     build_version_registry,
     compatibility_summary,
     compare_runs,
     score_history_frame,
+    upstream_run_context,
 )
 
 
@@ -27,6 +29,7 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
         previous = runs[-2] if len(runs) > 1 else None
         report = compare_runs(history, current, previous)
         changes = list(report.changes)
+    context = upstream_run_context(history, current, previous) if report is not None else None
     version_summary = compatibility_summary(build_version_registry())
 
     search_field = ft.TextField(
@@ -40,7 +43,11 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
         label="Filter dimension",
         key="what-changed.filter.dimension",
         value="all",
-        options=[ft.dropdown.Option("all", "All dimensions")] + [ft.dropdown.Option(dimension, dimension.replace("_", " ").title()) for dimension in REQUIRED_CHANGE_DIMENSIONS],
+        options=[ft.dropdown.Option("all", "All dimensions")]
+        + [
+            ft.dropdown.Option(dimension, dimension.replace("_", " ").title())
+            for dimension in (*REQUIRED_CHANGE_DIMENSIONS, *UPSTREAM_CHANGE_DIMENSIONS)
+        ],
         dense=True,
         width=210,
     )
@@ -84,6 +91,15 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
                 ("Backtest trust", "yes" if change.backtest_trust_changed else "no", theme.AMBER if change.backtest_trust_changed else theme.GREEN),
                 ("Portfolio risk", "yes" if change.portfolio_risk_changed else "no", theme.AMBER if change.portfolio_risk_changed else theme.GREEN),
                 ("Lineage", "yes" if change.lineage_changed else "no", theme.AMBER if change.lineage_changed else theme.GREEN),
+                *(
+                    (label, *_upstream_cell(change.upstream_changes.get(key)))
+                    for key, label in (
+                        ("source_revisions", "Source revisions"),
+                        ("classification", "Classification"),
+                        ("policy_versions", "Formula/policy versions"),
+                        ("portfolio_targets", "Portfolio targets"),
+                    )
+                ),
                 ("Current action", change.current_action or "unavailable", theme.MUTED),
             )
             metric_controls = [
@@ -107,6 +123,11 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
                             ft.Text(change.instrument_id, color=theme.TEXT, weight=ft.FontWeight.BOLD),
                             ft.ResponsiveRow(metric_controls, spacing=4, run_spacing=2),
                             ft.Text(change.summary, color=theme.MUTED, size=11),
+                            *(
+                                [ft.Text("Causal paths: " + "; ".join(change.causal_paths), color=theme.MUTED, size=11, selectable=True)]
+                                if change.causal_paths
+                                else []
+                            ),
                         ],
                         spacing=6,
                     ),
@@ -143,5 +164,65 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
         selectable=True,
     )
     _render_rows()
-    body = ft.Column([digest, lineage, ft.Row([search_field, dimension_filter, changed_only], wrap=True), table_container], spacing=10)
+    body = ft.Column(
+        [digest, lineage, _context_panel(context), ft.Row([search_field, dimension_filter, changed_only], wrap=True), table_container],
+        spacing=10,
+    )
     return ft.Column([panel(ft.Column([section_header("What Changed", "Historical score and warning differences are informational only and cannot override current evidence gates."), body], spacing=10))], expand=True, scroll=ft.ScrollMode.AUTO)
+
+
+def _upstream_cell(value: tuple[str, str | None, bool] | None) -> tuple[str, str]:
+    if value is None:
+        return "N/A", theme.MUTED
+    current, previous, changed = value
+    if current == "unavailable" and previous in (None, "unavailable"):
+        return "N/A", theme.MUTED
+    return ("yes", theme.AMBER) if changed else ("no", theme.GREEN)
+
+
+def _context_panel(context: dict[str, object] | None) -> ft.Control:
+    if context is None:
+        return ft.Container()
+    corrections, dependencies, paper = (
+        value if isinstance(value, dict) else {}
+        for value in (context.get("corrections"), context.get("dependencies"), context.get("paper_state"))
+    )
+    if corrections.get("status") == "available":
+        corrections_text = (
+            f"Data corrections (point-in-time at each run): {'changed' if corrections.get('changed') else 'unchanged'}; "
+            f"corrections {corrections.get('previous_corrections')} -> {corrections.get('current_corrections')}, "
+            f"unresolved findings {corrections.get('previous_unresolved')} -> {corrections.get('current_unresolved')}."
+        )
+    else:
+        corrections_text = f"Data corrections: unavailable ({corrections.get('reason', 'not recorded')})."
+    if dependencies.get("status") == "available":
+        changed = tuple(dependencies.get("changed_artifacts") or ())
+        dependency_text = (
+            "Changed run dependencies: " + "; ".join(changed) + "." if changed else "Run dependencies: unchanged between the two run manifests."
+        )
+    else:
+        dependency_text = f"Run dependencies: unavailable ({dependencies.get('reason', 'not recorded')})."
+    if paper.get("status") == "current_only":
+        raw_counts = paper.get("order_counts")
+        counts = raw_counts if isinstance(raw_counts, dict) else {}
+        open_ids = ", ".join(tuple(paper.get("open_order_instruments") or ())) or "none"
+        paper_text = (
+            "Paper/order state (current only, comparison unavailable): "
+            + (", ".join(f"{status}={count}" for status, count in counts.items()) or "no orders")
+            + f"; open orders for {open_ids}."
+        )
+    else:
+        paper_text = f"Paper/order state: unavailable ({paper.get('reason', 'not recorded')})."
+    return panel(
+        ft.Column(
+            [
+                ft.Text("Upstream context", color=theme.TEXT, weight=ft.FontWeight.BOLD),
+                ft.Text(corrections_text, color=theme.MUTED, size=11, selectable=True),
+                ft.Text(dependency_text, color=theme.MUTED, size=11, selectable=True),
+                ft.Text(paper_text, color=theme.MUTED, size=11, selectable=True),
+                ft.Text(str(paper.get("note", "")), color=theme.MUTED, size=10, selectable=True),
+            ],
+            spacing=4,
+        ),
+        padding=10,
+    )

@@ -122,6 +122,7 @@ from etf_cockpit.data.provider_registry import *  # noqa: F401,F403
 from etf_cockpit.data.privacy import *  # noqa: F401,F403
 from etf_cockpit.data.reference_data import *  # noqa: F401,F403
 from etf_cockpit.data.run_changes import *  # noqa: F401,F403
+from etf_cockpit.application.run_change_context import upstream_run_context  # noqa: F401
 from etf_cockpit.data.score_history import *  # noqa: F401,F403
 from etf_cockpit.data.source_policy import *  # noqa: F401,F403
 from etf_cockpit.data.statement_normalisation import *  # noqa: F401,F403
