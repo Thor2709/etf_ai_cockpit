@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from datetime import date
 
 import pandas as pd
 
@@ -8,6 +9,7 @@ from etf_cockpit.app.pages.dashboard import _news_digest
 from etf_cockpit.app.pages.instrument_detail import render_news_contradiction_panel
 from etf_cockpit.app.pages.trust_evidence import _news_context_extra
 from etf_cockpit.application.digest import contradiction_digest_records
+from etf_cockpit.chatgpt_bridge import export_pack
 from etf_cockpit.data.news_context import build_news_macro_contradictions
 
 
@@ -69,12 +71,32 @@ def test_macro_risk_against_exposure_flagged_clear_and_unavailable():
     assert _result(build_news_macro_contradictions(pd.DataFrame(), exposures=exposures, cutoff=CUTOFF), "macro_risk_against_exposure")["status"] == "unavailable"
 
 
+def test_missing_macro_classification_is_unavailable():
+    macro = {"status": "available", "regime": {"label": "risk-on", "score_10": 8.0}}
+    result = _result(build_news_macro_contradictions(pd.DataFrame(), macro_context=macro, exposures={"VWCE": ""}, cutoff=CUTOFF), "macro_risk_against_exposure")
+    assert result["status"] == "unavailable"
+    assert "classification" in result["reason"]
+
+
+def test_missing_ingestion_timestamp_is_not_eligible():
+    news = pd.DataFrame([_news()]).drop(columns=["ingested_at"])
+    result = _result(build_news_macro_contradictions(news, cutoff=CUTOFF), "source_disagreement")
+    assert result["status"] == "unavailable"
+    assert "news items" in result["reason"]
+
+
 def test_source_disagreement_flagged_clear_and_unavailable():
     opposite = pd.DataFrame([_news(provider="a", news_id="a1"), _news(headline="VWCE falls", provider="b", news_id="b1", published="2026-08-11T08:00:00+00:00")])
-    clear = pd.DataFrame([_news(provider="a"), _news(provider="b", news_id="b1", published="2026-08-20T08:00:00+00:00")])
+    clear = pd.DataFrame([_news(provider="a"), _news(provider="b", news_id="b1", published="2026-08-11T08:00:00+00:00")])
     assert _result(build_news_macro_contradictions(opposite, cutoff=CUTOFF), "source_disagreement")["status"] == "flagged"
     assert _result(build_news_macro_contradictions(clear, cutoff=CUTOFF), "source_disagreement")["status"] == "clear"
     assert _result(build_news_macro_contradictions(pd.DataFrame(), cutoff=CUTOFF), "source_disagreement")["status"] == "unavailable"
+
+
+def test_source_disagreement_without_comparable_provider_evidence_is_unavailable():
+    result = _result(build_news_macro_contradictions(pd.DataFrame([_news(provider="a")]), cutoff=CUTOFF), "source_disagreement")
+    assert result["status"] == "unavailable"
+    assert "comparable" in result["reason"]
 
 
 def test_bullish_sentiment_deteriorating_score_flagged_clear_and_unavailable():
@@ -122,6 +144,58 @@ def test_existing_positive_trend_rule_is_flagged_clear_and_unavailable():
     prices.loc[1, "adjusted_close"] = 105.0
     assert _result(build_news_macro_contradictions(news, prices=prices, cutoff=CUTOFF), "positive_trend_negative_news")["status"] == "clear"
     assert _result(build_news_macro_contradictions(news, cutoff=CUTOFF), "positive_trend_negative_news")["status"] == "unavailable"
+
+
+def test_conflicting_price_identities_are_unavailable():
+    prices = pd.DataFrame([
+        {"instrument_id": "VWCE", "etf_id": "OTHER", "date": "2026-08-09", "adjusted_close": 100.0},
+        {"instrument_id": "VWCE", "etf_id": "OTHER", "date": "2026-08-11", "adjusted_close": 95.0},
+    ])
+    result = _result(build_news_macro_contradictions(pd.DataFrame([_news()]), prices=prices, cutoff=CUTOFF), "positive_trend_negative_news")
+    assert result["status"] == "unavailable"
+    assert "Conflicting" in result["reason"]
+
+
+def test_no_strong_score_rows_are_unavailable():
+    result = _result(build_news_macro_contradictions(pd.DataFrame([_news()]), score_history=_history(6.0, 6.5), cutoff=CUTOFF), "strong_score_missing_stale_news")
+    assert result["status"] == "unavailable"
+
+
+def test_audit_contradiction_export_preserves_unreadable_state(monkeypatch):
+    monkeypatch.setattr(export_pack, "load_news_items", lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("broken ledger")))
+    payload = export_pack._contradiction_export_payload(as_of_date=date(2026, 8, 12))
+    assert payload["status"] == "unavailable"
+    assert payload["as_of"] == "2026-08-12T23:59:59+00:00"
+    assert "ValueError" in payload["reason"]
+
+
+def test_dashboard_macro_context_uses_cutoff_filtered_prices(monkeypatch):
+    import etf_cockpit.app.pages.dashboard as dashboard
+
+    news = pd.DataFrame([_news()])
+    prices = pd.DataFrame([
+        {"instrument_id": "VWCE", "date": "2026-08-11", "adjusted_close": 100.0},
+        {"instrument_id": "VWCE", "date": "2026-08-20", "adjusted_close": 50.0},
+    ])
+    seen: list[pd.DataFrame] = []
+    monkeypatch.setattr(dashboard, "load_news_items", lambda _path: news)
+    monkeypatch.setattr(dashboard, "filter_news_contradiction_inputs", lambda *_args: (news, prices))
+    monkeypatch.setattr(dashboard, "build_macro_context", lambda frame, _rows: seen.append(frame.copy()) or {"status": "available", "regime": {"label": "risk-on"}})
+    monkeypatch.setattr(dashboard, "load_fundamental_evidence", lambda _path: pd.DataFrame())
+    monkeypatch.setattr(dashboard, "score_history_frame", lambda: pd.DataFrame())
+    state = SimpleNamespace(snapshot=SimpleNamespace(prices=prices, config=SimpleNamespace(universe=SimpleNamespace(etfs=()))))
+    dashboard._contradiction_record(state, as_of="2026-08-12", cutoff=pd.Timestamp(CUTOFF))
+    assert len(seen) == 1
+    assert set(seen[0]["date"]) == {"2026-08-11"}
+
+
+def test_instrument_panel_does_not_recompute_missing_supplied_records(monkeypatch):
+    import etf_cockpit.app.pages.instrument_detail as instrument_detail
+
+    monkeypatch.setattr(instrument_detail, "contradiction_digest_records", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("UI fallback recomputed contradictions")))
+    model = SimpleNamespace(sections={"news": {"status": "available", "items": []}}, instrument_id="VWCE")
+    panel = render_news_contradiction_panel(model)
+    assert "News/macro contradictions" in " ".join(_text_values(panel))
 
 
 def test_digest_and_ui_panels_render_all_results_without_execution_authority(monkeypatch):

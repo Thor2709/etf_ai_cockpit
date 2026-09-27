@@ -365,6 +365,10 @@ def _contradiction_record(
             cutoff if cutoff is not None else normalise_event_decision_time(as_of),
         )
         macro_prices = prices.copy() if isinstance(prices, pd.DataFrame) else pd.DataFrame()
+        decision_cutoff = cutoff if cutoff is not None else normalise_event_decision_time(as_of)
+        if isinstance(decision_cutoff, pd.Timestamp) and not macro_prices.empty and "date" in macro_prices.columns:
+            macro_dates = pd.to_datetime(macro_prices["date"], errors="coerce", utc=True)
+            macro_prices = macro_prices.loc[macro_dates.notna() & (macro_dates.dt.date <= decision_cutoff.date())].copy()
         if "etf_id" not in macro_prices.columns and "instrument_id" in macro_prices.columns:
             macro_prices["etf_id"] = macro_prices["instrument_id"]
         instruments = getattr(getattr(getattr(state, "snapshot", None), "config", None), "universe", None)

@@ -186,8 +186,11 @@ def persist_news_items(
     return NewsPersistenceResult(tuple(raw_paths), clean_path, audit_path, len(combined), checksum, len(existing) == len(combined))
 
 
-def load_news_items(path: Path = NEWS_CLEAN_PATH) -> pd.DataFrame:
-    return sort_news_items(_read_clean(Path(path)))
+def load_news_items(path: Path = NEWS_CLEAN_PATH, *, strict: bool = False) -> pd.DataFrame:
+    """Read the canonical news ledger, preserving unreadable versus empty state."""
+
+    frame = _read_clean_strict(Path(path)) if strict else _read_clean(Path(path))
+    return sort_news_items(frame)
 
 
 def sort_news_items(frame: pd.DataFrame) -> pd.DataFrame:
@@ -223,6 +226,11 @@ def build_news_contradiction_rows(news: pd.DataFrame, prices: pd.DataFrame) -> p
     if not required <= set(news.columns) or not {"instrument_id", "date", "adjusted_close"} <= set(prices.columns):
         return pd.DataFrame(columns=columns)
     price_frame = prices.copy()
+    instrument = price_frame["instrument_id"].map(lambda value: str(value).strip())
+    etf = price_frame["etf_id"].map(lambda value: str(value).strip()) if "etf_id" in price_frame.columns else pd.Series("", index=price_frame.index)
+    if bool((instrument.ne("") & etf.ne("") & instrument.ne(etf)).any()):
+        return pd.DataFrame(columns=columns)
+    price_frame["instrument_id"] = instrument.where(instrument.ne(""), etf)
     price_frame["date"] = pd.to_datetime(price_frame["date"], errors="coerce").dt.date
     price_frame["adjusted_close"] = pd.to_numeric(price_frame["adjusted_close"], errors="coerce")
     price_frame = price_frame.dropna(subset=["date", "adjusted_close"])
@@ -322,6 +330,8 @@ def build_news_macro_contradictions(
     """
 
     cutoff_ts = _contradiction_timestamp(cutoff)
+    if cutoff_ts is None:
+        return [_unavailable_result(rule, "An explicit decision cutoff is required for point-in-time contradiction evaluation.").to_dict() for rule in CONTRADICTION_RULES]
     eligible_news = _eligible_contradiction_news(news, cutoff_ts)
     eligible_prices = _eligible_contradiction_prices(prices, cutoff_ts)
     results: list[ContradictionResult] = []
@@ -345,6 +355,8 @@ def _positive_trend_rule(news: pd.DataFrame, prices: pd.DataFrame | None, cutoff
         return [_unavailable_result(rule, "No point-in-time news items are available at the evaluation cutoff.")]
     if not isinstance(prices, pd.DataFrame) or prices.empty:
         return [_unavailable_result(rule, "Adjusted-price evidence is unavailable at the evaluation cutoff.")]
+    if "_identity_error" in prices.columns:
+        return [_unavailable_result(rule, str(prices["_identity_error"].iloc[0]))]
     rows = build_news_contradiction_rows(news, prices)
     if rows.empty:
         return [_clear_result(rule, "No positive trend headline contradicts the next available adjusted close.")]
@@ -406,6 +418,9 @@ def _macro_exposure_rule(macro_context: Mapping[str, object] | None, exposures: 
     stressed = label in {"stressed", "defensive", "risk-off", "risk_off"} or (score is not None and score <= 4.0)
     rows: list[ContradictionResult] = []
     for instrument_id, classification in exposure_rows:
+        if not classification.strip():
+            rows.append(_unavailable_result(rule, "Exposure classification is missing; macro sensitivity cannot be established.", instrument_id))
+            continue
         equity = any(term in classification.casefold() for term in ("equity", "stock", "risk", "high_beta"))
         if not equity:
             rows.append(_clear_result(rule, "Exposure classification is not sensitive to the identified macro regime.", instrument_id, {"regime": label or "unavailable"}))
@@ -419,6 +434,7 @@ def _source_disagreement_rule(news: pd.DataFrame, window_days: int) -> list[Cont
     if news.empty:
         return [_unavailable_result(rule, "No point-in-time news items are available at the evaluation cutoff.")]
     flagged: list[ContradictionResult] = []
+    comparable_pairs = 0
     for instrument_id, group in news.groupby(news["instrument_id"].astype(str), sort=True):
         records = [(row, _headline_direction(row.get("headline"))) for _, row in group.iterrows()]
         for left_index, (left, left_direction) in enumerate(records):
@@ -429,14 +445,20 @@ def _source_disagreement_rule(news: pd.DataFrame, window_days: int) -> list[Cont
             for right, right_direction in records[left_index + 1 :]:
                 right_source = str(right.get("provider_name") or right.get("provider") or right.get("source_authority") or right.get("source") or "").strip()
                 right_time = _contradiction_timestamp(right.get("published_at"))
-                if right_direction not in {"up", "down"} or left_direction == right_direction or not left_source or left_source == right_source or left_time is None or right_time is None:
+                if right_direction not in {"up", "down"} or not left_source or left_source == right_source or left_time is None or right_time is None:
                     continue
                 if abs((left_time - right_time).total_seconds()) <= max(0, window_days) * 86400:
-                    flagged.append(ContradictionResult(rule, "flagged", "Different sources/providers report opposite headline directions within the bounded window.", instrument_id, {"news_ids": (str(left.get("news_id", "")), str(right.get("news_id", ""))), "sources": (left_source, right_source)}))
-                    break
+                    comparable_pairs += 1
+                    if left_direction != right_direction:
+                        flagged.append(ContradictionResult(rule, "flagged", "Different sources/providers report opposite headline directions within the bounded window.", instrument_id, {"news_ids": (str(left.get("news_id", "")), str(right.get("news_id", ""))), "sources": (left_source, right_source)}))
+                        break
             if flagged and flagged[-1].instrument_id == instrument_id:
                 break
-    return flagged or [_clear_result(rule, "No opposite headline directions from different sources were found in the bounded window.")]
+    if flagged:
+        return flagged
+    if comparable_pairs == 0:
+        return [_unavailable_result(rule, "No comparable multi-source/provider evidence exists in the bounded window.")]
+    return [_clear_result(rule, "No opposite headline directions from different sources were found in the bounded window.")]
 
 
 def _deteriorating_score_rule(news: pd.DataFrame, history: pd.DataFrame | None, cutoff: pd.Timestamp | None) -> list[ContradictionResult]:
@@ -479,7 +501,7 @@ def _missing_stale_news_rule(news: pd.DataFrame, history: pd.DataFrame | None, c
             published = scoped["published_at"].map(_contradiction_timestamp)
             fresh = bool(published.map(lambda value: value is not None and (cutoff - value).total_seconds() <= max(0, freshness_days) * 86400).any())
         rows.append(ContradictionResult(rule, "clear" if fresh else "flagged", "A fresh news item is available within the configured window." if fresh else "Strong score has no news item within the freshness window at the evaluation cutoff; missing/stale news is not clear.", instrument_id, {"final_combined_score_10": score, "freshness_days": freshness_days}))
-    return rows or [_clear_result(rule, "No strong score tier rows are present at the evaluation cutoff.")]
+    return rows or [_unavailable_result(rule, "No strong score tier rows are present at the evaluation cutoff.")]
 
 
 def _eligible_contradiction_news(news: pd.DataFrame, cutoff: pd.Timestamp | None) -> pd.DataFrame:
@@ -488,10 +510,12 @@ def _eligible_contradiction_news(news: pd.DataFrame, cutoff: pd.Timestamp | None
     frame = news.copy()
     frame["instrument_id"] = frame["instrument_id"].astype(str).str.strip()
     published = frame["published_at"].map(_contradiction_timestamp)
-    ingested = frame["ingested_at"].map(_contradiction_timestamp) if "ingested_at" in frame.columns else published
+    ingested = frame["ingested_at"].map(_contradiction_timestamp) if "ingested_at" in frame.columns else pd.Series(pd.NaT, index=frame.index)
     mask = frame["instrument_id"].ne("") & published.notna() & ingested.notna()
     if cutoff is not None:
-        mask &= published.le(cutoff) & ingested.le(cutoff)
+        published_before = published.map(lambda value: isinstance(value, pd.Timestamp) and not pd.isna(value) and value <= cutoff)
+        ingested_before = ingested.map(lambda value: isinstance(value, pd.Timestamp) and not pd.isna(value) and value <= cutoff)
+        mask &= published_before & ingested_before
     frame = frame.loc[mask].copy()
     frame["_published_ts"] = published.loc[frame.index]
     return frame.sort_values(["_published_ts", "instrument_id"], kind="stable").drop(columns=["_published_ts"]).reset_index(drop=True)
@@ -501,6 +525,13 @@ def _eligible_contradiction_prices(prices: pd.DataFrame | None, cutoff: pd.Times
     if not isinstance(prices, pd.DataFrame) or prices.empty or cutoff is None or "date" not in prices.columns:
         return prices if isinstance(prices, pd.DataFrame) else pd.DataFrame()
     frame = prices.copy()
+    instrument = frame["instrument_id"].map(lambda value: str(value).strip()) if "instrument_id" in frame.columns else pd.Series("", index=frame.index)
+    etf = frame["etf_id"].map(lambda value: str(value).strip()) if "etf_id" in frame.columns else pd.Series("", index=frame.index)
+    conflicts = instrument.ne("") & etf.ne("") & instrument.ne(etf)
+    if bool(conflicts.any()):
+        frame["_identity_error"] = "Conflicting instrument_id and etf_id identities; price evidence is unavailable."
+        return frame
+    frame["instrument_id"] = instrument.where(instrument.ne(""), etf)
     dates = pd.to_datetime(frame["date"], errors="coerce", utc=True)
     return frame.loc[dates.notna() & dates.dt.date.le(cutoff.date())].copy()
 

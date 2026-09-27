@@ -425,7 +425,7 @@ def export_review_pack(
     fx_inventory = fx_data_inventory()
     publish(lambda: (export_dir / "13_fx_inventory.json").write_text(json.dumps(fx_inventory, indent=2, default=str), encoding="utf-8"))
     derived_manifest = publish(lambda: _export_derived_evidence(export_dir))
-    evidence_manifest = publish(lambda: _export_trust_critical_evidence(export_dir, config))
+    evidence_manifest = publish(lambda: _export_trust_critical_evidence(export_dir, config, as_of_date=as_of_date))
     edge_cost_path = export_dir / "evidence_export" / "edge_cost.csv"
     publish(lambda: edge_cost_path.parent.mkdir(parents=True, exist_ok=True))
     edge_columns = [
@@ -746,7 +746,7 @@ def _export_derived_evidence(export_dir: Path) -> dict[str, object]:
     return manifest
 
 
-def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict[str, object]:
+def _export_trust_critical_evidence(export_dir: Path, config: AppConfig, *, as_of_date: date | None = None) -> dict[str, object]:
     evidence_root = export_dir / "evidence_export"
     evidence_root.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, object] = {"included": [], "missing": [], "checksums": {}}
@@ -791,26 +791,7 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
     _copy_evidence_tree(NEWS_RAW_DIR, evidence_root / "raw_news_context", manifest)
 
     contradiction_path = evidence_root / "news_contradictions.json"
-    try:
-        news = load_news_items(NEWS_CONTEXT_PATH)
-        fundamentals = load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
-        history = _safe_optional_frame(SCORE_HISTORY_PATH)
-        contradiction_payload = {
-            "schema_version": 1,
-            "status": "available",
-            "execution_allowed": False,
-            "executable_authority": False,
-            "results": build_news_macro_contradictions(news, fundamentals=fundamentals, score_history=history),
-        }
-    except Exception as exc:
-        contradiction_payload = {
-            "schema_version": 1,
-            "status": "unavailable",
-            "reason": f"contradiction_export_failed:{type(exc).__name__}",
-            "execution_allowed": False,
-            "executable_authority": False,
-            "results": [],
-        }
+    contradiction_payload = _contradiction_export_payload(as_of_date=as_of_date)
     contradiction_path.write_text(json.dumps(contradiction_payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
     _include_file(contradiction_path, "news_contradictions.json", manifest)
 
@@ -870,6 +851,32 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
     (evidence_root / "trust_critical_manifest.json").write_text(json.dumps(manifest, indent=2, default=str), encoding="utf-8")
     _include_file(evidence_root / "trust_critical_manifest.json", "trust_critical_manifest.json", manifest)
     return manifest
+
+
+def _contradiction_export_payload(*, as_of_date: date | None = None) -> dict[str, object]:
+    cutoff = f"{as_of_date.isoformat()}T23:59:59+00:00" if as_of_date is not None else None
+    try:
+        news = load_news_items(NEWS_CONTEXT_PATH, strict=True)
+        fundamentals = load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
+        history = _safe_optional_frame(SCORE_HISTORY_PATH)
+        return {
+            "schema_version": 1,
+            "status": "available",
+            "as_of": cutoff,
+            "execution_allowed": False,
+            "executable_authority": False,
+            "results": build_news_macro_contradictions(news, fundamentals=fundamentals, score_history=history, cutoff=cutoff),
+        }
+    except Exception as exc:
+        return {
+            "schema_version": 1,
+            "status": "unavailable",
+            "as_of": cutoff,
+            "reason": f"contradiction_export_failed:{type(exc).__name__}",
+            "execution_allowed": False,
+            "executable_authority": False,
+            "results": [],
+        }
 
 
 def _copy_optional_output(source: Path, evidence_root: Path, arcname: str, manifest: dict[str, object]) -> None:

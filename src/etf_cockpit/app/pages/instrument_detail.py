@@ -499,15 +499,26 @@ def _render_etf_order_preview(page: ft.Page | None, state: AppState, instrument_
 
 
 def render_news_contradiction_panel(model: InstrumentDetailViewModel) -> ft.Control:
-    """Render all contradiction rule states for the selected instrument."""
+    """Render validated, point-in-time contradiction records supplied by the selector."""
 
     news = model.sections.get("news") if isinstance(model.sections.get("news"), dict) else {}
     supplied = news.get("contradictions") if isinstance(news, dict) else None
-    if isinstance(supplied, (list, tuple)):
-        results = [item for item in supplied if isinstance(item, Mapping)]
-    else:
-        items = news.get("items", []) if isinstance(news, dict) else []
-        results = contradiction_digest_records(pd.DataFrame(items))
+    cutoff = news.get("contradiction_cutoff") if isinstance(news, dict) else None
+    def valid_record(item: object) -> bool:
+        if not isinstance(item, Mapping) or item.get("status") not in {"available", "manual_review", "unavailable"}:
+            return False
+        contradiction = item.get("contradiction")
+        return (
+            isinstance(contradiction, Mapping)
+            and bool(contradiction.get("rule"))
+            and item.get("rule_status") == contradiction.get("status")
+            and contradiction.get("execution_allowed") is False
+        )
+    results = (
+        [item for item in supplied if valid_record(item)]
+        if isinstance(supplied, (list, tuple)) and cutoff
+        else []
+    )
     rows = [
         ft.Text(
             f"{result.get('title', 'contradiction')}: status={result.get('rule_status', result.get('status', 'unavailable'))} | {result.get('detail', 'unavailable')}",
@@ -750,6 +761,18 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         innovation_projection=getattr(state, "innovation_projection", None),
         innovation_source_digest=getattr(state, "innovation_source_digest", None),
     )
+    decision_cutoff = getattr(getattr(state.snapshot, "data_report", None), "as_of_date", None)
+    cutoff = decision_cutoff
+    if cutoff and len(str(cutoff)) == 10:
+        cutoff = f"{cutoff}T23:59:59+00:00"
+    news_section = model.sections.get("news")
+    if isinstance(news_section, dict):
+        news_section["contradictions"] = contradiction_digest_records(
+            pd.DataFrame(news_section.get("items", [])),
+            prices=getattr(state.snapshot, "prices", pd.DataFrame()),
+            cutoff=cutoff,
+        )
+        news_section["contradiction_cutoff"] = cutoff
     vintage_history = bitemporal_history_summary(selected) if selected else {"status": "unavailable", "message": "No instrument selected."}
     export_status = ft.Text(
         "Audit evidence export unavailable for this selection."
