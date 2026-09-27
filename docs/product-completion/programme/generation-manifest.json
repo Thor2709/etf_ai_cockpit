@@ -3,7 +3,7 @@
   "outputs": [
     {
       "path": ".github/status-transition-guard-manifest.json",
-      "sha256": "47acacb36b3ceaad8cdb7d63f1fdd05194dad0ecc6f2236eab5a65b83fb169ec"
+      "sha256": "6d5b2f7cdc5c777cbe01c738b6b250e8746366d975c049573b3533437f4fd823"
     },
     {
       "path": "CHANGELOG.md",
