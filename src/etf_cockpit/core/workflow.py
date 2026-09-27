@@ -81,6 +81,7 @@ LONG_RUNNING_ACTION_CONTROL_KEYS.update(
             "etf-disclosures.import-report",
             "etf-disclosures.import-kid",
             "etf-disclosures.import-methodology",
+            "etf-disclosures.import-sfdr",
             "dashboard.import-etf-factsheets",
             "dashboard.import-etf-holdings",
         ),
