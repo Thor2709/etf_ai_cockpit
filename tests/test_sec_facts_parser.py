@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
 from etf_cockpit.parsers.contracts import RawDocument
 from etf_cockpit.parsers.esef_ixbrl import XbrlFact
@@ -18,8 +20,13 @@ def _identity(cik: str | None = "789019") -> CanonicalIdentity:
     return CanonicalIdentity("MSFT", "Microsoft Corporation", None, "needs_verification", "MSFT", "NASDAQ", "USD", "stock", {"yahoo": "MSFT"}, "high", (), cik)
 
 
-def test_real_sec_fixture_retains_official_fact_provenance() -> None:
-    result = parse_companyfacts(FIXTURE, _identity())
+@pytest.fixture(scope="module")
+def companyfacts_result():
+    return parse_companyfacts(FIXTURE, _identity())
+
+
+def test_real_sec_fixture_retains_official_fact_provenance(companyfacts_result) -> None:
+    result = companyfacts_result
     assert result.success is True
     assert result.records
     assert any(record.concept in {"Revenue", "Assets", "NetIncomeLoss"} for record in result.records)
@@ -71,8 +78,8 @@ def test_custom_concepts_are_retained_but_not_auto_mapped_and_duplicates_are_ded
     assert any(warning.code == "custom_concept" for warning in result.warnings)
 
 
-def test_statement_facts_persist_with_source_ids(tmp_path: Path) -> None:
-    result = parse_companyfacts(FIXTURE, _identity())
+def test_statement_facts_persist_with_source_ids(tmp_path: Path, companyfacts_result) -> None:
+    result = companyfacts_result
     destination = tmp_path / "statement_facts.parquet"
     write_statement_facts(result.records, destination)
     import pandas as pd
@@ -83,8 +90,8 @@ def test_statement_facts_persist_with_source_ids(tmp_path: Path) -> None:
     assert frame["source_id"].astype(str).str.startswith("sec_edgar:").all()
 
 
-def test_statement_inventory_persists_official_source_and_mapping_ids(tmp_path: Path) -> None:
-    result = parse_companyfacts(FIXTURE, _identity())
+def test_statement_inventory_persists_official_source_and_mapping_ids(tmp_path: Path, companyfacts_result) -> None:
+    result = companyfacts_result
     document = RawDocument(FIXTURE, "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json", datetime.now(timezone.utc), result.source_sha256, "sec_edgar", "sec_companyfacts", "application/json", 200)
     destination = tmp_path / "filings_statements.parquet"
     write_statement_inventory(document, result.records, destination)

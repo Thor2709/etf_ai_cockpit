@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+from dataclasses import replace
 from types import SimpleNamespace
 
 import flet as ft
@@ -12,6 +14,74 @@ from etf_cockpit.app.router import PAGES, WORKSPACE_GROUPS, build_shell, uses_na
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.ui_acceptance import build_main_ui_action_inventory, ui_command_contracts
 from etf_cockpit.services import build_snapshot
+
+
+_SNAPSHOT_TEMPLATE = None
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _snapshot_template():
+    global _SNAPSHOT_TEMPLATE
+    _SNAPSHOT_TEMPLATE = build_snapshot()
+    yield
+    _SNAPSHOT_TEMPLATE = None
+
+
+def _snapshot_copy():
+    assert _SNAPSHOT_TEMPLATE is not None
+    snapshot = _SNAPSHOT_TEMPLATE
+    return replace(
+        snapshot,
+        config=copy.deepcopy(snapshot.config),
+        prices=snapshot.prices.copy(deep=True),
+        holdings=snapshot.holdings.copy(deep=True),
+        features=snapshot.features.copy(deep=True),
+        latest_features=snapshot.latest_features.copy(deep=True),
+        data_report=replace(
+            snapshot.data_report,
+            issues=copy.deepcopy(snapshot.data_report.issues),
+            dataset_metadata=copy.deepcopy(snapshot.data_report.dataset_metadata),
+        ),
+        signals=[
+            replace(
+                signal,
+                blocked_by=copy.deepcopy(signal.blocked_by),
+                warnings=copy.deepcopy(signal.warnings),
+                supporting_metrics=copy.deepcopy(signal.supporting_metrics),
+                model_versions_used=copy.deepcopy(signal.model_versions_used),
+                authority_decision=copy.deepcopy(signal.authority_decision),
+                canonical_score=copy.deepcopy(signal.canonical_score),
+            )
+            for signal in snapshot.signals
+        ],
+        forecasts=snapshot.forecasts.copy(deep=True),
+        model_status=copy.deepcopy(snapshot.model_status),
+        model_inventory=copy.deepcopy(snapshot.model_inventory),
+        candidate_price_binding=copy.deepcopy(snapshot.candidate_price_binding),
+        etf_economics_records=copy.deepcopy(snapshot.etf_economics_records),
+        etf_fund_total_return=copy.deepcopy(snapshot.etf_fund_total_return),
+        etf_benchmark_total_return=copy.deepcopy(snapshot.etf_benchmark_total_return),
+        etf_closure_policy=copy.deepcopy(snapshot.etf_closure_policy),
+        benchmark_reference_registry=copy.copy(snapshot.benchmark_reference_registry),
+        benchmark_reference_instrument=copy.deepcopy(snapshot.benchmark_reference_instrument),
+        benchmark_reference_portfolio_ids=copy.deepcopy(snapshot.benchmark_reference_portfolio_ids),
+        vwce_anchor_evidence=copy.copy(snapshot.vwce_anchor_evidence),
+        vwce_conversion_evidence=copy.deepcopy(snapshot.vwce_conversion_evidence),
+        backtest=replace(
+            snapshot.backtest,
+            results=snapshot.backtest.results.copy(deep=True),
+            equity_curves=snapshot.backtest.equity_curves.copy(deep=True),
+            trade_log=snapshot.backtest.trade_log.copy(deep=True),
+            signal_log=snapshot.backtest.signal_log.copy(deep=True),
+            quality_notes=(
+                None
+                if snapshot.backtest.quality_notes is None
+                else copy.deepcopy(snapshot.backtest.quality_notes)
+            ),
+            metadata=copy.deepcopy(snapshot.backtest.metadata),
+            quality_momentum_evidence=snapshot.backtest.quality_momentum_evidence.copy(deep=True),
+        ),
+    )
 
 
 def _walk(control: object):
@@ -50,7 +120,7 @@ def test_workspace_groups_cover_each_registered_route_once() -> None:
 
 
 def test_evidence_mode_is_presentation_only_and_validated() -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
 
     for mode in theme.EVIDENCE_MODES:
@@ -63,7 +133,7 @@ def test_evidence_mode_is_presentation_only_and_validated() -> None:
 
 @pytest.mark.parametrize("width", [640, 759, 760, 900, 1100, 1200])
 def test_shell_has_grouped_navigation_and_evidence_mode_at_responsive_widths(width: int) -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     page = SimpleNamespace(width=width, route="/")
 
@@ -81,7 +151,7 @@ def test_shell_has_grouped_navigation_and_evidence_mode_at_responsive_widths(wid
 
 
 def test_shell_command_palette_exposes_search_and_enter_instructions() -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     page = SimpleNamespace(width=1200, route="/")
 
@@ -97,7 +167,7 @@ def test_shell_command_palette_exposes_search_and_enter_instructions() -> None:
 
 
 def test_shell_command_palette_filters_and_navigates(monkeypatch: pytest.MonkeyPatch) -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     page = SimpleNamespace(width=1200, route="/", update=lambda: None)
     selected: list[str] = []
@@ -143,7 +213,7 @@ def test_shell_command_palette_filters_and_navigates(monkeypatch: pytest.MonkeyP
 def test_palette_control_dispatch_preserves_terminal_result_and_prevents_reinvocation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     page = SimpleNamespace(width=1200, route="/", update=lambda: None)
     selected: list[str] = []
@@ -205,7 +275,7 @@ def test_palette_control_dispatch_preserves_terminal_result_and_prevents_reinvoc
     assert first_failure in visible
 
 def test_unknown_and_failed_routes_render_a_visible_controlled_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     page = SimpleNamespace(width=1200, route="/missing")
     monkeypatch.setattr(router, "log_event", lambda **_kwargs: None)
