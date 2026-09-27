@@ -13,7 +13,8 @@ from typing import Any
 
 import pandas as pd
 
-from etf_cockpit.data.news_context import NEWS_SCHEMA_VERSION, NewsItem, validate_news_item
+from etf_cockpit.data.news_context import NEWS_SCHEMA_VERSION, NewsItem, build_news_macro_contradictions, validate_news_item
+from etf_cockpit.features.macro import build_macro_context as _build_macro_context
 
 
 DIGEST_SOURCES = (
@@ -34,6 +35,74 @@ _VALID_SEVERITIES = frozenset(_SEVERITY_ORDER)
 MAX_DIGEST_ITEMS = 12
 
 
+def build_macro_context(*args: object, **kwargs: object) -> dict[str, object]:
+    """Application-layer access to the canonical macro context builder."""
+
+    return _build_macro_context(*args, **kwargs)
+
+
+def contradiction_digest_records(
+    news: pd.DataFrame,
+    *,
+    prices: pd.DataFrame | None = None,
+    fundamentals: pd.DataFrame | None = None,
+    macro_context: Mapping[str, object] | None = None,
+    exposures: object | None = None,
+    score_history: pd.DataFrame | None = None,
+    cutoff: object | None = None,
+) -> list[dict[str, object]]:
+    """Format engine results for informational digest/panel consumers."""
+
+    results = build_news_macro_contradictions(
+        news,
+        prices=prices,
+        fundamentals=fundamentals,
+        macro_context=macro_context,
+        exposures=exposures,
+        score_history=score_history,
+        cutoff=cutoff,
+    )
+    flagged = [item for item in results if str(item.get("status")) == "flagged"]
+    unavailable = [item for item in results if str(item.get("status")) == "unavailable"]
+    summary_reason = "No contradiction rule is flagged; unavailable rule inputs remain explicit."
+    price_unavailable = next((item for item in results if item.get("rule") == "positive_trend_negative_news" and item.get("status") == "unavailable"), None)
+    macro_unavailable = next((item for item in results if item.get("rule") == "macro_risk_against_exposure" and item.get("status") == "unavailable"), None)
+    if price_unavailable is not None:
+        summary_reason = str(price_unavailable.get("reason", summary_reason))
+    elif macro_unavailable is not None:
+        summary_reason = str(macro_unavailable.get("reason", summary_reason))
+    elif unavailable:
+        summary_reason = str(unavailable[0].get("reason", summary_reason))
+    no_price_evidence = not isinstance(prices, pd.DataFrame) or prices.empty
+    all_unavailable = bool(results) and all(str(item.get("status")) == "unavailable" for item in results)
+    records = [
+        {
+            "title": str(result.get("rule", "contradiction")).replace("_", " ").title(),
+            "detail": f"{result.get('reason', 'No reason recorded.')} | instrument={result.get('instrument_id') or 'all'} | evidence={_contradiction_evidence_text(result.get('evidence'))} | execution_allowed=false",
+            "status": "manual_review" if str(result.get("status")) == "flagged" else "available" if str(result.get("status")) == "clear" else "unavailable",
+            "rule_status": str(result.get("status", "unavailable")),
+            "severity": "warning" if str(result.get("status")) != "clear" else "info",
+            "provenance": "news_context/contradiction_engine",
+            "contradiction": result,
+        }
+        for result in results
+    ]
+    return [
+        {
+            "title": "News/macro contradiction status",
+            "detail": f"{len(flagged)} contradiction rule(s) flagged; {summary_reason} execution_allowed=false",
+            "status": "unavailable" if all_unavailable or no_price_evidence else "manual_review" if flagged or unavailable else "available",
+            "severity": "warning" if flagged or unavailable else "info",
+            "provenance": "news_context/contradiction_engine",
+        },
+        *records,
+    ]
+
+
+def _contradiction_evidence_text(value: object) -> str:
+    if not isinstance(value, Mapping) or not value:
+        return "unavailable"
+    return "; ".join(f"{key}={value[key]}" for key in sorted(value))
 def score_run_pair_as_of(
     history: pd.DataFrame,
     cutoff: object,
@@ -410,7 +479,9 @@ __all__ = [
     "DashboardDigest",
     "DigestItem",
     "MAX_DIGEST_ITEMS",
+    "build_macro_context",
     "build_digest",
+    "contradiction_digest_records",
     "filter_news_contradiction_inputs",
     "score_run_pair_as_of",
 ]

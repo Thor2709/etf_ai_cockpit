@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import hashlib
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -16,8 +17,9 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
 from etf_cockpit.app.state import ActivityUnavailableError, AppState
 from etf_cockpit.app.selectors.instrument_detail import normalise_feature_driver_frame
+from etf_cockpit.application.digest import contradiction_digest_records
 from etf_cockpit.core.atomic_io import atomic_write_bytes
-from etf_cockpit.core.paths import RAW_DIR, STATEMENT_FACTS_PATH
+from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR, STATEMENT_FACTS_PATH
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
 from etf_cockpit.application.ui_facade import (
     BENCHMARK_ATTRIBUTION_PATH,
@@ -50,7 +52,6 @@ from etf_cockpit.application.ui_facade import (
     SCORE_METRIC_HISTORY_PATH,
     SOURCE_CONFLICTS_PATH,
     ProviderRegistry,
-    build_news_contradiction_rows,
     import_etf_document,
     import_etf_holdings_with_document,
     legal_terms_rows,
@@ -68,6 +69,8 @@ from etf_cockpit.application.ui_facade import (
     source_policy_rows,
 )
 from etf_cockpit.plugins.builtins import plugin_status_rows
+
+SFDR_RECORDS_PATH = CLEAN_DIR / "sfdr_records.parquet"
 
 
 FEATURE_DRIVER_EVIDENCE_COLUMNS = [
@@ -400,18 +403,47 @@ def filings_page(page: ft.Page, state: AppState) -> ft.Control:
 def etf_disclosures_page(page: ft.Page, state: AppState) -> ft.Control:
     return _status_page(
         "ETF Disclosures",
-        "ETF factsheets, holdings, PRIIPs KIDs, reports and index methodology inventory. Report reviews are advisory only; score_eligible=false and execution_allowed=false. Partial coverage is shown explicitly.",
+        "ETF factsheets, holdings, PRIIPs KIDs, SFDR disclosures, reports and index methodology inventory. Disclosure reviews are advisory only; score_eligible=false and execution_allowed=false. Partial coverage is shown explicitly.",
         [
             ("ETF disclosure inventory", ETF_DISCLOSURES_PATH, ["instrument_id", "document_type", "source_id", "source_url", "source_authority", "as_of_date", "checksum", "coverage_status", "path"]),
             ("Parsed PRIIPs KID evidence", PRIIPS_KID_RECORDS_PATH, ["instrument_id", "isin", "sri", "cost_fields", "holding_period_years", "document_date", "extraction_confidence", "source_pages", "warnings", "source_sha256", "parser_version", "source_authority", "freshness_status", "manual_review", "score_eligible"]),
             ("Parsed index methodology evidence", INDEX_METHODOLOGY_RECORDS_PATH, ["instrument_id", "provider", "index_series", "version", "document_date", "eligibility_rules", "weighting_rules", "review_frequency", "caps", "source_pages", "warnings", "source_sha256", "parser_version", "source_authority", "freshness_status", "manual_review", "score_eligible"]),
+            ("Parsed SFDR disclosure evidence", SFDR_RECORDS_PATH, ["instrument_id", "classification", "document_type", "document_date", "sustainable_characteristics", "taxonomy_alignment_pct", "warnings", "source_sha256", "source_authority", "manual_review", "score_eligible", "execution_allowed"]),
             ("ETF report evidence (prospectus / annual / half-year)", ETF_REPORT_RECORDS_PATH, ["instrument_id", "document_kind", "fund_name", "isin", "document_date", "reporting_period_end", "legal_structure", "securities_lending", "collateral_policy", "ongoing_costs", "holdings_count", "operational_risks", "language_plugin", "template_plugin", "source_pages", "source_sha256", "source_authority", "extraction_status", "verification_status", "extraction_sha256", "evidence_eligible", "score_eligible", "execution_allowed"]),
             ("ETF report conflicts", ETF_REPORT_CONFLICTS_PATH, ["instrument_id", "field_name", "source_id_a", "source_id_b", "document_kind_a", "document_kind_b", "document_date_a", "document_date_b", "value_a", "value_b", "pages_a", "pages_b", "resolution_status", "requires_manual_review", "execution_allowed"]),
             ("ETF holdings evidence", FUND_HOLDINGS_PATH, ["instrument_id", "as_of_date", "source", "completeness", "freshness", "confidence", "authority", "score_eligible", "source_id"]),
             ("Source conflicts", SOURCE_CONFLICTS_PATH, ["instrument_id", "field_name", "canonical_value", "resolution_status", "requires_manual_review", "reason"]),
         ],
-        extra=_disclosure_import_controls(page, state),
+        extra=ft.Column([_sfdr_panel(SFDR_RECORDS_PATH), _disclosure_import_controls(page, state)], spacing=10),
     )
+
+
+def _sfdr_panel(path: Path) -> ft.Control:
+    frame = _read_frame(path)
+    if frame.empty:
+        body: ft.Control = ft.Text("SFDR disclosure evidence unavailable; no local SFDR document is registered.", color=theme.MUTED, selectable=True)
+    else:
+        rows: list[ft.Control] = []
+        for _, row in frame.head(20).iterrows():
+            warning_codes = []
+            try:
+                payload = json.loads(str(row.get("warnings") or "[]"))
+                warning_codes = [str(item.get("code", item)) if isinstance(item, dict) else str(item) for item in payload]
+            except (TypeError, ValueError, json.JSONDecodeError):
+                warning_codes = ["warnings_unavailable"]
+            rows.append(
+                ft.Row(
+                    [
+                        evidence_chip("SFDR", str(row.get("classification") or "unclassified"), theme.CYAN),
+                        evidence_chip("Document", str(row.get("document_type") or "unavailable"), theme.MUTED),
+                        evidence_chip("Review", "manual review" if bool(row.get("manual_review", True)) else "clear", theme.AMBER if bool(row.get("manual_review", True)) else theme.GREEN),
+                        ft.Text(f"date={row.get('document_date') or 'unavailable'} | source={row.get('source_id') or 'unavailable'} | warnings={', '.join(warning_codes) or 'none'}", color=theme.MUTED, size=11, selectable=True),
+                    ],
+                    wrap=True,
+                )
+            )
+        body = ft.Column(rows, spacing=5)
+    return panel(ft.Column([section_header("SFDR disclosure", "Classification and sustainability disclosures are evidence-only; SFDR never contributes return alpha, scores or execution authority."), body], spacing=8))
 
 
 def news_context_page(_page: ft.Page, state: AppState) -> ft.Control:
@@ -432,16 +464,26 @@ def news_context_page(_page: ft.Page, state: AppState) -> ft.Control:
 def _news_context_extra(state: AppState) -> ft.Control:
     frame = load_news_items(NEWS_CONTEXT_PATH)
     prices = state.snapshot.prices if isinstance(state.snapshot.prices, pd.DataFrame) else pd.DataFrame()
-    contradictions = build_news_contradiction_rows(frame, prices)
-    if frame.empty:
-        body: ft.Control = ft.Text("News unavailable; no canonical local items are registered. Contradictions are unavailable.", color=theme.MUTED, selectable=True)
-    elif contradictions.empty:
-        body = ft.Text("No deterministic contradictions detected for the dated price rows available. Unsupported or undated comparisons remain unavailable.", color=theme.MUTED, selectable=True)
-    else:
-        body = ft.Column(
-            [ft.Text(f"{row['instrument_id']} | {row['headline']} | headline={row['headline_direction']} price={row['price_direction']} | {row['reason']}", color=theme.AMBER, selectable=True, size=11) for _, row in contradictions.iterrows()],
-            spacing=4,
-        )
+    decision_time = normalise_event_decision_time(
+        getattr(getattr(state.snapshot, "data_report", None), "as_of_date", None)
+    )
+    contradiction_results = contradiction_digest_records(
+        frame,
+        prices=prices,
+        cutoff=decision_time,
+    )
+    body: ft.Control = ft.Column(
+        [
+            ft.Text(
+                f"{result.get('title', 'contradiction')}: status={result.get('rule_status', result.get('status', 'unavailable'))} | {result.get('detail', 'unavailable')}",
+                color=theme.AMBER if result.get("status") != "clear" else theme.MUTED,
+                selectable=True,
+                size=11,
+            )
+            for result in contradiction_results
+        ] or [ft.Text("Contradiction engine unavailable; no rule result is inferred.", color=theme.MUTED, selectable=True)],
+        spacing=4,
+    )
     try:
         manual_notes = load_manual_news(MANUAL_NEWS_CLEAN_PATH)
         manual_note_error = None
@@ -851,7 +893,13 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         label="Document type",
         value="factsheet",
         width=190,
-        options=[ft.dropdown.Option(value) for value in ("factsheet", "kid", "methodology")],
+        options=[ft.dropdown.Option(value) for value in ("factsheet", "kid", "methodology", "sfdr")],
+    )
+    sfdr_document_type_field = ft.Dropdown(
+        label="SFDR document type",
+        value="factsheet",
+        width=190,
+        options=[ft.dropdown.Option(value) for value in ("factsheet", "prospectus", "periodic_report")],
     )
     holdings_date_field = ft.TextField(label="Holdings as-of date", width=190)
     holdings_source_field = ft.TextField(
@@ -1102,6 +1150,39 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             action,
         )
 
+    async def import_sfdr(_event: ft.ControlEvent) -> None:
+        from etf_cockpit.parsers.sfdr import parse_sfdr
+        import importlib
+        persist_sfdr_with_document = importlib.import_module("etf_cockpit.data.parsed_disclosures").persist_sfdr_with_document
+
+        files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf"], with_data=True)
+        if not files:
+            result.value = "SFDR disclosure import cancelled; no data changed."
+            page.update()
+            return
+
+        def action(path: Path, action_id: str) -> str:
+            state.update_activity("Parsing SFDR disclosure", "Parsing the selected SFDR PDF.", completed_units=1, total_units=3, expected_action_id=action_id)
+            retained_path = _retain_picker_source(path, "sfdr_disclosures", publish_guard=lambda: state.activity_publication(action_id))
+            instrument_id = str(instrument_field.value or state.selected_etf or "").strip()
+            document_kind = str(sfdr_document_type_field.value or "factsheet")
+            parsed = parse_sfdr(retained_path, document_type=document_kind) if retained_path else None
+            if parsed is None:
+                raise ValueError("SFDR import requires a readable PDF")
+            state.update_activity("Registering SFDR evidence", "Persisting parsed SFDR and checksum-backed provenance.", completed_units=2, total_units=3, expected_action_id=action_id)
+            document = persist_sfdr_with_document(
+                parsed,
+                instrument_id,
+                retained_path,
+                document_date=((parsed.records[0].document_date if parsed.records else None) or str(document_date_field.value or "").strip() or None),
+                configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
+                publish_guard=lambda: state.activity_publication(action_id),
+            )
+            warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
+            return f"SFDR {instrument_id}: classification={parsed.records[0].classification if parsed.records else 'unclassified'}, document={document_kind}, warnings={warning_text}, store={document}, score_eligible=false, execution_allowed=false."
+
+        _run_picker_activity(page, state, result, "Import SFDR disclosure", "Parsing SFDR disclosure", files[0], ".pdf", action)
+
     return panel(
         ft.Column(
             [
@@ -1110,7 +1191,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                 ft.Row([instrument_field, report_kind_field, report_source_field, ft.OutlinedButton("Import bounded report", key="etf-disclosures.import-report", icon=ft.Icons.UPLOAD_FILE, on_click=import_report)], wrap=True),
                 ft.Row([review_source_field, review_fingerprint_field, review_reviewer_field, review_note_field, ft.OutlinedButton("Verify report", key="etf-disclosures.verify-report", on_click=lambda _event: review_report("verified")), ft.OutlinedButton("Reject report", key="etf-disclosures.reject-report", on_click=lambda _event: review_report("rejected"))], wrap=True),
                 ft.Row([holdings_date_field, holdings_source_field, ft.OutlinedButton("Import ETF holdings", key="etf-disclosures.import-holdings", icon=ft.Icons.UPLOAD_FILE, on_click=import_holdings)], wrap=True),
-                ft.Row([provider_field, ft.OutlinedButton("Import PRIIPs KID", key="etf-disclosures.import-kid", icon=ft.Icons.UPLOAD_FILE, on_click=import_kid), ft.OutlinedButton("Import index methodology", key="etf-disclosures.import-methodology", icon=ft.Icons.UPLOAD_FILE, on_click=import_methodology)], wrap=True),
+                ft.Row([provider_field, sfdr_document_type_field, ft.OutlinedButton("Import PRIIPs KID", key="etf-disclosures.import-kid", icon=ft.Icons.UPLOAD_FILE, on_click=import_kid), ft.OutlinedButton("Import index methodology", key="etf-disclosures.import-methodology", icon=ft.Icons.UPLOAD_FILE, on_click=import_methodology), ft.OutlinedButton("Import SFDR disclosure", key="etf-disclosures.import-sfdr", icon=ft.Icons.UPLOAD_FILE, on_click=import_sfdr)], wrap=True),
                 result,
                 report_status,
             ],

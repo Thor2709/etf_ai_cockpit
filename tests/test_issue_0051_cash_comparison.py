@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+from dataclasses import replace
 import json
 import math
 from datetime import datetime
@@ -43,6 +45,74 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     declare_reference_portfolios,
 )
 from etf_cockpit.application.benchmark_reference import resolve_canonical_reference
+
+
+_SNAPSHOT_TEMPLATE = None
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _snapshot_template():
+    global _SNAPSHOT_TEMPLATE
+    _SNAPSHOT_TEMPLATE = build_snapshot()
+    yield
+    _SNAPSHOT_TEMPLATE = None
+
+
+def _snapshot_copy():
+    assert _SNAPSHOT_TEMPLATE is not None
+    snapshot = _SNAPSHOT_TEMPLATE
+    return replace(
+        snapshot,
+        config=copy.deepcopy(snapshot.config),
+        prices=snapshot.prices.copy(deep=True),
+        holdings=snapshot.holdings.copy(deep=True),
+        features=snapshot.features.copy(deep=True),
+        latest_features=snapshot.latest_features.copy(deep=True),
+        data_report=replace(
+            snapshot.data_report,
+            issues=copy.deepcopy(snapshot.data_report.issues),
+            dataset_metadata=copy.deepcopy(snapshot.data_report.dataset_metadata),
+        ),
+        signals=[
+            replace(
+                signal,
+                blocked_by=copy.deepcopy(signal.blocked_by),
+                warnings=copy.deepcopy(signal.warnings),
+                supporting_metrics=copy.deepcopy(signal.supporting_metrics),
+                model_versions_used=copy.deepcopy(signal.model_versions_used),
+                authority_decision=copy.deepcopy(signal.authority_decision),
+                canonical_score=copy.deepcopy(signal.canonical_score),
+            )
+            for signal in snapshot.signals
+        ],
+        forecasts=snapshot.forecasts.copy(deep=True),
+        model_status=copy.deepcopy(snapshot.model_status),
+        model_inventory=copy.deepcopy(snapshot.model_inventory),
+        candidate_price_binding=copy.deepcopy(snapshot.candidate_price_binding),
+        etf_economics_records=copy.deepcopy(snapshot.etf_economics_records),
+        etf_fund_total_return=copy.deepcopy(snapshot.etf_fund_total_return),
+        etf_benchmark_total_return=copy.deepcopy(snapshot.etf_benchmark_total_return),
+        etf_closure_policy=copy.deepcopy(snapshot.etf_closure_policy),
+        benchmark_reference_registry=copy.copy(snapshot.benchmark_reference_registry),
+        benchmark_reference_instrument=copy.deepcopy(snapshot.benchmark_reference_instrument),
+        benchmark_reference_portfolio_ids=copy.deepcopy(snapshot.benchmark_reference_portfolio_ids),
+        vwce_anchor_evidence=copy.copy(snapshot.vwce_anchor_evidence),
+        vwce_conversion_evidence=copy.deepcopy(snapshot.vwce_conversion_evidence),
+        backtest=replace(
+            snapshot.backtest,
+            results=snapshot.backtest.results.copy(deep=True),
+            equity_curves=snapshot.backtest.equity_curves.copy(deep=True),
+            trade_log=snapshot.backtest.trade_log.copy(deep=True),
+            signal_log=snapshot.backtest.signal_log.copy(deep=True),
+            quality_notes=(
+                None
+                if snapshot.backtest.quality_notes is None
+                else copy.deepcopy(snapshot.backtest.quality_notes)
+            ),
+            metadata=copy.deepcopy(snapshot.backtest.metadata),
+            quality_momentum_evidence=snapshot.backtest.quality_momentum_evidence.copy(deep=True),
+        ),
+    )
 
 
 def _evidence(**updates: object) -> dict[str, object]:
@@ -1058,7 +1128,7 @@ def test_cash_validator_and_simple_consumer_fail_closed_on_pd_na_status() -> Non
     assert validated.status == "unavailable"
     assert validated.execution_allowed is False
 
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     instrument_id = snapshot.signals[0].etf_id
     score = next(
         item
@@ -1133,7 +1203,7 @@ def test_cash_builder_rejects_offset_price_endpoint_before_utc_availability() ->
 def test_injected_cash_comparison_propagates_without_changing_score_authority(
     tmp_path, monkeypatch
 ) -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     instrument_id = snapshot.signals[0].etf_id
     baseline = {
         score.display_id: score
@@ -1270,7 +1340,7 @@ def test_injected_cash_comparison_propagates_without_changing_score_authority(
 def test_forged_cash_results_fail_closed_through_every_generic_consumer(
     tmp_path, monkeypatch
 ) -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     eur_ids = [
         signal.etf_id
         for signal in snapshot.signals
@@ -1360,7 +1430,7 @@ def test_forged_cash_results_fail_closed_through_every_generic_consumer(
 def test_local_official_curve_flows_through_normal_score_build_and_ui(
     tmp_path, monkeypatch
 ) -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     identity_by_id = snapshot.config.universe.by_id()
     instrument_id = next(
         signal.etf_id
@@ -1594,7 +1664,7 @@ def test_local_official_curve_flows_through_normal_score_build_and_ui(
 def test_local_cash_lookup_excludes_an_adjusted_endpoint_not_yet_available(
     monkeypatch,
 ) -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     instrument_id = snapshot.config.universe.enabled_ids[0]
     identity = snapshot.config.universe.by_id()[instrument_id]
     future_end = pd.Timestamp("2030-01-02T00:00:00Z")
@@ -1630,7 +1700,7 @@ def test_local_cash_lookup_excludes_an_adjusted_endpoint_not_yet_available(
 def test_local_cash_lookup_rejects_canonical_decision_after_explicit_observation(
     monkeypatch,
 ) -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     instrument_id = snapshot.config.universe.enabled_ids[0]
     identity = snapshot.config.universe.by_id()[instrument_id]
     observation = "2030-01-02T12:00:00Z"
@@ -1750,7 +1820,7 @@ def test_malformed_canonical_cash_chronology_is_rejected_without_raising() -> No
         identities.append(identity)
         assert simple_scores_module._canonical_cash_request(reference, identity) is None
 
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     scores = build_simple_instrument_scores(
         snapshot.config,
         snapshot.signals,

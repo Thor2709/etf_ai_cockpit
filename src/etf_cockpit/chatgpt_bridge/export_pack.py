@@ -21,7 +21,7 @@ from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.data.fx_data import fx_data_inventory
 from etf_cockpit.data.manual_notes import MANUAL_NEWS_CLEAN_PATH, load_manual_news, manual_news_markdown
 from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, FUNDAMENTAL_RAW_DIR, load_fundamental_evidence
-from etf_cockpit.data.news_context import NEWS_RAW_DIR, load_news_items
+from etf_cockpit.data.news_context import NEWS_RAW_DIR, build_news_macro_contradictions, load_news_items
 from etf_cockpit.data.reference_data import reference_data_inventory
 from etf_cockpit.data.score_history import project_classification_score_frame
 from etf_cockpit.data.trust_artifacts import (
@@ -42,7 +42,7 @@ from etf_cockpit.data.trust_artifacts import (
     SOURCE_CONFLICTS_PATH,
     write_score_formula_registry,
 )
-from etf_cockpit.data.parsed_disclosures import INDEX_METHODOLOGY_RECORDS_PATH, PRIIPS_KID_RECORDS_PATH
+from etf_cockpit.data.parsed_disclosures import INDEX_METHODOLOGY_RECORDS_PATH, PRIIPS_KID_RECORDS_PATH, SFDR_RECORDS_PATH
 from etf_cockpit.data.fund_documents import FUND_DOCUMENTS_PATH
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.health import build_data_health, export_data_health
@@ -91,7 +91,9 @@ _COMPLETE_AUDIT_REQUIRED: tuple[tuple[str, str, bool], ...] = (
     ("evidence_export/etf_disclosures.csv", "issuer_document", True),
     ("evidence_export/priips_kid_records.csv", "issuer_document", True),
     ("evidence_export/index_methodology_records.csv", "issuer_document", True),
+    ("evidence_export/sfdr_records.csv", "issuer_document", True),
     ("evidence_export/news_context.csv", "context_only", True),
+    ("evidence_export/news_contradictions.json", "context_only", True),
     ("evidence_export/news_timestamp_validation.csv", "context_only", True),
     ("evidence_export/source_conflicts.csv", "evidence", True),
     ("evidence_export/evidence_ledger.csv", "derived", True),
@@ -423,7 +425,7 @@ def export_review_pack(
     fx_inventory = fx_data_inventory()
     publish(lambda: (export_dir / "13_fx_inventory.json").write_text(json.dumps(fx_inventory, indent=2, default=str), encoding="utf-8"))
     derived_manifest = publish(lambda: _export_derived_evidence(export_dir))
-    evidence_manifest = publish(lambda: _export_trust_critical_evidence(export_dir, config))
+    evidence_manifest = publish(lambda: _export_trust_critical_evidence(export_dir, config, as_of_date=as_of_date))
     edge_cost_path = export_dir / "evidence_export" / "edge_cost.csv"
     publish(lambda: edge_cost_path.parent.mkdir(parents=True, exist_ok=True))
     edge_columns = [
@@ -744,7 +746,7 @@ def _export_derived_evidence(export_dir: Path) -> dict[str, object]:
     return manifest
 
 
-def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict[str, object]:
+def _export_trust_critical_evidence(export_dir: Path, config: AppConfig, *, as_of_date: date | None = None) -> dict[str, object]:
     evidence_root = export_dir / "evidence_export"
     evidence_root.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, object] = {"included": [], "missing": [], "checksums": {}}
@@ -773,6 +775,7 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
         ETF_DISCLOSURES_PATH,
         PRIIPS_KID_RECORDS_PATH,
         INDEX_METHODOLOGY_RECORDS_PATH,
+        SFDR_RECORDS_PATH,
         NEWS_CONTEXT_PATH,
         NEWS_CONTEXT_PATH.with_suffix(".csv"),
         NEWS_CONTEXT_PATH.with_name(NEWS_CONTEXT_PATH.stem + "_audit.json"),
@@ -786,6 +789,11 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
     _copy_evidence_tree(RUN_MANIFEST_DIR, evidence_root / "run_manifests", manifest)
     _copy_evidence_tree(FUNDAMENTAL_RAW_DIR, evidence_root / "raw_fundamentals", manifest)
     _copy_evidence_tree(NEWS_RAW_DIR, evidence_root / "raw_news_context", manifest)
+
+    contradiction_path = evidence_root / "news_contradictions.json"
+    contradiction_payload = _contradiction_export_payload(as_of_date=as_of_date)
+    contradiction_path.write_text(json.dumps(contradiction_payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    _include_file(contradiction_path, "news_contradictions.json", manifest)
 
     architecture_path = evidence_root / "governance" / "presentation-boundary-report.json"
     architecture_path.parent.mkdir(parents=True, exist_ok=True)
@@ -843,6 +851,32 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
     (evidence_root / "trust_critical_manifest.json").write_text(json.dumps(manifest, indent=2, default=str), encoding="utf-8")
     _include_file(evidence_root / "trust_critical_manifest.json", "trust_critical_manifest.json", manifest)
     return manifest
+
+
+def _contradiction_export_payload(*, as_of_date: date | None = None) -> dict[str, object]:
+    cutoff = f"{as_of_date.isoformat()}T23:59:59+00:00" if as_of_date is not None else None
+    try:
+        news = load_news_items(NEWS_CONTEXT_PATH, strict=True)
+        fundamentals = load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
+        history = _safe_optional_frame(SCORE_HISTORY_PATH)
+        return {
+            "schema_version": 1,
+            "status": "available",
+            "as_of": cutoff,
+            "execution_allowed": False,
+            "executable_authority": False,
+            "results": build_news_macro_contradictions(news, fundamentals=fundamentals, score_history=history, cutoff=cutoff),
+        }
+    except Exception as exc:
+        return {
+            "schema_version": 1,
+            "status": "unavailable",
+            "as_of": cutoff,
+            "reason": f"contradiction_export_failed:{type(exc).__name__}",
+            "execution_allowed": False,
+            "executable_authority": False,
+            "results": [],
+        }
 
 
 def _copy_optional_output(source: Path, evidence_root: Path, arcname: str, manifest: dict[str, object]) -> None:

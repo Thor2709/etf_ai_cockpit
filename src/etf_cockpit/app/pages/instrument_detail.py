@@ -4,6 +4,7 @@ import math
 from collections.abc import Callable, Mapping, Sequence
 
 import flet as ft
+import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
@@ -13,6 +14,7 @@ from etf_cockpit.app.state import AppState
 from etf_cockpit.application.alerts import AlertReadback, read_local_alerts
 from etf_cockpit.application.ui_facade import bitemporal_history_summary
 from etf_cockpit.core.paths import ROOT
+from etf_cockpit.application.digest import contradiction_digest_records
 
 
 def render_etf_disclosure_panel(model: InstrumentDetailViewModel) -> ft.Control:
@@ -30,8 +32,10 @@ def render_etf_disclosure_panel(model: InstrumentDetailViewModel) -> ft.Control:
         holdings_line = "Holdings: " + ", ".join(f"{key}={holdings.get(key, 'unavailable')}" for key in ("completeness", "freshness", "confidence", "source", "authority", "as_of"))
         kid = disclosure.get("kid", {})
         methodology = disclosure.get("methodology", {})
+        sfdr = disclosure.get("sfdr", {})
         kid_line = "KID: " + ", ".join(f"{key}={kid.get(key, 'unavailable')}" for key in ("status", "sri", "holding_period_years", "document_date", "extraction_confidence", "source_pages", "warnings", "source_sha256", "parser_version"))
         methodology_line = "Methodology: " + ", ".join(f"{key}={methodology.get(key, 'unavailable')}" for key in ("status", "provider", "index_series", "version", "document_date", "confidence", "source_pages", "warnings", "source_sha256", "parser_version"))
+        sfdr_line = "SFDR: " + ", ".join(f"{key}={sfdr.get(key, 'unavailable')}" for key in ("status", "classification", "document_type", "document_date", "methodology_disclosed", "data_sources_disclosed", "sustainable_characteristics", "taxonomy_alignment_pct", "warnings", "conflict_id", "manual_review", "score_eligible", "execution_allowed"))
         metadata = ft.Column(
             [
                 ft.Text("KID evidence metadata", color=theme.TEXT, size=11, weight=ft.FontWeight.BOLD),
@@ -40,10 +44,12 @@ def render_etf_disclosure_panel(model: InstrumentDetailViewModel) -> ft.Control:
                 _render_evidence_badges(methodology),
                 ft.Text("Holdings evidence metadata", color=theme.TEXT, size=11, weight=ft.FontWeight.BOLD),
                 _render_evidence_badges(holdings),
+                ft.Text("SFDR evidence metadata", color=theme.TEXT, size=11, weight=ft.FontWeight.BOLD),
+                _render_evidence_badges(sfdr),
             ],
             spacing=4,
         )
-        body = ft.Column([metadata, *[ft.Text(line, color=theme.MUTED, selectable=True, size=11) for line in [*document_lines, holdings_line, kid_line, methodology_line] or ["No local disclosure rows are available."]]], spacing=4)
+        body = ft.Column([metadata, *[ft.Text(line, color=theme.MUTED, selectable=True, size=11) for line in [*document_lines, holdings_line, kid_line, methodology_line, sfdr_line] or ["No local disclosure rows are available."]]], spacing=4)
     return panel(ft.Column([section_header("ETF disclosure evidence", "Document inventory and normalised holdings quality for the selected instrument; unavailable values stay explicit."), body], spacing=8))
 
 
@@ -492,6 +498,47 @@ def _render_etf_order_preview(page: ft.Page | None, state: AppState, instrument_
     )
 
 
+def render_news_contradiction_panel(model: InstrumentDetailViewModel) -> ft.Control:
+    """Render validated, point-in-time contradiction records supplied by the selector."""
+
+    news = model.sections.get("news") if isinstance(model.sections.get("news"), dict) else {}
+    supplied = news.get("contradictions") if isinstance(news, dict) else None
+    cutoff = news.get("contradiction_cutoff") if isinstance(news, dict) else None
+    def valid_record(item: object) -> bool:
+        if not isinstance(item, Mapping) or item.get("status") not in {"available", "manual_review", "unavailable"}:
+            return False
+        contradiction = item.get("contradiction")
+        return (
+            isinstance(contradiction, Mapping)
+            and bool(contradiction.get("rule"))
+            and item.get("rule_status") == contradiction.get("status")
+            and contradiction.get("execution_allowed") is False
+        )
+    results = (
+        [item for item in supplied if valid_record(item)]
+        if isinstance(supplied, (list, tuple)) and cutoff
+        else []
+    )
+    rows = [
+        ft.Text(
+            f"{result.get('title', 'contradiction')}: status={result.get('rule_status', result.get('status', 'unavailable'))} | {result.get('detail', 'unavailable')}",
+            color=theme.AMBER if result.get("status") != "clear" else theme.MUTED,
+            selectable=True,
+            size=11,
+        )
+        for result in results
+    ] or [ft.Text("No contradiction rule results are available.", color=theme.MUTED, selectable=True)]
+    return panel(
+        ft.Column(
+            [
+                section_header("News/macro contradictions", "All rule states are point-in-time, informational and non-executable; missing or stale inputs remain unavailable."),
+                ft.Column(rows, spacing=4),
+            ],
+            spacing=8,
+        )
+    )
+
+
 def render_event_calendar_panel(model: InstrumentDetailViewModel) -> ft.Control:
     """Render dated events and high-risk warnings as non-executable context."""
 
@@ -714,6 +761,18 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         innovation_projection=getattr(state, "innovation_projection", None),
         innovation_source_digest=getattr(state, "innovation_source_digest", None),
     )
+    decision_cutoff = getattr(getattr(state.snapshot, "data_report", None), "as_of_date", None)
+    cutoff = decision_cutoff
+    if cutoff and len(str(cutoff)) == 10:
+        cutoff = f"{cutoff}T23:59:59+00:00"
+    news_section = model.sections.get("news")
+    if isinstance(news_section, dict):
+        news_section["contradictions"] = contradiction_digest_records(
+            pd.DataFrame(news_section.get("items", [])),
+            prices=getattr(state.snapshot, "prices", pd.DataFrame()),
+            cutoff=cutoff,
+        )
+        news_section["contradiction_cutoff"] = cutoff
     vintage_history = bitemporal_history_summary(selected) if selected else {"status": "unavailable", "message": "No instrument selected."}
     export_status = ft.Text(
         "Audit evidence export unavailable for this selection."
@@ -929,6 +988,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             _detail_disclosure("ETF disclosure evidence", render_etf_disclosure_panel(model)),
             _detail_disclosure("ETF structure", render_etf_structure_panel(model)),
             _detail_disclosure("News context", render_news_context_panel(model)),
+            _detail_disclosure("News/macro contradictions", render_news_contradiction_panel(model)),
             _detail_disclosure("Event calendar", render_event_calendar_panel(model)),
             *rows,
             ], expand=True, scroll=ft.ScrollMode.AUTO),

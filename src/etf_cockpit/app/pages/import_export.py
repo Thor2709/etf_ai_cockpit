@@ -78,7 +78,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         except Exception:
             pass
     import_type = ft.Dropdown(label="Import type", value="portfolio_history", options=[ft.dropdown.Option(value, value.replace("_", " ").title()) for value in ("portfolio_history", "broker", "candidate", "manual_notes", "etf_holdings", "news", "events", "rss_list")], width=190)
-    path_field = ft.TextField(label="Local source path", hint_text="Choose a CSV, JSON, Parquet or RSS file", expand=True, key="import-export.import-path")
+    path_field = ft.TextField(label="Local source path", hint_text="Choose a CSV, JSON, Parquet or RSS file", width=460, key="import-export.import-path")
     preview_text = ft.Text("Preview required before commit.", color=theme.MUTED, selectable=True, key="import-export.preview-status")
     commit_button = ft.OutlinedButton("Commit validated import", key="import-export.commit", disabled=True)
     selected_preview: ImportPreview | None = None
@@ -108,7 +108,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     portfolio_export_path = ft.TextField(
         label="Canonical portfolio export",
         value=str(ROOT / "exports" / "portfolio_history.csv"),
-        expand=True,
+        width=460,
         key="import-export.portfolio-export-path",
     )
     portfolio_source_system = ft.TextField(label="Source system", value="user_local", width=180, key="import-export.portfolio-source-system")
@@ -326,10 +326,10 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     cache_report = bulk_cache_health(ROOT)
     cache_summary = f"Status={cache_report['status']} | objects={cache_report['object_count']} | manifests={cache_report['manifest_count']} | staged={cache_report['staged_file_count']} | promoted generations={cache_report['promoted_generation_count']} | network_calls=false"
 
-    export_path = ft.TextField(label="Export destination", value=str(ROOT / "exports" / "scoreboard.csv"), expand=True, key="import-export.export-path")
+    export_path = ft.TextField(label="Export destination", value=str(ROOT / "exports" / "scoreboard.csv"), width=460, key="import-export.export-path")
 
-    backup_path = ft.TextField(label="Backup archive destination", value=str(ROOT / "backups" / "cockpit-backup.zip"), expand=True, key="import-export.backup-path")
-    restore_path = ft.TextField(label="Restore archive", expand=True, key="import-export.restore-path")
+    backup_path = ft.TextField(label="Backup archive destination", value=str(ROOT / "backups" / "cockpit-backup.zip"), width=460, key="import-export.backup-path")
+    restore_path = ft.TextField(label="Restore archive", width=460, key="import-export.restore-path")
     restore_status = ft.Text("Restore validation preview required; nothing will be written.", color=theme.MUTED, selectable=True, key="import-export.restore-status")
     restore_commit_button = ft.OutlinedButton("Commit restore", key="import-export.restore-commit", disabled=True)
     restore_cancel_button = ft.TextButton("Cancel restore", key="import-export.restore-cancel", disabled=True)
@@ -345,7 +345,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     def validate_restore_preview(_event: ft.ControlEvent) -> None:
         nonlocal restore_preview
         archive = Path(restore_path.value or "")
-        restore_preview = validate_restore(archive)
+        restore_preview = validate_restore(archive, destination=ROOT)
         restore_commit_button.disabled = not restore_preview.valid
         restore_cancel_button.disabled = False
         restore_status.value = f"Restore preview {'valid' if restore_preview.valid else 'rejected'} for {archive}; destination {ROOT}; {len(restore_preview.entries)} entries; errors={'; '.join(restore_preview.errors) or 'none'}."
