@@ -15,7 +15,7 @@
     },
     {
       "path": "docs/product-completion/CURRENT_STATUS.json",
-      "sha256": "bb542ff56baeda5e16c7ef25c598d124ece2876d3602da7e96da7978e08b45fc"
+      "sha256": "1b18be8121051c2ea77710c060f4ef9b37d0ad43589a25dc900967e5c483afef"
     },
     {
       "path": "docs/product-completion/DELIVERY_WORKFLOW.md",
@@ -23,7 +23,7 @@
     },
     {
       "path": "docs/product-completion/PROGRESS.md",
-      "sha256": "54a48a1994a2a8ad839e14a7e32af63864faad17d2f1f023469f9fc2dcdbf569"
+      "sha256": "b4da7aef4dcda39983f5d1a870d14de83beeb217e30516fc16df520aa3df350f"
     },
     {
       "path": "docs/product-completion/programme/git-workflow.md",
@@ -35,7 +35,7 @@
     },
     {
       "path": "docs/product-completion/programme/phases/phase-01-governance-scope.md",
-      "sha256": "286b2f7c83486212aa449c0f74209cc2152e4893c088d82dba2d462158c090f7"
+      "sha256": "712a7176981f1ced8184631c96ab3abfaef2b86069602ed0a6e3dcc2f86df692"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-02-data-policy-identity.md",
@@ -83,11 +83,11 @@
     },
     {
       "path": "docs/product-completion/programme/readiness.json",
-      "sha256": "a02788fc76a44ff503acffac52c79d30ab328898ba50526743b056d1d7683c3b"
+      "sha256": "f9f82576d930202038e2297d75d8ddf970be1861a27707c271c8675c9188ff53"
     },
     {
       "path": "docs/product-completion/programme/roadmap.md",
-      "sha256": "0012e1350a9ec620f45b13fbff3f10005ef74e7edc369f8a4fa008696813dae5"
+      "sha256": "78fdfc1243b244ec018df7efcf5ca9e7669bbff3d14a8c2659401a8007926cd5"
     },
     {
       "path": "docs/product-completion/programme/test-and-performance-strategy.md",
@@ -147,11 +147,11 @@
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/source-to-canonical.csv",
-      "sha256": "d8e96ba2bbdd11b908e3920d980f37366aca4fc6924aa04ea98cc3585cdf7892"
+      "sha256": "420ee33543871b9ae0b50a6db2ee982d88784390f7ff3903f94e0029dfad80bd"
     },
     {
       "path": "issues/issue_registry.json",
-      "sha256": "3a7b5dbbac1091fd6ae0e7b7404988ea406a801809705366eb64a2d22ec54a60"
+      "sha256": "5a11741fcab33343a29ce0bd96d4c42b09918586c81254633f081ed692445463"
     },
     {
       "path": "issues/open.md",
@@ -159,7 +159,7 @@
     },
     {
       "path": "issues/programme_control_state.json",
-      "sha256": "31d8c96a5fd1e5452e3cae4ce4f50ece2aea7b04a855bdc2ab64e39a20d64747"
+      "sha256": "eb2178c9184755868ebf9b89fd61d29c9004f8b1e04d18bfe429c132c4819405"
     }
   ],
   "schema_version": "programme-generation.v1"
