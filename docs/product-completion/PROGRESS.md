@@ -10,8 +10,8 @@ This file is generated from `issues/issue_registry.json`; it contains no wall-cl
 | `closed` | 17 |
 | `hardening_required` | 4 |
 | `implemented_initially` | 26 |
-| `in_progress` | 8 |
-| `integrated` | 98 |
+| `in_progress` | 7 |
+| `integrated` | 99 |
 | `planned` | 46 |
 | `research_only` | 2 |
 
