@@ -11,6 +11,7 @@ from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.core.errors import ErrorCategory, ErrorStore, classify_exception
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.types import ForecastResult
+from etf_cockpit.data.providers import ManualLocalFileProvider
 from etf_cockpit.services import BacktestService, ForecastService
 
 
@@ -61,6 +62,38 @@ def test_error_store_handles_corrupt_history_and_developer_detail(tmp_path: Path
     )
     assert store.recent()[0].error_id == record.error_id
     assert store.recent()[0].detail == ""
+
+
+def test_error_store_exposes_developer_detail_when_enabled(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("ETF_COCKPIT_DEVELOPER_MODE", "1")
+    store = ErrorStore(tmp_path / "errors.jsonl")
+    record = store.append(
+        action_id="a4",
+        category=ErrorCategory.PARSER_SCHEMA,
+        user_message="Parser failed",
+        detail="Traceback: malformed payload",
+        retryable=False,
+    )
+    assert store.recent()[0].detail == record.detail == "Traceback: malformed payload"
+
+
+def test_malformed_import_is_rejected_with_readable_input_error(tmp_path: Path) -> None:
+    # Preservation of previously published data on failed writes is covered by the
+    # atomic-failure tests below and in the fundamentals/news/SEC import suites.
+    malformed = tmp_path / "prices.xml"
+    malformed.write_text("<not-a-supported-table>", encoding="utf-8")
+
+    result = ManualLocalFileProvider().import_file(malformed, "prices")
+    assert result.ok is False
+    store = ErrorStore(tmp_path / "errors.jsonl")
+    record = store.record_exception(
+        action_id="import-prices",
+        exc=ValueError(f"invalid input: {result.message}"),
+    )
+
+    assert record.category is ErrorCategory.INVALID_INPUT
+    assert record.user_message
+    assert not (tmp_path / "prices.parquet").exists()
 
 
 def test_error_classification_precedence_covers_controlled_failure_states() -> None:

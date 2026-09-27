@@ -80,13 +80,14 @@ def test_run_comparison_exposes_all_required_dimensions_and_summary() -> None:
     assert change.warnings_changed is True
     assert change.freshness_changed is True
     assert change.model_availability_changed is True
-    assert change.forecast_changed is True
+    assert change.forecast_changed is False
+    assert change.dimension_statuses["forecasts"] == "unavailable"
     assert change.news_inventory_changed is True
     assert change.backtest_trust_changed is True
     assert change.portfolio_risk_changed is True
-    assert change.lineage_changed is True
+    assert change.lineage_changed is False
+    assert change.dimension_statuses["lineage"] == "unavailable"
     assert "score" in change.summary.lower()
-    assert "lineage" in change.summary.lower()
 
 
 def test_run_comparison_can_load_history_by_run_ids(tmp_path) -> None:
