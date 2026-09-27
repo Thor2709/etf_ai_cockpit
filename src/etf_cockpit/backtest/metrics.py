@@ -417,6 +417,10 @@ def performance_metrics(
 
 
 def _payoff_diagnostics(returns: pd.Series) -> dict[str, object]:
+    disclaimer = (
+        "Descriptive payoff profile only; no trade recommendation is derived from payoff profile; "
+        "execution_allowed=false."
+    )
     clean = returns.replace([np.inf, -np.inf], np.nan).dropna().astype(float)
     nonzero = clean[clean != 0]
     if nonzero.empty:
@@ -427,6 +431,11 @@ def _payoff_diagnostics(returns: pd.Series) -> dict[str, object]:
             "payoff_ratio": None,
             "expected_value_per_period": None,
             "payoff_asymmetry_warning": "insufficient_return_distribution",
+            "skew": None,
+            "payoff_profile": "insufficient data",
+            "losses_dominate_wins": None,
+            "loss_dominance_warning": "insufficient_return_distribution",
+            "payoff_profile_disclaimer": disclaimer,
         }
     wins = nonzero[nonzero > 0]
     losses = nonzero[nonzero < 0]
@@ -439,6 +448,36 @@ def _payoff_diagnostics(returns: pd.Series) -> dict[str, object]:
     expected_value = None
     if average_win is not None and average_loss is not None:
         expected_value = float(hit_rate * average_win - (1.0 - hit_rate) * average_loss)
+    standard_deviation = float(nonzero.std()) if len(nonzero) > 1 else 0.0
+    skew = (
+        float(nonzero.skew())
+        if (
+            len(nonzero) >= MIN_STRESS_OBSERVATIONS
+            and standard_deviation > 0
+            and not np.isclose(standard_deviation, 0.0)
+        )
+        else None
+    )
+    sufficient_distribution = len(nonzero) >= MIN_STRESS_OBSERVATIONS and not wins.empty and not losses.empty
+    if not sufficient_distribution:
+        payoff_profile = "insufficient data"
+    elif hit_rate < 0.50 and (
+        (payoff_ratio is not None and payoff_ratio >= 1.5) or (skew is not None and skew > 0.2)
+    ):
+        payoff_profile = "trend-like"
+    elif hit_rate >= 0.55 and (
+        (payoff_ratio is not None and payoff_ratio < 1.0) or (skew is not None and skew < -0.2)
+    ):
+        payoff_profile = "mean-reversion-like"
+    else:
+        payoff_profile = "mixed"
+    total_win_magnitude = float(wins.sum()) if not wins.empty else None
+    total_loss_magnitude = abs(float(losses.sum())) if not losses.empty else None
+    losses_dominate_wins = None
+    if total_win_magnitude is not None and total_loss_magnitude is not None and expected_value is not None:
+        losses_dominate_wins = bool(
+            total_loss_magnitude > total_win_magnitude or expected_value < 0
+        )
     warning = "balanced_or_positive_payoff"
     if average_loss is None:
         warning = "no_losing_periods_in_sample"
@@ -450,6 +489,12 @@ def _payoff_diagnostics(returns: pd.Series) -> dict[str, object]:
         warning = "negative_payoff_asymmetry"
     elif hit_rate >= 0.60 and payoff_ratio < 1.0:
         warning = "high_hit_rate_low_payoff"
+    if losses_dominate_wins is None:
+        loss_dominance_warning = "insufficient_return_distribution"
+    elif losses_dominate_wins:
+        loss_dominance_warning = "losses_dominate_wins"
+    else:
+        loss_dominance_warning = "wins_dominate_losses"
     return {
         "return_hit_rate": round(hit_rate, 4),
         "average_win_return": None if average_win is None else round(average_win, 6),
@@ -457,4 +502,9 @@ def _payoff_diagnostics(returns: pd.Series) -> dict[str, object]:
         "payoff_ratio": None if payoff_ratio is None else round(payoff_ratio, 4),
         "expected_value_per_period": None if expected_value is None else round(expected_value, 6),
         "payoff_asymmetry_warning": warning,
+        "skew": None if skew is None else round(skew, 6),
+        "payoff_profile": payoff_profile,
+        "losses_dominate_wins": losses_dominate_wins,
+        "loss_dominance_warning": loss_dominance_warning,
+        "payoff_profile_disclaimer": disclaimer,
     }
