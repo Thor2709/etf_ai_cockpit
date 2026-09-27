@@ -131,8 +131,38 @@ def system_map_page(page: ft.Page | None, state: AppState) -> ft.Control:
             ft.Column(
                 [
                     ft.Text("Future execution", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
-                    status_badge("Availability", "Not installed", colour=theme.AMBER),
+                    ft.Row(
+                        [
+                            status_badge("Availability", "Not installed", colour=theme.AMBER),
+                            status_badge("Stages", "research · shadow_proposal · paper · broker_read_only · draft_order · capped_automatic · disabled", colour=theme.CYAN),
+                        ],
+                        wrap=True,
+                    ),
                     ft.Text("No broker execution. This cockpit presents local evidence and research context only.", color=theme.MUTED, selectable=True),
+                    ft.Text(
+                        "Future-only architecture: paper mode first, then broker_read_only observations and human-reviewed order previews; capped_automatic remains separately gated and disabled.",
+                        color=theme.MUTED,
+                        size=11,
+                        selectable=True,
+                    ),
+                    ft.Text(
+                        "Controls required before any future transition: max order value · position size · daily turnover · daily loss · drawdown kill switch · cooldowns · market-hours checks · stale-data block · news/event block.",
+                        color=theme.MUTED,
+                        size=11,
+                        selectable=True,
+                    ),
+                    ft.Text(
+                        "Future governance also requires an explicit human confirmation of an order preview, an immutable audit log, and an independent emergency disable. LLM or model-only authority is prohibited.",
+                        color=theme.MUTED,
+                        size=11,
+                        selectable=True,
+                    ),
+                    ft.Text(
+                        "execution_allowed=false · executable_authority=false · order_submission=disabled · see docs/architecture/future/",
+                        color=theme.AMBER,
+                        size=11,
+                        selectable=True,
+                    ),
                 ],
                 spacing=8,
             ),
