@@ -21,7 +21,7 @@ from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.data.fx_data import fx_data_inventory
 from etf_cockpit.data.manual_notes import MANUAL_NEWS_CLEAN_PATH, load_manual_news, manual_news_markdown
 from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH, FUNDAMENTAL_RAW_DIR, load_fundamental_evidence
-from etf_cockpit.data.news_context import NEWS_RAW_DIR, load_news_items
+from etf_cockpit.data.news_context import NEWS_RAW_DIR, build_news_macro_contradictions, load_news_items
 from etf_cockpit.data.reference_data import reference_data_inventory
 from etf_cockpit.data.score_history import project_classification_score_frame
 from etf_cockpit.data.trust_artifacts import (
@@ -93,6 +93,7 @@ _COMPLETE_AUDIT_REQUIRED: tuple[tuple[str, str, bool], ...] = (
     ("evidence_export/index_methodology_records.csv", "issuer_document", True),
     ("evidence_export/sfdr_records.csv", "issuer_document", True),
     ("evidence_export/news_context.csv", "context_only", True),
+    ("evidence_export/news_contradictions.json", "context_only", True),
     ("evidence_export/news_timestamp_validation.csv", "context_only", True),
     ("evidence_export/source_conflicts.csv", "evidence", True),
     ("evidence_export/evidence_ledger.csv", "derived", True),
@@ -788,6 +789,30 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
     _copy_evidence_tree(RUN_MANIFEST_DIR, evidence_root / "run_manifests", manifest)
     _copy_evidence_tree(FUNDAMENTAL_RAW_DIR, evidence_root / "raw_fundamentals", manifest)
     _copy_evidence_tree(NEWS_RAW_DIR, evidence_root / "raw_news_context", manifest)
+
+    contradiction_path = evidence_root / "news_contradictions.json"
+    try:
+        news = load_news_items(NEWS_CONTEXT_PATH)
+        fundamentals = load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
+        history = _safe_optional_frame(SCORE_HISTORY_PATH)
+        contradiction_payload = {
+            "schema_version": 1,
+            "status": "available",
+            "execution_allowed": False,
+            "executable_authority": False,
+            "results": build_news_macro_contradictions(news, fundamentals=fundamentals, score_history=history),
+        }
+    except Exception as exc:
+        contradiction_payload = {
+            "schema_version": 1,
+            "status": "unavailable",
+            "reason": f"contradiction_export_failed:{type(exc).__name__}",
+            "execution_allowed": False,
+            "executable_authority": False,
+            "results": [],
+        }
+    contradiction_path.write_text(json.dumps(contradiction_payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    _include_file(contradiction_path, "news_contradictions.json", manifest)
 
     architecture_path = evidence_root / "governance" / "presentation-boundary-report.json"
     architecture_path.parent.mkdir(parents=True, exist_ok=True)

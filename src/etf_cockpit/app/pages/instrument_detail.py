@@ -4,6 +4,7 @@ import math
 from collections.abc import Callable, Mapping, Sequence
 
 import flet as ft
+import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
@@ -13,6 +14,7 @@ from etf_cockpit.app.state import AppState
 from etf_cockpit.application.alerts import AlertReadback, read_local_alerts
 from etf_cockpit.application.ui_facade import bitemporal_history_summary
 from etf_cockpit.core.paths import ROOT
+from etf_cockpit.application.digest import contradiction_digest_records
 
 
 def render_etf_disclosure_panel(model: InstrumentDetailViewModel) -> ft.Control:
@@ -496,6 +498,36 @@ def _render_etf_order_preview(page: ft.Page | None, state: AppState, instrument_
     )
 
 
+def render_news_contradiction_panel(model: InstrumentDetailViewModel) -> ft.Control:
+    """Render all contradiction rule states for the selected instrument."""
+
+    news = model.sections.get("news") if isinstance(model.sections.get("news"), dict) else {}
+    supplied = news.get("contradictions") if isinstance(news, dict) else None
+    if isinstance(supplied, (list, tuple)):
+        results = [item for item in supplied if isinstance(item, Mapping)]
+    else:
+        items = news.get("items", []) if isinstance(news, dict) else []
+        results = contradiction_digest_records(pd.DataFrame(items))
+    rows = [
+        ft.Text(
+            f"{result.get('title', 'contradiction')}: status={result.get('rule_status', result.get('status', 'unavailable'))} | {result.get('detail', 'unavailable')}",
+            color=theme.AMBER if result.get("status") != "clear" else theme.MUTED,
+            selectable=True,
+            size=11,
+        )
+        for result in results
+    ] or [ft.Text("No contradiction rule results are available.", color=theme.MUTED, selectable=True)]
+    return panel(
+        ft.Column(
+            [
+                section_header("News/macro contradictions", "All rule states are point-in-time, informational and non-executable; missing or stale inputs remain unavailable."),
+                ft.Column(rows, spacing=4),
+            ],
+            spacing=8,
+        )
+    )
+
+
 def render_event_calendar_panel(model: InstrumentDetailViewModel) -> ft.Control:
     """Render dated events and high-risk warnings as non-executable context."""
 
@@ -933,6 +965,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             _detail_disclosure("ETF disclosure evidence", render_etf_disclosure_panel(model)),
             _detail_disclosure("ETF structure", render_etf_structure_panel(model)),
             _detail_disclosure("News context", render_news_context_panel(model)),
+            _detail_disclosure("News/macro contradictions", render_news_contradiction_panel(model)),
             _detail_disclosure("Event calendar", render_event_calendar_panel(model)),
             *rows,
             ], expand=True, scroll=ft.ScrollMode.AUTO),
