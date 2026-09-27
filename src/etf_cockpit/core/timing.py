@@ -18,6 +18,7 @@ def timed_step(
     *,
     store_path: Path | None = None,
     slow_ms: float = 1000,
+    run_id: str | None = None,
 ) -> Iterator[None]:
     started = time.perf_counter()
     try:
@@ -31,6 +32,8 @@ def timed_step(
             "duration_ms": round(duration_ms, 3),
             "slow": duration_ms >= slow_ms,
         }
+        if run_id:
+            payload["run_id"] = str(run_id)
         logger = event_logger
         if logger is None and store_path is None:
             logger = _session_timing_logger
@@ -91,7 +94,11 @@ def _session_timing_logger(payload: dict[str, object]) -> None:
         operation=str(payload.get("step") or ""),
         status="slow" if payload.get("slow") else "complete",
         duration_ms=payload.get("duration_ms"),
-        output_summary={"step": payload.get("step"), "slow": payload.get("slow")},
+        output_summary={
+            "step": payload.get("step"),
+            "slow": payload.get("slow"),
+            "run_id": payload.get("run_id"),
+        },
     )
 
 
