@@ -527,7 +527,8 @@ def _manifest_payload(
 
 def _unsafe(name: str) -> bool:
     path = PurePosixPath(name)
-    return not name or path.is_absolute() or ".." in path.parts or ":" in name.split("/", 1)[0]
+    # A colon anywhere is refused: drive-relative components and NTFS alternate data streams.
+    return not name or path.is_absolute() or ".." in path.parts or ":" in name
 
 
 def _approved_payload_root(name: str) -> bool:

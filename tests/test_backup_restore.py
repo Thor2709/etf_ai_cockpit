@@ -607,3 +607,13 @@ def test_retention_keeps_newest_backups_and_recovery_drill_is_validated(tmp_path
     drill = run_disaster_recovery_drill([source], tmp_path / "drill", recovery_key="correct recovery key")
     assert drill.ok is True
     assert drill.restored_files == 1
+
+
+def test_restore_rejects_colon_in_any_path_component(tmp_path: Path) -> None:
+    archive = tmp_path / "ads.backup"
+    with zipfile.ZipFile(archive, "w") as z:
+        z.writestr("manifest.json", json.dumps({"entries": [], "execution_allowed": False}))
+        z.writestr("data/prices.csv:hidden-stream", "payload")
+    preview = validate_restore(archive)
+    assert preview.valid is False
+    assert "unsafe_path:data/prices.csv:hidden-stream" in preview.errors
