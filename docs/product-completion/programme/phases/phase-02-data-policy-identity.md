@@ -47,7 +47,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 
 | ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
 |---|---|---|---|---|---|---|---|
-| `ISSUE-0007` | `P2` | `implemented_initially` | `data-and-evidence` | - | - | - | `ISSUE-0024`, `ISSUE-0026`, `ISSUE-0054`, `ISSUE-0073`, `ISSUE-0115` |
+| `ISSUE-0007` | `P2` | `integrated` | `data-and-evidence` | - | - | - | `ISSUE-0024`, `ISSUE-0026`, `ISSUE-0054`, `ISSUE-0073`, `ISSUE-0115` |
 | `ISSUE-0022` | `P1` | `implemented_initially` | `data-and-evidence` | - | - | `ISSUE-0162` | `ISSUE-0082`, `ISSUE-0105`, `UPDATEV2-0016` |
 | `ISSUE-0023` | `P1` | `implemented_initially` | `data-and-evidence` | - | - | - | `ISSUE-0091`, `ISSUE-0102` |
 | `ISSUE-0025` | `P1` | `implemented_initially` | `data-and-evidence` | - | - | - | `ISSUE-0007`, `ISSUE-0054`, `ISSUE-0087`, `ISSUE-0149` |
