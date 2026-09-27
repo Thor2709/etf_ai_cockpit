@@ -142,19 +142,38 @@ def test_final_label_demotes_low_quality_high_score() -> None:
 
 
 def test_model_score_cannot_rescue_weak_deterministic_evidence() -> None:
-    components = [
+    deterministic_components = [
         SimpleScoreComponent("momentum", "Momentum", 1.0, -0.8, "OK", "", "", "", as_of_date="2026-07-10", freshness_status="ok"),
         SimpleScoreComponent("trend", "Trend", 1.0, -0.8, "OK", "", "", "", as_of_date="2026-07-10", freshness_status="ok"),
         SimpleScoreComponent("risk", "Risk", 2.0, -0.6, "OK", "", "", "", as_of_date="2026-07-10", freshness_status="ok"),
-        SimpleScoreComponent("timesfm", "TimesFM", 10.0, 1.0, "OK", "", "", "", authority="low", score_role="model_confirmation", as_of_date="2026-07-10", freshness_status="ok"),
     ]
-    _raw, evidence_score = combine_component_scores(components, weights={"momentum": 0.3, "trend": 0.3, "risk": 0.3, "timesfm": 0.1})
-    label, action, decision = final_label_from_scores(evidence_score, 3.5, 3.5, warnings=[])
+    deterministic_weights = {"momentum": 0.3, "trend": 0.3, "risk": 0.3}
+    _raw, deterministic_score = combine_component_scores(deterministic_components, weights=deterministic_weights)
+    deterministic_decision = final_label_from_scores(deterministic_score, 3.5, 3.5, warnings=[])
 
-    assert evidence_score is not None
-    assert label == "low_quality_manual_review"
-    assert action == "manual_review"
-    assert decision == "Manual Review"
+    assert deterministic_score is not None
+    assert deterministic_decision == ("low_quality_manual_review", "manual_review", "Manual Review")
+    for model_value in (0.0, 10.0):
+        model_component = SimpleScoreComponent(
+            "timesfm",
+            "TimesFM",
+            model_value,
+            (model_value / 5.0) - 1.0,
+            "OK",
+            "",
+            "",
+            "",
+            authority="low",
+            score_role="model_confirmation",
+            as_of_date="2026-07-10",
+            freshness_status="ok",
+        )
+        _raw, evidence_score = combine_component_scores(
+            [*deterministic_components, model_component],
+            weights={**deterministic_weights, "timesfm": 0.1},
+        )
+        model_decision = final_label_from_scores(evidence_score, 3.5, 3.5, warnings=[])
+        assert model_decision == deterministic_decision
 
 
 def test_expanded_score_component_renders_source_id() -> None:
