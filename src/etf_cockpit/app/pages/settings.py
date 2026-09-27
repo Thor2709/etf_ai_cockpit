@@ -25,6 +25,7 @@ from etf_cockpit.application.settings import (
     preview_settings,
     save_settings,
 )
+from etf_cockpit.application.release_metadata import read_changelog_excerpt, read_rebuild_timestamp
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.constants import APP_VERSION
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, ROOT
@@ -42,11 +43,11 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
     version_metadata_path = ROOT / "pyproject.toml"
     version_status = f"available at {version_metadata_path}" if version_metadata_path.is_file() else "unavailable (missing pyproject.toml)"
     changelog_path = ROOT / "CHANGELOG.md"
-    changelog_status = f"available at {changelog_path}" if changelog_path.is_file() else "unavailable (missing CHANGELOG.md)"
+    changelog_status = read_changelog_excerpt(changelog_path.parent)
     release_evidence = describe_release_evidence(ROOT)
     legal_report = legal_terms_report(ROOT)
     supply_chain_report = supply_chain_intake_report(ROOT)
-    rebuild_timestamp = "available through the normal Windows package output"
+    rebuild_timestamp = read_rebuild_timestamp(ROOT)
     issue_0044_update_plan = (
         "ISSUE-0044 packaged-app update workflow: build the Windows package, record the release version and SHA-256 checksum, "
         "back up local data/configs, install the package, run a restore/startup smoke check, then retain the changelog and rebuild timestamp."
@@ -305,7 +306,7 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
                     spacing=8,
                 )
             ),
-            panel(ft.Column([section_header("Release and data metadata", "Local release metadata helps users identify the current evidence build."), ft.Text(f"App version: {APP_VERSION}", key="settings.app-version", selectable=True), ft.Text(f"Version metadata: {version_status}", key="settings.version-metadata", selectable=True), ft.Text(f"Package metadata: {rebuild_timestamp}", key="settings.last-rebuild", selectable=True), ft.Text(f"Current data root: {DATA_DIR}", key="settings.data-root", selectable=True), ft.Text(f"Changelog: {changelog_status}", key="settings.changelog", selectable=True), ft.Text(issue_0044_update_plan, key="settings.issue-0044-update-plan", color=theme.MUTED, selectable=True)], spacing=6)),
+            panel(ft.Column([section_header("Release and data metadata", "Local release metadata helps users identify the current evidence build."), ft.Text(f"App version: {APP_VERSION}", key="settings.app-version", selectable=True), ft.Text(f"Version metadata: {version_status}", key="settings.version-metadata", selectable=True), ft.Text(f"Last rebuild timestamp: {rebuild_timestamp}", key="settings.last-rebuild", selectable=True), ft.Text(f"Current data root: {DATA_DIR}", key="settings.data-root", selectable=True), ft.Text(f"Changelog excerpt: {changelog_status}", key="settings.changelog", selectable=True), ft.Text(issue_0044_update_plan, key="settings.issue-0044-update-plan", color=theme.MUTED, selectable=True)], spacing=6)),
             panel(ft.Column([section_header("Privacy, backup and recovery", "Local encrypted backups use Fernet with PBKDF2-HMAC-SHA256. Private fields, credentials, transient logs and caches are excluded by default."), recovery_key, ft.Row([ft.OutlinedButton("Create encrypted backup", key="settings.backup-create", icon=ft.Icons.SAVE, on_click=create_backup), ft.OutlinedButton("Validate latest backup", key="settings.backup-validate", icon=ft.Icons.VERIFIED, on_click=validate_backup), ft.OutlinedButton("Run recovery drill", key="settings.recovery-drill", icon=ft.Icons.SECURITY, on_click=recovery_drill)], wrap=True), ft.Text(f"Backup destination: {backup_archive}", color=theme.MUTED, selectable=True), deletion_confirmation, ft.OutlinedButton("Delete private data", key="settings.delete-private", icon=ft.Icons.DELETE_OUTLINE, on_click=delete_private), privacy_status], spacing=8)),
             panel(ft.Column([section_header("About and offline update verification", "Updates are local-only: unsigned, tampered or path-unsafe bundles are rejected before staging."), ft.Text(f"Release evidence: {release_evidence['verification']}", key="settings.update-verification", selectable=True), ft.Text(f"Release evidence version: {release_evidence['version']}", key="settings.update-version", selectable=True), ft.Text(f"Third-party notices: {release_evidence['notices']} ({release_evidence['notices_path']})", key="settings.third-party-notices", selectable=True), ft.Text("Network retrieval and live execution are disabled by policy.", color=theme.MUTED, selectable=True)], spacing=6)),
             panel(ft.Column([section_header("Legal terms, disclaimers and jurisdiction", "Terms and source permissions are versioned locally and reviewed before release."), ft.Text("Research and education only. Not financial or tax advice. No broker execution or order transmission.", color=theme.AMBER, selectable=True), ft.Text(f"Legal terms registry: {legal_report['status']} ({legal_report['review_status']}); checksum={legal_report['registry_sha256']}", key="settings.legal-terms-status", selectable=True), ft.Text("Restricted sources are excluded from standard audit export unless the registry explicitly permits metadata or attribution.", color=theme.MUTED, selectable=True)], spacing=6)),
