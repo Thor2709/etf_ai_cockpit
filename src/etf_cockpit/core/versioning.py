@@ -176,8 +176,7 @@ def build_run_manifest(
         "execution_allowed": False,
     }
     payload["dependency_graph_hash"] = _payload_hash(dependencies)
-    payload["manifest_signature"] = _payload_hash(payload)
-    return payload
+    return sign_run_manifest(payload)
 
 
 def write_run_manifest(
@@ -225,9 +224,7 @@ def ensure_run_manifest(
         existing = json.loads(destination.read_text(encoding="utf-8"))
         if not isinstance(existing, dict) or not existing.get("manifest_signature"):
             raise VersionRegistryError(f"run manifest is invalid: {destination}")
-        supplied = str(existing["manifest_signature"])
-        unsigned = {key: value for key, value in existing.items() if key != "manifest_signature"}
-        if supplied != _payload_hash(unsigned):
+        if not verify_run_manifest_signature(existing):
             raise VersionRegistryError(f"run manifest signature mismatch: {destination}")
         # Schema-1.0 manifests are immutable historical evidence created
         # before settings identity became part of the run contract.  Preserve
@@ -455,6 +452,25 @@ def _payload_hash(payload: object) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
 
 
+def sign_run_manifest(payload: Mapping[str, object]) -> dict[str, object]:
+    """Return a manifest with the existing canonical content signature."""
+
+    unsigned = {key: value for key, value in payload.items() if key != "manifest_signature"}
+    return {**unsigned, "manifest_signature": _payload_hash(unsigned)}
+
+
+def verify_run_manifest_signature(payload: Mapping[str, object]) -> bool:
+    """Verify a run manifest signature without trusting any payload fields."""
+
+    if not isinstance(payload, Mapping):
+        return False
+    supplied = str(payload.get("manifest_signature") or "")
+    if not supplied:
+        return False
+    unsigned = {key: value for key, value in payload.items() if key != "manifest_signature"}
+    return supplied == _payload_hash(unsigned)
+
+
 def _resolved_settings_identity(
     root: Path | None,
     supplied: Mapping[str, object] | None,
@@ -483,6 +499,8 @@ __all__ = [
     "VersionRecord",
     "VersionRegistryError",
     "build_run_manifest",
+    "sign_run_manifest",
+    "verify_run_manifest_signature",
     "build_version_registry",
     "cache_invalidation",
     "compatibility_summary",
