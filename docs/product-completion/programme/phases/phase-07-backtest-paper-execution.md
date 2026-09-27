@@ -48,7 +48,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
 |---|---|---|---|---|---|---|---|
 | `ISSUE-0031` | `P1` | `integrated` | `trading-safety` | - | - | `ISSUE-0129` | `ISSUE-0125`, `ISSUE-0127`, `ISSUE-0130` |
-| `ISSUE-0032` | `P2` | `in_progress` | `trading-safety` | - | - | `ISSUE-0070` | `ISSUE-0070`, `ISSUE-0131`, `ISSUE-0135` |
+| `ISSUE-0032` | `P2` | `integrated` | `trading-safety` | - | - | `ISSUE-0070` | `ISSUE-0070`, `ISSUE-0131`, `ISSUE-0135` |
 | `ISSUE-0057` | `P1` | `integrated` | `trading-safety` | - | - | `ISSUE-0129` | `ISSUE-0075`, `ISSUE-0129`, `ISSUE-0147` |
 | `ISSUE-0066` | `P2` | `planned` | `trading-safety` | - | - | `ISSUE-0070`, `ISSUE-0131` | `ISSUE-0070`, `ISSUE-0127`, `ISSUE-0131`, `ISSUE-0135` |
 | `ISSUE-0125` | `P0` | `implemented_initially` | `backtest-and-paper` | `ISSUE-0028`, `ISSUE-0050` | - | - | - |
