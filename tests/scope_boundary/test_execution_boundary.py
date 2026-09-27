@@ -259,6 +259,84 @@ def test_dynamic_broker_imports_and_variant_dependency_manifests_are_rejected(tm
     assert sum(item.code == "PROHIBITED_BROKER_DEPENDENCY" for item in report.violations) >= 2
 
 
+def test_python_authority_assignments_are_rejected_but_explicit_false_is_safe(tmp_path: Path) -> None:
+    bad = tmp_path / "authority.py"
+    bad.write_text(
+        "execution_allowed = True\n"
+        "class Policy:\n"
+        "    executable_authority = 1\n"
+        "payload = {'execution_allowed': 'yes'}\n"
+        "configure(executable_authority=True)\n",
+        encoding="utf-8",
+    )
+    safe = tmp_path / "safe.py"
+    safe.write_text(
+        "execution_allowed = False\n"
+        "executable_authority = False\n"
+        "payload = {'execution_allowed': False, 'executable_authority': False}\n"
+        "configure(execution_allowed=False)\n",
+        encoding="utf-8",
+    )
+
+    report = _checker()(tmp_path)
+
+    assert report.result == "fail"
+    authority = [item for item in report.violations if item.code == "EXECUTION_AUTHORITY_ENABLED"]
+    assert len(authority) >= 4
+    assert not any(item.path == "safe.py" for item in authority)
+
+
+def test_dynamic_import_and_generic_transport_paths_are_rejected_in_broker_context(tmp_path: Path) -> None:
+    (tmp_path / "broker_loader.py").write_text(
+        "import importlib\n"
+        "module = 'broker_sdk.client'\n"
+        "importlib.import_module(module)\n"
+        "__import__('broker_sdk')\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "broker_transport.py").write_text(
+        "import socket\n"
+        "from urllib.request import urlopen\n"
+        "base = 'https://broker.example'\n"
+        "resource = 'orders'\n"
+        "endpoint = base + '/api/' + resource\n"
+        "socket.create_connection(('broker.example', 443))\n"
+        "urlopen(endpoint)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "execution_transport.py").write_text(
+        "import subprocess\n"
+        "endpoint = 'https://broker.example/orders'\n"
+        "subprocess.run(['broker-cli', 'submit', endpoint])\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "safe_transport.py").write_text(
+        "import requests\n"
+        "base = 'https://data.example'\n"
+        "resource = 'prices'\n"
+        "endpoint = base + '/api/' + resource\n"
+        "requests.get(endpoint)\n",
+        encoding="utf-8",
+    )
+
+    report = _checker()(tmp_path)
+
+    assert report.result == "fail"
+    codes = {item.code for item in report.violations}
+    assert "PROHIBITED_BROKER_DEPENDENCY" in codes
+    assert "PROHIBITED_EXECUTION_TRANSPORT" in codes
+    assert "PROHIBITED_ORDER_ENDPOINT" in codes
+    dynamic_imports = {
+        item.evidence for item in report.violations if item.code == "PROHIBITED_BROKER_DEPENDENCY"
+    }
+    assert {"broker_sdk", "broker_sdk.client"} <= dynamic_imports
+    transport_calls = {
+        item.evidence for item in report.violations if item.code == "PROHIBITED_EXECUTION_TRANSPORT"
+    }
+    assert {"socket.create_connection", "urlopen", "subprocess.run"} <= transport_calls
+    assert not any(item.path == "safe_transport.py" for item in report.violations)
+
+
 def test_future_docs_and_test_fixtures_are_explicitly_allow_listed(tmp_path: Path) -> None:
     future = tmp_path / "docs" / "architecture" / "future"
     future.mkdir(parents=True)
