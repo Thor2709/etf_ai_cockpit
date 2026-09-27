@@ -99,7 +99,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `UPDATEV2-0014` | `P1` | `integrated` | `programme-governance` | - | - | `ISSUE-0087` | `ISSUE-0076`, `ISSUE-0087` |
 | `UPDATEV2-0017` | `P1` | `closed` | `programme-governance` | - | - | - | `ISSUE-0103`, `ISSUE-0104` |
 | `UPDATEV2-0019` | `P1` | `closed` | `programme-governance` | - | - | - | `ISSUE-0105`, `ISSUE-0112` |
-| `UPDATEV2-0020` | `P1` | `planned` | `programme-governance` | - | - | - | `ISSUE-0104`, `ISSUE-0149`, `UPDATEV2-0015` |
+| `UPDATEV2-0020` | `P1` | `in_progress` | `programme-governance` | - | - | - | `ISSUE-0104`, `ISSUE-0149`, `UPDATEV2-0015` |
 | `UPDATEV2-0022` | `P3` | `closed` | `analysis-and-validation` | - | - | - | - |
 | `UPDATEV2-0024` | `P2` | `planned` | `programme-governance` | - | - | - | `ISSUE-0076`, `ISSUE-0080` |
 | `UPDATEV2-0025` | `P2` | `planned` | `programme-governance` | - | - | - | `ISSUE-0076`, `ISSUE-0080` |

@@ -10,9 +10,9 @@ This file is generated from `issues/issue_registry.json`; it contains no wall-cl
 | `closed` | 17 |
 | `hardening_required` | 4 |
 | `implemented_initially` | 26 |
-| `in_progress` | 4 |
+| `in_progress` | 5 |
 | `integrated` | 98 |
-| `planned` | 50 |
+| `planned` | 49 |
 | `research_only` | 2 |
 
 ## Ready issues
