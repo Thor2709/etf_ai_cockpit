@@ -94,7 +94,7 @@ from etf_cockpit.audit.thesis_diary import (
     disclosure_safe_outcome,
     disclosure_safe_review,
 )
-from etf_cockpit.core.paths import DATA_DIR
+from etf_cockpit.core.paths import CLEAN_DIR, DATA_DIR
 
 
 @dataclass(frozen=True)
@@ -145,6 +145,7 @@ _SECTION_NAMES = (
     "run_changes",
 )
 SCOREBOARD_PATH = DERIVED_DIR / "scoreboard.parquet"
+SFDR_RECORDS_PATH = CLEAN_DIR / "sfdr_records.parquet"
 PAPER_TRADES_PATH = DERIVED_DIR / "paper_trades.parquet"
 _KNOWN_FRESHNESS_STATES = frozenset({"ok", "fresh", "warning", "stale", "stale_block", "missing", "missing_or_pending", "unknown", "not_checked", "unavailable"})
 _KNOWN_BACKTEST_QUALITIES = frozenset({"low", "medium", "high", "not_evaluated", "not_backtested_candidate", "unverified_backtest", "usable_low_authority", "weak_or_low_quality", "model_claim_unverified", "stale_universe", "unavailable"})
@@ -869,6 +870,7 @@ def _etf_disclosure_panel(
     holdings: pd.DataFrame | None = None,
     kid_records: pd.DataFrame | None = None,
     methodology_records: pd.DataFrame | None = None,
+    sfdr_records: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     try:
         registry = document_registry.copy() if isinstance(document_registry, pd.DataFrame) else read_document_registry()
@@ -976,11 +978,16 @@ def _etf_disclosure_panel(
         methodology_frame = methodology_records.copy() if isinstance(methodology_records, pd.DataFrame) else read_index_methodology_records()
     except Exception:
         methodology_frame = pd.DataFrame()
+    try:
+        sfdr_frame = sfdr_records.copy() if isinstance(sfdr_records, pd.DataFrame) else _read_sfdr_records()
+    except Exception:
+        sfdr_frame = pd.DataFrame()
     kid = _parsed_kid_panel(kid_frame, instrument_id)
     methodology = _parsed_methodology_panel(methodology_frame, instrument_id)
+    sfdr = _parsed_sfdr_panel(sfdr_frame, instrument_id)
     has_registered_document = any(row["coverage_status"] in {"available", "imported", "mapped"} for row in document_rows)
     return {
-        "status": "manual_review" if registry_manual_review or holdings_manual_review else "available" if has_registered_document or kid["status"] == "available" or methodology["status"] == "available" else "unavailable",
+        "status": "manual_review" if registry_manual_review or holdings_manual_review else "available" if has_registered_document or kid["status"] == "available" or methodology["status"] == "available" or sfdr["status"] == "available" else "unavailable",
         "message": registry_message or holdings_message or "ETF disclosure evidence is shown from canonical instrument-linked local records.",
         "manual_review": registry_manual_review or holdings_manual_review,
         "document_inventory": document_rows,
@@ -992,6 +999,7 @@ def _etf_disclosure_panel(
         },
         "kid": kid,
         "methodology": methodology,
+        "sfdr": sfdr,
         "execution_allowed": False,
     }
 
@@ -1002,6 +1010,29 @@ def _parsed_kid_panel(frame: pd.DataFrame, instrument_id: str) -> dict[str, Any]
 
 def _parsed_methodology_panel(frame: pd.DataFrame, instrument_id: str) -> dict[str, Any]:
     return _parsed_panel(frame, instrument_id, "methodology", ("provider", "index_series", "version", "document_date", "eligibility_rules", "weighting_rules", "review_frequency", "caps", "confidence"))
+
+
+def _parsed_sfdr_panel(frame: pd.DataFrame, instrument_id: str) -> dict[str, Any]:
+    payload = _parsed_panel(frame, instrument_id, "sfdr", ("classification", "document_type", "document_date", "methodology_disclosed", "data_sources_disclosed", "sustainable_characteristics", "taxonomy_alignment_pct", "conflict_id", "conflict_reason", "execution_allowed"))
+    payload["badges"] = [
+        f"SFDR: {payload.get('classification', 'unclassified')}",
+        "manual review" if payload.get("manual_review", True) else "disclosure clear",
+        "score_eligible=false",
+        "execution_allowed=false",
+    ]
+    return payload
+
+
+def _read_sfdr_records() -> pd.DataFrame:
+    for path in (SFDR_RECORDS_PATH, SFDR_RECORDS_PATH.with_suffix(".csv")):
+        try:
+            if not path.exists():
+                continue
+            frame = pd.read_parquet(path) if path.suffix == ".parquet" else pd.read_csv(path)
+            return frame
+        except Exception:
+            continue
+    return pd.DataFrame()
 
 
 def _parsed_panel(frame: pd.DataFrame, instrument_id: str, kind: str, fields: tuple[str, ...]) -> dict[str, Any]:
@@ -1047,7 +1078,7 @@ def _parsed_panel(frame: pd.DataFrame, instrument_id: str, kind: str, fields: tu
 def build_etf_disclosure_panel(model: InstrumentDetailViewModel) -> dict[str, Any]:
     """Return the reusable ETF disclosure model shown on Instrument Detail."""
     value = model.sections.get("etf_disclosures")
-    return value if isinstance(value, dict) else {"status": "unavailable", "document_inventory": [], "holdings": {"status": "unavailable"}, "kid": {"status": "unavailable"}, "methodology": {"status": "unavailable"}}
+    return value if isinstance(value, dict) else {"status": "unavailable", "document_inventory": [], "holdings": {"status": "unavailable"}, "kid": {"status": "unavailable"}, "methodology": {"status": "unavailable"}, "sfdr": {"status": "unavailable", "manual_review": True, "score_eligible": False}}
 
 
 def build_etf_structure_panel(model: InstrumentDetailViewModel) -> dict[str, Any]:
@@ -2325,6 +2356,7 @@ def build_instrument_detail(
     holdings: pd.DataFrame | None = None,
     kid_records: pd.DataFrame | None = None,
     methodology_records: pd.DataFrame | None = None,
+    sfdr_records: pd.DataFrame | None = None,
     report_records: pd.DataFrame | None = None,
     structure_rows: object = None,
     fundamentals: pd.DataFrame | None = None,
@@ -2466,7 +2498,7 @@ def build_instrument_detail(
                 ),
             }
         )
-    disclosure = _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records)
+    disclosure = _etf_disclosure_panel(instrument_id, document_registry=document_registry, holdings=holdings, kid_records=kid_records, methodology_records=methodology_records, sfdr_records=sfdr_records)
     structure = _etf_structure_panel(
         instrument_id,
         document_registry=document_registry,

@@ -1,4 +1,4 @@
-"""Atomic persistence for parsed PRIIPs KID and methodology evidence."""
+"""Atomic persistence for parsed PRIIPs KID, methodology and SFDR evidence."""
 
 from __future__ import annotations
 
@@ -43,10 +43,12 @@ from etf_cockpit.parsers.etf_report import (
 from etf_cockpit.parsers.contracts import ParseResult
 from etf_cockpit.parsers.index_methodology import IndexMethodologyRecord, apply_methodology_holdings_assessment
 from etf_cockpit.parsers.priips_kid import PriipsKidRecord
+from etf_cockpit.parsers.sfdr import SfdrRecord
 
 
 PRIIPS_KID_RECORDS_PATH = CLEAN_DIR / "priips_kid_records.parquet"
 INDEX_METHODOLOGY_RECORDS_PATH = CLEAN_DIR / "index_methodology_records.parquet"
+SFDR_RECORDS_PATH = CLEAN_DIR / "sfdr_records.parquet"
 ETF_REPORT_RECORDS_PATH = CLEAN_DIR / "etf_report_records.parquet"
 ETF_REPORT_CONFLICTS_PATH = CLEAN_DIR / "etf_report_conflicts.parquet"
 REPORT_RAW_DIR = RAW_DIR / "etf_reports"
@@ -71,6 +73,11 @@ METHODOLOGY_COLUMNS = [
     "source_pages", "provider", "index_series", "version", "document_date", "eligibility_rules",
     "weighting_rules", "review_frequency", "caps", "confidence", "warnings", "manual_review",
     "score_eligible", "success", "imported_at",
+]
+SFDR_COLUMNS = [
+    "schema_version", "source_id", "instrument_id", "parser_name", "parser_version", "source_sha256", "source_authority", "freshness_status",
+    "source_pages", "classification", "methodology_disclosed", "data_sources_disclosed", "sustainable_characteristics", "taxonomy_alignment_pct",
+    "document_type", "document_date", "warnings", "manual_review", "conflict_id", "conflict_reason", "superseded", "score_eligible", "execution_allowed", "success", "imported_at",
 ]
 
 
@@ -122,6 +129,22 @@ def read_priips_kid_records(path: Path = PRIIPS_KID_RECORDS_PATH) -> pd.DataFram
 
 def read_index_methodology_records(path: Path = INDEX_METHODOLOGY_RECORDS_PATH) -> pd.DataFrame:
     return _read_frame(path, METHODOLOGY_COLUMNS)
+
+
+def persist_sfdr_result(
+    result: ParseResult[SfdrRecord],
+    instrument_id: str,
+    *,
+    destination: Path = SFDR_RECORDS_PATH,
+) -> Path:
+    rows = [_sfdr_row(result, instrument_id, record) for record in result.records]
+    if not rows:
+        rows = [_sfdr_unavailable_row(result, instrument_id)]
+    return _persist_sfdr_rows(rows, destination)
+
+
+def read_sfdr_records(path: Path = SFDR_RECORDS_PATH) -> pd.DataFrame:
+    return _read_frame(path, SFDR_COLUMNS)
 
 
 # Compatibility aliases for import callers.
@@ -194,6 +217,34 @@ def persist_index_methodology_with_document(
     )
 
 
+def persist_sfdr_with_document(
+    result: ParseResult[SfdrRecord],
+    instrument_id: str,
+    document_path: Path,
+    *,
+    destination: Path = SFDR_RECORDS_PATH,
+    registry_destination: Path = FUND_DOCUMENTS_PATH,
+    source_url: str = "",
+    authority: str = "issuer_document",
+    document_date: str | None = None,
+    configured_instrument_ids: Iterable[str] = (),
+    publish_guard: PublicationScopeFactory | None = None,
+) -> Path:
+    return _persist_with_document(
+        result,
+        instrument_id,
+        document_path,
+        "sfdr",
+        destination=destination,
+        registry_destination=registry_destination,
+        source_url=source_url,
+        authority=authority,
+        document_date=document_date or (result.records[0].document_date if result.records else None),
+        configured_instrument_ids=configured_instrument_ids,
+        publish_guard=publish_guard,
+    )
+
+
 def _persist_with_document(
     result: ParseResult[Any],
     instrument_id: str,
@@ -216,15 +267,20 @@ def _persist_with_document(
         rows = [_kid_row(result, instrument_id, record) for record in result.records]
         if not rows:
             rows = [_kid_unavailable_row(result, instrument_id)]
-    else:
+    elif document_type == "methodology":
         columns = METHODOLOGY_COLUMNS
         rows = [_methodology_row(result, instrument_id, record) for record in result.records]
         if not rows:
             rows = [_methodology_unavailable_row(result, instrument_id)]
+    else:
+        columns = SFDR_COLUMNS
+        rows = [_sfdr_row(result, instrument_id, record) for record in result.records]
+        if not rows:
+            rows = [_sfdr_unavailable_row(result, instrument_id)]
     if result.success or document_available is True:
         document = register_document(
             Path(document_path),
-            document_type,
+            "sfdr" if document_type == "sfdr" else document_type,
             instrument_id,
             source_url,
             authority,
@@ -243,6 +299,8 @@ def _persist_with_document(
             combined = pd.concat([existing, incoming], ignore_index=True) if not existing.empty else incoming
             if not combined.empty:
                 combined = combined.drop_duplicates(subset=["source_id"], keep="last").sort_values("source_id", kind="stable").reset_index(drop=True)
+            if document_type == "sfdr":
+                combined = _apply_sfdr_consistency(combined)
             registry_existing = _read_registry_fail_closed(registry_destination)
             ids = [str(item).strip() for item in configured_instrument_ids if str(item).strip()]
             if not registry_existing.empty and "instrument_id" in registry_existing.columns:
@@ -410,6 +468,173 @@ def _methodology_unavailable_row(result: ParseResult[IndexMethodologyRecord], in
     }
 
 
+def _sfdr_row(result: ParseResult[SfdrRecord], instrument_id: str, record: SfdrRecord) -> dict[str, Any]:
+    return {
+        "schema_version": int(getattr(record, "schema_version", 1)),
+        "source_id": _source_id("sfdr", instrument_id, result.source_sha256),
+        "instrument_id": str(instrument_id or "").strip(),
+        "parser_name": result.parser_name,
+        "parser_version": result.parser_version,
+        "source_sha256": result.source_sha256,
+        "source_authority": "issuer_document",
+        "freshness_status": _freshness(record.document_date),
+        "source_pages": _json(record.source_pages),
+        "classification": record.classification,
+        "methodology_disclosed": bool(record.methodology_disclosed),
+        "data_sources_disclosed": bool(record.data_sources_disclosed),
+        "sustainable_characteristics": record.sustainable_characteristics,
+        "taxonomy_alignment_pct": record.taxonomy_alignment_pct,
+        "document_type": record.document_type,
+        "document_date": record.document_date,
+        "warnings": _json(_warning_payload(result.warnings, record.warnings)),
+        "manual_review": bool(record.manual_review or result.warnings),
+        "conflict_id": "",
+        "conflict_reason": "",
+        "superseded": False,
+        "score_eligible": False,
+        "execution_allowed": False,
+        "success": bool(result.success),
+        "imported_at": _utc_now(),
+    }
+
+
+def _sfdr_unavailable_row(result: ParseResult[SfdrRecord], instrument_id: str) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "source_id": _source_id("sfdr", instrument_id, result.source_sha256 or _warning_digest(result)),
+        "instrument_id": str(instrument_id or "").strip(),
+        "parser_name": result.parser_name,
+        "parser_version": result.parser_version,
+        "source_sha256": result.source_sha256,
+        "source_authority": "issuer_document",
+        "freshness_status": "unknown",
+        "source_pages": "[]",
+        "classification": "unclassified",
+        "methodology_disclosed": False,
+        "data_sources_disclosed": False,
+        "sustainable_characteristics": None,
+        "taxonomy_alignment_pct": None,
+        "document_type": "unspecified",
+        "document_date": None,
+        "warnings": _json(_warning_payload(result.warnings)),
+        "manual_review": True,
+        "conflict_id": "",
+        "conflict_reason": "",
+        "superseded": False,
+        "score_eligible": False,
+        "execution_allowed": False,
+        "success": False,
+        "imported_at": _utc_now(),
+    }
+
+
+def _persist_sfdr_rows(rows: list[dict[str, Any]], destination: Path) -> Path:
+    destination = Path(destination)
+    with persistent_file_guard(_guard_path(destination), timeout_seconds=5.0):
+        existing = _read_frame(destination, SFDR_COLUMNS)
+        incoming = pd.DataFrame(rows, columns=SFDR_COLUMNS)
+        combined = pd.concat([existing, incoming], ignore_index=True) if not existing.empty else incoming
+        if not combined.empty:
+            combined = combined.drop_duplicates(subset=["source_id"], keep="last").sort_values("source_id", kind="stable").reset_index(drop=True)
+            combined = _apply_sfdr_consistency(combined)
+        requests = (
+            AtomicWriteRequest(destination, parquet_payload(combined), validate_parquet_file),
+            AtomicWriteRequest(destination.with_suffix(".csv"), combined.to_csv(index=False).encode("utf-8"), _validate_csv_file),
+        )
+        atomic_write_group(requests)
+    return destination
+
+
+def _apply_sfdr_consistency(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    result = frame.copy()
+    result["document_type"] = result["document_type"].where(result["document_type"].notna(), "unspecified").replace("", "unspecified")
+    result["classification"] = result["classification"].where(result["classification"].notna(), "unclassified").replace("", "unclassified")
+    for column, default in (("conflict_id", ""), ("conflict_reason", ""), ("manual_review", True), ("superseded", False)):
+        if column not in result.columns:
+            result[column] = default
+    consistency_codes = {"sfdr_classification_conflict", "sfdr_missing_periodic_report"}
+    for index in result.index:
+        result.at[index, "superseded"] = False
+        result.at[index, "conflict_id"] = ""
+        result.at[index, "conflict_reason"] = ""
+        warnings = _decode_warning_payload(result.at[index, "warnings"])
+        own_warnings = [
+            item for item in warnings
+            if (item.get("code") if isinstance(item, dict) else str(item)) not in consistency_codes
+        ]
+        result.at[index, "warnings"] = _json(own_warnings)
+        # Recompute from the row's own evidence every time, so a resolved
+        # cross-document conflict does not leave a stale manual-review flag.
+        missing_date = pd.isna(pd.to_datetime(result.at[index, "document_date"], errors="coerce", utc=True))
+        result.at[index, "manual_review"] = bool(own_warnings) or missing_date
+
+    current_indices: set[Any] = set()
+    for _instrument_id, instrument_group in result.groupby("instrument_id", dropna=False):
+        for _document_type, group in instrument_group.groupby("document_type", dropna=False):
+            def recency(index: Any) -> tuple[pd.Timestamp, pd.Timestamp, int]:
+                row = result.loc[index]
+                imported = pd.to_datetime(row.get("imported_at"), errors="coerce", utc=True)
+                document_date = pd.to_datetime(row.get("document_date"), errors="coerce", utc=True)
+                effective = document_date if not pd.isna(document_date) else imported
+                return (
+                    effective if not pd.isna(effective) else pd.Timestamp.min.tz_localize("UTC"),
+                    imported if not pd.isna(imported) else pd.Timestamp.min.tz_localize("UTC"),
+                    int(index) if isinstance(index, (int, float)) else 0,
+                )
+            latest = max(group.index, key=recency)
+            current_indices.add(latest)
+            for index in group.index:
+                result.at[index, "superseded"] = index != latest
+
+    current = result.loc[result.index.isin(current_indices)]
+    for instrument_id, group in current.groupby("instrument_id", dropna=False):
+        classifications = {
+            str(value).strip()
+            for value in group["classification"].tolist()
+            if str(value).strip() in {"article_6", "article_8", "article_9"}
+        }
+        document_types = {str(value).strip() for value in group["document_type"].tolist()}
+        conflict = len(classifications) > 1
+        missing_periodic = bool(classifications & {"article_8", "article_9"}) and "periodic_report" not in document_types
+        conflict_id = ""
+        conflict_reason = ""
+        if conflict:
+            conflict_id = "sfdr-conflict:" + hashlib.sha256(f"{instrument_id}|{'|'.join(sorted(classifications))}".encode("utf-8")).hexdigest()[:16]
+            conflict_reason = "SFDR classifications differ across registered factsheet/prospectus/periodic-report documents; manual review is required."
+        for index in group.index:
+            classification = str(result.at[index, "classification"]).strip()
+            warnings = _decode_warning_payload(result.at[index, "warnings"])
+            if conflict and classification in {"article_6", "article_8", "article_9"}:
+                warnings.append({"code": "sfdr_classification_conflict", "message": conflict_reason, "severity": "warning", "source_location": "cross-document"})
+            if missing_periodic and classification in {"article_8", "article_9"}:
+                warnings.append({"code": "sfdr_missing_periodic_report", "message": "Article 8/9 SFDR evidence has no registered periodic report", "severity": "warning", "source_location": "cross-document"})
+            result.at[index, "warnings"] = _json(warnings)
+            result.at[index, "manual_review"] = bool(result.at[index, "manual_review"] or conflict or missing_periodic or classification in {"unclassified", "ambiguous", "unspecified"})
+            if classification in {"article_6", "article_8", "article_9"}:
+                result.at[index, "conflict_id"] = conflict_id
+                result.at[index, "conflict_reason"] = conflict_reason
+
+    for index in result.index:
+        classification = str(result.at[index, "classification"]).strip()
+        if classification in {"unclassified", "ambiguous", "unspecified"}:
+            result.at[index, "manual_review"] = True
+        result.at[index, "score_eligible"] = False
+        result.at[index, "execution_allowed"] = False
+    return result
+
+
+def _decode_warning_payload(value: Any) -> list[object]:
+    if isinstance(value, list):
+        return list(value)
+    try:
+        parsed = json.loads(str(value or "[]"))
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
 def _persist_rows(rows: list[dict[str, Any]], destination: Path, columns: list[str]) -> Path:
     destination = Path(destination)
     existing = _read_frame(destination, columns)
@@ -435,13 +660,20 @@ def _read_frame(path: Path, columns: list[str]) -> pd.DataFrame:
         raise ValueError(f"Parsed disclosure store is corrupt: {candidate}") from exc
     for column in columns:
         if column not in frame.columns:
-            frame[column] = None
+            if column == "superseded":
+                frame[column] = False
+            elif column == "document_type" and columns == SFDR_COLUMNS:
+                frame[column] = "unspecified"
+            else:
+                frame[column] = None
+    if columns == SFDR_COLUMNS and "superseded" in frame.columns:
+        frame["superseded"] = frame["superseded"].fillna(False).astype(bool)
     return frame[columns]
 
 
 def _source_id(kind: str, instrument_id: str, checksum: str) -> str:
     payload = "|".join((kind, str(instrument_id or "").strip(), str(checksum or "missing")))
-    return f"parsed:{'kid' if kind == 'kid' else 'methodology'}:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+    return f"parsed:{kind}:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
 def _warning_digest(result: ParseResult[Any]) -> str:
@@ -497,14 +729,19 @@ __all__ = [
     "KID_COLUMNS",
     "METHODOLOGY_COLUMNS",
     "PRIIPS_KID_RECORDS_PATH",
+    "SFDR_COLUMNS",
+    "SFDR_RECORDS_PATH",
     "persist_index_methodology",
     "persist_index_methodology_result",
     "persist_index_methodology_with_document",
     "persist_priips_kid",
     "persist_priips_kid_result",
     "persist_priips_kid_with_document",
+    "persist_sfdr_result",
+    "persist_sfdr_with_document",
     "read_index_methodology_records",
     "read_priips_kid_records",
+    "read_sfdr_records",
 ]
 
 

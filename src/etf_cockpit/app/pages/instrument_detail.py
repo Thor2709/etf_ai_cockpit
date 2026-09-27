@@ -30,8 +30,10 @@ def render_etf_disclosure_panel(model: InstrumentDetailViewModel) -> ft.Control:
         holdings_line = "Holdings: " + ", ".join(f"{key}={holdings.get(key, 'unavailable')}" for key in ("completeness", "freshness", "confidence", "source", "authority", "as_of"))
         kid = disclosure.get("kid", {})
         methodology = disclosure.get("methodology", {})
+        sfdr = disclosure.get("sfdr", {})
         kid_line = "KID: " + ", ".join(f"{key}={kid.get(key, 'unavailable')}" for key in ("status", "sri", "holding_period_years", "document_date", "extraction_confidence", "source_pages", "warnings", "source_sha256", "parser_version"))
         methodology_line = "Methodology: " + ", ".join(f"{key}={methodology.get(key, 'unavailable')}" for key in ("status", "provider", "index_series", "version", "document_date", "confidence", "source_pages", "warnings", "source_sha256", "parser_version"))
+        sfdr_line = "SFDR: " + ", ".join(f"{key}={sfdr.get(key, 'unavailable')}" for key in ("status", "classification", "document_type", "document_date", "methodology_disclosed", "data_sources_disclosed", "sustainable_characteristics", "taxonomy_alignment_pct", "warnings", "conflict_id", "manual_review", "score_eligible", "execution_allowed"))
         metadata = ft.Column(
             [
                 ft.Text("KID evidence metadata", color=theme.TEXT, size=11, weight=ft.FontWeight.BOLD),
@@ -40,10 +42,12 @@ def render_etf_disclosure_panel(model: InstrumentDetailViewModel) -> ft.Control:
                 _render_evidence_badges(methodology),
                 ft.Text("Holdings evidence metadata", color=theme.TEXT, size=11, weight=ft.FontWeight.BOLD),
                 _render_evidence_badges(holdings),
+                ft.Text("SFDR evidence metadata", color=theme.TEXT, size=11, weight=ft.FontWeight.BOLD),
+                _render_evidence_badges(sfdr),
             ],
             spacing=4,
         )
-        body = ft.Column([metadata, *[ft.Text(line, color=theme.MUTED, selectable=True, size=11) for line in [*document_lines, holdings_line, kid_line, methodology_line] or ["No local disclosure rows are available."]]], spacing=4)
+        body = ft.Column([metadata, *[ft.Text(line, color=theme.MUTED, selectable=True, size=11) for line in [*document_lines, holdings_line, kid_line, methodology_line, sfdr_line] or ["No local disclosure rows are available."]]], spacing=4)
     return panel(ft.Column([section_header("ETF disclosure evidence", "Document inventory and normalised holdings quality for the selected instrument; unavailable values stay explicit."), body], spacing=8))
 
 

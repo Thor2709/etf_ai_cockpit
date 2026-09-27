@@ -14,6 +14,7 @@ import pytest
 from etf_cockpit.parsers.contracts import ParseResult, ParseWarning
 from etf_cockpit.parsers.index_methodology import IndexMethodologyRecord
 from etf_cockpit.parsers.priips_kid import PriipsKidRecord
+from etf_cockpit.parsers.sfdr import SfdrRecord
 
 
 def _kid_result() -> ParseResult[PriipsKidRecord]:
@@ -52,6 +53,22 @@ def _methodology_result() -> ParseResult[IndexMethodologyRecord]:
         score_eligible=True,
     )
     return ParseResult((record,), (), "index_methodology", "2.0", "b" * 64, True)
+
+
+def _sfdr_result(classification: str, checksum: str, document_type: str = "factsheet", document_date: str = "2026-09-01") -> ParseResult[SfdrRecord]:
+    record = SfdrRecord(
+        classification=classification,
+        methodology_disclosed=True,
+        data_sources_disclosed=True,
+        sustainable_characteristics="Climate transition",
+        taxonomy_alignment_pct=25.0 if classification == "article_9" else None,
+        document_type=document_type,
+        document_date=document_date,
+        source_pages=(1,),
+        warnings=(),
+        source_sha256=checksum,
+    )
+    return ParseResult((record,), (), "sfdr", "1.0", checksum, True)
 
 
 def test_csv_validator_accepts_quoted_newlines_and_rejects_inconsistent_widths(
@@ -273,6 +290,77 @@ def test_corrupt_parsed_store_fails_closed_without_overwriting_prior_bytes(tmp_p
         persist_priips_kid_result(_kid_result(), "VWCE", destination=destination)
 
     assert destination.read_bytes() == prior
+
+
+def test_sfdr_persistence_is_checksum_keyed_and_idempotent(tmp_path: Path) -> None:
+    from etf_cockpit.data.parsed_disclosures import persist_sfdr_result, read_sfdr_records
+
+    destination = tmp_path / "sfdr_records.parquet"
+    result = _sfdr_result("article_9", "c" * 64, "periodic_report")
+    persist_sfdr_result(result, "VWCE", destination=destination)
+    persist_sfdr_result(result, "VWCE", destination=destination)
+    frame = read_sfdr_records(destination)
+    assert len(frame) == 1
+    assert frame.iloc[0]["classification"] == "article_9"
+    assert bool(frame.iloc[0]["score_eligible"]) is False
+    assert bool(frame.iloc[0]["execution_allowed"]) is False
+
+
+def test_sfdr_conflicting_classifications_require_manual_review(tmp_path: Path) -> None:
+    from etf_cockpit.data.parsed_disclosures import persist_sfdr_result, read_sfdr_records
+
+    destination = tmp_path / "sfdr_records.parquet"
+    persist_sfdr_result(_sfdr_result("article_8", "d" * 64, "factsheet"), "VWCE", destination=destination)
+    persist_sfdr_result(_sfdr_result("article_6", "e" * 64, "prospectus"), "VWCE", destination=destination)
+    frame = read_sfdr_records(destination)
+    assert set(frame["classification"]) == {"article_8", "article_6"}
+    assert frame["manual_review"].all()
+    assert frame["conflict_id"].astype(str).str.startswith("sfdr-conflict:").all()
+    assert frame["conflict_reason"].astype(str).str.contains("differ").all()
+
+
+def test_sfdr_article_8_without_periodic_report_warns(tmp_path: Path) -> None:
+    from etf_cockpit.data.parsed_disclosures import persist_sfdr_result, read_sfdr_records
+
+    destination = tmp_path / "sfdr_records.parquet"
+    persist_sfdr_result(_sfdr_result("article_8", "f" * 64, "factsheet"), "VWCE", destination=destination)
+    row = read_sfdr_records(destination).iloc[0]
+    assert "sfdr_missing_periodic_report" in str(row["warnings"])
+    assert bool(row["manual_review"]) is True
+
+
+def test_sfdr_supersedes_older_same_document_type_without_conflict(tmp_path: Path) -> None:
+    from etf_cockpit.data.parsed_disclosures import persist_sfdr_result, read_sfdr_records
+
+    destination = tmp_path / "sfdr_records.parquet"
+    persist_sfdr_result(_sfdr_result("article_8", "1" * 64, "factsheet", "2025-09-01"), "VWCE", destination=destination)
+    persist_sfdr_result(_sfdr_result("article_9", "2" * 64, "factsheet", "2026-09-01"), "VWCE", destination=destination)
+    frame = read_sfdr_records(destination).sort_values("document_date")
+    assert frame.iloc[0]["superseded"] is True or bool(frame.iloc[0]["superseded"])
+    assert bool(frame.iloc[1]["superseded"]) is False
+    assert frame["conflict_id"].astype(str).eq("").all()
+
+
+def test_sfdr_standalone_persistence_uses_destination_guard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.data.parsed_disclosures as persistence
+
+    calls: list[Path] = []
+
+    class _Guard:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    def fake_guard(path: Path, *, timeout_seconds: float):
+        calls.append(path)
+        assert timeout_seconds == 5.0
+        return _Guard()
+
+    monkeypatch.setattr(persistence, "persistent_file_guard", fake_guard)
+    persistence.persist_sfdr_result(_sfdr_result("article_9", "3" * 64), "VWCE", destination=tmp_path / "sfdr.parquet")
+    assert calls == [tmp_path / "sfdr.parquet.guard"]
 def _v2_report_result(
     path: Path,
     *,
@@ -1070,3 +1158,21 @@ def test_report_and_other_registry_writers_preserve_all_rows_concurrently(tmp_pa
     retained = module.read_etf_report_records(report_request.destination).iloc[0]
     assert retained["verification_status"] == "verified"
     assert retained["review_history"] == expected_history
+
+
+def test_sfdr_resolved_conflict_clears_manual_review_on_current_rows(tmp_path: Path) -> None:
+    from etf_cockpit.data.parsed_disclosures import persist_sfdr_result, read_sfdr_records
+
+    destination = tmp_path / "sfdr_records.parquet"
+    persist_sfdr_result(_sfdr_result("article_8", "1" * 64, "factsheet", "2026-01-01"), "VWCE", destination=destination)
+    persist_sfdr_result(_sfdr_result("article_6", "2" * 64, "prospectus", "2026-01-01"), "VWCE", destination=destination)
+    persist_sfdr_result(_sfdr_result("article_8", "3" * 64, "periodic_report", "2026-01-01"), "VWCE", destination=destination)
+    conflicted = read_sfdr_records(destination)
+    assert conflicted.loc[conflicted["document_type"] == "factsheet", "manual_review"].astype(bool).all()
+
+    persist_sfdr_result(_sfdr_result("article_8", "4" * 64, "prospectus", "2026-06-01"), "VWCE", destination=destination)
+    frame = read_sfdr_records(destination)
+    current = frame.loc[~frame["superseded"].astype(bool)]
+    assert set(current["classification"]) == {"article_8"}
+    assert not current["manual_review"].astype(bool).any()
+    assert (current["conflict_id"].fillna("") == "").all()
