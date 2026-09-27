@@ -872,17 +872,45 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0027": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #761 https://github.com/Thor2709/etf_ai_cockpit/pull/761 exact head 24a3280e714edc386120c0615cbd329df3ce83d8 merged as a4c363b5dfee97c45367390dc3a5ddb371c9b42d: Forecast Lab net-of-cost forward value via canonical portfolio.costs round trip, per-fold walk-forward evaluation, interval/conformal coverage and drift surfaced, exact-session forecast grading (missing/stale sessions unavailable, never substituted), per-model latest forecast and configured/observed/skipped horizons, low-authority non-rescue governance, run-bound measured runtime, rerun progress status; promotion shadow_only; execution_allowed=false.",
+            "Release gate run 36290313771 on exact head 24a3280e (classifier, preflight, supply chain, Linux and Windows release gates, validation-summary) succeeded; focused tests tests/test_forecast_lab.py, tests/ui/test_forecasts_ui.py, tests/test_simple_scores.py (non-rescue regression), tests/test_architecture_boundaries.py, tests/test_button_contracts.py passed locally.",
+            "Reviews: Gemini adversarial review (fixed pre-existing conformal look-ahead for horizons > 1, tz mix, skipped-model runtime); GPT-5.6 Sol risk review found 4 blocking findings (stale-price substitution, missing acceptance items, order-dependent drift, run-unbound runtime), all fixed in 1fe4eaf8 by one Luna correction pass and verified by Claude Code root whole-diff review."
+          ],
+          "review_reference": "Exact product head 24a3280e714edc386120c0615cbd329df3ce83d8: Claude Code (claude-opus-5-5) root whole-diff review plus GPT-5.6 Sol risk review, owner-authorised on 2026-09-24/27 in place of Codex V2 reviewer/risk-reviewer.",
+          "reviewed_date": "2026-09-27",
+          "reviewer": "Claude Code root orchestrator self-review with GPT-5.6 Sol risk review (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-01-governance-scope",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "Exact product head 24a3280e714edc386120c0615cbd329df3ce83d8: Claude Code (claude-opus-5-5) root whole-diff review plus GPT-5.6 Sol risk review, owner-authorised on 2026-09-24/27 in place of Codex V2 reviewer/risk-reviewer.",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #761 https://github.com/Thor2709/etf_ai_cockpit/pull/761 exact head 24a3280e714edc386120c0615cbd329df3ce83d8 merged as a4c363b5dfee97c45367390dc3a5ddb371c9b42d: Forecast Lab net-of-cost forward value via canonical portfolio.costs round trip, per-fold walk-forward evaluation, interval/conformal coverage and drift surfaced, exact-session forecast grading (missing/stale sessions unavailable, never substituted), per-model latest forecast and configured/observed/skipped horizons, low-authority non-rescue governance, run-bound measured runtime, rerun progress status; promotion shadow_only; execution_allowed=false.",
+            "Release gate run 36290313771 on exact head 24a3280e (classifier, preflight, supply chain, Linux and Windows release gates, validation-summary) succeeded; focused tests tests/test_forecast_lab.py, tests/ui/test_forecasts_ui.py, tests/test_simple_scores.py (non-rescue regression), tests/test_architecture_boundaries.py, tests/test_button_contracts.py passed locally.",
+            "Reviews: Gemini adversarial review (fixed pre-existing conformal look-ahead for horizons > 1, tz mix, skipped-model runtime); GPT-5.6 Sol risk review found 4 blocking findings (stale-price substitution, missing acceptance items, order-dependent drift, run-unbound runtime), all fixed in 1fe4eaf8 by one Luna correction pass and verified by Claude Code root whole-diff review."
+          ],
+          "from": "implemented_initially",
+          "review_reference": "Exact product head 24a3280e714edc386120c0615cbd329df3ce83d8: Claude Code (claude-opus-5-5) root whole-diff review plus GPT-5.6 Sol risk review, owner-authorised on 2026-09-24/27 in place of Codex V2 reviewer/risk-reviewer.",
+          "reviewed_date": "2026-09-27",
+          "reviewer": "Claude Code root orchestrator self-review with GPT-5.6 Sol risk review (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "to": "integrated",
+          "verified_commit": "24a3280e714edc386120c0615cbd329df3ce83d8"
+        }
+      ],
+      "verified_commit": "24a3280e714edc386120c0615cbd329df3ce83d8",
+      "verified_date": "2026-09-27"
     },
     "ISSUE-0028": {
       "acceptance_evidence": [],
