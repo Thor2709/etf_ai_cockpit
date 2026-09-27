@@ -1045,17 +1045,47 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0036": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product PR #770 https://github.com/Thor2709/etf_ai_cockpit/pull/770 exact head df4d4627a2b2988d7edfd334d240d1d38ed3a368 merged as 25aed441d7443c3d2e397dd0d7244273cfe37858: import/export centre layout fix (expand inside wrapping Row rendered a grey error box) plus static Flet layout contract; existing import/export implementation and tests (tests/test_import_export.py) cover preview-before-commit imports and all exports.",
+            "Release gate run 36316881590 on exact head df4d4627 succeeded.",
+            "Full release gate run 36319979793 on head 59a773cd66d9e59aeb4725026d4e32e454f09f78 (the #772 merge head; main source identical) passed classifier, preflight, supply chain, Linux and Windows full suites and validation-summary.",
+            "Browser smoke 2026-09-27 (Flet web offline): all Import/Export sections render; scoreboard export shows its destination path (59 rows); an invalid restore is rejected with a readable error while commit stays disabled (C:/dev/etf-evidence-0036/browser-smoke.md)."
+          ],
+          "review_reference": "Exact head df4d4627a2b2988d7edfd334d240d1d38ed3a368: Claude Code (claude-opus-5-5) root review with independent worker reviews, owner-authorised in place of Codex V2 reviewer/risk-reviewer.",
+          "reviewed_date": "2026-09-27",
+          "reviewer": "Claude Code root orchestrator self-review with independent worker reviews (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-01-governance-scope",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "Exact head df4d4627a2b2988d7edfd334d240d1d38ed3a368: Claude Code (claude-opus-5-5) root review with independent worker reviews, owner-authorised in place of Codex V2 reviewer/risk-reviewer.",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product PR #770 https://github.com/Thor2709/etf_ai_cockpit/pull/770 exact head df4d4627a2b2988d7edfd334d240d1d38ed3a368 merged as 25aed441d7443c3d2e397dd0d7244273cfe37858: import/export centre layout fix (expand inside wrapping Row rendered a grey error box) plus static Flet layout contract; existing import/export implementation and tests (tests/test_import_export.py) cover preview-before-commit imports and all exports.",
+            "Release gate run 36316881590 on exact head df4d4627 succeeded.",
+            "Full release gate run 36319979793 on head 59a773cd66d9e59aeb4725026d4e32e454f09f78 (the #772 merge head; main source identical) passed classifier, preflight, supply chain, Linux and Windows full suites and validation-summary.",
+            "Browser smoke 2026-09-27 (Flet web offline): all Import/Export sections render; scoreboard export shows its destination path (59 rows); an invalid restore is rejected with a readable error while commit stays disabled (C:/dev/etf-evidence-0036/browser-smoke.md)."
+          ],
+          "from": "implemented_initially",
+          "review_reference": "Exact head df4d4627a2b2988d7edfd334d240d1d38ed3a368: Claude Code (claude-opus-5-5) root review with independent worker reviews, owner-authorised in place of Codex V2 reviewer/risk-reviewer.",
+          "reviewed_date": "2026-09-27",
+          "reviewer": "Claude Code root orchestrator self-review with independent worker reviews (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "to": "integrated",
+          "verified_commit": "df4d4627a2b2988d7edfd334d240d1d38ed3a368"
+        }
+      ],
+      "verified_commit": "df4d4627a2b2988d7edfd334d240d1d38ed3a368",
+      "verified_date": "2026-09-27"
     },
     "ISSUE-0037": {
       "acceptance_evidence": [

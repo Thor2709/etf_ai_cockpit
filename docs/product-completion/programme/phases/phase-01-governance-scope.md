@@ -68,7 +68,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0033` | `P2` | `planned` | `programme-governance` | - | - | - | `ISSUE-0024`, `ISSUE-0077`, `ISSUE-0132`, `ISSUE-0135` |
 | `ISSUE-0034` | `P1` | `integrated` | `programme-governance` | - | - | - | `ISSUE-0075`, `ISSUE-0090`, `ISSUE-0116`, `ISSUE-0134` |
 | `ISSUE-0035` | `P3` | `closed` | `data-and-evidence` | - | - | - | - |
-| `ISSUE-0036` | `P1/P2` | `implemented_initially` | `programme-governance` | - | - | `ISSUE-0086` | `ISSUE-0081`, `ISSUE-0086`, `ISSUE-0127`, `ISSUE-0146` |
+| `ISSUE-0036` | `P1/P2` | `integrated` | `programme-governance` | - | - | `ISSUE-0086` | `ISSUE-0081`, `ISSUE-0086`, `ISSUE-0127`, `ISSUE-0146` |
 | `ISSUE-0039` | `P1/P2` | `in_progress` | `platform-and-operations` | - | - | `ISSUE-0175` | `ISSUE-0077`, `ISSUE-0078`, `ISSUE-0151` |
 | `ISSUE-0040` | `P1` | `in_progress` | `platform-and-operations` | - | - | - | `ISSUE-0077`, `ISSUE-0089`, `ISSUE-0135`, `ISSUE-0146` |
 | `ISSUE-0044` | `P1/P2` | `integrated` | `platform-and-operations` | - | - | `ISSUE-0146` | `ISSUE-0145`, `ISSUE-0146` |
