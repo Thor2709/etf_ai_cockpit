@@ -30,22 +30,25 @@ from etf_cockpit.application.alerts import (
 from etf_cockpit.application.digest import (
     DashboardDigest,
     build_digest,
+    build_macro_context,
+    contradiction_digest_records,
     filter_news_contradiction_inputs,
     score_run_pair_as_of,
 )
 from etf_cockpit.application.ui_facade import (
     EVENT_CLEAN_PATH,
+    FUNDAMENTAL_CLEAN_PATH,
     NEWS_CLEAN_PATH,
     MacroWarehouse,
     MacroWarehouseError,
     SimpleInstrumentScore,
-    build_news_contradiction_rows,
     build_simple_instrument_scores,
     compare_runs,
     events_available_as_of,
     filter_forecasts_for_universe,
     configured_forecast_request_identity,
     load_calendar_events,
+    load_fundamental_evidence,
     load_candidate_price_binding,
     load_latest_forecasts,
     load_news_items,
@@ -355,23 +358,62 @@ def _contradiction_record(
 ) -> list[dict[str, object]]:
     try:
         news = sort_news_items(load_news_items(NEWS_CLEAN_PATH))
-        prices = getattr(state.snapshot, "prices", pd.DataFrame())
+        prices = getattr(getattr(state, "snapshot", None), "prices", pd.DataFrame())
         filtered_inputs = filter_news_contradiction_inputs(
             news,
             prices,
             cutoff if cutoff is not None else normalise_event_decision_time(as_of),
         )
-        macro = MacroWarehouse().summary(root=ROOT, decision_time=as_of)
+        macro_prices = prices.copy() if isinstance(prices, pd.DataFrame) else pd.DataFrame()
+        decision_cutoff = cutoff if cutoff is not None else normalise_event_decision_time(as_of)
+        if isinstance(decision_cutoff, pd.Timestamp) and not macro_prices.empty and "date" in macro_prices.columns:
+            macro_dates = pd.to_datetime(macro_prices["date"], errors="coerce", utc=True)
+            macro_prices = macro_prices.loc[macro_dates.notna() & (macro_dates.dt.date <= decision_cutoff.date())].copy()
+        if "etf_id" not in macro_prices.columns and "instrument_id" in macro_prices.columns:
+            macro_prices["etf_id"] = macro_prices["instrument_id"]
+        instruments = getattr(getattr(getattr(state, "snapshot", None), "config", None), "universe", None)
+        instrument_rows = getattr(instruments, "etfs", ()) if instruments is not None else ()
+        macro = build_macro_context(macro_prices, instrument_rows)
+        try:
+            # Preserve the existing warehouse provenance when available; the
+            # feature-layer context remains the classification authority.
+            warehouse = MacroWarehouse().summary(root=ROOT, decision_time=as_of)
+            if str(macro.get("status", "unavailable")) == "unavailable" and isinstance(warehouse, Mapping):
+                macro = warehouse
+        except Exception:
+            pass
+        fundamentals = load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
+        history = score_history_frame()
+        exposures = [
+            {
+                "instrument_id": getattr(item, "id", None),
+                "classification": " ".join(str(getattr(item, field, "") or "") for field in ("asset_class", "asset_type", "role", "sector", "theme")),
+            }
+            for item in instrument_rows
+        ]
     except (MacroWarehouseError, OSError, TypeError, ValueError):
-        return [{"title": "News/macro contradiction status unavailable", "detail": "Local contradiction inputs could not be read; no contradiction is inferred.", "status": "unavailable", "severity": "warning", "as_of": as_of, "provenance": "news_context/macro_warehouse"}]
+        return contradiction_digest_records(
+            pd.DataFrame(),
+            prices=pd.DataFrame(),
+            cutoff=cutoff if cutoff is not None else normalise_event_decision_time(as_of),
+        )
     if filtered_inputs is None:
-        return [{"title": "News/macro contradictions unavailable", "detail": "Point-in-time news or adjusted-price evidence is missing, malformed, or unavailable at the snapshot cutoff; no contradiction is inferred.", "status": "unavailable", "severity": "warning", "as_of": as_of, "provenance": "news_context/adjusted_prices/macro_warehouse"}]
-    filtered_news, filtered_prices = filtered_inputs
-    contradictions = build_news_contradiction_rows(filtered_news, filtered_prices)
-    macro_status = str(macro.get("status", "unavailable"))
-    count = len(contradictions)
-    detail = f"{count} deterministic news contradiction(s); macro contradiction comparison is unavailable (macro context={macro_status})."
-    return [{"title": "News/macro contradiction status", "detail": detail, "status": "manual_review", "severity": "warning", "as_of": as_of, "provenance": "news_context/adjusted_prices/macro_warehouse"}]
+        # Keep the evaluator in charge of each rule's unavailable state so the
+        # UI can show all rules instead of collapsing missing inputs to one
+        # generic record.
+        filtered_news = news
+        filtered_prices = pd.DataFrame()
+    else:
+        filtered_news, filtered_prices = filtered_inputs
+    return contradiction_digest_records(
+        filtered_news,
+        prices=filtered_prices,
+        fundamentals=fundamentals,
+        macro_context=macro,
+        exposures=exposures,
+        score_history=history,
+        cutoff=cutoff if cutoff is not None else normalise_event_decision_time(as_of),
+    )
 
 
 def _event_record(*, as_of: str | None, cutoff: object | None = None) -> list[dict[str, object]] | None:
@@ -448,11 +490,27 @@ def _news_digest(page: ft.Page, state: AppState) -> ft.Control:
                 size=11,
             ))
         body = ft.Column(rows, spacing=4)
+    contradiction_records = _contradiction_record(
+        state,
+        as_of=str(getattr(getattr(getattr(state, "snapshot", None), "data_report", None), "as_of_date", "") or "") or None,
+        cutoff=normalise_event_decision_time(getattr(getattr(getattr(state, "snapshot", None), "data_report", None), "as_of_date", None)),
+    )
+    contradiction_lines = [
+        ft.Text(
+            f"{record['title']}: {record['detail']} (status={record.get('rule_status', record['status'])})",
+            color=theme.AMBER if record["status"] != "available" else theme.MUTED,
+            selectable=True,
+            size=11,
+        )
+        for record in contradiction_records
+    ] or [ft.Text("Contradiction engine unavailable; no rule result is inferred.", color=theme.MUTED, selectable=True)]
     return panel(
         ft.Column(
             [
                 section_header("News & context digest", "Recent local news is dated, source-linked context only and cannot change deterministic scores or actions."),
                 body,
+                section_header("News/macro contradictions", "All contradiction rules are informational, point-in-time and non-executable; unavailable inputs are shown explicitly."),
+                ft.Column(contradiction_lines, spacing=4),
                 ft.TextButton("Open News & Context", key="dashboard.open-news-context", on_click=lambda _event: _go_to(page, state, "/news-context")),
             ],
             spacing=8,

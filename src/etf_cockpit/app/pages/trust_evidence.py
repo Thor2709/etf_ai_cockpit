@@ -17,6 +17,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
 from etf_cockpit.app.state import ActivityUnavailableError, AppState
 from etf_cockpit.app.selectors.instrument_detail import normalise_feature_driver_frame
+from etf_cockpit.application.digest import contradiction_digest_records
 from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR, STATEMENT_FACTS_PATH
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
@@ -51,7 +52,6 @@ from etf_cockpit.application.ui_facade import (
     SCORE_METRIC_HISTORY_PATH,
     SOURCE_CONFLICTS_PATH,
     ProviderRegistry,
-    build_news_contradiction_rows,
     import_etf_document,
     import_etf_holdings_with_document,
     legal_terms_rows,
@@ -464,16 +464,26 @@ def news_context_page(_page: ft.Page, state: AppState) -> ft.Control:
 def _news_context_extra(state: AppState) -> ft.Control:
     frame = load_news_items(NEWS_CONTEXT_PATH)
     prices = state.snapshot.prices if isinstance(state.snapshot.prices, pd.DataFrame) else pd.DataFrame()
-    contradictions = build_news_contradiction_rows(frame, prices)
-    if frame.empty:
-        body: ft.Control = ft.Text("News unavailable; no canonical local items are registered. Contradictions are unavailable.", color=theme.MUTED, selectable=True)
-    elif contradictions.empty:
-        body = ft.Text("No deterministic contradictions detected for the dated price rows available. Unsupported or undated comparisons remain unavailable.", color=theme.MUTED, selectable=True)
-    else:
-        body = ft.Column(
-            [ft.Text(f"{row['instrument_id']} | {row['headline']} | headline={row['headline_direction']} price={row['price_direction']} | {row['reason']}", color=theme.AMBER, selectable=True, size=11) for _, row in contradictions.iterrows()],
-            spacing=4,
-        )
+    decision_time = normalise_event_decision_time(
+        getattr(getattr(state.snapshot, "data_report", None), "as_of_date", None)
+    )
+    contradiction_results = contradiction_digest_records(
+        frame,
+        prices=prices,
+        cutoff=decision_time,
+    )
+    body: ft.Control = ft.Column(
+        [
+            ft.Text(
+                f"{result.get('title', 'contradiction')}: status={result.get('rule_status', result.get('status', 'unavailable'))} | {result.get('detail', 'unavailable')}",
+                color=theme.AMBER if result.get("status") != "clear" else theme.MUTED,
+                selectable=True,
+                size=11,
+            )
+            for result in contradiction_results
+        ] or [ft.Text("Contradiction engine unavailable; no rule result is inferred.", color=theme.MUTED, selectable=True)],
+        spacing=4,
+    )
     try:
         manual_notes = load_manual_news(MANUAL_NEWS_CLEAN_PATH)
         manual_note_error = None
