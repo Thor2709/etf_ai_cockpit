@@ -103,3 +103,14 @@ def test_settings_centre_surfaces_unsupported_legacy_migration(tmp_path, monkeyp
 
     assert "manual review" in text.lower()
     assert "SETTINGS_CURRENCY_UNSUPPORTED" in text
+
+
+def test_settings_release_metadata_shows_changelog_excerpt_and_unavailable_rebuild() -> None:
+    snapshot = build_snapshot(force_sample=True)
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    controls = list(_walk(settings_page(None, state)))
+    text = "\n".join(str(getattr(control, "value", "") or getattr(control, "text", "")) for control in controls)
+
+    assert "Changelog excerpt:" in text
+    assert "## Unreleased" in text
+    assert "Last rebuild timestamp: unavailable (source checkout; no packaged build metadata)" in text

@@ -42,7 +42,7 @@ from etf_cockpit.data.trust_artifacts import (
     SOURCE_CONFLICTS_PATH,
     write_score_formula_registry,
 )
-from etf_cockpit.data.parsed_disclosures import INDEX_METHODOLOGY_RECORDS_PATH, PRIIPS_KID_RECORDS_PATH
+from etf_cockpit.data.parsed_disclosures import INDEX_METHODOLOGY_RECORDS_PATH, PRIIPS_KID_RECORDS_PATH, SFDR_RECORDS_PATH
 from etf_cockpit.data.fund_documents import FUND_DOCUMENTS_PATH
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.health import build_data_health, export_data_health
@@ -91,6 +91,7 @@ _COMPLETE_AUDIT_REQUIRED: tuple[tuple[str, str, bool], ...] = (
     ("evidence_export/etf_disclosures.csv", "issuer_document", True),
     ("evidence_export/priips_kid_records.csv", "issuer_document", True),
     ("evidence_export/index_methodology_records.csv", "issuer_document", True),
+    ("evidence_export/sfdr_records.csv", "issuer_document", True),
     ("evidence_export/news_context.csv", "context_only", True),
     ("evidence_export/news_timestamp_validation.csv", "context_only", True),
     ("evidence_export/source_conflicts.csv", "evidence", True),
@@ -773,6 +774,7 @@ def _export_trust_critical_evidence(export_dir: Path, config: AppConfig) -> dict
         ETF_DISCLOSURES_PATH,
         PRIIPS_KID_RECORDS_PATH,
         INDEX_METHODOLOGY_RECORDS_PATH,
+        SFDR_RECORDS_PATH,
         NEWS_CONTEXT_PATH,
         NEWS_CONTEXT_PATH.with_suffix(".csv"),
         NEWS_CONTEXT_PATH.with_name(NEWS_CONTEXT_PATH.stem + "_audit.json"),
