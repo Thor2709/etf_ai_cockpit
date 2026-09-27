@@ -345,7 +345,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     def validate_restore_preview(_event: ft.ControlEvent) -> None:
         nonlocal restore_preview
         archive = Path(restore_path.value or "")
-        restore_preview = validate_restore(archive)
+        restore_preview = validate_restore(archive, destination=ROOT)
         restore_commit_button.disabled = not restore_preview.valid
         restore_cancel_button.disabled = False
         restore_status.value = f"Restore preview {'valid' if restore_preview.valid else 'rejected'} for {archive}; destination {ROOT}; {len(restore_preview.entries)} entries; errors={'; '.join(restore_preview.errors) or 'none'}."

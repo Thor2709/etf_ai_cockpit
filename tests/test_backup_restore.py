@@ -17,7 +17,7 @@ from etf_cockpit.data.backup_restore import (
 
 
 def test_backup_restore_round_trip_and_manifest_checksums(tmp_path: Path) -> None:
-    source = tmp_path / "configs" / "settings.yaml"
+    source = tmp_path / "data" / "safe.txt"
     source.parent.mkdir(parents=True)
     source.write_text("safe: true\n", encoding="utf-8")
     archive = tmp_path / "backup.zip"
@@ -27,9 +27,95 @@ def test_backup_restore_round_trip_and_manifest_checksums(tmp_path: Path) -> Non
     destination = tmp_path / "restored"
     result = commit_restore(preview, destination)
     assert result.restored == 1
-    assert (destination / "configs" / "settings.yaml").read_text(encoding="utf-8") == "safe: true\n"
+    assert (destination / "data" / "safe.txt").read_text(encoding="utf-8") == "safe: true\n"
     assert manifest.checksums
     assert manifest.execution_allowed is False
+
+
+def test_authentic_settings_bundle_round_trip_is_byte_identical(tmp_path: Path) -> None:
+    repository_configs = Path(__file__).parents[1] / "configs"
+    source_configs = tmp_path / "source" / "configs"
+    destination = tmp_path / "destination"
+    source_configs.mkdir(parents=True)
+    destination_configs = destination / "configs"
+    destination_configs.mkdir(parents=True)
+    required = (
+        "settings.yaml",
+        "universe.yaml",
+        "portfolio_targets.yaml",
+        "risk_limits.yaml",
+        "costs.yaml",
+        "model_settings.yaml",
+        "data_providers.yaml",
+    )
+    for name in required:
+        payload = (repository_configs / name).read_bytes()
+        (source_configs / name).write_bytes(payload)
+        (destination_configs / name).write_bytes(payload)
+    archive = tmp_path / "authentic.backup"
+    create_backup([source_configs], archive)
+    preview = validate_restore(archive)
+    assert preview.valid is True, preview.errors
+    result = commit_restore(preview, destination)
+    assert result.ok is True
+    for name in required:
+        assert (destination_configs / name).read_bytes() == (source_configs / name).read_bytes()
+
+
+def test_settings_revision_mismatch_is_rejected_before_writes(tmp_path: Path) -> None:
+    repository_configs = Path(__file__).parents[1] / "configs"
+    source_configs = tmp_path / "source" / "configs"
+    destination = tmp_path / "destination"
+    source_configs.mkdir(parents=True)
+    destination_configs = destination / "configs"
+    destination_configs.mkdir(parents=True)
+    required = ("settings.yaml", "universe.yaml", "portfolio_targets.yaml", "risk_limits.yaml", "costs.yaml", "model_settings.yaml", "data_providers.yaml")
+    for name in required:
+        payload = (repository_configs / name).read_bytes()
+        source_configs.joinpath(name).write_bytes(payload)
+        destination_configs.joinpath(name).write_bytes(payload)
+    settings = source_configs / "settings.yaml"
+    settings.write_text(settings.read_text(encoding="utf-8").replace("revision: ", "revision: " + "0" * 64 + " # ", 1), encoding="utf-8")
+    before = {name: destination_configs.joinpath(name).read_bytes() for name in required}
+    archive = tmp_path / "mismatch.backup"
+    create_backup([source_configs], archive)
+    preview = validate_restore(archive, destination=destination)
+    assert preview.valid is False
+    assert any("settings_revision_mismatch" in error for error in preview.errors)
+    result = commit_restore(preview, destination)
+    assert result.ok is False
+    assert {name: destination_configs.joinpath(name).read_bytes() for name in required} == before
+
+
+def test_restore_checksum_validator_rolls_back_on_post_write_mismatch(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "data" / "safe.txt"
+    source.parent.mkdir(parents=True)
+    source.write_text("new", encoding="utf-8")
+    archive = tmp_path / "backup.zip"
+    create_backup([source], archive)
+    destination = tmp_path / "restored"
+    existing = destination / "data" / "safe.txt"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("old", encoding="utf-8")
+    preview = validate_restore(archive)
+
+    import etf_cockpit.data.backup_restore as backup_restore
+
+    original = backup_restore._checksum_validator
+
+    def mismatch(expected: str, name: str):
+        validator = original(expected, name)
+
+        def validate(path: Path) -> None:
+            path.write_bytes(b"tampered")
+            validator(path)
+
+        return validate
+
+    monkeypatch.setattr(backup_restore, "_checksum_validator", mismatch)
+    result = commit_restore(preview, destination)
+    assert result.ok is False
+    assert existing.read_text(encoding="utf-8") == "old"
 
 
 def test_restore_rejects_zip_traversal(tmp_path: Path) -> None:
@@ -158,7 +244,7 @@ def test_restore_rejects_unsupported_named_known_payload_schema_version(tmp_path
 
     archive = tmp_path / "named-schema.zip"
     payload_name = "configs/settings.json"
-    payload = json.dumps({"schema_version": "cockpit.v999", "safe": True}).encode("utf-8")
+    payload = json.dumps({"schema_version": "settings_bundle.v999", "safe": True}).encode("utf-8")
     checksums = {payload_name: hashlib.sha256(payload).hexdigest()}
     manifest = json.dumps({"schema_version": 1, "checksums": checksums}, sort_keys=True, indent=2).encode("utf-8") + b"\n"
     with zipfile.ZipFile(archive, "w") as z:

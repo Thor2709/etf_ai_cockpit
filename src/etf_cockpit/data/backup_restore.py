@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import tempfile
 import zipfile
 from dataclasses import dataclass
@@ -11,12 +12,14 @@ from io import BytesIO
 from pathlib import Path, PurePosixPath
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group
+from etf_cockpit.application.settings import SETTINGS_SCHEMA_VERSION, SettingsError, load_settings_bundle
 
 
 # Named schemas are intentionally allow-listed.  A future-looking label such
 # as ``cockpit.v999`` must not be treated as compatible merely because it has a
 # version-shaped suffix; it may carry fields this runtime cannot interpret.
-_SUPPORTED_NAMED_SCHEMA_VERSIONS = {"cockpit.v1"}
+# The canonical settings bundle schema comes from the settings contract.
+_SUPPORTED_NAMED_SCHEMA_VERSIONS = {"cockpit.v1", SETTINGS_SCHEMA_VERSION}
 
 
 @dataclass(frozen=True)
@@ -151,7 +154,7 @@ def create_encrypted_backup(
     )
 
 
-def validate_restore(archive_path: Path) -> RestorePreview:
+def validate_restore(archive_path: Path, *, destination: Path | None = None) -> RestorePreview:
     errors: list[str] = []
     entries: list[str] = []
     checksums: dict[str, str] = {}
@@ -199,6 +202,14 @@ def validate_restore(archive_path: Path) -> RestorePreview:
                         schema_error = _validate_payload_schema(name, archive.read(name))
                         if schema_error:
                             errors.append(schema_error)
+            if any(name.casefold().startswith("configs/") for name in entries):
+                consistency_error = _validate_config_consistency(
+                    archive,
+                    entries,
+                    destination=destination,
+                )
+                if consistency_error:
+                    errors.append(consistency_error)
     except (OSError, zipfile.BadZipFile, json.JSONDecodeError, TypeError, ValueError, KeyError) as exc:
         errors.append(f"archive_invalid:{type(exc).__name__}")
     return RestorePreview(Path(archive_path), not errors, tuple(sorted(set(entries))), tuple(errors), checksums, manifest_checksum, excluded)
@@ -208,7 +219,7 @@ def commit_restore(preview: RestorePreview, destination: Path) -> RestoreResult:
     destination = Path(destination)
     if not preview.valid:
         return RestoreResult(destination, 0, False, "; ".join(preview.errors) or "Restore preview is invalid")
-    current = validate_restore(preview.archive)
+    current = validate_restore(preview.archive, destination=destination)
     if not current.valid or current.manifest_checksum != preview.manifest_checksum or current.checksums != preview.checksums:
         return RestoreResult(destination, 0, False, "restore_preview_stale_or_archive_changed")
     requests: list[AtomicWriteRequest] = []
@@ -216,7 +227,8 @@ def commit_restore(preview: RestorePreview, destination: Path) -> RestoreResult:
         with zipfile.ZipFile(preview.archive) as archive:
             for name in preview.entries:
                 target = destination / Path(name)
-                requests.append(AtomicWriteRequest(target, archive.read(name), lambda _path: None))
+                payload = archive.read(name)
+                requests.append(AtomicWriteRequest(target, payload, _checksum_validator(preview.checksums[name], name)))
         atomic_write_group(requests)
     except Exception as exc:
         return RestoreResult(destination, 0, False, f"restore_failed:{type(exc).__name__}:{exc}")
@@ -231,12 +243,13 @@ def commit_incremental_restore(previews: list[RestorePreview] | tuple[RestorePre
     requests_by_name: dict[str, AtomicWriteRequest] = {}
     try:
         for preview in previews:
-            current = validate_restore(preview.archive)
+            current = validate_restore(preview.archive, destination=destination)
             if not current.valid or current.manifest_checksum != preview.manifest_checksum or current.checksums != preview.checksums:
                 return RestoreResult(Path(destination), 0, False, "restore_preview_stale_or_archive_changed")
             with zipfile.ZipFile(preview.archive) as archive:
                 for name in preview.entries:
-                    requests_by_name[name] = AtomicWriteRequest(Path(destination) / Path(name), archive.read(name), lambda _path: None)
+                    payload = archive.read(name)
+                    requests_by_name[name] = AtomicWriteRequest(Path(destination) / Path(name), payload, _checksum_validator(preview.checksums[name], name))
         atomic_write_group(list(requests_by_name.values()))
     except Exception as exc:
         return RestoreResult(Path(destination), 0, False, f"restore_failed:{type(exc).__name__}:{exc}")
@@ -471,13 +484,17 @@ def _secret_path(path: Path) -> bool:
 
 
 _SECRET_CONTENT = re.compile(
-    r"(?i)(?:api[_-]?key|access[_-]?token|client[_-]?secret|secret[_-]?key|password|private[_-]?key)\s*[:=]"
+    r"(?im)(?:api[_-]?key|access[_-]?token|client[_-]?secret|secret[_-]?key|password|private[_-]?key)\s*[:=]\s*([^\r\n,}]+)"
 )
 
 
 def _secret_content(data: bytes) -> bool:
     text = data.decode("utf-8", errors="ignore")
-    return bool(_SECRET_CONTENT.search(text) or "-----BEGIN" in text and "PRIVATE KEY-----" in text)
+    for match in _SECRET_CONTENT.finditer(text):
+        value = match.group(1).strip().strip("'\"")
+        if value and value.casefold() not in {"null", "none"}:
+            return True
+    return "-----BEGIN" in text and "PRIVATE KEY-----" in text
 
 
 def _validate_payload_schema(name: str, data: bytes) -> str | None:
@@ -511,6 +528,50 @@ def _validate_payload_schema(name: str, data: bytes) -> str | None:
             return f"unsupported_schema_version:{name}:{value}"
         if not 0 < numeric <= 4:
             return f"unsupported_schema_version:{name}:{value}"
+    return None
+
+
+def _checksum_validator(expected: str, name: str):
+    def validate(path: Path) -> None:
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual != expected:
+            raise ValueError(f"restore checksum mismatch:{name}")
+
+    return validate
+
+
+def _validate_config_consistency(
+    archive: zipfile.ZipFile,
+    entries: list[str],
+    *,
+    destination: Path | None,
+) -> str | None:
+    """Validate the post-restore config bundle with the canonical settings loader."""
+
+    temporary_path = Path(tempfile.mkdtemp(prefix="restore-config-"))
+    try:
+        root = temporary_path
+        config_dir = root / "configs"
+        if destination is not None:
+            current = Path(destination) / "configs"
+            if current.is_dir():
+                shutil.copytree(current, config_dir, dirs_exist_ok=True)
+        config_dir.mkdir(parents=True, exist_ok=True)
+        for name in entries:
+            if name.casefold().startswith("configs/") and not _unsafe(name) and _approved_payload_root(name):
+                target = root / Path(name)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(archive.read(name))
+        load_settings_bundle(root)
+    except SettingsError as exc:
+        reason = str(exc)
+        if "revision" in reason.casefold():
+            return f"settings_revision_mismatch:{reason}"
+        return f"settings_consistency_invalid:{reason}"
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        return f"settings_consistency_invalid:{type(exc).__name__}:{exc}"
+    finally:
+        shutil.rmtree(temporary_path, ignore_errors=True)
     return None
 
 
