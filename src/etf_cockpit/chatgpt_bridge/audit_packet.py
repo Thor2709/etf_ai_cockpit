@@ -18,6 +18,7 @@ COMPLETE_AUDIT_REQUIRED_PATHS: tuple[str, ...] = (
     "evidence_export/etf_disclosures.csv",
     "evidence_export/priips_kid_records.csv",
     "evidence_export/index_methodology_records.csv",
+    "evidence_export/sfdr_records.csv",
     "evidence_export/news_context.csv",
     "evidence_export/news_timestamp_validation.csv",
     "evidence_export/source_conflicts.csv",
