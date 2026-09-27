@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "planned",
+      "from": "in_progress",
       "issue_id": "ISSUE-0067",
-      "to": "in_progress"
+      "to": "integrated"
     }
   ],
-  "base_commit": "a5e368408ac8467a8470795d2e35c99554947179",
-  "branch": "claude/issue0067-start-20260926",
+  "base_commit": "50d9bb1e1184d77238ae7c4c5b6bc0137b9832d9",
+  "branch": "claude/issue0067-complete-20260926",
   "issue_ids": [
     "ISSUE-0067"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "45de2162f6a0e4f352e98de998466abb902f131d8f6360ef81d902c9ad025b33",
+    "base_registry_sha256": "3a7b5dbbac1091fd6ae0e7b7404988ea406a801809705366eb64a2d22ec54a60",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "3a7b5dbbac1091fd6ae0e7b7404988ea406a801809705366eb64a2d22ec54a60",
-    "reason": "Start only ISSUE-0067 from planned to in_progress for merged product PR #187 (265b7982) with H-tier packaged evidence and browser acceptance; preserve dependencies, GitHub issue open state, external authority and execution_allowed=false.",
+    "proposed_registry_sha256": "5a11741fcab33343a29ce0bd96d4c42b09918586c81254633f081ed692445463",
+    "reason": "Complete only ISSUE-0067 from in_progress through implemented_initially to integrated for merged product PR #187 (265b7982) with H-tier packaged evidence and browser acceptance; preserve dependencies, GitHub issue open state, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
