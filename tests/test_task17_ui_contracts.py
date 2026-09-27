@@ -19,8 +19,8 @@ def test_what_changed_exposes_instrument_search_and_dimension_filters(monkeypatc
     import etf_cockpit.app.pages.what_changed as module
 
     monkeypatch.setattr(module, "score_history_frame", lambda: pd.DataFrame([
-        {"run_id": "old", "run_completed_at": "2026-07-09", "instrument_id": "A", "final_combined_score_10": 5.0, "final_action": "watchlist"},
-        {"run_id": "new", "run_completed_at": "2026-07-10", "instrument_id": "A", "final_combined_score_10": 7.0, "final_action": "watchlist"},
+        {"run_id": "old", "run_completed_at": "2026-07-09T12:00:00+00:00", "instrument_id": "A", "final_combined_score_10": 5.0, "final_action": "watchlist"},
+        {"run_id": "new", "run_completed_at": "2026-07-10T12:00:00+00:00", "instrument_id": "A", "final_combined_score_10": 7.0, "final_action": "watchlist"},
     ]))
     rendered = module.what_changed_page(None, SimpleNamespace())
     controls = list(_walk(rendered))
@@ -40,7 +40,7 @@ def test_what_changed_uses_compact_responsive_instrument_cards_without_horizonta
             [
                 {
                     "run_id": "old",
-                    "run_completed_at": "2026-07-09",
+                    "run_completed_at": "2026-07-09T12:00:00+00:00",
                     "instrument_id": "A",
                     "final_combined_score_10": 5.0,
                     "rank": 4,
@@ -55,7 +55,7 @@ def test_what_changed_uses_compact_responsive_instrument_cards_without_horizonta
                 },
                 {
                     "run_id": "new",
-                    "run_completed_at": "2026-07-10",
+                    "run_completed_at": "2026-07-10T12:00:00+00:00",
                     "instrument_id": "A",
                     "final_combined_score_10": 7.0,
                     "rank": 2,
@@ -85,8 +85,8 @@ def test_dashboard_digest_surfaces_deterministic_run_changes(monkeypatch) -> Non
     import etf_cockpit.app.pages.dashboard as module
 
     monkeypatch.setattr(module, "score_history_frame", lambda: pd.DataFrame([
-        {"run_id": "old", "run_completed_at": "2026-07-09", "instrument_id": "A", "final_combined_score_10": 5.0, "final_action": "watchlist"},
-        {"run_id": "new", "run_completed_at": "2026-07-10", "instrument_id": "A", "final_combined_score_10": 7.0, "final_action": "watchlist"},
+        {"run_id": "old", "run_completed_at": "2026-07-09T12:00:00+00:00", "instrument_id": "A", "final_combined_score_10": 5.0, "final_action": "watchlist"},
+        {"run_id": "new", "run_completed_at": "2026-07-10T12:00:00+00:00", "instrument_id": "A", "final_combined_score_10": 7.0, "final_action": "watchlist"},
     ]))
     rendered = module._run_changes_digest(None, SimpleNamespace())
     texts = [str(getattr(item, "value", "")) for item in _walk(rendered) if hasattr(item, "value")]

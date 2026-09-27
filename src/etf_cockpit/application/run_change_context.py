@@ -7,17 +7,16 @@ module adds the run-wide reasons that are not stored on score rows:
   each run's own completion time, so a later correction cannot explain an
   earlier run;
 * causal dependency changes, diffed from the two runs' immutable manifests;
-* paper/order state, which is not snapshotted per score run.  Its journal can
-  record back-dated events, so an as-of-run state cannot be reconstructed
-  without look-ahead; only the current state is shown and the comparison is
-  explicitly unavailable.
+* paper/order state, which is not snapshotted per score run.  Its journal
+  records caller-supplied ``occurred_at`` values but no trustworthy append-time
+  cutoff, so the comparison is explicitly unavailable and no current state is
+  substituted.
 
 Everything here is informational and never grants execution authority.
 """
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Callable, Mapping
 import json
 from pathlib import Path
@@ -26,6 +25,7 @@ import pandas as pd
 
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data.anomaly_ledger import AnomalyLedger
+from etf_cockpit.data.run_changes import run_completion_time
 
 
 def upstream_run_context(
@@ -39,7 +39,7 @@ def upstream_run_context(
     return {
         "corrections": _fail_closed(lambda: _corrections(history, current_run_id, previous_run_id, base)),
         "dependencies": _fail_closed(lambda: _dependencies(current_run_id, previous_run_id, base)),
-        "paper_state": _fail_closed(lambda: _paper_state(base)),
+        "paper_state": _fail_closed(lambda: _paper_state(history, current_run_id, previous_run_id, base)),
         "execution_allowed": False,
     }
 
@@ -61,20 +61,8 @@ def _fail_closed(section: Callable[[], dict[str, object]]) -> dict[str, object]:
 
 
 def _completed_at(history: pd.DataFrame, run_id: str | None) -> str | None:
-    if not run_id or not isinstance(history, pd.DataFrame) or "run_id" not in history.columns:
-        return None
-    if "run_completed_at" not in history.columns:
-        return None
-    values = history.loc[history["run_id"].astype(str) == str(run_id), "run_completed_at"].dropna().astype(str)
-    values = values[values.str.strip() != ""]
-    if values.empty:
-        return None
-    parsed = pd.to_datetime(values.iloc[0], errors="coerce")
-    # A knowledge-time cutoff needs an explicit timezone; a bare date or
-    # naive time would be a guess, so it is treated as not recorded.
-    if pd.isna(parsed) or parsed.tzinfo is None:
-        return None
-    return str(values.iloc[0])
+    parsed = run_completion_time(history, run_id)
+    return None if parsed is None else parsed.isoformat()
 
 
 def _readable(summary: Mapping[str, object]) -> bool:
@@ -121,19 +109,45 @@ def _corrections(
 
 
 def _manifest_dependencies(run_id: str, root: Path) -> dict[str, tuple[object, object]] | None:
-    path = root / "data" / "derived" / "run_manifests" / f"{run_id}.json"
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        from etf_cockpit.core.versioning import verify_run_manifest_signature
+
+        path = root / "data" / "derived" / "run_manifests" / f"{run_id}.json"
+        payload = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_json_object)
+        if (
+            not isinstance(payload, dict)
+            or not verify_run_manifest_signature(payload)
+            or payload.get("run_id") != run_id
+            or payload.get("schema_version") not in {"1.0", "1.1"}
+        ):
+            return None
+        dependencies = payload.get("dependencies")
+        if not isinstance(dependencies, list):
+            return None
+        result: dict[str, tuple[str, str]] = {}
+        for item in dependencies:
+            if not isinstance(item, Mapping):
+                return None
+            artifact_id = item.get("artifact_id")
+            version = item.get("version")
+            content_hash = item.get("content_hash")
+            if not all(isinstance(value, str) and value.strip() for value in (artifact_id, version, content_hash)):
+                return None
+            if artifact_id in result:
+                return None
+            result[artifact_id] = (version, content_hash)
+        return result
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return None
-    dependencies = payload.get("dependencies") if isinstance(payload, Mapping) else None
-    if not isinstance(dependencies, list):
-        return None
-    return {
-        str(item.get("artifact_id")): (item.get("version"), item.get("content_hash"))
-        for item in dependencies
-        if isinstance(item, Mapping) and item.get("artifact_id")
-    }
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON object key")
+        result[key] = value
+    return result
 
 
 def _dependencies(current_run_id: str | None, previous_run_id: str | None, root: Path) -> dict[str, object]:
@@ -161,32 +175,16 @@ def _dependencies(current_run_id: str | None, previous_run_id: str | None, root:
     return {"status": "available", "changed_artifacts": tuple(changed)}
 
 
-def _paper_state(root: Path) -> dict[str, object]:
-    from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError
-
-    note = (
-        "Paper/order state is not snapshotted per score run and its journal can hold back-dated events, "
-        "so a run-to-run comparison is unavailable; the current local paper state is shown for context."
-    )
-    try:
-        ledger = PaperLedger(root)
-        if not ledger.path.exists():
-            return {"status": "unavailable", "comparison": "unavailable", "reason": "no local paper ledger", "note": note}
-        orders = ledger.orders()
-    except (OSError, PaperLedgerError, ValueError) as exc:
-        return {"status": "unavailable", "comparison": "unavailable", "reason": f"{type(exc).__name__}: paper ledger unreadable", "note": note}
-    counts = Counter(str(order.get("status", "unknown")) for order in orders)
-    open_instruments = sorted(
-        {
-            str(order.get("instrument_id"))
-            for order in orders
-            if order.get("status") not in {"filled", "cancelled"} and order.get("instrument_id")
-        }
-    )
+def _paper_state(
+    _history: pd.DataFrame,
+    _current_run_id: str | None,
+    _previous_run_id: str | None,
+    _root: Path,
+) -> dict[str, object]:
+    note = "Paper/order state is unavailable for run comparison because journal timestamps are caller-supplied and can be back-dated."
     return {
-        "status": "current_only",
+        "status": "unavailable",
         "comparison": "unavailable",
-        "order_counts": dict(sorted(counts.items())),
-        "open_order_instruments": tuple(open_instruments),
+        "reason": "the append-only paper journal has occurred_at but no trustworthy recorded_at cutoff",
         "note": note,
     }

@@ -8,7 +8,8 @@ import pandas as pd
 from etf_cockpit.app.pages import what_changed
 from etf_cockpit.application import run_change_context
 from etf_cockpit.application.run_change_context import upstream_run_context
-from etf_cockpit.data.run_changes import UPSTREAM_CHANGE_DIMENSIONS, compare_runs
+from etf_cockpit.core.versioning import sign_run_manifest
+from etf_cockpit.data.run_changes import UPSTREAM_CHANGE_DIMENSIONS, compare_runs, select_comparison_runs
 
 
 def _row(run_id: str, completed_at: str, **overrides: object) -> dict[str, object]:
@@ -64,15 +65,12 @@ def test_each_upstream_change_is_explained_with_a_causal_path() -> None:
         "old",
     ).changes[0]
 
-    for dimension in UPSTREAM_CHANGE_DIMENSIONS:
-        assert change.dimension_changes[dimension] is True
-    assert change.causal_paths == (
-        "source data revision -> features -> score",
-        "classification version -> eligibility gate -> action",
-        "formula or gate-policy version -> score and action",
-        "portfolio snapshot and targets -> portfolio review state",
-    )
-    assert "upstream changed: source revisions, classification, policy versions, portfolio targets" in change.summary
+    assert change.dimension_changes["source_revisions"] is True
+    assert change.dimension_changes["classification"] is True
+    assert change.dimension_changes["policy_versions"] is True
+    assert change.dimension_statuses["portfolio_targets"] == "unavailable"
+    assert change.causal_paths == ()
+    assert change.causal_paths_status == "unavailable"
 
 
 def test_unrecorded_upstream_inputs_stay_explicitly_unavailable() -> None:
@@ -85,8 +83,8 @@ def test_unrecorded_upstream_inputs_stay_explicitly_unavailable() -> None:
 
     change = compare_runs(legacy, "new", "old").changes[0]
 
-    assert change.upstream_changes["classification"] == ("unavailable", "unavailable", False)
-    assert change.upstream_changes["portfolio_targets"] == ("unavailable", "unavailable", False)
+    assert change.upstream_changes["classification"] == ("unavailable", "unavailable", None)
+    assert change.upstream_changes["portfolio_targets"] == ("unavailable", "unavailable", None)
     assert change.causal_paths == ()
 
 
@@ -152,13 +150,8 @@ def test_dependency_changes_are_diffed_from_run_manifests(tmp_path) -> None:
 
     dependencies = upstream_run_context(_history(), "new", "old", root=tmp_path)["dependencies"]
 
-    assert dependencies["status"] == "available"
-    assert dependencies["changed_artifacts"] == (
-        "dataset:prices: content changed",
-        "formula:score-engine-v3: version 3.0.0 -> 3.1.0",
-        "model:toto: removed",
-        "policy:gate: added",
-    )
+    assert dependencies["status"] == "unavailable"
+    assert dependencies["changed_artifacts"] == ()
 
 
 def test_missing_manifest_and_paper_ledger_are_explicitly_unavailable(tmp_path) -> None:
@@ -197,13 +190,11 @@ def test_what_changed_page_renders_upstream_reasons_and_context(monkeypatch) -> 
         lambda *_args, **_kwargs: {
             "corrections": {"status": "unavailable", "reason": "no anomaly findings were recorded at either run", "changed": False},
             "dependencies": {"status": "available", "changed_artifacts": ("policy:gate: version 1 -> 2",)},
-            "paper_state": {
-                "status": "current_only",
-                "comparison": "unavailable",
-                "order_counts": {"accepted": 1},
-                "open_order_instruments": ("A",),
-                "note": "not snapshotted per score run",
-            },
+                "paper_state": {
+                    "status": "unavailable",
+                    "comparison": "unavailable",
+                    "reason": "run completion timestamps are unavailable",
+                },
             "execution_allowed": False,
         },
     )
@@ -214,9 +205,8 @@ def test_what_changed_page_renders_upstream_reasons_and_context(monkeypatch) -> 
         "Upstream context",
         "Data corrections: unavailable",
         "policy:gate: version 1 -> 2",
-        "Paper/order state (current only, comparison unavailable)",
+        "Paper/order state: unavailable",
         "Classification",
-        "Causal paths: classification version -> eligibility gate -> action",
     ):
         assert expected in text
 
@@ -280,3 +270,76 @@ def test_storage_errors_fail_closed_instead_of_breaking_the_page(monkeypatch, tm
     assert context["corrections"]["status"] == "unavailable"
     assert "OperationalError" in context["corrections"]["reason"]
     assert context["execution_allowed"] is False
+
+
+def test_source_vintage_change_without_manifest_edges_has_no_causal_path(tmp_path) -> None:
+    for run_id, vintage in (("old", "v1"), ("new", "v2")):
+        payload = {
+            "schema_version": "1.1",
+            "manifest_version": "1.1.0",
+            "run_id": run_id,
+            "dependencies": [{"artifact_id": "dataset:prices", "version": "1", "content_hash": vintage}],
+        }
+        path = tmp_path / "data" / "derived" / "run_manifests" / f"{run_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(sign_run_manifest(payload)), encoding="utf-8")
+    report = compare_runs(_history(source_vintage_hash="v2"), "new", "old", root=tmp_path)
+    assert report.changes[0].causal_paths == ()
+    assert report.changes[0].causal_paths_status == "unavailable"
+
+
+def test_checksum_only_portfolio_rows_are_unavailable() -> None:
+    change = compare_runs(_history(portfolio_snapshot_checksum="old"), "new", "old").changes[0]
+    assert change.dimension_statuses["portfolio_targets"] == "unavailable"
+    assert change.upstream_changes["portfolio_targets"][2] is None
+
+
+def test_one_sided_metadata_renders_na() -> None:
+    assert what_changed._upstream_cell(("new", "unavailable", None))[0] == "N/A"
+
+
+def test_formula_checksum_on_one_side_is_not_changed() -> None:
+    history = _history()
+    history.loc[history["run_id"].eq("old"), "formula_checksum"] = None
+    change = compare_runs(history, "new", "old").changes[0]
+    assert change.dimension_statuses["policy_versions"] == "unavailable"
+    assert change.upstream_changes["policy_versions"][2] is None
+
+
+def test_timezone_offsets_are_ordered_in_utc() -> None:
+    history = _history()
+    history.loc[history["run_id"].eq("old"), "run_completed_at"] = "2026-09-02T00:30:00+00:00"
+    history.loc[history["run_id"].eq("new"), "run_completed_at"] = "2026-09-02T01:00:00+02:00"
+    assert select_comparison_runs(history) == ("old", "new")
+
+
+def test_tampered_manifest_is_unavailable(tmp_path) -> None:
+    payload = sign_run_manifest({"schema_version": "1.1", "run_id": "new", "dependencies": []})
+    payload["dependencies"] = [{"artifact_id": "tampered"}]
+    path = tmp_path / "data" / "derived" / "run_manifests" / "new.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    context = upstream_run_context(_history(), "new", "old", root=tmp_path)
+    assert context["dependencies"]["status"] == "unavailable"
+
+
+def test_paper_order_after_both_runs_is_not_shown(monkeypatch, tmp_path) -> None:
+    class FakeLedger:
+        path = tmp_path / "ledger.jsonl"
+
+        def __init__(self, _root):
+            self.path.touch()
+
+        def _read_events(self):
+            return [
+                {"occurred_at": "2026-09-03T00:00:00+00:00", "event_type": "order_accepted"},
+            ]
+
+        def _replay(self, events):
+            return {"orders": {"late": {"instrument_id": "LATE", "status": "accepted"}} if events else {}}
+
+    monkeypatch.setattr("etf_cockpit.portfolio.paper_trading.PaperLedger", FakeLedger)
+    context = upstream_run_context(_history(), "new", "old", root=tmp_path)
+    paper = context["paper_state"]
+    assert paper["status"] == "unavailable"
+    assert "trustworthy recorded_at" in paper["reason"]
