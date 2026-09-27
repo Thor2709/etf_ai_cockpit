@@ -284,7 +284,7 @@ class HybridPlatform:
     def validate_backup(self, archive: Path):
         from etf_cockpit.data.backup_restore import validate_restore
 
-        return validate_restore(Path(archive))
+        return validate_restore(Path(archive), destination=self.layout.root)
 
     def restore_backup(self, preview):
         from etf_cockpit.data.backup_restore import commit_restore
