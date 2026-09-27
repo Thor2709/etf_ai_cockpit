@@ -54,7 +54,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0038` | `P2` | `integrated` | `data-and-evidence` | - | - | `ISSUE-0072`, `ISSUE-0180` | `ISSUE-0072`, `ISSUE-0073`, `ISSUE-0090` |
 | `ISSUE-0048` | `P1` | `integrated` | `data-and-evidence` | - | - | - | `ISSUE-0120`, `ISSUE-0122`, `ISSUE-0147` |
 | `ISSUE-0054` | `P1/P2` | `integrated` | `data-and-evidence` | - | - | - | `ISSUE-0025`, `ISSUE-0073`, `ISSUE-0149` |
-| `ISSUE-0055` | `P2` | `implemented_initially` | `data-and-evidence` | - | - | - | `ISSUE-0080`, `ISSUE-0081`, `ISSUE-0087`, `ISSUE-0088` |
+| `ISSUE-0055` | `P2` | `integrated` | `data-and-evidence` | - | - | - | `ISSUE-0080`, `ISSUE-0081`, `ISSUE-0087`, `ISSUE-0088` |
 | `ISSUE-0056` | `P2` | `implemented_initially` | `data-and-evidence` | - | - | - | `ISSUE-0076`, `ISSUE-0085`, `ISSUE-0130` |
 | `ISSUE-0068` | `P0/P1` | `integrated` | `data-and-evidence` | - | - | - | `ISSUE-0076`, `ISSUE-0080`, `ISSUE-0082`, `ISSUE-0083` |
 | `ISSUE-0080` | `P0` | `integrated` | `data-platform` | `ISSUE-0070`, `ISSUE-0076` | - | `ISSUE-0081`, `ISSUE-0088`, `ISSUE-0149`, `ISSUE-0171`, `ISSUE-0176`, `ISSUE-0181` | - |
