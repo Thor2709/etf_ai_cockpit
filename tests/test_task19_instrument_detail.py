@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import replace
 from datetime import date
 import json
@@ -38,6 +39,74 @@ REQUIRED_SECTIONS = {
     "journal",
     "run_changes",
 }
+
+
+_SNAPSHOT_TEMPLATE = None
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _snapshot_template():
+    global _SNAPSHOT_TEMPLATE
+    _SNAPSHOT_TEMPLATE = build_snapshot()
+    yield
+    _SNAPSHOT_TEMPLATE = None
+
+
+def _snapshot_copy():
+    assert _SNAPSHOT_TEMPLATE is not None
+    snapshot = _SNAPSHOT_TEMPLATE
+    return replace(
+        snapshot,
+        config=copy.deepcopy(snapshot.config),
+        prices=snapshot.prices.copy(deep=True),
+        holdings=snapshot.holdings.copy(deep=True),
+        features=snapshot.features.copy(deep=True),
+        latest_features=snapshot.latest_features.copy(deep=True),
+        data_report=replace(
+            snapshot.data_report,
+            issues=copy.deepcopy(snapshot.data_report.issues),
+            dataset_metadata=copy.deepcopy(snapshot.data_report.dataset_metadata),
+        ),
+        signals=[
+            replace(
+                signal,
+                blocked_by=copy.deepcopy(signal.blocked_by),
+                warnings=copy.deepcopy(signal.warnings),
+                supporting_metrics=copy.deepcopy(signal.supporting_metrics),
+                model_versions_used=copy.deepcopy(signal.model_versions_used),
+                authority_decision=copy.deepcopy(signal.authority_decision),
+                canonical_score=copy.deepcopy(signal.canonical_score),
+            )
+            for signal in snapshot.signals
+        ],
+        forecasts=snapshot.forecasts.copy(deep=True),
+        model_status=copy.deepcopy(snapshot.model_status),
+        model_inventory=copy.deepcopy(snapshot.model_inventory),
+        candidate_price_binding=copy.deepcopy(snapshot.candidate_price_binding),
+        etf_economics_records=copy.deepcopy(snapshot.etf_economics_records),
+        etf_fund_total_return=copy.deepcopy(snapshot.etf_fund_total_return),
+        etf_benchmark_total_return=copy.deepcopy(snapshot.etf_benchmark_total_return),
+        etf_closure_policy=copy.deepcopy(snapshot.etf_closure_policy),
+        benchmark_reference_registry=copy.copy(snapshot.benchmark_reference_registry),
+        benchmark_reference_instrument=copy.deepcopy(snapshot.benchmark_reference_instrument),
+        benchmark_reference_portfolio_ids=copy.deepcopy(snapshot.benchmark_reference_portfolio_ids),
+        vwce_anchor_evidence=copy.copy(snapshot.vwce_anchor_evidence),
+        vwce_conversion_evidence=copy.deepcopy(snapshot.vwce_conversion_evidence),
+        backtest=replace(
+            snapshot.backtest,
+            results=snapshot.backtest.results.copy(deep=True),
+            equity_curves=snapshot.backtest.equity_curves.copy(deep=True),
+            trade_log=snapshot.backtest.trade_log.copy(deep=True),
+            signal_log=snapshot.backtest.signal_log.copy(deep=True),
+            quality_notes=(
+                None
+                if snapshot.backtest.quality_notes is None
+                else copy.deepcopy(snapshot.backtest.quality_notes)
+            ),
+            metadata=copy.deepcopy(snapshot.backtest.metadata),
+            quality_momentum_evidence=snapshot.backtest.quality_momentum_evidence.copy(deep=True),
+        ),
+    )
 
 
 @pytest.fixture
@@ -350,7 +419,7 @@ def test_normal_detail_route_reads_verified_scoped_journal(tmp_path, monkeypatch
             private_notes="PRIVATE-SENTINEL", portfolio_context={"secret": "CONTEXT-SENTINEL"},
             instrument_ids=instruments,
         ), root=tmp_path)
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     stock = ETFConfig(id="journal-stock", name="Journal Stock", ticker="JRN", instrument_type="stock", role="watchlist")
     snapshot = replace(snapshot, config=snapshot.config.model_copy(update={
         "universe": snapshot.config.universe.model_copy(update={"etfs": [*snapshot.config.universe.etfs, stock]})
@@ -440,7 +509,7 @@ def _candidate_score(instrument_id: str, *, asset_type: str, source_group: str) 
 
 
 def test_instrument_detail_assembles_all_required_sections_and_derived_fields() -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     model = build_instrument_detail(snapshot, "VWCE")
 
     assert REQUIRED_SECTIONS <= set(model.sections)
@@ -519,7 +588,7 @@ def test_factor_risk_rejects_invalid_source_before_lossy_allocation(field, value
 
 
 def test_instrument_detail_uses_canonical_id_for_stock_and_sparebanken_rows() -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     stock = ETFConfig(
         id="stock-1",
         name="A Display Name",
@@ -558,7 +627,7 @@ def test_instrument_detail_uses_canonical_id_for_stock_and_sparebanken_rows() ->
 def test_instrument_detail_missing_or_corrupt_optional_stores_are_explicitly_unavailable(tmp_path, monkeypatch) -> None:
     import etf_cockpit.app.selectors.instrument_detail as selector
 
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     for name in ("FEATURE_DRIVERS_PATH", "SCOREBOARD_PATH", "FUNDAMENTAL_CLEAN_PATH", "NEWS_CLEAN_PATH", "FUND_HOLDINGS_PATH"):
         path = tmp_path / f"{name}.parquet"
         path.write_bytes(b"not parquet")
@@ -599,7 +668,7 @@ def test_instrument_detail_reads_holdings_csv_mirror_when_parquet_is_unavailable
     ).to_csv(csv_path, index=False)
     monkeypatch.setattr(selector, "FUND_HOLDINGS_PATH", parquet_path)
 
-    model = build_instrument_detail(build_snapshot(), "VWCE")
+    model = build_instrument_detail(_snapshot_copy(), "VWCE")
 
     assert model.sections["etf_disclosures"]["holdings"]["status"] == "available"
     assert model.sections["etf_disclosures"]["holdings"]["rows"][0]["holding_symbol"] == "NVDA"
@@ -620,7 +689,7 @@ def test_instrument_detail_route_and_legacy_etf_compatibility(monkeypatch) -> No
             self.route = route
 
     page = Page()
-    state = type("State", (), {"selected_etf": "VWCE", "snapshot": build_snapshot(), "last_message": "Ready"})()
+    state = type("State", (), {"selected_etf": "VWCE", "snapshot": _snapshot_copy(), "last_message": "Ready"})()
     monkeypatch.setattr(router, "render_shell", lambda *_args: None)
     navigate_to(page, state, "/instrument/VWCE")
     assert page.route == "/instrument/VWCE"
@@ -636,7 +705,7 @@ def test_instrument_detail_route_and_legacy_etf_compatibility(monkeypatch) -> No
     ],
 )
 def test_candidate_score_context_builds_detail_for_non_configured_rows(instrument_id: str, asset_type: str, source_group: str) -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     score = _candidate_score(instrument_id, asset_type=asset_type, source_group=source_group)
 
     model = build_instrument_detail(snapshot, instrument_id, candidate_score=score)
@@ -659,7 +728,7 @@ def test_candidate_score_context_builds_detail_for_non_configured_rows(instrumen
 
 
 def test_candidate_score_context_survives_score_row_navigation(monkeypatch) -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     score = _candidate_score("candidate-nav", asset_type="Stock", source_group="Secondary tier")
     state = type("State", (), {"selected_etf": "VWCE", "snapshot": snapshot})()
     page = type("Page", (), {"route": "/"})()
@@ -675,7 +744,7 @@ def test_candidate_score_context_survives_score_row_navigation(monkeypatch) -> N
 def test_score_row_exposes_keyboard_operable_instrument_detail_action(monkeypatch) -> None:
     from etf_cockpit.signals.simple_scores import build_simple_instrument_scores
 
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     state = type("State", (), {"selected_etf": "VWCE", "snapshot": snapshot})()
     page = type("Page", (), {"route": "/"})()
     monkeypatch.setattr(router, "render_shell", lambda *_args: None)
@@ -723,7 +792,7 @@ def _walk(control: object):
 
 
 def test_instrument_detail_renders_scoped_records_for_etf_panels() -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     instrument_id = "VWCE"
     history = pd.DataFrame(
         [
@@ -764,7 +833,7 @@ def test_instrument_detail_renders_scoped_records_for_etf_panels() -> None:
 
 
 def test_instrument_detail_renders_scoped_records_for_stock() -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     stock = ETFConfig(id="stock-render", name="Rendered Stock", ticker="STK.OL", instrument_type="stock", role="watchlist")
     config = snapshot.config.model_copy(update={"universe": snapshot.config.universe.model_copy(update={"etfs": [*snapshot.config.universe.etfs, stock]})})
     custom = replace(
@@ -783,7 +852,7 @@ def test_instrument_detail_renders_scoped_records_for_stock() -> None:
 
 
 def test_etf_disclosures_reject_idless_registry_and_holdings() -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     model = build_instrument_detail(
         snapshot,
         "VWCE",
@@ -799,7 +868,7 @@ def test_etf_disclosures_reject_idless_registry_and_holdings() -> None:
 
 
 def test_etf_disclosures_do_not_use_foreign_ids() -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     model = build_instrument_detail(
         snapshot,
         "VWCE",
@@ -1206,7 +1275,7 @@ def test_crowding_attribution_renders_canonical_broad_alpha_value() -> None:
 
 
 def test_instrument_detail_exposes_functional_export_control_and_disabled_state() -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     calls: list[bool] = []
 
     def export_audit_packet() -> str:
@@ -1243,7 +1312,7 @@ def test_instrument_detail_exposes_functional_export_control_and_disabled_state(
 
 
 def test_instrument_detail_registers_visible_fundamentals_acceptance_surface() -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     state = type("State", (), {"snapshot": snapshot, "selected_etf": "VWCE", "last_export_path": None, "last_message": "Ready"})()
 
     control = instrument_detail_page(None, state)
@@ -1350,7 +1419,7 @@ def test_parsed_panel_malformed_freshness_metadata_fails_closed(freshness) -> No
 
 @pytest.mark.parametrize("quality", ["bogus", ["medium"], {"quality": "medium"}, np.array(["medium"]), 123])
 def test_backtest_panel_malformed_trust_quality_fails_closed(quality) -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     custom = replace(
         snapshot,
         backtest=BacktestReport(
@@ -1450,7 +1519,7 @@ def test_score_panel_numeric_evidence_with_malformed_required_metadata_fails_clo
 
 
 def test_backtest_panel_nullable_quality_fails_closed() -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     custom = replace(
         snapshot,
         backtest=BacktestReport(
@@ -1475,7 +1544,7 @@ def test_backtest_panel_nullable_quality_fails_closed() -> None:
 
 
 def test_backtest_panel_renders_strategy_tail_context_without_claiming_instrument_trust() -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     custom = replace(
         snapshot,
         backtest=BacktestReport(
@@ -1559,7 +1628,7 @@ def test_evidence_section_preserves_declared_ui_acceptance_key() -> None:
 
 
 def test_price_panel_rejects_missing_or_malformed_latest_dates() -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     for date_value in (None, "not-a-date"):
         custom = replace(snapshot, prices=pd.DataFrame([{"instrument_id": "VWCE", "date": date_value, "adjusted_close": 100.0}]))
         panel = _price_panel(custom, "VWCE")
@@ -1568,7 +1637,7 @@ def test_price_panel_rejects_missing_or_malformed_latest_dates() -> None:
 
 
 def test_price_panel_drops_malformed_rows_before_selecting_latest() -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     custom = replace(
         snapshot,
         prices=pd.DataFrame(
@@ -1593,7 +1662,7 @@ def test_risk_panel_rejects_empty_or_malformed_feature_rows() -> None:
 
 
 def test_candidate_price_panel_rejects_malformed_latest_date() -> None:
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     score = _candidate_score("candidate-invalid-date", asset_type="ETF", source_group="Secondary tier")
     score = replace(score, latest_date="not-a-date")
     panel = _price_panel(snapshot, "candidate-invalid-date", candidate_score=score)
@@ -1710,7 +1779,7 @@ def test_metric_history_local_route_preserves_all_scoped_components(tmp_path, mo
     assert all(row["execution_allowed"] is False for row in projection["rows"])
     assert all(row["instrument_id"] == instrument_id for row in projection["rows"])
     assert "PRIVATE-SENTINEL" not in str(projection)
-    snapshot = build_snapshot()
+    snapshot = _snapshot_copy()
     stock = ETFConfig(id="metric-stock", name="Metric Stock", ticker="MET", instrument_type="stock", role="watchlist")
     snapshot = replace(snapshot, config=snapshot.config.model_copy(update={
         "universe": snapshot.config.universe.model_copy(update={"etfs": [*snapshot.config.universe.etfs, stock]})
