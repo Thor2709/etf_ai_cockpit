@@ -783,7 +783,7 @@ def test_long_running_contract_points_to_real_handlers_and_registered_controls()
             or control["key"].startswith("dashboard.import-etf-")
         )
     }
-    assert len(accepted_holdings_factsheet_imports) == 7
+    assert len(accepted_holdings_factsheet_imports) == 8
     assert accepted_holdings_factsheet_imports == set(LONG_RUNNING_ACTION_CONTROL_KEYS["holdings_factsheet_import"])
     assert accepted_holdings_factsheet_imports == {
         control_key
