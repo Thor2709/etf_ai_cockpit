@@ -4,22 +4,22 @@
   "allowed_status_transitions": [
     {
       "from": "implemented_initially",
-      "issue_id": "ISSUE-0055",
+      "issue_id": "ISSUE-0056",
       "to": "integrated"
     }
   ],
-  "base_commit": "79e314d5a43a116f2569ec4db0579e1e98769def",
-  "branch": "claude/issue-0055-lifecycle-20260927",
+  "base_commit": "0356bc9804ab5df8776efd7d45b4e0d6f8863301",
+  "branch": "claude/issue-0056-lifecycle-20260927",
   "issue_ids": [
-    "ISSUE-0055"
+    "ISSUE-0056"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "dc17896033013366950ca885ba253d0f04d6d3ccf60f28704a27a82afbf12b56",
+    "base_registry_sha256": "23770a5a7cddda3fb92d2244c08b935f40c4e3c72e92ad1cccaa38c2e6f917c5",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "23770a5a7cddda3fb92d2244c08b935f40c4e3c72e92ad1cccaa38c2e6f917c5",
-    "reason": "Transition only ISSUE-0055 from implemented_initially to integrated; preserve dependencies, GitHub issue open state, external authority and execution_allowed=false.",
+    "proposed_registry_sha256": "5bef4291ab08e1ba4cabdf05180a898f08f6b62cefa78875119586a20b34203c",
+    "reason": "Transition only ISSUE-0056 from implemented_initially to integrated; preserve dependencies, GitHub issue open state, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
