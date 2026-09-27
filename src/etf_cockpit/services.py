@@ -1574,7 +1574,7 @@ class ForecastService:
         if progress_callback is not None:
             progress_callback("Running baseline forecasts", 1, 4)
         # Per-family durations are the Forecast Lab's measured resource use.
-        with timed_step("forecasts", "model:baseline"):
+        with timed_step("forecasts", "model:baseline", run_id=run_id):
             for etf_id in etf_ids:
                 if etf_id not in pivot:
                     continue
@@ -1591,11 +1591,11 @@ class ForecastService:
                 )
         if progress_callback is not None:
             progress_callback("Checking cached TimesFM forecasts", 2, 4)
-        with timed_step("forecasts", "model:timesfm"):
+        with timed_step("forecasts", "model:timesfm", run_id=run_id):
             forecasts.extend(self._run_timesfm_forecasts(pivot, etf_ids, horizons, as_of_date, run_id))
         if progress_callback is not None:
             progress_callback("Checking cached Toto forecasts", 3, 4)
-        with timed_step("forecasts", "model:toto"):
+        with timed_step("forecasts", "model:toto", run_id=run_id):
             forecasts.extend(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id))
         forecasts = _postprocess_forecast_benchmark_fields(forecasts, benchmark_returns)
         with publication_scope(publish_guard):

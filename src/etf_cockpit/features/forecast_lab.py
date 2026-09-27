@@ -35,6 +35,14 @@ LAB_MODEL_COLUMNS = [
     "forecast_rows",
     "ok_rows",
     "status_summary",
+    "latest_forecast_value",
+    "latest_forecast_date",
+    "latest_forecast_horizon_days",
+    "latest_forecast_etf_id",
+    "latest_forecast_status",
+    "configured_horizons",
+    "observed_horizons",
+    "skipped_horizons",
     "matured_rows",
     "mae",
     "mase",
@@ -48,8 +56,21 @@ LAB_MODEL_COLUMNS = [
     "drift_score",
     "resource_status",
     "runtime_ms",
+    "resource_run_id",
     "promotion_state",
     "execution_allowed",
+]
+FORECAST_OUTCOME_COLUMNS = [
+    "run_id",
+    "model_name",
+    "etf_id",
+    "forecast_date",
+    "horizon_days",
+    "forecast_status",
+    "outcome_status",
+    "outcome_reason",
+    "target_date",
+    "actual_return",
 ]
 LAB_RUN_COLUMNS = [
     "run_id",
@@ -95,12 +116,15 @@ def forecast_round_trip_cost_bps(config: AppConfig, instrument_ids: Iterable[obj
     return costs
 
 
-def latest_forecast_runtimes(records: Iterable[Mapping[str, object]]) -> dict[str, float]:
-    """Return the latest measured run duration (ms) per forecast model family."""
+def latest_forecast_runtimes(records: Iterable[Mapping[str, object]]) -> dict[tuple[str, str], float]:
+    """Return measured durations keyed by forecast artifact and model family."""
 
-    latest: dict[str, float] = {}
+    latest: dict[tuple[str, str], float] = {}
     for record in records:
         if record.get("action_id") != FORECAST_RUNTIME_ACTION:
+            continue
+        run_id = str(record.get("run_id") or "").strip()
+        if not run_id:
             continue
         step = str(record.get("step") or "")
         if not step.startswith(FORECAST_RUNTIME_STEP_PREFIX):
@@ -108,7 +132,7 @@ def latest_forecast_runtimes(records: Iterable[Mapping[str, object]]) -> dict[st
         duration = _finite_or_none(record.get("duration_ms"))
         if duration is None or duration < 0:
             continue
-        latest[step[len(FORECAST_RUNTIME_STEP_PREFIX):]] = duration
+        latest[(run_id, step[len(FORECAST_RUNTIME_STEP_PREFIX):])] = duration
     return latest
 
 
@@ -133,6 +157,7 @@ def build_forecast_lab_workspace(
         as_of_date=as_of_date,
         round_trip_cost_bps=forecast_round_trip_cost_bps(config, instrument_ids),
         model_runtime_ms=latest_forecast_runtimes(records),
+        configured_horizons=config.models.forecast_horizons_trading_days,
     )
 
 
@@ -143,7 +168,8 @@ def build_forecast_lab_report(
     as_of_date: date | str | None = None,
     minimum_calibration_samples: int = 3,
     round_trip_cost_bps: Mapping[str, float] | None = None,
-    model_runtime_ms: Mapping[str, float] | None = None,
+    model_runtime_ms: Mapping[tuple[str, str], float] | None = None,
+    configured_horizons: Iterable[int] | None = None,
 ) -> dict[str, object]:
     """Build a read-only report from local forecast and adjusted-price rows.
 
@@ -161,6 +187,7 @@ def build_forecast_lab_report(
     empty_runs = pd.DataFrame(columns=LAB_RUN_COLUMNS)
     empty_splits = pd.DataFrame(columns=SPLIT_COLUMNS)
     empty_evaluation = pd.DataFrame(columns=WALK_FORWARD_EVALUATION_COLUMNS)
+    empty_outcomes = pd.DataFrame(columns=FORECAST_OUTCOME_COLUMNS)
     model_catalogue = model_zoo_frame()
     missing_forecasts = sorted(FORECAST_REQUIRED_COLUMNS - set(forecasts.columns))
     missing_prices = sorted(PRICE_REQUIRED_COLUMNS - set(prices.columns))
@@ -173,6 +200,7 @@ def build_forecast_lab_report(
             "runs": empty_runs,
             "walk_forward_splits": empty_splits,
             "walk_forward_evaluation": empty_evaluation,
+            "forecast_outcomes": empty_outcomes,
             "notes": tuple(
                 [f"Forecast columns missing: {', '.join(missing_forecasts)}."] if missing_forecasts else []
             )
@@ -190,18 +218,19 @@ def build_forecast_lab_report(
             "runs": empty_runs,
             "walk_forward_splits": empty_splits,
             "walk_forward_evaluation": empty_evaluation,
+            "forecast_outcomes": empty_outcomes,
             "notes": ("Unadjusted price rows were rejected; forecast diagnostics require adjusted_close.",),
             "execution_allowed": False,
         }
 
-    price_frame["date"] = _naive_utc(price_frame["date"])
+    price_frame["date"] = _naive_utc(price_frame["date"]).dt.normalize()
     price_frame["adjusted_close"] = pd.to_numeric(price_frame["adjusted_close"], errors="coerce")
     price_frame = price_frame.dropna(subset=["etf_id", "date", "adjusted_close"])
 
     frame = forecasts.copy()
     frame["model_name"] = frame["model_name"].astype(str).str.lower()
     frame["etf_id"] = frame["etf_id"].astype(str)
-    frame["forecast_date"] = _naive_utc(frame["forecast_date"])
+    frame["forecast_date"] = _naive_utc(frame["forecast_date"]).dt.normalize()
     frame["horizon_days"] = pd.to_numeric(frame["horizon_days"], errors="coerce")
     for column in ("expected_return", "q10_return", "q90_return"):
         frame[column] = pd.to_numeric(frame.get(column), errors="coerce")
@@ -221,6 +250,7 @@ def build_forecast_lab_report(
             "runs": empty_runs,
             "walk_forward_splits": empty_splits,
             "walk_forward_evaluation": empty_evaluation,
+            "forecast_outcomes": empty_outcomes,
             "notes": ("No dated forecast rows are available in the local cache.",),
             "execution_allowed": False,
         }
@@ -239,6 +269,7 @@ def build_forecast_lab_report(
             "runs": empty_runs,
             "walk_forward_splits": empty_splits,
             "walk_forward_evaluation": empty_evaluation,
+            "forecast_outcomes": empty_outcomes,
             "notes": ("No forecast rows are available at the selected as-of date.",),
             "execution_allowed": False,
         }
@@ -249,12 +280,24 @@ def build_forecast_lab_report(
         if pd.notna(requested_as_of)
         else price_frame
     )
+    stale_columns = [
+        column
+        for column in ("is_stale", "stale", "staleness_status", "freshness_status")
+        if column in known_prices.columns
+    ]
     price_lookup = {
-        str(instrument_id): group.sort_values("date").set_index("date")["adjusted_close"].astype(float)
+        str(instrument_id): group.sort_values("date").set_index("date")[["adjusted_close", *stale_columns]]
         for instrument_id, group in known_prices.groupby("etf_id", sort=False)
     }
-    matured = _matured_rows(frame, price_lookup, round_trip_cost_bps)
-    model_rows = _model_summaries(frame, matured, minimum_calibration_samples, model_runtime_ms)
+    matured, outcomes = _matured_rows(frame, price_lookup, round_trip_cost_bps)
+    model_rows = _model_summaries(
+        frame,
+        matured,
+        outcomes,
+        minimum_calibration_samples,
+        model_runtime_ms,
+        configured_horizons,
+    )
     run_rows = _run_summaries(frame)
     split_rows = build_walk_forward_splits(frame["forecast_date"].dt.date.unique())
     notes = [
@@ -263,7 +306,9 @@ def build_forecast_lab_report(
         "Net forward value = forecast direction x matured adjusted return - canonical round-trip cost "
         "(2 x estimated_cost_bps); it is unavailable when a cost is unavailable.",
         "Walk-forward folds evaluate stored forecasts per model; model fitting and promotion belong to later issues.",
-        "Resource use is the latest measured local run duration per model family; not_recorded until a run is timed.",
+        "Resource use is the duration measured for the displayed forecast run; not_recorded when no matching run measurement exists.",
+        "A forecast is graded only from its exact origin session to the exact target session; missing or stale sessions are unavailable.",
+        "Forecasts are low-authority and cannot rescue or upgrade weak deterministic evidence.",
         "TimesFM and Toto remain optional challengers and are shadow-only.",
     ]
     return {
@@ -273,6 +318,7 @@ def build_forecast_lab_report(
             known_prices["date"].max().date().isoformat() if not known_prices.empty else None
         ),
         "models": model_rows,
+        "forecast_outcomes": outcomes,
         "model_catalogue": model_catalogue,
         "runs": run_rows,
         "walk_forward_splits": split_rows,
@@ -336,21 +382,52 @@ def evaluate_walk_forward(splits: pd.DataFrame, matured: pd.DataFrame) -> pd.Dat
 
 def _matured_rows(
     frame: pd.DataFrame,
-    price_lookup: dict[str, pd.Series],
+    price_lookup: dict[str, pd.DataFrame],
     round_trip_cost_bps: Mapping[str, float] | None = None,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     rows: list[dict[str, object]] = []
+    outcome_rows: list[dict[str, object]] = []
     for _, row in frame.sort_values(["model_name", "horizon_days", "forecast_date"]).iterrows():
-        if row["status"] != "ok" or not np.isfinite(row.get("expected_return", np.nan)):
+        run_id = _noneable_text(row.get("run_id"))
+        horizon = int(row["horizon_days"])
+        outcome_row: dict[str, object] = {
+            "run_id": run_id,
+            "model_name": str(row["model_name"]),
+            "etf_id": str(row["etf_id"]),
+            "forecast_date": row["forecast_date"],
+            "horizon_days": horizon,
+            "forecast_status": str(row["status"]),
+            "outcome_status": "unavailable",
+            "outcome_reason": None,
+            "target_date": None,
+            "actual_return": None,
+        }
+        if row["status"] != "ok":
+            outcome_row["outcome_status"] = "skipped" if row["status"] == "skipped" else "unavailable"
+            outcome_row["outcome_reason"] = _forecast_row_reason(row)
+            outcome_rows.append(outcome_row)
+            continue
+        if _finite_or_none(row.get("expected_return")) is None:
+            outcome_row["outcome_reason"] = "forecast_value_unavailable"
+            outcome_rows.append(outcome_row)
             continue
         series = price_lookup.get(str(row["etf_id"]))
-        outcome = _actual_return(series, row["forecast_date"], int(row["horizon_days"])) if series is not None else None
-        if outcome is None:
+        actual, target_date, reason = _actual_return(series, row["forecast_date"], horizon)
+        if reason is not None:
+            outcome_row["outcome_reason"] = reason
+            outcome_rows.append(outcome_row)
             continue
-        actual, target_date = outcome
         expected = float(row["expected_return"])
         q10 = _finite_or_none(row.get("q10_return"))
         q90 = _finite_or_none(row.get("q90_return"))
+        outcome_row.update(
+            {
+                "outcome_status": "matured",
+                "target_date": target_date,
+                "actual_return": actual,
+            }
+        )
+        outcome_rows.append(outcome_row)
         direction = float(np.sign(expected))
         if direction == 0.0:
             # A flat forecast implies no position, so no trade and no cost.
@@ -362,6 +439,7 @@ def _matured_rows(
         rows.append(
             {
                 "model_name": str(row["model_name"]),
+                "run_id": run_id,
                 "etf_id": str(row["etf_id"]),
                 "forecast_date": row["forecast_date"],
                 "target_date": target_date,
@@ -378,33 +456,66 @@ def _matured_rows(
                 "net_forward_value": None if round_trip_cost is None else gross_value - round_trip_cost,
             }
         )
-    return pd.DataFrame(rows)
+    return (
+        pd.DataFrame(rows),
+        pd.DataFrame(outcome_rows, columns=FORECAST_OUTCOME_COLUMNS),
+    )
 
 
 def _model_summaries(
     frame: pd.DataFrame,
     matured: pd.DataFrame,
+    outcomes: pd.DataFrame,
     minimum_samples: int,
-    model_runtime_ms: Mapping[str, float] | None = None,
+    model_runtime_ms: Mapping[tuple[str, str], float] | None = None,
+    configured_horizons: Iterable[int] | None = None,
 ) -> pd.DataFrame:
     rows = []
+    configured = _normalise_horizons(configured_horizons)
     for model_name, group in frame.groupby("model_name", sort=True):
         ok_count = int(group["status"].eq("ok").sum())
         evaluated = matured.loc[matured["model_name"] == model_name].copy() if not matured.empty else pd.DataFrame()
+        model_outcomes = outcomes.loc[outcomes["model_name"] == model_name] if not outcomes.empty else pd.DataFrame()
         conformal = _conformal_diagnostics(evaluated, minimum_samples)
         errors = evaluated["absolute_error"] if not evaluated.empty else pd.Series(dtype=float)
         scale = _naive_scale(evaluated["actual_return"]) if not evaluated.empty else None
-        expected = pd.to_numeric(group["expected_return"], errors="coerce").dropna()
-        drift_score, drift_status = _drift(expected)
+        drift_score, drift_status = _comparable_drift(group)
         interval = evaluated["interval_hit"].dropna() if not evaluated.empty else pd.Series(dtype=float)
         net_value, net_status = _net_value(evaluated)
-        runtime = _finite_or_none((model_runtime_ms or {}).get(str(model_name))) if ok_count else None
+        latest_sort_columns = ["forecast_date", "etf_id", "horizon_days"]
+        if "run_id" in group.columns:
+            latest_sort_columns.append("run_id")
+        latest_rows = group.sort_values(latest_sort_columns, kind="stable")
+        latest = latest_rows.iloc[-1]
+        latest_run_id = _noneable_text(latest.get("run_id"))
+        artifact_rows = (
+            group.loc[group["run_id"].astype(str) == latest_run_id]
+            if latest_run_id is not None and "run_id" in group.columns
+            else pd.DataFrame()
+        )
+        artifact_ok = not artifact_rows.empty and artifact_rows["status"].eq("ok").any()
+        runtime = (
+            _finite_or_none((model_runtime_ms or {}).get((latest_run_id, str(model_name))))
+            if latest_run_id is not None and artifact_ok
+            else None
+        )
+        observed, skipped = _horizon_diagnostics(group, model_outcomes, configured)
         rows.append(
             {
                 "model_name": model_name,
                 "forecast_rows": int(len(group)),
                 "ok_rows": ok_count,
                 "status_summary": _status_summary(group["status"]),
+                "latest_forecast_value": (
+                    _finite_or_none(latest.get("expected_return")) if latest["status"] == "ok" else None
+                ),
+                "latest_forecast_date": pd.Timestamp(latest["forecast_date"]).date().isoformat(),
+                "latest_forecast_horizon_days": int(latest["horizon_days"]),
+                "latest_forecast_etf_id": str(latest["etf_id"]),
+                "latest_forecast_status": str(latest["status"]),
+                "configured_horizons": configured,
+                "observed_horizons": observed,
+                "skipped_horizons": skipped,
                 "matured_rows": int(len(evaluated)),
                 "mae": _rounded(errors.mean() if not errors.empty else None),
                 "mase": _rounded(errors.mean() / scale if not errors.empty and scale else None),
@@ -418,6 +529,7 @@ def _model_summaries(
                 "drift_score": drift_score,
                 "resource_status": "measured" if runtime is not None else ("not_recorded" if ok_count else "not_run"),
                 "runtime_ms": None if runtime is None else round(runtime, 1),
+                "resource_run_id": latest_run_id,
                 "promotion_state": "shadow_only",
                 "execution_allowed": False,
             }
@@ -475,19 +587,35 @@ def _conformal_diagnostics(evaluated: pd.DataFrame, minimum_samples: int) -> dic
 
 
 def _actual_return(
-    series: pd.Series | None, forecast_date: pd.Timestamp, horizon_days: int
-) -> tuple[float, pd.Timestamp] | None:
-    if series is None or horizon_days <= 0:
-        return None
-    clean = series.dropna().sort_index()
-    start = clean.index.searchsorted(pd.Timestamp(forecast_date), side="right") - 1
+    series: pd.DataFrame | None, forecast_date: pd.Timestamp, horizon_days: int
+) -> tuple[float | None, pd.Timestamp | None, str | None]:
+    if series is None or series.empty:
+        return None, None, "price_series_missing"
+    if horizon_days <= 0:
+        return None, None, "invalid_horizon"
+    # ``price_lookup`` is normalised and sorted once before forecasts are
+    # evaluated, so each row can look up its sessions without copying history.
+    clean = series
+    if not clean.index.is_unique:
+        return None, None, "conflicted_price_session"
+    origin_date = pd.Timestamp(forecast_date).normalize()
+    start = int(clean.index.get_indexer([origin_date])[0])
+    if start < 0:
+        return None, None, "origin_session_missing"
+    if _price_row_is_stale(clean.iloc[start]):
+        return None, None, "origin_session_stale"
     target = start + horizon_days
     if start < 0 or target >= len(clean):
-        return None
-    start_value, target_value = float(clean.iloc[start]), float(clean.iloc[target])
-    if start_value <= 0 or target_value <= 0:
-        return None
-    return target_value / start_value - 1.0, pd.Timestamp(clean.index[target])
+        return None, None, "target_session_missing"
+    if _price_row_is_stale(clean.iloc[target]):
+        return None, None, "target_session_stale"
+    start_value = _finite_or_none(clean.iloc[start]["adjusted_close"])
+    target_value = _finite_or_none(clean.iloc[target]["adjusted_close"])
+    if start_value is None or start_value <= 0:
+        return None, None, "origin_adjusted_price_invalid"
+    if target_value is None or target_value <= 0:
+        return None, None, "target_adjusted_price_invalid"
+    return target_value / start_value - 1.0, pd.Timestamp(clean.index[target]), None
 
 
 def _naive_utc(values: pd.Series) -> pd.Series:
@@ -512,6 +640,82 @@ def _drift(values: pd.Series) -> tuple[float | None, str]:
     scale = max(float(clean.std(ddof=0)), 1e-9)
     score = abs(float(recent.mean() - earlier.mean())) / scale
     return _rounded(score), "monitor" if score >= 1.0 else "stable"
+
+
+def _comparable_drift(group: pd.DataFrame) -> tuple[float | None, str]:
+    scores: list[float] = []
+    for _, comparable in group.groupby(["etf_id", "horizon_days"], sort=True):
+        sort_columns = ["forecast_date"]
+        if "run_id" in comparable.columns:
+            sort_columns.append("run_id")
+        ordered = comparable.sort_values(sort_columns, kind="stable")
+        score, _status = _drift(ordered["expected_return"])
+        if score is not None:
+            scores.append(score)
+    if not scores:
+        return None, "drift_pending"
+    score = max(scores)
+    return score, "monitor" if score >= 1.0 else "stable"
+
+
+def _horizon_diagnostics(
+    group: pd.DataFrame,
+    outcomes: pd.DataFrame,
+    configured_horizons: list[int],
+) -> tuple[list[int], list[dict[str, object]]]:
+    observed = sorted({int(value) for value in pd.to_numeric(group["horizon_days"], errors="coerce").dropna()})
+    skipped_reasons: dict[int, set[str]] = {
+        horizon: {"no_forecast_row"} for horizon in configured_horizons if horizon not in observed
+    }
+    for row in outcomes.itertuples(index=False):
+        if row.outcome_status == "matured":
+            continue
+        reason = _noneable_text(row.outcome_reason) or str(row.outcome_status)
+        skipped_reasons.setdefault(int(row.horizon_days), set()).add(reason)
+    skipped = [
+        {"horizon_days": horizon, "reason": "; ".join(sorted(reasons))}
+        for horizon, reasons in sorted(skipped_reasons.items())
+    ]
+    return observed, skipped
+
+
+def _normalise_horizons(values: Iterable[int] | None) -> list[int]:
+    output: set[int] = set()
+    for value in values or ():
+        number = _finite_or_none(value)
+        if number is not None and number > 0 and number.is_integer():
+            output.add(int(number))
+    return sorted(output)
+
+
+def _forecast_row_reason(row: pd.Series) -> str:
+    for column in ("reason_unavailable", "error_message"):
+        value = _noneable_text(row.get(column))
+        if value is not None:
+            return value
+    calibration = _noneable_text(row.get("calibration_status"))
+    if calibration not in {None, "not_evaluated"}:
+        return calibration
+    return str(row.get("status") or "forecast_unavailable")
+
+
+def _price_row_is_stale(row: pd.Series) -> bool:
+    for column in ("is_stale", "stale"):
+        value = row.get(column)
+        if value is not None and not pd.isna(value) and _adjusted_flag(value):
+            return True
+    for column in ("staleness_status", "freshness_status"):
+        value = _noneable_text(row.get(column))
+        if value is not None and value.casefold() in {"stale", "warning", "block", "unknown"}:
+            return True
+    return False
+
+
+def _noneable_text(value: object) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _finite_or_none(value: object) -> float | None:

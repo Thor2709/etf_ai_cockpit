@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.core.config import load_config
+from etf_cockpit.core.timing import read_timing_records, timed_step
 from etf_cockpit.features import forecast_lab
 from etf_cockpit.features.forecast_lab import (
     build_forecast_lab_report,
@@ -74,6 +75,7 @@ def test_forecast_lab_reports_maturity_walk_forward_and_shadow_only_governance()
     assert baseline["promotion_state"] == "shadow_only"
     assert baseline["conformal_coverage"] is not None
     assert len(report["walk_forward_splits"]) == 3
+    assert "cannot rescue or upgrade weak deterministic evidence" in " ".join(report["notes"])
 
 
 def test_forecast_lab_excludes_future_forecast_rows_without_claiming_model_performance() -> None:
@@ -169,14 +171,16 @@ def test_walk_forward_folds_are_evaluated_per_model() -> None:
 
 def test_resource_use_reports_latest_measured_runtime_per_model_family() -> None:
     records = [
-        {"action_id": "forecasts", "step": "model:baseline", "duration_ms": 90.0},
+        {"action_id": "forecasts", "step": "model:baseline", "run_id": "run-1", "duration_ms": 90.0},
         {"action_id": "forecasts", "step": "write_output", "duration_ms": 5.0},
-        {"action_id": "backtest", "step": "model:baseline", "duration_ms": 999.0},
-        {"action_id": "forecasts", "step": "model:baseline", "duration_ms": 120.44},
-        {"action_id": "forecasts", "step": "model:toto", "duration_ms": "not-a-number"},
-        {"action_id": "forecasts", "step": "model:timesfm", "duration_ms": 0.05},
+        {"action_id": "backtest", "step": "model:baseline", "run_id": "backtest-1", "duration_ms": 999.0},
+        {"action_id": "forecasts", "step": "model:baseline", "run_id": "run-1", "duration_ms": 120.44},
+        {"action_id": "forecasts", "step": "model:toto", "run_id": "run-1", "duration_ms": "not-a-number"},
+        {"action_id": "forecasts", "step": "model:timesfm", "run_id": "run-2", "duration_ms": 0.05},
+        # This newer failed attempt must not provide runtime for the displayed run-1 artifact.
+        {"action_id": "forecasts", "step": "model:baseline", "run_id": "run-2", "duration_ms": 9999.0},
     ]
-    assert latest_forecast_runtimes(records) == {"baseline": 120.44, "timesfm": 0.05}
+    assert latest_forecast_runtimes(records) == {("run-1", "baseline"): 120.44, ("run-2", "timesfm"): 0.05, ("run-2", "baseline"): 9999.0}
 
     report = build_forecast_lab_workspace(load_config(), _forecasts(), _prices(), timing_records=records)
 
@@ -187,6 +191,30 @@ def test_resource_use_reports_latest_measured_runtime_per_model_family() -> None
     assert models.loc["timesfm", "resource_status"] == "not_run"
     assert pd.isna(models.loc["timesfm", "runtime_ms"])
     assert models.loc["baseline", "net_value_status"] in {"positive_net_edge", "no_net_edge"}
+
+
+def test_forecast_runtime_is_not_borrowed_without_a_matching_artifact_run() -> None:
+    forecasts = _forecasts()
+    forecasts.loc[forecasts["model_name"] == "baseline", "run_id"] = "older-success"
+    records = [
+        {"action_id": "forecasts", "step": "model:baseline", "run_id": "newer-failed", "duration_ms": 900.0}
+    ]
+
+    report = build_forecast_lab_workspace(load_config(), forecasts, _prices(), timing_records=records)
+    baseline = report["models"].set_index("model_name").loc["baseline"]
+
+    assert baseline["resource_status"] == "not_recorded"
+    assert pd.isna(baseline["runtime_ms"])
+
+
+def test_timing_records_keep_forecast_run_identity(tmp_path) -> None:
+    destination = tmp_path / "timings.jsonl"
+
+    with timed_step("forecasts", "model:baseline", store_path=destination, run_id="run-1"):
+        pass
+
+    records = read_timing_records(destination)
+    assert records[0]["run_id"] == "run-1"
 
 
 def test_conformal_calibration_uses_only_residuals_whose_target_has_passed() -> None:
@@ -245,3 +273,115 @@ def test_drift_thresholds(values: list[float], status: str) -> None:
 
     assert observed == status
     assert (score is None) == (status == "drift_pending")
+
+
+def test_drift_is_chronological_and_independent_of_forecast_row_order() -> None:
+    dates = pd.bdate_range("2026-01-01", periods=8)
+    forecasts = pd.DataFrame(
+        {
+            "run_id": ["run-1"] * len(dates),
+            "model_name": ["baseline"] * len(dates),
+            "etf_id": ["AAA"] * len(dates),
+            "forecast_date": dates,
+            "horizon_days": [1] * len(dates),
+            "expected_return": [0.01] * 4 + [0.05] * 4,
+            "status": ["ok"] * len(dates),
+        }
+    )
+
+    in_order = build_forecast_lab_report(forecasts, _prices())
+    shuffled = build_forecast_lab_report(forecasts.sample(frac=1, random_state=18), _prices())
+    first = in_order["models"].set_index("model_name").loc["baseline"]
+    second = shuffled["models"].set_index("model_name").loc["baseline"]
+
+    assert first["drift_score"] == second["drift_score"]
+    assert first["drift_status"] == second["drift_status"]
+
+
+def test_forecast_horizon_report_includes_latest_configured_observed_and_skipped_data() -> None:
+    report = build_forecast_lab_report(_forecasts(), _prices(), configured_horizons=[1, 3, 5])
+    baseline = report["models"].set_index("model_name").loc["baseline"]
+
+    assert baseline["latest_forecast_value"] == pytest.approx(0.01)
+    assert baseline["latest_forecast_date"] == "2026-01-08"
+    assert baseline["latest_forecast_horizon_days"] == 1
+    assert baseline["configured_horizons"] == [1, 3, 5]
+    assert baseline["observed_horizons"] == [1]
+    assert {row["horizon_days"]: row["reason"] for row in baseline["skipped_horizons"]} == {
+        3: "no_forecast_row",
+        5: "no_forecast_row",
+    }
+
+
+def test_missing_origin_session_is_unavailable_and_excluded_from_metrics_and_net_value() -> None:
+    forecasts = pd.DataFrame(
+        [
+            {
+                "run_id": "run-1",
+                "model_name": "baseline",
+                "etf_id": "AAA",
+                "forecast_date": "2026-01-06",
+                "horizon_days": 1,
+                "expected_return": 0.01,
+                "status": "ok",
+            }
+        ]
+    )
+    prices = pd.DataFrame(
+        {
+            "etf_id": ["AAA", "AAA"],
+            "date": pd.to_datetime(["2026-01-05", "2026-01-07"]),
+            "adjusted_close": [100.0, 110.0],
+        }
+    )
+
+    report = build_forecast_lab_report(
+        forecasts,
+        prices,
+        configured_horizons=[1],
+        round_trip_cost_bps={"AAA": 20.0},
+    )
+    baseline = report["models"].set_index("model_name").loc["baseline"]
+    outcome = report["forecast_outcomes"].iloc[0]
+
+    assert outcome["outcome_status"] == "unavailable"
+    assert outcome["outcome_reason"] == "origin_session_missing"
+    assert baseline["matured_rows"] == 0
+    assert baseline["mae"] is None
+    assert baseline["net_forward_value"] is None
+    assert baseline["net_value_status"] == "net_value_pending"
+    assert baseline["skipped_horizons"] == [{"horizon_days": 1, "reason": "origin_session_missing"}]
+
+
+@pytest.mark.parametrize(
+    ("stale_date", "expected_reason"),
+    [("2026-01-06", "origin_session_stale"), ("2026-01-07", "target_session_stale")],
+)
+def test_stale_origin_or_target_session_is_explicitly_unavailable(stale_date: str, expected_reason: str) -> None:
+    forecasts = pd.DataFrame(
+        [
+            {
+                "run_id": "run-1",
+                "model_name": "baseline",
+                "etf_id": "AAA",
+                "forecast_date": "2026-01-06",
+                "horizon_days": 1,
+                "expected_return": 0.01,
+                "status": "ok",
+            }
+        ]
+    )
+    dates = pd.to_datetime(["2026-01-05", "2026-01-06", "2026-01-07"])
+    prices = pd.DataFrame(
+        {
+            "etf_id": ["AAA"] * len(dates),
+            "date": dates,
+            "adjusted_close": [100.0, 101.0, 102.0],
+            "is_stale": dates.date == pd.Timestamp(stale_date).date(),
+        }
+    )
+
+    report = build_forecast_lab_report(forecasts, prices)
+
+    assert report["forecast_outcomes"].iloc[0]["outcome_status"] == "unavailable"
+    assert report["forecast_outcomes"].iloc[0]["outcome_reason"] == expected_reason

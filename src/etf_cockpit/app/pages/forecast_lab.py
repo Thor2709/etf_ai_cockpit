@@ -24,12 +24,6 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> ft.Control:
         f"{name}={'available' if available else 'unavailable'}"
         for name, available in sorted(state.snapshot.model_status.items())
     ) or "none"
-    configured_horizons = ", ".join(
-        str(value) for value in getattr(state.snapshot.config.models, "forecast_horizons_trading_days", ())
-    ) or "none"
-    observed_horizons = ", ".join(
-        str(int(value)) for value in sorted(pd.to_numeric(state.snapshot.forecasts.get("horizon_days"), errors="coerce").dropna().unique())
-    ) if not state.snapshot.forecasts.empty and "horizon_days" in state.snapshot.forecasts.columns else "none"
     model_count = len(models)
     forecast_count = int(models["forecast_rows"].sum()) if not models.empty else 0
     matured_count = int(models["matured_rows"].sum()) if not models.empty else 0
@@ -68,6 +62,7 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> ft.Control:
                 ],
                 spacing=10,
             ),
+            _forecast_run_status(state),
             ft.Row(
                 [
                     metric_card("Models", str(model_count), f"status={status}"),
@@ -85,6 +80,7 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> ft.Control:
                 spacing=14,
                 vertical_alignment=ft.CrossAxisAlignment.START,
             ),
+            _horizon_panel(models),
             ft.Row(
                 [
                     _split_panel(splits, fold_evaluation),
@@ -92,9 +88,12 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> ft.Control:
                         ft.Column(
                             [
                                 section_header("Governance and availability", "Forecast evidence remains advisory and local-first."),
+                                ft.Text(
+                                    "Forecasts are low-authority and cannot rescue or upgrade weak deterministic evidence.",
+                                    color=theme.MUTED,
+                                    selectable=True,
+                                ),
                                 ft.Text(f"Cached model status: {available_models}", color=theme.MUTED, selectable=True),
-                                ft.Text(f"Configured horizons (trading days): {configured_horizons}", color=theme.MUTED, selectable=True),
-                                ft.Text(f"Observed forecast horizons: {observed_horizons}", color=theme.MUTED, selectable=True),
                                 ft.Text("Promotion: shadow_only; execution_allowed=false", color=theme.MUTED, selectable=True),
                                 ft.Text("Conformal intervals are diagnostic until minimum prior matured samples exist.", color=theme.MUTED, selectable=True),
                                 ft.Text(
@@ -104,7 +103,7 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> ft.Control:
                                     selectable=True,
                                 ),
                                 ft.Text(
-                                    "Resource use: latest measured local run duration per model family; not_recorded until a run is timed.",
+                                    "Resource use: duration measured for the displayed forecast run; not_recorded when no matching run measurement exists.",
                                     color=theme.MUTED,
                                     selectable=True,
                                 ),
@@ -152,6 +151,93 @@ def _run_panel(frame: pd.DataFrame) -> ft.Container:
             rows=rows,
         )
     return panel(ft.Column([section_header("Experiment runs", "Run identity and model membership are read from local forecast rows."), body], scroll=ft.ScrollMode.AUTO), expand=True)
+
+
+def _forecast_run_status(state: AppState) -> ft.Control:
+    current = getattr(state, "current_activity", None)
+    if current is not None and getattr(current, "action_id", None) == "forecasts":
+        progress = (
+            current.completed_units / current.total_units
+            if current.total_units
+            else None
+        )
+        return ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.ProgressRing(width=18, height=18, stroke_width=2, color=theme.CYAN),
+                        ft.Text(f"Forecast run in progress: {current.label}", color=theme.TEXT),
+                        ft.Text(f"Current step: {current.step}", color=theme.MUTED),
+                    ],
+                    wrap=True,
+                    spacing=10,
+                ),
+                ft.ProgressBar(value=progress, color=theme.CYAN, bgcolor=theme.SURFACE_2),
+            ],
+            spacing=6,
+        )
+    recent = getattr(state, "recent_activity", ()) or ()
+    last_forecast = next(
+        (entry for entry in reversed(recent) if getattr(entry, "action_id", None) == "forecasts"),
+        None,
+    )
+    if last_forecast is None:
+        text = "Forecast run status: not run in this session."
+    else:
+        text = f"Forecast run status: {last_forecast.status} — {last_forecast.message}"
+    return ft.Text(text, color=theme.MUTED, selectable=True)
+
+
+def _horizon_panel(frame: pd.DataFrame) -> ft.Container:
+    rows = []
+    for _, row in frame.iterrows():
+        value = row["latest_forecast_value"]
+        latest_value = "unavailable" if value is None or pd.isna(value) else f"{float(value):+.2%}"
+        latest = (
+            f"{latest_value} on {row['latest_forecast_date']} "
+            f"({row['latest_forecast_etf_id']}, {int(row['latest_forecast_horizon_days'])} trading days; "
+            f"{row['latest_forecast_status']})"
+        )
+        configured = ", ".join(str(value) for value in row["configured_horizons"]) or "none"
+        observed = ", ".join(str(value) for value in row["observed_horizons"]) or "none"
+        skipped = "; ".join(
+            f"{item['horizon_days']} ({item['reason']})" for item in row["skipped_horizons"]
+        ) or "none"
+        rows.append(
+            ft.DataRow(
+                cells=[
+                    ft.DataCell(ft.Text(str(row["model_name"]), color=theme.TEXT, size=12)),
+                    ft.DataCell(ft.Text(latest, color=theme.MUTED, size=12)),
+                    ft.DataCell(ft.Text(configured, color=theme.MUTED, size=12)),
+                    ft.DataCell(ft.Text(observed, color=theme.MUTED, size=12)),
+                    ft.DataCell(ft.Text(skipped, color=theme.MUTED, size=12)),
+                ]
+            )
+        )
+    body: ft.Control = (
+        ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Model")),
+                ft.DataColumn(ft.Text("Latest forecast value/date")),
+                ft.DataColumn(ft.Text("Configured horizons")),
+                ft.DataColumn(ft.Text("Observed horizons")),
+                ft.DataColumn(ft.Text("Skipped horizons/reason")),
+            ],
+            rows=rows,
+        )
+        if rows
+        else ft.Text("No per-model forecast or horizon rows are available.", color=theme.MUTED)
+    )
+    return panel(
+        ft.Column(
+            [
+                section_header("Latest forecasts and horizon coverage", "Forecast values and skipped horizons are read from the domain report."),
+                body,
+            ],
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
 
 
 def _model_panel(frame: pd.DataFrame) -> ft.Container:
@@ -319,6 +405,8 @@ def _drift(row: pd.Series) -> str:
 
 def _runtime(row: pd.Series) -> str:
     runtime = row["runtime_ms"]
+    run_id = row.get("resource_run_id")
+    run_label = "" if run_id is None or pd.isna(run_id) else f" ({run_id})"
     if runtime is None or pd.isna(runtime):
-        return str(row["resource_status"])
-    return f"{float(runtime):.0f} ms"
+        return f"{row['resource_status']}{run_label}"
+    return f"{float(runtime):.0f} ms{run_label}"
