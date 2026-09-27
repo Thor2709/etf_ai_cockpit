@@ -1176,3 +1176,25 @@ def test_sfdr_resolved_conflict_clears_manual_review_on_current_rows(tmp_path: P
     assert set(current["classification"]) == {"article_8"}
     assert not current["manual_review"].astype(bool).any()
     assert (current["conflict_id"].fillna("") == "").all()
+
+
+def test_sfdr_row_uses_supplied_date_only_when_document_has_none() -> None:
+    from etf_cockpit.data.parsed_disclosures import _sfdr_row
+
+    undated = _sfdr_result("article_8", "5" * 64, "factsheet", None)
+    row = _sfdr_row(undated, "VWCE", undated.records[0], document_date="2026-05-01")
+    assert row["document_date"] == "2026-05-01"
+    dated = _sfdr_result("article_8", "6" * 64, "factsheet", "2026-02-01")
+    row = _sfdr_row(dated, "VWCE", dated.records[0], document_date="2026-05-01")
+    assert row["document_date"] == "2026-02-01"
+
+
+def test_instrument_detail_sfdr_panel_ignores_superseded_rows() -> None:
+    from etf_cockpit.app.selectors.instrument_detail import _parsed_panel
+
+    frame = pd.DataFrame([
+        {"instrument_id": "VWCE", "classification": "article_9", "document_type": "factsheet", "superseded": False, "imported_at": "2026-09-01T00:00:00+00:00"},
+        {"instrument_id": "VWCE", "classification": "article_8", "document_type": "factsheet", "superseded": True, "imported_at": "2026-09-02T00:00:00+00:00"},
+    ])
+    panel = _parsed_panel(frame, "VWCE", "sfdr", ("classification", "document_type"))
+    assert panel["classification"] == "article_9"

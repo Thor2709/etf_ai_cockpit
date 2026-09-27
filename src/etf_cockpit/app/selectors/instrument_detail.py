@@ -1039,6 +1039,9 @@ def _parsed_panel(frame: pd.DataFrame, instrument_id: str, kind: str, fields: tu
     if frame.empty or "instrument_id" not in frame.columns:
         return {"status": "unavailable", "manual_review": True, "score_eligible": False, "message": f"Parsed {kind} evidence unavailable; manual review required."}
     scoped = _instrument_rows(frame, instrument_id)
+    if "superseded" in scoped.columns:
+        # Superseded disclosure rows are history, never the current state.
+        scoped = scoped.loc[~scoped["superseded"].fillna(False).astype(bool)]
     if scoped.empty:
         return {"status": "unavailable", "manual_review": True, "score_eligible": False, "message": f"Parsed {kind} evidence unavailable; manual review required."}
     row = scoped.sort_values("imported_at", kind="stable").iloc[-1] if "imported_at" in scoped.columns else scoped.iloc[-1]

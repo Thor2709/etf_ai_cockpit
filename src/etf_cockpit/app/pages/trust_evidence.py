@@ -1164,7 +1164,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                 parsed,
                 instrument_id,
                 retained_path,
-                document_date=(parsed.records[0].document_date if parsed.records else str(document_date_field.value or "").strip() or None),
+                document_date=((parsed.records[0].document_date if parsed.records else None) or str(document_date_field.value or "").strip() or None),
                 configured_instrument_ids=state.snapshot.config.universe.configured_enabled_ids,
                 publish_guard=lambda: state.activity_publication(action_id),
             )

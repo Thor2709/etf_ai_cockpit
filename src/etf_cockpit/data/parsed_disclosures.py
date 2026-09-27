@@ -274,7 +274,7 @@ def _persist_with_document(
             rows = [_methodology_unavailable_row(result, instrument_id)]
     else:
         columns = SFDR_COLUMNS
-        rows = [_sfdr_row(result, instrument_id, record) for record in result.records]
+        rows = [_sfdr_row(result, instrument_id, record, document_date=document_date) for record in result.records]
         if not rows:
             rows = [_sfdr_unavailable_row(result, instrument_id)]
     if result.success or document_available is True:
@@ -468,7 +468,15 @@ def _methodology_unavailable_row(result: ParseResult[IndexMethodologyRecord], in
     }
 
 
-def _sfdr_row(result: ParseResult[SfdrRecord], instrument_id: str, record: SfdrRecord) -> dict[str, Any]:
+def _sfdr_row(
+    result: ParseResult[SfdrRecord],
+    instrument_id: str,
+    record: SfdrRecord,
+    *,
+    document_date: str | None = None,
+) -> dict[str, Any]:
+    # A date stated in the document wins; a user-supplied date fills a gap only.
+    effective_date = record.document_date or (str(document_date).strip() or None if document_date else None)
     return {
         "schema_version": int(getattr(record, "schema_version", 1)),
         "source_id": _source_id("sfdr", instrument_id, result.source_sha256),
@@ -477,7 +485,7 @@ def _sfdr_row(result: ParseResult[SfdrRecord], instrument_id: str, record: SfdrR
         "parser_version": result.parser_version,
         "source_sha256": result.source_sha256,
         "source_authority": "issuer_document",
-        "freshness_status": _freshness(record.document_date),
+        "freshness_status": _freshness(effective_date),
         "source_pages": _json(record.source_pages),
         "classification": record.classification,
         "methodology_disclosed": bool(record.methodology_disclosed),
@@ -485,7 +493,7 @@ def _sfdr_row(result: ParseResult[SfdrRecord], instrument_id: str, record: SfdrR
         "sustainable_characteristics": record.sustainable_characteristics,
         "taxonomy_alignment_pct": record.taxonomy_alignment_pct,
         "document_type": record.document_type,
-        "document_date": record.document_date,
+        "document_date": effective_date,
         "warnings": _json(_warning_payload(result.warnings, record.warnings)),
         "manual_review": bool(record.manual_review or result.warnings),
         "conflict_id": "",
