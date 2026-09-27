@@ -1,0 +1,3 @@
+The fund is described as an Article 8 financial product under SFDR in the principal
+disclosure, while a later section calls it an Article 9 product under Regulation (EU)
+2019/2088. Methodology and data-source information is included for manual review.
