@@ -43,3 +43,22 @@ def test_recovery_policy_is_static_and_covers_required_failures() -> None:
         "Provider outage", "Failed import", "Failed model or forecast run", "Corrupt local store", "Interrupted job",
     }
     assert all(card.symptom and card.guarantee and card.steps for card in RECOVERY_POLICIES)
+
+
+def test_recovery_read_model_reports_unreadable_job_store_as_unavailable() -> None:
+    api = SimpleNamespace(
+        jobs_store_status=lambda: (False, "OSError: the local job store could not be read"),
+        get_jobs=lambda: SimpleNamespace(items=()),
+    )
+    model = build_recovery_read_model(SimpleNamespace(snapshot=SimpleNamespace(), application_api=api))
+    assert model.jobs == ()
+    assert any("job store is unavailable" in reason for reason in model.unavailable_reasons)
+
+
+def test_recovery_read_model_lists_active_jobs_from_readable_store() -> None:
+    api = SimpleNamespace(
+        jobs_store_status=lambda: (True, None),
+        get_jobs=lambda: SimpleNamespace(items=(SimpleNamespace(label="Refresh", status="running"), SimpleNamespace(label="Old", status="completed"))),
+    )
+    model = build_recovery_read_model(SimpleNamespace(snapshot=SimpleNamespace(), application_api=api))
+    assert model.jobs == ("Refresh: running",)

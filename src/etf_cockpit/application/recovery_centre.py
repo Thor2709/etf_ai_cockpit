@@ -83,6 +83,11 @@ def build_recovery_read_model(state: Any, jobs: Any = None) -> RecoveryReadModel
     if jobs is not None:
         _append_jobs(jobs, job_statuses)
     elif callable(get_jobs):
+        store_status = getattr(api, "jobs_store_status", None)
+        readable, store_reason = store_status() if callable(store_status) else (True, None)
+        if not readable:
+            reasons.append(f"The job store is unavailable ({store_reason}); job status is not shown.")
+            return RecoveryReadModel(forecasts, data, (), tuple(reasons))
         try:
             result = get_jobs()
             _append_jobs(getattr(result, "items", ()), job_statuses)

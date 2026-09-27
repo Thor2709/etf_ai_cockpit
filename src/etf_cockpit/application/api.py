@@ -461,6 +461,14 @@ class LocalApplicationApi:
             rows = []
         return _page(tuple(sorted(rows, key=lambda item: item.created_at, reverse=True)), page)
 
+    def jobs_store_status(self) -> tuple[bool, str | None]:
+        """Report whether the job store is readable; get_jobs() returns an empty page on failure."""
+        try:
+            self._scheduler.list_workflows()
+        except Exception as exc:
+            return False, f"{type(exc).__name__}: the local job store could not be read"
+        return True, None
+
     def get_paper(self, page: PageRequest = PageRequest(), *, account_id: str = "local-paper") -> PageView[PaperViewModel]:
         from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError
 

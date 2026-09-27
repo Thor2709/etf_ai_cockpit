@@ -58,3 +58,16 @@ def test_errors_recovery_page_renders_failure_activity_and_recovery_sections(tmp
     assert retryable.error_id in text
     assert all(label in text for label in ("Recent errors", "Developer detail", "Activity Log", "Recovery status", "Recovery policy", "Provider outage"))
     assert "Malformed input" in text
+
+
+def test_errors_recovery_page_shows_detail_only_in_developer_mode(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ETF_COCKPIT_DEVELOPER_MODE", "1")
+    store = ErrorStore(tmp_path / "errors.jsonl")
+    store.append(action_id="parse", category=ErrorCategory.PARSER_SCHEMA, user_message="Parser failed", detail="Traceback: boom", retryable=False)
+    state = SimpleNamespace(error_store=store, snapshot=SimpleNamespace(), application_api=None, current_activity=None, recent_activity=[], last_message="")
+    shown = "\n".join(_text_values(errors_recovery_page(SimpleNamespace(), state)))
+    assert "Traceback: boom" in shown
+    monkeypatch.delenv("ETF_COCKPIT_DEVELOPER_MODE")
+    hidden = "\n".join(_text_values(errors_recovery_page(SimpleNamespace(), state)))
+    assert "Traceback: boom" not in hidden
+    assert "Technical detail is hidden outside developer mode." in hidden
