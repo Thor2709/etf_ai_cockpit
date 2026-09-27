@@ -48,7 +48,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
 |---|---|---|---|---|---|---|---|
 | `ISSUE-0008` | `P2` | `integrated` | `analysis-and-validation` | - | - | `ISSUE-0070` | `ISSUE-0060`, `ISSUE-0070`, `ISSUE-0130`, `ISSUE-0133` |
-| `ISSUE-0028` | `P0/P1` | `implemented_initially` | `analysis-and-validation` | - | - | `ISSUE-0125` | `ISSUE-0120`, `ISSUE-0125`, `ISSUE-0128` |
+| `ISSUE-0028` | `P0/P1` | `integrated` | `analysis-and-validation` | - | - | `ISSUE-0125` | `ISSUE-0120`, `ISSUE-0125`, `ISSUE-0128` |
 | `ISSUE-0029` | `P1/P2` | `planned` | `analysis-and-validation` | - | - | - | `ISSUE-0074`, `ISSUE-0075`, `ISSUE-0130` |
 | `ISSUE-0046` | `P1/P2` | `integrated` | `analysis-and-validation` | - | - | - | `ISSUE-0108`, `ISSUE-0112`, `ISSUE-0115`, `ISSUE-0130` |
 | `ISSUE-0051` | `P1/P2` | `integrated` | `analysis-and-validation` | - | - | `ISSUE-0112` | `ISSUE-0088`, `ISSUE-0112` |
