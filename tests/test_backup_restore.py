@@ -452,7 +452,7 @@ def test_encrypted_partial_preview_checks_destination_consistency(tmp_path: Path
 
 def test_config_validation_staging_cleans_up_and_excludes_destination_secrets(tmp_path: Path, monkeypatch) -> None:
     destination, destination_configs = _make_destination_with_configs(tmp_path)
-    token = "do-not-stage-this-token"
+    token = "stage-sentinel"
     (destination_configs / "credentials.json").write_text(json.dumps({"api_key": token}), encoding="utf-8")
     source_settings = tmp_path / "source" / "configs" / "settings.yaml"
     source_settings.parent.mkdir(parents=True)
