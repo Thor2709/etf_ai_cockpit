@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from urllib.parse import parse_qs, urlparse
+import json
 
 import pandas as pd
 
 from etf_cockpit.core.config import ProviderSection
 from etf_cockpit.data.contracts import SourceAuthority
+from etf_cockpit.data.providers import DataProvider, ProviderResult
 from etf_cockpit.data.fmp_provider import FmpProvider, FMP_SHARED_CONFIG_BLOCK
 
 
@@ -24,10 +25,26 @@ def _configured(transport, **kwargs) -> FmpProvider:
 
 
 def _assert_metadata(result) -> None:
-    assert result.licence
-    assert result.quota["failure_policy"] == "non_blocking"
-    assert result.cache["enabled"] is True
-    assert result.authority is SourceAuthority.VENDOR
+    assert result.metadata is not None
+    details = _details(result)
+    assert details["licence"]
+    assert details["quota"]["failure_policy"] == "non_blocking"
+    assert details["cache"]["enabled"] is True
+    assert details["authority"] == SourceAuthority.VENDOR.value
+
+
+def _details(result) -> dict:
+    assert result.metadata is not None and result.metadata.notes is not None
+    return json.loads(result.metadata.notes)
+
+
+def test_adapter_implements_repository_provider_result_contract() -> None:
+    result = FmpProvider().fetch_prices(["ABC"], START, END)
+
+    assert isinstance(FmpProvider(), DataProvider)
+    assert isinstance(result, ProviderResult)
+    assert result.provider_name == "fmp"
+    assert result.dataset_type == "prices"
 
 
 def test_disabled_or_keyless_never_uses_transport_and_is_not_score_eligible() -> None:
@@ -70,7 +87,10 @@ def test_every_result_has_licence_quota_cache_and_authority_metadata() -> None:
 
 def test_vendor_disagreement_records_conflict_and_preserves_official_value() -> None:
     provider = FmpProvider()
-    official = pd.DataFrame([{"symbol": "ABC", "date": "2024-01-02", "close": 100.0}])
+    official = pd.DataFrame([{
+        "symbol": "ABC", "date": "2024-01-02", "close": 100.0,
+        "known_at": "2024-01-01T00:00:00+00:00",
+    }])
     vendor = pd.DataFrame([{
         "symbol": "ABC",
         "date": "2024-01-02",
@@ -86,24 +106,25 @@ def test_vendor_disagreement_records_conflict_and_preserves_official_value() -> 
 
     assert result.status == "ok"
     pd.testing.assert_frame_equal(result.data, official)
-    assert len(result.conflicts) == 1
-    assert result.conflicts[0]["selected_authority"] == "official"
-    assert result.conflicts[0]["vendor_value"] == 101.0
-    assert result.conflicts[0]["official_value"] == 100.0
+    assert len(_details(result)["conflicts"]) == 1
+    assert _details(result)["conflicts"][0]["selected_authority"] == "official"
+    assert _details(result)["conflicts"][0]["vendor_value"] == 101.0
+    assert _details(result)["conflicts"][0]["official_value"] == 100.0
     _assert_metadata(result)
 
 
 def test_quota_exhaustion_is_non_blocking_fingerprinted_and_key_is_redacted() -> None:
     def transport(url, headers, timeout):
-        assert parse_qs(urlparse(url).query)["apikey"] == ["private-fmp-key"]
+        assert "private-fmp-key" not in url
+        assert headers["apikey"] == "private-fmp-key"
         return 429, b""
 
     result = _configured(transport).fetch_prices(["ABC"], START, END)
 
     assert result.status == "unavailable"
-    assert result.quota["status"] == "rate_limited"
-    assert result.quota["failure_policy"] == "non_blocking"
-    assert result.error_fingerprint
+    assert _details(result)["quota"]["status"] == "rate_limited"
+    assert _details(result)["quota"]["failure_policy"] == "non_blocking"
+    assert _details(result)["error_fingerprint"]
     assert "private-fmp-key" not in str(result)
     _assert_metadata(result)
 
@@ -112,6 +133,8 @@ def test_successful_vendor_fetch_is_cached_and_not_score_eligible() -> None:
     calls: list[str] = []
 
     def transport(url, headers, timeout):
+        assert "private-fmp-key" not in url
+        assert headers["apikey"] == "private-fmp-key"
         calls.append(url)
         return 200, b'[{"symbol":"ABC","date":"2024-01-02","close":101.0}]'
 
@@ -121,8 +144,8 @@ def test_successful_vendor_fetch_is_cached_and_not_score_eligible() -> None:
 
     assert len(calls) == 1
     assert first.status == second.status == "ok"
-    assert first.cache["hit"] is False
-    assert second.cache["hit"] is True
+    assert _details(first)["cache"]["hit"] is False
+    assert _details(second)["cache"]["hit"] is True
     assert first.data is not None and not first.data["score_eligible"].any()
     assert second.data is not None and not second.data["score_eligible"].any()
     _assert_metadata(first)
@@ -131,7 +154,10 @@ def test_successful_vendor_fetch_is_cached_and_not_score_eligible() -> None:
 
 def test_vendor_values_known_after_decision_time_are_unavailable() -> None:
     provider = FmpProvider()
-    official = pd.DataFrame([{"symbol": "ABC", "date": "2024-01-02", "close": 100.0}])
+    official = pd.DataFrame([{
+        "symbol": "ABC", "date": "2024-01-02", "close": 100.0,
+        "known_at": "2024-01-01T00:00:00+00:00",
+    }])
     vendor = pd.DataFrame([{
         "symbol": "ABC",
         "date": "2024-01-02",
@@ -146,15 +172,62 @@ def test_vendor_values_known_after_decision_time_are_unavailable() -> None:
     )
 
     assert result.status == "unavailable"
-    assert result.conflicts == ()
+    assert _details(result)["conflicts"] == []
     _assert_metadata(result)
 
 
-def test_absent_provider_keeps_core_official_output_usable() -> None:
-    official = pd.DataFrame([{"symbol": "ABC", "date": "2024-01-02", "close": 100.0}])
+def test_empty_vendor_payload_is_unavailable_and_not_cached() -> None:
+    calls: list[str] = []
+
+    def transport(url, headers, timeout):
+        calls.append(url)
+        return 200, b"[]"
+
+    provider = _configured(transport)
+    first = provider.fetch_prices(["ABC"], START, END)
+    second = provider.fetch_prices(["ABC"], START, END)
+
+    assert first.status == second.status == "unavailable"
+    assert first.data is second.data is None
+    assert "no price rows" in first.message.lower()
+    assert len(calls) == 2
+    _assert_metadata(first)
+
+
+def test_official_values_unavailable_after_decision_time_are_rejected() -> None:
+    provider = FmpProvider()
+    official = pd.DataFrame([{
+        "symbol": "ABC", "date": "2024-01-02", "close": 100.0,
+        "available_at": "2024-01-05T00:00:00+00:00",
+    }])
+    vendor = pd.DataFrame([{
+        "symbol": "ABC", "date": "2024-01-02", "close": 101.0,
+        "known_at": "2024-01-03T00:00:00+00:00",
+    }])
+
+    result = provider.verify_against_official(
+        vendor,
+        official,
+        decision_time=datetime(2024, 1, 4, tzinfo=timezone.utc),
+    )
+
+    assert result.status == "unavailable"
+    assert "Official values" in result.message
+    _assert_metadata(result)
+
+
+def test_absent_provider_keeps_core_backtest_output_usable() -> None:
+    from etf_cockpit.backtest.engine import run_backtest
+    from etf_cockpit.core.config import load_config
+    from etf_cockpit.data.sample_data import generate_sample_prices
+
     absent = FmpProvider().fetch_prices(["ABC"], START, END)
+    config = load_config()
+    official_prices = generate_sample_prices(config, periods=360, end_date=date(2026, 6, 26))
+    report = run_backtest(config, official_prices, rebalance_frequency_days=10)
 
     assert absent.status == "unavailable"
     assert absent.data is None
-    pd.testing.assert_frame_equal(official, pd.DataFrame([{"symbol": "ABC", "date": "2024-01-02", "close": 100.0}]))
+    assert not report.results.empty
+    assert not report.equity_curves.empty
     _assert_metadata(absent)

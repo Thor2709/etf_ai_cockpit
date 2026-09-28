@@ -7,7 +7,6 @@ adapter is disabled unless explicitly enabled with a key; probes never use I/O.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 import hashlib
 import json
@@ -20,7 +19,10 @@ from urllib.request import Request, urlopen
 import pandas as pd
 
 from etf_cockpit.core.config import ProviderSection
+from etf_cockpit.core.types import DatasetMetadata
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority, redact_text
+from etf_cockpit.data.provenance import metadata_from_frame
+from etf_cockpit.data.providers import DataProvider, ProviderResult, ProviderStatus
 
 
 FMP_BASE_URL = "https://financialmodelingprep.com/stable/"
@@ -37,33 +39,7 @@ FMP_SHARED_CONFIG_BLOCK = """  fmp:
 Transport = Callable[[str, dict[str, str], float], Any]
 
 
-@dataclass(frozen=True)
-class FmpResult:
-    """One result with metadata needed to interpret optional vendor data."""
-
-    provider_id: str
-    dataset_type: str
-    status: str
-    message: str
-    data: pd.DataFrame | None = None
-    licence: str = "fmp-plan-terms; caller must confirm applicable rights"
-    quota: Mapping[str, object] = field(default_factory=lambda: {
-        "status": "not_requested",
-        "failure_policy": "non_blocking",
-        "error_fingerprint": None,
-    })
-    cache: Mapping[str, object] = field(default_factory=lambda: {
-        "enabled": True,
-        "hit": False,
-        "ttl_seconds": 300,
-    })
-    authority: SourceAuthority = SourceAuthority.VENDOR
-    error_fingerprint: str | None = None
-    conflicts: tuple[Mapping[str, object], ...] = ()
-    known_at: str | None = None
-
-
-class FmpProvider:
+class FmpProvider(DataProvider):
     """Explicit, key-gated FMP EOD enrichment with a bounded memory cache."""
 
     name = "fmp"
@@ -122,7 +98,7 @@ class FmpProvider:
             message=message,
         ),)
 
-    def fetch_prices(self, symbols: list[str], start_date: date, end_date: date) -> FmpResult:
+    def fetch_prices(self, symbols: list[str], start_date: date, end_date: date) -> ProviderResult:
         if start_date > end_date:
             return self._result("unavailable", "Start date is after end date.")
         if not symbols:
@@ -143,13 +119,13 @@ class FmpProvider:
             known_at=max((str(item["known_at"].max()) for item in frames if "known_at" in item), default=None),
         )
 
-    def fetch_fx(self, pairs: list[str], start_date: date, end_date: date) -> FmpResult:
+    def fetch_fx(self, pairs: list[str], start_date: date, end_date: date) -> ProviderResult:
         return self._result("unavailable", "FMP FX enrichment is not implemented by this adapter.", dataset_type="fx")
 
-    def fetch_etf_metadata(self, isins: list[str]) -> FmpResult:
+    def fetch_etf_metadata(self, isins: list[str]) -> ProviderResult:
         return self._result("unavailable", "FMP ETF metadata enrichment is not implemented by this adapter.", dataset_type="etf_metadata")
 
-    def fetch_etf_holdings(self, isins: list[str]) -> FmpResult:
+    def fetch_etf_holdings(self, isins: list[str]) -> ProviderResult:
         return self._result("unavailable", "FMP ETF holdings enrichment is not implemented by this adapter.", dataset_type="etf_holdings")
 
     def verify_against_official(
@@ -160,24 +136,26 @@ class FmpProvider:
         decision_time: datetime | None = None,
         key_columns: tuple[str, ...] = ("symbol", "date"),
         value_columns: tuple[str, ...] = ("close",),
-    ) -> FmpResult:
+    ) -> ProviderResult:
         """Record disagreements while returning official rows unchanged.
 
-        Vendor rows must carry known_at and be available by decision_time.
+        Both sources need known_at or available_at at or before decision_time.
         This method never combines vendor values into official output.
         """
 
-        if any(column not in vendor_data for column in (*key_columns, "known_at")):
-            return self._result("unavailable", "Vendor data lacks identity or known_at fields.", dataset_type="verification")
+        if any(column not in vendor_data for column in key_columns):
+            return self._result("unavailable", "Vendor data lacks identity fields.", dataset_type="verification")
         if any(column not in official_data for column in (*key_columns, *value_columns)):
             return self._result("unavailable", "Official data lacks comparison fields.", dataset_type="verification")
         cutoff = _as_utc(decision_time or datetime.now(timezone.utc))
         vendors = vendor_data.copy()
-        vendors["known_at"] = pd.to_datetime(vendors["known_at"], utc=True, errors="coerce")
-        if vendors["known_at"].isna().any() or (vendors["known_at"] > cutoff).any():
-            return self._result("unavailable", "Vendor values are unavailable at the requested decision time.", dataset_type="verification")
+        if not _evidence_available(vendors, cutoff):
+            return self._result("unavailable", "Vendor values lack valid availability evidence at the requested decision time.", dataset_type="verification")
+        official = official_data.copy()
+        if not _evidence_available(official, cutoff):
+            return self._result("unavailable", "Official values lack valid availability evidence at the requested decision time.", dataset_type="verification")
         joined = vendors.merge(
-            official_data.loc[:, [*key_columns, *value_columns]],
+            official.loc[:, [*key_columns, *value_columns]],
             on=list(key_columns),
             how="inner",
             suffixes=("_vendor", "_official"),
@@ -197,10 +175,10 @@ class FmpProvider:
                     })
         return self._result(
             "ok", "Official values retained; vendor disagreements were recorded.",
-            official_data.copy(), dataset_type="verification", conflicts=tuple(conflicts),
+            official, dataset_type="verification", conflicts=tuple(conflicts),
         )
 
-    def _fetch_symbol(self, symbol: str, start_date: date, end_date: date) -> FmpResult:
+    def _fetch_symbol(self, symbol: str, start_date: date, end_date: date) -> ProviderResult:
         if not self._enabled():
             capability = self.probe_capabilities()[0]
             return self._result("unavailable", capability.message)
@@ -216,7 +194,6 @@ class FmpProvider:
             frame.attrs.update(cached[1].attrs)
             frame.attrs["cache_hit"] = True
             return self._result("ok", "Returned cached FMP vendor prices.", frame, cache_hit=True, known_at=cached[2])
-        params["apikey"] = self.api_key
         url = f"{base_url}{FMP_PRICE_ENDPOINT}?{urlencode(params)}"
         try:
             status, payload = self._request(url)
@@ -228,12 +205,13 @@ class FmpProvider:
             if not isinstance(parsed, list):
                 return self._failure("FMP returned an invalid price payload.", "invalid JSON shape")
             frame = pd.DataFrame(parsed)
-            if not frame.empty:
-                if "symbol" not in frame:
-                    frame["symbol"] = symbol
-                frame["known_at"] = _utc_now()
-                frame["source_authority"] = SourceAuthority.VENDOR.value
-                frame["score_eligible"] = False
+            if frame.empty:
+                return self._result("unavailable", "FMP returned no price rows for the requested range.")
+            if "symbol" not in frame:
+                frame["symbol"] = symbol
+            frame["known_at"] = _utc_now()
+            frame["source_authority"] = SourceAuthority.VENDOR.value
+            frame["score_eligible"] = False
             known_at = _utc_now()
             frame.attrs["cache_hit"] = False
             self._cache[cache_key] = (now, frame.copy(), known_at)
@@ -245,7 +223,11 @@ class FmpProvider:
             return self._failure(f"FMP request unavailable ({type(exc).__name__}).", f"{type(exc).__name__}:{redact_text(exc)}")
 
     def _request(self, url: str) -> tuple[int, bytes]:
-        headers = {"Accept": "application/json", "User-Agent": "ETF AI Cockpit optional data adapter"}
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "ETF AI Cockpit optional data adapter",
+            "apikey": self.api_key,
+        }
         if self.transport is not None:
             value = self.transport(url, headers, self.timeout)
             if isinstance(value, tuple) and len(value) == 2:
@@ -264,17 +246,17 @@ class FmpProvider:
     def _enabled(self) -> bool:
         return (self.section.active_provider or "none").strip().lower() == self.name and bool(self.api_key)
 
-    def _quota_failure(self, message: str, fingerprint_source: str) -> FmpResult:
+    def _quota_failure(self, message: str, fingerprint_source: str) -> ProviderResult:
         fingerprint = _fingerprint(fingerprint_source)
         return self._result("unavailable", message, quota_status="rate_limited", error_fingerprint=fingerprint)
 
-    def _failure(self, message: str, fingerprint_source: str) -> FmpResult:
+    def _failure(self, message: str, fingerprint_source: str) -> ProviderResult:
         fingerprint = _fingerprint(fingerprint_source)
         return self._result("unavailable", message, quota_status="error", error_fingerprint=fingerprint)
 
     def _result(
         self,
-        status: str,
+        status: ProviderStatus,
         message: str,
         data: pd.DataFrame | None = None,
         *,
@@ -284,22 +266,38 @@ class FmpProvider:
         cache_hit: bool = False,
         conflicts: tuple[Mapping[str, object], ...] = (),
         known_at: str | None = None,
-    ) -> FmpResult:
-        return FmpResult(
-            provider_id=self.name,
+    ) -> ProviderResult:
+        quota = {
+            "status": quota_status,
+            "failure_policy": "non_blocking",
+            "error_fingerprint": error_fingerprint,
+        }
+        cache = {"enabled": True, "hit": cache_hit, "ttl_seconds": self.cache_ttl_seconds}
+        metadata_details = {
+            "licence": "fmp-plan-terms; caller must confirm applicable rights",
+            "quota": quota,
+            "cache": cache,
+            "authority": SourceAuthority.VENDOR.value,
+            "error_fingerprint": error_fingerprint,
+            "conflicts": list(conflicts),
+            "known_at": known_at,
+        }
+        result_frame = data if data is not None else pd.DataFrame()
+        metadata: DatasetMetadata = metadata_from_frame(
+            result_frame,
+            source_name=self.name,
+            source_type=dataset_type,
+            as_of_date=None,
+            provider_or_manual_source=self.name,
+            notes=json.dumps(metadata_details, sort_keys=True, default=str),
+        )
+        return ProviderResult(
+            provider_name=self.name,
             dataset_type=dataset_type,
             status=status,
             message=redact_text(message),
             data=data,
-            quota={
-                "status": quota_status,
-                "failure_policy": "non_blocking",
-                "error_fingerprint": error_fingerprint,
-            },
-            cache={"enabled": True, "hit": cache_hit, "ttl_seconds": self.cache_ttl_seconds},
-            error_fingerprint=error_fingerprint,
-            conflicts=conflicts,
-            known_at=known_at,
+            metadata=metadata,
         )
 
 
@@ -317,4 +315,17 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-__all__ = ["FMP_BASE_URL", "FMP_PRICE_ENDPOINT", "FMP_SHARED_CONFIG_BLOCK", "FmpProvider", "FmpResult"]
+def _evidence_available(frame: pd.DataFrame, cutoff: datetime) -> bool:
+    if frame.empty:
+        return False
+    columns = [column for column in ("known_at", "available_at") if column in frame]
+    if not columns:
+        return False
+    for column in columns:
+        timestamps = pd.to_datetime(frame[column], utc=True, errors="coerce")
+        if timestamps.isna().any() or (timestamps > cutoff).any():
+            return False
+    return True
+
+
+__all__ = ["FMP_BASE_URL", "FMP_PRICE_ENDPOINT", "FMP_SHARED_CONFIG_BLOCK", "FmpProvider"]
