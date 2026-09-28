@@ -334,7 +334,8 @@ explicit, atomic and recoverable; unknown/corrupt/incomplete state fails closed;
 and replay resolves the original snapshot/config/model/policy versions.
 [Versioned lineage](versioned-lineage-registry.md),
 [storage](hybrid-local-data-platform.md), [API](application-api.md), and their
-linked tests are the detailed authorities.
+linked tests are the detailed authorities. The native Norwegian EC claim
+boundary is documented in [sparebank-ec-analysis.md](sparebank-ec-analysis.md).
 
 **Current risk — ISSUE-0153:** the issue is `in_progress` at the verified base.
 The [stopped implementation evidence](../../plans/BATCH-B03-FIXED-INCOME.md)

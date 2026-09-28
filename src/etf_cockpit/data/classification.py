@@ -68,6 +68,7 @@ _SUPPORTED_FIELDS = frozenset(
         "share_class_id",
         "listing_or_quotation_id",
         "instrument_type",
+        "instrument_subtype",
         "asset_class",
         "sector",
         "industry",
@@ -262,6 +263,7 @@ class InstrumentContextV2:
     sector_adapter_allowed: bool
     warnings: tuple[str, ...]
     execution_allowed: bool = False
+    instrument_subtype: str | None = None
 
 
 @dataclass(frozen=True)
@@ -375,6 +377,9 @@ def resolve_instrument_context(
 
     fallback: list[str] = []
     instrument_type = _canonical_instrument_type(values.get("instrument_type"))
+    instrument_subtype = _canonical_instrument_subtype(
+        values.get("instrument_subtype") or values.get("instrument_type")
+    )
     if values.get("instrument_type") and instrument_type is None:
         warnings.append("unsupported_instrument_type")
         fallback.append("instrument_type->unresolved")
@@ -456,6 +461,7 @@ def resolve_instrument_context(
         "values": values,
         "multi_values": multi_values,
         "instrument_type": instrument_type,
+        "instrument_subtype": instrument_subtype,
         "asset_class": asset_class,
         "sector": sector,
         "industry": industry,
@@ -536,6 +542,7 @@ def resolve_instrument_context(
         sector_adapter_allowed=sector_allowed,
         warnings=tuple(dict.fromkeys(warnings)),
         execution_allowed=False,
+        instrument_subtype=instrument_subtype,
     )
 
 
@@ -1052,6 +1059,13 @@ def _canonical_instrument_type(value: str | None) -> str | None:
     return _INSTRUMENT_TYPE_ALIASES.get(
         str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
     )
+
+
+def _canonical_instrument_subtype(value: str | None) -> str | None:
+    normalized = str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
+    if normalized in {"equity_certificate", "certificate", "ec"}:
+        return "equity_certificate"
+    return "ordinary_share" if normalized == "ordinary_share" else None
 
 
 def _canonical_asset_class(value: str | None) -> str | None:
