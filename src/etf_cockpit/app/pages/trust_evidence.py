@@ -505,7 +505,10 @@ def _news_context_extra(state: AppState) -> ft.Control:
                     f"{row.get('as_of_date', 'unavailable')} | {row.get('etf_id') or 'portfolio'} | "
                     f"{row.get('title') or 'Untitled note'} | credibility_flag_status={row.get('credibility_flag_status', 'unavailable')} | "
                     f"credibility_flags={row.get('credibility_flags', 'unknown')} | "
-                    f"credibility_reason_codes={row.get('credibility_reason_codes', 'unknown')} | executable_authority=false",
+                    f"credibility_reason_codes={row.get('credibility_reason_codes', 'unknown')} | "
+                    f"displayed_badges={row.get('credibility_display_flags', row.get('credibility_flags', 'unknown'))} | "
+                    f"review={row.get('credibility_review_status', 'unreviewed')}:{row.get('credibility_review_override', 'none')} | "
+                    f"reviewed_by={row.get('credibility_reviewed_by', '')} | review_note={row.get('credibility_review_note', '')} | executable_authority=false",
                     color=theme.MUTED,
                     selectable=True,
                     size=11,

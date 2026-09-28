@@ -81,7 +81,9 @@ def data_models_page(_page: ft.Page, state: AppState) -> ft.Control:
             (
                 f"{row['as_of_date']} | {row.get('etf_id') or 'portfolio'} | {row.get('title') or 'Untitled note'} | "
                 f"source={row.get('source') or 'manual_import'} | credibility_flag_status={row.get('credibility_flag_status', 'unavailable')} | "
-                f"credibility_flags={row.get('credibility_flags', 'unknown')} | credibility_reason_codes={row.get('credibility_reason_codes', 'unknown')} | "
+                f"credibility_flags={row.get('credibility_flags', 'unknown')} | displayed_badges={row.get('credibility_display_flags', row.get('credibility_flags', 'unknown'))} | "
+                f"review={row.get('credibility_review_status', 'unreviewed')}:{row.get('credibility_review_override', 'none')} | "
+                f"reviewed_by={row.get('credibility_reviewed_by', '')} | review_note={row.get('credibility_review_note', '')} | "
                 f"executable_authority=false"
             )
             for _, row in recent_notes.iterrows()

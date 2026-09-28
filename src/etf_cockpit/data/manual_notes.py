@@ -126,6 +126,12 @@ def validate_manual_news(
     ]
     for code, column in zip(CREDIBILITY_FLAG_CODES, CREDIBILITY_FLAG_COLUMNS):
         normalised[column] = [item[code] for item in evidence]
+    normalised["credibility_review_status"] = "unreviewed"
+    normalised["credibility_review_override"] = "none"
+    normalised["credibility_reviewed_by"] = ""
+    normalised["credibility_reviewed_at"] = ""
+    normalised["credibility_review_note"] = ""
+    normalised["credibility_display_flags"] = normalised["credibility_flags"]
 
     if "executable_authority" in frame.columns and frame["executable_authority"].fillna(False).astype(str).str.lower().isin({"true", "1", "yes"}).any():
         warnings.append("Imported executable_authority values were ignored and forced to false.")
@@ -265,7 +271,62 @@ def load_manual_news(path: Path = MANUAL_NEWS_CLEAN_PATH) -> pd.DataFrame:
             frame.loc[invalid_rows, "credibility_evidence"] = "unknown"
             for column in CREDIBILITY_FLAG_COLUMNS:
                 frame.loc[invalid_rows, column] = "unknown"
+    if "credibility_review_status" not in frame:
+        frame["credibility_review_status"] = "unreviewed"
+    else:
+        frame["credibility_review_status"] = frame["credibility_review_status"].fillna("unreviewed").replace("", "unreviewed")
+    if "credibility_review_override" not in frame:
+        frame["credibility_review_override"] = "none"
+    else:
+        frame["credibility_review_override"] = frame["credibility_review_override"].fillna("none").replace("", "none")
+    for column in ("credibility_reviewed_by", "credibility_reviewed_at", "credibility_review_note"):
+        if column not in frame:
+            frame[column] = ""
+        else:
+            frame[column] = frame[column].fillna("").astype(str)
+    frame["credibility_display_flags"] = [_credibility_display_flags(row) for _, row in frame.iterrows()]
     return frame
+
+
+def record_manual_note_credibility_review(
+    frame: pd.DataFrame,
+    row_index: object,
+    *,
+    reviewer: str,
+    decision: str,
+    note: str,
+    reviewed_at: str | None = None,
+) -> pd.DataFrame:
+    """Return a copy with an auditable human review, preserving detector flags."""
+    if row_index not in frame.index:
+        raise KeyError(f"Manual note row {row_index!r} does not exist.")
+    reviewer_value = str(reviewer).strip()
+    note_value = str(note).strip()
+    if not reviewer_value or not note_value:
+        raise ValueError("Manual note review requires a reviewer and an audit note.")
+    if decision not in {"confirm_flags", "clear_flags"}:
+        raise ValueError("Manual note review decision must be confirm_flags or clear_flags.")
+    if str(frame.loc[row_index].get("credibility_flag_status", "")) != "available":
+        raise ValueError("Manual note review requires available structured detector evidence.")
+    result = frame.copy()
+    result.loc[row_index, "credibility_review_status"] = "reviewed"
+    result.loc[row_index, "credibility_review_override"] = decision
+    result.loc[row_index, "credibility_reviewed_by"] = reviewer_value
+    result.loc[row_index, "credibility_reviewed_at"] = reviewed_at or datetime.now(timezone.utc).isoformat()
+    result.loc[row_index, "credibility_review_note"] = note_value
+    result.loc[row_index, "credibility_display_flags"] = _credibility_display_flags(result.loc[row_index])
+    result.loc[row_index, "executable_authority"] = False
+    return result
+
+
+def _credibility_display_flags(row: pd.Series) -> str:
+    """Human review changes the displayed interpretation, never stored flags."""
+    decision = str(row.get("credibility_review_override") or "none")
+    if decision == "clear_flags":
+        return "none (human review: cleared)"
+    if decision == "confirm_flags":
+        return f"{row.get('credibility_flags', 'unknown')} (human review: confirmed)"
+    return str(row.get("credibility_flags") or "unknown")
 
 
 def manual_news_markdown(frame: pd.DataFrame, *, max_rows: int = 20) -> str:
@@ -291,12 +352,21 @@ def manual_news_markdown(frame: pd.DataFrame, *, max_rows: int = 20) -> str:
         flags = str(row.get("credibility_flags") or "unknown")
         flag_status = str(row.get("credibility_flag_status") or "unavailable")
         evidence = str(row.get("credibility_evidence") or "unknown")
+        review_status = str(row.get("credibility_review_status") or "unreviewed")
+        review_override = str(row.get("credibility_review_override") or "none")
+        display_flags = str(row.get("credibility_display_flags") or flags)
+        reviewed_by = str(row.get("credibility_reviewed_by") or "")
+        reviewed_at = str(row.get("credibility_reviewed_at") or "")
+        review_note = str(row.get("credibility_review_note") or "")
         note = str(row.get("note") or "").replace("\r", " ").replace("\n", " ").strip()
         lines.append(
             f"- {row.get('as_of_date')} | {etf_id} | {title} | source={source} | "
             f"evidence_grade={grade} | credibility={credibility} | promotional_risk={promotional} | "
-            f"reproducibility={reproducibility} | credibility_flags={flags} | "
-            f"credibility_flag_status={flag_status} | credibility_evidence={evidence} | executable_authority=false"
+            f"reproducibility={reproducibility} | credibility_flags={flags} | display_flags={display_flags} | "
+            f"credibility_flag_status={flag_status} | credibility_evidence={evidence} | "
+            f"credibility_review_status={review_status} | credibility_review_override={review_override} | "
+            f"credibility_reviewed_by={reviewed_by} | credibility_reviewed_at={reviewed_at} | "
+            f"credibility_review_note={review_note} | executable_authority=false"
         )
         lines.append(f"  {note}")
     return "\n".join(lines).rstrip() + "\n"
@@ -349,6 +419,12 @@ def _empty_manual_news_frame() -> pd.DataFrame:
             "credibility_flags",
             "credibility_reason_codes",
             "credibility_evidence",
+            "credibility_review_status",
+            "credibility_review_override",
+            "credibility_reviewed_by",
+            "credibility_reviewed_at",
+            "credibility_review_note",
+            "credibility_display_flags",
             *CREDIBILITY_FLAG_COLUMNS,
         ]
     )
