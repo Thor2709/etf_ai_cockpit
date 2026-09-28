@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import math
 from numbers import Real
@@ -116,7 +117,16 @@ def build_claim_state(
         if isinstance(item, Mapping) and item.get("known_at")
     )
     known_candidates = [item for item in known_candidates if item]
-    known_at = max(known_candidates, key=_parse_time) if known_candidates else None
+    invalid_known_at = False
+    valid_known_candidates: list[str] = []
+    for candidate in known_candidates:
+        try:
+            _parse_time(candidate)
+        except (TypeError, ValueError, OverflowError):
+            invalid_known_at = True
+        else:
+            valid_known_candidates.append(candidate)
+    known_at = max(valid_known_candidates, key=_parse_time) if valid_known_candidates else None
     effective_at = _text(_first(outer, "effective_at", "period"))
     source_id = _text(_first(outer, "source_url", "source_id", "source", "filing_version", "sha256"))
     revision_id = _text(_first(outer, "filing_version", "sha256", "revision_id", "revision"))
@@ -124,9 +134,21 @@ def build_claim_state(
     bank_entity = _text(_first(outer, "bank_entity", "entity_id", "orgnr"))
     listing_id = _text(_first(outer, "listing_id", "ticker", "instrument_id"))
     reasons: list[str] = []
-    if decision_time is not None and known_at and _parse_time(known_at) > _parse_time(decision_time):
-        reasons.append("CLAIM_KNOWN_AFTER_DECISION_TIME")
-        values = {}
+    if decision_time is not None:
+        if invalid_known_at:
+            reasons.append("CLAIM_KNOWN_AT_INVALID")
+            values = {}
+        elif known_at is None:
+            reasons.append("CLAIM_KNOWN_AT_MISSING")
+            values = {}
+        else:
+            try:
+                if _parse_time(known_at) > _parse_time(decision_time):
+                    reasons.append("CLAIM_KNOWN_AFTER_DECISION_TIME")
+                    values = {}
+            except (TypeError, ValueError, OverflowError):
+                reasons.append("CLAIM_KNOWN_AT_INVALID")
+                values = {}
 
     owner_pools = _available_pool_values(values, _OWNER_FACTS)
     self_owned_pools = _available_pool_values(values, _SELF_FACTS)
@@ -185,6 +207,8 @@ def build_claim_state(
     resolved = reconstructed is not None and not any(
         reason in {
             "CLAIM_KNOWN_AFTER_DECISION_TIME",
+            "CLAIM_KNOWN_AT_MISSING",
+            "CLAIM_KNOWN_AT_INVALID",
             "REPORTED_RECONSTRUCTED_EIERBROK_DIFFER",
             "POOL_COMPONENT_EVIDENCE_MISSING",
             "CLAIM_REVISION_IDENTITY_MISSING",
@@ -192,7 +216,7 @@ def build_claim_state(
         }
         for reason in reasons
     )
-    if "CLAIM_KNOWN_AFTER_DECISION_TIME" in reasons:
+    if any(code in reasons for code in ("CLAIM_KNOWN_AFTER_DECISION_TIME", "CLAIM_KNOWN_AT_MISSING", "CLAIM_KNOWN_AT_INVALID")):
         status = "stale"
     elif "REPORTED_RECONSTRUCTED_EIERBROK_DIFFER" in reasons:
         status = "ambiguous"
@@ -335,6 +359,11 @@ def analyse_sparebank_ec(
     decision_time: str | datetime | None = None,
     price: float | None = None,
     payouts: Iterable[Mapping[str, object]] = (),
+    bank_metrics: Iterable[object] = (),
+    bank_economics_evidence: Mapping[str, object] | None = None,
+    events: Iterable[Mapping[str, object]] = (),
+    valuation_assumptions: Mapping[str, object] | None = None,
+    tactical_evidence: Mapping[str, object] | None = None,
 ) -> SparebankAnalysis:
     """Canonical pure entry point for the versioned Sparebank EC suite."""
 
@@ -352,7 +381,14 @@ def analyse_sparebank_ec(
     )
     if generic_reason:
         reasons.append("GENERIC_BANK_VALUATION_INAPPLICABLE")
-    return SparebankAnalysis(
+    from .bank_economics import build_bank_economics
+    from .events import analyse_events
+    from .valuation import valuation
+    from .scorecard import build_sparebank_scorecard
+    bank_economics = build_bank_economics(bank_economics_evidence, bank_metrics=bank_metrics)
+    event_analysis = analyse_events(events, decision_time=decision_time)
+    valuation_section = valuation(claim, price=price, assumptions=valuation_assumptions)
+    analysis = SparebankAnalysis(
         contract=CONTRACT_ID,
         routing=routed,
         claim_state=claim,
@@ -367,6 +403,19 @@ def analyse_sparebank_ec(
         count_conventions=figures["count_conventions"],
         generic_valuation_status=generic_status,
         generic_valuation_reason=generic_reason,
+        bank_economics=bank_economics,
+        events=event_analysis,
+        valuation=valuation_section,
+    )
+    return replace(
+        analysis,
+        scorecard=build_sparebank_scorecard(
+            analysis,
+            decision_time=decision_time,
+            decision_price=price,
+            valuation_assumptions=valuation_assumptions,
+            tactical_evidence=tactical_evidence,
+        ),
     )
 
 

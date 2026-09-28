@@ -1,0 +1,165 @@
+schema_version: 1
+formula_version: sparebank-scorecard-v1.0.0
+horizons:
+  underwriting: multi-year owner economics
+  tactical: 1-3 months
+judgement:
+  status: judgement-v1-provisional
+  version: judgement-v1-provisional
+  source: orchestrator judgement anchored on regulatory minimums and book principles; not tuned to historical cases; owner review pending
+  rating_method: linear_interpolation_between_anchors_clamped_to_0_and_10
+  threshold_label: judgement
+hard_gates:
+  unresolved_claim: BLOCKED
+  failed_pit_check: BLOCKED
+  invalid_valuation_denominator: BLOCKED
+  cap_headroom_below_requirement: 3
+  cap_lcr_below_minimum: 3
+  cap_nsfr_below_minimum: 3
+  cap_days_to_trade_above_limit: 5
+  cet1_headroom_minimum_pp: 0
+  lcr_minimum_pct: 100
+  nsfr_minimum_pct: 100
+  days_to_trade_limit: 20
+axes:
+  owner_claim_integrity:
+    label: Owner-claim integrity
+    group: Claim and franchise
+    critical: true
+    inputs:
+      - id: claim_coverage_x10
+        source: claim_state.coverage
+        transform: coverage_x10
+        unit: score_input
+        calculation_id: sparebank.claim.build_claim_state
+        anchors: [{value: 0, rating: 0}, {value: 5, rating: 5}, {value: 10, rating: 10}]
+  funding_deposit_franchise:
+    label: Funding/deposit franchise
+    group: Claim and franchise
+    critical: false
+    inputs:
+      - id: deposit_to_loan_ratio_pct
+        source: bank_economics.funding.deposit_to_loan_ratio
+        transform: ratio_to_percent
+        unit: percent
+        calculation_id: financial-sector-adapter.loan_deposit_ratio
+        anchors: [{value: 50, rating: 0}, {value: 70, rating: 5}, {value: 90, rating: 10}]
+  lending_economics:
+    label: Lending economics
+    group: Bank economics
+    critical: false
+    producer: unavailable
+    inputs: []
+  credit_concentration:
+    label: Credit/concentration
+    group: Bank economics
+    critical: false
+    inputs:
+      - id: cost_of_risk_bps
+        source: bank_economics.reported.metrics.cost_of_risk
+        transform: ratio_to_basis_points
+        unit: basis_points
+        calculation_id: financial-sector-adapter.cost_of_risk
+        anchors: [{value: 100, rating: 0}, {value: 30, rating: 5}, {value: 10, rating: 10}]
+      - id: stage_3_ratio_pct
+        source: bank_economics.credit.stage_3_ratio_pct
+        transform: ratio_to_percent
+        unit: percent
+        calculation_id: sparebank.bank_economics.credit_reconciliation
+        anchors: [{value: 3, rating: 0}, {value: 1, rating: 5}, {value: 0.3, rating: 10}]
+  capital_liquidity_resilience:
+    label: Capital/liquidity resilience
+    group: Bank economics
+    critical: true
+    inputs:
+      - id: cet1_headroom_pp
+        source: bank_economics.resilience
+        transform: headroom_percentage_points
+        unit: percentage_points
+        calculation_id: sparebank.bank_economics.capital_resilience
+        anchors: [{value: 0, rating: 0}, {value: 2, rating: 5}, {value: 5, rating: 10}]
+      - id: lcr_pct
+        source: bank_economics.funding.lcr
+        transform: ratio_to_percent
+        unit: percent
+        calculation_id: financial-sector-adapter.liquidity_coverage_ratio
+        anchors: [{value: 100, rating: 0}, {value: 150, rating: 5}, {value: 200, rating: 10}]
+      - id: nsfr_pct
+        source: bank_economics.funding.nsfr
+        transform: ratio_to_percent
+        unit: percent
+        calculation_id: financial-sector-adapter.net_stable_funding_ratio
+        anchors: [{value: 100, rating: 0}, {value: 110, rating: 5}, {value: 120, rating: 10}]
+  efficiency_normalised_earnings:
+    label: Efficiency/normalised earnings
+    group: Bank economics
+    critical: false
+    inputs:
+      - id: cost_income_pct
+        source: bank_economics.reported.metrics.cost_income_ratio
+        transform: ratio_to_percent
+        unit: percent
+        calculation_id: financial-sector-adapter.cost_income_ratio
+        anchors: [{value: 70, rating: 0}, {value: 50, rating: 5}, {value: 35, rating: 10}]
+      - id: normalised_roe_minus_cost_of_equity_pp
+        source: bank_economics.normalised.normalised_roe
+        transform: normalised_roe_spread_percentage_points
+        unit: percentage_points
+        calculation_id: sparebank.bank_economics.normalisation_bridge
+        anchors: [{value: -5, rating: 0}, {value: 0, rating: 5}, {value: 5, rating: 10}]
+  capital_allocation:
+    label: Capital allocation
+    group: Owner value and change
+    critical: false
+    producer: unavailable
+    inputs: []
+  owner_valuation_expectations:
+    label: Owner valuation/expectations
+    group: Owner value and change
+    critical: true
+    inputs:
+      - id: owner_value_vs_decision_price_pct
+        source: valuation.central_owner_value_per_ec
+        transform: owner_value_vs_decision_price_percent
+        unit: percent
+        calculation_id: sparebank.valuation.owner_valuation
+        anchors: [{value: -30, rating: 0}, {value: 0, rating: 5}, {value: 30, rating: 10}]
+  structural_transition:
+    label: Structural transition
+    group: Owner value and change
+    critical: false
+    inputs:
+      - id: owner_value_accretion_pct
+        source: events
+        transform: event_value_accretion_percent
+        unit: percent
+        calculation_id: sparebank.events.merger_bridge
+        anchors: [{value: -10, rating: 0}, {value: 0, rating: 5}, {value: 10, rating: 10}]
+  marketability_implementation:
+    label: Marketability/implementation
+    group: Owner value and change
+    critical: false
+    inputs:
+      - id: days_to_trade
+        source: valuation.marketability.days_to_trade
+        transform: days_to_trade
+        unit: days
+        calculation_id: sparebank.valuation.days_to_trade
+        anchors: [{value: 20, rating: 0}, {value: 5, rating: 5}, {value: 1, rating: 10}]
+  evidence_quality:
+    label: Evidence quality
+    group: Evidence
+    critical: true
+    inputs:
+      - id: overall_coverage_x10
+        source: analysis.coverage
+        transform: coverage_x10
+        unit: score_input
+        calculation_id: sparebank.claim.build_claim_state
+        anchors: [{value: 0, rating: 0}, {value: 5, rating: 5}, {value: 10, rating: 10}]
+  portfolio_context:
+    label: Portfolio context
+    group: Evidence
+    critical: false
+    producer: unavailable
+    inputs: []

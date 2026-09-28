@@ -1060,6 +1060,44 @@ def test_simple_scores_show_all_two_tier_instruments_as_pending_without_refresh(
     assert by_id["RABO"].final_score_10 is None
 
 
+def test_mixed_universe_routes_sparebank_ec_to_native_scorecard(monkeypatch) -> None:
+    monkeypatch.setattr(simple_scores_module, "load_latest_candidate_report", lambda: (pd.DataFrame(), None))
+    monkeypatch.setattr(simple_scores_module, "load_latest_forecasts", lambda *args, **kwargs: pd.DataFrame())
+    monkeypatch.setattr(simple_scores_module, "load_forecast_history", lambda: pd.DataFrame())
+    monkeypatch.setattr(simple_scores_module, "_latest_candidate_input_frame", lambda: pd.DataFrame())
+    config = load_config()
+    mixed_ids = {"VWCE", "UCG", "RABO"}
+    mixed_instruments = [item for item in config.universe.etfs if item.id in mixed_ids]
+    assert {item.id for item in mixed_instruments} == mixed_ids
+    mixed_config = config.model_copy(
+        update={
+            "universe": config.universe.model_copy(update={"etfs": mixed_instruments}),
+        }
+    )
+    ordinary_config = config.model_copy(
+        update={
+            "universe": config.universe.model_copy(
+                update={"etfs": [item for item in mixed_instruments if item.id != "RABO"]}
+            ),
+        }
+    )
+
+    mixed_scores = build_simple_instrument_scores(mixed_config, [], pd.DataFrame(), pd.DataFrame())
+    ordinary_scores = build_simple_instrument_scores(ordinary_config, [], pd.DataFrame(), pd.DataFrame())
+    mixed_by_id = {score.display_id: score for score in mixed_scores}
+    ordinary_by_id = {score.display_id: score for score in ordinary_scores}
+
+    assert mixed_by_id["RABO"].source_group == "Sparebanken"
+    assert mixed_by_id["RABO"].decision == "Sparebank scorecard required"
+    assert "Underwriting is determined by the Sparebank scorecard" in mixed_by_id["RABO"].one_line_reason
+    assert "tactical evidence is presented separately" in mixed_by_id["RABO"].one_line_reason
+    assert mixed_by_id["RABO"].final_score_10 is None
+    assert mixed_by_id["RABO"].canonical_score is None
+    assert mixed_by_id["RABO"].components == []
+    assert mixed_by_id["UCG"] == ordinary_by_id["UCG"]
+    assert mixed_by_id["VWCE"] == ordinary_by_id["VWCE"]
+
+
 def test_simple_scores_group_into_required_main_page_sections() -> None:
     config = load_config()
     scores = build_simple_instrument_scores(config, [], pd.DataFrame(), pd.DataFrame())
