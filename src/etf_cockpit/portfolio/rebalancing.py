@@ -315,7 +315,7 @@ def _alternative(
             status = "deferred_below_lot"
             desired_value = 0.0
         cost = estimate_execution_cost(config, instrument_id, abs(desired_value))
-        tax = _tax_estimate(tax_lots, instrument_id, abs(desired_value), constraints)
+        tax = _tax_estimate(tax_lots, instrument_id, desired_value, constraints)
         rows.append(
             RebalanceTrade(
                 instrument_id=instrument_id,
@@ -334,7 +334,10 @@ def _alternative(
         )
 
     rows = _fit_cash(rows, current, current_cash, target_cash, portfolio_value, constraints, config)
-    final_cash = current_cash - sum(item.trade_value_eur / portfolio_value for item in rows)
+    final_cash = current_cash - (
+        sum(item.trade_value_eur + item.estimated_cost_eur + item.estimated_tax_eur for item in rows)
+        / portfolio_value
+    )
     tracking_error = sum(abs(item.target_weight - item.proposed_weight) for item in rows) + abs(target_cash - final_cash)
     cost_total = sum(item.estimated_cost_eur + item.estimated_tax_eur for item in rows)
     cash_required = target_cash + float(constraints.cash_buffer_weight) + float(constraints.settlement_buffer_eur) / portfolio_value
@@ -352,7 +355,7 @@ def _alternative(
 
 def _fit_cash(rows: list[RebalanceTrade], current: dict[str, dict[str, object]], current_cash: float, target_cash: float, portfolio_value: float, constraints: RebalanceConstraints, config: AppConfig) -> list[RebalanceTrade]:
     available = (current_cash - target_cash - float(constraints.cash_buffer_weight)) * portfolio_value - float(constraints.settlement_buffer_eur)
-    buys = sum(item.trade_value_eur + item.estimated_cost_eur for item in rows if item.trade_value_eur > 0)
+    buys = sum(item.trade_value_eur + item.estimated_cost_eur + item.estimated_tax_eur for item in rows if item.trade_value_eur > 0)
     sells = sum(-item.trade_value_eur - item.estimated_cost_eur - item.estimated_tax_eur for item in rows if item.trade_value_eur < 0)
     if buys <= max(0.0, available + sells) or buys <= 0:
         return rows
@@ -515,7 +518,7 @@ def _requires_bond_face_terms(state: Mapping[str, object]) -> bool:
 
 
 def _tax_estimate(tax_lots: pd.DataFrame | None, instrument_id: str, trade_value: float, constraints: RebalanceConstraints) -> float:
-    if tax_lots is None or tax_lots.empty or constraints.tax_rate is None or trade_value <= 0:
+    if tax_lots is None or tax_lots.empty or constraints.tax_rate is None or trade_value >= 0:
         return 0.0
     identifier_column = "instrument_id" if "instrument_id" in tax_lots.columns else "etf_id" if "etf_id" in tax_lots.columns else None
     if identifier_column is None:
@@ -525,7 +528,7 @@ def _tax_estimate(tax_lots: pd.DataFrame | None, instrument_id: str, trade_value
         return 0.0
     gains = pd.to_numeric(matches["unrealised_gain_eur"], errors="coerce").fillna(0.0)
     lot_value = pd.to_numeric(matches.get("market_value_eur", pd.Series(0.0, index=matches.index)), errors="coerce").fillna(0.0)
-    covered_fraction = min(1.0, trade_value / float(lot_value.sum())) if float(lot_value.sum()) > 0 else 1.0
+    covered_fraction = min(1.0, abs(trade_value) / float(lot_value.sum())) if float(lot_value.sum()) > 0 else 1.0
     return max(0.0, float(gains.sum())) * covered_fraction * float(constraints.tax_rate)
 
 

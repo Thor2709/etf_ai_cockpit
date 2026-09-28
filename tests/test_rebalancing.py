@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pandas as pd
 
 import etf_cockpit.application.portfolio_sandbox as portfolio_sandbox
+import etf_cockpit.portfolio.rebalancing as rebalancing
 from etf_cockpit.core.config import load_config
 from etf_cockpit.portfolio.sandbox import PortfolioSnapshotBinding
 from etf_cockpit.portfolio.rebalancing import (
@@ -95,6 +96,48 @@ def test_tax_lot_estimate_is_optional_and_jurisdiction_labelled() -> None:
     assert report.tax_jurisdiction == "AU"
     assert vwce.estimated_tax_eur == 750.0
     assert report.execution_allowed is False
+
+
+def test_cash_weight_accounts_for_execution_costs_and_sell_taxes(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rebalancing,
+        "estimate_execution_cost",
+        lambda _config, _instrument_id, order_value_eur: SimpleNamespace(total_cost_eur=order_value_eur * 0.01),
+    )
+    report = build_rebalance_report(
+        _config().config,
+        _holdings().drop(columns=["quantity", "price_eur"]),
+        {"VWCE": 0.30, "LYP6": 0.50},
+        target_cash_weight=0.20,
+        portfolio_value_eur=100_000.0,
+        constraints=RebalanceConstraints(tax_rate=0.25),
+        tax_lots=pd.DataFrame([{"instrument_id": "VWCE", "market_value_eur": 40_000.0, "unrealised_gain_eur": 10_000.0}]),
+    )
+
+    alternative = report.alternatives["full"]
+    expected_cash_weight = 0.40 - (
+        sum(item.trade_value_eur + item.estimated_cost_eur + item.estimated_tax_eur for item in alternative.trades)
+        / report.portfolio_value_eur
+    )
+    assert abs(alternative.cash_weight - expected_cash_weight) < 1e-10
+    assert abs(alternative.cash_weight - 0.20) < 1e-9
+    assert alternative.feasible is True
+
+
+def test_buy_against_unrealised_gains_has_no_realisation_tax() -> None:
+    report = build_rebalance_report(
+        _config().config,
+        _holdings(),
+        {"VWCE": 0.50, "LYP6": 0.30},
+        target_cash_weight=0.20,
+        portfolio_value_eur=100_000.0,
+        constraints=RebalanceConstraints(tax_rate=0.25),
+        tax_lots=pd.DataFrame([{"instrument_id": "VWCE", "market_value_eur": 40_000.0, "unrealised_gain_eur": 10_000.0}]),
+    )
+
+    vwce = next(item for item in report.alternatives["full"].trades if item.instrument_id == "VWCE")
+    assert vwce.trade_value_eur > 0
+    assert vwce.estimated_tax_eur == 0.0
 
 
 def test_rebalance_respects_bond_face_increments_and_persists_no_trade(monkeypatch) -> None:
