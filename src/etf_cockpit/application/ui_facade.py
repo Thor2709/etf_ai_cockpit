@@ -880,13 +880,69 @@ def _build_financial_projection_from_evidence(
         "filing_version": ec_revision.get("filing_version") or ec_payload.get("filing_version"),
         "revision_id": ec_revision.get("revision_id") or ec_payload.get("revision_id"),
     }
+    valuation_assumptions = ec_revision.get("valuation_assumptions")
+    valuation_assumptions = valuation_assumptions if isinstance(valuation_assumptions, Mapping) else None
+    valuation_currency = str(
+        (valuation_assumptions or {}).get("currency")
+        or (valuation_assumptions or {}).get("output_currency")
+        or ""
+    ).strip().upper()
+    price_path = root / "data" / "clean" / "prices.parquet"
+    decision_price = None
+    decision_price_projection: dict[str, object] = {
+        "status": "unavailable",
+        "reason_code": "decision_price_store_missing",
+        "execution_allowed": False,
+    }
+    if price_path.is_file():
+        try:
+            from etf_cockpit.data.duckdb_store import load_prices
+
+            prices = load_prices(price_path)
+            if not {"instrument_id", "date", "close", "currency"}.issubset(prices.columns):
+                decision_price_projection["reason_code"] = "decision_price_store_invalid"
+            else:
+                eligible = prices.loc[prices["instrument_id"].astype(str).eq(str(instrument_id))].copy()
+                eligible["_price_date"] = pd.to_datetime(eligible["date"], errors="coerce", utc=True)
+                eligible = eligible.loc[eligible["_price_date"].notna() & eligible["_price_date"].le(pd.Timestamp(decision))]
+                if eligible.empty:
+                    decision_price_projection["reason_code"] = "decision_price_unavailable_as_of_decision"
+                else:
+                    price_row = eligible.sort_values("_price_date", kind="stable").iloc[-1]
+                    close = pd.to_numeric(pd.Series([price_row["close"]]), errors="coerce").iloc[0]
+                    currency_value = price_row["currency"]
+                    price_currency = "" if pd.isna(currency_value) else str(currency_value).strip().upper()
+                    if pd.isna(close) or not math.isfinite(float(close)) or float(close) <= 0:
+                        decision_price_projection["reason_code"] = "decision_price_invalid"
+                    elif not valuation_currency or not price_currency:
+                        decision_price_projection["reason_code"] = "decision_price_currency_unavailable"
+                    elif price_currency != valuation_currency:
+                        decision_price_projection.update(
+                            reason_code="decision_price_currency_mismatch",
+                            date=price_row["_price_date"].date().isoformat(),
+                            currency=price_currency,
+                            valuation_currency=valuation_currency,
+                        )
+                    else:
+                        decision_price = float(close)
+                        decision_price_projection = {
+                            "status": "available",
+                            "price": decision_price,
+                            "date": price_row["_price_date"].date().isoformat(),
+                            "currency": price_currency,
+                            "valuation_currency": valuation_currency,
+                            "execution_allowed": False,
+                        }
+        except Exception:
+            decision_price_projection["reason_code"] = "decision_price_store_invalid"
     sparebank_analysis = analyse_sparebank_ec(
         route_evidence,
         decision_time=cutoff,
+        price=decision_price,
         bank_metrics=result.metrics,
         bank_economics_evidence=(ec_revision.get("bank_economics_evidence") if isinstance(ec_revision, Mapping) else None),
         events=(ec_revision.get("events", ()) if isinstance(ec_revision, Mapping) else ()),
-        valuation_assumptions=(ec_revision.get("valuation_assumptions") if isinstance(ec_revision, Mapping) else None),
+        valuation_assumptions=valuation_assumptions,
         tactical_evidence=tactical_evidence,
     )
     if sparebank_analysis.routing.applies or (isinstance(ec_facts, Mapping) and ec_facts):
@@ -904,7 +960,44 @@ def _build_financial_projection_from_evidence(
             for name, value in ec_facts.items()
             if isinstance(ec_facts, Mapping)
         }
-        identity_payload["sparebank_analysis"] = asdict(sparebank_analysis)
+        sparebank_payload = asdict(sparebank_analysis)
+        sparebank_payload["decision_price"] = decision_price_projection
+        source_vintage_hash = _source_vintage_hash(route_evidence.get("sha256")) or "unavailable"
+        sparebank_payload["source_vintage_hash"] = source_vintage_hash
+        scorecard = sparebank_analysis.scorecard
+        composite = getattr(scorecard, "composite_10", None)
+        if isinstance(composite, Real) and not isinstance(composite, bool) and math.isfinite(float(composite)):
+            try:
+                from etf_cockpit.data.score_history import append_score_run
+
+                append_score_run(
+                    pd.DataFrame(
+                        [
+                            {
+                                "instrument_id": str(instrument_id),
+                                "final_combined_score_10": float(composite),
+                                "price_as_of_date": decision_price_projection.get("date", ""),
+                                "data_as_of_date": decision.date().isoformat(),
+                                "formula_version": getattr(scorecard, "formula_version", "unavailable"),
+                                "formula_checksum": getattr(scorecard, "formula_checksum", "unavailable"),
+                                "source_vintage_hash": source_vintage_hash,
+                            }
+                        ]
+                    ),
+                    f"sparebank:{instrument_id}:{cutoff}",
+                    cutoff,
+                    root=root,
+                )
+                history_status = {"status": "written", "reason": None}
+            except Exception:
+                history_status = {"status": "not_written", "reason": "score_history_write_failed"}
+        else:
+            reason = decision_price_projection.get("reason_code")
+            if not reason:
+                reason = "scorecard_blocked" if getattr(scorecard, "status", None) == "BLOCKED" else "scorecard_composite_unavailable"
+            history_status = {"status": "not_written", "reason": reason}
+        sparebank_payload["history_status"] = history_status
+        identity_payload["sparebank_analysis"] = sparebank_payload
         identity_payload["native_suite"] = sparebank_analysis.contract if sparebank_analysis.routing.applies else None
         identity_payload["claim_status"] = sparebank_analysis.claim_state.claim_status
         identity_payload["generic_valuation_status"] = sparebank_analysis.generic_valuation_status

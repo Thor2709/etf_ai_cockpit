@@ -25,8 +25,9 @@ outstanding and are not treasury or private-holder wealth.
 Owner book per EC uses the period-end count. Owner EPS uses the weighted-average
 count. Missing facts remain unavailable and lower coverage. If a routed claim
 is not `resolved`, generic bank/stock valuation is explicitly inapplicable
-with a reason code. `scorecard` remains an explicit `UNAVAILABLE` placeholder;
-the owner valuation section is populated only when the claim is resolved.
+with a reason code. The scorecard is calculated from the resolved owner claim,
+bank economics and event evidence; the owner valuation section is populated
+only when the claim is resolved.
 
 ## Bank economics and structural events
 
@@ -73,7 +74,11 @@ judgement, and have not been tuned to historical cases.
 
 The scorecard consumes only the claim, bank-economics, event and valuation
 sections already attached to `SparebankAnalysis`. It checks claim resolution,
-point-in-time knowledge and the valuation denominator before rating axes.
+point-in-time knowledge and the valuation denominator before rating axes. The
+application facade selects the latest close for the instrument from local
+`data/clean/prices.parquet` at or before the decision time. A close is used only
+when its currency matches the valuation currency; its date and currency are
+retained with the analysis.
 Missing inputs lower axis coverage; the lending-economics, capital-allocation
 and portfolio-context axes remain `UNAVAILABLE` until a producer exists. The
 composite is available only when owner claim, capital/liquidity, owner
@@ -87,6 +92,12 @@ a separate field and UI group; it cannot affect underwriting ratings, gates or
 the composite. Generic canonical scoring rejects explicit EC instrument
 types before the ordinary `STOCK`/`ETF` policy selection. The existing
 ETF-policy fallback for other, unconfigured asset types is unchanged.
+
+The facade writes one score-history row through the existing history API only
+when the scorecard has a finite composite. The row carries the Sparebank
+formula version, formula checksum and selected source-vintage hash. A blocked
+scorecard or one without a finite composite produces no numeric history row and
+returns a `history_status` reason.
 
 Instrument Detail exposes one Sparebank workspace from the facade's single
 `SparebankAnalysis`: ownership passport, bank economics, valuation and
