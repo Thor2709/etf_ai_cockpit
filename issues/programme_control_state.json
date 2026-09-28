@@ -6256,7 +6256,19 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0117": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Implementation already on main (implemented_initially); acceptance re-verified 2026-09-28 by a cited read-only gap matrix (C:/dev/queues/prep/PREP-T12.md, every criterion ALREADY BUILT with code+test citations).",
+            "Cited evidence tests pass on exact origin/main: tests/conftest.py, tests/test_training_centre.py.",
+            "Full release gate: release-gate run 36410897458 on head b4a6c82a (#820, tree identical to main a3d9958a), Linux + Windows passed."
+          ],
+          "review_reference": "Exact head a3d9958ac540e9cf52c405bbc6c30fe13b343822: Claude Code (claude-opus-5-5) root verification of the Gemini evidence matrix (tests executed) in place of Codex V2 reviewer.",
+          "reviewed_date": "2026-09-28",
+          "reviewer": "Claude Code root orchestrator self-review with independent worker reviews (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0027": {
           "contract_reference": "",
@@ -6276,17 +6288,45 @@
         }
       },
       "phase": "phase-06-model-research",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "Exact head a3d9958ac540e9cf52c405bbc6c30fe13b343822: Claude Code (claude-opus-5-5) root verification of the Gemini evidence matrix (tests executed) in place of Codex V2 reviewer.",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Implementation already on main (implemented_initially); acceptance re-verified 2026-09-28 by a cited read-only gap matrix (C:/dev/queues/prep/PREP-T12.md, every criterion ALREADY BUILT with code+test citations).",
+            "Cited evidence tests pass on exact origin/main: tests/conftest.py, tests/test_training_centre.py.",
+            "Full release gate: release-gate run 36410897458 on head b4a6c82a (#820, tree identical to main a3d9958a), Linux + Windows passed."
+          ],
+          "from": "implemented_initially",
+          "review_reference": "Exact head a3d9958ac540e9cf52c405bbc6c30fe13b343822: Claude Code (claude-opus-5-5) root verification of the Gemini evidence matrix (tests executed) in place of Codex V2 reviewer.",
+          "reviewed_date": "2026-09-28",
+          "reviewer": "Claude Code root orchestrator self-review with independent worker reviews (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "to": "integrated",
+          "verified_commit": "a3d9958ac540e9cf52c405bbc6c30fe13b343822"
+        }
+      ],
+      "verified_commit": "a3d9958ac540e9cf52c405bbc6c30fe13b343822",
+      "verified_date": "2026-09-28"
     },
     "ISSUE-0118": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Implementation already on main (implemented_initially); acceptance re-verified 2026-09-28 by a cited read-only gap matrix (C:/dev/queues/prep/PREP-T12.md, every criterion ALREADY BUILT with code+test citations).",
+            "Cited evidence tests pass on exact origin/main: tests/test_synthetic_scenarios.py.",
+            "Full release gate: release-gate run 36410897458 on head b4a6c82a (#820, tree identical to main a3d9958a), Linux + Windows passed."
+          ],
+          "review_reference": "Exact head a3d9958ac540e9cf52c405bbc6c30fe13b343822: Claude Code (claude-opus-5-5) root verification of the Gemini evidence matrix (tests executed) in place of Codex V2 reviewer.",
+          "reviewed_date": "2026-09-28",
+          "reviewer": "Claude Code root orchestrator self-review with independent worker reviews (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0117": {
           "contract_reference": "",
@@ -6298,14 +6338,30 @@
         }
       },
       "phase": "phase-06-model-research",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "Exact head a3d9958ac540e9cf52c405bbc6c30fe13b343822: Claude Code (claude-opus-5-5) root verification of the Gemini evidence matrix (tests executed) in place of Codex V2 reviewer.",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Implementation already on main (implemented_initially); acceptance re-verified 2026-09-28 by a cited read-only gap matrix (C:/dev/queues/prep/PREP-T12.md, every criterion ALREADY BUILT with code+test citations).",
+            "Cited evidence tests pass on exact origin/main: tests/test_synthetic_scenarios.py.",
+            "Full release gate: release-gate run 36410897458 on head b4a6c82a (#820, tree identical to main a3d9958a), Linux + Windows passed."
+          ],
+          "from": "implemented_initially",
+          "review_reference": "Exact head a3d9958ac540e9cf52c405bbc6c30fe13b343822: Claude Code (claude-opus-5-5) root verification of the Gemini evidence matrix (tests executed) in place of Codex V2 reviewer.",
+          "reviewed_date": "2026-09-28",
+          "reviewer": "Claude Code root orchestrator self-review with independent worker reviews (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "to": "integrated",
+          "verified_commit": "a3d9958ac540e9cf52c405bbc6c30fe13b343822"
+        }
+      ],
+      "verified_commit": "a3d9958ac540e9cf52c405bbc6c30fe13b343822",
+      "verified_date": "2026-09-28"
     },
     "ISSUE-0119": {
       "acceptance_evidence": [],
