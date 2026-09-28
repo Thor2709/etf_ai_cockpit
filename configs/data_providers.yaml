@@ -83,28 +83,3 @@ providers:
     api_key: ""
     base_url: ""
     symbols_map: {}
-  alphavantage:
-    active_provider: none
-    api_key: ""
-    base_url: https://www.alphavantage.co/query
-    symbols_map: {}
-  fmp:
-    active_provider: none
-    api_key: ""
-    base_url: https://financialmodelingprep.com/stable/
-    symbols_map: {}
-  finnhub:
-    active_provider: none
-    api_key: ""
-    base_url: ""
-    symbols_map: {}
-  twelvedata:
-    active_provider: none
-    api_key: ""
-    base_url: https://api.twelvedata.com
-    symbols_map: {}
-  tiingo:
-    active_provider: none
-    api_key: ""
-    base_url: https://api.tiingo.com
-    symbols_map: {}
