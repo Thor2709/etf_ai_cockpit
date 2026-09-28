@@ -35,6 +35,7 @@ from etf_cockpit.analysis.fixed_income_risk import (
     calculate_fixed_income_risk,
 )
 from etf_cockpit.data.fixed_income_risk_store import read_fixed_income_risk
+from etf_cockpit.application.portfolio_valuation import load_portfolio_valuation_history  # noqa: F401
 
 from etf_cockpit.chatgpt_bridge.audit_packet import *  # noqa: F401,F403
 from etf_cockpit.data.backup_restore import *  # noqa: F401,F403
