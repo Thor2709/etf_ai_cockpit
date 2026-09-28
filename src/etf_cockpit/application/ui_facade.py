@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.data.etf_structure import project_etf_structure
 from etf_cockpit.data.event_calendar import normalise_event_decision_time
 from etf_cockpit.data.stock_research import valuation_analysis
@@ -765,6 +766,74 @@ def load_peer_cohort_projection(
             "reason_code": "peer_cohort_evidence_invalid",
             "execution_allowed": False,
         }
+
+
+def load_stock_research_context(
+    instrument_id: str,
+    *,
+    statements_path: Path | None = None,
+) -> dict[str, object]:
+    """Load stock statements and their point-in-time classification/peer context."""
+    classification_projection = load_classification_projection(instrument_id)
+    classification_value = classification_projection.get("classification")
+    classification = dict(classification_value) if isinstance(classification_value, Mapping) else {}
+    classification_status = str(classification_projection.get("status", "unavailable"))
+    effective_at = str(classification.get("effective_at") or "").strip() or None
+    decision_time = str(classification.get("decision_time") or "").strip() or None
+    peer_projection = load_peer_cohort_projection(instrument_id, decision_time=decision_time)
+    peer_projection_status = str(peer_projection.get("status", "unavailable"))
+    cohort = peer_projection.get("cohort")
+    members = cohort.get("members") if isinstance(cohort, Mapping) else None
+    peer_ids = {
+        str(value)
+        for value in members or ()
+        if str(value).strip() and str(value) != str(instrument_id)
+    } if peer_projection_status == "available" and classification_status == "available" else set()
+
+    from etf_cockpit.data.stock_research import load_stock_research_frame
+
+    facts = load_stock_research_frame(
+        statements_path or STATEMENT_FACTS_PATH,
+        as_known_at=decision_time,
+    )
+    if "instrument_id" in facts.columns:
+        statements = facts[facts["instrument_id"].astype(str).eq(str(instrument_id))].reset_index(drop=True)
+        peer_frame = facts[facts["instrument_id"].astype(str).isin(peer_ids)].reset_index(drop=True)
+    else:
+        statements = facts.iloc[0:0].copy()
+        peer_frame = facts.iloc[0:0].copy()
+    peer_frame.attrs["peer_context_status"] = peer_projection_status if peer_ids else "unavailable"
+    sector = str(classification.get("sector") or "").strip() if classification_status == "available" else ""
+    financial_labels = {sector.casefold()}
+    for name in ("industry", "issuer_sector", "issuer_type", "business_model_tags", "strategy_labels"):
+        value = classification.get(name, ())
+        values = (value,) if isinstance(value, str) else value
+        if isinstance(values, (tuple, list, set)):
+            for item in values:
+                label = str(item or "").strip().casefold()
+                if label:
+                    financial_labels.update({label, label.replace("-", "_")})
+    financial_projection: dict[str, object] = {}
+    if financial_labels & {"bank", "banks", "banking", "savings_bank", "savings banks", "deposit_taking", "insurance", "insurer", "financial", "financials", "financial_institution", "financial institution", "financial_services", "financial services"}:
+        financial_projection = load_financial_institution_projection(
+            instrument_id,
+            decision_time=decision_time,
+            effective_at=effective_at,
+        )
+    return {
+        "instrument_id": str(instrument_id),
+        "statements": statements,
+        "classification": classification,
+        "classification_status": classification_status,
+        "sector": sector,
+        "peer_context": dict(peer_projection),
+        "peer_frame": peer_frame,
+        "peer_context_status": peer_projection_status if peer_ids else "unavailable",
+        "financial_projection": financial_projection,
+        "effective_at": effective_at,
+        "decision_time": decision_time,
+        "execution_allowed": False,
+    }
 
 
 def load_financial_institution_projection(

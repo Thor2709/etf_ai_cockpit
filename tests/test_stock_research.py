@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 
+from etf_cockpit.app.pages import stock_research as stock_research_page
+from etf_cockpit.application import ui_facade
+from etf_cockpit.data import stock_research as stock_research_data
 from etf_cockpit.data.stock_research import (
     balance_sheet_analysis,
     build_stock_research_report,
@@ -246,6 +250,153 @@ def test_combined_report_keeps_research_sections_and_provenance_boundary() -> No
     assert set(report) >= {"profitability", "capital_efficiency", "balance_sheet", "valuation", "growth", "expectations", "execution_allowed", "source_lineage"}
     assert report["execution_allowed"] is False
     assert report["source_lineage"]["statement_view"] == "latest_restated"
+
+
+def test_profitability_production_wiring_injects_sector_and_peers(monkeypatch) -> None:
+    known_at = "2026-12-31T00:00:00Z"
+    decision_time = "2027-01-02T00:00:00Z"
+    target = _statements().assign(
+        instrument_id="ACME", currency="EUR", consolidation_scope="consolidated", known_at=known_at
+    )
+    peers = _statements().assign(
+        instrument_id="PEER-1",
+        value=lambda frame: frame["value"] * 1.2,
+        currency="EUR",
+        consolidation_scope="consolidated",
+        known_at=known_at,
+    )
+    facts = pd.concat([target, peers], ignore_index=True)
+    classification = {
+        "status": "available",
+        "classification": {
+            "instrument_id": "ACME",
+            "sector": "industrial",
+            "industry": "manufacturing",
+            "reporting_currency": "EUR",
+            "accounting_standard": "IFRS",
+            "effective_at": "2026-12-31T00:00:00Z",
+            "decision_time": decision_time,
+        },
+        "execution_allowed": False,
+    }
+    peer_projection = {
+        "status": "available",
+        "instrument_id": "ACME",
+        "decision_time": decision_time,
+        "cohort": {"members": ["PEER-1"]},
+        "execution_allowed": False,
+    }
+    monkeypatch.setattr(ui_facade, "load_classification_projection", lambda instrument_id: classification)
+    monkeypatch.setattr(ui_facade, "load_peer_cohort_projection", lambda instrument_id, decision_time=None: peer_projection)
+    monkeypatch.setattr(stock_research_data, "load_stock_research_frame", lambda path, instrument_id=None, as_known_at=None: facts.copy())
+    monkeypatch.setattr(stock_research_page, "load_optional_research_import", lambda path, instrument_id=None: pd.DataFrame())
+
+    context = ui_facade.load_stock_research_context("ACME", statements_path=ui_facade.STATEMENT_FACTS_PATH)
+    captured = []
+    report_builder = stock_research_page.build_stock_research_report
+
+    def capture_report(*args, **kwargs):
+        report = report_builder(*args, **kwargs)
+        captured.append(report)
+        return report
+
+    monkeypatch.setattr(ui_facade, "load_stock_research_context", lambda instrument_id, statements_path=None: context)
+    monkeypatch.setattr(stock_research_page, "build_stock_research_report", capture_report)
+    stock_research_page.stock_research_page(None, SimpleNamespace(selected_etf="ACME"))
+
+    result = captured[0]["profitability"]
+    assert result["sector"] == "industrial"
+    assert result["classification_context"]["reporting_currency"] == "EUR"
+    assert result["peer_context"]["cohort"]["members"] == ["PEER-1"]
+    assert result["peer_comparisons"]["gross_margin"]["status"] == "available"
+    assert 0.0 <= result["peer_percentiles"]["gross_margin"] <= 100.0
+    assert result["history_comparability"]["gross_margin"]["status"] == "available"
+    assert result["history"]["roa"]
+    assert captured[0]["growth"]["series"]["aggregate"]["revenue"]["comparability"]["status"] == "available"
+
+
+def test_profitability_bank_delegation_suppresses_industrial_metrics(monkeypatch) -> None:
+    classification = {
+        "status": "available",
+        "classification": {"sector": "banking", "business_model_tags": ["deposit_taking"], "effective_at": "2026-12-31T00:00:00Z", "decision_time": "2027-01-01T00:00:00Z"},
+    }
+    peer_projection = {"status": "unavailable", "reason_code": "peer_cohort_evidence_unavailable"}
+    facts = _statements().assign(instrument_id="MING")
+    adapter_calls = []
+    adapter_result = {"status": "available", "business_model": "bank", "metrics": {}, "execution_allowed": False}
+    monkeypatch.setattr(ui_facade, "load_classification_projection", lambda instrument_id: classification)
+    monkeypatch.setattr(ui_facade, "load_peer_cohort_projection", lambda instrument_id, decision_time=None: peer_projection)
+    monkeypatch.setattr(stock_research_data, "load_stock_research_frame", lambda path, instrument_id=None, as_known_at=None: facts.copy())
+    monkeypatch.setattr(ui_facade, "load_financial_institution_projection", lambda instrument_id, **kwargs: adapter_calls.append((instrument_id, kwargs)) or adapter_result)
+
+    context = ui_facade.load_stock_research_context("MING", statements_path=ui_facade.STATEMENT_FACTS_PATH)
+    report = build_stock_research_report(
+        context["statements"],
+        instrument_id="MING",
+        sector=context["sector"],
+        classification_context=context["classification"],
+        financial_projection=context["financial_projection"],
+    )
+    profitability = report["profitability"]["metrics"]
+    balance = report["balance_sheet"]["metrics"]
+
+    assert adapter_calls and adapter_calls[0][0] == "MING"
+    assert report["financial_institutions"]["business_model"] == "bank"
+    for metric in ("gross_margin", "roic"):
+        assert profitability[metric]["status"] == "not_applicable"
+    for metric in ("current_ratio", "quick_ratio", "altman_like_distress"):
+        assert balance[metric]["status"] == "not_applicable"
+
+    unclassified = build_stock_research_report(_statements(), instrument_id="ACME")
+    assert unclassified["profitability"]["metrics"]["gross_margin"]["status"] == "unavailable"
+    assert unclassified["profitability"]["metrics"]["gross_margin"]["value"] is None
+    assert unclassified["balance_sheet"]["metrics"]["current_ratio"]["status"] == "unavailable"
+
+
+def test_profitability_rejects_mixed_currency_peer_frame() -> None:
+    target = _statements().assign(currency="USD", consolidation_scope="consolidated")
+    peers = _statements().assign(instrument_id="PEER-1", currency="EUR", consolidation_scope="consolidated")
+
+    result = profitability_analysis(target, instrument_id="ACME", sector="industrial", peer_frame=peers, strict_comparability=True)
+
+    assert result["peer_comparisons"]["gross_margin"]["status"] == "unavailable"
+    assert result["peer_comparisons"]["gross_margin"]["reason"] == "peer_currency_mismatch"
+    assert "gross_margin" not in result["peer_percentiles"]
+    mixed_scope = peers.assign(currency="USD", consolidation_scope="unconsolidated")
+    scope_result = profitability_analysis(target, instrument_id="ACME", sector="industrial", peer_frame=mixed_scope, strict_comparability=True)
+    assert scope_result["peer_comparisons"]["gross_margin"]["reason"] == "peer_accounting_scope_mismatch"
+
+
+def test_balance_sheet_separates_leases_from_contractual_debt() -> None:
+    frame = _statements()
+    template = frame[frame["canonical_metric"].eq("debt") & frame["fiscal_year"].eq(2026)].iloc[0].to_dict()
+    additions = pd.DataFrame([
+        {**template, "canonical_metric": "contractual_debt", "value": 27.0, "source_id": "filing-2026-contractual-debt"},
+        {**template, "canonical_metric": "lease_liabilities", "value": 3.0, "source_id": "filing-2026-leases"},
+        {**template, "canonical_metric": "restricted_cash", "value": 2.0, "source_id": "filing-2026-restricted-cash"},
+    ])
+    result = balance_sheet_analysis(pd.concat([frame, additions], ignore_index=True), instrument_id="ACME")
+    breakdown = result["net_debt_breakdown"]
+
+    assert breakdown["contractual_debt"]["value"] == 27.0
+    assert breakdown["lease_liabilities"]["value"] == 3.0
+    assert breakdown["lease_adjustment"]["included_in_net_debt"] is False
+    assert breakdown["restricted_cash"]["value"] == 2.0
+
+    absent = balance_sheet_analysis(frame, instrument_id="ACME")["net_debt_breakdown"]
+    assert absent["lease_liabilities"]["status"] == "unavailable"
+    assert any("Lease liabilities are unavailable" in item for item in absent["coverage_limitations"])
+
+
+def test_balance_sheet_missing_maturities_sets_coverage_limitation() -> None:
+    result = balance_sheet_analysis(_statements(), instrument_id="ACME")
+    maturity = result["maturity_timeline"]
+
+    assert maturity["status"] == "missing"
+    assert maturity["buckets"] == {}
+    assert "not treated as zero" in maturity["limitation"]
+    assert maturity["coverage_limitations"]
+    assert result["coverage_limitations"]
 
 
 def test_growth_keeps_aggregate_and_per_share_series_period_aligned() -> None:

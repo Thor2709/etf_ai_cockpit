@@ -26,7 +26,12 @@ STOCK_RESEARCH_SCHEMA_VERSION = "stock_research.v2"
 STOCK_RESEARCH_IMPORT_DIR = RAW_DIR / "stock_research"
 CONSENSUS_IMPORT_PATH = STOCK_RESEARCH_IMPORT_DIR / "consensus.csv"
 GUIDANCE_IMPORT_PATH = STOCK_RESEARCH_IMPORT_DIR / "guidance.csv"
-_SPECIAL_SECTORS = frozenset({"bank", "banks", "insurance", "insurer", "financial", "financials"})
+_SPECIAL_SECTORS = frozenset({"bank", "banks", "banking", "savings_bank", "savings banks", "deposit_taking", "deposit-taking", "insurance", "insurer", "financial", "financials", "financial_institution", "financial institution", "financial_services", "financial services"})
+_METRIC_ALIASES = {
+    "lease_liability": "lease_liabilities",
+    "operating_lease_liabilities": "lease_liabilities",
+    "restricted_cash_and_cash_equivalents": "restricted_cash",
+}
 _CONSENSUS_SOURCE_AUTHORITIES = frozenset(
     {
         "broker licensed",
@@ -75,13 +80,20 @@ def profitability_analysis(
     instrument_id: str | None = None,
     sector: str = "",
     peer_frame: pd.DataFrame | None = None,
+    classification_context: Mapping[str, object] | None = None,
+    peer_context: Mapping[str, object] | None = None,
+    strict_comparability: bool = False,
     tax_rate: float | None = None,
     as_known_at: str | date | None = None,
 ) -> dict[str, object]:
     frame = _statement_frame(statements, instrument_id, as_known_at=as_known_at)
+    peer_frame = _statement_frame(peer_frame, None, as_known_at=as_known_at) if isinstance(peer_frame, pd.DataFrame) else None
+    sector = sector or _text((classification_context or {}).get("sector"))
     latest = _latest_values(frame)
     histories = _histories(frame)
     metrics: dict[str, dict[str, object]] = {}
+    sector_known = _classification_is_known(sector, classification_context)
+    special = sector_known and _is_special_sector(sector, classification_context)
     revenue = latest.get("revenue")
     gross_profit = latest.get("gross_profit")
     operating_income = latest.get("operating_income")
@@ -93,13 +105,17 @@ def profitability_analysis(
     cfo = latest.get("cash_from_operations")
     tax = tax_rate if tax_rate is not None else _tax_rate(latest)
 
-    metrics["gross_margin"] = _ratio_metric("gross_margin", gross_profit, revenue, "gross_profit / revenue", frame, "revenue")
+    metrics["gross_margin"] = _ratio_metric(
+        "gross_margin", gross_profit, revenue, "gross_profit / revenue", frame, "revenue",
+        applicability="not_applicable" if special else "applicable",
+        limitation="Financial-institution profitability is delegated to the financial-sector adapter." if special else "",
+    )
     metrics["operating_margin"] = _ratio_metric("operating_margin", operating_income, revenue, "operating_income / revenue", frame, "revenue")
     metrics["net_margin"] = _ratio_metric("net_margin", net_income, revenue, "net_income / revenue", frame, "revenue")
     metrics["roa"] = _ratio_metric("roa", net_income, assets, "net_income / assets", frame, "assets")
     metrics["roe"] = _ratio_metric("roe", net_income, equity, "net_income / equity", frame, "equity")
     invested_capital = _sum_if_present(equity, debt, -cash if cash is not None else None)
-    roic = None if sector.casefold() in _SPECIAL_SECTORS else (None if operating_income is None or tax is None else operating_income * (1.0 - tax))
+    roic = None if special else (None if operating_income is None or tax is None else operating_income * (1.0 - tax))
     metrics["roic"] = _ratio_metric(
         "roic",
         roic,
@@ -107,37 +123,140 @@ def profitability_analysis(
         "(operating_income * (1 - tax_rate)) / (equity + debt - cash)",
         frame,
         "equity",
-        applicability="not_applicable" if sector.casefold() in _SPECIAL_SECTORS else "applicable",
-        limitation="Special-sector adapter required." if sector.casefold() in _SPECIAL_SECTORS else "",
+        applicability="not_applicable" if special else "applicable",
+        limitation="Financial-institution profitability is delegated to the financial-sector adapter." if special else "",
     )
-    metrics["cash_conversion"] = _ratio_metric("cash_conversion", cfo, net_income, "cash_from_operations / net_income", frame, "cash_from_operations", zero_denominator_status="not_applicable")
+    metrics["cash_conversion"] = _ratio_metric(
+        "cash_conversion", cfo, net_income, "cash_from_operations / net_income", frame,
+        "cash_from_operations", applicability="not_applicable" if special else "applicable",
+        limitation="Industrial cash-conversion analysis is not applicable to financial institutions." if special else "",
+        zero_denominator_status="not_applicable",
+    )
     accrual_numerator = None if net_income is None or cfo is None else net_income - cfo
-    metrics["accrual_ratio"] = _ratio_metric("accrual_ratio", accrual_numerator, assets, "(net_income - cash_from_operations) / assets", frame, "assets")
+    metrics["accrual_ratio"] = _ratio_metric(
+        "accrual_ratio", accrual_numerator, assets, "(net_income - cash_from_operations) / assets", frame, "assets",
+        applicability="not_applicable" if special else "applicable",
+        limitation="Industrial cash-flow accrual analysis is not applicable to financial institutions." if special else "",
+    )
     exceptional = latest.get("exceptional_items")
     metrics["exceptional_item_dependence"] = _ratio_metric("exceptional_item_dependence", exceptional, net_income, "exceptional_items / net_income", frame, "exceptional_items", zero_denominator_status="not_applicable")
-    margins = _derived_history(histories, "gross_profit", "revenue")
+    if strict_comparability:
+        history_specs = {
+            "gross_margin": ("gross_profit", "revenue"),
+            "operating_margin": ("operating_income", "revenue"),
+            "net_margin": ("net_income", "revenue"),
+            "roa": ("net_income", "assets"),
+            "roe": ("net_income", "equity"),
+            "cash_conversion": ("cash_from_operations", "net_income"),
+            "accrual_ratio": ("net_income", "cash_from_operations", "assets"),
+            "exceptional_item_dependence": ("exceptional_items", "net_income"),
+        }
+        comparable_history = (
+            {name: {"status": "not_applicable", "reason": "financial-institution adapter required", "values": []} for name in history_specs}
+            if special
+            else {name: _comparable_ratio_history(frame, components) for name, components in history_specs.items()}
+        )
+        trend_histories = {name: item["values"] for name, item in comparable_history.items()}
+    else:
+        trend_histories = {
+            "gross_margin": _derived_history(histories, "gross_profit", "revenue"),
+            "operating_margin": _derived_history(histories, "operating_income", "revenue"),
+            "net_margin": _derived_history(histories, "net_income", "revenue"),
+        }
+        comparable_history = {}
+    margins = [] if special else trend_histories.get("gross_margin", [])
     metrics["margin_stability"] = _metric(
         "margin_stability",
         None if len(margins) < 2 else float(pd.Series(margins).std(ddof=0)),
         "population standard deviation of gross_margin history",
         frame,
-        status_override="missing" if len(margins) == 0 else "not_applicable" if len(margins) == 1 else None,
-        limitation="At least two comparable periods are required." if len(margins) < 2 else "",
+        status_override="not_applicable" if special else "missing" if len(margins) == 0 else "not_applicable" if len(margins) == 1 else None,
+        limitation="Financial-institution profitability is delegated to the financial-sector adapter." if special else "At least two comparable periods are required." if len(margins) < 2 else "",
     )
+    if strict_comparability and not special:
+        current_specs = {
+            "gross_margin": ("gross_profit", "revenue"),
+            "operating_margin": ("operating_income", "revenue"),
+            "net_margin": ("net_income", "revenue"),
+            "roa": ("net_income", "assets"),
+            "roe": ("net_income", "equity"),
+            "cash_conversion": ("cash_from_operations", "net_income"),
+            "accrual_ratio": ("net_income", "cash_from_operations", "assets"),
+            "exceptional_item_dependence": ("exceptional_items", "net_income"),
+            "roic": ("operating_income", "equity", "debt", "cash", "income_before_tax", "tax_expense"),
+        }
+        for name, metric_components in current_specs.items():
+            comparable_value, reason = _latest_comparable_value(frame, name, metric_components)
+            evidence = metrics[name]
+            observed_value = _float(evidence.get("value"))
+            if comparable_value is None or observed_value is None or not math.isclose(comparable_value, observed_value, rel_tol=1e-9, abs_tol=1e-12):
+                evidence["value"] = None
+                evidence["status"] = "unavailable"
+                evidence["confidence"] = "low"
+                evidence["limitation"] = f"Currency, reporting period and accounting scope must align for calculated values; {reason or 'selected inputs do not share a comparable period.'}"
+    if strict_comparability and not sector_known:
+        limitation = "Classification is unavailable or unresolved; industrial applicability cannot be established."
+        for name in ("gross_margin", "roic", "cash_conversion", "accrual_ratio", "margin_stability"):
+            _mark_metric_unavailable(metrics[name], limitation)
+        for name in ("gross_margin", "cash_conversion", "accrual_ratio"):
+            history = comparable_history.get(name)
+            if isinstance(history, dict):
+                history.update({"status": "unavailable", "reason": "classification_unavailable", "values": []})
+                trend_histories[name] = []
 
-    peer_percentiles = {
-        name: _peer_percentile(name, evidence.get("value"), peer_frame)
-        for name, evidence in metrics.items()
-        if evidence.get("value") is not None
-    }
+    peer_percentiles: dict[str, float] = {}
+    peer_comparisons: dict[str, dict[str, object]] = {}
+    for name, evidence in metrics.items():
+        if evidence.get("value") is None or special:
+            continue
+        if strict_comparability:
+            comparison = _comparable_peer_percentile(name, evidence.get("value"), frame, peer_frame)
+            peer_comparisons[name] = comparison
+            if comparison.get("status") == "available" and comparison.get("percentile") is not None:
+                peer_percentiles[name] = float(comparison["percentile"])
+        else:
+            percentile = _peer_percentile(name, evidence.get("value"), peer_frame)
+            if percentile is not None:
+                peer_percentiles[name] = percentile
+            peer_comparisons[name] = {
+                "status": "available" if percentile is not None else "unavailable",
+                "reason": "legacy_peer_frame" if percentile is not None else "peer_evidence_unavailable",
+            }
     components = _quality_components(latest, histories)
+    if strict_comparability and not special:
+        debt_history = _comparable_metric_history(frame, "debt")
+        gross_history = comparable_history.get("gross_margin", {})
+        gross_values = gross_history.get("values", []) if isinstance(gross_history, Mapping) else []
+        components["lower_leverage"] = {
+            "value": _trend(debt_history.get("values", []), descending=True),
+            "status": "available" if debt_history.get("status") == "available" else "unavailable",
+            "comparability": debt_history,
+            "execution_allowed": False,
+        }
+        components["improving_gross_margin"] = {
+            "value": _trend(gross_values, descending=False),
+            "status": "available" if isinstance(gross_history, Mapping) and gross_history.get("status") == "available" else "unavailable",
+            "comparability": gross_history,
+            "execution_allowed": False,
+        }
+    elif special:
+        for name in ("lower_leverage", "improving_gross_margin", "positive_cash_from_operations"):
+            components[name] = {"value": None, "status": "not_applicable", "execution_allowed": False}
+    if strict_comparability and not sector_known:
+        for name in ("lower_leverage", "improving_gross_margin", "positive_cash_from_operations"):
+            components[name] = {"value": None, "status": "unavailable", "limitation": "Classification is unavailable or unresolved.", "execution_allowed": False}
     return {
         "schema_version": STOCK_RESEARCH_SCHEMA_VERSION,
         "instrument_id": instrument_id or "",
         "sector": sector or "unclassified",
         "metrics": metrics,
-        "history": {name: values for name, values in {"gross_margin": margins, "operating_margin": _derived_history(histories, "operating_income", "revenue"), "net_margin": _derived_history(histories, "net_income", "revenue")}.items()},
+        "history": {name: values for name, values in trend_histories.items()},
+        "history_comparability": comparable_history,
         "peer_percentiles": peer_percentiles,
+        "peer_comparisons": peer_comparisons,
+        "classification_context": dict(classification_context or {}),
+        "peer_context": dict(peer_context or {}),
+        "statement_context": _statement_context(frame),
         "quality_components": components,
         "source_lineage": _lineage(frame),
         "execution_allowed": False,
@@ -149,12 +268,15 @@ def balance_sheet_analysis(
     *,
     instrument_id: str | None = None,
     sector: str = "",
+    classification_context: Mapping[str, object] | None = None,
+    strict_comparability: bool = False,
     as_known_at: str | date | None = None,
 ) -> dict[str, object]:
     frame = _statement_frame(statements, instrument_id, as_known_at=as_known_at)
+    sector = sector or _text((classification_context or {}).get("sector"))
     latest = _latest_values(frame)
     metrics: dict[str, dict[str, object]] = {}
-    debt = latest.get("debt")
+    debt = latest.get("contractual_debt", latest.get("debt"))
     cash = latest.get("cash")
     equity = latest.get("equity")
     current_assets = latest.get("current_assets")
@@ -162,25 +284,70 @@ def balance_sheet_analysis(
     receivables = latest.get("receivables")
     operating_income = latest.get("operating_income")
     interest_expense = latest.get("interest_expense")
-    metrics["net_debt"] = _metric("net_debt", None if debt is None or cash is None else debt - cash, "debt - cash", frame)
-    metrics["debt_to_equity"] = _ratio_metric("debt_to_equity", debt, equity, "debt / equity", frame, "debt")
-    metrics["current_ratio"] = _ratio_metric("current_ratio", current_assets, current_liabilities, "current_assets / current_liabilities", frame, "current_assets")
+    sector_known = _classification_is_known(sector, classification_context)
+    special = sector_known and _is_special_sector(sector, classification_context)
+    industrial_reason = "Industrial-company balance-sheet analysis is delegated to the financial-sector adapter."
+    debt_name = "contractual_debt" if "contractual_debt" in latest else "debt"
+    metrics["net_debt"] = _metric("net_debt", None if special or debt is None or cash is None else debt - cash, f"reported {debt_name} - reported cash; lease and restricted-cash treatment is separate", frame, status_override="not_applicable" if special else None, limitation=industrial_reason if special else "")
+    metrics["debt_to_equity"] = _ratio_metric("debt_to_equity", debt, equity, f"{debt_name} / equity", frame, debt_name, applicability="not_applicable" if special else "applicable", limitation=industrial_reason if special else "")
+    metrics["current_ratio"] = _ratio_metric("current_ratio", current_assets, current_liabilities, "current_assets / current_liabilities", frame, "current_assets", applicability="not_applicable" if special else "applicable", limitation=industrial_reason if special else "")
     quick_assets = _sum_if_present(cash, receivables)
-    metrics["quick_ratio"] = _ratio_metric("quick_ratio", quick_assets, current_liabilities, "(cash + receivables) / current_liabilities", frame, "cash")
-    metrics["working_capital"] = _metric("working_capital", None if current_assets is None or current_liabilities is None else current_assets - current_liabilities, "current_assets - current_liabilities", frame)
-    metrics["interest_coverage"] = _ratio_metric("interest_coverage", operating_income, interest_expense, "operating_income / interest_expense", frame, "operating_income", zero_denominator_status="not_applicable")
+    metrics["quick_ratio"] = _ratio_metric("quick_ratio", quick_assets, current_liabilities, "(cash + receivables) / current_liabilities", frame, "cash", applicability="not_applicable" if special else "applicable", limitation=industrial_reason if special else "")
+    metrics["working_capital"] = _metric("working_capital", None if special or current_assets is None or current_liabilities is None else current_assets - current_liabilities, "current_assets - current_liabilities", frame, status_override="not_applicable" if special else None, limitation=industrial_reason if special else "")
+    metrics["interest_coverage"] = _ratio_metric("interest_coverage", operating_income, interest_expense, "operating_income / interest_expense", frame, "operating_income", applicability="not_applicable" if special else "applicable", limitation=industrial_reason if special else "", zero_denominator_status="not_applicable")
 
-    special = sector.casefold() in _SPECIAL_SECTORS
     distress = _distress_metric(latest, frame, special)
     metrics["altman_like_distress"] = distress
-    maturity = _maturity_timeline(latest, frame)
-    stress = _stress_scenarios(latest, frame)
+    maturity = (
+        {"status": "not_applicable", "buckets": {}, "formula": "sector adapter required", "source_ids": [], "confidence": "low", "limitation": industrial_reason, "coverage_limitations": [industrial_reason], "execution_allowed": False}
+        if special else _maturity_timeline(latest, frame)
+    )
+    stress = (
+        {name: {"status": "not_applicable", "value": None, "reason": industrial_reason, "execution_allowed": False} for name in ("revenue_down_20", "margin_down_5pp")}
+        if special else _stress_scenarios(latest, frame)
+    )
+    if strict_comparability and not special:
+        balance_specs = {
+            "net_debt": (debt_name, "cash"),
+            "debt_to_equity": (debt_name, "equity"),
+            "current_ratio": ("current_assets", "current_liabilities"),
+            "quick_ratio": ("cash", "receivables", "current_liabilities"),
+            "working_capital": ("current_assets", "current_liabilities"),
+            "interest_coverage": ("operating_income", "interest_expense"),
+            "altman_like_distress": ("current_assets", "current_liabilities", "assets", "retained_earnings", "operating_income", "equity", "liabilities", "revenue"),
+        }
+        for name, metric_components in balance_specs.items():
+            evidence = metrics[name]
+            observed_value = _float(evidence.get("value"))
+            if observed_value is None:
+                continue
+            comparable_value, reason = _latest_comparable_value(frame, name, metric_components)
+            if comparable_value is None or not math.isclose(comparable_value, observed_value, rel_tol=1e-9, abs_tol=1e-12):
+                evidence["value"] = None
+                evidence["status"] = "unavailable"
+                evidence["confidence"] = "low"
+                evidence["limitation"] = f"Currency, reporting period and accounting scope must align for calculated values; {reason or 'selected inputs do not share a comparable period.'}"
+        stress_observations, stress_reason = _period_observations(frame, ("revenue", "operating_income", "debt", "interest_expense"))
+        if stress_reason or not stress_observations:
+            reason = f"Currency, reporting period and accounting scope must align for calculated stress evidence; {stress_reason or 'no comparable period.'}"
+            stress = {name: {"status": "unavailable", "value": None, "limitation": reason, "execution_allowed": False} for name in ("revenue_down_20", "margin_down_5pp")}
+    if strict_comparability and not sector_known:
+        limitation = "Classification is unavailable or unresolved; industrial balance-sheet applicability cannot be established."
+        for name in ("net_debt", "debt_to_equity", "current_ratio", "quick_ratio", "working_capital", "interest_coverage", "altman_like_distress"):
+            _mark_metric_unavailable(metrics[name], limitation)
+        stress = {name: {"status": "unavailable", "value": None, "limitation": limitation, "execution_allowed": False} for name in ("revenue_down_20", "margin_down_5pp")}
+    debt_cash_breakdown = _debt_cash_breakdown(latest, frame)
+    coverage_limitations = list(debt_cash_breakdown["coverage_limitations"]) + list(maturity.get("coverage_limitations", []))
+    if strict_comparability and not sector_known:
+        coverage_limitations.append("Classification is unavailable or unresolved; industrial balance-sheet applicability cannot be established.")
     return {
         "schema_version": STOCK_RESEARCH_SCHEMA_VERSION,
         "instrument_id": instrument_id or "",
         "sector": sector or "unclassified",
         "metrics": metrics,
+        "net_debt_breakdown": debt_cash_breakdown,
         "maturity_timeline": maturity,
+        "coverage_limitations": coverage_limitations,
         "stress_scenarios": stress,
         "source_lineage": _lineage(frame),
         "execution_allowed": False,
@@ -230,6 +397,7 @@ def growth_analysis(
     statements: pd.DataFrame,
     *,
     instrument_id: str | None = None,
+    strict_comparability: bool = False,
     as_known_at: str | date | None = None,
 ) -> dict[str, object]:
     """Return period-aligned reported growth without analyst assumptions.
@@ -267,7 +435,7 @@ def growth_analysis(
             derived_from=("free_cash_flow", "shares_outstanding"),
         ),
     }
-    return {
+    result = {
         "schema_version": STOCK_RESEARCH_SCHEMA_VERSION,
         "instrument_id": instrument_id or "",
         "statement_view": frame.attrs.get("statement_view", "latest_restated"),
@@ -277,6 +445,20 @@ def growth_analysis(
         "source_lineage": _lineage(frame),
         "execution_allowed": False,
     }
+    if strict_comparability:
+        for group_name in ("aggregate", "per_share"):
+            group = result["series"][group_name]
+            for series in group.values():
+                if isinstance(series, dict):
+                    _apply_growth_comparability(frame, series)
+        organic = result["organic_inorganic"]
+        for key in ("organic_growth", "inorganic_growth"):
+            series = organic.get(key)
+            if isinstance(series, dict):
+                _apply_growth_comparability(frame, series)
+        if organic.get("organic_growth", {}).get("status") == "unavailable":
+            organic["status"] = "unavailable"
+    return result
 
 
 def build_stock_research_report(
@@ -285,6 +467,10 @@ def build_stock_research_report(
     instrument_id: str | None = None,
     sector: str = "",
     peer_frame: pd.DataFrame | None = None,
+    classification_context: Mapping[str, object] | None = None,
+    peer_context: Mapping[str, object] | None = None,
+    financial_projection: Mapping[str, object] | None = None,
+    strict_comparability: bool = True,
     market_inputs: Mapping[str, object] | None = None,
     assumptions: Mapping[str, object] | None = None,
     expectation_evidence: Iterable[object] | Mapping[str, object] | pd.DataFrame | None = None,
@@ -292,25 +478,45 @@ def build_stock_research_report(
     as_known_at: str | date | None = None,
 ) -> dict[str, object]:
     frame = _statement_frame(statements, instrument_id, as_known_at=as_known_at)
+    sector = sector or _text((classification_context or {}).get("sector"))
     assumption_values = assumptions or {}
+    sector_known = _classification_is_known(sector, classification_context)
+    special = sector_known and _is_special_sector(sector, classification_context)
+    capital_sector = "financials" if special else sector
+    capital_efficiency = capital_efficiency_analysis(
+        frame,
+        instrument_id=instrument_id,
+        sector=capital_sector,
+        peer_frame=peer_frame if not strict_comparability else None,
+        tax_rate=_float(assumption_values.get("tax_rate")),
+        cost_of_capital=_float(assumption_values.get("cost_of_capital")),
+        intangible_assumptions=assumption_values.get("intangible_adjustment") if isinstance(assumption_values.get("intangible_adjustment"), Mapping) else None,
+        as_known_at=as_known_at,
+    )
+    if strict_comparability and not sector_known:
+        _mark_capital_efficiency_unavailable(capital_efficiency, "Classification is unavailable or unresolved; industrial capital-efficiency applicability cannot be established.")
     return {
         "schema_version": STOCK_RESEARCH_SCHEMA_VERSION,
         "instrument_id": instrument_id or "",
-        "profitability": profitability_analysis(frame, instrument_id=instrument_id, sector=sector, peer_frame=peer_frame, as_known_at=as_known_at),
-        "capital_efficiency": capital_efficiency_analysis(
+        "profitability": profitability_analysis(
             frame,
             instrument_id=instrument_id,
             sector=sector,
             peer_frame=peer_frame,
-            tax_rate=_float(assumption_values.get("tax_rate")),
-            cost_of_capital=_float(assumption_values.get("cost_of_capital")),
-            intangible_assumptions=assumption_values.get("intangible_adjustment") if isinstance(assumption_values.get("intangible_adjustment"), Mapping) else None,
+            classification_context=classification_context,
+            peer_context=peer_context,
+            strict_comparability=strict_comparability,
             as_known_at=as_known_at,
         ),
-        "balance_sheet": balance_sheet_analysis(frame, instrument_id=instrument_id, sector=sector, as_known_at=as_known_at),
+        "capital_efficiency": capital_efficiency,
+        "balance_sheet": balance_sheet_analysis(frame, instrument_id=instrument_id, sector=sector, classification_context=classification_context, strict_comparability=strict_comparability, as_known_at=as_known_at),
         "valuation": valuation_analysis(frame, instrument_id=instrument_id, market_inputs=market_inputs, assumptions=assumptions, as_known_at=as_known_at),
-        "growth": growth_analysis(frame, instrument_id=instrument_id, as_known_at=as_known_at),
+        "growth": growth_analysis(frame, instrument_id=instrument_id, strict_comparability=strict_comparability, as_known_at=as_known_at),
         "expectations": _expectations_report(frame, expectation_evidence, guidance_evidence, instrument_id=instrument_id, as_known_at=as_known_at),
+        "classification_context": dict(classification_context or {}),
+        "peer_context": dict(peer_context or {}),
+        "financial_institutions": dict(financial_projection or {}),
+        "statement_context": _statement_context(frame),
         "source_lineage": _lineage(frame),
         "execution_allowed": False,
     }
@@ -388,6 +594,8 @@ def _statement_frame(frame: pd.DataFrame, instrument_id: str | None, *, as_known
     result = statement_view(frame, view, as_known_at=as_known_at)
     if instrument_id and "instrument_id" in result.columns:
         result = result[result["instrument_id"].astype(str).eq(str(instrument_id))]
+    if "canonical_metric" in result.columns:
+        result["canonical_metric"] = result["canonical_metric"].map(lambda value: _METRIC_ALIASES.get(_text(value), _text(value)))
     result = result.reset_index(drop=True)
     result.attrs["statement_view"] = view
     if as_known_at is not None:
@@ -903,6 +1111,54 @@ def _text(value: object) -> str:
     return str(value).strip()
 
 
+def _is_special_sector(sector: str, classification: Mapping[str, object] | None = None) -> bool:
+    labels = {_text(sector).casefold()}
+    for name in ("sector", "industry", "issuer_sector", "issuer_type"):
+        value = _text((classification or {}).get(name)).casefold()
+        if value:
+            labels.update({value, value.replace("-", "_")})
+    for name in ("business_model_tags", "strategy_labels", "special_structures"):
+        values = (classification or {}).get(name, ())
+        if isinstance(values, str):
+            values = (values,)
+        if isinstance(values, Iterable):
+            labels.update(label for value in values if _text(value) for label in (_text(value).casefold(), _text(value).casefold().replace("-", "_")))
+    return any(label in _SPECIAL_SECTORS for label in labels)
+
+
+def _classification_is_known(sector: str, classification: Mapping[str, object] | None = None) -> bool:
+    status = _text((classification or {}).get("classification_status")).casefold()
+    if status in {"unresolved", "manual_review", "unavailable", "unknown"}:
+        return False
+    return _text(sector).casefold() not in {"", "unclassified", "unavailable", "unknown"}
+
+
+def _mark_metric_unavailable(metric: dict[str, object], reason: str) -> None:
+    metric["value"] = None
+    metric["status"] = "unavailable"
+    metric["confidence"] = "low"
+    metric["limitation"] = reason
+
+
+def _mark_capital_efficiency_unavailable(report: dict[str, object], reason: str) -> None:
+    for name in ("reported", "adjusted"):
+        section = report.get(name)
+        if not isinstance(section, dict):
+            continue
+        metrics = section.get("metrics")
+        if isinstance(metrics, dict):
+            for metric in metrics.values():
+                if isinstance(metric, dict) and metric.get("status") != "not_applicable":
+                    _mark_metric_unavailable(metric, reason)
+        section["history"] = []
+        if section.get("status") != "disabled":
+            section["status"] = "unavailable"
+        section["limitation"] = reason
+    relative = report.get("sector_relative")
+    if isinstance(relative, dict):
+        relative.update({"status": "unavailable", "reason": reason, "peer_count": 0, "percentiles": {}})
+
+
 def _first_present(*values: object) -> object | None:
     return next((value for value in values if _text(value)), None)
 
@@ -931,7 +1187,10 @@ def _metric(name: str, value: float | None, formula: str, frame: pd.DataFrame, *
     source_ids = _source_ids(frame, source_metric or name)
     period = _period_label(frame)
     status = status_override or ("missing" if value is None else "negative" if value < 0 else "available")
-    return asdict(MetricEvidence(name, value, status, formula, period, source_ids, "high" if value is not None and source_ids else "low", applicability, limitation))
+    result = asdict(MetricEvidence(name, value, status, formula, period, source_ids, "high" if value is not None and source_ids else "low", applicability, limitation))
+    result["value_kind"] = "calculated"
+    result["evidence"] = _evidence_metadata(frame)
+    return result
 
 
 def _source_ids(frame: pd.DataFrame, metric: str) -> tuple[str, ...]:
@@ -956,11 +1215,80 @@ def _lineage(frame: pd.DataFrame) -> dict[str, object]:
         "statement_view": frame.attrs.get("statement_view", "latest_restated"),
         "coverage": statement_coverage(frame),
         "source_ids": sorted({str(value) for value in frame.get("source_id", pd.Series(dtype="object")).dropna() if str(value)}),
+        **_evidence_metadata(frame),
         "execution_allowed": False,
     }
     if frame.attrs.get("as_known_at"):
         lineage["as_known_at"] = frame.attrs["as_known_at"]
     return lineage
+
+
+def _evidence_metadata(frame: pd.DataFrame) -> dict[str, object]:
+    columns = {
+        "periods": ("period_key", "period_end"),
+        "known_at": ("known_at", "available_at"),
+        "units": ("unit",),
+        "currencies": ("currency",),
+        "restatements": ("restatement_kind",),
+        "filing_versions": ("filing_version", "accession", "form"),
+        "accounting_scopes": ("consolidation_scope", "accounting_scope"),
+    }
+    result: dict[str, object] = {}
+    for output, candidates in columns.items():
+        column = next((name for name in candidates if name in frame.columns), None)
+        values = () if column is None else tuple(sorted({_text(value) for value in frame[column].tolist() if _text(value)}))
+        result[output] = list(values)
+    result["source_ids"] = sorted({str(value) for value in frame.get("source_id", pd.Series(dtype="object")).dropna() if _text(value)})
+    result["coverage"] = statement_coverage(frame)
+    return result
+
+
+def _statement_context(frame: pd.DataFrame) -> dict[str, object]:
+    metadata = _evidence_metadata(frame)
+
+    def single(values: object) -> str:
+        items = values if isinstance(values, list) else []
+        if len(items) == 1:
+            return str(items[0])
+        return "unavailable" if not items else "mixed"
+
+    return {
+        "currency": single(metadata.get("currencies")),
+        "accounting_scope": single(metadata.get("accounting_scopes")),
+        "period": max((_text(value) for value in frame.get("period_end", pd.Series(dtype="object")).tolist() if _text(value)), default="unavailable"),
+        "known_at": max((str(value) for value in metadata.get("known_at", []) if str(value)), default="unavailable"),
+        "execution_allowed": False,
+    }
+
+
+def _debt_cash_breakdown(values: Mapping[str, float], frame: pd.DataFrame) -> dict[str, object]:
+    contractual_value = values.get("contractual_debt")
+    reported_debt = values.get("debt")
+    leases = values.get("lease_liabilities")
+    cash = values.get("cash")
+    restricted_cash = values.get("restricted_cash")
+    limitations = []
+    if contractual_value is None:
+        limitations.append("Contractual debt is unavailable as a distinct reported fact; generic reported debt is not silently reclassified.")
+    if leases is None:
+        limitations.append("Lease liabilities are unavailable; lease inclusion in reported debt cannot be assessed.")
+    elif contractual_value is None:
+        limitations.append("Reported debt does not state whether lease liabilities are included; the lease amount remains a separate adjustment.")
+    if restricted_cash is None:
+        limitations.append("Restricted cash is unavailable; reported cash is not adjusted for restrictions.")
+    elif cash is None:
+        limitations.append("Restricted cash is reported but unrestricted cash cannot be derived without a reported cash balance.")
+    return {
+        "contractual_debt": {"value": contractual_value, "status": "available" if contractual_value is not None else "unavailable", "source_ids": list(_source_ids(frame, "contractual_debt")), "value_kind": "reported"},
+        "reported_debt": {"value": reported_debt, "status": "available" if reported_debt is not None else "unavailable", "source_ids": list(_source_ids(frame, "debt")), "value_kind": "reported", "basis": "lease_inclusion_unspecified"},
+        "lease_liabilities": {"value": leases, "status": "available" if leases is not None else "unavailable", "source_ids": list(_source_ids(frame, "lease_liabilities")), "value_kind": "reported", "included_in_net_debt": False},
+        "lease_adjustment": {"value": leases, "status": "available" if leases is not None else "unavailable", "included_in_net_debt": False},
+        "cash": {"value": cash, "status": "available" if cash is not None else "unavailable", "source_ids": list(_source_ids(frame, "cash")), "value_kind": "reported", "basis": "restricted_cash_inclusion_unspecified"},
+        "restricted_cash": {"value": restricted_cash, "status": "available" if restricted_cash is not None else "unavailable", "source_ids": list(_source_ids(frame, "restricted_cash")), "value_kind": "reported", "subtracted_from_cash": False},
+        "formula": "Reported debt - reported cash; lease and restricted-cash adjustments remain separate until inclusion basis is evidenced.",
+        "coverage_limitations": limitations,
+        "execution_allowed": False,
+    }
 
 
 def _tax_rate(values: Mapping[str, float]) -> float | None:
@@ -1001,6 +1329,295 @@ def _peer_percentile(metric: str, value: object, peer_frame: pd.DataFrame | None
     return float(100.0 * (sum(item < observed for item in peers) + 0.5 * sum(item == observed for item in peers)) / len(peers))
 
 
+_PEER_COMPONENTS = {
+    "gross_margin": ("gross_profit", "revenue"),
+    "operating_margin": ("operating_income", "revenue"),
+    "net_margin": ("net_income", "revenue"),
+    "roa": ("net_income", "assets"),
+    "roe": ("net_income", "equity"),
+    "cash_conversion": ("cash_from_operations", "net_income"),
+    "accrual_ratio": ("net_income", "cash_from_operations", "assets"),
+    "exceptional_item_dependence": ("exceptional_items", "net_income"),
+}
+
+
+def _period_basis_key(row: Mapping[str, object]) -> tuple[str, str, str] | None:
+    period_type = _text(row.get("period_type")).casefold()
+    fiscal_year = _text(row.get("fiscal_year"))
+    fiscal_period = _text(row.get("fiscal_period")) or _text(row.get("period_key"))
+    if not period_type or not fiscal_year and not fiscal_period:
+        return None
+    return period_type, fiscal_year, fiscal_period
+
+
+def _accounting_scope(row: Mapping[str, object]) -> str:
+    return _text(_first_present(row.get("consolidation_scope"), row.get("accounting_scope")))
+
+
+def _period_observations(frame: pd.DataFrame, components: tuple[str, ...]) -> tuple[dict[tuple[str, str, str], dict[str, object]], str]:
+    if frame.empty or "canonical_metric" not in frame.columns:
+        return {}, "statement_evidence_unavailable"
+    grouped: dict[str, dict[tuple[str, str, str], pd.DataFrame]] = {}
+    for metric in components:
+        subset = frame[frame["canonical_metric"].astype(str).eq(metric)]
+        periods: dict[tuple[str, str, str], pd.DataFrame] = {}
+        for index, row in subset.iterrows():
+            key = _period_basis_key(row)
+            if key is not None:
+                periods.setdefault(key, []).append(index)
+        grouped[metric] = {key: subset.loc[indices] for key, indices in periods.items()}
+        if not grouped[metric]:
+            return {}, f"missing_{metric}_periods"
+    common = set.intersection(*(set(periods) for periods in grouped.values()))
+    if not common:
+        return {}, "period_basis_mismatch"
+    observations: dict[tuple[str, str, str], dict[str, object]] = {}
+    for key in common:
+        rows = [grouped[metric][key] for metric in components]
+        currencies = {_text(value).upper() for group in rows for value in group.get("currency", pd.Series(dtype="object")).tolist() if _text(value)}
+        scopes = {_accounting_scope(record) for group in rows for record in group.to_dict("records") if _accounting_scope(record)}
+        if not currencies:
+            return {}, "currency_unavailable"
+        if len(currencies) != 1:
+            return {}, "currency_mismatch"
+        if not scopes:
+            return {}, "accounting_scope_unavailable"
+        if len(scopes) != 1:
+            return {}, "accounting_scope_mismatch"
+        period_ends = {_text(value) for group in rows for value in group.get("period_end", pd.Series(dtype="object")).tolist() if _text(value)}
+        if not period_ends:
+            return {}, "period_end_unavailable"
+        if len(period_ends) != 1:
+            return {}, "period_end_mismatch"
+        values: dict[str, float] = {}
+        for metric, group in zip(components, rows):
+            selected = group.copy()
+            if "dimensions" in selected.columns:
+                dimensions = {_text(value) for value in selected["dimensions"].tolist() if _text(value)}
+                if len(dimensions) > 1:
+                    return {}, "accounting_scope_mismatch"
+            for column in ("filed", "known_at", "source_id"):
+                if column not in selected.columns:
+                    selected[column] = ""
+            selected = selected.sort_values(["filed", "known_at", "source_id"], kind="stable", na_position="last")
+            numeric = pd.to_numeric(selected["value"], errors="coerce").dropna()
+            if numeric.empty:
+                return {}, f"missing_{metric}_value"
+            values[metric] = float(numeric.iloc[-1])
+        observations[key] = {
+            "values": values,
+            "currency": next(iter(currencies)),
+            "accounting_scope": next(iter(scopes)),
+            "period_end": next(iter(period_ends)),
+        }
+    return observations, ""
+
+
+def _comparison_value(metric: str, values: Mapping[str, float]) -> float | None:
+    components = _PEER_COMPONENTS.get(metric)
+    if not components or any(name not in values for name in components):
+        return None
+    if metric == "accrual_ratio":
+        numerator = values["net_income"] - values["cash_from_operations"]
+        denominator = values["assets"]
+    else:
+        numerator, denominator = (values[name] for name in components)
+    return None if denominator in (0, None) else float(numerator / denominator)
+
+
+def _comparable_peer_percentile(
+    metric: str,
+    observed: object,
+    target_frame: pd.DataFrame,
+    peer_frame: pd.DataFrame | None,
+) -> dict[str, object]:
+    components = _PEER_COMPONENTS.get(metric)
+    if components is None:
+        return {"status": "unavailable", "reason": "metric_comparison_not_defined"}
+    target_observations, reason = _period_observations(target_frame, components)
+    if reason:
+        return {"status": "unavailable", "reason": f"target_{reason}"}
+    target_basis = max(target_observations, key=lambda key: str(target_observations[key]["period_end"]))
+    target = target_observations[target_basis]
+    target_value = _comparison_value(metric, target["values"])
+    supplied_value = _float(observed)
+    if target_value is None or supplied_value is None or not math.isclose(target_value, supplied_value, rel_tol=1e-9, abs_tol=1e-12):
+        return {"status": "unavailable", "reason": "target_metric_period_mismatch", "period_basis": target_basis}
+    if not isinstance(peer_frame, pd.DataFrame) or peer_frame.empty or "instrument_id" not in peer_frame.columns:
+        return {"status": "unavailable", "reason": "peer_statement_evidence_unavailable", "period_basis": target_basis}
+    peer_ids = sorted({str(value) for value in peer_frame["instrument_id"].dropna() if str(value) and str(value) != str(target_frame["instrument_id"].iloc[0] if "instrument_id" in target_frame.columns and not target_frame.empty else "")})
+    if not peer_ids:
+        return {"status": "unavailable", "reason": "peer_identity_unavailable", "period_basis": target_basis}
+    values = []
+    for peer_id in peer_ids:
+        observations, peer_reason = _period_observations(peer_frame[peer_frame["instrument_id"].astype(str).eq(peer_id)], components)
+        if peer_reason or target_basis not in observations:
+            return {"status": "unavailable", "reason": f"peer_{peer_reason or 'period_basis_mismatch'}", "period_basis": target_basis, "peer_id": peer_id}
+        peer = observations[target_basis]
+        if peer["currency"] != target["currency"]:
+            return {"status": "unavailable", "reason": "peer_currency_mismatch", "period_basis": target_basis, "peer_id": peer_id}
+        if peer["accounting_scope"] != target["accounting_scope"]:
+            return {"status": "unavailable", "reason": "peer_accounting_scope_mismatch", "period_basis": target_basis, "peer_id": peer_id}
+        peer_value = _comparison_value(metric, peer["values"])
+        if peer_value is None:
+            return {"status": "unavailable", "reason": "peer_denominator_unavailable", "period_basis": target_basis, "peer_id": peer_id}
+        values.append(peer_value)
+    percentile = float(100.0 * (sum(value < target_value for value in values) + 0.5 * sum(value == target_value for value in values)) / len(values))
+    return {"status": "available", "reason": "comparable_peer_statements", "percentile": percentile, "support": len(values), "period_basis": target_basis, "currency": target["currency"], "accounting_scope": target["accounting_scope"]}
+
+
+def _latest_comparable_value(frame: pd.DataFrame, metric: str, components: tuple[str, ...]) -> tuple[float | None, str]:
+    observations, reason = _period_observations(frame, components)
+    if reason:
+        return None, reason
+    basis = max(observations, key=lambda key: str(observations[key]["period_end"]))
+    values = observations[basis]["values"]
+    if metric == "roic":
+        pre_tax = values.get("income_before_tax")
+        tax_expense = values.get("tax_expense")
+        debt = values.get("debt")
+        cash = values.get("cash")
+        equity = values.get("equity")
+        operating_income = values.get("operating_income")
+        if pre_tax in (None, 0) or tax_expense is None or debt is None or cash is None or equity is None or operating_income is None:
+            return None, "roic_inputs_unavailable"
+        invested_capital = equity + debt - cash
+        return (None, "roic_denominator_zero") if invested_capital == 0 else (float(operating_income * (1.0 - tax_expense / pre_tax) / invested_capital), "")
+    if metric == "net_debt":
+        debt = values.get(components[0])
+        cash = values.get("cash")
+        return (None, "net_debt_inputs_unavailable") if debt is None or cash is None else (float(debt - cash), "")
+    if metric == "working_capital":
+        assets = values.get("current_assets")
+        liabilities = values.get("current_liabilities")
+        return (None, "working_capital_inputs_unavailable") if assets is None or liabilities is None else (float(assets - liabilities), "")
+    if metric == "quick_ratio":
+        cash = values.get("cash")
+        receivables = values.get("receivables")
+        current_liabilities = values.get("current_liabilities")
+        if cash is None or receivables is None or current_liabilities in (None, 0):
+            return None, "quick_ratio_inputs_unavailable"
+        return float((cash + receivables) / current_liabilities), ""
+    if metric == "altman_like_distress":
+        current_assets = values.get("current_assets")
+        current_liabilities = values.get("current_liabilities")
+        assets = values.get("assets")
+        retained_earnings = values.get("retained_earnings")
+        operating_income = values.get("operating_income")
+        equity = values.get("equity")
+        liabilities = values.get("liabilities")
+        revenue = values.get("revenue")
+        if any(value is None for value in (current_assets, current_liabilities, assets, retained_earnings, operating_income, equity, liabilities, revenue)) or assets == 0 or liabilities == 0:
+            return None, "distress_inputs_unavailable"
+        working_capital = current_assets - current_liabilities
+        return float(1.2 * working_capital / assets + 1.4 * retained_earnings / assets + 3.3 * operating_income / assets + 0.6 * equity / liabilities + revenue / assets), ""
+    value = _comparison_value_from_components(components, values)
+    return value, "" if value is not None else "ratio_denominator_unavailable"
+
+
+def _comparable_ratio_history(frame: pd.DataFrame, components: tuple[str, ...]) -> dict[str, object]:
+    observations, reason = _period_observations(frame, components)
+    if reason:
+        return {"status": "unavailable", "reason": reason, "values": []}
+    latest = max(observations, key=lambda key: str(observations[key]["period_end"]))
+    latest_type = latest[0]
+    periods = {key: value for key, value in observations.items() if key[0] == latest_type}
+    currency = {str(value["currency"]) for value in periods.values()}
+    scopes = {str(value["accounting_scope"]) for value in periods.values()}
+    if len(currency) != 1:
+        return {"status": "unavailable", "reason": "currency_changes_across_trend_window", "values": []}
+    if len(scopes) != 1:
+        return {"status": "unavailable", "reason": "accounting_scope_changes_across_trend_window", "values": []}
+    ordered = sorted(periods.items(), key=lambda item: str(item[1]["period_end"]))
+    if latest_type == "annual":
+        years = [int(key[1]) for key, _ in ordered if key[1].isdigit()]
+        if len(years) > 1 and any(right - left != 1 for left, right in zip(years, years[1:])):
+            return {"status": "unavailable", "reason": "missing_intermediate_period", "values": []}
+    values = [value for _, item in ordered if (value := _comparison_value_from_components(components, item["values"])) is not None]
+    status = "available" if len(values) >= 2 else "unavailable"
+    return {"status": status, "reason": "comparable_periods" if status == "available" else "insufficient_comparable_periods", "values": values if status == "available" else [], "currency": next(iter(currency)), "accounting_scope": next(iter(scopes)), "period_type": latest_type, "periods": len(values)}
+
+
+def _comparable_metric_history(frame: pd.DataFrame, metric: str) -> dict[str, object]:
+    observations, reason = _period_observations(frame, (metric,))
+    if reason:
+        return {"status": "unavailable", "reason": reason, "values": []}
+    latest = max(observations, key=lambda key: str(observations[key]["period_end"]))
+    latest_type = latest[0]
+    periods = {key: item for key, item in observations.items() if key[0] == latest_type}
+    currencies = {str(item["currency"]) for item in periods.values()}
+    scopes = {str(item["accounting_scope"]) for item in periods.values()}
+    if len(currencies) != 1:
+        return {"status": "unavailable", "reason": "currency_changes_across_trend_window", "values": []}
+    if len(scopes) != 1:
+        return {"status": "unavailable", "reason": "accounting_scope_changes_across_trend_window", "values": []}
+    ordered = sorted(periods.items(), key=lambda item: str(item[1]["period_end"]))
+    if latest_type == "annual":
+        years = [int(key[1]) for key, _ in ordered if key[1].isdigit()]
+        if len(years) > 1 and any(right - left != 1 for left, right in zip(years, years[1:])):
+            return {"status": "unavailable", "reason": "missing_intermediate_period", "values": []}
+    values = [float(item["values"][metric]) for _, item in ordered]
+    status = "available" if len(values) >= 2 else "unavailable"
+    return {"status": status, "reason": "comparable_periods" if status == "available" else "insufficient_comparable_periods", "values": values if status == "available" else [], "currency": next(iter(currencies)), "accounting_scope": next(iter(scopes)), "period_type": latest_type, "periods": len(values)}
+
+
+def _apply_growth_comparability(frame: pd.DataFrame, series: dict[str, object]) -> None:
+    history = series.get("history")
+    points = [point for point in history if isinstance(point, Mapping) and point.get("value") is not None] if isinstance(history, list) else []
+    if len(points) < 2:
+        reason = "insufficient_comparable_periods"
+        series["comparability"] = {"status": "unavailable", "reason": reason, "execution_allowed": False}
+        series["growth"] = []
+        series["latest_growth"] = {"status": "unavailable", "value": None, "reason": reason, "execution_allowed": False}
+        return
+    signatures: set[tuple[str, str]] = set()
+    for point in points:
+        rows = frame[
+            frame.get("period_type", pd.Series(index=frame.index, dtype="object")).astype(str).eq(str(point.get("period_type")))
+            & frame.get("period_key", pd.Series(index=frame.index, dtype="object")).astype(str).eq(str(point.get("period_key")))
+            & frame.get("period_end", pd.Series(index=frame.index, dtype="object")).astype(str).eq(str(point.get("period_end")))
+        ]
+        currencies = {_text(value).upper() for value in rows.get("currency", pd.Series(dtype="object")).tolist() if _text(value)}
+        scopes = {_accounting_scope(record) for record in rows.to_dict("records") if _accounting_scope(record)}
+        if not currencies:
+            reason = "currency_unavailable"
+            break
+        if len(currencies) != 1:
+            reason = "currency_mismatch"
+            break
+        if not scopes:
+            reason = "accounting_scope_unavailable"
+            break
+        if len(scopes) != 1:
+            reason = "accounting_scope_mismatch"
+            break
+        signatures.add((next(iter(currencies)), next(iter(scopes))))
+    else:
+        reason = ""
+    if reason or len(signatures) != 1:
+        reason = reason or "currency_or_scope_changes_across_trend_window"
+        series["comparability"] = {"status": "unavailable", "reason": reason, "execution_allowed": False}
+        series["history"] = []
+        series["growth"] = []
+        series["latest_growth"] = {"status": "unavailable", "value": None, "reason": reason, "execution_allowed": False}
+        series["status"] = "unavailable"
+        return
+    currency, scope = next(iter(signatures))
+    series["comparability"] = {"status": "available", "currency": currency, "accounting_scope": scope, "periods": len(points), "execution_allowed": False}
+
+
+def _comparison_value_from_components(components: tuple[str, ...], values: Mapping[str, float]) -> float | None:
+    if len(components) == 2:
+        numerator, denominator = (values.get(name) for name in components)
+        return None if numerator is None or denominator in (None, 0) else float(numerator / denominator)
+    if components == ("net_income", "cash_from_operations", "assets"):
+        net_income = values.get("net_income")
+        cash_from_operations = values.get("cash_from_operations")
+        assets = values.get("assets")
+        return None if net_income is None or cash_from_operations is None or assets in (None, 0) else float((net_income - cash_from_operations) / assets)
+    return None
+
+
 def _quality_components(values: Mapping[str, float], histories: Mapping[str, list[float]]) -> dict[str, object]:
     components: dict[str, object] = {}
     for name, value in {
@@ -1022,7 +1639,8 @@ def _trend(values: list[float], *, descending: bool) -> bool | None:
 def _maturity_timeline(values: Mapping[str, float], frame: pd.DataFrame) -> dict[str, object]:
     names = ("debt_due_1y", "debt_due_2_3y", "debt_due_4_5y", "debt_due_5y_plus")
     available = {name: values[name] for name in names if name in values}
-    return {"status": "available" if available else "missing", "buckets": available, "formula": "reported debt maturity buckets", "source_ids": sorted({source for name in available for source in _source_ids(frame, name)}), "confidence": "high" if available else "low", "limitation": "Unavailable maturities are not replaced with zero." if not available else "", "execution_allowed": False}
+    limitations = [] if available else ["Debt maturity schedules are unavailable; missing buckets are not treated as zero or as favourable evidence."]
+    return {"status": "available" if available else "missing", "buckets": available, "formula": "reported debt maturity buckets", "source_ids": sorted({source for name in available for source in _source_ids(frame, name)}), "confidence": "high" if available else "low", "limitation": "; ".join(limitations), "coverage_limitations": limitations, "value_kind": "reported", "execution_allowed": False}
 
 
 def _distress_metric(values: Mapping[str, float], frame: pd.DataFrame, special: bool) -> dict[str, object]:
