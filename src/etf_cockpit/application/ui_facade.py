@@ -143,6 +143,7 @@ from etf_cockpit.data.screen_store import *  # noqa: F401,F403
 from etf_cockpit.core.versioning import *  # noqa: F401,F403
 from etf_cockpit.core.job_scheduler import *  # noqa: F401,F403
 from etf_cockpit.core.resource_profiles import *  # noqa: F401,F403
+from etf_cockpit.core.resource_profiles import HardwareSnapshot, resource_profile_report
 from etf_cockpit.models.forecast_scores import *  # noqa: F401,F403
 from etf_cockpit.models.model_zoo import *  # noqa: F401,F403
 from etf_cockpit.models.coverage_audit import *  # noqa: F401,F403
@@ -176,6 +177,41 @@ from etf_cockpit.signals.feature_drivers import (  # noqa: F401
     _source_vintage_hash,
     normalise_bound_claim,
 )
+
+
+def build_profiled_forecast_lab_workspace(
+    config: object,
+    forecasts: object,
+    prices: object,
+    *,
+    profile_id: str = "auto",
+) -> dict[str, object]:
+    """Build Forecast Lab through the app facade with an explicit hardware profile."""
+
+    from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace
+
+    return build_forecast_lab_workspace(
+        config, forecasts, prices, profile_id=profile_id
+    )
+
+
+def build_resource_profile_diagnostics(
+    root: Path | None = None,
+    *,
+    requested_profile: str = "auto",
+    snapshot: HardwareSnapshot | None = None,
+) -> dict[str, object]:
+    """Expose local hardware limitations in the application diagnostics payload."""
+
+    report = resource_profile_report(
+        root, requested_profile=requested_profile, snapshot=snapshot
+    )
+    return {
+        "status": report["selected_status"],
+        "limitations": list(report["limitations"]),
+        "resource_profile": report,
+        "execution_allowed": False,
+    }
 
 
 def _normalise_valuation_assumptions(value: object) -> dict[str, object]:
