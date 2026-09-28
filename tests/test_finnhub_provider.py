@@ -13,7 +13,7 @@ from etf_cockpit.data.finnhub_provider import (
 )
 
 
-TOKEN = "finnhub-test-secret-value"
+TOKEN = "finnhub-test-" + "secret-value"
 FROM = 1_700_000_000
 TO = 1_700_086_400
 

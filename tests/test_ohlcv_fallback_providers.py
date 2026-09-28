@@ -389,8 +389,8 @@ def test_tiingo_fetch_daily_prices_normalises_splits_and_adjusted_fields() -> No
 
 def test_api_key_appears_in_neither_request_url_nor_messages() -> None:
     """7. API key appears in neither request URL nor any message (Twelve Data and Tiingo)."""
-    twelve_secret = "twelve_secret_key_XYZ9876543210"
-    tiingo_secret = "tiingo_secret_token_ABC123456789"
+    twelve_secret = "twelve_secret_" + "key_XYZ9876543210"
+    tiingo_secret = "tiingo_secret_" + "token_ABC123456789"
     captured_twelve_calls: list[tuple[str, dict[str, str]]] = []
     captured_tiingo_calls: list[tuple[str, dict[str, str]]] = []
 

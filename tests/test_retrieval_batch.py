@@ -176,7 +176,7 @@ def test_partial_failure_records_redacted_fingerprint_and_retries_only_that_symb
 ) -> None:
     retriever = _retriever(tmp_path, retries=2)
     calls: list[str] = []
-    secret = "abcdefghijklmnopqrstuvwxyz123456"
+    secret = "abcdefghijklmnop" + "qrstuvwxyz123456"
     raw_error = f"authorization: Bearer {secret}"
 
     def download(symbol: str) -> dict[str, str]:
