@@ -785,12 +785,21 @@ def build_simple_instrument_scores(
     )
     scores = sorted(
         [*universe_scores, *candidate_scores],
-        key=lambda item: (item.final_score_10 is None, -(item.final_score_10 or -1.0), item.display_id),
+        key=lambda item: (
+            item.final_score_10 is None,
+            -(item.final_score_10 or -1.0),
+            _is_sparebank_ec_asset_type(item.asset_type),
+            item.display_id,
+        ),
     )
     # Concentration evidence is intentionally scoped to an explicit top-ranked
     # cohort. Including every scored row with equal weight would turn the
     # crowding summary into a universe average unrelated to the ranked ideas.
-    ranked_instruments = [score.display_id for score in scores[:10]]
+    ranked_instruments = [
+        score.display_id
+        for score in scores
+        if not _is_sparebank_ec_asset_type(score.asset_type)
+    ][:10]
     ranked_crowding = build_correlation_clusters(
         prices,
         metadata,
@@ -802,8 +811,8 @@ def build_simple_instrument_scores(
     ranked = [
         replace(
             score,
-            rank=index,
-            score_rank=index,
+            rank=None if _is_sparebank_ec_asset_type(score.asset_type) else index,
+            score_rank=None if _is_sparebank_ec_asset_type(score.asset_type) else index,
             news_inventory=news_inventory.get(score.display_id),
             forecast_status=_forecast_status_for_components(score.components),
             **_crowding_fields_for_score(ranked_crowding_lookup.get(score.display_id)),
@@ -817,6 +826,8 @@ def build_simple_instrument_scores(
 
 
 def _with_classification_dependency(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
+    if _is_sparebank_ec_asset_type(score.asset_type):
+        return score
     state = classification_score_state(ROOT, score.display_id)
     if str(state.get("status")) == "unavailable":
         return replace(
@@ -841,7 +852,11 @@ def _with_classification_dependency(score: SimpleInstrumentScore) -> SimpleInstr
 
 
 def _with_canonical_score(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
-    if score.canonical_score is not None or score.classification_dependency_status != "current":
+    if (
+        score.canonical_score is not None
+        or score.classification_dependency_status != "current"
+        or _is_sparebank_ec_asset_type(score.asset_type)
+    ):
         return score
     canonical = canonical_score_from_simple_components(
         score.display_id,
@@ -1276,6 +1291,21 @@ def build_universe_simple_scores(
         if signal.etf_id not in enabled_ids or identity is None:
             continue
         seen_ids.add(signal.etf_id)
+        asset_type = _display_asset_type(identity)
+        if _is_sparebank_ec_asset_type(asset_type):
+            output.append(
+                _sparebank_scorecard_status(
+                    instrument_key=f"configured:{identity.id}",
+                    display_id=identity.id,
+                    name=identity.name,
+                    yahoo_symbol=symbol_map.get(identity.id, identity.ticker),
+                    asset_type=asset_type,
+                    instrument_currency=identity.currency,
+                    isin=identity.isin or "needs_verification",
+                    data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
+                )
+            )
+            continue
         price_info = latest_prices.get(signal.etf_id, {})
         quality_info = price_quality.get(signal.etf_id, {})
         liquidity_info = liquidity.get(signal.etf_id, {})
@@ -1467,7 +1497,22 @@ def build_universe_simple_scores(
         identity = etf_lookup.get(etf_id)
         if identity is None:
             continue
-        output.append(_pending_configured_score(identity, symbol_map.get(etf_id, identity.ticker)))
+        asset_type = _display_asset_type(identity)
+        if _is_sparebank_ec_asset_type(asset_type):
+            output.append(
+                _sparebank_scorecard_status(
+                    instrument_key=f"configured:{identity.id}",
+                    display_id=identity.id,
+                    name=identity.name,
+                    yahoo_symbol=symbol_map.get(etf_id, identity.ticker),
+                    asset_type=asset_type,
+                    instrument_currency=identity.currency,
+                    isin=identity.isin or "needs_verification",
+                    data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
+                )
+            )
+        else:
+            output.append(_pending_configured_score(identity, symbol_map.get(etf_id, identity.ticker)))
     return [_with_canonical_score(score) for score in output]
 
 
@@ -1510,6 +1555,20 @@ def build_candidate_simple_scores(
         if not instrument_id:
             continue
         asset_type = _infer_candidate_asset_type(row)
+        if _is_sparebank_ec_asset_type(asset_type):
+            output.append(
+                _sparebank_scorecard_status(
+                    instrument_key=f"candidate:{instrument_id}",
+                    display_id=instrument_id,
+                    name=_noneable_str(row.get("name")) or instrument_id,
+                    yahoo_symbol=_noneable_str(row.get("yahoo_symbol")) or instrument_id,
+                    asset_type=asset_type,
+                    instrument_currency=_noneable_str(row.get("currency")),
+                    isin=_noneable_str(row.get("isin")),
+                    data_policy=_noneable_str(row.get("data_policy")) or "yfinance_only",
+                )
+            )
+            continue
         decision = support_decision(
             str(row.get("instrument_type") or row.get("asset_type") or asset_type).strip().lower(),
             str(row.get("data_policy") or "yfinance_only").strip().lower(),
@@ -1758,6 +1817,52 @@ def _pending_configured_score(identity, yahoo_symbol: str) -> SimpleInstrumentSc
         model_contamination_risk="not_evaluated",
         model_authority_reason="No model row exists yet; models cannot affect the score.",
         calibration_required=True,
+    )
+
+
+def _sparebank_scorecard_status(
+    *,
+    instrument_key: str,
+    display_id: str,
+    name: str,
+    yahoo_symbol: str,
+    asset_type: str,
+    instrument_currency: str | None,
+    isin: str | None,
+    data_policy: str,
+) -> SimpleInstrumentScore:
+    return SimpleInstrumentScore(
+        instrument_key=instrument_key,
+        display_id=display_id,
+        source_group=SPAREBANKEN_TIER_LABEL,
+        asset_type=asset_type,
+        name=name,
+        yahoo_symbol=yahoo_symbol,
+        instrument_currency=instrument_currency,
+        latest_date="unavailable",
+        latest_price=None,
+        isin=isin,
+        analysis_tier="sparebanken",
+        data_policy=data_policy,
+        final_score_10=None,
+        decision="Sparebank scorecard required",
+        one_line_reason=(
+            "Underwriting is determined by the Sparebank scorecard; tactical evidence is presented separately."
+        ),
+        components=[],
+        warnings=[],
+        evidence_score_10=None,
+        evidence_quality_10=None,
+        risk_friction_10=None,
+        final_label="scorecard_owned",
+        final_action="manual_review",
+        model_authority_label="Underwriting from the Sparebank scorecard",
+        strategy_template_label="scorecard_owned",
+        strategy_template_descriptions=(
+            "The native Sparebank scorecard owns underwriting; tactical evidence remains separate."
+        ),
+        evidence_maturity_state="scorecard_owned",
+        evidence_maturity_label="Underwriting status is provided by the Sparebank scorecard.",
     )
 
 
@@ -3498,6 +3603,11 @@ def _pending_candidate_portfolio_label(source_group: str) -> str:
 
 def _is_stock_like_asset_type(asset_type: str) -> bool:
     return asset_type in {"Stock", "Certificate", "Equity certificate"}
+
+
+def _is_sparebank_ec_asset_type(asset_type: object) -> bool:
+    normalized = str(asset_type or "").strip().casefold().replace("-", "_").replace(" ", "_")
+    return normalized in {"ec", "equity_certificate", "certificate", "egenkapitalbevis"}
 
 
 def _isin_status(isin: object) -> str:

@@ -1,0 +1,6 @@
+{
+  "source_reference": "SPBK-798.md golden fixtures",
+  "normalisation": {"reported": 120, "adjustments": [-15, -6, 9, -3, -6], "reported_pre_tax": 270, "pre_tax_adjustments": [42, -152, -28], "equity": 1000, "ec_share": 0.4},
+  "capital": {"cet1": 1000, "ppp": 110, "credit_loss": 260, "rwa": 5700, "target_ratio": 0.17},
+  "credit": {"stage2": 1, "loans_open": 10, "loans_close": 12, "opening_stage3": 100, "written_off_stage3": 20, "closing_stage3": 80, "opening_allowance": 25, "allowance_used_writeoffs": 20, "closing_allowance": 5}
+}

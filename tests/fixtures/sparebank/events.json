@@ -1,0 +1,8 @@
+{
+  "source_reference": "SPBK-799.md golden fixtures",
+  "conversion": {"old_ec": 4, "converted": 3, "foundation_ec": 3, "old_allocation_weight": 0.4},
+  "rights": {"shares": 10, "book": 1000, "subscription_price": 60, "rights_ratio": 0.5, "cum_price": 90},
+  "deficit": {"owner_nominal": 350, "owner_fund": 50, "self_owned": 600, "deficit": 65},
+  "skue": {"bank_value_split": 0.227, "target_ec_exchange_ratio": 0.5039375, "post_merger_ec_class_ownership": 0.088, "post_merger_eierbrok": 0.219},
+  "merger": {"standalone": 99, "paths": {"delayed": -1.98, "base": 7.17, "faster": 10.78}, "capital_release": 75}
+}

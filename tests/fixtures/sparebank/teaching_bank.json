@@ -1,0 +1,20 @@
+{
+  "instrument_id": "TEACHING-EC",
+  "jurisdiction": "NO",
+  "legal_form": "savings_bank",
+  "instrument_subtype": "equity_certificate",
+  "known_at": "2025-01-01T00:00:00Z",
+  "effective_at": "2024-12-31",
+  "source_url": "fixture://sparebank/teaching-bank",
+  "facts": {
+    "ec_capital": {"available": true, "value": 400.0, "unit": "NOK", "period": "2024-12-31", "source_locator": "ch. 1-2"},
+    "sparebankens_fond": {"available": true, "value": 600.0, "unit": "NOK", "period": "2024-12-31", "source_locator": "ch. 1-2"},
+    "outstanding_ec_count": {"available": true, "value": 4.0, "unit": "shares", "period": "2024-12-31", "source_locator": "ch. 1-2"},
+    "period_end_ec_count": {"available": true, "value": 4.0, "unit": "shares", "period": "2024-12-31", "source_locator": "ch. 1-2"},
+    "weighted_average_ec_count": {"available": true, "value": 4.0, "unit": "shares", "period": "2024-12-31", "source_locator": "ch. 1-2"},
+    "ec_attributable_result": {"available": true, "value": 48.0, "unit": "NOK", "period": "2024-12-31", "source_locator": "ch. 1-2"},
+    "owner_attributable_book": {"available": true, "value": 400.0, "unit": "NOK", "period": "2024-12-31", "source_locator": "ch. 1-2"},
+    "eierbrok": {"available": true, "value": 0.4, "unit": "ratio", "period": "2024-12-31", "source_locator": "ch. 1-2"}
+  },
+  "source_note": "Teaching values from SPBK-001 issue, ch. 1-2."
+}
