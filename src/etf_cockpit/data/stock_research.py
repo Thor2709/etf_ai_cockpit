@@ -483,6 +483,17 @@ def build_stock_research_report(
     sector_known = _classification_is_known(sector, classification_context)
     special = sector_known and _is_special_sector(sector, classification_context)
     capital_sector = "financials" if special else sector
+    profitability = profitability_analysis(
+        frame,
+        instrument_id=instrument_id,
+        sector=sector,
+        peer_frame=peer_frame,
+        classification_context=classification_context,
+        peer_context=peer_context,
+        strict_comparability=strict_comparability,
+        tax_rate=_float(assumption_values.get("tax_rate")),
+        as_known_at=as_known_at,
+    )
     capital_efficiency = capital_efficiency_analysis(
         frame,
         instrument_id=instrument_id,
@@ -491,6 +502,8 @@ def build_stock_research_report(
         tax_rate=_float(assumption_values.get("tax_rate")),
         cost_of_capital=_float(assumption_values.get("cost_of_capital")),
         intangible_assumptions=assumption_values.get("intangible_adjustment") if isinstance(assumption_values.get("intangible_adjustment"), Mapping) else None,
+        profitability_output=profitability,
+        strict_comparability=strict_comparability,
         as_known_at=as_known_at,
     )
     if strict_comparability and not sector_known:
@@ -498,16 +511,7 @@ def build_stock_research_report(
     return {
         "schema_version": STOCK_RESEARCH_SCHEMA_VERSION,
         "instrument_id": instrument_id or "",
-        "profitability": profitability_analysis(
-            frame,
-            instrument_id=instrument_id,
-            sector=sector,
-            peer_frame=peer_frame,
-            classification_context=classification_context,
-            peer_context=peer_context,
-            strict_comparability=strict_comparability,
-            as_known_at=as_known_at,
-        ),
+        "profitability": profitability,
         "capital_efficiency": capital_efficiency,
         "balance_sheet": balance_sheet_analysis(frame, instrument_id=instrument_id, sector=sector, classification_context=classification_context, strict_comparability=strict_comparability, as_known_at=as_known_at),
         "valuation": valuation_analysis(frame, instrument_id=instrument_id, market_inputs=market_inputs, assumptions=assumptions, as_known_at=as_known_at),
