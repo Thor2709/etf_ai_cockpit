@@ -7,81 +7,99 @@ templates:
   - template_id: etf_dual_momentum
     name: ETF dual momentum
     version: "1.0"
-    benchmark: benchmark.etf_broad_market
-    definition_hash: f197c066cbb0b8efc548d53c8e22cf2aff2ad0ea092d5c5367f94703ff18716e
+    benchmark: benchmark:ftse-all-world
+    definition_hash: auto
+    strategy_id: etf_trend_momentum
+    profile_id: portfolio_research
     execution_allowed: false
     context_only: false
-    stages: {analyse: supported, portfolio: review_only, backtest: benchmark_required, paper: unavailable, draft_order: rejected}
+    stages: {analyse: supported, portfolio: supported, backtest: supported, paper: unavailable, draft_order: unavailable, canary: unavailable, bounded_automatic: unavailable}
     definition: {asset_scope: [etf], rule: momentum_and_trend, missing_data: unavailable}
   - template_id: trend_following
     name: Trend-following
     version: "1.0"
-    benchmark: benchmark.etf_broad_market
-    definition_hash: 0622b36db626760943850f249264ad9d56b70736eaf0359fdcd44dbcf3e494e2
+    benchmark: benchmark:ftse-all-world
+    definition_hash: auto
+    strategy_id: etf_trend_momentum
+    profile_id: portfolio_research
     execution_allowed: false
     context_only: false
-    stages: {analyse: supported, portfolio: review_only, backtest: benchmark_required, paper: unavailable, draft_order: rejected}
+    stages: {analyse: supported, portfolio: supported, backtest: supported, paper: unavailable, draft_order: unavailable, canary: unavailable, bounded_automatic: unavailable}
     definition: {asset_scope: [etf, stock], rule: price_above_trend, missing_data: unavailable}
   - template_id: defensive_rotation
     name: Defensive rotation
     version: "1.0"
-    benchmark: benchmark.defensive_allocation
-    definition_hash: eb0eef07f07e651a881fa18e8128537e8bb270da8c92c768e6e7c2a9a1823aa1
+    benchmark: benchmark:ftse-all-world
+    definition_hash: auto
+    strategy_id: defensive_rotation
+    profile_id: portfolio_research
     execution_allowed: false
     context_only: false
-    stages: {analyse: supported, portfolio: review_only, backtest: benchmark_required, paper: unavailable, draft_order: rejected}
+    stages: {analyse: supported, portfolio: supported, backtest: supported, paper: unavailable, draft_order: unavailable, canary: unavailable, bounded_automatic: unavailable}
     definition: {asset_scope: [etf], rule: defensive_regime_review, missing_data: unavailable}
   - template_id: stock_quality_momentum
     name: Stock quality momentum
     version: "1.0"
-    benchmark: benchmark.stock_quality
-    definition_hash: 826134b4bc90da602be4dd0cd5af119c785d5cbc3089b04cfd887e3ee5e249bf
+    benchmark: benchmark:ftse-all-world
+    definition_hash: auto
+    strategy_id: stock_quality_momentum
+    profile_id: portfolio_research
     execution_allowed: false
     context_only: false
-    stages: {analyse: supported, portfolio: review_only, backtest: benchmark_required, paper: unavailable, draft_order: rejected}
+    stages: {analyse: supported, portfolio: supported, backtest: supported, paper: unavailable, draft_order: unavailable, canary: unavailable, bounded_automatic: unavailable}
     definition: {asset_scope: [stock], rule: quality_and_momentum, missing_data: unavailable}
   - template_id: stock_value_momentum
     name: Stock value momentum
     version: "1.0"
-    benchmark: benchmark.stock_value
-    definition_hash: 991c112ef5189e90bc351742c31b2d1aae01efa030de0a8001e8bf4c6d9f269c
+    benchmark: benchmark:ftse-all-world
+    definition_hash: auto
+    strategy_id: stock_value_momentum
+    profile_id: portfolio_research
     execution_allowed: false
     context_only: false
-    stages: {analyse: supported, portfolio: review_only, backtest: benchmark_required, paper: unavailable, draft_order: rejected}
+    stages: {analyse: supported, portfolio: supported, backtest: supported, paper: unavailable, draft_order: unavailable, canary: unavailable, bounded_automatic: unavailable}
     definition: {asset_scope: [stock], rule: value_and_momentum, missing_data: unavailable}
   - template_id: low_volatility_watchlist
     name: Low-volatility watchlist
     version: "1.0"
-    benchmark: benchmark.low_volatility_equity
-    definition_hash: 0188fd6f2c3c1c1c5d6582066818cb37abc75e29551db861c8939a08971c0e97
+    benchmark: benchmark:ftse-all-world
+    definition_hash: auto
+    strategy_id: long_only_ranking
+    profile_id: score_research
     execution_allowed: false
     context_only: false
-    stages: {analyse: supported, portfolio: review_only, backtest: benchmark_required, paper: unavailable, draft_order: rejected}
+    stages: {analyse: supported, portfolio: unavailable, backtest: supported, paper: unavailable, draft_order: unavailable, canary: unavailable, bounded_automatic: unavailable}
     definition: {asset_scope: [etf, stock], rule: volatility_bound, missing_data: unavailable}
   - template_id: dividend_quality_watchlist
     name: Dividend quality watchlist
     version: "1.0"
-    benchmark: benchmark.dividend_quality_equity
-    definition_hash: 7b13defa2b75b43b56fcd6ea3db89014963aa47ba85ec8cdac3565d9228d028f
+    benchmark: benchmark:ftse-all-world
+    definition_hash: auto
+    strategy_id: stock_quality_momentum
+    profile_id: portfolio_research
     execution_allowed: false
     context_only: false
-    stages: {analyse: supported, portfolio: review_only, backtest: benchmark_required, paper: unavailable, draft_order: rejected}
+    stages: {analyse: supported, portfolio: supported, backtest: supported, paper: unavailable, draft_order: unavailable, canary: unavailable, bounded_automatic: unavailable}
     definition: {asset_scope: [stock], rule: dividend_and_quality, missing_data: unavailable}
   - template_id: news_context_watchlist
     name: News/context watchlist only
     version: "1.0"
-    benchmark: benchmark.news_context_none
-    definition_hash: 9489234b54966980186b065d8665b59b3f8c4c8a9244fb7e25faa2cd1e6d6365
+    benchmark: benchmark:ftse-all-world
+    definition_hash: auto
+    strategy_id: provider_news_context
+    profile_id: context_only
     execution_allowed: false
     context_only: true
-    stages: {analyse: context_only, portfolio: unavailable, backtest: unavailable, paper: unavailable, draft_order: rejected}
+    stages: {analyse: supported_with_limitations, portfolio: unavailable, backtest: unavailable, paper: unavailable, draft_order: unavailable, canary: unavailable, bounded_automatic: unavailable}
     definition: {asset_scope: [etf, stock], rule: source_linked_context, missing_data: unavailable}
   - template_id: manual_custom_score_blend
     name: Manual custom score blend
     version: "1.0"
-    benchmark: benchmark.manual_score_blend
-    definition_hash: 60d028ba95f89f5b6831c2655ad0e307c25cb8f21f40483a8f78ce78850de7ee
+    benchmark: benchmark:ftse-all-world
+    definition_hash: auto
+    strategy_id: baseline_simple_scores
+    profile_id: score_research
     execution_allowed: false
     context_only: false
-    stages: {analyse: user_authorised, portfolio: review_only, backtest: benchmark_required, paper: unavailable, draft_order: rejected}
+    stages: {analyse: supported, portfolio: unavailable, backtest: supported, paper: unavailable, draft_order: unavailable, canary: unavailable, bounded_automatic: unavailable}
     definition: {asset_scope: [etf, stock], rule: user_supplied_weighted_score, missing_data: unavailable}
