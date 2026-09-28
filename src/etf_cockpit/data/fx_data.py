@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import shutil
+from collections import deque
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from itertools import combinations
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 
@@ -18,6 +22,7 @@ from etf_cockpit.data.providers import ProviderResult
 FX_CLEAN_PATH = CLEAN_DIR / "fx.parquet"
 DATE_COLUMNS = ("as_of_date", "date", "rate_date")
 RATE_COLUMNS = ("rate", "fx_rate", "exchange_rate", "mid")
+FX_RATE_CONSISTENCY_TOLERANCE = 1e-6
 
 
 @dataclass(frozen=True)
@@ -44,11 +49,55 @@ class FxImportCommit:
     metadata: DatasetMetadata
 
 
+@dataclass(frozen=True)
+class FxRate:
+    base_currency: str
+    quote_currency: str
+    rate: float
+    source: str
+
+
+@dataclass(frozen=True)
+class FxRateSnapshot:
+    decision_date: date | None
+    as_of_date: date | None
+    rates: tuple[FxRate, ...]
+    source_snapshot: str | None
+    age_business_days: int | None
+    staleness_status: str
+    available: bool
+    reason: str | None
+
+
+@dataclass(frozen=True)
+class FxRateLeg:
+    from_currency: str
+    to_currency: str
+    observed_pair: str
+    observed_rate: float
+    applied_rate: float
+    inverted: bool
+    source: str
+
+
+@dataclass(frozen=True)
+class FxCrossRate:
+    base_currency: str
+    quote_currency: str
+    rate: float
+    as_of_date: date | None
+    source_snapshot: str | None
+    legs: tuple[FxRateLeg, ...]
+    label: str
+    execution_allowed: Literal[False] = False
+
+
 def validate_fx_rates(
     frame: pd.DataFrame,
     *,
     source_name: str = "fx_rates",
     provider_or_manual_source: str = "manual",
+    ingested_at: datetime | None = None,
     today: date | None = None,
 ) -> FxValidation:
     errors: list[str] = []
@@ -70,6 +119,13 @@ def validate_fx_rates(
     parsed_dates = pd.to_datetime(frame[date_column], errors="coerce", utc=False)
     if parsed_dates.isna().any():
         errors.append("FX rates contain invalid or missing as_of_date values.")
+    parsed_ingested_at: pd.Series | None = None
+    if ingested_at is not None:
+        parsed_ingested_at = pd.to_datetime(pd.Series([ingested_at] * len(frame), index=frame.index), errors="coerce", utc=True)
+    elif "ingested_at" in frame.columns:
+        parsed_ingested_at = pd.to_datetime(frame["ingested_at"], errors="coerce", utc=True)
+    if parsed_ingested_at is not None and parsed_ingested_at.isna().any():
+        errors.append("FX rates contain invalid or missing ingested_at values.")
     rates = pd.to_numeric(frame[rate_column], errors="coerce")
     if rates.isna().any() or (rates <= 0).any():
         errors.append("FX rates must be numeric and positive.")
@@ -86,9 +142,12 @@ def validate_fx_rates(
     normalised["pair"] = normalised["base_currency"] + "/" + normalised["quote_currency"]
     normalised["rate"] = rates.astype(float)
     normalised["source"] = _column_or_default(frame, "source", "manual_import")
+    if parsed_ingested_at is not None:
+        normalised["ingested_at"] = parsed_ingested_at
     duplicates = normalised.duplicated(["as_of_date", "pair"])
     if duplicates.any():
         errors.append("FX rates contain duplicate date/pair rows.")
+    errors.extend(_fx_rate_consistency_errors(normalised))
     if errors:
         return FxValidation(_empty_fx_frame(), errors, warnings, None)
 
@@ -123,6 +182,7 @@ def commit_fx_import(
         result.data,
         source_name=result.metadata.source_name if result.metadata else "fx_rates",
         provider_or_manual_source=result.metadata.provider_or_manual_source if result.metadata else "manual",
+        ingested_at=(result.metadata.ingested_at if result.metadata and result.metadata.ingested_at else datetime.now(timezone.utc)),
     )
     if not validation.ok or validation.metadata is None:
         raise ValueError("; ".join(validation.errors))
@@ -164,6 +224,150 @@ def load_fx_rates(path: Path = FX_CLEAN_PATH) -> pd.DataFrame:
     if not path.exists():
         return _empty_fx_frame()
     return pd.read_parquet(path)
+
+
+def build_fx_rate_snapshot(
+    frame: pd.DataFrame,
+    *,
+    decision_time: date | datetime | str | None,
+) -> FxRateSnapshot:
+    """Select a same-date, point-in-time FX snapshot or return an unavailable one."""
+
+    decision_date, cutoff, date_only = _decision_cutoff(decision_time)
+    if decision_date is None:
+        return FxRateSnapshot(None, None, (), None, None, "block", False, "Analysis decision time is missing or invalid.")
+    if frame.empty:
+        return FxRateSnapshot(decision_date, None, (), None, None, "missing", False, "FX rates are missing.")
+
+    date_column = _first_present(frame, DATE_COLUMNS)
+    if date_column is None:
+        return FxRateSnapshot(decision_date, None, (), None, None, "missing", False, "FX rates have no quote date.")
+    if "ingested_at" not in frame.columns:
+        return FxRateSnapshot(
+            decision_date,
+            None,
+            (),
+            None,
+            None,
+            "unknown",
+            False,
+            "FX rates have no ingested_at timestamp; point-in-time availability cannot be verified.",
+        )
+
+    quote_dates = pd.to_datetime(frame[date_column], errors="coerce", utc=False)
+    ingested = pd.to_datetime(frame["ingested_at"], errors="coerce", utc=True)
+    if quote_dates.isna().any():
+        return FxRateSnapshot(decision_date, None, (), None, None, "unknown", False, "FX rates contain a missing or invalid quote date.")
+    if ingested.isna().any():
+        return FxRateSnapshot(decision_date, None, (), None, None, "unknown", False, "FX rates contain a missing or invalid ingested_at timestamp.")
+
+    quote_days = quote_dates.dt.date
+    known_by_decision = ingested.dt.date.lt(decision_date) if date_only else ingested.le(cutoff)
+    eligible = quote_days.le(decision_date) & known_by_decision
+    if not bool(eligible.any()):
+        return FxRateSnapshot(
+            decision_date,
+            None,
+            (),
+            None,
+            None,
+            "missing",
+            False,
+            "No FX snapshot was known by the analysis decision time.",
+        )
+
+    latest = max(quote_days[eligible])
+    latest_rows = frame.loc[eligible & quote_days.eq(latest)].copy()
+    validation = validate_fx_rates(latest_rows, today=decision_date)
+    if not validation.ok or validation.metadata is None:
+        reason = "; ".join(validation.errors) or "FX snapshot metadata is unavailable."
+        return FxRateSnapshot(decision_date, latest, (), None, None, "block", False, reason)
+
+    normalised = validation.frame.sort_values(["pair", "source"], kind="stable").reset_index(drop=True)
+    age = _business_days_between(latest, decision_date)
+    staleness = price_staleness_status(age)
+    rates = tuple(
+        FxRate(
+            base_currency=str(row.base_currency),
+            quote_currency=str(row.quote_currency),
+            rate=float(row.rate),
+            source=str(row.source),
+        )
+        for row in normalised.itertuples(index=False)
+    )
+    checksum = sha256_dataframe(normalised)
+    if staleness == "ok":
+        reason = None
+    else:
+        freshness = "stale" if staleness == "block" else "not fresh"
+        reason = f"FX snapshot is {freshness} ({staleness}; {age} business days old); conversion is unavailable."
+    return FxRateSnapshot(decision_date, latest, rates, checksum, age, staleness, staleness == "ok", reason)
+
+
+def fx_cross_rate(
+    snapshot: FxRateSnapshot,
+    base_currency: str,
+    quote_currency: str,
+    *,
+    tolerance: float = FX_RATE_CONSISTENCY_TOLERANCE,
+) -> FxCrossRate | None:
+    """Derive a rate while recording every direct or reciprocal quote leg."""
+
+    base = _normalise_currency(base_currency)
+    quote = _normalise_currency(quote_currency)
+    if base is None or quote is None:
+        raise ValueError("FX conversion requires three-letter currency codes.")
+    if base == quote:
+        return FxCrossRate(base, quote, 1.0, snapshot.as_of_date, snapshot.source_snapshot, (), "Identity reference rate; informational and non-executable.")
+    if not snapshot.available:
+        return None
+
+    graph: dict[str, list[FxRateLeg]] = {}
+    for row in snapshot.rates:
+        pair = f"{row.base_currency}/{row.quote_currency}"
+        graph.setdefault(row.base_currency, []).append(
+            FxRateLeg(row.base_currency, row.quote_currency, pair, row.rate, row.rate, False, row.source)
+        )
+        graph.setdefault(row.quote_currency, []).append(
+            FxRateLeg(row.quote_currency, row.base_currency, pair, row.rate, 1.0 / row.rate, True, row.source)
+        )
+    for legs in graph.values():
+        legs.sort(key=lambda leg: (leg.to_currency, leg.inverted, leg.observed_pair, leg.source))
+
+    queue = deque([(base, 1.0, (), frozenset({base}))])
+    matches: list[tuple[float, tuple[FxRateLeg, ...]]] = []
+    shortest: int | None = None
+    while queue:
+        current, factor, path, visited = queue.popleft()
+        if shortest is not None and len(path) >= shortest:
+            continue
+        for leg in graph.get(current, ()):
+            if leg.to_currency in visited:
+                continue
+            next_factor = factor * leg.applied_rate
+            next_path = path + (leg,)
+            if leg.to_currency == quote:
+                shortest = len(next_path) if shortest is None else shortest
+                if len(next_path) == shortest:
+                    matches.append((next_factor, next_path))
+            elif shortest is None or len(next_path) < shortest:
+                queue.append((leg.to_currency, next_factor, next_path, visited | {leg.to_currency}))
+    if not matches:
+        return None
+    matches.sort(key=lambda item: tuple((leg.observed_pair, leg.inverted, leg.from_currency) for leg in item[1]))
+    selected_rate, selected_legs = matches[0]
+    if any(not math.isclose(rate, selected_rate, rel_tol=tolerance, abs_tol=tolerance) for rate, _ in matches[1:]):
+        return None
+    sources = ", ".join(sorted({leg.source for leg in selected_legs if leg.source})) or "unspecified source"
+    return FxCrossRate(
+        base,
+        quote,
+        selected_rate,
+        snapshot.as_of_date,
+        snapshot.source_snapshot,
+        selected_legs,
+        f"{sources} reference rate; informational and non-executable.",
+    )
 
 
 def fx_data_inventory(path: Path = FX_CLEAN_PATH) -> dict[str, object]:
@@ -222,6 +426,76 @@ def _parse_currency_pairs(frame: pd.DataFrame) -> _CurrencyPairs:
     return _CurrencyPairs(base, quote, errors, warnings)
 
 
+def _fx_rate_consistency_errors(frame: pd.DataFrame, *, tolerance: float = FX_RATE_CONSISTENCY_TOLERANCE) -> list[str]:
+    errors: list[str] = []
+    for as_of_date, dated in frame.groupby("as_of_date", sort=True):
+        direct = {
+            (str(row.base_currency), str(row.quote_currency)): float(row.rate)
+            for row in dated.itertuples(index=False)
+        }
+        for (base, quote), rate in sorted(direct.items()):
+            if base == quote:
+                if not math.isclose(rate, 1.0, rel_tol=0.0, abs_tol=tolerance):
+                    errors.append(f"FX same-currency rate {base}/{quote} must equal 1 on {as_of_date}.")
+                continue
+            reciprocal = direct.get((quote, base))
+            if reciprocal is not None and not math.isclose(rate * reciprocal, 1.0, rel_tol=tolerance, abs_tol=tolerance):
+                errors.append(f"FX reciprocal quotes {base}/{quote} and {quote}/{base} are inconsistent on {as_of_date}.")
+
+        currencies = sorted({currency for pair in direct for currency in pair})
+
+        def oriented_rate(base: str, quote: str) -> float | None:
+            if (base, quote) in direct:
+                return direct[(base, quote)]
+            reverse = direct.get((quote, base))
+            return None if reverse is None else 1.0 / reverse
+
+        for first, middle, last in combinations(currencies, 3):
+            first_middle = oriented_rate(first, middle)
+            middle_last = oriented_rate(middle, last)
+            first_last = oriented_rate(first, last)
+            if first_middle is None or middle_last is None or first_last is None:
+                continue
+            implied = first_middle * middle_last
+            if not math.isclose(implied, first_last, rel_tol=tolerance, abs_tol=tolerance):
+                errors.append(
+                    f"FX triangular quotes {first}/{middle}, {middle}/{last}, and {first}/{last} "
+                    f"are inconsistent on {as_of_date}."
+                )
+    return errors
+
+
+def _decision_cutoff(value: date | datetime | str | None) -> tuple[date | None, pd.Timestamp | None, bool]:
+    if value is None:
+        return None, None, False
+    if isinstance(value, datetime):
+        timestamp = pd.Timestamp(value)
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.tz_localize("UTC")
+        else:
+            timestamp = timestamp.tz_convert("UTC")
+        return timestamp.date(), timestamp, False
+    if isinstance(value, date):
+        return value, None, True
+    text = str(value).strip()
+    if not text:
+        return None, None, False
+    if len(text) == 10:
+        parsed_date = pd.to_datetime(text, errors="coerce")
+        if pd.isna(parsed_date):
+            return None, None, False
+        return parsed_date.date(), None, True
+    timestamp = pd.to_datetime(text, errors="coerce", utc=True)
+    if pd.isna(timestamp):
+        return None, None, False
+    return timestamp.date(), timestamp, False
+
+
+def _normalise_currency(value: str) -> str | None:
+    currency = str(value or "").strip().upper()
+    return currency if re.fullmatch(r"[A-Z]{3}", currency) else None
+
+
 def _business_days_between(start: date, end: date) -> int:
     if start >= end:
         return 0
@@ -242,7 +516,7 @@ def _column_or_default(frame: pd.DataFrame, column: str, default: str) -> pd.Ser
 
 
 def _empty_fx_frame() -> pd.DataFrame:
-    return pd.DataFrame(columns=["as_of_date", "base_currency", "quote_currency", "pair", "rate", "source", "staleness_status"])
+    return pd.DataFrame(columns=["as_of_date", "base_currency", "quote_currency", "pair", "rate", "source", "ingested_at", "staleness_status"])
 
 
 def _store_raw_fx_import(result: ProviderResult, frame: pd.DataFrame, raw_dir: Path, timestamp: str, checksum: str) -> Path:

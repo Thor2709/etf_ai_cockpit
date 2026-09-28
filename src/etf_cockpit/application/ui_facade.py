@@ -158,8 +158,9 @@ from etf_cockpit.portfolio.proposal_policy import *  # noqa: F401,F403
 from etf_cockpit.portfolio.robust_risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk_analytics import *  # noqa: F401,F403
+from etf_cockpit.portfolio.currency import CurrencyProjection, project_portfolio_currency as _project_portfolio_currency
 from etf_cockpit.application.portfolio_sandbox import *  # noqa: F401,F403
-from etf_cockpit.portfolio.sandbox import select_holdings_view  # noqa: F401
+from etf_cockpit.portfolio.sandbox import PortfolioAnalysis, select_holdings_view  # noqa: F401
 from etf_cockpit.application.overlap import *  # noqa: F401,F403
 from etf_cockpit.signals.simple_scores import *  # noqa: F401,F403
 from etf_cockpit.signals.feature_drivers import (  # noqa: F401
@@ -212,6 +213,15 @@ def build_resource_profile_diagnostics(
         "resource_profile": report,
         "execution_allowed": False,
     }
+
+
+def project_portfolio_currency(
+    analysis: PortfolioAnalysis,
+    target_currency: str,
+    fx_rates: pd.DataFrame,
+) -> CurrencyProjection:
+    """Return the canonical informational currency projection for presentation."""
+    return _project_portfolio_currency(analysis, target_currency, fx_rates)
 
 
 def _normalise_valuation_assumptions(value: object) -> dict[str, object]:
