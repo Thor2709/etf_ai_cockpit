@@ -23,8 +23,10 @@ from etf_cockpit.core.atomic_io import atomic_write_json
 CATALOGUE_SCHEMA_VERSION = "1.0"
 CATALOGUE_VERSION = "data-catalogue.v1"
 CATALOGUE_RELATIVE_PATH = Path("data") / "catalogue" / "catalogue.json"
+DATA_DICTIONARY_RELATIVE_PATH = Path("data") / "catalogue" / "data_dictionary.json"
 _ALLOWED_LAYERS = {"raw", "clean", "derived"}
 _ALLOWED_PII = {"none", "internal", "restricted"}
+_ALLOWED_ACCESS = {"public", "internal", "restricted", "unknown"}
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -43,9 +45,12 @@ class DatasetDefinition:
     licence: str
     update_schedule: str
     partitions: tuple[str, ...] = ()
-    row_count: int = 0
-    quality: Mapping[str, object] = field(default_factory=dict)
+    row_count: int | None = 0
+    quality: Mapping[str, object] | str = field(default_factory=dict)
     pii_classification: str = "none"
+    access_class: str = "internal"
+    canonical_path: str | None = None
+    content_sha256: str | None = None
     retention_days: int | None = None
     stale: bool = False
 
@@ -65,8 +70,11 @@ class DatasetDefinition:
             "update_schedule": self.update_schedule,
             "partitions": list(sorted(set(self.partitions))),
             "row_count": self.row_count,
-            "quality": dict(self.quality or {}),
+            "quality": self.quality if isinstance(self.quality, str) else dict(self.quality or {}),
             "pii_classification": self.pii_classification,
+            "access_class": self.access_class,
+            "canonical_path": self.canonical_path,
+            "content_sha256": self.content_sha256,
             "retention_days": self.retention_days,
             "stale": self.stale,
         }
@@ -77,8 +85,9 @@ class DatasetDefinition:
         if not isinstance(schema, Mapping):
             raise DataCatalogueError("dataset schema is missing or malformed")
         quality = payload.get("quality")
-        if quality is not None and not isinstance(quality, Mapping):
+        if quality is not None and not isinstance(quality, (Mapping, str)):
             raise DataCatalogueError("dataset quality metadata is malformed")
+        row_count = payload.get("row_count", 0)
         return _validated_dataset(
             cls(
                 dataset_id=str(payload.get("dataset_id") or ""),
@@ -89,9 +98,12 @@ class DatasetDefinition:
                 licence=str(payload.get("licence") or ""),
                 update_schedule=str(payload.get("update_schedule") or ""),
                 partitions=tuple(str(item) for item in payload.get("partitions", ())),
-                row_count=int(payload.get("row_count", 0)),
-                quality=dict(quality or {}),
+                row_count=(int(row_count) if row_count is not None else None),
+                quality=(str(quality) if isinstance(quality, str) else dict(quality or {})),
                 pii_classification=str(payload.get("pii_classification") or "none"),
+                access_class=str(payload.get("access_class") or "internal"),
+                canonical_path=(str(payload["canonical_path"]) if payload.get("canonical_path") else None),
+                content_sha256=(str(payload["content_sha256"]) if payload.get("content_sha256") else None),
                 retention_days=int(payload["retention_days"]) if payload.get("retention_days") is not None else None,
                 stale=bool(payload.get("stale", False)),
             )
@@ -172,6 +184,7 @@ class DataCatalogue:
         self._datasets: dict[str, DatasetDefinition] = {}
         self._snapshots: dict[str, DatasetSnapshot] = {}
         self._edges: set[tuple[str, str, str]] = set()
+        self._invalidations: dict[str, dict[str, object]] = {}
         self._load()
 
     @property
@@ -244,6 +257,167 @@ class DataCatalogue:
             )
         )
 
+    def canonical_inventory(self) -> dict[str, object]:
+        """Inventory all files beneath the canonical raw/clean/derived roots.
+
+        Files are reported by stable POSIX-relative paths.  The inventory is
+        deliberately read-only; callers that want registration can use
+        :meth:`register_canonical_inventory` and receive explicit unknown
+        schema/licence/access metadata rather than fabricated values.
+        """
+
+        roots = (("raw", "data/raw"), ("clean", "data/clean"), ("derived", "data/derived"))
+        files: list[dict[str, object]] = []
+        registered_paths = {
+            dataset.canonical_path
+            for dataset in self.datasets
+            if dataset.canonical_path
+        }
+        for layer, configured_root in roots:
+            root = self.root / configured_root
+            if not root.is_dir():
+                continue
+            for path in sorted(item for item in root.rglob("*") if item.is_file()):
+                relative = path.relative_to(self.root).as_posix()
+                content_sha256 = _hash_file(path)
+                registered = next(
+                    (dataset for dataset in self.datasets if dataset.canonical_path == relative),
+                    None,
+                )
+                content_changed = (
+                    registered is not None
+                    and registered.content_sha256 is not None
+                    and registered.content_sha256 != content_sha256
+                )
+                files.append(
+                    {
+                        "dataset_id": _inventory_dataset_id(layer, path.relative_to(root)),
+                        "layer": layer,
+                        "path": relative,
+                        "size_bytes": path.stat().st_size,
+                        "content_sha256": content_sha256,
+                        "registered_content_sha256": registered.content_sha256 if registered else None,
+                        "catalogued": relative in registered_paths,
+                        "stale": content_changed,
+                        "status": "changed" if content_changed else "current",
+                    }
+                )
+        paths = {str(item["path"]) for item in files}
+        missing = sorted(
+            path for path in registered_paths if path and path not in paths
+        )
+        orphan = sorted(str(item["path"]) for item in files if not item["catalogued"])
+        return {
+            "datasets": files,
+            "dataset_count": len(files),
+            "catalogued_count": sum(bool(item["catalogued"]) for item in files),
+            "orphan_paths": orphan,
+            "missing_paths": missing,
+            "complete": not orphan and not missing,
+            "execution_allowed": False,
+        }
+
+    inventory_datasets = canonical_inventory
+
+    def register_canonical_inventory(self) -> dict[str, object]:
+        """Register each discovered canonical file with explicit unknown metadata."""
+
+        inventory = self.canonical_inventory()
+        registered: list[str] = []
+        for item in inventory["datasets"]:
+            if item["catalogued"]:
+                continue
+            dataset = DatasetDefinition(
+                dataset_id=str(item["dataset_id"]),
+                layer=str(item["layer"]),
+                schema={"file": "path"},
+                owner="data-platform",
+                source_id="local-filesystem",
+                licence="unknown",
+                update_schedule="unknown",
+                access_class="unknown",
+                canonical_path=str(item["path"]),
+                content_sha256=str(item["content_sha256"]),
+                row_count=None,
+                quality="unavailable",
+            )
+            self.register_dataset(dataset)
+            registered.append(dataset.dataset_id)
+        return {
+            **self.canonical_inventory(),
+            "registered_dataset_ids": sorted(registered),
+            "execution_allowed": False,
+        }
+
+    def data_dictionary(self, *, access_class: str | None = None) -> dict[str, object]:
+        """Return a deterministic schema/data dictionary for registered datasets."""
+
+        datasets = self._access_projection(access_class)["datasets"] if access_class else self.datasets
+        return {
+            "schema_version": CATALOGUE_SCHEMA_VERSION,
+            "catalogue_version": CATALOGUE_VERSION,
+            "datasets": {
+                dataset.dataset_id: {
+                    "dataset_id": dataset.dataset_id,
+                    "layer": dataset.layer,
+                    "schema": dict(_normalise_schema(dataset.schema)),
+                    "schema_sha256": dataset.schema_sha256,
+                    "owner": dataset.owner,
+                    "source_id": dataset.source_id,
+                    "licence": dataset.licence,
+                    "access_class": dataset.access_class,
+                    "pii_classification": dataset.pii_classification,
+                    "canonical_path": dataset.canonical_path,
+                }
+                for dataset in datasets
+            },
+            "execution_allowed": False,
+        }
+
+    schema_dictionary = data_dictionary
+
+    def generate_data_dictionary(self, *, access_class: str | None = None) -> Path:
+        """Write the deterministic dictionary artifact and return its path."""
+
+        path = self.root / DATA_DICTIONARY_RELATIVE_PATH
+        atomic_write_json(path, self.data_dictionary(access_class=access_class))
+        return path
+
+    def access_projection(self, access_class: str = "internal") -> dict[str, object]:
+        """Project metadata visible to an explicit access class, fail closed."""
+
+        return self._access_projection(access_class)
+
+    def _access_projection(self, access_class: str) -> dict[str, object]:
+        access_class = str(access_class).strip().lower()
+        if access_class not in _ALLOWED_ACCESS:
+            raise DataCatalogueError(f"invalid access class: {access_class!r}")
+        if access_class == "unknown":
+            return {
+                "access_class": access_class,
+                "datasets": (),
+                "dataset_ids": [],
+                "redacted_dataset_ids": [dataset.dataset_id for dataset in self.datasets],
+                "execution_allowed": False,
+            }
+        rank = {"public": 0, "internal": 1, "restricted": 2, "unknown": 3}
+        visible = [
+            dataset
+            for dataset in self.datasets
+            if dataset.access_class in _ALLOWED_ACCESS
+            and dataset.access_class != "unknown"
+            and rank[dataset.access_class] <= rank[access_class]
+        ]
+        return {
+            "access_class": access_class,
+            "datasets": tuple(visible),
+            "dataset_ids": [dataset.dataset_id for dataset in visible],
+            "redacted_dataset_ids": [
+                dataset.dataset_id for dataset in self.datasets if dataset not in visible
+            ],
+            "execution_allowed": False,
+        }
+
     def validate(self) -> dict[str, object]:
         errors: list[str] = []
         orphan_snapshot_ids: set[str] = set()
@@ -263,6 +437,9 @@ class DataCatalogue:
                     errors.append(f"lineage dependency missing: {snapshot.snapshot_id} <- {dependency}")
                     orphan_snapshot_ids.add(snapshot.snapshot_id)
         errors.extend(self._cycle_errors())
+        inventory = self.canonical_inventory()
+        errors.extend(f"orphan canonical data path: {path}" for path in inventory["orphan_paths"])
+        errors.extend(f"catalogued data path is missing: {path}" for path in inventory["missing_paths"])
         return {
             "status": "passed" if not errors else "failed",
             "error_count": len(errors),
@@ -270,6 +447,8 @@ class DataCatalogue:
             "orphan_snapshot_ids": sorted(orphan_snapshot_ids),
             "incompatible_dataset_ids": sorted(incompatible_dataset_ids),
             "stale_snapshot_ids": sorted(stale_snapshot_ids),
+            "orphan_paths": inventory["orphan_paths"],
+            "missing_paths": inventory["missing_paths"],
         }
 
     def impact_analysis(self, snapshot_id: str) -> dict[str, object]:
@@ -287,12 +466,36 @@ class DataCatalogue:
                 if child not in affected:
                     affected.add(child)
                     queue.append(child)
-        return {
+        token = _hash_payload(
+            {
+                "source_snapshot_id": snapshot_id,
+                "affected_snapshot_ids": sorted(affected),
+            }
+        )
+        lineage_fingerprint = self._lineage_fingerprint()
+        result = {
             "source_snapshot_id": snapshot_id,
             "affected_snapshot_ids": sorted(affected),
             "affected_dataset_ids": sorted({self._snapshots[item].dataset_id for item in affected}),
+            "invalidation_token": token,
+            "lineage_fingerprint": lineage_fingerprint,
+            "invalidated_snapshot_ids": sorted(affected),
             "execution_allowed": False,
         }
+        self._invalidations[snapshot_id] = dict(result)
+        self.save()
+        return result
+
+    def invalidation_analysis(self, snapshot_id: str) -> dict[str, object]:
+        """Return persisted impact/invalidation state for a snapshot."""
+
+        snapshot_id = str(snapshot_id).strip()
+        if snapshot_id not in self._snapshots:
+            raise DataCatalogueError(f"snapshot is not registered: {snapshot_id}")
+        persisted = self._invalidations.get(snapshot_id)
+        if not persisted or persisted.get("lineage_fingerprint") != self._lineage_fingerprint():
+            return self.impact_analysis(snapshot_id)
+        return dict(persisted)
 
     def upstream_snapshot_graph(self, snapshot_id: str) -> dict[str, object]:
         """Return the complete registered upstream graph, failing closed on gaps."""
@@ -495,6 +698,8 @@ class DataCatalogue:
             "orphan_snapshot_ids": validation["orphan_snapshot_ids"],
             "incompatible_dataset_ids": validation["incompatible_dataset_ids"],
             "stale_snapshot_ids": validation["stale_snapshot_ids"],
+            "invalidation_count": len(self._invalidations),
+            "access_class_count": sum(item.access_class != "unknown" for item in self.datasets),
             "retention_policy_dataset_count": sum(item.retention_days is not None for item in self.datasets),
             "catalogue_signature": self._signature(),
             "execution_allowed": False,
@@ -504,6 +709,7 @@ class DataCatalogue:
         payload = self._payload()
         payload["catalogue_signature"] = _hash_payload(payload)
         atomic_write_json(self.path, payload)
+        self.generate_data_dictionary()
         return self.path
 
     def _load(self) -> None:
@@ -528,6 +734,9 @@ class DataCatalogue:
         for item in payload.get("lineage", ()):
             edge = LineageEdge(str(item["upstream_snapshot_id"]), str(item["downstream_snapshot_id"]), str(item.get("relation", "derived_from")))
             self._edges.add((edge.upstream_snapshot_id, edge.downstream_snapshot_id, edge.relation))
+        for key, value in (payload.get("invalidations") or {}).items():
+            if isinstance(value, Mapping):
+                self._invalidations[str(key)] = dict(value)
 
     def _payload(self) -> dict[str, object]:
         return {
@@ -536,11 +745,23 @@ class DataCatalogue:
             "datasets": [item.as_dict() for item in self.datasets],
             "snapshots": [item.as_dict() for item in self.snapshots],
             "lineage": [item.as_dict() for item in self.lineage],
+            "invalidations": {
+                key: self._invalidations[key] for key in sorted(self._invalidations)
+            },
+            "data_dictionary": self.data_dictionary(),
             "execution_allowed": False,
         }
 
     def _signature(self) -> str:
         return _hash_payload(self._payload())
+
+    def _lineage_fingerprint(self) -> str:
+        return _hash_payload(
+            {
+                "snapshot_ids": sorted(self._snapshots),
+                "lineage": [edge.as_dict() for edge in self.lineage],
+            }
+        )
 
     def _snapshot_node(self, snapshot_id: str) -> dict[str, object]:
         snapshot = self._snapshots[snapshot_id]
@@ -616,10 +837,20 @@ def _validated_dataset(dataset: DatasetDefinition) -> DatasetDefinition:
         raise DataCatalogueError(f"invalid dataset layer: {dataset.layer!r}")
     if not dataset.schema:
         raise DataCatalogueError(f"dataset schema is empty: {dataset.dataset_id}")
-    if dataset.row_count < 0:
+    if dataset.row_count is not None and dataset.row_count < 0:
         raise DataCatalogueError("dataset row_count cannot be negative")
     if dataset.pii_classification not in _ALLOWED_PII:
         raise DataCatalogueError(f"invalid PII classification: {dataset.pii_classification!r}")
+    if dataset.access_class not in _ALLOWED_ACCESS:
+        raise DataCatalogueError(f"invalid access class: {dataset.access_class!r}")
+    if dataset.canonical_path is not None:
+        canonical_path = Path(dataset.canonical_path)
+        if canonical_path.is_absolute() or ".." in canonical_path.parts:
+            raise DataCatalogueError("canonical_path must be project-relative")
+        if canonical_path.parts and canonical_path.parts[0] != "data":
+            raise DataCatalogueError("canonical_path must be under data/")
+    if dataset.content_sha256 is not None and not _SHA256.fullmatch(dataset.content_sha256):
+        raise DataCatalogueError("dataset content_sha256 must be a SHA-256 value")
     if dataset.retention_days is not None and dataset.retention_days < 1:
         raise DataCatalogueError("retention_days must be positive")
     return dataset
@@ -696,14 +927,29 @@ def _hash_payload(payload: object) -> str:
     return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
 
 
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _inventory_dataset_id(layer: str, relative_path: Path) -> str:
+    stem = relative_path.as_posix().replace("/", ":")
+    stem = re.sub(r"[^A-Za-z0-9_.:-]+", "_", stem)
+    return f"{layer}:{stem}"
 
 
 __all__ = [
     "CATALOGUE_RELATIVE_PATH",
     "CATALOGUE_SCHEMA_VERSION",
     "CATALOGUE_VERSION",
+    "DATA_DICTIONARY_RELATIVE_PATH",
     "DataCatalogue",
     "DataCatalogueError",
     "DatasetDefinition",
