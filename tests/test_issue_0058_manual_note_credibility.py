@@ -15,6 +15,7 @@ from etf_cockpit.data.manual_notes import (
     CREDIBILITY_SCHEMA_VERSION,
     load_manual_news,
     manual_news_markdown,
+    save_manual_note_credibility_review,
     validate_manual_news,
 )
 
@@ -179,6 +180,33 @@ def test_issue_0058_audit_markdown_exposes_flags_and_non_executable_authority() 
     assert "executable_authority=false" in markdown
 
 
+def test_issue_0058_review_persists_across_reload_and_preserves_detector_flags(tmp_path) -> None:
+    path = tmp_path / "manual_news.parquet"
+    frame = _classified_frame("Performance screenshot shows +500% return; no benchmark.")
+    original_flags = frame.loc[0, "credibility_flags"]
+    frame.to_parquet(path, index=False)
+
+    reviewed = save_manual_note_credibility_review(
+        path,
+        0,
+        reviewer="Analyst",
+        decision="clear_flags",
+        note="Reviewed the source and claim context.",
+        reviewed_at="2026-09-28T10:00:00+00:00",
+    )
+    reloaded = load_manual_news(path)
+    row = reloaded.loc[0]
+
+    assert reviewed.loc[0, "credibility_review_status"] == "reviewed"
+    assert row["credibility_review_status"] == "reviewed"
+    assert row["credibility_review_override"] == "clear_flags"
+    assert row["credibility_reviewed_by"] == "Analyst"
+    assert row["credibility_reviewed_at"] == "2026-09-28T10:00:00+00:00"
+    assert row["credibility_review_note"] == "Reviewed the source and claim context."
+    assert row["credibility_flags"] == original_flags
+    assert "human review: cleared" in row["credibility_display_flags"]
+
+
 def test_issue_0058_flags_are_context_only_and_do_not_create_score_authority() -> None:
     row = _classified_frame("Guaranteed 500% return; closed-source system.").iloc[0]
 
@@ -202,6 +230,20 @@ def test_issue_0058_news_context_surface_shows_structured_flags(monkeypatch) -> 
     assert "credibility_flags=" in text
     assert "missing_benchmark" in text
     assert "executable_authority=false" in text
+    assert "Reviewed badge: unreviewed" in text
+    keys = {getattr(control, "key", None) for control in _controls(rendered)}
+    assert any(str(key).startswith("manual-note.confirm.") for key in keys)
+    assert any(str(key).startswith("manual-note.clear.") for key in keys)
+
+
+def _controls(node: object) -> list[object]:
+    controls = [node]
+    for child in getattr(node, "controls", []) or []:
+        controls.extend(_controls(child))
+    content = getattr(node, "content", None)
+    if content is not None:
+        controls.extend(_controls(content))
+    return controls
 
 
 def test_issue_0058_data_models_surface_shows_structured_flags(monkeypatch) -> None:
