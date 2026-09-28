@@ -12,6 +12,7 @@ from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.formatting import format_currency, format_number
 from etf_cockpit.app.operations import OperationRecord, build_operation_preview, load_operation_records, save_operation_record
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.ui_facade import load_paper_tca_view
 from etf_cockpit.application.contracts import (
     ApiStatus,
     CancelWorkflowCommand,
@@ -51,6 +52,8 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
     proposal_state = ft.Text("Proposal review: not evaluated", color=theme.MUTED, selectable=True)
     proposal_evidence = ft.Text("Proposal evidence: validated optimiser output and all policy gates are required.", color=theme.MUTED, selectable=True)
     paper_account_text = ft.Text(_paper_summary(paper.items[0] if paper.items else None), color=theme.MUTED, selectable=True)
+    paper_tca_summary = ft.Text("Paper TCA: loading local fill attribution.", color=theme.MUTED, selectable=True)
+    paper_tca_rows = ft.Column(spacing=4)
     paper_account_id = ft.TextField(label="Paper account ID", value="local-paper", key="operations.paper-account-id", width=180)
     paper_initial_cash = ft.TextField(label="Opening cash (EUR)", value="100000", key="operations.paper-initial-cash", width=180)
     paper_open_button = ft.OutlinedButton("Open local paper account", key="operations.paper-open", icon=ft.Icons.ACCOUNT_BALANCE)
@@ -213,9 +216,26 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
             proposal_evidence.value = f"Proposal evidence unavailable: {exc}"
             _safe_update(page)
 
+    def refresh_paper_tca() -> None:
+        view = load_paper_tca_view(account_id=str(paper_account_id.value or "local-paper"))
+        paper_tca_summary.value = _paper_tca_summary(view)
+        paper_tca_rows.controls = []
+        raw_rows = view.get("rows", [])
+        rows = raw_rows if isinstance(raw_rows, list) else []
+        for row in rows[-8:]:
+            if isinstance(row, Mapping):
+                paper_tca_rows.controls.append(
+                    ft.Text(_paper_tca_row_summary(row), color=theme.TEXT, size=theme.FONT_XS, selectable=True)
+                )
+        if not rows:
+            paper_tca_rows.controls.append(
+                ft.Text("No recorded fills are available for attribution.", color=theme.MUTED, selectable=True)
+            )
+
     def refresh_paper_account() -> None:
         current = api.get_paper(account_id=str(paper_account_id.value or "local-paper")).items
         paper_account_text.value = _paper_summary(current[0] if current else None)
+        refresh_paper_tca()
 
     def open_paper_account(_event: ft.ControlEvent) -> None:
         try:
@@ -493,6 +513,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
     paper_incident_button.on_click = record_paper_incident
     confirm_button.on_click = confirm
     cancel_button.on_click = cancel
+    refresh_paper_tca()
     refresh_records()
     portfolio_cards = [
         metric_card("Portfolio context", format_currency(total_value), "Local holdings only"),
@@ -534,6 +555,9 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
                     [
                         section_header("Paper account and ledger", "Manual paper actions consume only validated proposal records. The append-only local ledger replays after restart."),
                         paper_account_text,
+                        section_header("Post-trade TCA", "Recorded paper fill costs, cost forecast comparison and attribution; unavailable market benchmarks stay explicit."),
+                        paper_tca_summary,
+                        paper_tca_rows,
                         ft.Row([paper_account_id, paper_initial_cash, paper_open_button], wrap=True),
                         ft.Row([paper_proposal_id, paper_execution_price, paper_accept_button, paper_auto_button], wrap=True),
                         ft.Row([paper_reject_reason, paper_reject_button, paper_defer_reason, paper_defer_button], wrap=True),
@@ -570,3 +594,48 @@ def _paper_summary(item: object | None) -> str:
         f"matured_outcomes={getattr(item, 'matured_outcomes', 0)} · operational_incidents={getattr(item, 'operational_incidents', 0)} · "
         "execution_allowed=false"
     )
+
+
+def _paper_tca_summary(view: Mapping[str, object]) -> str:
+    if view.get("status") != "available":
+        return f"Paper TCA unavailable: {view.get('message') or view.get('reason_code')}; execution_allowed=false."
+    raw_rows = view.get("rows", [])
+    rows = raw_rows if isinstance(raw_rows, list) else []
+    coverage = view.get("coverage", {})
+    coverage_map = coverage if isinstance(coverage, Mapping) else {}
+    calibration = view.get("calibration", {})
+    calibration_map = calibration if isinstance(calibration, Mapping) else {}
+    estimated = sum(row.get("estimated_total_cost") is not None for row in rows if isinstance(row, Mapping))
+    realised = sum(row.get("realised_total_cost") is not None for row in rows if isinstance(row, Mapping))
+    limits = coverage_map.get("benchmark_limitations", [])
+    limitation_text = ", ".join(str(item).replace("_", " ") for item in limits) if isinstance(limits, list) and limits else "none recorded"
+    mean_bps = calibration_map.get("mean_realised_cost_bps")
+    calibration_text = (
+        f"{calibration_map.get('sample_count', 0)} completed fill(s), mean {mean_bps:.2f} bps"
+        if isinstance(mean_bps, (int, float))
+        else f"{calibration_map.get('sample_count', 0)} completed fill(s); cost unavailable"
+    )
+    return (
+        f"Paper TCA: fills={coverage_map.get('fill_count', len(rows))} · "
+        f"estimated cost coverage={estimated}/{len(rows)} · realised cost coverage={realised}/{len(rows)} · "
+        f"calibration={calibration_text} · benchmark limits={limitation_text} · execution_allowed=false"
+    )
+
+
+def _paper_tca_row_summary(row: Mapping[str, object]) -> str:
+    currency = str(row.get("currency") or "currency unavailable")
+    estimated = _tca_value(row.get("estimated_total_cost"), currency)
+    realised = _tca_value(row.get("realised_total_cost"), currency)
+    components = ", ".join(
+        f"{label}={_tca_value(row.get(field), currency)}"
+        for label, field in (("delay", "delay_cost"), ("spread", "spread_cost"), ("impact", "impact_cost"))
+    )
+    return (
+        f"Fill {row.get('fill_id')} · order={row.get('order_id') or 'unexpected'} · "
+        f"proposal={row.get('proposal_id') or 'unavailable'} · estimate={estimated} · realised={realised} "
+        f"({components}) · calibration={'eligible' if row.get('calibration_eligible') else 'excluded'}"
+    )
+
+
+def _tca_value(value: object, currency: str) -> str:
+    return f"{float(value):.4f} {currency}" if isinstance(value, (int, float)) else "unavailable"
