@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 
 import flet as ft
 import pandas as pd
@@ -21,7 +20,8 @@ from etf_cockpit.application.ui_facade import (
 
 def stock_research_page(_page: ft.Page, state: AppState) -> ft.Control:
     instrument_id = str(getattr(state, "selected_etf", "") or state.snapshot.config.ui.default_etf)
-    context = load_stock_research_context(instrument_id, statements_path=STATEMENT_FACTS_PATH)
+    snapshot_decision_time = getattr(getattr(state, "snapshot", None), "benchmark_reference_decision_time", None)
+    context = load_stock_research_context(instrument_id, statements_path=STATEMENT_FACTS_PATH, decision_time=snapshot_decision_time)
     statements = context.get("statements")
     statements = statements if isinstance(statements, pd.DataFrame) else pd.DataFrame()
     consensus = load_optional_research_import(CONSENSUS_IMPORT_PATH, instrument_id=instrument_id)

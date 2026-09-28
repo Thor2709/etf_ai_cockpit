@@ -774,14 +774,20 @@ def load_stock_research_context(
     instrument_id: str,
     *,
     statements_path: Path | None = None,
+    decision_time: str | None = None,
 ) -> dict[str, object]:
-    """Load stock statements and their point-in-time classification/peer context."""
+    """Load stock statements and their point-in-time classification/peer context.
+
+    ``decision_time`` is the application's stable decision time; when given it overrides the
+    classification record's own decision time so every panel on the page uses one cutoff.
+    """
+    requested_decision_time = str(decision_time or "").strip() or None
     classification_projection = load_classification_projection(instrument_id)
     classification_value = classification_projection.get("classification")
     classification = dict(classification_value) if isinstance(classification_value, Mapping) else {}
     classification_status = str(classification_projection.get("status", "unavailable"))
     effective_at = str(classification.get("effective_at") or "").strip() or None
-    decision_time = str(classification.get("decision_time") or "").strip() or None
+    decision_time = requested_decision_time or str(classification.get("decision_time") or "").strip() or None
     peer_projection = load_peer_cohort_projection(instrument_id, decision_time=decision_time)
     peer_projection_status = str(peer_projection.get("status", "unavailable"))
     cohort = peer_projection.get("cohort")

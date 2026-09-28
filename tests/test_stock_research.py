@@ -300,8 +300,9 @@ def test_profitability_production_wiring_injects_sector_and_peers(monkeypatch) -
         captured.append(report)
         return report
 
-    monkeypatch.setattr(ui_facade, "load_stock_research_context", lambda instrument_id, statements_path=None: context)
+    monkeypatch.setattr(ui_facade, "load_stock_research_context", lambda instrument_id, statements_path=None, **_kwargs: context)
     monkeypatch.setattr(stock_research_page, "build_stock_research_report", capture_report)
+    monkeypatch.setattr(stock_research_page, "load_capital_allocation_analysis", lambda *_args, **_kwargs: {})
     stock_research_page.stock_research_page(None, SimpleNamespace(selected_etf="ACME"))
 
     result = captured[0]["profitability"]
@@ -408,7 +409,11 @@ def test_stock_research_page_uses_snapshot_decision_time(monkeypatch) -> None:
     )
     seen_decision_times: list[str | None] = []
 
-    monkeypatch.setattr(stock_research_page, "load_stock_research_frame", lambda *_args, **_kwargs: _statements())
+    monkeypatch.setattr(
+        stock_research_page,
+        "load_stock_research_context",
+        lambda *_args, **kwargs: {"statements": _statements(), "decision_time": kwargs.get("decision_time")},
+    )
     monkeypatch.setattr(stock_research_page, "load_optional_research_import", lambda *_args, **_kwargs: pd.DataFrame())
 
     def load_capital_allocation(_statements, **kwargs):
