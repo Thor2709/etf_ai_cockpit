@@ -391,6 +391,68 @@ def _detail_disclosure(title: str, content: ft.Control, status: object = "Eviden
     )
 
 
+def _render_sparebank_workspace(workspace: object) -> ft.Control:
+    """Render the already-calculated Sparebank analysis without UI formulas."""
+
+    if not isinstance(workspace, Mapping) or workspace.get("status") != "available":
+        return ft.Container()
+    scorecard = workspace.get("scorecard")
+    scorecard = scorecard if isinstance(scorecard, Mapping) else {}
+    underwriting = workspace.get("underwriting_horizon")
+    underwriting = underwriting if isinstance(underwriting, Mapping) else {}
+    tactical = workspace.get("tactical_horizon")
+    tactical = tactical if isinstance(tactical, Mapping) else {}
+    axes = scorecard.get("axes")
+    axes = axes if isinstance(axes, Mapping) else {}
+    grouped: dict[str, list[ft.Control]] = {}
+    for axis_id, axis in axes.items():
+        if not isinstance(axis, Mapping):
+            continue
+        group = str(axis.get("group") or "Scorecard")
+        grouped.setdefault(group, []).append(
+            ft.Column(
+                [
+                    ft.Text(
+                        f"{axis.get('label', axis_id)}: {axis.get('status', 'UNAVAILABLE')} | rating={axis.get('rating_10', 'unavailable')} | coverage={axis.get('coverage', 'unavailable')}",
+                        selectable=True,
+                    ),
+                    _render_evidence_section(f"{axis.get('label', axis_id)} inputs", axis.get("inputs", ())),
+                ],
+                spacing=4,
+            )
+        )
+    body: list[ft.Control] = [
+        ft.Text("Bank soundness, EC owner value, and purchase-price attractiveness are separate conclusions; no automatic buy/sell rule is produced.", selectable=True),
+        ft.Text(
+            f"Underwriting horizon — {underwriting.get('horizon', 'multi-year owner economics')} | status={underwriting.get('status', 'UNAVAILABLE')} | composite={underwriting.get('composite_10', 'unavailable')} | coverage={underwriting.get('overall_coverage', 'unavailable')}",
+            selectable=True,
+        ),
+        ft.Text(f"Underwriting gate reasons: {underwriting.get('gate_reasons', ())}", selectable=True),
+    ]
+    body.extend(ft.Column([ft.Text(group, weight=ft.FontWeight.BOLD), *items], spacing=4) for group, items in grouped.items())
+    body.extend(
+        [
+            _render_evidence_section("Ownership passport — What this EC owns", workspace.get("ownership_passport")),
+            _render_evidence_section("Bank economics", workspace.get("bank_economics")),
+            _render_evidence_section("Valuation and expectations", workspace.get("valuation_expectations")),
+            _render_evidence_section("Structural transition", workspace.get("structural_transition")),
+            _render_evidence_section("Marketability and implementation", workspace.get("marketability_implementation")),
+            _render_evidence_section("Decision card", workspace.get("decision_card")),
+            ft.Text(f"Tactical horizon — {tactical.get('horizon', '1-3 months')} | status={tactical.get('status', 'UNAVAILABLE')}", selectable=True),
+            _render_evidence_section("Tactical evidence (separate; does not affect underwriting)", tactical.get("evidence", {})),
+            _render_evidence_section("Evidence and coverage", workspace.get("evidence_and_coverage")),
+            _render_evidence_section("Generic stock modules", workspace.get("generic_stock_modules")),
+        ]
+    )
+    return ft.ExpansionTile(
+        title=ft.Text("Sparebank EC workspace"),
+        subtitle=ft.Text(f"Scorecard {scorecard.get('formula_version', 'unavailable')} | execution_allowed=false"),
+        controls=[ft.Column(body, spacing=8)],
+        expanded=False,
+        key="instrument-detail.sparebank-workspace",
+    )
+
+
 def _render_evidence_section(
     title: str,
     value: object,
@@ -869,6 +931,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             subtitle="Bank, insurer and diversified-financial solvency, asset quality, stress, rationale, lineage and limitations; unavailable inputs stay explicit.",
             key="instrument-detail.financial-institutions",
         ),
+        _render_sparebank_workspace(model.sections.get("sparebank_workspace")),
         _render_evidence_section(
             "Real Assets",
             model.sections.get("real_assets"),

@@ -118,11 +118,68 @@ class SparebankAnalysis:
         return self.contract
 
 
+@dataclass(frozen=True)
+class BankEconomics:
+    """Interpretation-layer output; unavailable inputs remain ``None``."""
+
+    status: str = "partial"
+    reported: Mapping[str, object] = field(default_factory=dict)
+    normalised: Mapping[str, object] = field(default_factory=dict)
+    resilience: Mapping[str, object] = field(default_factory=dict)
+    credit: Mapping[str, object] = field(default_factory=dict)
+    funding: Mapping[str, object] = field(default_factory=dict)
+    concentration: Mapping[str, object] = field(default_factory=dict)
+    evidence_ids: tuple[str, ...] = ()
+    calculation_ids: tuple[str, ...] = ()
+    unavailable_fields: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+    coverage: float = 0.0
+    execution_allowed: bool = False
+
+
+@dataclass(frozen=True)
+class SparebankEventAnalysis:
+    """Point-in-time structural-event ledger and merger economics."""
+
+    status: str = "partial"
+    events: tuple[Mapping[str, object], ...] = ()
+    recipient_ledger: tuple[Mapping[str, object], ...] = ()
+    unresolved_milestones: tuple[str, ...] = ()
+    evidence_ids: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+    coverage: float = 0.0
+    execution_allowed: bool = False
+
+
+@dataclass(frozen=True)
+class SparebankScorecard:
+    """Versioned underwriting breakdown and separately labelled tactical evidence."""
+
+    status: str
+    formula_version: str
+    formula_checksum: str
+    judgement_version: str
+    judgement_status: str
+    judgement_source: str
+    axes: Mapping[str, object] = field(default_factory=dict)
+    composite_10: float | None = None
+    composite_before_gate_cap_10: float | None = None
+    gate_cap_10: float | None = None
+    overall_coverage: float = 0.0
+    gate_reasons: tuple[str, ...] = ()
+    underwriting: Mapping[str, object] = field(default_factory=dict)
+    tactical: Mapping[str, object] = field(default_factory=dict)
+    execution_allowed: bool = False
+
+
 __all__ = [
     "CONTRACT_ID",
     "UNAVAILABLE",
     "ECClaimPath",
     "ECClaimState",
+    "BankEconomics",
+    "SparebankEventAnalysis",
+    "SparebankScorecard",
     "RoutingResult",
     "SparebankAnalysis",
     "SparebankRoutingResult",

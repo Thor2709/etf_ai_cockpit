@@ -2359,6 +2359,81 @@ def _valuation_panel(instrument_id: str, asset_type: object, decision_time: obje
     }
 
 
+def _tactical_scorecard_evidence(signal: object, candidate_score: object) -> dict[str, object]:
+    """Project existing short-horizon component evidence without combining it."""
+
+    source = signal or candidate_score
+    canonical = getattr(source, "canonical_score", None) if source is not None else None
+    components = getattr(canonical, "components", ()) if canonical is not None else ()
+    if not components and source is not None:
+        components = getattr(source, "components", ())
+    allowed = {"momentum", "trend", "relative_strength", "timesfm", "toto"}
+    rows: list[dict[str, object]] = []
+    for component in components:
+        if isinstance(component, Mapping):
+            row = dict(component)
+        else:
+            row = {
+                name: getattr(component, name)
+                for name in ("key", "raw_metric", "raw_score", "score_role", "status", "source_id", "explanation", "why")
+                if hasattr(component, name)
+            }
+        if str(row.get("key") or "").casefold() in allowed:
+            rows.append(row)
+    return {
+        "status": "available" if rows else "unavailable",
+        "horizon": getattr(canonical, "horizon", "1-3 months"),
+        "components": tuple(rows),
+        "execution_allowed": False,
+    }
+
+
+def _sparebank_workspace(financial_institutions: object) -> dict[str, object]:
+    """Project the facade's native analysis into the one Sparebank workspace."""
+
+    if not isinstance(financial_institutions, Mapping):
+        return {"status": "unavailable", "execution_allowed": False}
+    identity = financial_institutions.get("share_class_identity")
+    analysis = identity.get("sparebank_analysis") if isinstance(identity, Mapping) else None
+    if not isinstance(analysis, Mapping) or not isinstance(identity, Mapping) or identity.get("native_suite") != "sparebank-analysis-suite.v1":
+        return {"status": "unavailable", "execution_allowed": False}
+    valuation = analysis.get("valuation")
+    valuation = valuation if isinstance(valuation, Mapping) else {}
+    scorecard = analysis.get("scorecard")
+    scorecard = scorecard if isinstance(scorecard, Mapping) else {}
+    claim = analysis.get("claim_state")
+    return {
+        "status": "available",
+        "contract": analysis.get("contract"),
+        "ownership_passport": claim,
+        "bank_economics": analysis.get("bank_economics"),
+        "valuation_expectations": valuation,
+        "structural_transition": analysis.get("events"),
+        "marketability_implementation": {
+            "marketability": valuation.get("marketability"),
+            "implementation": valuation.get("implementation"),
+        },
+        "decision_card": {
+            "status": "unavailable",
+            "reason_code": "DECISION_CARD_ARGUMENT_AND_REVIEW_INPUTS_UNAVAILABLE",
+        },
+        "scorecard": scorecard,
+        "underwriting_horizon": scorecard.get("underwriting", {"label": "Underwriting", "status": "UNAVAILABLE"}),
+        "tactical_horizon": scorecard.get("tactical", {"label": "Tactical", "status": "UNAVAILABLE", "horizon": "1-3 months"}),
+        "evidence_and_coverage": {
+            "coverage": analysis.get("coverage"),
+            "reason_codes": analysis.get("reason_codes", ()),
+            "provenance": analysis.get("provenance", {}),
+        },
+        "generic_stock_modules": {
+            "valuation_status": analysis.get("generic_valuation_status", "not_applicable"),
+            "valuation_reason": analysis.get("generic_valuation_reason"),
+            "owner_claim_replaces_generic_owner_value": True,
+        },
+        "execution_allowed": False,
+    }
+
+
 def build_instrument_detail(
     snapshot: CockpitSnapshot,
     instrument_id: str,
@@ -2572,6 +2647,7 @@ def build_instrument_detail(
         projection=financial_projection,
         decision_time=projection_time or None,
         effective_at=projection_time or None,
+        tactical_evidence=_tactical_scorecard_evidence(signal, candidate),
     )
     real_assets = load_real_asset_projection(
         instrument_id, projection=real_asset_projection
@@ -2609,6 +2685,7 @@ def build_instrument_detail(
             "fixed_income_risk": fixed_income_risk,
             "peer_cohort": peer_cohort,
             "financial_institutions": financial_institutions,
+            "sparebank_workspace": _sparebank_workspace(financial_institutions),
             "real_assets": real_assets,
             "cyclicals": cyclicals,
             "innovation": innovation,

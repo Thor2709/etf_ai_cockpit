@@ -182,6 +182,15 @@ def test_claim_known_after_decision_time_is_invisible() -> None:
     assert state.reconstructed_eierbrok is None
 
 
+@pytest.mark.parametrize("known_at", [None, "invalid"])
+def test_claim_missing_or_invalid_known_at_is_stale_at_decision_time(known_at: str | None) -> None:
+    evidence = _fixture("teaching_bank.json")
+    evidence["known_at"] = known_at
+    state = build_claim_state(evidence, decision_time="2025-01-02T00:00:00Z")
+    assert state.claim_status == "stale"
+    assert state.reconstructed_eierbrok is None
+
+
 def test_missing_optional_fields_lower_coverage_without_zero_fill() -> None:
     evidence = _fixture("teaching_bank.json")
     evidence["facts"].pop("weighted_average_ec_count")

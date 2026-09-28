@@ -1,0 +1,10 @@
+{
+  "source": "SPBK-800.md golden fixtures",
+  "stable": {"k": 0.10, "g": 0.03, "r": {"0.08": 0.71, "0.12": 1.29, "0.16": 1.86}},
+  "recovery": {"book": 100.0, "dividends_pv": 23.99, "terminal_pv": 97.12, "value": 121.11, "price": 90.0, "irr": 0.1735},
+  "reverse": {"pb": 0.90, "k": 0.10, "g": 0.03, "implied_r": 0.093, "r": 0.099, "implied_k": 0.1067},
+  "capital_release": {"release": 10.0, "earnings_before": 9.90, "earnings_after": 9.70, "operating_value": 110.0, "operating_return": 0.1078},
+  "four_state": {"weights": [0.15, 0.25, 0.40, 0.20], "values": [70.00, 99.00, 106.17, 113.12], "value": 100.34, "irr_at_90": 0.1289, "irr_at_110": 0.0764, "decision_price": 93.02, "decision_price_without_marketability": 91.75, "exit_cost": 0.005, "decision_price_with_exit_cost": 92.74, "decision_price_without_marketability_with_exit_cost": 91.47},
+  "order_size": {"asks": [{"price": 90.0, "quantity": 500}, {"price": 91.0, "quantity": 500}, {"price": 94.0, "quantity": 2000}], "fees": 200.0, "quantity": 2000, "vwap": 92.25, "all_in": 92.35, "limit_price": 91.0, "limit_filled": 1000, "limit_all_in": 90.70},
+  "days_to_trade": {"quantity": 250000, "adv": 500000, "participation": 0.10, "days": 5.0}
+}

@@ -175,6 +175,8 @@ def _parse_yaml_text(text: str) -> object:
 
 
 def load_score_policy(asset_type: str = "ETF", *, path: Path = FORMULA_PATH) -> ScorePolicy:
+    if _is_sparebank_ec_asset_type(asset_type):
+        raise CanonicalScoreError("EC instruments must use the native Sparebank scorecard")
     try:
         raw_bytes = path.read_bytes()
         normalised_bytes = raw_bytes.replace(b"\r\n", b"\n")
@@ -214,6 +216,8 @@ def build_canonical_score(
     structure_confidence_cap: float | None = None,
     structure_provenance: Mapping[str, object] | None = None,
 ) -> CanonicalScore:
+    if _is_sparebank_ec_asset_type(asset_type):
+        raise CanonicalScoreError("EC instruments must use the native Sparebank scorecard")
     selected_policy = policy or load_score_policy(asset_type)
     timestamp = str(decision_time.isoformat() if isinstance(decision_time, date) else decision_time)
     source_components = tuple(components)
@@ -306,6 +310,8 @@ def canonical_score_from_simple_components(
     decision_time: str,
     components: Iterable[Any],
 ) -> CanonicalScore:
+    if _is_sparebank_ec_asset_type(asset_type):
+        raise CanonicalScoreError("EC instruments must use the native Sparebank scorecard")
     converted = (
         CanonicalComponent(
             key=str(getattr(component, "key", "")),
@@ -336,6 +342,11 @@ def canonical_score_from_signal_row(
     structure_confidence_cap: float | None = None,
     structure_provenance: Mapping[str, object] | None = None,
 ) -> CanonicalScore:
+    if any(
+        _is_sparebank_ec_asset_type(row.get(name))
+        for name in ("asset_type", "instrument_type", "instrument_subtype", "capital_class")
+    ):
+        raise CanonicalScoreError("EC instruments must use the native Sparebank scorecard")
     instrument_id = str(row.get("etf_id") or row.get("instrument_id") or "unknown")
     as_of = str(decision_time.isoformat() if isinstance(decision_time, date) else decision_time)
     price_freshness = "ok" if as_of not in {"", "None", "nan"} else "unknown"
@@ -498,3 +509,8 @@ def _score_10(value: float) -> float:
 
 def _normalise_10(value: float | None) -> float | None:
     return None if value is None else round(max(0.0, min(1.0, float(value) / 10.0)), 6)
+
+
+def _is_sparebank_ec_asset_type(value: object) -> bool:
+    normalized = str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
+    return normalized in {"ec", "equity_certificate", "certificate", "egenkapitalbevis"}
