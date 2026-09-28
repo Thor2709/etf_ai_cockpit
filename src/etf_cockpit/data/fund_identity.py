@@ -50,6 +50,7 @@ class FundSubFund:
     umbrella_id: str | None
     structure: FundStructure | None
     source_ids: tuple[str, ...]
+    structure_source_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ class FundShareClass:
     sub_fund_id: str | None
     distribution_policy: str | None
     source_ids: tuple[str, ...]
+    distribution_policy_source_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -88,9 +90,15 @@ def fund_hierarchy(
             structure=(
                 None
                 if item.object_id in conflicted_structure_ids
+                or not item.field_source_ids.get("fund_structure")
                 else _fund_structure(item.fields.get("fund_structure"))
             ),
             source_ids=item.source_ids,
+            structure_source_id=(
+                item.field_source_ids.get("fund_structure")
+                if item.object_id not in conflicted_structure_ids
+                else None
+            ),
         )
         for item in sorted(subfund_objects, key=lambda value: value.object_id)
     )
@@ -103,8 +111,13 @@ def fund_hierarchy(
                 and item.relationship == "share_class_of"
                 else None
             ),
-            distribution_policy=item.fields.get("distribution_policy"),
+            distribution_policy=(
+                item.fields.get("distribution_policy")
+                if item.field_source_ids.get("distribution_policy")
+                else None
+            ),
             source_ids=item.source_ids,
+            distribution_policy_source_id=item.field_source_ids.get("distribution_policy"),
         )
         for item in sorted(items, key=lambda value: value.object_id)
         if item.object_type.casefold() in {"share_class", "fund_share_class"}
@@ -179,15 +192,17 @@ class FundLifecycleEvent:
 def lifecycle_events_from_claims(claims: Iterable[IdentityClaim]) -> tuple[FundLifecycleEvent, ...]:
     """Rebuild lifecycle events from the canonical append-only identity claims."""
 
-    groups: dict[tuple[str, str, str, int], list[IdentityClaim]] = {}
+    groups: dict[tuple[str, str, str], dict[int, list[IdentityClaim]]] = {}
     for claim in claims:
         if claim.object_type != "fund_lifecycle_event":
             continue
-        key = (claim.instrument_id, claim.object_id, claim.source_id, claim.revision)
-        groups.setdefault(key, []).append(claim)
+        key = (claim.instrument_id, claim.object_id, claim.source_id)
+        groups.setdefault(key, {}).setdefault(claim.revision, []).append(claim)
 
     events: list[FundLifecycleEvent] = []
-    for (fund_id, event_id, source_id, revision), group in sorted(groups.items()):
+    for (fund_id, event_id, source_id), revisions in sorted(groups.items()):
+        revision = max(revisions)
+        group = revisions[revision]
         status_claims = [claim for claim in group if claim.field == "lifecycle_status"]
         if len(status_claims) != 1:
             raise FundIdentityError("lifecycle event must have exactly one status claim")

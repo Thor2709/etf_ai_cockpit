@@ -8,7 +8,7 @@ review; no source is silently discarded.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -110,6 +110,7 @@ class IdentityObject:
     relationship: str | None
     fields: Mapping[str, str]
     source_ids: tuple[str, ...]
+    field_source_ids: Mapping[str, str] = dataclass_field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -255,6 +256,11 @@ def resolve_identity(
             relationship=_single_context_value(eligible, object_type, object_id, "relationship"),
             fields={field: _normalise_value(field, claim.value) for field, claim in sorted(fields.items())},
             source_ids=tuple(sorted({claim.source_id or "unknown" for claim in eligible if claim.object_type == object_type and claim.object_id == object_id})),
+            field_source_ids={
+                field: claim.source_id
+                for field, claim in sorted(fields.items())
+                if claim.source_id
+            },
         )
         for (object_type, object_id), fields in sorted(selected_by_object.items())
     )

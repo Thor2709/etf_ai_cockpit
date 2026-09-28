@@ -107,6 +107,62 @@ def test_fund_multi_share_class_hierarchy(tmp_path: Path) -> None:
     assert accumulating["execution_allowed"] is False
 
 
+def test_fund_terms_project_lineage_for_their_selected_fields(tmp_path: Path) -> None:
+    claims = (
+        _claim(
+            "SEC-ACC",
+            "fund_structure",
+            "ordinary_fund",
+            "doc:structure",
+            object_type="subfund",
+            object_id="SUBFUND-1",
+        ),
+        _claim(
+            "SEC-ACC",
+            "sub_fund_currency",
+            "EUR",
+            "doc:currency",
+            object_type="subfund",
+            object_id="SUBFUND-1",
+        ),
+        _claim(
+            "SEC-ACC",
+            "distribution_policy",
+            "accumulating",
+            "doc:distribution",
+            object_type="share_class",
+            object_id="SHARE-ACC",
+            parent_object_id="SUBFUND-1",
+            relationship="share_class_of",
+        ),
+        _claim(
+            "SEC-ACC",
+            "share_class_currency",
+            "EUR",
+            "doc:share-class-currency",
+            object_type="share_class",
+            object_id="SHARE-ACC",
+            parent_object_id="SUBFUND-1",
+            relationship="share_class_of",
+        ),
+    )
+    with IdentityMasterStore(tmp_path) as store:
+        store.append_claims(claims)
+        projection = store.projection("SEC-ACC")
+
+    sub_fund = projection["fund_identity"]["sub_funds"][0]
+    share_class = projection["fund_identity"]["share_classes"][0]
+    assert sub_fund["structure"] == "ordinary_fund"
+    assert sub_fund["structure_source_id"] == "doc:structure"
+    assert set(sub_fund["source_ids"]) == {"doc:structure", "doc:currency"}
+    assert share_class["distribution_policy"] == "accumulating"
+    assert share_class["distribution_policy_source_id"] == "doc:distribution"
+    assert set(share_class["source_ids"]) == {
+        "doc:distribution",
+        "doc:share-class-currency",
+    }
+
+
 def test_ordinary_fund_pricing_blocks_etf_spread() -> None:
     result = fund_metric_availability("ordinary_fund", "bid_ask_spread")
 
@@ -246,6 +302,50 @@ def test_lifecycle_events_replay_at_effective_and_decision_times(tmp_path: Path)
         FundLifecycleStatus.CLOSED,
         FundLifecycleStatus.LIQUIDATED,
     )
+
+
+def test_lifecycle_replay_selects_latest_eligible_event_revision(tmp_path: Path) -> None:
+    events = (
+        FundLifecycleEvent(
+            "FUND-CORRECTED",
+            "closure-1",
+            FundLifecycleStatus.CLOSED,
+            "2024-01-01T00:00:00Z",
+            "2024-01-02T00:00:00Z",
+            "fixture",
+            "source:closure",
+            SourceAuthority.OFFICIAL,
+            revision=1,
+        ),
+        FundLifecycleEvent(
+            "FUND-CORRECTED",
+            "closure-1",
+            FundLifecycleStatus.LIQUIDATED,
+            "2024-01-01T00:00:00Z",
+            "2024-02-02T00:00:00Z",
+            "fixture",
+            "source:closure",
+            SourceAuthority.OFFICIAL,
+            revision=2,
+        ),
+    )
+    with IdentityMasterStore(tmp_path) as store:
+        store.append_fund_lifecycle_events(events)
+        before_correction = store.fund_lifecycle_events(
+            "FUND-CORRECTED",
+            effective_at="2024-06-01T00:00:00Z",
+            decision_time="2024-02-01T00:00:00Z",
+        )
+        after_correction = store.fund_lifecycle_events(
+            "FUND-CORRECTED",
+            effective_at="2024-06-01T00:00:00Z",
+            decision_time="2024-03-01T00:00:00Z",
+        )
+
+    assert tuple(event.status for event in before_correction) == (FundLifecycleStatus.CLOSED,)
+    assert tuple(event.revision for event in before_correction) == (1,)
+    assert tuple(event.status for event in after_correction) == (FundLifecycleStatus.LIQUIDATED,)
+    assert tuple(event.revision for event in after_correction) == (2,)
 
 
 def test_critical_fund_terms_fail_closed_and_require_lineage() -> None:
