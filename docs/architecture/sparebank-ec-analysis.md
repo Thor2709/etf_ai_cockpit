@@ -25,6 +25,22 @@ outstanding and are not treasury or private-holder wealth.
 Owner book per EC uses the period-end count. Owner EPS uses the weighted-average
 count. Missing facts remain unavailable and lower coverage. If a routed claim
 is not `resolved`, generic bank/stock valuation is explicitly inapplicable
-with a reason code. Later sections (`bank_economics`, `events`, `valuation`,
-and `scorecard`) are explicit `UNAVAILABLE` placeholders for subsequent SPBK
-issues.
+with a reason code. `valuation` and `scorecard` remain explicit `UNAVAILABLE`
+placeholders until their respective issues add them.
+
+## Bank economics and structural events
+
+SPBK-002 adds the pure `bank_economics` interpretation layer. It consumes the
+financial-sector adapter's already projected metrics and keeps reported versus
+normalised earnings, credit stock/flow, capital headroom, and funding evidence
+separate. Missing evidence remains `UNAVAILABLE`; no regulatory ratio or
+deposit beta is inferred. The normalisation bridge records each adjustment's
+mechanism, evidence locator, persistence assumption, and tax treatment.
+
+SPBK-003 adds the pure structural-event ledger. Conversion, primary and
+secondary issues, rights, buybacks, mergers, and §10-19 deficit coverage retain
+pre/post claim states and recipient cash flows. Merger value split, exchange
+ratio, EC-class ownership, and eierbrøk remain four distinct fields. Agreement,
+legal completion, technical integration, and economic maturity are independent
+milestones; legal completion does not imply maturity. All outputs remain
+`execution_allowed=false`.

@@ -877,7 +877,11 @@ def _build_financial_projection_from_evidence(
         "filing_version": ec_revision.get("filing_version") or ec_payload.get("filing_version"),
         "revision_id": ec_revision.get("revision_id") or ec_payload.get("revision_id"),
     }
-    sparebank_analysis = analyse_sparebank_ec(route_evidence, decision_time=cutoff)
+    sparebank_analysis = analyse_sparebank_ec(
+        route_evidence,
+        decision_time=cutoff,
+        bank_metrics=result.metrics,
+    )
     if isinstance(ec_facts, Mapping) and ec_facts:
         from dataclasses import asdict, replace
         identity_payload = dict(result.share_class_identity) if isinstance(result.share_class_identity, Mapping) else {}
