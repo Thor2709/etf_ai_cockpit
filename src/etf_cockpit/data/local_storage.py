@@ -4,6 +4,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation, localcontext
 import json
 from pathlib import Path
 import sqlite3
@@ -15,7 +16,7 @@ import pandas as pd
 from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
 
 
-STORAGE_SCHEMA_VERSION = 4
+STORAGE_SCHEMA_VERSION = 6
 
 
 class StorageSchemaError(RuntimeError):
@@ -84,6 +85,7 @@ def connect_storage(root: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(layout.transactional_path, timeout=30.0)
     try:
         connection.row_factory = sqlite3.Row
+        _register_ledger_sql_functions(connection)
         # Set the busy handler before the WAL transition.  Two first-time local
         # writers may open the same store concurrently and journal_mode itself
         # can need the database write lock.
@@ -129,6 +131,7 @@ def connect_storage_read_only(root: Path) -> sqlite3.Connection:
     try:
         connection.deserialize(bytes(memory_image))
         connection.row_factory = sqlite3.Row
+        _register_ledger_sql_functions(connection)
         connection.execute("PRAGMA busy_timeout = 30000")
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA query_only = ON")
@@ -170,6 +173,8 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
         (2, "analytical_catalog_v1", _migration_v2),
         (3, "bitemporal_observations_v1", _migration_v3),
         (4, "durable_workflows_v1", _migration_v4),
+        (5, "double_entry_ledger_v1", _migration_v5),
+        (6, "ledger_authority_and_integrity_v2", _migration_v6),
     )
     connection.execute(
         """
@@ -425,6 +430,357 @@ def _migration_v4(connection: sqlite3.Connection) -> None:
         """
     )
     connection.execute("CREATE INDEX durable_job_events_workflow ON durable_job_events(workflow_id, event_id)")
+
+
+def _migration_v5(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE ledger_accounts (
+            account_id TEXT PRIMARY KEY,
+            parent_account_id TEXT,
+            name TEXT NOT NULL CHECK(length(trim(name)) > 0),
+            account_type TEXT NOT NULL CHECK(account_type IN ('asset', 'liability', 'equity', 'income', 'expense')),
+            authority TEXT NOT NULL CHECK(authority IN ('paper', 'broker')),
+            created_at TEXT NOT NULL,
+            UNIQUE(account_id, authority),
+            FOREIGN KEY(parent_account_id, authority)
+                REFERENCES ledger_accounts(account_id, authority),
+            CHECK(parent_account_id IS NULL OR parent_account_id <> account_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE ledger_entries (
+            entry_id TEXT PRIMARY KEY,
+            authority TEXT NOT NULL CHECK(authority IN ('paper', 'broker')),
+            effective_at TEXT NOT NULL CHECK(length(trim(effective_at)) > 0),
+            recorded_at TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            reversal_of_entry_id TEXT UNIQUE,
+            status TEXT NOT NULL CHECK(status IN ('posting', 'posted')),
+            UNIQUE(entry_id, authority),
+            FOREIGN KEY(reversal_of_entry_id, authority)
+                REFERENCES ledger_entries(entry_id, authority),
+            CHECK(reversal_of_entry_id IS NULL OR reversal_of_entry_id <> entry_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE ledger_postings (
+            entry_id TEXT NOT NULL,
+            line_number INTEGER NOT NULL CHECK(line_number > 0),
+            account_id TEXT NOT NULL,
+            authority TEXT NOT NULL CHECK(authority IN ('paper', 'broker')),
+            currency TEXT NOT NULL CHECK(currency GLOB '[A-Z][A-Z][A-Z]'),
+            debit_amount TEXT NOT NULL,
+            credit_amount TEXT NOT NULL,
+            PRIMARY KEY(entry_id, line_number),
+            FOREIGN KEY(entry_id, authority)
+                REFERENCES ledger_entries(entry_id, authority),
+            FOREIGN KEY(account_id, authority)
+                REFERENCES ledger_accounts(account_id, authority),
+            CHECK(
+                (debit_amount = '0' AND credit_amount <> '0') OR
+                (credit_amount = '0' AND debit_amount <> '0')
+            )
+        )
+        """
+    )
+    connection.execute("CREATE INDEX ledger_entries_effective ON ledger_entries(authority, effective_at, entry_id)")
+    connection.execute("CREATE INDEX ledger_postings_account ON ledger_postings(account_id, currency, entry_id)")
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_entries_post_transition
+        BEFORE UPDATE ON ledger_entries
+        WHEN NOT (
+            OLD.status = 'posting' AND NEW.status = 'posted' AND
+            NEW.entry_id IS OLD.entry_id AND
+            NEW.authority IS OLD.authority AND
+            NEW.effective_at IS OLD.effective_at AND
+            NEW.recorded_at IS OLD.recorded_at AND
+            NEW.description IS OLD.description AND
+            NEW.reversal_of_entry_id IS OLD.reversal_of_entry_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger entries are immutable after posting');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_entries_no_delete
+        BEFORE DELETE ON ledger_entries
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger entries cannot be deleted');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_postings_insert_while_posting
+        BEFORE INSERT ON ledger_postings
+        WHEN (SELECT status FROM ledger_entries WHERE entry_id = NEW.entry_id) <> 'posting'
+        BEGIN
+            SELECT RAISE(ABORT, 'postings can only be added while an entry is being posted');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_postings_no_update
+        BEFORE UPDATE ON ledger_postings
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger postings are immutable');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_postings_no_delete
+        BEFORE DELETE ON ledger_postings
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger postings cannot be deleted');
+        END
+        """
+    )
+
+
+def _migration_v6(connection: sqlite3.Connection) -> None:
+    connection.execute("PRAGMA defer_foreign_keys = ON")
+    for trigger in (
+        "ledger_entries_post_transition",
+        "ledger_entries_no_delete",
+        "ledger_postings_insert_while_posting",
+        "ledger_postings_no_update",
+        "ledger_postings_no_delete",
+    ):
+        connection.execute(f"DROP TRIGGER {trigger}")
+    connection.execute("DROP INDEX ledger_entries_effective")
+    connection.execute("DROP INDEX ledger_postings_account")
+    connection.execute("ALTER TABLE ledger_postings RENAME TO ledger_postings_v5")
+    connection.execute("ALTER TABLE ledger_entries RENAME TO ledger_entries_v5")
+    connection.execute("ALTER TABLE ledger_accounts RENAME TO ledger_accounts_v5")
+
+    connection.execute(
+        """
+        CREATE TABLE ledger_accounts (
+            account_id TEXT NOT NULL,
+            parent_account_id TEXT,
+            name TEXT NOT NULL CHECK(length(trim(name)) > 0),
+            account_type TEXT NOT NULL CHECK(account_type IN ('asset', 'liability', 'equity', 'income', 'expense')),
+            authority TEXT NOT NULL CHECK(authority IN ('paper', 'broker')),
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(account_id, authority),
+            FOREIGN KEY(parent_account_id, authority)
+                REFERENCES ledger_accounts(account_id, authority),
+            CHECK(parent_account_id IS NULL OR parent_account_id <> account_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE ledger_entries (
+            entry_id TEXT NOT NULL,
+            authority TEXT NOT NULL CHECK(authority IN ('paper', 'broker')),
+            effective_at TEXT NOT NULL CHECK(length(trim(effective_at)) > 0),
+            recorded_at TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            reversal_of_entry_id TEXT,
+            status TEXT NOT NULL CHECK(status IN ('posting', 'posted')),
+            PRIMARY KEY(entry_id, authority),
+            UNIQUE(reversal_of_entry_id, authority),
+            FOREIGN KEY(reversal_of_entry_id, authority)
+                REFERENCES ledger_entries(entry_id, authority),
+            CHECK(reversal_of_entry_id IS NULL OR reversal_of_entry_id <> entry_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE ledger_postings (
+            entry_id TEXT NOT NULL,
+            line_number INTEGER NOT NULL CHECK(line_number > 0),
+            account_id TEXT NOT NULL,
+            authority TEXT NOT NULL CHECK(authority IN ('paper', 'broker')),
+            currency TEXT NOT NULL CHECK(currency GLOB '[A-Z][A-Z][A-Z]'),
+            debit_amount TEXT NOT NULL
+                CHECK(ledger_decimal_valid(debit_amount) = 1),
+            credit_amount TEXT NOT NULL
+                CHECK(ledger_decimal_valid(credit_amount) = 1),
+            PRIMARY KEY(entry_id, authority, line_number),
+            FOREIGN KEY(entry_id, authority)
+                REFERENCES ledger_entries(entry_id, authority),
+            FOREIGN KEY(account_id, authority)
+                REFERENCES ledger_accounts(account_id, authority),
+            CHECK(ledger_posting_amounts_valid(debit_amount, credit_amount) = 1)
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO ledger_accounts(
+            account_id, parent_account_id, name, account_type, authority, created_at
+        )
+        SELECT account_id, parent_account_id, name, account_type, authority, created_at
+        FROM ledger_accounts_v5
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO ledger_entries(
+            entry_id, authority, effective_at, recorded_at, description,
+            reversal_of_entry_id, status
+        )
+        SELECT entry_id, authority, effective_at, recorded_at, description,
+            reversal_of_entry_id, status
+        FROM ledger_entries_v5
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO ledger_postings(
+            entry_id, line_number, account_id, authority, currency, debit_amount, credit_amount
+        )
+        SELECT entry_id, line_number, account_id, authority, currency, debit_amount, credit_amount
+        FROM ledger_postings_v5
+        """
+    )
+    connection.execute("DROP TABLE ledger_postings_v5")
+    connection.execute("DROP TABLE ledger_entries_v5")
+    connection.execute("DROP TABLE ledger_accounts_v5")
+
+    invalid_entry = connection.execute(
+        """
+        SELECT entry_id, authority
+        FROM ledger_entries AS entry
+        WHERE status = 'posted'
+          AND (
+              (SELECT COUNT(*) FROM ledger_postings
+               WHERE entry_id = entry.entry_id AND authority = entry.authority) < 2
+              OR EXISTS (
+                  SELECT currency
+                  FROM ledger_postings
+                  WHERE entry_id = entry.entry_id AND authority = entry.authority
+                  GROUP BY currency
+                  HAVING ledger_currency_balanced(debit_amount, credit_amount) <> 1
+              )
+          )
+        LIMIT 1
+        """
+    ).fetchone()
+    if invalid_entry is not None:
+        raise sqlite3.IntegrityError(
+            f"cannot migrate unbalanced posted ledger entry: {invalid_entry[1]}:{invalid_entry[0]}"
+        )
+
+    connection.execute(
+        "CREATE INDEX ledger_entries_effective ON ledger_entries(authority, effective_at, entry_id)"
+    )
+    connection.execute(
+        "CREATE INDEX ledger_postings_account ON ledger_postings(authority, account_id, currency, entry_id)"
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_entries_posting_only
+        BEFORE INSERT ON ledger_entries
+        WHEN NEW.status <> 'posting'
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger entries must be inserted in posting status');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_entries_post_transition
+        BEFORE UPDATE ON ledger_entries
+        WHEN NOT (
+            OLD.status = 'posting' AND NEW.status = 'posted' AND
+            NEW.entry_id IS OLD.entry_id AND
+            NEW.authority IS OLD.authority AND
+            NEW.effective_at IS OLD.effective_at AND
+            NEW.recorded_at IS OLD.recorded_at AND
+            NEW.description IS OLD.description AND
+            NEW.reversal_of_entry_id IS OLD.reversal_of_entry_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger entries are immutable after posting');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_entries_validate_posted
+        BEFORE UPDATE OF status ON ledger_entries
+        WHEN OLD.status = 'posting' AND NEW.status = 'posted'
+          AND (
+              (SELECT COUNT(*) FROM ledger_postings
+               WHERE entry_id = NEW.entry_id AND authority = NEW.authority) < 2
+              OR EXISTS (
+                  SELECT currency
+                  FROM ledger_postings
+                  WHERE entry_id = NEW.entry_id AND authority = NEW.authority
+                  GROUP BY currency
+                  HAVING ledger_currency_balanced(debit_amount, credit_amount) <> 1
+              )
+          )
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger entry postings must balance by currency');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_entries_no_delete
+        BEFORE DELETE ON ledger_entries
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger entries cannot be deleted');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_postings_validate_insert
+        BEFORE INSERT ON ledger_postings
+        WHEN ledger_posting_amounts_valid(NEW.debit_amount, NEW.credit_amount) <> 1
+        BEGIN
+            SELECT RAISE(ABORT, 'posting amounts must be finite non-negative decimals with one positive side');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_postings_insert_while_posting
+        BEFORE INSERT ON ledger_postings
+        WHEN COALESCE(
+            (SELECT status FROM ledger_entries
+             WHERE entry_id = NEW.entry_id AND authority = NEW.authority),
+            ''
+        ) <> 'posting'
+        BEGIN
+            SELECT RAISE(ABORT, 'postings can only be added while an entry is being posted');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_postings_no_update
+        BEFORE UPDATE ON ledger_postings
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger postings are immutable');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_postings_no_delete
+        BEFORE DELETE ON ledger_postings
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger postings cannot be deleted');
+        END
+        """
+    )
 
 
 class TransactionalStore:
@@ -760,3 +1116,71 @@ def _validate_identity(entity_type: str, entity_id: str) -> tuple[str, str]:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def _register_ledger_sql_functions(connection: sqlite3.Connection) -> None:
+    connection.create_function("ledger_decimal_valid", 1, _ledger_decimal_valid, deterministic=True)
+    connection.create_function("ledger_posting_amounts_valid", 2, _ledger_posting_amounts_valid, deterministic=True)
+    connection.create_aggregate("ledger_currency_balanced", 2, _LedgerCurrencyBalance)
+
+
+def _as_ledger_decimal(value: object) -> Decimal | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return Decimal(value)
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+
+
+def _ledger_decimal_valid(value: object) -> int:
+    amount = _as_ledger_decimal(value)
+    return int(amount is not None and amount.is_finite() and amount >= 0)
+
+
+def _ledger_posting_amounts_valid(debit_value: object, credit_value: object) -> int:
+    debit = _as_ledger_decimal(debit_value)
+    credit = _as_ledger_decimal(credit_value)
+    if debit is None or credit is None or not debit.is_finite() or not credit.is_finite():
+        return 0
+    return int(debit >= 0 and credit >= 0 and ((debit > 0) != (credit > 0)))
+
+
+class _LedgerCurrencyBalance:
+    def __init__(self) -> None:
+        self.debits: list[Decimal] = []
+        self.credits: list[Decimal] = []
+        self.valid = True
+
+    def step(self, debit_value: object, credit_value: object) -> None:
+        debit = _as_ledger_decimal(debit_value)
+        credit = _as_ledger_decimal(credit_value)
+        if (
+            debit is None
+            or credit is None
+            or not debit.is_finite()
+            or not credit.is_finite()
+            or debit < 0
+            or credit < 0
+        ):
+            self.valid = False
+            return
+        self.debits.append(debit)
+        self.credits.append(credit)
+
+    def finalize(self) -> int:
+        if not self.valid or not self.debits:
+            return 0
+        return int(_ledger_decimal_total(self.debits) == _ledger_decimal_total(self.credits))
+
+
+def _ledger_decimal_total(amounts: list[Decimal]) -> Decimal:
+    nonzero = [amount for amount in amounts if amount]
+    if not nonzero:
+        return Decimal("0")
+    min_exponent = min(amount.as_tuple().exponent for amount in nonzero)
+    max_adjusted = max(amount.adjusted() for amount in nonzero)
+    precision = max(28, max_adjusted - min_exponent + len(str(len(nonzero))) + 2)
+    with localcontext() as context:
+        context.prec = precision
+        return sum(amounts, Decimal("0"))
