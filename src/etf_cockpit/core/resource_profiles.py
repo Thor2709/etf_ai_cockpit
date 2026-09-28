@@ -55,6 +55,7 @@ class ResourceProfile:
     chunk_size: int
     model_size: str
     description: str
+    job_time_limit_seconds: int = 3_600
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -118,11 +119,14 @@ class ResourcePolicy:
         warnings.extend(profile_decision.warnings)
         memory_requested, memory_invalid = _declared_positive(requested, "memory_mb")
         disk_requested, disk_invalid = _declared_positive(requested, "disk_mb")
+        time_requested, time_invalid = _declared_positive(requested, "time_seconds")
         cpu_requested, cpu_invalid = _declared_positive(requested, "cpu")
         if memory_invalid:
             reasons.append("memory request must be a finite positive number")
         if disk_invalid:
             reasons.append("disk request must be a finite positive number")
+        if time_invalid:
+            reasons.append("time request must be a finite positive number")
         if cpu_invalid:
             reasons.append("CPU request must be a finite positive number")
         if memory_requested is not None:
@@ -143,6 +147,12 @@ class ResourcePolicy:
                     reasons.append(f"disk request {disk_requested:.0f} MB exceeds safe limit {disk_limit:.0f} MB")
                 elif disk_limit > 0 and disk_requested >= 0.8 * disk_limit:
                     warnings.append(f"disk request uses at least 80% of the {disk_limit:.0f} MB safe limit")
+        if time_requested is not None:
+            time_limit = float(selected.job_time_limit_seconds)
+            if time_requested > time_limit:
+                reasons.append(f"time request {time_requested:.0f} seconds exceeds job limit {time_limit:.0f} seconds")
+            elif time_requested >= 0.8 * time_limit:
+                warnings.append(f"time request uses at least 80% of the {time_limit:.0f} second job limit")
         if cpu_requested is not None:
             cpu_limit = min(float(selected.job_cpu_limit), float(self.snapshot.cpu_cores))
             if cpu_requested > cpu_limit:
@@ -158,6 +168,15 @@ class ResourcePolicy:
             warnings.append(f"job requested profile {selected.profile_id}; host-selected profile is {self.profile_id}")
         status = "blocked" if reasons else "warning" if warnings else "supported"
         return ResourceDecision(status, selected.profile_id, tuple(reasons), tuple(dict.fromkeys(warnings)))
+
+    def require_allowed(self, resources: dict[str, object] | None = None) -> ResourceDecision:
+        """Reject blocked work before a caller starts its expensive operation."""
+
+        decision = self.evaluate(resources)
+        if decision.status == "blocked":
+            reasons = "; ".join(decision.reasons) or "resource policy blocked the job"
+            raise ValueError(f"job blocked by resource policy: {reasons}")
+        return decision
 
     def report(self) -> dict[str, object]:
         profiles = []
