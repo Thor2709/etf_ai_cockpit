@@ -15,7 +15,7 @@ import pandas as pd
 from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
 
 
-STORAGE_SCHEMA_VERSION = 4
+STORAGE_SCHEMA_VERSION = 5
 
 
 class StorageSchemaError(RuntimeError):
@@ -170,6 +170,7 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
         (2, "analytical_catalog_v1", _migration_v2),
         (3, "bitemporal_observations_v1", _migration_v3),
         (4, "durable_workflows_v1", _migration_v4),
+        (5, "double_entry_ledger_v1", _migration_v5),
     )
     connection.execute(
         """
@@ -425,6 +426,121 @@ def _migration_v4(connection: sqlite3.Connection) -> None:
         """
     )
     connection.execute("CREATE INDEX durable_job_events_workflow ON durable_job_events(workflow_id, event_id)")
+
+
+def _migration_v5(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE ledger_accounts (
+            account_id TEXT PRIMARY KEY,
+            parent_account_id TEXT,
+            name TEXT NOT NULL CHECK(length(trim(name)) > 0),
+            account_type TEXT NOT NULL CHECK(account_type IN ('asset', 'liability', 'equity', 'income', 'expense')),
+            authority TEXT NOT NULL CHECK(authority IN ('paper', 'broker')),
+            created_at TEXT NOT NULL,
+            UNIQUE(account_id, authority),
+            FOREIGN KEY(parent_account_id, authority)
+                REFERENCES ledger_accounts(account_id, authority),
+            CHECK(parent_account_id IS NULL OR parent_account_id <> account_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE ledger_entries (
+            entry_id TEXT PRIMARY KEY,
+            authority TEXT NOT NULL CHECK(authority IN ('paper', 'broker')),
+            effective_at TEXT NOT NULL CHECK(length(trim(effective_at)) > 0),
+            recorded_at TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            reversal_of_entry_id TEXT UNIQUE,
+            status TEXT NOT NULL CHECK(status IN ('posting', 'posted')),
+            UNIQUE(entry_id, authority),
+            FOREIGN KEY(reversal_of_entry_id, authority)
+                REFERENCES ledger_entries(entry_id, authority),
+            CHECK(reversal_of_entry_id IS NULL OR reversal_of_entry_id <> entry_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE ledger_postings (
+            entry_id TEXT NOT NULL,
+            line_number INTEGER NOT NULL CHECK(line_number > 0),
+            account_id TEXT NOT NULL,
+            authority TEXT NOT NULL CHECK(authority IN ('paper', 'broker')),
+            currency TEXT NOT NULL CHECK(currency GLOB '[A-Z][A-Z][A-Z]'),
+            debit_amount TEXT NOT NULL,
+            credit_amount TEXT NOT NULL,
+            PRIMARY KEY(entry_id, line_number),
+            FOREIGN KEY(entry_id, authority)
+                REFERENCES ledger_entries(entry_id, authority),
+            FOREIGN KEY(account_id, authority)
+                REFERENCES ledger_accounts(account_id, authority),
+            CHECK(
+                (debit_amount = '0' AND credit_amount <> '0') OR
+                (credit_amount = '0' AND debit_amount <> '0')
+            )
+        )
+        """
+    )
+    connection.execute("CREATE INDEX ledger_entries_effective ON ledger_entries(authority, effective_at, entry_id)")
+    connection.execute("CREATE INDEX ledger_postings_account ON ledger_postings(account_id, currency, entry_id)")
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_entries_post_transition
+        BEFORE UPDATE ON ledger_entries
+        WHEN NOT (
+            OLD.status = 'posting' AND NEW.status = 'posted' AND
+            NEW.entry_id IS OLD.entry_id AND
+            NEW.authority IS OLD.authority AND
+            NEW.effective_at IS OLD.effective_at AND
+            NEW.recorded_at IS OLD.recorded_at AND
+            NEW.description IS OLD.description AND
+            NEW.reversal_of_entry_id IS OLD.reversal_of_entry_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger entries are immutable after posting');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_entries_no_delete
+        BEFORE DELETE ON ledger_entries
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger entries cannot be deleted');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_postings_insert_while_posting
+        BEFORE INSERT ON ledger_postings
+        WHEN (SELECT status FROM ledger_entries WHERE entry_id = NEW.entry_id) <> 'posting'
+        BEGIN
+            SELECT RAISE(ABORT, 'postings can only be added while an entry is being posted');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_postings_no_update
+        BEFORE UPDATE ON ledger_postings
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger postings are immutable');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_postings_no_delete
+        BEFORE DELETE ON ledger_postings
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger postings cannot be deleted');
+        END
+        """
+    )
 
 
 class TransactionalStore:
