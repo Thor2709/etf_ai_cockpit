@@ -209,9 +209,9 @@
     "blocked": 1,
     "closed": 17,
     "hardening_required": 4,
-    "implemented_initially": 26,
+    "implemented_initially": 21,
     "in_progress": 4,
-    "integrated": 102,
+    "integrated": 107,
     "planned": 46,
     "research_only": 2
   },
@@ -5273,5 +5273,5 @@
     "ISSUE-0062"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "6936ecfbaedfa41123a0ef714ee251d19ba97c8eb9fde5e9f76f15eadece1822"
+  "source_registry_sha256": "c932160aed579c534b55260ba94d5d81434a84af2c9001b7ac96826566583e88"
 }
