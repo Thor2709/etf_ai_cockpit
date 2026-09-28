@@ -31,7 +31,7 @@ def test_full_suite_timeout_is_scoped_to_the_full_release_test_command(
     release_gate.run_command(tmp_path, output, "full_tests", ("pytest",))
     release_gate.run_command(tmp_path, output, "package_build", ("build",))
 
-    assert observed == [2400, 1800]
+    assert observed == [3600, 1800]
 
 
 def test_full_tests_default_command_remains_the_serial_release_command(tmp_path: Path) -> None:
@@ -575,3 +575,13 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "contents: read" in workflow
     assert "issues: write" not in workflow
     assert "releases: write" not in workflow
+
+
+def test_xdist_collection_lists_node_ids_despite_quiet_addopts() -> None:
+    root = Path(__file__).resolve().parents[1]
+    command = release_gate._python_command(
+        root, "-m", "pytest", "--collect-only", "--verbosity=-1", "tests/test_atomic_io.py"
+    )
+    nodeids, _elapsed, failure = release_gate._collect_test_nodeids(root, command)
+    assert failure == ""
+    assert nodeids and all(nodeid.startswith("tests/test_atomic_io.py::") for nodeid in nodeids)

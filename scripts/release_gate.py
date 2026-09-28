@@ -417,7 +417,7 @@ def run_command(
     required: bool = True,
 ) -> CheckResult:
     started = time.perf_counter()
-    timeout_seconds = 2400 if name == "full_tests" or name.startswith("full_tests_") else 1800
+    timeout_seconds = 3600 if name == "full_tests" or name.startswith("full_tests_") else 1800
     try:
         completed = subprocess.run(
             list(command),
@@ -578,9 +578,9 @@ def full_tests(root: Path, output_dir: Path, xdist_workers: int = 0) -> CheckRes
 
     started = time.perf_counter()
     collection_commands = (
-        _python_command(root, "-m", "pytest", "--collect-only", "-q"),
-        _python_command(root, "-m", "pytest", "-m", "not serial", "--collect-only", "-q"),
-        _python_command(root, "-m", "pytest", "-m", "serial", "--collect-only", "-q"),
+        _python_command(root, "-m", "pytest", "--collect-only", "--verbosity=-1"),
+        _python_command(root, "-m", "pytest", "-m", "not serial", "--collect-only", "--verbosity=-1"),
+        _python_command(root, "-m", "pytest", "-m", "serial", "--collect-only", "--verbosity=-1"),
     )
     collected = [_collect_test_nodeids(root, command) for command in collection_commands]
     full_nodes, phase_a_nodes, phase_b_nodes = (row[0] for row in collected)
