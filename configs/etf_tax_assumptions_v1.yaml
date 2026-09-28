@@ -1,0 +1,10 @@
+# Informational assumptions only. Tax and hedging effects remain disabled.
+version: 1
+tax_enabled: false
+tax_residence_country: null
+source_withholding_rate: 0.15
+source_withholding_label: "US-Ireland treaty withholding on US-source dividends"
+known_at: null
+hedge_enabled: false
+hedge_ratio: null
+hedge_target_currency: null

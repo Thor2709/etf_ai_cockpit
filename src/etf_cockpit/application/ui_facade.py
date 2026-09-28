@@ -34,6 +34,14 @@ from etf_cockpit.analysis.fixed_income_risk import (
     FixedIncomeRiskInput,
     calculate_fixed_income_risk,
 )
+from etf_cockpit.analysis.etf_tax_context import (
+    ETFContextAssumptions,  # noqa: F401
+    NetReturnScenario,  # noqa: F401
+    build_currency_context,  # noqa: F401
+    calculate_core_quality_tax_bias,  # noqa: F401
+    calculate_net_return_scenario,  # noqa: F401
+    load_tax_hedge_assumptions,  # noqa: F401
+)
 from etf_cockpit.data.fixed_income_risk_store import read_fixed_income_risk
 
 from etf_cockpit.chatgpt_bridge.audit_packet import *  # noqa: F401,F403
