@@ -153,6 +153,14 @@ def test_incident_journal_rejects_truncation_against_durable_head(
 
     with pytest.raises(IncidentJournalIntegrityError, match="anchor"):
         journal.is_frozen
+    if tamper == "delete":
+        incidents = load_paper_incidents(isolated_runtime_root)
+        assert incidents["status"] == "invalid"
+        assert incidents["frozen"] is True
+        assert incidents["execution_allowed"] is False
+
+        snapshot = PaperLedger(isolated_runtime_root).snapshot()
+        assert snapshot.reconciliation_status == "frozen"
 
 
 @pytest.mark.parametrize("scenario", ["disconnect", "order_break"])

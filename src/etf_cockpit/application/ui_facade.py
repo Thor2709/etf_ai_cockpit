@@ -1398,16 +1398,6 @@ def load_paper_incidents(root: Path, *, account_id: str = "local-paper") -> dict
     from etf_cockpit.trading.incidents import IncidentJournal, IncidentJournalError
 
     journal = IncidentJournal(root, account_id=account_id)
-    if not journal.path.exists():
-        return {
-            "status": "unavailable",
-            "incidents": [],
-            "postmortems": [],
-            "reconciliations": [],
-            "frozen": False,
-            "reason_code": "incident_journal_missing",
-            "execution_allowed": False,
-        }
     try:
         projection = journal.snapshot()
         events = projection["events"]

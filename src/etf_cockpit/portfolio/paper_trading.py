@@ -1341,7 +1341,7 @@ class PaperLedger:
             from etf_cockpit.trading.incidents import IncidentJournal
 
             journal = IncidentJournal(self.root, account_id=self.account_id)
-            frozen = journal.is_frozen if journal.path.exists() else False
+            frozen = journal.is_frozen
         except (OSError, ValueError):
             frozen = True
         return PaperAccountSnapshot(
