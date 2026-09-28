@@ -86,13 +86,18 @@ from etf_cockpit.data.classification import (
     read_instrument_context,
     read_classification_projection,
 )
+from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.peer_cohort_store import read_peer_cohort_projection
 from etf_cockpit.analysis.financial_sector_adapters import (
+    FinancialMetricEvidence,
     FinancialAdapterError,
     FinancialInstitutionProjection,
+    build_financial_institution_projection,
+    financial_adapter_definition,
     unavailable_financial_projection,
     verify_financial_projection,
 )
+from etf_cockpit.analysis.peer_cohorts import AdapterRegistry
 from etf_cockpit.analysis.real_asset_sector_adapters import (
     RealAssetAdapterError,
     RealAssetProjection,
@@ -766,11 +771,26 @@ def load_financial_institution_projection(
     instrument_id: str,
     *,
     projection: FinancialInstitutionProjection | Mapping[str, object] | None = None,
+    storage_root: Path | None = None,
+    decision_time: str | None = None,
+    effective_at: str | None = None,
+    context: object | None = None,
 ) -> dict[str, object]:
-    """Verify optional in-memory evidence; default remains explicitly unavailable."""
+    """Load a verified projection, or build one from local point-in-time evidence."""
 
     if projection is None:
-        return unavailable_financial_projection(instrument_id)
+        try:
+            return _build_financial_projection_from_evidence(
+                instrument_id,
+                storage_root=storage_root,
+                decision_time=decision_time,
+                effective_at=effective_at,
+                context=context,
+            )
+        except (FinancialAdapterError, OSError, TypeError, ValueError, KeyError):
+            return unavailable_financial_projection(
+                instrument_id, "financial_evidence_invalid"
+            )
     try:
         payload = verify_financial_projection(projection)
         if payload.get("instrument_id") != str(instrument_id):
@@ -780,6 +800,267 @@ def load_financial_institution_projection(
         return unavailable_financial_projection(
             instrument_id, "financial_evidence_invalid"
         )
+
+
+def _build_financial_projection_from_evidence(
+    instrument_id: str,
+    *,
+    storage_root: Path | None,
+    decision_time: str | None,
+    effective_at: str | None,
+    context: object | None,
+) -> dict[str, object]:
+    """Adapt #699's persisted statement/EC artifacts to the domain adapter."""
+    from datetime import datetime, timezone
+    from etf_cockpit.core.paths import ROOT
+
+    root = Path(storage_root or ROOT).resolve()
+    identity = _read_json_artifact(root, "identity.json") or {}
+    cutoff = str(decision_time or identity.get("known_at") or "").strip()
+    if not cutoff:
+        return unavailable_financial_projection(instrument_id, "financial_decision_time_unavailable")
+    decision = datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
+    cutoff = decision.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    effective = str(effective_at or identity.get("effective_at") or cutoff).strip()
+    if len(effective) == 10:
+        effective = f"{effective}T00:00:00Z"
+
+    if context is None:
+        context = read_instrument_context(
+            root,
+            instrument_id,
+            effective_at=effective,
+            decision_time=cutoff,
+        )
+    if str(getattr(context, "sector", "") or "").casefold() != "financials":
+        return unavailable_financial_projection(instrument_id, "financial_classification_unavailable")
+
+    frame = _read_financial_statement_frame(root)
+    rows = _financial_rows_for_instrument(frame, instrument_id, decision)
+    facts = _financial_metric_facts(rows, context, cutoff)
+    if not facts:
+        return unavailable_financial_projection(instrument_id, "financial_statement_evidence_unavailable")
+
+    registry = AdapterRegistry([financial_adapter_definition()])
+    result = build_financial_institution_projection(
+        context,
+        tuple(facts),
+        registry=registry,
+        decision_time=cutoff,
+        shocks={},
+    )
+    ec_payload = _read_json_artifact(root, "ec_facts.json") or {}
+    ec_facts = ec_payload.get("facts", {}) if isinstance(ec_payload, Mapping) else {}
+    if isinstance(ec_facts, Mapping) and ec_facts:
+        identity_payload = dict(result.share_class_identity) if isinstance(result.share_class_identity, Mapping) else {}
+        identity_payload["facts"] = {
+            name: {
+                "available": bool(value.get("available")) if isinstance(value, Mapping) else False,
+                "value": value.get("value") if isinstance(value, Mapping) else None,
+                "unit": value.get("unit") if isinstance(value, Mapping) else None,
+                "period": value.get("period") if isinstance(value, Mapping) else None,
+                "known_at": value.get("known_at") if isinstance(value, Mapping) else None,
+                "source": value.get("source_url") if isinstance(value, Mapping) else None,
+            }
+            for name, value in ec_facts.items()
+        }
+        from dataclasses import replace
+        result = replace(result, share_class_identity=identity_payload)
+        from etf_cockpit.analysis.financial_sector_adapters import _hash as _financial_hash
+        payload = result.__dict__.copy()
+        payload.pop("result_hash", None)
+        result = replace(result, result_hash=_financial_hash(payload))
+    return verify_financial_projection(result)
+
+
+def _read_json_artifact(root: Path, name: str) -> dict[str, object] | None:
+    import json
+
+    candidates = (root / name, root / "evidence" / name, root / "evidence" / "norway" / name)
+    for candidate in candidates:
+        try:
+            value = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def _read_financial_statement_frame(root: Path) -> pd.DataFrame:
+    candidates = (
+        root / "statement_facts.parquet",
+        root / "data" / "clean" / "statement_facts.parquet",
+        root / "evidence" / "statement_facts.parquet",
+        root / "evidence" / "norway" / "statement_facts.parquet",
+        root / "normalised_statements.parquet",
+    )
+    for candidate in candidates:
+        try:
+            if candidate.exists():
+                frame = pd.read_parquet(candidate)
+                if isinstance(frame, pd.DataFrame) and not frame.empty:
+                    return frame
+        except (OSError, ValueError, ImportError):
+            continue
+    return pd.DataFrame()
+
+
+def _financial_rows_for_instrument(
+    frame: pd.DataFrame, instrument_id: str, decision: object
+) -> list[dict[str, object]]:
+    if frame.empty or "instrument_id" not in frame.columns:
+        return []
+    scoped = frame.loc[frame["instrument_id"].astype(str).eq(str(instrument_id))]
+    cutoff = pd.Timestamp(decision)
+    rows: list[dict[str, object]] = []
+    for row in scoped.to_dict("records"):
+        known_raw = row.get("known_at") or row.get("available_at") or row.get("filed")
+        effective_raw = row.get("effective_at") or row.get("end") or row.get("instant")
+        known = pd.to_datetime(known_raw, errors="coerce", utc=True)
+        effective = pd.to_datetime(effective_raw, errors="coerce", utc=True)
+        if pd.isna(known) or known > cutoff or pd.isna(effective) or effective > cutoff:
+            continue
+        row["_known"] = known
+        row["_effective"] = effective
+        rows.append(row)
+    return rows
+
+
+def _financial_metric_facts(
+    rows: list[dict[str, object]], context: object, cutoff: str
+) -> list[FinancialMetricEvidence]:
+    from etf_cockpit.analysis.financial_sector_adapters import _METRICS, _REGULATORY
+
+    model = "bank"
+    candidates: dict[str, dict[str, object]] = {}
+    aliases = {
+        "liquidity_coverage_ratio": "liquidity_coverage_ratio",
+        "lcr": "liquidity_coverage_ratio",
+        "nsfr": "net_stable_funding_ratio",
+        "net_stable_funding_ratio": "net_stable_funding_ratio",
+        "cet1": "cet1_ratio",
+        "cet1_ratio": "cet1_ratio",
+        "total_capital": "total_capital_ratio",
+        "total_capital_ratio": "total_capital_ratio",
+        "leverage": "leverage_ratio",
+        "leverage_ratio": "leverage_ratio",
+        "net_interest_margin": "net_interest_margin",
+        "npl_ratio": "npl_ratio",
+        "stage_2_exposure": "stage_2_exposure",
+        "stage_3_exposure": "stage_3_exposure",
+        "cost_of_risk": "cost_of_risk",
+        "dividend": "dividends",
+        "dividends": "dividends",
+        "retained_earnings": "retained_earnings",
+        "shares_outstanding": "issuance_dilution",
+        "tangible_book_value": "tangible_book_value",
+        "price_to_book": "price_to_book",
+        "price_to_tangible_book": "price_to_tangible_book",
+    }
+    for row in rows:
+        raw_metric = str(row.get("canonical_metric") or row.get("concept") or "").strip().casefold()
+        metric = aliases.get(raw_metric, raw_metric if raw_metric in _METRICS[model] else None)
+        if metric is None:
+            continue
+        previous = candidates.get(metric)
+        if previous is not None and (row["_effective"], row["_known"]) <= (previous["_effective"], previous["_known"]):
+            continue
+        candidates[metric] = row
+
+    def numeric(row: dict[str, object]) -> float | None:
+        try:
+            value = float(row.get("value"))
+            return value if math.isfinite(value) else None
+        except (TypeError, ValueError):
+            return None
+
+    def category(row: dict[str, object], metric: str) -> str:
+        explicit = str(row.get("fact_category") or "").strip().casefold()
+        source = f"{row.get('source_id', '')} {row.get('taxonomy', '')} {row.get('concept', '')}".casefold()
+        if explicit in {"pillar3", "regulatory", "market", "issuer_apm", "calculated", "ifrs"}:
+            return "pillar3" if explicit == "regulatory" else explicit
+        if metric in _REGULATORY and any(token in source for token in ("pillar", "prudential", "regulatory", "eba")):
+            return "pillar3"
+        if "market" in source or "quote" in source:
+            return "market"
+        if row.get("is_custom") or "extension" in source:
+            return "issuer_apm"
+        return "ifrs"
+
+    def fact(metric: str, value: float | None, row: dict[str, object] | None, *, fact_category: str = "calculated", definition: str = "", limitations: tuple[str, ...] = (), source_id_override: str | None = None) -> FinancialMetricEvidence:
+        selected = row or {}
+        known = selected.get("_known")
+        effective = selected.get("_effective")
+        known_at = pd.Timestamp(known).isoformat().replace("+00:00", "Z") if known is not None else cutoff
+        as_of = pd.Timestamp(effective).isoformat().replace("+00:00", "Z") if effective is not None else cutoff
+        source_id = str(source_id_override or selected.get("source_id") or f"unavailable:{metric}")
+        unit = str(selected.get("unit") or "ratio")
+        if value is None:
+            unit = (
+                "currency_per_share"
+                if metric == "tangible_book_value"
+                else "currency"
+                if metric in {"dividends", "retained_earnings", "issuance_dilution", "residual_income_input"}
+                else "ratio"
+            )
+        if metric in {"dividends", "retained_earnings", "issuance_dilution", "residual_income_input"} and unit.casefold() not in {"shares", "currency_per_share", "currency"}:
+            unit = "currency"
+        return FinancialMetricEvidence(
+            metric=metric,
+            value=value,
+            unit="percent" if unit.casefold() in {"percent", "%"} else unit,
+            period=str(selected.get("fiscal_year") or selected.get("end") or "undated"),
+            reporting_standard="IFRS" if fact_category == "ifrs" else fact_category.upper(),
+            jurisdiction=str(getattr(context, "operating_country", None) or "NO"),
+            business_model=model,
+            source_id=source_id,
+            source_authority=(
+                SourceAuthority.OFFICIAL
+                if fact_category in {"ifrs", "pillar3", "regulatory"}
+                else SourceAuthority.MANUAL
+                if fact_category == "calculated"
+                else SourceAuthority.ISSUER
+            ),
+            as_of=as_of,
+            known_at=known_at,
+            direction=None,
+            fact_category=fact_category,
+            definition=definition,
+            scope=str(selected.get("consolidation_scope") or "consolidated"),
+            coverage="reported" if row else ("derived" if value is not None else "unavailable"),
+            source=str(selected.get("source_url") or source_id),
+            limitations=limitations,
+        )
+
+    facts: list[FinancialMetricEvidence] = []
+    for metric in sorted(_METRICS[model]):
+        row = candidates.get(metric)
+        value = numeric(row) if row is not None else None
+        category_name = category(row, metric) if row is not None else ("pillar3" if metric in _REGULATORY else "calculated")
+        facts.append(fact(metric, value, row, fact_category=category_name))
+
+    values = {item.metric: item.value for item in facts}
+    raw_values = {
+        str(row.get("canonical_metric") or row.get("concept") or "").strip().casefold(): numeric(row)
+        for row in rows
+    }
+    def derived(metric: str, numerator: str, denominator: str, definition: str) -> None:
+        if candidates.get(metric) is not None:
+            return
+        a, b = values.get(numerator), values.get(denominator)
+        if a is None:
+            a = raw_values.get(numerator)
+        if b is None:
+            b = raw_values.get(denominator)
+        invalid_denominator = b is None or not math.isfinite(float(b)) or float(b) <= 0
+        result = None if a is None or invalid_denominator else float(a) / float(b)
+        facts[:] = [item for item in facts if item.metric != metric]
+        facts.append(fact(metric, result, None, definition=definition, limitations=("invalid_denominator",) if invalid_denominator else (), source_id_override=f"calculated:{metric}"))
+    derived("loan_deposit_ratio", "loans_to_customers", "deposits_from_customers", "loans_to_customers / deposits_from_customers")
+    derived("cost_income_ratio", "operating_expenses", "net_interest_income", "operating_expenses / net_interest_income")
+    derived("roe", "net_income", "equity", "net_income / equity")
+    return facts
 
 
 def load_real_asset_projection(

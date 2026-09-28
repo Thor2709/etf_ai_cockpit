@@ -79,12 +79,19 @@ def _metric(
     unit: str | None = None,
     reporting_standard: str = "IFRS",
     jurisdiction: str = "NO",
+    fact_category: str | None = None,
 ) -> FinancialMetricEvidence:
     return FinancialMetricEvidence(
         metric=metric,
         value=value,
         unit=unit
-        or ("currency_per_share" if metric == "tangible_book_value" else "ratio"),
+        or (
+            "currency_per_share"
+            if metric == "tangible_book_value"
+            else "currency"
+            if metric in {"dividends", "retained_earnings", "issuance_dilution", "residual_income_input"}
+            else "ratio"
+        ),
         period="FY2024",
         reporting_standard=reporting_standard,
         jurisdiction=jurisdiction,
@@ -93,6 +100,17 @@ def _metric(
         source_authority=authority,
         as_of="2024-12-31T00:00:00Z",
         known_at="2025-02-15T00:00:00Z",
+        fact_category=fact_category or (
+            "pillar3"
+            if metric in {
+                "cet1_ratio",
+                "total_capital_ratio",
+                "liquidity_coverage_ratio",
+                "solvency_capital_ratio",
+                "capital_ratio",
+            }
+            else "ifrs"
+        ),
     )
 
 
@@ -123,21 +141,41 @@ def _build(model: str, evidence: tuple[FinancialMetricEvidence, ...]):
     [
         (
             "bank",
-            (
-                "cet1_ratio",
-                "total_capital_ratio",
-                "tangible_book_value",
-                "net_interest_margin",
-                "cost_income_ratio",
-                "loan_growth",
-                "deposit_growth",
-                "loan_deposit_ratio",
-                "npl_ratio",
-                "provision_ratio",
-                "npl_coverage_ratio",
-                "liquidity_coverage_ratio",
-                "rote",
-            ),
+                (
+                    "cet1_ratio",
+                    "total_capital_ratio",
+                    "capital_requirement",
+                    "capital_headroom",
+                    "leverage_ratio",
+                    "net_stable_funding_ratio",
+                    "tangible_book_value",
+                    "net_interest_margin",
+                    "fee_income_mix",
+                    "other_income_mix",
+                    "cost_income_ratio",
+                    "roe",
+                    "loan_growth",
+                    "deposit_growth",
+                    "loan_deposit_ratio",
+                    "npl_ratio",
+                    "stage_3_exposure",
+                    "stage_2_exposure",
+                    "cost_of_risk",
+                    "coverage_ratio",
+                    "provision_ratio",
+                    "npl_coverage_ratio",
+                    "liquidity_coverage_ratio",
+                    "wholesale_funding_ratio",
+                    "covered_bond_concentration",
+                    "dividends",
+                    "retained_earnings",
+                    "issuance_dilution",
+                    "payout_headroom",
+                    "residual_income_input",
+                    "price_to_book",
+                    "price_to_tangible_book",
+                    "rote",
+                ),
         ),
         (
             "insurer",

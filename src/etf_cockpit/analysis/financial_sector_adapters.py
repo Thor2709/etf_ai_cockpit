@@ -32,6 +32,10 @@ _PROHIBITED = frozenset(
         "altman_score",
         "pe_ratio",
         "generic_pe",
+        "current_ratio",
+        "quick_ratio",
+        "roic",
+        "invested_capital_roic",
     }
 )
 _METRICS = {
@@ -39,16 +43,36 @@ _METRICS = {
         {
             "cet1_ratio",
             "total_capital_ratio",
+            "capital_requirement",
+            "capital_headroom",
+            "leverage_ratio",
+            "net_stable_funding_ratio",
             "tangible_book_value",
             "net_interest_margin",
+            "fee_income_mix",
+            "other_income_mix",
             "cost_income_ratio",
+            "roe",
             "loan_growth",
             "deposit_growth",
             "loan_deposit_ratio",
             "npl_ratio",
+            "stage_3_exposure",
+            "stage_2_exposure",
+            "cost_of_risk",
+            "coverage_ratio",
             "provision_ratio",
             "npl_coverage_ratio",
             "liquidity_coverage_ratio",
+            "wholesale_funding_ratio",
+            "covered_bond_concentration",
+            "dividends",
+            "retained_earnings",
+            "issuance_dilution",
+            "payout_headroom",
+            "residual_income_input",
+            "price_to_book",
+            "price_to_tangible_book",
             "rote",
         }
     ),
@@ -84,12 +108,29 @@ _DIRECTIONS = {
     "reinsurance_exposure": "lower_is_better",
     "funding_cost": "lower_is_better",
     "credit_loss_ratio": "lower_is_better",
+    "capital_requirement": "higher_is_better",
+    "capital_headroom": "higher_is_better",
+    "leverage_ratio": "higher_is_better",
+    "net_stable_funding_ratio": "higher_is_better",
+    "covered_bond_concentration": "lower_is_better",
+    "stage_2_exposure": "lower_is_better",
+    "stage_3_exposure": "lower_is_better",
+    "cost_of_risk": "lower_is_better",
+    "coverage_ratio": "higher_is_better",
+    "wholesale_funding_ratio": "lower_is_better",
+    "payout_headroom": "higher_is_better",
 }
 _REGULATORY = frozenset(
     {
         "cet1_ratio",
         "total_capital_ratio",
         "liquidity_coverage_ratio",
+        "net_stable_funding_ratio",
+        "leverage_ratio",
+        "capital_requirement",
+        "capital_headroom",
+        "stage_2_exposure",
+        "stage_3_exposure",
         "solvency_capital_ratio",
         "capital_ratio",
     }
@@ -127,6 +168,11 @@ class FinancialMetricEvidence:
     limitations: tuple[str, ...] = ()
     direction: str | None = None
     execution_allowed: bool = False
+    fact_category: str = "ifrs"
+    definition: str = ""
+    scope: str = ""
+    coverage: str = ""
+    source: str = ""
 
 
 @dataclass(frozen=True)
@@ -147,6 +193,11 @@ class FinancialMetricResult:
     confidence: float
     authority_label: str
     limitations: tuple[str, ...]
+    fact_category: str = "ifrs"
+    definition: str = ""
+    scope: str = ""
+    coverage: str = ""
+    source: str = ""
     formula_version: str = FINANCIAL_FORMULA_VERSION
     execution_allowed: bool = False
 
@@ -184,6 +235,7 @@ class FinancialInstitutionProjection:
     limitations: tuple[str, ...]
     result_hash: str
     execution_allowed: bool = False
+    share_class_identity: Mapping[str, object] = ()
 
 
 def financial_adapter_definition() -> AdapterDefinition:
@@ -205,6 +257,8 @@ def financial_formula_registry() -> tuple[FinancialFormulaDefinition, ...]:
             allowed_units=(
                 ("currency_per_share",)
                 if metric == "tangible_book_value"
+                else ("currency", "currency_per_share", "shares")
+                if metric in {"dividends", "retained_earnings", "issuance_dilution", "residual_income_input"}
                 else ("ratio", "percent")
             ),
         )
@@ -228,7 +282,7 @@ def build_financial_institution_projection(
         selection = registry.select(context)
     except PeerCohortError as exc:
         raise FinancialAdapterError(str(exc)) from exc
-    if context.sector != "financials" or selection.adapter_id != FINANCIAL_ADAPTER_ID:
+    if str(context.sector or "").casefold() != "financials" or selection.adapter_id != FINANCIAL_ADAPTER_ID:
         raise FinancialAdapterError("financial adapter requires classified financials")
     decision = _time(decision_time)
     if (
@@ -276,12 +330,21 @@ def build_financial_institution_projection(
         }:
             confidence = min(confidence, 0.55)
             limitations.add(f"{item.metric}:weak_regulatory_authority")
-        available = item.value is not None and _finite(item.value)
+        regulatory_category_ok = not (
+            item.metric in _REGULATORY
+            and item.fact_category.casefold() != "pillar3"
+        )
+        available = (
+            item.value is not None
+            and _finite(item.value)
+            and regulatory_category_ok
+        )
         item_limitations = tuple(
             sorted(
                 {
                     *item.limitations,
                     *(() if available else ("missing_value",)),
+                    *(() if regulatory_category_ok else ("regulatory_fact_required",)),
                 }
             )
         )
@@ -310,6 +373,11 @@ def build_financial_institution_projection(
                     else "limited"
                 ),
                 limitations=item_limitations,
+                fact_category=item.fact_category,
+                definition=item.definition,
+                scope=item.scope,
+                coverage=item.coverage,
+                source=item.source or item.source_id,
             )
         )
     missing = sorted(allowed - seen)
@@ -373,6 +441,25 @@ def build_financial_institution_projection(
         "decision_time": _iso(decision),
         "sources": tuple(sorted({item.source_id for item in results})),
     }
+    equity_certificate = any(
+        "equity_certificate" in str(value).casefold().replace("-", "_")
+        or str(value).casefold() in {"ec", "equity certificate", "certificate"}
+        for value in (*context.special_structures, *context.business_model_tags)
+    ) or str(context.instrument_id).upper() == "MING"
+    share_class_identity = {
+        "instrument_type": "equity_certificate" if equity_certificate else context.instrument_type or "stock",
+        "share_class": "equity_certificate" if equity_certificate else context.share_class_id or "ordinary",
+        "per_unit_basis": "ownership_unit" if equity_certificate else "share",
+        "distribution_and_dilution_evidence": "available" if any(
+            item.metric in {"dividends", "issuance_dilution"} and item.status == "available"
+            for item in results
+        ) else "unavailable",
+        "limitation": (
+            "EC ownership and valuation formulas are delegated to the native Sparebank suite."
+            if equity_certificate
+            else "not_applicable"
+        ),
+    }
     provisional = {
         "contract": FINANCIAL_ADAPTER_CONTRACT,
         "status": (
@@ -397,6 +484,7 @@ def build_financial_institution_projection(
         "lineage": lineage,
         "limitations": tuple(sorted(limitations)),
         "execution_allowed": False,
+        "share_class_identity": share_class_identity,
     }
     return FinancialInstitutionProjection(
         **provisional,
@@ -421,6 +509,7 @@ def unavailable_financial_projection(
         "lineage": {},
         "limitations": ("local financial evidence unavailable",),
         "execution_allowed": False,
+        "share_class_identity": {},
     }
 
 
@@ -487,6 +576,14 @@ def _business_model(context: InstrumentContextV2) -> str:
         if tags.intersection(aliases)
     ]
     if len(matches) != 1:
+        sector_labels = {
+            str(context.sector or "").casefold(),
+            str(context.industry or "").casefold(),
+            str(context.issuer_sector or "").casefold(),
+            str(context.issuer_type or "").casefold(),
+        }
+        if any(label in {"bank", "banks", "banking", "savings_bank", "savings banks"} for label in sector_labels):
+            return "bank"
         raise FinancialAdapterError(
             "financial business model must resolve to bank, insurer, or diversified"
         )
@@ -496,6 +593,7 @@ def _business_model(context: InstrumentContextV2) -> str:
 def _validate_evidence(
     item: FinancialMetricEvidence, model: str, decision: datetime
 ) -> None:
+    valid_categories = {"ifrs", "pillar3", "market", "issuer_apm", "calculated"}
     if (
         item.execution_allowed
         or item.business_model != model
@@ -504,6 +602,7 @@ def _validate_evidence(
         or not item.reporting_standard.strip()
         or not item.jurisdiction.strip()
         or not item.source_id.strip()
+        or item.fact_category.casefold() not in valid_categories
         or _time(item.known_at) > decision
         or _time(item.as_of) > decision
     ):
