@@ -338,6 +338,7 @@ def analyse_sparebank_ec(
     bank_metrics: Iterable[object] = (),
     bank_economics_evidence: Mapping[str, object] | None = None,
     events: Iterable[Mapping[str, object]] = (),
+    valuation_assumptions: Mapping[str, object] | None = None,
 ) -> SparebankAnalysis:
     """Canonical pure entry point for the versioned Sparebank EC suite."""
 
@@ -357,8 +358,10 @@ def analyse_sparebank_ec(
         reasons.append("GENERIC_BANK_VALUATION_INAPPLICABLE")
     from .bank_economics import build_bank_economics
     from .events import analyse_events
+    from .valuation import valuation
     bank_economics = build_bank_economics(bank_economics_evidence, bank_metrics=bank_metrics)
     event_analysis = analyse_events(events, decision_time=decision_time if isinstance(decision_time, str) else None)
+    valuation_section = valuation(claim, price=price, assumptions=valuation_assumptions)
     return SparebankAnalysis(
         contract=CONTRACT_ID,
         routing=routed,
@@ -376,6 +379,7 @@ def analyse_sparebank_ec(
         generic_valuation_reason=generic_reason,
         bank_economics=bank_economics,
         events=event_analysis,
+        valuation=valuation_section,
     )
 
 

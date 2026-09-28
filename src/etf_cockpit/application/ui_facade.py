@@ -881,6 +881,7 @@ def _build_financial_projection_from_evidence(
         route_evidence,
         decision_time=cutoff,
         bank_metrics=result.metrics,
+        valuation_assumptions=(ec_revision.get("valuation_assumptions") if isinstance(ec_revision, Mapping) else None),
     )
     if isinstance(ec_facts, Mapping) and ec_facts:
         from dataclasses import asdict, replace

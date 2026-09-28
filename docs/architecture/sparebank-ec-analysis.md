@@ -25,8 +25,8 @@ outstanding and are not treasury or private-holder wealth.
 Owner book per EC uses the period-end count. Owner EPS uses the weighted-average
 count. Missing facts remain unavailable and lower coverage. If a routed claim
 is not `resolved`, generic bank/stock valuation is explicitly inapplicable
-with a reason code. `valuation` and `scorecard` remain explicit `UNAVAILABLE`
-placeholders until their respective issues add them.
+with a reason code. `scorecard` remains an explicit `UNAVAILABLE` placeholder;
+the owner valuation section is populated only when the claim is resolved.
 
 ## Bank economics and structural events
 
@@ -44,3 +44,16 @@ ratio, EC-class ownership, and eierbrøk remain four distinct fields. Agreement,
 legal completion, technical integration, and economic maturity are independent
 milestones; legal completion does not imply maturity. All outputs remain
 `execution_allowed=false`.
+
+## Owner valuation and implementation
+
+SPBK-004 adds the pure `valuation` layer. Owner book and EPS retain the
+period-end and weighted-average EC count conventions from the claim contract;
+mixing denominators raises an error. Stable P/B, clean-surplus dividend and
+residual-income routes, reverse-implied expectations, capital release and
+buyback accretion are calculated only from explicit inputs. Scenario weights,
+required returns, hurdle rates and exit costs are operator-supplied; absent
+assumptions produce an unavailable scenario section rather than invented
+probabilities. Displayed depth is walked for a quantity-specific order. If
+depth is absent the result stays `UNAVAILABLE` and identifies the labelled
+`execution-cost-v1` estimate fallback. No valuation output enables execution.
