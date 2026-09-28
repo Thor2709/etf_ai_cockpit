@@ -1,0 +1,16 @@
+{
+  "instrument_id": "HAUGESUND-EC",
+  "jurisdiction": "NO",
+  "legal_form": "savings_bank",
+  "instrument_subtype": "equity_certificate",
+  "known_at": "2026-03-31T00:00:00Z",
+  "effective_at": "2025-12-31",
+  "source_url": "fixture://sparebank/haugesund-2025",
+  "facts": {
+    "ec_capital": {"available": true, "value": 625.430, "unit": "NOK thousand", "period": "2025-12-31", "source_locator": "note 38, p. 124"},
+    "sparebankens_fond": {"available": true, "value": 1795.172, "unit": "NOK thousand", "period": "2025-12-31", "source_locator": "note 38, p. 124"},
+    "eierbrok": {"available": true, "value": 0.2584, "unit": "ratio", "period": "2025-12-31", "source_locator": "note 38, p. 124"},
+    "accounting_equity": {"available": true, "value": 2760.431, "unit": "NOK thousand", "period": "2025-12-31", "source_locator": "note 38, p. 124"}
+  },
+  "source_note": "Haugesund Sparebank annual report 31 Dec 2025, note 38, p. 124; source reports NOK thousand."
+}

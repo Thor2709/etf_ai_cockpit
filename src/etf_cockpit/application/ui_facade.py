@@ -851,8 +851,35 @@ def _build_financial_projection_from_evidence(
         shocks={},
     )
     ec_payload = _read_json_artifact(root, "ec_facts.json", instrument_id=instrument_id) or {}
-    ec_facts = _select_ec_facts(ec_payload, instrument_id, decision)
+    ec_revision = _select_ec_revision(ec_payload, instrument_id, decision)
+    ec_facts = ec_revision.get("facts", {}) if isinstance(ec_revision, Mapping) else {}
+    from etf_cockpit.analysis.sparebank import analyse_sparebank_ec
+    route_evidence = {
+        "facts": ec_facts,
+        "instrument_id": instrument_id,
+        "jurisdiction": getattr(context, "operating_country", None)
+        or getattr(context, "regulatory_country", None)
+        or getattr(context, "legal_domicile", None),
+        "legal_form": getattr(context, "issuer_type", None) or ec_revision.get("legal_form"),
+        "instrument_subtype": getattr(context, "instrument_subtype", None) or ec_revision.get("instrument_subtype"),
+        "capital_class": getattr(context, "share_class_id", None) or ec_revision.get("capital_class"),
+        "known_at": ec_revision.get("known_at") or next(
+            (value.get("known_at") for value in ec_facts.values() if isinstance(value, Mapping) and value.get("known_at")),
+            ec_payload.get("known_at"),
+        ),
+        "effective_at": ec_revision.get("effective_at") or next(
+            (value.get("effective_at") for value in ec_facts.values() if isinstance(value, Mapping) and value.get("effective_at")),
+            ec_payload.get("effective_at"),
+        ),
+        "source_url": ec_revision.get("source_url") or ec_revision.get("source") or ec_payload.get("source_url"),
+        "source_id": ec_revision.get("source_id") or ec_payload.get("source_id"),
+        "sha256": ec_revision.get("sha256") or ec_payload.get("sha256"),
+        "filing_version": ec_revision.get("filing_version") or ec_payload.get("filing_version"),
+        "revision_id": ec_revision.get("revision_id") or ec_payload.get("revision_id"),
+    }
+    sparebank_analysis = analyse_sparebank_ec(route_evidence, decision_time=cutoff)
     if isinstance(ec_facts, Mapping) and ec_facts:
+        from dataclasses import asdict, replace
         identity_payload = dict(result.share_class_identity) if isinstance(result.share_class_identity, Mapping) else {}
         identity_payload["facts"] = {
             name: {
@@ -865,7 +892,16 @@ def _build_financial_projection_from_evidence(
             }
             for name, value in ec_facts.items()
         }
-        from dataclasses import replace
+        identity_payload["sparebank_analysis"] = asdict(sparebank_analysis)
+        identity_payload["native_suite"] = sparebank_analysis.contract if sparebank_analysis.routing.applies else None
+        identity_payload["claim_status"] = sparebank_analysis.claim_state.claim_status
+        identity_payload["generic_valuation_status"] = sparebank_analysis.generic_valuation_status
+        identity_payload["generic_valuation_reason"] = sparebank_analysis.generic_valuation_reason
+        if sparebank_analysis.generic_valuation_status == "inapplicable":
+            result = replace(
+                result,
+                limitations=tuple(sorted({*result.limitations, "generic_bank_valuation:inapplicable_sparebank_claim"})),
+            )
         result = replace(result, share_class_identity=identity_payload)
         from etf_cockpit.analysis.financial_sector_adapters import _hash as _financial_hash
         payload = result.__dict__.copy()
@@ -890,6 +926,14 @@ def _evidence_roots(root: Path, instrument_id: str = "") -> tuple[Path, ...]:
 def _select_ec_facts(payload: Mapping[str, object], instrument_id: str, decision: object) -> Mapping[str, object]:
     """Select the identity-bound EC revision known at the decision cutoff."""
 
+    selected = _select_ec_revision(payload, instrument_id, decision)
+    facts = selected.get("facts") if isinstance(selected, Mapping) else None
+    return facts if isinstance(facts, Mapping) else {}
+
+
+def _select_ec_revision(payload: Mapping[str, object], instrument_id: str, decision: object) -> Mapping[str, object]:
+    """Return the complete identity-bound EC revision envelope at the cutoff."""
+
     cutoff = pd.Timestamp(decision)
     revisions = payload.get("revisions")
     eligible: list[Mapping[str, object]] = []
@@ -905,14 +949,14 @@ def _select_ec_facts(payload: Mapping[str, object], instrument_id: str, decision
                 eligible.append(revision)
     if eligible:
         selected = max(eligible, key=lambda item: pd.Timestamp(item.get("known_at")))
-        return selected.get("facts", {}) if isinstance(selected.get("facts"), Mapping) else {}
+        return selected
     # Backward-compatible read of a single pre-revision artifact, still bound
     # to the requested instrument and point-in-time cutoff.
     if str(payload.get("instrument_id") or instrument_id) != str(instrument_id):
         return {}
     known = pd.to_datetime(payload.get("known_at"), errors="coerce", utc=True)
     facts = payload.get("facts")
-    return facts if isinstance(facts, Mapping) and not pd.isna(known) and known <= cutoff else {}
+    return payload if isinstance(facts, Mapping) and not pd.isna(known) and known <= cutoff else {}
 
 
 def _read_json_artifact(root: Path, name: str, *, instrument_id: str = "") -> dict[str, object] | None:
