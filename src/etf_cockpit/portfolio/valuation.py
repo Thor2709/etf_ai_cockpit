@@ -245,12 +245,22 @@ def link_time_weighted_return(
     start: date | datetime | pd.Timestamp | str | None = None,
     end: date | datetime | pd.Timestamp | str | None = None,
 ) -> dict[str, object]:
-    """Geometrically link daily end-of-day-flow-adjusted returns."""
+    """Geometrically link daily end-of-day-flow-adjusted returns.
+
+    Weekday dates in the selected period must all have valuations; gaps make TWR
+    unavailable rather than treating a multi-day return as one daily return.
+    """
     selected, reason = _select_period(snapshots, start, end)
     if selected is None:
         return _unavailable_result(reason or "Daily valuation snapshots are unavailable.")
     if len(selected) < 2:
         return _unavailable_result("At least two valid daily snapshots are required.")
+    observed_dates = pd.DatetimeIndex(selected["date"])
+    required_dates = pd.bdate_range(observed_dates[0], observed_dates[-1])
+    missing_dates = required_dates.difference(observed_dates)
+    if not missing_dates.empty:
+        missing_dates_text = ", ".join(missing_dates.strftime("%Y-%m-%d"))
+        return _unavailable_result(f"Missing daily valuation snapshots for dates: {missing_dates_text}.")
     if not _complete(selected):
         return _unavailable_result("Missing, stale, or unclassified daily evidence prevents precise TWR.")
     returns = pd.to_numeric(selected["period_return"], errors="coerce").iloc[1:]
@@ -399,12 +409,14 @@ def _dated_frame(
         raise PortfolioValuationError(f"{name} contains an invalid observation date; valuation unavailable.")
     result["_date"] = parsed.dt.tz_convert(None).dt.normalize()
     result["_excluded_after_cutoff"] = False
+    latest_date = cutoff.tz_convert(None).normalize()
     if "available_at" in result.columns:
         available = pd.to_datetime(result["available_at"], errors="coerce", utc=True)
         if available.isna().any():
             raise PortfolioValuationError(f"{name} contains invalid availability evidence; valuation unavailable.")
         result["_excluded_after_cutoff"] = (available > cutoff).to_numpy()
-    latest_date = cutoff.tz_convert(None).normalize()
+    else:
+        result["_excluded_after_cutoff"] = result["_date"].eq(latest_date).to_numpy()
     return result.loc[result["_date"] <= latest_date].copy()
 
 

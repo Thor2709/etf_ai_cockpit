@@ -29,7 +29,7 @@ def _history(
         pd.DataFrame({"date": dates, "instrument_id": ["AAA"] * len(dates), "price": prices}),
         pd.DataFrame({"date": dates, "cash_value": cash}),
         pd.DataFrame(event_rows, columns=["date", "event_type", "amount"]),
-        decision_time=dates[-1],
+        decision_time=pd.Timestamp(dates[-1]).normalize() + pd.Timedelta(days=1),
     )
     assert report["execution_allowed"] is False
     return report["snapshots"]
@@ -171,3 +171,33 @@ def test_missing_or_stale_price_makes_performance_unavailable() -> None:
     assert missing_inputs["status"] == "unavailable"
     assert missing_inputs["time_weighted_return"] is None
     assert "holdings evidence is unavailable" in missing_inputs["reason"]
+
+
+def test_same_day_price_without_availability_timestamp_is_unavailable() -> None:
+    dates = pd.to_datetime(["2026-01-06", "2026-01-07"])
+    availability = pd.to_datetime(["2026-01-06T10:00:00Z", "2026-01-07T10:00:00Z"])
+    report = build_portfolio_valuation_history(
+        pd.DataFrame({"date": dates, "instrument_id": ["AAA", "AAA"], "quantity": [1.0, 1.0], "available_at": availability}),
+        pd.DataFrame({"date": dates, "instrument_id": ["AAA", "AAA"], "price": [100.0, 110.0]}),
+        pd.DataFrame({"date": dates, "cash_value": [0.0, 0.0], "available_at": availability}),
+        pd.DataFrame(columns=["date", "event_type", "amount", "available_at"]),
+        decision_time=pd.Timestamp("2026-01-07T12:00:00Z"),
+    )
+
+    current = report["snapshots"].iloc[-1]
+
+    assert current["valuation_status"] == "unavailable"
+    assert "price_not_available_by_decision_time:AAA" in current["missing_reasons"]
+    assert report["time_weighted_return"] is None
+
+
+def test_twr_is_unavailable_when_weekday_valuation_dates_are_missing() -> None:
+    dates = pd.to_datetime(["2026-01-01", "2026-01-10"])
+    snapshots = _history(dates, prices=[100.0, 110.0], cash=[0.0, 0.0])
+
+    result = link_time_weighted_return(snapshots)
+
+    assert result["status"] == "unavailable"
+    assert result["value"] is None
+    assert "Missing daily valuation snapshots for dates:" in result["reason"]
+    assert "2026-01-02" in result["reason"]
