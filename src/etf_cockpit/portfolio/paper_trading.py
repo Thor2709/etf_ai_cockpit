@@ -545,6 +545,18 @@ class PaperLedger:
                 raise PaperLedgerIntegrityError("The operational incident journal is invalid.") from exc
             except IncidentJournalError as exc:
                 raise PaperLedgerError(str(exc)) from exc
+            existing = next(
+                (
+                    item
+                    for item in state["operational_errors"]
+                    if item.get("incident_id") == incident["incident_id"]
+                ),
+                None,
+            )
+            if existing is not None:
+                if existing != incident:
+                    raise PaperLedgerIntegrityError("A paper incident ID was reused with different content.")
+                return dict(incident)
             self._append("operational_error", incident, occurred_at=occurred_at)
             return dict(incident)
 

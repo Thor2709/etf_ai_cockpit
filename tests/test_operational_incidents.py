@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
@@ -10,6 +11,7 @@ from etf_cockpit.application.ui_facade import load_paper_incidents
 from etf_cockpit.governance.product_scope import load_gate_policy
 from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError, _digest
 from etf_cockpit.portfolio.proposal_policy import REQUIRED_GATES, current_authority_policy_checksum
+from etf_cockpit.trading import incidents as incident_module
 from etf_cockpit.trading.incidents import IncidentJournal, IncidentJournalIntegrityError, run_operational_drill
 
 
@@ -125,8 +127,42 @@ def test_incident_journal_hash_chain_integrity(isolated_runtime_root: Path) -> N
     assert postmortem["summary"] == "Paper order status was checked after the disconnect."
 
 
+@pytest.mark.parametrize("tamper", ["suffix", "delete", "empty"])
+def test_incident_journal_rejects_truncation_against_durable_head(
+    isolated_runtime_root: Path,
+    tamper: str,
+) -> None:
+    journal = IncidentJournal(isolated_runtime_root)
+    journal.record(
+        "unknown_state",
+        message="Synthetic incident for truncation test.",
+        requires_freeze=True,
+        occurred_at=datetime(2026, 7, 20, tzinfo=timezone.utc),
+    )
+    expected = {"account_id": "local-paper", "state": "clean"}
+    assert journal.reconcile(expected, expected)["status"] == "ready"
+    assert journal.is_frozen is False
+
+    if tamper == "suffix":
+        rows = journal.path.read_text(encoding="utf-8").splitlines()
+        journal.path.write_text(rows[0] + "\n", encoding="utf-8")
+    elif tamper == "delete":
+        journal.path.unlink()
+    else:
+        journal.path.write_text("", encoding="utf-8")
+
+    with pytest.raises(IncidentJournalIntegrityError, match="anchor"):
+        journal.is_frozen
+
+
 @pytest.mark.parametrize("scenario", ["disconnect", "order_break"])
-def test_operational_drills_have_deterministic_results(scenario: str) -> None:
+def test_operational_drills_have_deterministic_results(
+    scenario: str,
+    isolated_runtime_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    roots = iter((isolated_runtime_root / f"{scenario}-first", isolated_runtime_root / f"{scenario}-second"))
+    monkeypatch.setattr(incident_module.tempfile, "TemporaryDirectory", lambda **_kwargs: nullcontext(next(roots)))
     first = run_operational_drill(scenario)
     second = run_operational_drill(scenario)
 

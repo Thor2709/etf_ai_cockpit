@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
+import tempfile
 import threading
 from typing import Iterator, Mapping
 
 
 INCIDENT_JOURNAL_SCHEMA = "operational_incident_journal.v1"
+INCIDENT_JOURNAL_HEAD_SCHEMA = "operational_incident_journal_head.v1"
 _ZERO_HASH = "0" * 64
 
 
@@ -30,6 +32,7 @@ class IncidentJournal:
     def __init__(self, root: Path, *, account_id: str = "local-paper") -> None:
         self.account_id = _clean_id(account_id, "account_id")
         self.path = root / "data" / "operations" / "incidents" / self.account_id / "journal.jsonl"
+        self._head_path = self.path.with_name("journal.head.json")
         self._lock = threading.RLock()
 
     @property
@@ -210,6 +213,36 @@ class IncidentJournal:
                 os.fsync(handle.fileno())
         except OSError as exc:
             raise IncidentJournalError(f"Incident journal cannot be written: {exc}") from exc
+        self._write_head_anchor(sequence=event["sequence"], head_hash=str(event["content_hash"]))
+
+    def _write_head_anchor(self, *, sequence: int, head_hash: str) -> None:
+        body = {
+            "schema_version": INCIDENT_JOURNAL_HEAD_SCHEMA,
+            "account_id": self.account_id,
+            "event_count": sequence,
+            "head_hash": head_hash,
+        }
+        anchor = {**body, "content_hash": _digest(body)}
+        self._head_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = self._head_path.with_name(self._head_path.name + ".tmp")
+        try:
+            with temporary_path.open("w", encoding="utf-8", newline="\n") as handle:
+                handle.write(json.dumps(anchor, sort_keys=True, separators=(",", ":")) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, self._head_path)
+            if os.name != "nt":
+                directory_fd = os.open(self._head_path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+        except OSError as exc:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise IncidentJournalError(f"Incident journal head anchor cannot be written: {exc}") from exc
 
     @contextmanager
     def _file_lock(self) -> Iterator[None]:
@@ -241,7 +274,11 @@ class IncidentJournal:
 
     def _read_events(self) -> list[dict[str, object]]:
         if not self.path.exists():
+            if self._head_path.exists():
+                raise IncidentJournalIntegrityError("Incident journal is missing while its durable head anchor exists.")
             return []
+        if not self._head_path.exists():
+            raise IncidentJournalIntegrityError("Incident journal durable head anchor is missing.")
         try:
             rows = self.path.read_bytes().splitlines()
         except OSError as exc:
@@ -268,60 +305,161 @@ class IncidentJournal:
                 raise IncidentJournalIntegrityError(f"Incident journal hash chain breaks at row {sequence}.")
             prior_hash = str(claimed_hash)
             events.append(event)
+        try:
+            anchor = json.loads(self._head_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise IncidentJournalIntegrityError("Incident journal durable head anchor is malformed.") from exc
+        if not isinstance(anchor, dict):
+            raise IncidentJournalIntegrityError("Incident journal durable head anchor is invalid.")
+        anchor_body = {key: value for key, value in anchor.items() if key != "content_hash"}
+        expected_head = str(events[-1]["content_hash"]) if events else _ZERO_HASH
+        if (
+            set(anchor) != {"schema_version", "account_id", "event_count", "head_hash", "content_hash"}
+            or anchor_body.get("schema_version") != INCIDENT_JOURNAL_HEAD_SCHEMA
+            or anchor_body.get("account_id") != self.account_id
+            or type(anchor_body.get("event_count")) is not int
+            or anchor_body.get("event_count") != len(events)
+            or anchor_body.get("head_hash") != expected_head
+            or anchor.get("content_hash") != _digest(anchor_body)
+        ):
+            raise IncidentJournalIntegrityError("Incident journal does not match its durable head anchor.")
         return events
 
 
 def run_operational_drill(scenario: str) -> dict[str, object]:
-    """Exercise freeze, reconciliation and append-only checks using synthetic state."""
+    """Exercise paper incident recovery using isolated synthetic persistence."""
 
     if scenario not in {"disconnect", "order_break"}:
         raise IncidentJournalError("Supported drills are disconnect and order_break.")
-    occurred_at = "2000-01-01T00:00:00.000000+00:00"
-    code = "unknown_state" if scenario == "disconnect" else "order_break"
-    incident = {
-        "incident_id": "incident_" + _digest(
-            {
-                "account_id": "local-paper",
-                "code": code,
-                "message": "Synthetic operational drill.",
-                "related_id": "synthetic-order",
-                "occurred_at": occurred_at,
-            }
-        )[:20],
-        "requires_freeze": True,
+    from etf_cockpit.governance.product_scope import load_gate_policy
+    from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError, _digest as paper_digest
+    from etf_cockpit.portfolio.proposal_policy import REQUIRED_GATES, current_authority_policy_checksum
+
+    at = datetime.now(timezone.utc)
+    code = "disconnect" if scenario == "disconnect" else "order_break"
+    input_material = {"instrument_id": "VWCE", "target_quantity": 10.0, "source": f"incident-drill-{scenario}"}
+    input_checksum = paper_digest(input_material)
+    gate_policy = load_gate_policy()
+    if gate_policy.policy is None:
+        raise IncidentJournalError("The local paper drill requires a valid gate policy.")
+    proposal: dict[str, object] = {
+        "schema_version": "proposal.v1",
+        "proposal_id": f"proposal_{input_checksum[:20]}",
+        "instrument_id": "VWCE",
+        "outcome": "proposal_ready",
+        "proposal_allowed": True,
+        "authority_stage": "paper",
+        "execution_allowed": False,
+        "quantity_delta": 10.0,
+        "rationale": "Synthetic operational incident drill.",
+        "gates": [
+            {"gate_id": gate_id, "passed": True, "reason": "passed", "blocker": True}
+            for gate_id in REQUIRED_GATES
+        ],
+        "alternatives": [],
+        "as_of": at.isoformat(),
+        "expires_at": (at + timedelta(days=1)).isoformat(),
+        "policy_version": "proposal-policy.v1",
+        "authority_policy_checksum": current_authority_policy_checksum(),
+        "gate_policy_version": gate_policy.policy.policy_version,
+        "gate_policy_checksum": gate_policy.checksum,
+        "input_checksum": input_checksum,
+        "input_material": input_material,
     }
-    journal_events = [{"event_type": "incident_recorded", "payload": incident}]
-    frozen = bool(IncidentJournal._active_incidents(journal_events))
-    mismatch_state = {"orders": []} != {"orders": ["synthetic-order"]}
-    mismatch_events = journal_events + [
-        {
-            "event_type": "reconciliation_recorded",
-            "payload": {"status": "mismatch", "incident_ids": [incident["incident_id"]]},
+    proposal["decision_checksum"] = paper_digest(proposal)
+
+    with tempfile.TemporaryDirectory(prefix="paper-incident-drill-") as directory:
+        root = Path(directory)
+        ledger = PaperLedger(root)
+        journal = IncidentJournal(root)
+        ledger.open_account(initial_cash=1_000, occurred_at=at)
+        accepted_order = ledger.accept_proposal(proposal, execution_price=10, occurred_at=at)
+        ledger_before_incident = tuple(
+            (str(event["event_id"]), str(event["event_hash"])) for event in ledger._read_events()
+        )
+
+        incident = ledger.record_operational_error(
+            code,
+            message="Synthetic operational drill incident.",
+            related_id="synthetic-order",
+            occurred_at=at,
+        )
+        journal_after_incident = tuple(
+            (str(event["sequence"]), str(event["content_hash"])) for event in journal.events()
+        )
+        ledger_after_incident = tuple(
+            (str(event["event_id"]), str(event["event_hash"])) for event in ledger._read_events()
+        )
+        retry_incident = ledger.record_operational_error(
+            code,
+            message="Synthetic operational drill incident.",
+            related_id="synthetic-order",
+            occurred_at=at,
+        )
+        journal_after_incident_retry = tuple(
+            (str(event["sequence"]), str(event["content_hash"])) for event in journal.events()
+        )
+        ledger_after_incident_retry = tuple(
+            (str(event["event_id"]), str(event["event_hash"])) for event in ledger._read_events()
+        )
+        frozen = journal.is_frozen and ledger.snapshot().reconciliation_status == "frozen"
+        expected = ledger.reconciliation_state()
+        observed = {**expected, "cash": float(expected["cash"]) + 1.0}
+        mismatch = ledger.reconcile_operational_state(observed)
+        mismatch_frozen = (
+            mismatch["status"] == "mismatch"
+            and mismatch["frozen"] is True
+            and journal.is_frozen
+            and ledger.snapshot().reconciliation_status == "frozen"
+        )
+        try:
+            ledger.accept_proposal(proposal, execution_price=10, occurred_at=at)
+        except PaperLedgerError:
+            frozen_order_retry_blocked = True
+        else:
+            frozen_order_retry_blocked = False
+
+        recovery = ledger.reconcile_operational_state(expected)
+        journal_after_recovery = tuple(
+            (str(event["sequence"]), str(event["content_hash"])) for event in journal.events()
+        )
+        ledger_before_order_retry = tuple(
+            (str(event["event_id"]), str(event["event_hash"])) for event in ledger._read_events()
+        )
+        recovery_retry = ledger.reconcile_operational_state(expected)
+        order_retry = ledger.accept_proposal(proposal, execution_price=10, occurred_at=at)
+        journal_after_retries = tuple(
+            (str(event["sequence"]), str(event["content_hash"])) for event in journal.events()
+        )
+        ledger_after_retries = tuple(
+            (str(event["event_id"]), str(event["event_hash"])) for event in ledger._read_events()
+        )
+        recovered = (
+            recovery["status"] == "ready"
+            and recovery["frozen"] is False
+            and not journal.is_frozen
+            and ledger.snapshot().reconciliation_status == "ready"
+        )
+        checks = {
+            "incident_freezes": frozen,
+            "mismatch_keeps_freeze": mismatch_frozen and frozen_order_retry_blocked,
+            "clean_reconciliation_recovers": recovered,
+            "retry_does_not_duplicate_incident": (
+                retry_incident == incident
+                and journal_after_incident_retry == journal_after_incident
+                and ledger_after_incident_retry == ledger_after_incident
+            ),
+            "recovery_retry_preserves_journal": (
+                recovery_retry["status"] == "ready"
+                and journal_after_retries == journal_after_recovery
+            ),
+            "order_retry_is_idempotent": order_retry["order_id"] == accepted_order["order_id"],
+            "ledger_events_preserved": (
+                ledger_after_incident[: len(ledger_before_incident)] == ledger_before_incident
+                and ledger_after_retries == ledger_before_order_retry
+                and len(ledger_after_retries) == ledger.snapshot().event_count
+            ),
         }
-    ]
-    remains_frozen = bool(IncidentJournal._active_incidents(mismatch_events))
-    recovery_events = mismatch_events + [
-        {
-            "event_type": "reconciliation_recorded",
-            "payload": {"status": "matched", "incident_ids": [incident["incident_id"]]},
-        }
-    ]
-    recovered = not IncidentJournal._active_incidents(recovery_events)
-    ledger_events = [{"event_id": "synthetic-paper-event", "event_type": "order_accepted"}]
-    ledger_before = tuple(ledger_events)
-    repeated_incident = next(
-        event["payload"]
-        for event in journal_events
-        if event["event_type"] == "incident_recorded"
-        and event["payload"].get("incident_id") == incident["incident_id"]
-    )
-    checks = {
-        "incident_freezes": frozen,
-        "mismatch_keeps_freeze": mismatch_state and remains_frozen,
-        "clean_reconciliation_recovers": recovered,
-        "retry_does_not_duplicate_incident": repeated_incident["incident_id"] == incident["incident_id"] and len(journal_events) == 1,
-        "ledger_events_preserved": tuple(ledger_events) == ledger_before,
-    }
     return {
         "drill_id": scenario,
         "status": "passed" if all(checks.values()) else "failed",

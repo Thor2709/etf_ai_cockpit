@@ -34,9 +34,11 @@ paper order action. Do not retry an uncertain action speculatively.
 3. Compare the observed state with `PaperLedger.reconciliation_state()` and use
    `reconcile_operational_state` as above. Keep the freeze active while any
    order, fill, cash or position value differs.
-4. If either hash chain fails verification, leave the pipeline frozen, retain
-   the files for investigation and do not rewrite stored evidence. A clean
-   reconciliation cannot clear an integrity failure.
+4. If either hash chain or the incident journal's durable head/count anchor
+   fails verification, leave the pipeline frozen, retain the files for
+   investigation and do not rewrite stored evidence. A clean reconciliation
+   cannot clear an integrity failure. The anchor detects removed rows and an
+   empty or missing journal file.
 
 ## Ledger or journal integrity failure
 
@@ -53,11 +55,13 @@ paper order action. Do not retry an uncertain action speculatively.
 Run the synthetic disconnect and order-break drills with
 `run_operational_drill("disconnect")` and
 `run_operational_drill("order_break")`. Each returns a deterministic `passed`
-or `failed` result for immediate freeze, mismatch retention, clean recovery,
-incident retry idempotency and ledger event preservation. The drills use
-synthetic in-memory state and do not change a user's paper account.
+or `failed` result for persisted freeze, mismatch retention, clean recovery,
+incident and recovery retry idempotency, order retry idempotency, and persisted
+ledger event identity/count preservation. Each drill uses a temporary local
+journal and paper ledger and does not change a user's paper account.
 
 The regression checks are `test_unknown_state_causes_immediate_freeze`,
 `test_unfreezing_requires_clean_reconciliation`,
-`test_incident_journal_hash_chain_integrity` and the parametrized operational
-drill test in `tests/test_operational_incidents.py`.
+`test_incident_journal_hash_chain_integrity`,
+`test_incident_journal_rejects_truncation_against_durable_head` and the
+parametrized operational drill test in `tests/test_operational_incidents.py`.
