@@ -25,6 +25,7 @@ import tempfile
 import time
 import tomllib
 import zipfile
+import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +37,8 @@ DEFAULT_POLICY = Path("configs/release_policy.yaml")
 DEFAULT_OUTPUT = Path("artifacts/release/latest")
 SIGNING_KEY_ENV = "ETF_COCKPIT_RELEASE_SIGNING_KEY"
 SIGNING_KEY_ID_ENV = "ETF_COCKPIT_RELEASE_SIGNING_KEY_ID"
+XDIST_WORKERS_ENV = "ETF_COCKPIT_XDIST_WORKERS"
+_FULL_TEST_EVIDENCE_PREFIX = "Two-phase xdist evidence: "
 TEXT_SUFFIXES = frozenset(
     {
         ".bat",
@@ -414,7 +417,7 @@ def run_command(
     required: bool = True,
 ) -> CheckResult:
     started = time.perf_counter()
-    timeout_seconds = 2400 if name == "full_tests" else 1800
+    timeout_seconds = 2400 if name == "full_tests" or name.startswith("full_tests_") else 1800
     try:
         completed = subprocess.run(
             list(command),
@@ -453,6 +456,227 @@ def run_command(
 
 def _python_command(root: Path, *args: str) -> tuple[str, ...]:
     return (sys.executable, *args)
+
+
+def _junit_path(output_dir: Path | str, filename: str) -> str:
+    if isinstance(output_dir, Path):
+        return str(output_dir / filename)
+    return f"{output_dir.rstrip('/')}/{filename}"
+
+
+def _full_test_commands(
+    root: Path,
+    output_dir: Path | str,
+    xdist_workers: int,
+) -> tuple[tuple[str, ...], ...]:
+    if xdist_workers < 0:
+        raise ValueError("xdist worker count must be zero or greater")
+    pytest = _python_command(root, "-m", "pytest")
+    if xdist_workers == 0:
+        return (
+            pytest
+            + (
+                "-q",
+                "--durations=100",
+                "--durations-min=0.25",
+                f"--junitxml={_junit_path(output_dir, 'junit-full.xml')}",
+            ),
+        )
+    common = ("-q", "--durations=100", "--durations-min=0.25")
+    return (
+        pytest
+        + (
+            "-m",
+            "not serial",
+            "-n",
+            str(xdist_workers),
+            "--dist",
+            "loadgroup",
+            *common,
+            f"--junitxml={_junit_path(output_dir, 'junit-parallel.xml')}",
+        ),
+        pytest
+        + (
+            "-m",
+            "serial",
+            *common,
+            f"--junitxml={_junit_path(output_dir, 'junit-serial.xml')}",
+        ),
+    )
+
+
+def _nodeids_from_collection(output: str) -> set[str]:
+    nodeids: set[str] = set()
+    for line in output.splitlines():
+        nodeid = line.strip().replace("\\", "/")
+        if nodeid.startswith("tests/") and "::" in nodeid:
+            nodeids.add(nodeid)
+    return nodeids
+
+
+def _collect_test_nodeids(root: Path, command: tuple[str, ...]) -> tuple[set[str], float, str]:
+    started = time.perf_counter()
+    try:
+        completed = subprocess.run(
+            list(command),
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=2400,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return set(), round((time.perf_counter() - started) * 1000, 3), str(exc)
+    elapsed = round((time.perf_counter() - started) * 1000, 3)
+    output = completed.stdout + completed.stderr
+    if completed.returncode != 0:
+        detail = output.strip()[-1000:]
+        return set(), elapsed, f"exit code {completed.returncode}" + (f": {detail}" if detail else "")
+    nodeids = _nodeids_from_collection(completed.stdout)
+    if not nodeids:
+        return set(), elapsed, "collection produced no parseable tests node ids"
+    return nodeids, elapsed, ""
+
+
+def _merge_junit_reports(reports: tuple[Path, Path], destination: Path) -> dict[str, int]:
+    suites: list[ET.Element] = []
+    for report in reports:
+        root = ET.parse(report).getroot()
+        if root.tag == "testsuite":
+            suites.append(root)
+        elif root.tag == "testsuites":
+            suites.extend(child for child in root if child.tag == "testsuite")
+        else:
+            raise ValueError(f"unsupported JUnit root element in {report}: {root.tag}")
+    if not suites:
+        raise ValueError("JUnit reports contain no testsuite elements")
+    counts = {
+        key: sum(int(suite.get(key, "0")) for suite in suites)
+        for key in ("tests", "failures", "errors", "skipped")
+    }
+    merged = ET.Element("testsuites", {key: str(value) for key, value in counts.items()})
+    for suite in suites:
+        merged.append(suite)
+    ET.ElementTree(merged).write(destination, encoding="utf-8", xml_declaration=True)
+    return counts
+
+
+def _write_full_tests_log(output_dir: Path, summary: str, phases: tuple[CheckResult, ...] = ()) -> None:
+    chunks = [summary]
+    for phase in phases:
+        chunks.extend([f"\n{phase.name}: {phase.status} (exit {phase.exit_code})", phase.output])
+    (output_dir / "full_tests.log").write_text("\n".join(chunks).strip() + "\n", encoding="utf-8", newline="\n")
+
+
+def full_tests(root: Path, output_dir: Path, xdist_workers: int = 0) -> CheckResult:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    commands = _full_test_commands(root, output_dir, xdist_workers)
+    if xdist_workers == 0:
+        return run_command(root, output_dir, "full_tests", commands[0])
+
+    started = time.perf_counter()
+    collection_commands = (
+        _python_command(root, "-m", "pytest", "--collect-only", "-q"),
+        _python_command(root, "-m", "pytest", "-m", "not serial", "--collect-only", "-q"),
+        _python_command(root, "-m", "pytest", "-m", "serial", "--collect-only", "-q"),
+    )
+    collected = [_collect_test_nodeids(root, command) for command in collection_commands]
+    full_nodes, phase_a_nodes, phase_b_nodes = (row[0] for row in collected)
+    phase_union = phase_a_nodes | phase_b_nodes
+    missing = full_nodes - phase_union
+    extra = phase_union - full_nodes
+    overlap = phase_a_nodes & phase_b_nodes
+    collection_failures = [
+        f"collection {name} failed: {row[2]}"
+        for name, row in zip(("full", "phase A", "phase B"), collected, strict=True)
+        if row[2]
+    ]
+    evidence: dict[str, object] = {
+        "xdist_workers": xdist_workers,
+        "collection_node_counts": {
+            "full": len(full_nodes),
+            "phase_a": len(phase_a_nodes),
+            "phase_b": len(phase_b_nodes),
+        },
+        "collection_duration_ms": {
+            "full": collected[0][1],
+            "phase_a": collected[1][1],
+            "phase_b": collected[2][1],
+        },
+        "collection_missing_from_phases": sorted(missing)[:5],
+        "collection_extra_in_phases": sorted(extra)[:5],
+        "collection_overlap": sorted(overlap)[:5],
+    }
+    if missing or extra or overlap:
+        collection_failures.append(
+            "collection parity failed: "
+            f"full={len(full_nodes)}, phase A={len(phase_a_nodes)}, phase B={len(phase_b_nodes)}; "
+            f"missing={len(missing)} {sorted(missing)[:3]}, "
+            f"extra={len(extra)} {sorted(extra)[:3]}, "
+            f"overlap={len(overlap)} {sorted(overlap)[:3]}"
+        )
+    if collection_failures:
+        reason = "; ".join(collection_failures)
+        evidence["failure"] = reason
+        summary = _FULL_TEST_EVIDENCE_PREFIX + json.dumps(evidence, sort_keys=True)
+        _write_full_tests_log(output_dir, summary)
+        return CheckResult(
+            "full_tests",
+            "failed",
+            True,
+            command="; ".join(_command_text(command) for command in collection_commands),
+            exit_code=1,
+            duration_ms=round((time.perf_counter() - started) * 1000, 3),
+            output=summary,
+            failure=reason,
+        )
+
+    phase_names = ("full_tests_parallel", "full_tests_serial")
+    phases = tuple(
+        run_command(root, output_dir, name, command)
+        for name, command in zip(phase_names, commands, strict=True)
+    )
+    evidence["phase_duration_ms"] = {"phase_a": phases[0].duration_ms, "phase_b": phases[1].duration_ms}
+    evidence["phase_status"] = {"phase_a": phases[0].status, "phase_b": phases[1].status}
+    evidence["phase_exit_codes"] = {"phase_a": phases[0].exit_code, "phase_b": phases[1].exit_code}
+    failures = [
+        f"phase {'A' if index == 0 else 'B'} failed: {phase.failure or phase.status}"
+        for index, phase in enumerate(phases)
+        if phase.status != "passed"
+    ]
+    try:
+        evidence["junit_counts"] = _merge_junit_reports(
+            (output_dir / "junit-parallel.xml", output_dir / "junit-serial.xml"),
+            output_dir / "junit-full.xml",
+        )
+    except (OSError, ET.ParseError, ValueError) as exc:
+        failures.append(f"JUnit merge failed: {exc}")
+    if failures:
+        evidence["failure"] = "; ".join(failures)
+    summary = _FULL_TEST_EVIDENCE_PREFIX + json.dumps(evidence, sort_keys=True)
+    _write_full_tests_log(output_dir, summary, phases)
+    return CheckResult(
+        "full_tests",
+        "failed" if failures else "passed",
+        True,
+        command="; ".join(_command_text(command) for command in commands),
+        exit_code=1 if failures else 0,
+        duration_ms=round((time.perf_counter() - started) * 1000, 3),
+        output=summary,
+        failure="; ".join(failures),
+    )
+
+
+def _nonnegative_int(value: str) -> int:
+    try:
+        workers = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("xdist worker count must be an integer") from exc
+    if workers < 0:
+        raise argparse.ArgumentTypeError("xdist worker count must be zero or greater")
+    return workers
 
 
 def _free_port() -> int:
@@ -737,6 +961,9 @@ def _report_markdown(manifest: dict[str, object], state: GateState, signature: d
     ]
     for check in state.checks:
         lines.append(f"| `{check.name}` | `{check.status}` | {check.exit_code if check.exit_code is not None else '-'} | {check.duration_ms:.3f} ms |")
+    full_tests_check = next((check for check in state.checks if check.name == "full_tests"), None)
+    if full_tests_check is not None and full_tests_check.output.startswith(_FULL_TEST_EVIDENCE_PREFIX):
+        lines.extend(["", "## Full test execution evidence", "", f"- `{full_tests_check.output}`"])
     lines.extend(["", "## Failures", ""])
     lines.extend(f"- {failure}" for failure in state.failures) if state.failures else lines.append("- None")
     lines.append("")
@@ -752,6 +979,7 @@ def run_gate(
     skip_smoke: bool = False,
     allow_unsigned: bool = False,
     allow_dirty: bool = False,
+    xdist_workers: int = 0,
 ) -> GateResult:
     root = root.resolve()
     output = (output_dir or root / DEFAULT_OUTPUT).resolve()
@@ -767,22 +995,7 @@ def run_gate(
     if skip_tests:
         state.add(CheckResult("full_tests", "skipped", False, "pytest -q"))
     else:
-        state.add(
-            run_command(
-                root,
-                output,
-                "full_tests",
-                _python_command(
-                    root,
-                    "-m",
-                    "pytest",
-                    "-q",
-                    "--durations=100",
-                    "--durations-min=0.25",
-                    f"--junitxml={output / 'junit-full.xml'}",
-                ),
-            )
-        )
+        state.add(full_tests(root, output, xdist_workers))
 
     if skip_package:
         state.add(CheckResult("package_build", "skipped", False, _command_text(package_command(root))))
@@ -1001,18 +1214,12 @@ def run_gate(
 
 
 def _planned_commands(root: Path) -> list[str]:
+    serial_command = _full_test_commands(root, "<output>", 0)[0]
+    parallel_commands = _full_test_commands(root, "<output>", 4)
     return [
-        _command_text(
-            _python_command(
-                root,
-                "-m",
-                "pytest",
-                "-q",
-                "--durations=100",
-                "--durations-min=0.25",
-                "--junitxml=<output>/junit-full.xml",
-            )
-        ),
+        f"Serial full suite: {_command_text(serial_command)}",
+        f"Two-phase xdist phase A (Linux, 4 workers after collection parity): {_command_text(parallel_commands[0])}",
+        f"Two-phase xdist phase B (Linux after collection parity): {_command_text(parallel_commands[1])}",
         _command_text(package_command(root)),
         "python scripts/smoke_app.py --mode offline --port <free-port> --timeout 30",
         "python scripts/check_security_policy.py --root <root> --report-dir <output>/security_policy",
@@ -1030,6 +1237,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-smoke", action="store_true", help="diagnostic-only: do not launch the package")
     parser.add_argument("--allow-unsigned", action="store_true", help="allow unsigned pull-request evidence; never use for a release")
     parser.add_argument("--allow-dirty", action="store_true", help="allow a dirty worktree for local diagnostics")
+    parser.add_argument(
+        "--xdist-workers",
+        type=_nonnegative_int,
+        default=os.environ.get(XDIST_WORKERS_ENV, "0"),
+        help=f"run the non-serial suite with pytest-xdist workers after collection parity (default: {XDIST_WORKERS_ENV} or 0)",
+    )
     parser.add_argument(
         "--verify-environment",
         action="store_true",
@@ -1083,6 +1296,7 @@ def main(argv: list[str] | None = None) -> int:
             skip_smoke=args.skip_smoke,
             allow_unsigned=args.allow_unsigned,
             allow_dirty=args.allow_dirty,
+            xdist_workers=args.xdist_workers,
         )
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
