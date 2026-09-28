@@ -47,6 +47,11 @@ class StatementFact:
     manual_review_required: bool = False
     restatement_kind: str = "reported"
     available_at: str | None = None
+    known_at: str | None = None
+    effective_at: str | None = None
+    source_url: str | None = None
+    filing_version: str | None = None
+    consolidation_scope: str | None = None
 
     @property
     def canonical_mapping(self) -> str | None:
@@ -110,6 +115,11 @@ def statement_facts_from_esef(
                 manual_review_required=canonical_metric is None,
                 restatement_kind="reported",
                 available_at=None,
+                known_at=None,
+                effective_at=period_end,
+                source_url=None,
+                filing_version=source_sha256,
+                consolidation_scope=_record_value(record, "consolidation_scope") or None,
             )
         )
     return tuple(result)

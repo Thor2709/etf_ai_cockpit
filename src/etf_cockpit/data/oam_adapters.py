@@ -605,7 +605,7 @@ class FinlandFsaOamAdapter(OAMAdapter):
 class NorwayFinanstilsynetOamAdapter(OAMAdapter):
     provider_id = "no_finanstilsynet_oam"
     country = "NO"
-    allowed_hosts = ("finanstilsynet.no",)
+    allowed_hosts = ("finanstilsynet.no", "newsweb.oslobors.no")
     terms_url = "https://www.finanstilsynet.no/en/"
 
 

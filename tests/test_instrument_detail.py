@@ -483,7 +483,7 @@ def test_classification_projection_loader_and_instrument_selector_expose_context
     monkeypatch.setattr(
         selector,
         "load_classification_projection",
-        lambda _instrument_id: projection,
+        lambda _instrument_id, **_kwargs: projection,
     )
     model = selector.build_instrument_detail(snapshot, instrument_id)
     assert model.identity["classification_status"] == "available"

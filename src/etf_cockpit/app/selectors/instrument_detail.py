@@ -2474,7 +2474,11 @@ def build_instrument_detail(
                 }
             )
         display_name = identity.name
-    classification_evidence = load_classification_projection(instrument_id)
+    classification_evidence = load_classification_projection(
+        instrument_id,
+        effective_at=projection_time or None,
+        decision_time=projection_time or None,
+    )
     if classification_evidence.get("status") in {"available", "unresolved"}:
         classification = classification_evidence.get("classification", {})
         route = classification_evidence.get("sector_adapter_route", {})
@@ -2564,7 +2568,10 @@ def build_instrument_detail(
         decision_time=projection_time or None,
     )
     financial_institutions = load_financial_institution_projection(
-        instrument_id, projection=financial_projection
+        instrument_id,
+        projection=financial_projection,
+        decision_time=projection_time or None,
+        effective_at=projection_time or None,
     )
     real_assets = load_real_asset_projection(
         instrument_id, projection=real_asset_projection
@@ -2579,6 +2586,14 @@ def build_instrument_detail(
         projection=innovation_projection,
         expected_source_digest=innovation_source_digest,
     )
+    valuation = _valuation_panel(instrument_id, identity_panel.get("asset_type"), decision_time)
+    if (
+        isinstance(financial_institutions, Mapping)
+        and financial_institutions.get("business_model") == "bank"
+    ):
+        valuation = _unavailable(
+            "Generic stock valuation is delegated to the bank-specific financial panel."
+        ) | {"status": "not_applicable", "delegated_to": "financial_institutions"}
     return InstrumentDetailViewModel(
         instrument_id,
         display_name,
@@ -2609,7 +2624,7 @@ def build_instrument_detail(
                 expected_currency=canonical_currency,
             ),
             "fundamentals": _fundamentals_panel(instrument_id, fundamentals),
-            "valuation": _valuation_panel(instrument_id, identity_panel.get("asset_type"), decision_time),
+            "valuation": valuation,
             "etf_disclosures": disclosure,
             "etf_structure": structure,
             "etf_holdings": disclosure.get("exposure", _unavailable("ETF holdings/exposure unavailable.")),

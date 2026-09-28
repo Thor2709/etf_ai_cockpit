@@ -50,6 +50,18 @@
       "relative_path": "esef_report_package/7245003GZ2696Y0W1X57-2026-03-31.xbri"
     },
     {
+      "fixture_id": "synthetic-ming-2025-esef-package",
+      "source_url": "https://newsweb.oslobors.no/message/999999",
+      "retrieved_at": "2026-09-28T04:00:00Z",
+      "sha256": "f0c1f08e930a13dfa67ca7c213cffa5ab8c2475bf53ffba02a53bcb2403df1ae",
+      "document_type": "norway_esef_report_package",
+      "authority": "synthetic test fixture",
+      "entity": "SpareBank 1 SMN; ticker MING; ISIN NO0006390301; orgnr 937901003; synthetic only",
+      "period": "2025-12-31",
+      "licence_note": "NOT official data; arbitrary synthetic values for deterministic offline tests only.",
+      "relative_path": "esef_report_package/synthetic-ming-2025.xbri"
+    },
+    {
       "fixture_id": "vanguard-ie000q4j3cw6-priips-kid",
       "source_url": "https://fund-docs.vanguard.com/ie000q4j3cw6_priipskid_chen.pdf",
       "retrieved_at": "2026-07-10T03:52:17.4219126Z",

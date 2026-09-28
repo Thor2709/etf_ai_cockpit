@@ -684,7 +684,10 @@ def _render_valuation_scenarios(page: ft.Page, model: InstrumentDetailViewModel,
 
 
 def _valuation_workspace(page: ft.Page, model: InstrumentDetailViewModel, decision_time: object) -> ft.Control:
-    evidence = _render_evidence_section("Stock valuation and scenarios", model.sections.get("valuation"), key="instrument-detail.valuation")
+    valuation = model.sections.get("valuation")
+    evidence = _render_evidence_section("Stock valuation and scenarios", valuation, key="instrument-detail.valuation")
+    if isinstance(valuation, Mapping) and valuation.get("delegated_to") == "financial_institutions":
+        return evidence
     if model.identity.get("asset_type") not in {"stock", "equity"}:
         return evidence
 
