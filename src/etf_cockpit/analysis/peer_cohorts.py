@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
 import math
 import random
 import statistics
+from statistics import NormalDist
 from typing import Mapping, Sequence
 
 from etf_cockpit.data.classification import (
@@ -95,6 +96,21 @@ class PeerMetricResult:
 
 
 @dataclass(frozen=True)
+class PeerNormalizationResult:
+    metric: str
+    status: str
+    raw_value: float | None
+    percentile: float | None
+    shrunk_percentile: float | None
+    z_score: float | None
+    interval: tuple[float, float] | None
+    effective_sample_size: float
+    support: int
+    comparison_scope: str
+    reason_code: str
+
+
+@dataclass(frozen=True)
 class PeerProjection:
     contract: str
     schema_version: int
@@ -171,6 +187,8 @@ def construct_cohort(
     effective_at: str,
     decision_time: str,
     minimum_support: int = 3,
+    comparison_scope: str | None = None,
+    comparison_groups: Mapping[str, str] | None = None,
 ) -> CohortMembership:
     """Select the first sufficiently supported leaf-to-parent cohort."""
 
@@ -212,7 +230,25 @@ def construct_cohort(
                     "superseded_revision"
                 )
 
-    levels = _cohort_levels(target)
+    scope = comparison_scope.upper() if comparison_scope is not None else None
+    if scope not in {
+        None,
+        "UNIVERSE",
+        "SECTOR",
+        "INDUSTRY",
+        "BUSINESS_MODEL",
+        "ETF_CATEGORY",
+        "ETF_EXPOSURE_PEERS",
+    }:
+        raise PeerCohortError(f"unsupported comparison scope: {comparison_scope!r}")
+    if scope in {"ETF_CATEGORY", "ETF_EXPOSURE_PEERS"} and (
+        comparison_groups is None
+        or not comparison_groups.get(target.instrument_id)
+    ):
+        raise PeerCohortError(
+            f"{scope} comparison requires a target comparison group"
+        )
+    levels = _cohort_levels(target, scope)
     selected: list[PeerObservation] = []
     selected_exclusions: dict[str, str] = {}
     parent: list[PeerObservation] = []
@@ -222,7 +258,14 @@ def construct_cohort(
     selected_index = len(levels) - 1
     for index, (label, fields) in enumerate(levels):
         matching = [
-            item for item in candidates if _matches(target, item.context, fields)
+            item
+            for item in candidates
+            if _matches_comparison_scope(
+                target,
+                item.context,
+                fields,
+                comparison_groups,
+            )
         ]
         subset, duplicate_exclusions = _deduplicate(matching)
         fallback_path.append(label)
@@ -237,7 +280,12 @@ def construct_cohort(
             [
                 item
                 for item in candidates
-                if _matches(target, item.context, parent_fields)
+                if _matches_comparison_scope(
+                    target,
+                    item.context,
+                    parent_fields,
+                    comparison_groups,
+                )
             ]
         )
     exclusions.update(selected_exclusions)
@@ -260,6 +308,13 @@ def construct_cohort(
         },
         "rule_version": PEER_RULE_VERSION,
     }
+    if scope is not None:
+        payload["comparison_scope"] = scope
+        if scope in {"ETF_CATEGORY", "ETF_EXPOSURE_PEERS"}:
+            payload["comparison_groups"] = {
+                instrument_id: comparison_groups.get(instrument_id)
+                for instrument_id in sorted(comparison_groups or {})
+            }
     return CohortMembership(
         selected_key,
         tuple(fallback_path),
@@ -271,6 +326,145 @@ def construct_cohort(
         len(selected),
         coverage,
         _hash(payload),
+    )
+
+
+def normalize_peer_metric(
+    metric: str,
+    target_value: float | None,
+    cohort: CohortMembership,
+    *,
+    applicable: bool,
+    metric_shape: str,
+    comparison_scope: str,
+    band: float | tuple[float, float] | None = None,
+    parent_percentile: float = 0.5,
+    shrinkage_strength: float = 5.0,
+    bootstrap_seed: int = 0,
+    bootstrap_samples: int = 400,
+    winsor_mad: float = 3.0,
+) -> PeerNormalizationResult:
+    """Rank a configured metric shape and convert its shrunk percentile to z."""
+
+    shape = metric_shape.casefold()
+    scope = comparison_scope.upper()
+    if shape not in {
+        "higher_is_better",
+        "lower_is_better",
+        "target_band",
+        "threshold_or_plateau",
+        "gate",
+        "context_only",
+    }:
+        raise PeerCohortError(f"unsupported metric shape: {metric_shape!r}")
+    if shape in {"gate", "context_only"}:
+        return PeerNormalizationResult(
+            metric,
+            "N/A",
+            target_value,
+            None,
+            None,
+            None,
+            None,
+            0.0,
+            0,
+            scope,
+            "METRIC_SHAPE_NOT_RANKED",
+        )
+    if shape == "target_band":
+        if (
+            not isinstance(band, tuple)
+            or len(band) != 2
+            or not all(_finite(value) for value in band)
+            or band[0] > band[1]
+        ):
+            raise PeerCohortError("target_band requires an ordered configured band")
+        low, high = float(band[0]), float(band[1])
+
+        def transform(value: float) -> float:
+            return max(low - value, value - high, 0.0)
+
+        reverse = True
+    elif shape == "threshold_or_plateau":
+        if not _finite(band):
+            raise PeerCohortError(
+                "threshold_or_plateau requires a configured plateau value"
+            )
+        plateau = float(band)
+
+        def transform(value: float) -> float:
+            return min(value, plateau)
+
+        reverse = False
+    else:
+        transform = float
+        reverse = shape == "lower_is_better"
+
+    transformed = CohortMembership(
+        cohort.cohort_key,
+        cohort.fallback_path,
+        cohort.members,
+        cohort.exclusions,
+        tuple(
+            replace(item, value=transform(float(item.value)))
+            if item.value is not None and _finite(item.value)
+            else item
+            for item in cohort.observations
+        ),
+        cohort.parent_cohort_key,
+        tuple(
+            replace(item, value=transform(float(item.value)))
+            if item.value is not None and _finite(item.value)
+            else item
+            for item in cohort.parent_observations
+        ),
+        cohort.support,
+        cohort.coverage,
+        cohort.cohort_hash,
+    )
+    ranked = calculate_peer_metric(
+        metric,
+        None if target_value is None else transform(float(target_value)),
+        transformed,
+        applicable=applicable,
+        parent_percentile=parent_percentile,
+        shrinkage_strength=shrinkage_strength,
+        bootstrap_seed=bootstrap_seed,
+        bootstrap_samples=bootstrap_samples,
+        winsor_mad=winsor_mad,
+    )
+    if ranked.shrunk_percentile is None or ranked.percentile is None:
+        return PeerNormalizationResult(
+            metric,
+            ranked.status.upper(),
+            target_value,
+            None,
+            None,
+            None,
+            None,
+            ranked.effective_sample_size,
+            ranked.support,
+            scope,
+            ranked.reason_code,
+        )
+    percentile = 1.0 - ranked.percentile if reverse else ranked.percentile
+    shrunk = 1.0 - ranked.shrunk_percentile if reverse else ranked.shrunk_percentile
+    interval = ranked.interval
+    if reverse and interval is not None:
+        interval = (1.0 - interval[1], 1.0 - interval[0])
+    z_score = NormalDist().inv_cdf(min(max(shrunk, 0.01), 0.99))
+    return PeerNormalizationResult(
+        metric,
+        ranked.status,
+        target_value,
+        percentile,
+        shrunk,
+        z_score,
+        interval,
+        ranked.effective_sample_size,
+        ranked.support,
+        scope,
+        ranked.reason_code,
     )
 
 
@@ -570,7 +764,47 @@ def peer_result_hash(projection: PeerProjection | Mapping[str, object]) -> str:
 
 def _cohort_levels(
     context: InstrumentContextV2,
+    comparison_scope: str | None = None,
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    if comparison_scope is not None:
+        scope_levels = {
+            "UNIVERSE": (("UNIVERSE", ()),),
+            "SECTOR": (("SECTOR", ("sector",)), ("UNIVERSE", ())),
+            "INDUSTRY": (
+                ("INDUSTRY", ("sector", "industry")),
+                ("SECTOR", ("sector",)),
+                ("UNIVERSE", ()),
+            ),
+            "BUSINESS_MODEL": (
+                ("BUSINESS_MODEL", ("business_model_tags",)),
+                ("UNIVERSE", ()),
+            ),
+            "ETF_CATEGORY": (
+                ("ETF_CATEGORY", ("__comparison_group:ETF_CATEGORY",)),
+                ("UNIVERSE", ()),
+            ),
+            "ETF_EXPOSURE_PEERS": (
+                (
+                    "ETF_EXPOSURE_PEERS",
+                    ("__comparison_group:ETF_EXPOSURE_PEERS",),
+                ),
+                ("UNIVERSE", ()),
+            ),
+        }
+        if comparison_scope not in scope_levels:
+            raise PeerCohortError(
+                f"unsupported comparison scope: {comparison_scope!r}"
+            )
+        if comparison_scope == "SECTOR" and not context.sector:
+            raise PeerCohortError("SECTOR comparison requires a sector")
+        if comparison_scope == "INDUSTRY" and not (
+            context.sector and context.industry
+        ):
+            raise PeerCohortError("INDUSTRY comparison requires sector and industry")
+        if comparison_scope == "BUSINESS_MODEL" and not context.business_model_tags:
+            raise PeerCohortError("BUSINESS_MODEL comparison requires a business model")
+        return scope_levels[comparison_scope]
+
     dimensions: list[tuple[str, str]] = []
     if context.industry:
         dimensions.append(("industry", "industry"))
@@ -599,6 +833,19 @@ def _matches(
     target: InstrumentContextV2, candidate: InstrumentContextV2, fields: Sequence[str]
 ) -> bool:
     return all(getattr(target, field) == getattr(candidate, field) for field in fields)
+
+
+def _matches_comparison_scope(
+    target: InstrumentContextV2,
+    candidate: InstrumentContextV2,
+    fields: Sequence[str],
+    comparison_groups: Mapping[str, str] | None,
+) -> bool:
+    if fields and fields[0].startswith("__comparison_group:"):
+        groups = comparison_groups or {}
+        target_group = groups.get(target.instrument_id)
+        return bool(target_group) and target_group == groups.get(candidate.instrument_id)
+    return _matches(target, candidate, fields)
 
 
 def _deduplicate(
@@ -816,6 +1063,7 @@ __all__ = [
     "CohortMembership",
     "PeerCohortError",
     "PeerMetricResult",
+    "PeerNormalizationResult",
     "PeerObservation",
     "PeerProjection",
     "build_peer_projection",
@@ -823,6 +1071,7 @@ __all__ = [
     "calculate_peer_metric",
     "construct_cohort",
     "effective_sample_size",
+    "normalize_peer_metric",
     "projection_payload",
     "peer_result_hash",
     "weighted_empirical_cdf",
