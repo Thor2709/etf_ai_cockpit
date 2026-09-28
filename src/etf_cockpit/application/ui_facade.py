@@ -310,6 +310,51 @@ def load_valuation_evidence(path: Path, *, instrument_id: str, decision_time: ob
         return unavailable("Canonical statement store is unreadable or malformed; valuation unavailable.")
 
 
+def load_etf_look_through(
+    instrument_id: str,
+    *,
+    decision_time: object,
+    holdings_frame: object = None,
+    fundamentals_frame: object = None,
+    identity_map: Mapping[str, str] | None = None,
+    provider_metrics: Mapping[str, object] | None = None,
+    max_holdings_age_days: int = 90,
+) -> dict[str, object]:
+    """Read local ETF holdings and constituent evidence for the pure analyzer."""
+    from dataclasses import asdict
+
+    from etf_cockpit.analysis.look_through import calculate_look_through
+    from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
+    from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH
+
+    try:
+        holdings = pd.read_parquet(FUND_HOLDINGS_PATH) if holdings_frame is None else holdings_frame
+        if fundamentals_frame is None:
+            try:
+                fundamentals = pd.read_parquet(FUNDAMENTAL_CLEAN_PATH)
+            except (FileNotFoundError, OSError, ValueError, ImportError):
+                fundamentals = pd.DataFrame()
+        else:
+            fundamentals = fundamentals_frame
+        summary = calculate_look_through(
+            holdings,
+            instrument_id=instrument_id,
+            decision_time=decision_time,
+            constituent_fundamentals=fundamentals,
+            identity_map=identity_map,
+            provider_metrics=provider_metrics,
+            max_holdings_age_days=max_holdings_age_days,
+        )
+        return asdict(summary)
+    except (OSError, ValueError, TypeError, KeyError, ImportError):
+        return {
+            "instrument_id": instrument_id,
+            "status": "unavailable",
+            "message": "Local holdings look-through evidence is unavailable or malformed.",
+            "execution_allowed": False,
+        }
+
+
 def load_etf_structure_projection(
     instrument_id: str,
     *,
