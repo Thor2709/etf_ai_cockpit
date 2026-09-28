@@ -18,6 +18,7 @@ from etf_cockpit.analysis.sparebank.valuation import (
     residual_income_valuation,
     scenario_value,
     stable_pb,
+    valuation,
 )
 
 
@@ -84,3 +85,26 @@ def test_order_size_and_days_to_trade_fallback():
     fallback = executable_order(2000, None)
     assert fallback["status"] == "unavailable"
     assert fallback["execution_cost_model"] == "execution-cost-v1"
+
+
+def test_suite_valuation_assembles_four_state_recovery_policy_irr_and_decision_price() -> None:
+    assumptions = {
+        "timestamp": "2025-01-01T00:00:00Z",
+        "currency": "NOK",
+        "quantity": 4,
+        "recovery": {"book_value": 100, "dividends": (8, 10), "terminal_value": 110, "required_return": 0.10},
+        "four_state": {"weights": (0.25, 0.25, 0.25, 0.25), "values": (70, 99, 106, 113)},
+        "marketability": {"with_marketability": 100, "without_marketability": 95},
+        "capital_policy": {"book_value": 100, "earnings": 9.9, "release": 10, "earnings_on_released_capital": 0.2},
+        "irr": {"price": 90, "cash_flows": (10, 110)},
+        "decision_price": {"value": 100, "hurdle": 0.08, "years": 1, "exit_cost": 0.005},
+    }
+    result = valuation(_claim(), price=90, assumptions=assumptions)
+    assert result["status"] == "resolved"
+    assert result["four_state"]["value"] == pytest.approx(97)
+    assert result["marketability"]["without_marketability"] == pytest.approx(95)
+    assert result["capital_policy"]["operating_value"] == pytest.approx(110)
+    assert result["irr"]["irr"] is not None
+    assert result["decision_price"]["price"] == pytest.approx(92.1296296)
+    assert result["timestamp"] == assumptions["timestamp"]
+    assert valuation(_claim(), price=110, assumptions=assumptions)["four_state"]["value"] == result["four_state"]["value"]

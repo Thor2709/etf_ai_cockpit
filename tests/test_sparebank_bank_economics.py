@@ -50,6 +50,23 @@ def test_capital_golden_and_rwa_attribution() -> None:
     assert result.loss_capacity_to_target == pytest.approx(141)
 
 
+def test_missing_ppp_or_credit_loss_does_not_resolve_capital_headroom() -> None:
+    result = capital_resilience(1000, None, None, 5700, 0.17)
+    assert result.status == "unavailable"
+    assert result.closing_cet1 is None
+    assert result.headroom_nok is None
+
+
+def test_missing_reported_earnings_stays_unavailable_without_derived_ratios() -> None:
+    result = normalisation_bridge(None, [{"amount": 10}], equity_denominator=1000, ec_share=0.4, ec_count=4)
+    assert result.status == "unavailable"
+    assert result.reported is None
+    assert result.normalised is None
+    assert result.reported_roe is None
+    assert result.normalised_roe is None
+    assert result.ec_eps is None
+
+
 def test_funding_beta_and_regulatory_missing_fields_fail_closed() -> None:
     unavailable = deposit_beta(0.02, 0.04)
     assert unavailable.status == "unavailable"
@@ -62,3 +79,22 @@ def test_production_suite_populates_bank_economics() -> None:
     result = analyse_sparebank_ec(evidence, bank_metrics=({"metric": "cet1_ratio", "value": 0.18},))
     assert result.bank_economics.status == "partial"
     assert result.bank_economics.reported["metrics"]["cet1_ratio"] == pytest.approx(0.18)
+
+
+def test_bank_economics_preserves_credit_funding_concentration_and_traceability() -> None:
+    result = analyse_sparebank_ec(
+        {"jurisdiction": "NO", "legal_form": "savings_bank", "instrument_subtype": "equity_certificate", "facts": {"ec_capital": 400, "sparebankens_fond": 600}},
+        bank_economics_evidence={
+            "reported_earnings": 100,
+            "normalisation_adjustments": ({"amount": 5, "evidence_locator": "note-1"},),
+            "evidence_id": "filing-1",
+            "credit": {"opening_stage3": 10, "closing_stage3": 8},
+            "funding": {"lcr": 1.2, "nsfr": 1.1, "evidence_id": "pillar-1"},
+            "concentration": {"top_exposure_share": 0.2, "evidence_id": "risk-1"},
+        },
+    )
+    assert result.bank_economics.credit["closing_stage3"] == pytest.approx(8)
+    assert result.bank_economics.funding["lcr"] == pytest.approx(1.2)
+    assert result.bank_economics.concentration["interpretation"] == "operator_supplied"
+    assert set(result.bank_economics.evidence_ids) >= {"filing-1", "note-1", "pillar-1", "risk-1"}
+    assert result.bank_economics.calculation_ids

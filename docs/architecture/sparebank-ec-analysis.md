@@ -43,7 +43,10 @@ pre/post claim states and recipient cash flows. Merger value split, exchange
 ratio, EC-class ownership, and eierbrøk remain four distinct fields. Agreement,
 legal completion, technical integration, and economic maturity are independent
 milestones; legal completion does not imply maturity. All outputs remain
-`execution_allowed=false`.
+`execution_allowed=false`. Merger increments are calculated from supplied
+benefit, loss, tax, ramp, allocation, legacy-count and discount inputs; fixture
+path labels are never interpreted as economics. Events with missing or invalid
+`known_at` are excluded from a decision-time view.
 
 ## Owner valuation and implementation
 
@@ -54,6 +57,8 @@ residual-income routes, reverse-implied expectations, capital release and
 buyback accretion are calculated only from explicit inputs. Scenario weights,
 required returns, hurdle rates and exit costs are operator-supplied; absent
 assumptions produce an unavailable scenario section rather than invented
-probabilities. Displayed depth is walked for a quantity-specific order. If
+probabilities. The suite entry point also exposes explicit recovery, four-state
+marketability, capital-policy, IRR, decision-price, timestamp/currency/quantity
+and implementation sections; omitted assumptions remain unavailable. Displayed depth is walked for a quantity-specific order. If
 depth is absent the result stays `UNAVAILABLE` and identifies the labelled
 `execution-cost-v1` estimate fallback. No valuation output enables execution.

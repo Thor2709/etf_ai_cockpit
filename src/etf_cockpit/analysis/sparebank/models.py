@@ -128,6 +128,7 @@ class BankEconomics:
     resilience: Mapping[str, object] = field(default_factory=dict)
     credit: Mapping[str, object] = field(default_factory=dict)
     funding: Mapping[str, object] = field(default_factory=dict)
+    concentration: Mapping[str, object] = field(default_factory=dict)
     evidence_ids: tuple[str, ...] = ()
     calculation_ids: tuple[str, ...] = ()
     unavailable_fields: tuple[str, ...] = ()

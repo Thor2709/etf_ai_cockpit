@@ -50,7 +50,15 @@ def test_skue_ratios_and_teaching_merger_paths_stay_separate() -> None:
     assert ratios["target_ec_exchange_ratio"] == pytest.approx(0.5039375)
     assert ratios["post_merger_ec_class_ownership"] == pytest.approx(0.088)
     assert ratios["post_merger_eierbrok"] == pytest.approx(0.219)
-    assert [merger_bridge(99, implementation_path=path)["increment_per_legacy_ec"] for path in ("delayed", "base", "faster")] == pytest.approx([-1.98, 7.17, 10.78])
+    paths = {
+        "delayed": (-1.98, (0.2,)),
+        "base": (7.17, (1.0,)),
+        "faster": (10.78, (1.5,)),
+    }
+    for path, (increment, ramp) in paths.items():
+        result = merger_bridge(99, per_ec_increment=increment, implementation_path=path, implementation_ramp=ramp)
+        assert result["increment_per_legacy_ec"] == pytest.approx(increment)
+        assert result["ramp_factors"] == ramp
 
 
 def test_merger_release_is_incremental_and_maturity_is_not_legal_close() -> None:
@@ -65,3 +73,21 @@ def test_known_at_invisibility_and_unsupported_event_fail_closed() -> None:
     analysis = analyse_events(({"event_type": "merger", "known_at": "2030-01-01T00:00:00Z"}, {"event_type": "mystery", "known_at": "2024-01-01T00:00:00Z"}), decision_time="2025-01-01T00:00:00Z")
     assert len(analysis.events) == 1
     assert analysis.events[0]["status"] == "UNSUPPORTED_EVENT"
+
+
+@pytest.mark.parametrize("known_at", [None, "not-a-timestamp"])
+def test_missing_or_invalid_known_at_is_invisible_at_decision_time(known_at: str | None) -> None:
+    analysis = analyse_events(({"event_type": "conversion", "known_at": known_at, "converted": 3},), decision_time="2025-01-01T00:00:00Z")
+    assert analysis.events == ()
+
+
+def test_native_event_analysis_dispatches_conversion_and_merger_calculators() -> None:
+    analysis = analyse_events(
+        (
+            {"event_type": "conversion", "known_at": "2024-01-01T00:00:00Z", "pre_state": {"outstanding_ec_count": 4}, "converted": 3},
+            {"event_type": "merger", "known_at": "2024-01-01T00:00:00Z", "standalone": 99, "gross_benefit": 20, "recurring_added_capability": 5, "lost_customer_contribution": 3, "integration_costs": (2,), "tax_rate": 0.25, "per_ec_increment": 15},
+        ),
+        decision_time="2025-01-01T00:00:00Z",
+    )
+    assert analysis.events[0]["post_state"]["outstanding_ec_count"] == pytest.approx(7)
+    assert analysis.events[1]["value_per_legacy_ec"] == pytest.approx(114)

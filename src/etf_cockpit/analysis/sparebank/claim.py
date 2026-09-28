@@ -116,7 +116,16 @@ def build_claim_state(
         if isinstance(item, Mapping) and item.get("known_at")
     )
     known_candidates = [item for item in known_candidates if item]
-    known_at = max(known_candidates, key=_parse_time) if known_candidates else None
+    invalid_known_at = False
+    valid_known_candidates: list[str] = []
+    for candidate in known_candidates:
+        try:
+            _parse_time(candidate)
+        except (TypeError, ValueError, OverflowError):
+            invalid_known_at = True
+        else:
+            valid_known_candidates.append(candidate)
+    known_at = max(valid_known_candidates, key=_parse_time) if valid_known_candidates else None
     effective_at = _text(_first(outer, "effective_at", "period"))
     source_id = _text(_first(outer, "source_url", "source_id", "source", "filing_version", "sha256"))
     revision_id = _text(_first(outer, "filing_version", "sha256", "revision_id", "revision"))
@@ -124,9 +133,21 @@ def build_claim_state(
     bank_entity = _text(_first(outer, "bank_entity", "entity_id", "orgnr"))
     listing_id = _text(_first(outer, "listing_id", "ticker", "instrument_id"))
     reasons: list[str] = []
-    if decision_time is not None and known_at and _parse_time(known_at) > _parse_time(decision_time):
-        reasons.append("CLAIM_KNOWN_AFTER_DECISION_TIME")
-        values = {}
+    if decision_time is not None:
+        if invalid_known_at:
+            reasons.append("CLAIM_KNOWN_AT_INVALID")
+            values = {}
+        elif known_at is None:
+            reasons.append("CLAIM_KNOWN_AT_MISSING")
+            values = {}
+        else:
+            try:
+                if _parse_time(known_at) > _parse_time(decision_time):
+                    reasons.append("CLAIM_KNOWN_AFTER_DECISION_TIME")
+                    values = {}
+            except (TypeError, ValueError, OverflowError):
+                reasons.append("CLAIM_KNOWN_AT_INVALID")
+                values = {}
 
     owner_pools = _available_pool_values(values, _OWNER_FACTS)
     self_owned_pools = _available_pool_values(values, _SELF_FACTS)
@@ -185,6 +206,8 @@ def build_claim_state(
     resolved = reconstructed is not None and not any(
         reason in {
             "CLAIM_KNOWN_AFTER_DECISION_TIME",
+            "CLAIM_KNOWN_AT_MISSING",
+            "CLAIM_KNOWN_AT_INVALID",
             "REPORTED_RECONSTRUCTED_EIERBROK_DIFFER",
             "POOL_COMPONENT_EVIDENCE_MISSING",
             "CLAIM_REVISION_IDENTITY_MISSING",
@@ -192,7 +215,7 @@ def build_claim_state(
         }
         for reason in reasons
     )
-    if "CLAIM_KNOWN_AFTER_DECISION_TIME" in reasons:
+    if any(code in reasons for code in ("CLAIM_KNOWN_AFTER_DECISION_TIME", "CLAIM_KNOWN_AT_MISSING", "CLAIM_KNOWN_AT_INVALID")):
         status = "stale"
     elif "REPORTED_RECONSTRUCTED_EIERBROK_DIFFER" in reasons:
         status = "ambiguous"
@@ -360,7 +383,7 @@ def analyse_sparebank_ec(
     from .events import analyse_events
     from .valuation import valuation
     bank_economics = build_bank_economics(bank_economics_evidence, bank_metrics=bank_metrics)
-    event_analysis = analyse_events(events, decision_time=decision_time if isinstance(decision_time, str) else None)
+    event_analysis = analyse_events(events, decision_time=decision_time)
     valuation_section = valuation(claim, price=price, assumptions=valuation_assumptions)
     return SparebankAnalysis(
         contract=CONTRACT_ID,

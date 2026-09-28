@@ -333,6 +333,8 @@ def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None
     if standalone.get("status") != "resolved":
         return {"status": "unavailable", "standalone": standalone, "reverse": {"status": "unavailable"}, "execution_allowed": False}
     assumptions = assumptions or {}
+    if not isinstance(assumptions, Mapping):
+        return {"status": "unavailable", "standalone": standalone, "reason_code": "VALUATION_ASSUMPTIONS_INVALID", "execution_allowed": False}
     reverse = None
     if "price_to_book" in assumptions and "k" in assumptions and "g" in assumptions:
         reverse = reverse_valuation(float(assumptions["price_to_book"]), k=float(assumptions["k"]), g=float(assumptions["g"]))
@@ -341,7 +343,95 @@ def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None
     else:
         reverse = {"status": "unavailable", "reason_code": "REVERSE_INPUTS_MISSING"}
     scenarios = scenario_value(assumptions.get("scenarios")) if "scenarios" in assumptions else {"status": "unavailable", "reason_code": "SCENARIO_ASSUMPTIONS_MISSING", "scenarios": ()}
-    return {"status": "resolved", "standalone": standalone, "reverse": reverse, "scenarios": scenarios, "execution_allowed": False}
+
+    recovery_inputs = assumptions.get("recovery")
+    if isinstance(recovery_inputs, Mapping) and "required_return" in recovery_inputs:
+        recovery = recovery_valuation(
+            recovery_inputs.get("book_value"), recovery_inputs.get("dividends", ()), recovery_inputs.get("terminal_value"),
+            required_return=recovery_inputs.get("required_return"),
+        )
+    else:
+        recovery = {"status": "unavailable", "reason_code": "RECOVERY_INPUTS_MISSING"}
+
+    four_state_inputs = assumptions.get("four_state")
+    if isinstance(four_state_inputs, Mapping):
+        weights = four_state_inputs.get("weights")
+        values = four_state_inputs.get("values")
+        rows = (
+            tuple({"name": str(index), "weight": weight, "value": value} for index, (weight, value) in enumerate(zip(weights, values, strict=True)))
+            if isinstance(weights, (list, tuple)) and isinstance(values, (list, tuple)) and len(weights) == len(values)
+            else four_state_inputs.get("scenarios")
+        )
+        four_state = scenario_value(rows)
+        four_state["state_count"] = len(rows) if isinstance(rows, (list, tuple)) else 0
+    else:
+        four_state = {"status": "unavailable", "reason_code": "FOUR_STATE_ASSUMPTIONS_MISSING", "scenarios": ()}
+
+    marketability_inputs = assumptions.get("marketability")
+    if marketability_inputs is None and isinstance(four_state_inputs, Mapping):
+        marketability_inputs = {
+            "with_marketability": four_state_inputs.get("with_marketability"),
+            "without_marketability": four_state_inputs.get("without_marketability"),
+        }
+    if isinstance(marketability_inputs, Mapping):
+        with_value = _num(marketability_inputs.get("with_marketability"))
+        without_value = _num(marketability_inputs.get("without_marketability"))
+        marketability = {
+            "status": "resolved" if None not in (with_value, without_value) else "unavailable",
+            "with_marketability": with_value,
+            "without_marketability": without_value,
+            "reason_code": None if None not in (with_value, without_value) else "MARKETABILITY_VALUES_MISSING",
+        }
+    else:
+        marketability = {"status": "unavailable", "reason_code": "MARKETABILITY_ASSUMPTIONS_MISSING"}
+
+    capital_policy_inputs = assumptions.get("capital_policy")
+    if isinstance(capital_policy_inputs, Mapping):
+        try:
+            capital_policy = capital_release(
+                capital_policy_inputs["book_value"], capital_policy_inputs["earnings"],
+                capital_policy_inputs["release"], capital_policy_inputs["earnings_on_released_capital"],
+            )
+            capital_policy["status"] = "resolved"
+        except (KeyError, TypeError, ValueError):
+            capital_policy = {"status": "unavailable", "reason_code": "CAPITAL_POLICY_INPUTS_MISSING"}
+    else:
+        capital_policy = {"status": "unavailable", "reason_code": "CAPITAL_POLICY_ASSUMPTIONS_MISSING"}
+
+    irr_inputs = assumptions.get("irr") or assumptions.get("irr_assumptions")
+    if isinstance(irr_inputs, Mapping):
+        irr = expected_irr(irr_inputs.get("price", price), irr_inputs.get("cash_flows", ()))
+        irr_section = {"status": "resolved" if irr is not None else "unavailable", "irr": irr}
+    else:
+        irr_section = {"status": "unavailable", "irr": None, "reason_code": "IRR_INPUTS_MISSING"}
+
+    decision_inputs = assumptions.get("decision_price") or assumptions.get("decision_price_assumptions")
+    if isinstance(decision_inputs, Mapping):
+        try:
+            decision = decision_price(decision_inputs["value"], decision_inputs["hurdle"], years=decision_inputs.get("years", 1.0), exit_cost=decision_inputs.get("exit_cost", 0.0))
+            decision_section = {"status": "resolved", "price": decision, "hurdle": decision_inputs["hurdle"], "years": decision_inputs.get("years", 1.0), "exit_cost": decision_inputs.get("exit_cost", 0.0)}
+        except (KeyError, TypeError, ValueError):
+            decision_section = {"status": "unavailable", "reason_code": "DECISION_PRICE_INPUTS_MISSING"}
+    else:
+        decision_section = {"status": "unavailable", "reason_code": "DECISION_PRICE_INPUTS_MISSING"}
+
+    implementation_inputs = assumptions.get("implementation") or assumptions.get("implementation_shortfall")
+    if isinstance(implementation_inputs, Mapping):
+        implementation = implementation_shortfall(**implementation_inputs)
+    else:
+        implementation = {"status": "unavailable", "reason_code": "IMPLEMENTATION_INPUTS_MISSING", "execution_allowed": False}
+    resolved = any(section.get("status") == "resolved" for section in (recovery, four_state, marketability, capital_policy, irr_section, decision_section))
+    return {
+        "status": "resolved" if resolved else "partial", "standalone": standalone, "reverse": reverse,
+        "scenarios": scenarios, "recovery": recovery, "four_state": four_state,
+        "marketability": marketability, "capital_policy": capital_policy, "irr": irr_section,
+        "decision_price": decision_section, "implementation": implementation,
+        "timestamp": assumptions.get("timestamp", assumptions.get("valuation_timestamp", assumptions.get("as_of", UNAVAILABLE))),
+        "currency": assumptions.get("currency", assumptions.get("output_currency", UNAVAILABLE)),
+        "quantity": _num(assumptions.get("quantity", assumptions.get("position_quantity"))) if ("quantity" in assumptions or "position_quantity" in assumptions) else None,
+        "implementation_shortfall": implementation,
+        "execution_allowed": False,
+    }
 
 
 calculate_valuation = valuation

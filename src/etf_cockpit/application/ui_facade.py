@@ -881,6 +881,8 @@ def _build_financial_projection_from_evidence(
         route_evidence,
         decision_time=cutoff,
         bank_metrics=result.metrics,
+        bank_economics_evidence=(ec_revision.get("bank_economics_evidence") if isinstance(ec_revision, Mapping) else None),
+        events=(ec_revision.get("events", ()) if isinstance(ec_revision, Mapping) else ()),
         valuation_assumptions=(ec_revision.get("valuation_assumptions") if isinstance(ec_revision, Mapping) else None),
     )
     if isinstance(ec_facts, Mapping) and ec_facts:
