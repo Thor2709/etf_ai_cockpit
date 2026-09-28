@@ -124,6 +124,32 @@ def test_cash_weight_accounts_for_execution_costs_and_sell_taxes(monkeypatch) ->
     assert alternative.feasible is True
 
 
+def test_cash_fit_reduces_buys_for_fixed_execution_fees(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rebalancing,
+        "estimate_execution_cost",
+        lambda _config, _instrument_id, order_value_eur: SimpleNamespace(total_cost_eur=100.0 if order_value_eur > 0 else 0.0),
+    )
+    report = build_rebalance_report(
+        _config().config,
+        _holdings().drop(columns=["quantity", "price_eur"]),
+        {"VWCE": 0.50, "LYP6": 0.30},
+        target_cash_weight=0.20,
+        portfolio_value_eur=100_000.0,
+        constraints=RebalanceConstraints(cash_buffer_weight=0.01),
+    )
+
+    alternative = report.alternatives["full"]
+    buy_outflow = sum(
+        item.trade_value_eur + item.estimated_cost_eur + item.estimated_tax_eur
+        for item in alternative.trades
+        if item.trade_value_eur > 0
+    )
+    assert buy_outflow <= 19_000.0
+    assert alternative.cash_weight >= 0.21
+    assert alternative.feasible is True
+
+
 def test_buy_against_unrealised_gains_has_no_realisation_tax() -> None:
     report = build_rebalance_report(
         _config().config,
