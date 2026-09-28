@@ -108,3 +108,11 @@ def test_ec_fact_sheet_preserves_disclosures_and_unavailable_items(tmp_path: Pat
 def test_import_requires_explicit_issuer_lei(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="LEI"):
         _run(tmp_path / "nolei", lei=None)
+
+
+def test_rejected_import_publishes_nothing(tmp_path: Path) -> None:
+    output = tmp_path / "evidence"
+    for kwargs in ({"expected_sha256": "0" * 64}, {"lei": "00000000000000000000"}, {"expected_period": "2024-12-31"}):
+        with pytest.raises(ValueError):
+            _run(output, **kwargs)
+    assert not output.exists() or not any(p.is_file() for p in output.rglob("*"))

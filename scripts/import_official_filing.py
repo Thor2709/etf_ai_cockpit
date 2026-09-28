@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import replace
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Iterable
@@ -55,7 +56,7 @@ def import_official_filing(
     published_at: str | None = None,
     expected_sha256: str | None = None,
     fact_sheet: Path | None = None,
-    output_dir: Path,
+    output_dir: Path | None = None,
 ) -> dict[str, object]:
     """Import one local ESEF package without making any network request."""
 
@@ -79,12 +80,33 @@ def import_official_filing(
     if not expected:
         raise ValueError("expected filing period is required")
 
-    output = Path(output_dir).resolve()
-    output.mkdir(parents=True, exist_ok=True)
+    output = Path(output_dir or Path("evidence") / "norway" / f"{canonical}-{expected[:4]}").resolve()
     now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     known_at = str(published_at or now).strip()
+    source = Path(source_path)
+    try:
+        payload = source.read_bytes()
+    except OSError as exc:
+        raise ValueError("Manual official filing import requires a readable local file.") from exc
+    digest = hashlib.sha256(payload).hexdigest()
+    if expected_sha256 and digest.lower() != expected_sha256.strip().lower():
+        raise ValueError("filing checksum does not match expected sha256")
+
+    # Parse and validate in memory.  No archive, queue or evidence path is
+    # touched until the complete candidate has passed every check.
+    parsed = parse_esef_package(source)
+    if not parsed.success or not parsed.records:
+        message = "; ".join(warning.message for warning in parsed.warnings if warning.severity in {"error", "fatal"})
+        raise ValueError(f"ESEF package rejected: {message or 'no supported facts'}")
+    _validate_identity_and_period(parsed.records, bound_lei, expected)
+    if any(not str(getattr(record, "consolidation_scope", "") or "").strip() for record in parsed.records):
+        raise ValueError("filing consolidation scope is incomplete")
+    _validate_units(parsed.records)
+    supplied_facts = _load_fact_sheet(fact_sheet)
+
+    output.mkdir(parents=True, exist_ok=True)
     archive = archive_manual_official_filing(
-        Path(source_path),
+        source,
         jurisdiction="NO",
         instrument_id=canonical,
         source_url=source_url,
@@ -94,17 +116,6 @@ def import_official_filing(
         raw_dir=output / "raw",
         queue_path=output / "manual_filing_queue.parquet",
     )
-    if expected_sha256 and archive.sha256.lower() != expected_sha256.strip().lower():
-        raise ValueError("filing checksum does not match expected sha256")
-
-    parsed = parse_esef_package(Path(archive.raw_path))
-    if not parsed.success or not parsed.records:
-        message = "; ".join(warning.message for warning in parsed.warnings if warning.severity in {"error", "fatal"})
-        raise ValueError(f"ESEF package rejected: {message or 'no supported facts'}")
-    _validate_identity_and_period(parsed.records, bound_lei, expected)
-    if any(not str(getattr(record, "consolidation_scope", "") or "").strip() for record in parsed.records):
-        raise ValueError("filing consolidation scope is incomplete")
-    _validate_units(parsed.records)
 
     facts = statement_facts_from_esef(
         parsed.records,
@@ -118,7 +129,6 @@ def import_official_filing(
             filed=known_at[:10],
             available_at=known_at,
             known_at=known_at,
-            effective_at=expected,
             source_url=source_url,
             filing_version=archive.sha256,
             consolidation_scope=str(getattr(fact, "consolidation_scope", "") or "").strip() or None,
@@ -148,7 +158,15 @@ def import_official_filing(
     normalised_path = output / "normalised_statements.parquet"
     _append_revision_frame(normalised, normalised_path, "source_id")
     _write_identity(output / "identity.json", canonical, bound_ticker, bound_orgnr, bound_lei, archive, expected, known_at)
-    _write_ec_facts(fact_sheet, output / "ec_facts.json", archive, expected, known_at, source_url)
+    _write_ec_facts(
+        supplied_facts,
+        output / "ec_facts.json",
+        archive,
+        canonical,
+        expected,
+        known_at,
+        source_url,
+    )
     return {
         "status": "imported",
         "instrument_id": canonical,
@@ -221,15 +239,32 @@ def _write_identity(destination: Path, instrument_id: str, ticker: str, orgnr: s
     atomic_write_json(destination, payload)
 
 
-def _write_ec_facts(source: Path | None, destination: Path, archive: object, period: str, known_at: str, source_url: str) -> None:
-    supplied: dict[str, Any] = {}
-    if source is not None:
-        try:
-            supplied = json.loads(Path(source).read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ValueError("EC fact sheet is not valid JSON") from exc
-        if not isinstance(supplied, dict):
-            raise ValueError("EC fact sheet must contain a JSON object")
+def _load_fact_sheet(source: Path | None) -> dict[str, Any]:
+    if source is None:
+        return {}
+    try:
+        supplied = json.loads(Path(source).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("EC fact sheet is not valid JSON") from exc
+    if not isinstance(supplied, dict):
+        raise ValueError("EC fact sheet must contain a JSON object")
+    for name, item in supplied.items():
+        if name not in EC_FACT_NAMES:
+            raise ValueError(f"EC fact {name} is not supported")
+        if not isinstance(item, dict) or not item.get("source_locator") or not item.get("unit") or not item.get("period"):
+            raise ValueError(f"EC fact {name} lacks source locator, unit or period")
+    return supplied
+
+
+def _write_ec_facts(
+    supplied: dict[str, Any],
+    destination: Path,
+    archive: object,
+    instrument_id: str,
+    period: str,
+    known_at: str,
+    source_url: str,
+) -> None:
     facts: dict[str, object] = {}
     for name in EC_FACT_NAMES:
         item = supplied.get(name)
@@ -245,10 +280,9 @@ def _write_ec_facts(source: Path | None, destination: Path, archive: object, per
                 "source_url": source_url,
                 "sha256": archive.sha256,
                 "filing_version": archive.sha256,
+                "instrument_id": instrument_id,
             }
             continue
-        if not isinstance(item, dict) or not item.get("source_locator") or not item.get("unit") or not item.get("period"):
-            raise ValueError(f"EC fact {name} lacks source locator, unit or period")
         facts[name] = {
             "available": True,
             "value": item.get("value"),
@@ -260,7 +294,27 @@ def _write_ec_facts(source: Path | None, destination: Path, archive: object, per
             "source_url": source_url,
             "sha256": archive.sha256,
             "filing_version": archive.sha256,
+            "instrument_id": instrument_id,
         }
+    revision = {
+        "instrument_id": instrument_id,
+        "filing_version": archive.sha256,
+        "sha256": archive.sha256,
+        "source_url": source_url,
+        "known_at": known_at,
+        "effective_at": period,
+        "facts": facts,
+    }
+    revisions: list[dict[str, object]] = []
+    if destination.exists():
+        try:
+            prior = json.loads(destination.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Existing EC fact evidence is unreadable") from exc
+        if isinstance(prior, dict) and isinstance(prior.get("revisions"), list):
+            revisions = [item for item in prior["revisions"] if isinstance(item, dict)]
+    if not any(item.get("instrument_id") == instrument_id and item.get("sha256") == archive.sha256 for item in revisions):
+        revisions.append(revision)
     atomic_write_json(
         destination,
         {
@@ -271,6 +325,8 @@ def _write_ec_facts(source: Path | None, destination: Path, archive: object, per
             "known_at": known_at,
             "effective_at": period,
             "filing_version": archive.sha256,
+            "instrument_id": instrument_id,
+            "revisions": revisions,
             "execution_allowed": False,
         },
     )
@@ -289,12 +345,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--published-at")
     parser.add_argument("--expected-sha256")
     parser.add_argument("--fact-sheet", type=Path)
-    parser.add_argument("--output-dir", type=Path, default=Path("evidence/norway"))
+    parser.add_argument("--output-dir", type=Path)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    output_dir = args.output_dir or Path("evidence") / "norway" / f"{str(args.instrument_id).strip().upper()}-{str(args.expected_period).strip()[:4]}"
     result = import_official_filing(
         args.path,
         jurisdiction=args.jurisdiction,
@@ -307,7 +364,7 @@ def main(argv: list[str] | None = None) -> int:
         published_at=args.published_at,
         expected_sha256=args.expected_sha256,
         fact_sheet=args.fact_sheet,
-        output_dir=args.output_dir,
+        output_dir=output_dir,
     )
     print(json.dumps(result, sort_keys=True))
     return 0

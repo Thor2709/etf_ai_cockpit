@@ -8,8 +8,12 @@ and the official NewsWeb or Finanstilsynet URL; the command never fetches a
 network resource.
 
 ```text
-python scripts/import_official_filing.py path/to/report.xbri --jurisdiction NO --instrument-id MING --source-url https://newsweb.oslobors.no/message/<id> --expected-period 2025-12-31 --published-at 2026-03-05 --output-dir evidence/norway/ming-2025
+python scripts/import_official_filing.py path/to/report.xbri --jurisdiction NO --instrument-id MING --source-url https://newsweb.oslobors.no/message/<id> --expected-period 2025-12-31 --published-at 2026-03-05
 ```
+
+With no `--output-dir`, evidence is published canonically at
+`evidence/norway/<instrument-id>-<year>` (for example,
+`evidence/norway/MING-2025`).  Instrument Detail reads that same location.
 
 Use `--expected-sha256` for an independently pinned checksum and
 `--fact-sheet path/to/ec-facts.json` for disclosed equity-certificate facts.

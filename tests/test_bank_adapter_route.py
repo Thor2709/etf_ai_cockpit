@@ -12,7 +12,7 @@ from etf_cockpit.data.contracts import SourceAuthority
 DECISION = "2025-03-01T00:00:00Z"
 
 
-def _context():
+def _context(decision: str = DECISION):
     values = {
         "instrument_type": "equity_certificate",
         "asset_class": "equity",
@@ -32,7 +32,7 @@ def _context():
         for field, value in values.items()
     )
     return resolve_instrument_context(
-        evidence, instrument_id="MING", effective_at="2024-12-31T00:00:00Z", decision_time=DECISION
+        evidence, instrument_id="MING", effective_at="2024-12-31T00:00:00Z", decision_time=decision
     )
 
 
@@ -91,3 +91,44 @@ def test_accounting_cet1_is_not_promoted_to_pillar3(tmp_path: Path) -> None:
     payload = load_financial_institution_projection("MING", storage_root=tmp_path, decision_time=DECISION, context=_context())
     metric = _metrics(payload)["cet1_ratio"]
     assert metric["status"] == "unavailable" and "regulatory_fact_required" in metric["limitations"]
+
+
+def test_currency_mismatch_blocks_calculated_ratio(tmp_path: Path) -> None:
+    _write_facts(tmp_path)
+    frame = pd.read_parquet(tmp_path / "statement_facts.parquet")
+    frame.loc[frame["canonical_metric"].eq("deposits_from_customers"), "unit"] = "USD"
+    frame.to_parquet(tmp_path / "statement_facts.parquet", index=False)
+    payload = load_financial_institution_projection("MING", storage_root=tmp_path, decision_time=DECISION, context=_context())
+    metric = _metrics(payload)["loan_deposit_ratio"]
+    assert metric["status"] == "unavailable" and metric["value"] is None
+    assert any("currency_mismatch" in item for item in payload["limitations"])
+
+
+def test_share_count_alone_is_not_dilution_evidence(tmp_path: Path) -> None:
+    _write_facts(tmp_path)
+    frame = pd.read_parquet(tmp_path / "statement_facts.parquet")
+    extra = frame.iloc[[0]].copy()
+    extra["canonical_metric"], extra["value"], extra["unit"], extra["source_id"] = "shares_outstanding", 100.0, "shares", "esef_local_import:shares"
+    pd.concat([frame, extra]).to_parquet(tmp_path / "statement_facts.parquet", index=False)
+    payload = load_financial_institution_projection("MING", storage_root=tmp_path, decision_time=DECISION, context=_context())
+    metric = _metrics(payload).get("issuance_dilution")
+    assert metric is None or (metric["status"] == "unavailable" and metric["value"] is None)
+
+
+def test_ec_revisions_are_selected_as_of_decision_time(tmp_path: Path) -> None:
+    import json
+
+    _write_facts(tmp_path)
+
+    def revision(known_at: str, eierbrok: float) -> dict[str, object]:
+        return {
+            "instrument_id": "MING", "known_at": known_at, "filing_sha256": known_at,
+            "facts": {"eierbrok": {"available": True, "value": eierbrok, "unit": "ratio", "period": "2024-12-31", "known_at": known_at}},
+        }
+
+    payload = {"instrument_id": "MING", "revisions": [revision("2025-02-01T00:00:00Z", 0.5), revision("2025-06-01T00:00:00Z", 0.6)]}
+    (tmp_path / "ec_facts.json").write_text(json.dumps(payload), encoding="utf-8")
+    early = load_financial_institution_projection("MING", storage_root=tmp_path, decision_time=DECISION, context=_context())
+    late = load_financial_institution_projection("MING", storage_root=tmp_path, decision_time="2025-07-01T00:00:00Z", context=_context("2025-07-01T00:00:00Z"))
+    assert early["share_class_identity"]["facts"]["eierbrok"]["value"] == 0.5
+    assert late["share_class_identity"]["facts"]["eierbrok"]["value"] == 0.6

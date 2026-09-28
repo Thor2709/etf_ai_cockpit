@@ -815,13 +815,14 @@ def _build_financial_projection_from_evidence(
     from etf_cockpit.core.paths import ROOT
 
     root = Path(storage_root or ROOT).resolve()
-    identity = _read_json_artifact(root, "identity.json") or {}
+    identity = _read_json_artifact(root, "identity.json", instrument_id=instrument_id) or {}
     cutoff = str(decision_time or identity.get("known_at") or "").strip()
     if not cutoff:
         return unavailable_financial_projection(instrument_id, "financial_decision_time_unavailable")
     decision = datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
     cutoff = decision.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
     effective = str(effective_at or identity.get("effective_at") or cutoff).strip()
+    requested_period = str(effective_at or identity.get("effective_at") or "").strip() or None
     if len(effective) == 10:
         effective = f"{effective}T00:00:00Z"
 
@@ -835,9 +836,9 @@ def _build_financial_projection_from_evidence(
     if str(getattr(context, "sector", "") or "").casefold() != "financials":
         return unavailable_financial_projection(instrument_id, "financial_classification_unavailable")
 
-    frame = _read_financial_statement_frame(root)
+    frame = _read_financial_statement_frame(root, instrument_id=instrument_id)
     rows = _financial_rows_for_instrument(frame, instrument_id, decision)
-    facts = _financial_metric_facts(rows, context, cutoff)
+    facts = _financial_metric_facts(rows, context, cutoff, target_period=requested_period)
     if not facts:
         return unavailable_financial_projection(instrument_id, "financial_statement_evidence_unavailable")
 
@@ -849,8 +850,8 @@ def _build_financial_projection_from_evidence(
         decision_time=cutoff,
         shocks={},
     )
-    ec_payload = _read_json_artifact(root, "ec_facts.json") or {}
-    ec_facts = ec_payload.get("facts", {}) if isinstance(ec_payload, Mapping) else {}
+    ec_payload = _read_json_artifact(root, "ec_facts.json", instrument_id=instrument_id) or {}
+    ec_facts = _select_ec_facts(ec_payload, instrument_id, decision)
     if isinstance(ec_facts, Mapping) and ec_facts:
         identity_payload = dict(result.share_class_identity) if isinstance(result.share_class_identity, Mapping) else {}
         identity_payload["facts"] = {
@@ -873,10 +874,51 @@ def _build_financial_projection_from_evidence(
     return verify_financial_projection(result)
 
 
-def _read_json_artifact(root: Path, name: str) -> dict[str, object] | None:
+def _evidence_roots(root: Path, instrument_id: str = "") -> tuple[Path, ...]:
+    canonical = root / "evidence" / "norway"
+    roots: list[Path] = [root]
+    if instrument_id:
+        prefix = f"{str(instrument_id).strip().upper()}-"
+        try:
+            roots.extend(sorted((item for item in canonical.iterdir() if item.is_dir() and item.name.upper().startswith(prefix)), key=lambda item: item.name))
+        except OSError:
+            pass
+    roots.extend((canonical, root / "evidence"))
+    return tuple(dict.fromkeys(roots))
+
+
+def _select_ec_facts(payload: Mapping[str, object], instrument_id: str, decision: object) -> Mapping[str, object]:
+    """Select the identity-bound EC revision known at the decision cutoff."""
+
+    cutoff = pd.Timestamp(decision)
+    revisions = payload.get("revisions")
+    eligible: list[Mapping[str, object]] = []
+    if isinstance(revisions, list):
+        for revision in revisions:
+            if not isinstance(revision, Mapping) or str(revision.get("instrument_id") or "") != str(instrument_id):
+                continue
+            known = pd.to_datetime(revision.get("known_at"), errors="coerce", utc=True)
+            if pd.isna(known) or known > cutoff:
+                continue
+            facts = revision.get("facts")
+            if isinstance(facts, Mapping):
+                eligible.append(revision)
+    if eligible:
+        selected = max(eligible, key=lambda item: pd.Timestamp(item.get("known_at")))
+        return selected.get("facts", {}) if isinstance(selected.get("facts"), Mapping) else {}
+    # Backward-compatible read of a single pre-revision artifact, still bound
+    # to the requested instrument and point-in-time cutoff.
+    if str(payload.get("instrument_id") or instrument_id) != str(instrument_id):
+        return {}
+    known = pd.to_datetime(payload.get("known_at"), errors="coerce", utc=True)
+    facts = payload.get("facts")
+    return facts if isinstance(facts, Mapping) and not pd.isna(known) and known <= cutoff else {}
+
+
+def _read_json_artifact(root: Path, name: str, *, instrument_id: str = "") -> dict[str, object] | None:
     import json
 
-    candidates = (root / name, root / "evidence" / name, root / "evidence" / "norway" / name)
+    candidates = tuple(item / name for item in _evidence_roots(root, instrument_id))
     for candidate in candidates:
         try:
             value = json.loads(candidate.read_text(encoding="utf-8"))
@@ -887,12 +929,9 @@ def _read_json_artifact(root: Path, name: str) -> dict[str, object] | None:
     return None
 
 
-def _read_financial_statement_frame(root: Path) -> pd.DataFrame:
-    candidates = (
-        root / "statement_facts.parquet",
+def _read_financial_statement_frame(root: Path, *, instrument_id: str = "") -> pd.DataFrame:
+    candidates = tuple(item / "statement_facts.parquet" for item in _evidence_roots(root, instrument_id)) + (
         root / "data" / "clean" / "statement_facts.parquet",
-        root / "evidence" / "statement_facts.parquet",
-        root / "evidence" / "norway" / "statement_facts.parquet",
         root / "normalised_statements.parquet",
     )
     for candidate in candidates:
@@ -927,8 +966,14 @@ def _financial_rows_for_instrument(
     return rows
 
 
+def _row_period(row: Mapping[str, object]) -> pd.Timestamp | None:
+    value = row.get("effective_at") or row.get("end") or row.get("instant") or row.get("period")
+    parsed = pd.to_datetime(value, errors="coerce", utc=True)
+    return None if pd.isna(parsed) else pd.Timestamp(parsed)
+
+
 def _financial_metric_facts(
-    rows: list[dict[str, object]], context: object, cutoff: str
+    rows: list[dict[str, object]], context: object, cutoff: str, *, target_period: str | None = None
 ) -> list[FinancialMetricEvidence]:
     from etf_cockpit.analysis.financial_sector_adapters import _METRICS, _REGULATORY
 
@@ -953,16 +998,62 @@ def _financial_metric_facts(
         "dividend": "dividends",
         "dividends": "dividends",
         "retained_earnings": "retained_earnings",
-        "shares_outstanding": "issuance_dilution",
+        "net_fee_income": "net_fee_income",
+        "fee_income": "net_fee_income",
+        "other_operating_income": "other_operating_income",
+        "other_income": "other_operating_income",
+        "net_profit": "net_profit",
+        "net_profit_attributable": "net_profit_attributable",
+        "net_income_attributable": "net_profit_attributable",
+        "profit_attributable": "net_profit_attributable",
+        "opening_equity": "opening_equity",
+        "closing_equity": "closing_equity",
+        "equity": "closing_equity",
+        "opening_tangible_equity": "opening_tangible_equity",
+        "closing_tangible_equity": "closing_tangible_equity",
+        "tangible_equity": "closing_tangible_equity",
+        "interest_earning_assets": "interest_earning_assets",
+        "average_interest_earning_assets": "interest_earning_assets",
+        "opening_interest_earning_assets": "opening_interest_earning_assets",
+        "closing_interest_earning_assets": "closing_interest_earning_assets",
+        "total_assets": "total_assets",
+        "opening_total_assets": "opening_total_assets",
+        "closing_total_assets": "closing_total_assets",
+        "gross_loans": "gross_loans",
+        "opening_gross_loans": "opening_gross_loans",
+        "closing_gross_loans": "closing_gross_loans",
+        "impairment_losses": "impairment_losses",
+        "loss_allowance": "loss_allowance",
+        "shares_outstanding": "shares_outstanding",
+        "payout": "payout_headroom",
+        "payout_ratio": "payout_headroom",
         "tangible_book_value": "tangible_book_value",
         "price_to_book": "price_to_book",
         "price_to_tangible_book": "price_to_tangible_book",
     }
+    derivation_inputs = {
+        "loans_to_customers", "deposits_from_customers", "operating_expenses", "net_interest_income",
+        "net_fee_income", "other_operating_income", "net_profit", "net_profit_attributable",
+        "opening_equity", "closing_equity", "opening_tangible_equity", "closing_tangible_equity",
+        "interest_earning_assets", "total_assets", "gross_loans", "impairment_losses", "loss_allowance",
+        "opening_interest_earning_assets", "closing_interest_earning_assets", "opening_total_assets", "closing_total_assets",
+        "opening_gross_loans", "closing_gross_loans",
+        "shares_outstanding",
+    }
     for row in rows:
         raw_metric = str(row.get("canonical_metric") or row.get("concept") or "").strip().casefold()
-        metric = aliases.get(raw_metric, raw_metric if raw_metric in _METRICS[model] else None)
-        if metric is None:
+        metric = aliases.get(raw_metric, raw_metric)
+        if metric not in _METRICS[model] and metric not in derivation_inputs:
             continue
+        if target_period and not metric.startswith("opening_"):
+            target = pd.Timestamp(target_period)
+            row_period = _row_period(row)
+            if row_period is not None and row_period.date() != target.date():
+                # Retain a sole comparative so a mismatched-period formula is
+                # explicitly unavailable; a requested-period row supersedes it.
+                if metric not in candidates:
+                    candidates[metric] = row
+                continue
         previous = candidates.get(metric)
         if previous is not None and (row["_effective"], row["_known"]) <= (previous["_effective"], previous["_known"]):
             continue
@@ -988,14 +1079,37 @@ def _financial_metric_facts(
             return "issuer_apm"
         return "ifrs"
 
-    def fact(metric: str, value: float | None, row: dict[str, object] | None, *, fact_category: str = "calculated", definition: str = "", limitations: tuple[str, ...] = (), source_id_override: str | None = None) -> FinancialMetricEvidence:
+    def fact(
+        metric: str,
+        value: float | None,
+        row: dict[str, object] | None,
+        *,
+        fact_category: str = "calculated",
+        definition: str = "",
+        limitations: tuple[str, ...] = (),
+        source_id_override: str | None = None,
+        inputs: tuple[dict[str, object], ...] = (),
+        calculated_period: str | None = None,
+        calculated_unit: str | None = None,
+    ) -> FinancialMetricEvidence:
         selected = row or {}
-        known = selected.get("_known")
-        effective = selected.get("_effective")
-        known_at = pd.Timestamp(known).isoformat().replace("+00:00", "Z") if known is not None else cutoff
-        as_of = pd.Timestamp(effective).isoformat().replace("+00:00", "Z") if effective is not None else cutoff
+        lineage_rows = inputs or ((selected,) if row else ())
+        known = max((item.get("_known") for item in lineage_rows if item.get("_known") is not None), default=selected.get("_known"))
+        effective = calculated_period or selected.get("_effective")
+        def aware_iso(value: object, fallback: str) -> str:
+            if value is None:
+                return fallback
+            stamp = pd.Timestamp(value)
+            if stamp.tzinfo is None:
+                stamp = stamp.tz_localize("UTC")
+            return stamp.isoformat().replace("+00:00", "Z")
+        known_at = aware_iso(known, cutoff)
+        as_of = aware_iso(effective, cutoff)
+        lineage_ids = tuple(sorted(str(item.get("source_id")) for item in lineage_rows if item.get("source_id")))
         source_id = str(source_id_override or selected.get("source_id") or f"unavailable:{metric}")
-        unit = str(selected.get("unit") or "ratio")
+        if inputs and lineage_ids:
+            source_id = f"{source_id}|inputs={','.join(lineage_ids)}"
+        unit = str(calculated_unit or selected.get("unit") or "ratio")
         if value is None:
             unit = (
                 "currency_per_share"
@@ -1010,7 +1124,7 @@ def _financial_metric_facts(
             metric=metric,
             value=value,
             unit="percent" if unit.casefold() in {"percent", "%"} else unit,
-            period=str(selected.get("fiscal_year") or selected.get("end") or "undated"),
+            period=str(calculated_period or selected.get("fiscal_year") or selected.get("end") or selected.get("instant") or "undated"),
             reporting_standard="IFRS" if fact_category == "ifrs" else fact_category.upper(),
             jurisdiction=str(getattr(context, "operating_country", None) or "NO"),
             business_model=model,
@@ -1027,9 +1141,9 @@ def _financial_metric_facts(
             direction=None,
             fact_category=fact_category,
             definition=definition,
-            scope=str(selected.get("consolidation_scope") or "consolidated"),
+            scope=str(selected.get("consolidation_scope") or (lineage_rows[0].get("consolidation_scope") if lineage_rows else None) or "consolidated"),
             coverage="reported" if row else ("derived" if value is not None else "unavailable"),
-            source=str(selected.get("source_url") or source_id),
+            source=";".join(str(item.get("source_url") or item.get("source_id") or "") for item in lineage_rows) or str(selected.get("source_url") or source_id),
             limitations=limitations,
         )
 
@@ -1040,26 +1154,98 @@ def _financial_metric_facts(
         category_name = category(row, metric) if row is not None else ("pillar3" if metric in _REGULATORY else "calculated")
         facts.append(fact(metric, value, row, fact_category=category_name))
 
-    values = {item.metric: item.value for item in facts}
-    raw_values = {
-        str(row.get("canonical_metric") or row.get("concept") or "").strip().casefold(): numeric(row)
-        for row in rows
-    }
-    def derived(metric: str, numerator: str, denominator: str, definition: str) -> None:
-        if candidates.get(metric) is not None:
-            return
-        a, b = values.get(numerator), values.get(denominator)
-        if a is None:
-            a = raw_values.get(numerator)
-        if b is None:
-            b = raw_values.get(denominator)
-        invalid_denominator = b is None or not math.isfinite(float(b)) or float(b) <= 0
-        result = None if a is None or invalid_denominator else float(a) / float(b)
+    def compatible(input_names: tuple[str, ...], *, allow_opening: bool = False) -> tuple[tuple[dict[str, object], ...], tuple[str, ...]]:
+        selected: list[dict[str, object]] = []
+        for name in input_names:
+            item = candidates.get(name)
+            if item is None and allow_opening and name.startswith("opening_"):
+                continue
+            if item is None:
+                return (), ("missing_input",)
+            selected.append(item)
+        if not selected:
+            return (), ("missing_input",)
+        reasons: set[str] = set()
+        periods = {_row_period(item).date() for item in selected if _row_period(item) is not None and not (allow_opening and str(item.get("canonical_metric") or "").casefold().startswith("opening_"))}
+        if len(periods) > 1:
+            reasons.add("period_mismatch")
+        currencies = {str(item.get("currency") or str(item.get("unit") or "").split("/", 1)[0]).upper() for item in selected if item.get("currency") or item.get("unit")}
+        if len(currencies) > 1:
+            reasons.add("currency_mismatch")
+        scopes = {str(item.get("consolidation_scope") or "consolidated").casefold() for item in selected}
+        if len(scopes) > 1:
+            reasons.add("scope_mismatch")
+        if target_period:
+            target = pd.Timestamp(target_period).date()
+            if any(_row_period(item) is not None and _row_period(item).date() != target and not (allow_opening and str(item.get("canonical_metric") or "").casefold().startswith("opening_")) for item in selected):
+                reasons.add("period_mismatch")
+        return tuple(selected), tuple(sorted(reasons))
+
+    def emit(metric: str, result: float | None, inputs: tuple[dict[str, object], ...], reasons: tuple[str, ...], definition: str, *, unit: str = "ratio", period: str | None = None) -> None:
         facts[:] = [item for item in facts if item.metric != metric]
-        facts.append(fact(metric, result, None, definition=definition, limitations=("invalid_denominator",) if invalid_denominator else (), source_id_override=f"calculated:{metric}"))
-    derived("loan_deposit_ratio", "loans_to_customers", "deposits_from_customers", "loans_to_customers / deposits_from_customers")
-    derived("cost_income_ratio", "operating_expenses", "net_interest_income", "operating_expenses / net_interest_income")
-    derived("roe", "net_income", "equity", "net_income / equity")
+        limitations = reasons or (() if result is not None else ("missing_input",))
+        inferred_period = _row_period(inputs[0]).date().isoformat() if inputs and _row_period(inputs[0]) is not None else cutoff
+        facts.append(fact(metric, result, None, definition=definition, limitations=limitations, source_id_override=f"calculated:{metric}", inputs=inputs, calculated_period=period or target_period or inferred_period, calculated_unit=unit))
+
+    selected, reasons = compatible(("loans_to_customers", "deposits_from_customers"))
+    denom = selected[1].get("value") if len(selected) == 2 else None
+    emit("loan_deposit_ratio", None if reasons or denom is None or float(denom) <= 0 else float(selected[0].get("value")) / float(denom), selected, reasons + (("invalid_denominator",) if denom is None or (denom is not None and float(denom) <= 0) else ()), "loans_to_customers / deposits_from_customers")
+
+    selected, reasons = compatible(("operating_expenses", "net_interest_income", "net_fee_income", "other_operating_income"))
+    income = sum(float(item.get("value")) for item in selected[1:]) if len(selected) == 4 else None
+    emit("cost_income_ratio", None if reasons or income is None or income <= 0 else float(selected[0].get("value")) / income, selected, reasons + (("invalid_denominator",) if income is None or (income is not None and income <= 0) else ()), "operating_expenses / (net_interest_income + net_fee_income + other_operating_income)")
+
+    selected, reasons = compatible(("net_profit_attributable", "opening_equity", "closing_equity"), allow_opening=True)
+    opening = candidates.get("opening_equity")
+    closing = candidates.get("closing_equity")
+    roe_inputs = tuple(item for item in (candidates.get("net_profit_attributable"), opening, closing) if item is not None)
+    average_equity = (float(opening.get("value")) + float(closing.get("value"))) / 2 if opening and closing else None
+    emit("roe", None if reasons or average_equity is None or average_equity <= 0 else float(candidates["net_profit_attributable"].get("value")) / average_equity, roe_inputs, reasons + (("missing_opening_equity",) if opening is None else ()) + (("invalid_denominator",) if average_equity is None or (average_equity is not None and average_equity <= 0) else ()), "net_profit_attributable / average(opening_equity, closing_equity)")
+
+    selected, reasons = compatible(("net_profit_attributable", "opening_tangible_equity", "closing_tangible_equity"), allow_opening=True)
+    opening = candidates.get("opening_tangible_equity")
+    closing = candidates.get("closing_tangible_equity")
+    rote_inputs = tuple(item for item in (candidates.get("net_profit_attributable"), opening, closing) if item is not None)
+    average_tangible = (float(opening.get("value")) + float(closing.get("value"))) / 2 if opening and closing else None
+    emit("rote", None if reasons or average_tangible is None or average_tangible <= 0 else float(candidates["net_profit_attributable"].get("value")) / average_tangible, rote_inputs, reasons + (("missing_opening_tangible_equity",) if opening is None else ()) + (("invalid_denominator",) if average_tangible is None or (average_tangible is not None and average_tangible <= 0) else ()), "net_profit_attributable / average(opening_tangible_equity, closing_tangible_equity)")
+
+    base = candidates.get("net_interest_income")
+    assets_open = candidates.get("opening_interest_earning_assets")
+    assets_close = candidates.get("closing_interest_earning_assets")
+    if assets_open and assets_close:
+        selected, reasons = compatible(("net_interest_income", "opening_interest_earning_assets", "closing_interest_earning_assets"), allow_opening=True)
+        denominator = (float(assets_open.get("value")) + float(assets_close.get("value"))) / 2
+        nim_definition = "net_interest_income / average(interest_earning_assets)"
+    else:
+        selected, reasons = compatible(("net_interest_income", "interest_earning_assets"))
+        if len(selected) != 2:
+            assets_open = candidates.get("opening_total_assets")
+            assets_close = candidates.get("closing_total_assets")
+            if assets_open and assets_close:
+                selected, reasons = compatible(("net_interest_income", "opening_total_assets", "closing_total_assets"), allow_opening=True)
+                denominator = (float(assets_open.get("value")) + float(assets_close.get("value"))) / 2
+            else:
+                selected, reasons = compatible(("net_interest_income", "total_assets"))
+                denominator = float(selected[1].get("value")) if len(selected) == 2 else None
+            nim_definition = "net_interest_income / average(total_assets) (disclosed proxy)"
+        else:
+            nim_definition = "net_interest_income / average(interest_earning_assets)"
+            denominator = float(selected[1].get("value"))
+    emit("net_interest_margin", None if reasons or base is None or denominator is None or denominator <= 0 else float(base.get("value")) / denominator, selected, reasons + (("invalid_denominator",) if denominator is None or denominator <= 0 else ()), nim_definition)
+
+    loans_open = candidates.get("opening_gross_loans")
+    loans_close = candidates.get("closing_gross_loans")
+    if loans_open and loans_close:
+        selected, reasons = compatible(("impairment_losses", "opening_gross_loans", "closing_gross_loans"), allow_opening=True)
+        denominator = (float(loans_open.get("value")) + float(loans_close.get("value"))) / 2
+    else:
+        selected, reasons = compatible(("impairment_losses", "gross_loans"))
+        denominator = float(selected[1].get("value")) if len(selected) == 2 else None
+    emit("cost_of_risk", None if reasons or len(selected) < 2 or denominator is None or denominator <= 0 else float(selected[0].get("value")) / denominator, selected, reasons + (("invalid_denominator",) if denominator is None or denominator <= 0 else ()), "impairment_losses / average(gross_loans)")
+    selected, reasons = compatible(("loss_allowance", "stage_3_exposure"))
+    emit("coverage_ratio", None if reasons or len(selected) != 2 or float(selected[1].get("value")) <= 0 else float(selected[0].get("value")) / float(selected[1].get("value")), selected, reasons + (("invalid_denominator",) if len(selected) != 2 or float(selected[1].get("value")) <= 0 else ()), "loss_allowance / stage_3_exposure")
+    selected, reasons = compatible(("dividends", "net_profit"))
+    emit("payout_headroom", None if reasons or len(selected) != 2 or float(selected[1].get("value")) == 0 else float(selected[0].get("value")) / float(selected[1].get("value")), selected, reasons + (("invalid_denominator",) if len(selected) != 2 or float(selected[1].get("value")) == 0 else ()), "dividends / net_profit")
     return facts
 
 
