@@ -57,6 +57,7 @@ class ScoredMetric:
     source: str
     authority: float
     freshness: float
+    reliability: float
     business_model: str | None
     comparison_scope: ComparisonScope
     metric_shape: MetricShape
@@ -84,7 +85,13 @@ class ScoredMetric:
             raise ValueError("unit and source must be non-empty")
         if not isinstance(self.rank_authority, bool):
             raise ValueError("rank_authority must be boolean")
-        for field_name in ("authority", "freshness", "coverage", "uncertainty"):
+        for field_name in (
+            "authority",
+            "freshness",
+            "reliability",
+            "coverage",
+            "uncertainty",
+        ):
             value = getattr(self, field_name)
             if (
                 isinstance(value, bool)

@@ -48,6 +48,8 @@ class MetricDefinition:
     rank_authority: bool = False
     band: float | tuple[float, float] | None = None
     subfamily_weight: float = 1.0
+    gate_operator: str | None = None
+    gate_threshold: float | None = None
 
     def __post_init__(self) -> None:
         if not all((self.metric_id, self.domain, self.subfamily)):
@@ -83,6 +85,16 @@ class MetricDefinition:
             raise ValueError("unsupported comparison scope")
         if self.metric_shape in {"target_band", "threshold_or_plateau"} and self.band is None:
             raise ValueError(f"{self.metric_shape} requires a configured band")
+        if self.metric_shape == "gate":
+            if (
+                self.gate_operator not in {"gt", "gte", "lt", "lte", "eq"}
+                or self.gate_threshold is None
+                or isinstance(self.gate_threshold, bool)
+                or not math.isfinite(self.gate_threshold)
+            ):
+                raise ValueError("gate metrics require a finite threshold and operator")
+        elif self.gate_operator is not None or self.gate_threshold is not None:
+            raise ValueError("gate threshold and operator only apply to gate metrics")
 
 
 @dataclass(frozen=True)
@@ -171,7 +183,7 @@ def build_instrument_assessment(
     *,
     target_context: InstrumentContextV2,
     peer_observations: Sequence[PeerObservation],
-    comparison_groups: Mapping[str, str] | None = None,
+    comparison_groups: Mapping[str, Mapping[str, str]] | Mapping[str, str] | None = None,
     domain_reference_z: Mapping[str, Sequence[DomainReference]] | None = None,
     eligibility_results: Sequence[EligibilityResult] = (),
     gate_results: Sequence[GateResult] = (),
@@ -195,7 +207,7 @@ def build_instrument_assessment(
     for definition in registry.metrics:
         evidence = evidence_by_id.get(definition.metric_id)
         if definition.metric_shape == "gate":
-            gate = _gate_result(definition.metric_id, evidence, decision)
+            gate = _gate_result(definition, evidence, decision)
             output_gates.append(gate)
             outcomes.append(
                 _MetricOutcome(
@@ -332,7 +344,7 @@ def _score_metric(
     decision: datetime,
     target_context: InstrumentContextV2,
     peer_observations: Sequence[PeerObservation],
-    comparison_groups: Mapping[str, str] | None,
+    comparison_groups: Mapping[str, Mapping[str, str]] | Mapping[str, str] | None,
     minimum_support: int,
 ) -> tuple[_MetricOutcome, CohortMembership | None, str | None]:
     if evidence is None:
@@ -596,8 +608,7 @@ def _confidence(
     factors = [
         item.evidence.authority
         * item.evidence.freshness
-        * item.evidence.coverage
-        * (1.0 - item.evidence.uncertainty)
+        * item.evidence.reliability
         for item in outcomes
         if item.evidence is not None
     ]
@@ -605,8 +616,9 @@ def _confidence(
 
 
 def _gate_result(
-    metric_id: str, evidence: ScoredMetric | None, decision: datetime
+    definition: MetricDefinition, evidence: ScoredMetric | None, decision: datetime
 ) -> GateResult:
+    metric_id = definition.metric_id
     if evidence is None:
         return GateResult(metric_id, "UNAVAILABLE", None, "", None, "MISSING_INPUT")
     if evidence.status.upper() in {"N/A", "NA", "NOT_APPLICABLE"}:
@@ -618,7 +630,33 @@ def _gate_result(
         return GateResult(metric_id, "UNAVAILABLE", None, evidence.unit, None, "FUTURE_EVIDENCE_EXCLUDED")
     if evidence.raw_value is None or evidence.status.upper() == "UNAVAILABLE":
         return GateResult(metric_id, "UNAVAILABLE", None, evidence.unit, None, evidence.reason_code)
-    return GateResult(metric_id, "AVAILABLE", evidence.raw_value, evidence.unit, None, evidence.reason_code)
+    threshold = definition.gate_threshold
+    operator = definition.gate_operator
+    if threshold is None or operator is None:
+        return GateResult(
+            metric_id,
+            "UNAVAILABLE",
+            evidence.raw_value,
+            evidence.unit,
+            None,
+            "GATE_CONFIGURATION_MISSING",
+        )
+    comparisons = {
+        "gt": evidence.raw_value > threshold,
+        "gte": evidence.raw_value >= threshold,
+        "lt": evidence.raw_value < threshold,
+        "lte": evidence.raw_value <= threshold,
+        "eq": evidence.raw_value == threshold,
+    }
+    passed = comparisons[operator]
+    return GateResult(
+        metric_id,
+        "AVAILABLE",
+        evidence.raw_value,
+        evidence.unit,
+        passed,
+        "GATE_PASSED" if passed else "GATE_FAILED",
+    )
 
 
 def _metric_definition(raw: object) -> MetricDefinition:
@@ -638,6 +676,14 @@ def _metric_definition(raw: object) -> MetricDefinition:
         rank_authority=bool(raw.get("rank_authority", False)),
         band=band,
         subfamily_weight=float(raw.get("subfamily_weight", 1.0)),
+        gate_operator=(
+            str(raw["gate_operator"]) if raw.get("gate_operator") is not None else None
+        ),
+        gate_threshold=(
+            float(raw["gate_threshold"])
+            if raw.get("gate_threshold") is not None
+            else None
+        ),
     )
 
 
@@ -651,6 +697,7 @@ def _metric_vintage(metric: ScoredMetric) -> dict[str, object]:
         "unit": metric.unit,
         "authority": metric.authority,
         "freshness": metric.freshness,
+        "reliability": metric.reliability,
         "coverage": metric.coverage,
         "uncertainty": metric.uncertainty,
         "status": metric.status,

@@ -31,8 +31,9 @@ domain and opportunity slots, formula and evidence hashes, drivers and warnings.
 Empty evidence stays `UNAVAILABLE`; an inapplicable conditional metric is `N/A`.
 A missing critical input makes its domain `INSUFFICIENT_EVIDENCE`, while missing
 optional evidence lowers coverage. Confidence is domain coverage multiplied by
-mean authority × freshness × reliability over available inputs. Reliability is
-source coverage × (`1 − uncertainty`); confidence never changes the rank. Gate
+mean authority × freshness × explicit reliability evidence over available
+inputs. Metric coverage is reported separately and is not multiplied into the
+confidence factors; confidence never changes the rank. Gate
 and context-only metrics are recorded outside the peer rank. Every assessment
 has `execution_allowed=false`.
 

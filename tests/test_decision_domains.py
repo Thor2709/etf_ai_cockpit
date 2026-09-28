@@ -100,6 +100,8 @@ def _scored_metric(
     known_at: str = DECISION,
     status: str = "available",
     reason_code: str = "AVAILABLE",
+    coverage: float = 1.0,
+    reliability: float = 0.8,
 ) -> ScoredMetric:
     return ScoredMetric(
         metric_id=definition.metric_id,
@@ -110,12 +112,13 @@ def _scored_metric(
         source="synthetic test",
         authority=0.9,
         freshness=0.9,
+        reliability=reliability,
         business_model="subscription",
         comparison_scope=definition.comparison_scope,
         metric_shape=definition.metric_shape,
         requirement_class=definition.requirement_class,
         rank_authority=True,
-        coverage=1.0,
+        coverage=coverage,
         uncertainty=0.1,
         status=status,
         reason_code=reason_code,
@@ -239,11 +242,13 @@ def test_orientation_lower_is_better_inverts() -> None:
         minimum_support=1,
         comparison_scope="ETF_CATEGORY",
         comparison_groups={
-            "target": "category-a",
-            "peer-valuation_ratio-0": "category-a",
-            "peer-valuation_ratio-1": "category-a",
-            "peer-valuation_ratio-2": "category-b",
-            "peer-valuation_ratio-3": "category-b",
+            "ETF_CATEGORY": {
+                "target": "category-a",
+                "peer-valuation_ratio-0": "category-a",
+                "peer-valuation_ratio-1": "category-a",
+                "peer-valuation_ratio-2": "category-b",
+                "peer-valuation_ratio-3": "category-b",
+            },
         },
     )
 
@@ -251,6 +256,83 @@ def test_orientation_lower_is_better_inverts() -> None:
     assert plateau_at_four.percentile == pytest.approx(plateau_above_four.percentile)
     assert category_cohort.cohort_key == "ETF_CATEGORY"
     assert category_cohort.support == 2
+
+
+def test_etf_comparison_scopes_use_separate_group_mappings() -> None:
+    target = _context("target")
+    observations = _observations("valuation_ratio")
+    comparison_groups = {
+        "ETF_CATEGORY": {
+            "target": "category-a",
+            "peer-valuation_ratio-0": "category-a",
+            "peer-valuation_ratio-1": "category-a",
+            "peer-valuation_ratio-2": "category-b",
+            "peer-valuation_ratio-3": "category-b",
+        },
+        "ETF_EXPOSURE_PEERS": {
+            "target": "exposure-b",
+            "peer-valuation_ratio-0": "exposure-a",
+            "peer-valuation_ratio-1": "exposure-a",
+            "peer-valuation_ratio-2": "exposure-b",
+            "peer-valuation_ratio-3": "exposure-b",
+        },
+    }
+
+    category = construct_cohort(
+        target,
+        observations,
+        metric="valuation_ratio",
+        effective_at=AS_OF,
+        decision_time=DECISION,
+        minimum_support=1,
+        comparison_scope="ETF_CATEGORY",
+        comparison_groups=comparison_groups,
+    )
+    exposure = construct_cohort(
+        target,
+        observations,
+        metric="valuation_ratio",
+        effective_at=AS_OF,
+        decision_time=DECISION,
+        minimum_support=1,
+        comparison_scope="ETF_EXPOSURE_PEERS",
+        comparison_groups=comparison_groups,
+    )
+
+    assert category.members == ("peer-valuation_ratio-0", "peer-valuation_ratio-1")
+    assert exposure.members == ("peer-valuation_ratio-2", "peer-valuation_ratio-3")
+
+
+def test_confidence_uses_domain_coverage_and_explicit_reliability_once() -> None:
+    definitions = (_definition("available"), _definition("missing"))
+    evidence = _scored_metric(
+        definitions[0], 2.5, coverage=0.5, reliability=0.8
+    )
+
+    domain = _assessment(definitions, metrics=(evidence,)).domain_slots[0]
+
+    assert domain.coverage == pytest.approx(0.5)
+    assert domain.confidence == pytest.approx(0.5 * 0.9 * 0.9 * 0.8)
+
+
+def test_configured_absolute_anchor_records_pass_and_fail() -> None:
+    definition = next(
+        item
+        for item in load_domain_registry().metrics
+        if item.metric_id == "economic_profit_spread"
+    )
+
+    passed = _assessment(
+        (definition,), metrics=(_scored_metric(definition, 0.02),)
+    ).gate_results[0]
+    failed = _assessment(
+        (definition,), metrics=(_scored_metric(definition, 0.0),)
+    ).gate_results[0]
+
+    assert passed.status == "AVAILABLE"
+    assert passed.passed is True
+    assert failed.status == "AVAILABLE"
+    assert failed.passed is False
 
 
 def test_family_dedup_equal_voting() -> None:

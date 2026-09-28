@@ -137,3 +137,13 @@ metrics:
     metric_shape: higher_is_better
     requirement_class: CONDITIONAL
     rank_authority: true
+  - metric_id: economic_profit_spread
+    domain: capital_efficiency
+    subfamily: returns
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: UNIVERSE
+    metric_shape: gate
+    requirement_class: CRITICAL
+    gate_operator: gt
+    gate_threshold: 0.0

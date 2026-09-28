@@ -188,7 +188,7 @@ def construct_cohort(
     decision_time: str,
     minimum_support: int = 3,
     comparison_scope: str | None = None,
-    comparison_groups: Mapping[str, str] | None = None,
+    comparison_groups: Mapping[str, Mapping[str, str]] | Mapping[str, str] | None = None,
 ) -> CohortMembership:
     """Select the first sufficiently supported leaf-to-parent cohort."""
 
@@ -241,9 +241,16 @@ def construct_cohort(
         "ETF_EXPOSURE_PEERS",
     }:
         raise PeerCohortError(f"unsupported comparison scope: {comparison_scope!r}")
+    comparison_groups_for_scope: Mapping[str, str] | None = None
+    if comparison_groups is not None:
+        scoped_groups = comparison_groups.get(scope) if scope is not None else None
+        if isinstance(scoped_groups, Mapping):
+            comparison_groups_for_scope = scoped_groups
+        elif not any(isinstance(value, Mapping) for value in comparison_groups.values()):
+            comparison_groups_for_scope = comparison_groups
     if scope in {"ETF_CATEGORY", "ETF_EXPOSURE_PEERS"} and (
-        comparison_groups is None
-        or not comparison_groups.get(target.instrument_id)
+        comparison_groups_for_scope is None
+        or not comparison_groups_for_scope.get(target.instrument_id)
     ):
         raise PeerCohortError(
             f"{scope} comparison requires a target comparison group"
@@ -264,7 +271,7 @@ def construct_cohort(
                 target,
                 item.context,
                 fields,
-                comparison_groups,
+                comparison_groups_for_scope,
             )
         ]
         subset, duplicate_exclusions = _deduplicate(matching)
@@ -284,7 +291,7 @@ def construct_cohort(
                     target,
                     item.context,
                     parent_fields,
-                    comparison_groups,
+                    comparison_groups_for_scope,
                 )
             ]
         )
@@ -312,8 +319,8 @@ def construct_cohort(
         payload["comparison_scope"] = scope
         if scope in {"ETF_CATEGORY", "ETF_EXPOSURE_PEERS"}:
             payload["comparison_groups"] = {
-                instrument_id: comparison_groups.get(instrument_id)
-                for instrument_id in sorted(comparison_groups or {})
+                instrument_id: comparison_groups_for_scope.get(instrument_id)
+                for instrument_id in sorted(comparison_groups_for_scope or {})
             }
     return CohortMembership(
         selected_key,
