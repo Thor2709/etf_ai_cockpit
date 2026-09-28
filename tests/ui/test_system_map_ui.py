@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from etf_cockpit.app.pages.system_map import system_map_page
 from etf_cockpit.app.state import AppState
 from etf_cockpit.services import build_snapshot
@@ -18,6 +20,9 @@ def _text(control) -> str:
     return "\n".join(str(getattr(item, "value", "") or getattr(item, "text", "")) for item in _walk(control))
 
 
+# build_snapshot() reads shared project data (process-global state); under xdist it raced other
+# snapshot-reading tests on Windows (parallel pilot parity failure), so it runs in the serial phase.
+@pytest.mark.serial
 def test_system_map_shows_future_execution_as_non_interactive() -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)

@@ -8,11 +8,19 @@ from scripts import release_gate, validate_app
 
 def test_release_pytest_contract_writes_junit_and_slowest_phase_durations(tmp_path: Path) -> None:
     commands = release_gate._planned_commands(tmp_path)
-    pytest_command = next(command for command in commands if "pytest" in command)
+    pytest_commands = [command for command in commands if "pytest" in command]
+    serial_command = next(command for command in pytest_commands if "junit-full.xml" in command)
+    parallel_command = next(command for command in pytest_commands if "junit-parallel.xml" in command)
+    serial_phase_command = next(command for command in pytest_commands if "junit-serial.xml" in command)
 
-    assert "--durations=100" in pytest_command
-    assert "--durations-min=0.25" in pytest_command
-    assert "--junitxml=<output>/junit-full.xml" in pytest_command
+    for pytest_command in (serial_command, parallel_command, serial_phase_command):
+        assert "--durations=100" in pytest_command
+        assert "--durations-min=0.25" in pytest_command
+    assert "--junitxml=<output>/junit-full.xml" in serial_command
+    assert "not serial" in parallel_command
+    assert "-n 4" in parallel_command
+    assert "--dist loadgroup" in parallel_command
+    assert "-m serial" in serial_phase_command
 
 
 def test_changed_validation_pytest_uses_supplied_report_root(tmp_path: Path, monkeypatch) -> None:
