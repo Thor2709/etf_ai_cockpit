@@ -243,6 +243,107 @@ def test_valuation_fails_closed_when_cash_flow_inputs_are_unavailable() -> None:
     assert result["relative_metrics"]["price_to_earnings"]["status"] == "missing"
 
 
+def test_valuation_bank_routing_uses_residual_income_and_suppresses_ev_multiples() -> None:
+    frame = _statements()
+    template = frame.loc[(frame["canonical_metric"] == "equity") & (frame["fiscal_year"] == 2026)].iloc[0].to_dict()
+    frame = pd.concat(
+        [frame, pd.DataFrame([{**template, "canonical_metric": "tangible_book_value", "value": 42.0}])],
+        ignore_index=True,
+    )
+
+    result = valuation_analysis(
+        frame,
+        instrument_id="ACME",
+        sector="bank",
+        market_inputs={"market_cap": 300.0, "shares_outstanding": 10.0, "net_debt": 18.0},
+        assumptions={"forecast_years": 5, "cost_of_equity": 0.10, "terminal_growth": 0.02, "sustainable_roe": 0.12},
+        financial_projection=SimpleNamespace(
+            status="available",
+            metrics=(
+                SimpleNamespace(metric="net_profit_attributable", status="available", value=20.0),
+                SimpleNamespace(metric="closing_equity", status="available", value=68.0),
+                SimpleNamespace(metric="tangible_book_value", status="available", value=42.0),
+            ),
+        ),
+    )
+
+    assert result["bank_route"]["path"] == "ISSUE-0099_fundamental_release"
+    assert result["relative_metrics"]["ev_to_ebitda"]["status"] == "not_applicable"
+    assert result["relative_metrics"]["ev_to_sales"]["status"] == "not_applicable"
+    assert result["relative_metrics"]["price_to_tangible_book"]["status"] == "available"
+    assert result["relative_metrics"]["price_to_tangible_book"]["value"] == 300.0 / 42.0
+    assert result["intrinsic_value"]["status"] == "not_applicable"
+    assert result["reverse_dcf"]["status"] == "not_applicable"
+    assert result["residual_income"]["status"] == "available"
+
+
+def test_valuation_reverse_dcf_out_of_bound_target_is_unavailable() -> None:
+    result = valuation_analysis(
+        _statements(),
+        instrument_id="ACME",
+        market_inputs={"market_cap": 1e100, "net_debt": 18.0},
+        assumptions={"forecast_years": 5, "discount_rate": 0.10, "terminal_growth": 0.02},
+    )
+
+    assert result["reverse_dcf"]["status"] == "unavailable"
+    assert "outside the bounded growth search" in result["reverse_dcf"]["reason"]
+
+
+def test_valuation_page_receives_market_inputs_from_snapshot(monkeypatch) -> None:
+    context = {
+        "statements": _statements().assign(
+            available_at="2027-02-16T00:00:00Z",
+            currency="EUR",
+            consolidation_scope="consolidated",
+        ),
+        "sector": "industrial",
+        "classification": {"sector": "industrial"},
+        "classification_status": "available",
+        "decision_time": "2028-01-02T00:00:00Z",
+        "valuation_market_inputs": {
+            "status": "available",
+            "valuation_date": "2028-01-02",
+            "price_timestamp": "2027-01-01",
+            "price_currency": "EUR",
+            "reporting_currency": "EUR",
+            "market_cap": 300.0,
+            "enterprise_value": 318.0,
+            "net_debt": 18.0,
+            "net_debt_period_end": "2026-12-31",
+            "share_count_period_end": "2026-12-31",
+            "enterprise_value_adjustments": {"status": "available"},
+            "share_price": 30.0,
+            "risk_free_reference": {"status": "available", "rate": 0.03},
+            "filing_vintage": ["2027-01-01"],
+        },
+    }
+    monkeypatch.setattr(stock_research_page, "load_stock_research_context", lambda *_args, **_kwargs: context)
+    monkeypatch.setattr(stock_research_page, "load_optional_research_import", lambda *_args, **_kwargs: pd.DataFrame())
+    monkeypatch.setattr(stock_research_page, "load_capital_allocation_analysis", lambda *_args, **_kwargs: {})
+    original = stock_research_page.build_stock_research_report
+    reports = []
+
+    def capture_report(statements, **kwargs):
+        report = original(statements, **kwargs)
+        reports.append((report, kwargs))
+        return report
+
+    monkeypatch.setattr(stock_research_page, "build_stock_research_report", capture_report)
+    stock_research_page.stock_research_page(
+        None,
+        SimpleNamespace(
+            selected_etf="ACME",
+            snapshot=SimpleNamespace(benchmark_reference_decision_time="2028-01-02T00:00:00Z"),
+        ),
+    )
+
+    assert reports[0][1]["market_inputs"]["market_cap"] == 300.0
+    assert reports[0][0]["valuation"]["relative_metrics"]["ev_to_sales"]["value"] == 318.0 / 120.0
+    summary = stock_research_page._valuation_summary(reports[0][0]["valuation"])
+    assert "2.65" in summary.controls[1].content.value
+    assert "calculated from underlying facts" in summary.controls[1].content.value
+
+
 def test_combined_report_keeps_research_sections_and_provenance_boundary() -> None:
     report = build_stock_research_report(_statements(), instrument_id="ACME", market_inputs={"market_cap": 300.0}, assumptions={})
 

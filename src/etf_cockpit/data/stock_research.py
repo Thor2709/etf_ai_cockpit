@@ -31,6 +31,7 @@ _METRIC_ALIASES = {
     "lease_liability": "lease_liabilities",
     "operating_lease_liabilities": "lease_liabilities",
     "restricted_cash_and_cash_equivalents": "restricted_cash",
+    "diluted_shares": "diluted_shares_outstanding",
 }
 _CONSENSUS_SOURCE_AUTHORITIES = frozenset(
     {
@@ -54,7 +55,8 @@ _GROWTH_ALIASES: dict[str, tuple[str, ...]] = {
     "operating_profit": ("operating_profit", "operating_income", "ebit"),
     "free_cash_flow": ("free_cash_flow",),
     "net_income": ("net_income", "net_profit"),
-    "shares_outstanding": ("shares_outstanding", "weighted_average_shares", "diluted_shares"),
+    "shares_outstanding": ("shares_outstanding", "weighted_average_shares"),
+    "diluted_shares_outstanding": ("diluted_shares_outstanding", "diluted_shares"),
     "earnings_per_share": ("earnings_per_share", "eps", "basic_eps", "diluted_eps"),
     "organic_revenue": ("organic_revenue", "organic_sales"),
     "acquisition_revenue": ("acquisition_revenue", "inorganic_revenue", "acquired_revenue"),
@@ -361,34 +363,130 @@ def valuation_analysis(
     market_inputs: Mapping[str, object] | None = None,
     assumptions: Mapping[str, object] | None = None,
     as_known_at: str | date | None = None,
+    strict_comparability: bool = False,
+    sector: str = "",
+    classification_context: Mapping[str, object] | None = None,
+    peer_frame: pd.DataFrame | None = None,
+    peer_market_inputs: Mapping[str, Mapping[str, object]] | None = None,
+    financial_projection: object | None = None,
 ) -> dict[str, object]:
     frame = _statement_frame(statements, instrument_id, as_known_at=as_known_at)
     latest = _latest_values(frame)
     market = {str(key): _float(value) for key, value in (market_inputs or {}).items()}
     assumption_values = {str(key): value for key, value in (assumptions or {}).items()}
     values = {**latest, **{key: value for key, value in market.items() if value is not None}}
-    if values.get("net_debt") is None and values.get("debt") is not None and values.get("cash") is not None:
+    for input_name in ("shares_outstanding", "market_cap", "net_debt", "enterprise_value"):
+        if input_name in market:
+            values[input_name] = market[input_name]
+    if "diluted_shares_outstanding" in latest:
+        values["shares_outstanding"] = latest["diluted_shares_outstanding"]
+    if values.get("enterprise_value") is None and values.get("market_cap") is not None and values.get("net_debt") is not None:
+        adjustments = _float(market.get("other_enterprise_value_adjustments"))
+        if adjustments is not None:
+            values["enterprise_value"] = values["market_cap"] + values["net_debt"] + adjustments
+    if "net_debt" not in market and values.get("net_debt") is None and values.get("debt") is not None and values.get("cash") is not None:
         values["net_debt"] = values["debt"] - values["cash"]
+        adjustments = _float(market.get("other_enterprise_value_adjustments"))
+        if values.get("market_cap") is not None and adjustments is not None and values.get("enterprise_value") is None:
+            values["enterprise_value"] = values["market_cap"] + values["net_debt"] + adjustments
+    sector_value = sector or _text((classification_context or {}).get("sector"))
+    bank_route = _classification_is_known(sector_value, classification_context) and _is_special_sector(sector_value, classification_context)
+    projection_metrics = _financial_projection_metrics(financial_projection) if bank_route else {}
+    if bank_route:
+        for projection_name, value_name in (("net_profit_attributable", "net_income"), ("closing_equity", "equity"), ("tangible_book_value", "tangible_book_value")):
+            if projection_metrics.get(projection_name) is not None:
+                values[value_name] = projection_metrics[projection_name]
+        sustainable_roe = _float(assumption_values.get("sustainable_roe"))
+        sustainable_rote = _float(assumption_values.get("sustainable_rote"))
+        if sustainable_roe is not None and values.get("equity") is not None:
+            values["net_income"] = values["equity"] * sustainable_roe
+            values["net_income_basis"] = "explicit_sustainable_roe_assumption"
+        elif sustainable_rote is not None and values.get("tangible_book_value") is not None:
+            values["net_income"] = values["tangible_book_value"] * sustainable_rote
+            values["net_income_basis"] = "explicit_sustainable_rote_assumption"
+        else:
+            values["net_income"] = None
+    ev_applicability = "not_applicable" if bank_route else "applicable"
+    ev_limitation = "Enterprise-value industrial multiples are not applicable to financial institutions." if bank_route else ""
+    ebitda = values.get("ebitda")
     relative_metrics = {
-        "ev_to_sales": _ratio_metric("ev_to_sales", values.get("enterprise_value"), values.get("revenue"), "enterprise_value / revenue", frame, "enterprise_value"),
-        "ev_to_ebitda": _ratio_metric("ev_to_ebitda", values.get("enterprise_value"), values.get("operating_income"), "enterprise_value / operating_income", frame, "enterprise_value"),
+        "ev_to_sales": _ratio_metric("ev_to_sales", values.get("enterprise_value"), values.get("revenue"), "enterprise_value / revenue", frame, "enterprise_value", applicability=ev_applicability, limitation=ev_limitation),
+        "ev_to_ebitda": _ratio_metric("ev_to_ebitda", values.get("enterprise_value"), ebitda, "enterprise_value / EBITDA", frame, "enterprise_value", applicability=ev_applicability, limitation=ev_limitation),
         "price_to_earnings": _ratio_metric("price_to_earnings", values.get("market_cap"), values.get("net_income"), "market_cap / net_income", frame, "market_cap", zero_denominator_status="not_applicable"),
         "price_to_book": _ratio_metric("price_to_book", values.get("market_cap"), values.get("equity"), "market_cap / equity", frame, "market_cap", zero_denominator_status="not_applicable"),
+        "price_to_tangible_book": _ratio_metric("price_to_tangible_book", values.get("market_cap"), values.get("tangible_book_value"), "market_cap / tangible_book_value", frame, "market_cap", applicability="applicable" if bank_route else "not_applicable", limitation="Bank tangible-book multiple; underlying tangible book value must be evidenced." if bank_route else "Applicable to the bank route only."),
         "dividend_yield": _ratio_metric("dividend_yield", values.get("dividend_per_share"), values.get("share_price"), "dividend_per_share / share_price", frame, "dividend_per_share", zero_denominator_status="not_applicable"),
     }
-    intrinsic = _intrinsic_value(values, assumption_values)
-    reverse = _reverse_dcf(values, assumption_values)
-    residual = _residual_income(values, assumption_values)
+    comparability = {
+        "ev_to_sales": _valuation_inputs_comparable(frame, ("revenue",), market_inputs or {}, net_debt=True),
+        "ev_to_ebitda": _valuation_inputs_comparable(frame, ("ebitda",), market_inputs or {}, net_debt=True),
+        "price_to_earnings": _valuation_inputs_comparable(frame, ("net_income",), market_inputs or {}),
+        "price_to_book": _valuation_inputs_comparable(frame, ("equity",), market_inputs or {}),
+        "price_to_tangible_book": _valuation_inputs_comparable(frame, ("tangible_book_value",), market_inputs or {}),
+    }
+    if strict_comparability:
+        for name, basis in comparability.items():
+            if relative_metrics[name].get("status") != "not_applicable" and basis["status"] != "available":
+                relative_metrics[name] = _mark_valuation_metric_unavailable(relative_metrics[name], str(basis["reason"]))
+    peer_relative_metrics = _peer_relative_valuation_metrics(
+        frame,
+        peer_frame,
+        peer_market_inputs or {},
+        as_known_at=as_known_at,
+        instrument_id=instrument_id,
+        bank_route=bank_route,
+    )
+    intrinsic = _not_applicable_valuation("Industrial FCF DCF is not applicable to financial institutions.") if bank_route else _intrinsic_value(values, assumption_values)
+    reverse = _not_applicable_valuation("Industrial reverse DCF is not applicable to financial institutions.") if bank_route else _reverse_dcf(values, assumption_values)
+    residual_assumptions = assumption_values
+    if bank_route and "cost_of_equity" not in assumption_values:
+        residual_assumptions = {**assumption_values, "cost_of_equity": None}
+    adapter_status = str(_projection_member(financial_projection, "status", "unavailable")) if bank_route else "not_applicable"
+    residual = (
+        _residual_income(values, residual_assumptions)
+        if not bank_route or adapter_status == "available"
+        else {"status": "unavailable", "confidence": "low", "reason": "Financial-institution evidence from ISSUE-0099_fundamental_release is unavailable.", "execution_allowed": False}
+    )
+    if strict_comparability:
+        raw_scenarios = assumption_values.get("scenarios")
+        margin_scenario = isinstance(raw_scenarios, Mapping) and any(
+            isinstance(item, Mapping) and _float(item.get("margin")) is not None
+            for item in raw_scenarios.values()
+        )
+        dcf_facts = ("free_cash_flow", "revenue") if margin_scenario else ("free_cash_flow",)
+        dcf_basis = _valuation_inputs_comparable(frame, dcf_facts, market_inputs or {}, net_debt=True)
+        residual_basis = _valuation_inputs_comparable(frame, ("equity", "net_income"), market_inputs or {})
+        if not bank_route and dcf_basis["status"] != "available":
+            intrinsic = {"status": "unavailable", "confidence": "low", "reason": str(dcf_basis["reason"]), "scenarios": {}, "execution_allowed": False}
+            reverse = {"status": "unavailable", "confidence": "low", "reason": str(dcf_basis["reason"]), "execution_allowed": False}
+        if residual_basis["status"] != "available":
+            residual = {"status": "unavailable", "confidence": "low", "reason": str(residual_basis["reason"]), "execution_allowed": False}
+    sensitivity = _residual_income_sensitivity(values, assumption_values) if bank_route else _valuation_sensitivity(values, assumption_values)
+    bank_metrics = {
+        "sustainable_roe": assumption_values.get("sustainable_roe", projection_metrics.get("sustainable_roe")),
+        "sustainable_rote": assumption_values.get("sustainable_rote", projection_metrics.get("rote")),
+        "cost_of_equity": assumption_values.get("cost_of_equity"),
+        "regulatory_capital_assumptions": assumption_values.get("regulatory_capital_assumptions"),
+    } if bank_route else {}
+    lineage = _lineage(frame)
     return {
         "schema_version": STOCK_RESEARCH_SCHEMA_VERSION,
         "instrument_id": instrument_id or "",
         "relative_metrics": relative_metrics,
+        "comparability": comparability,
+        "peer_relative_metrics": peer_relative_metrics,
         "intrinsic_value": intrinsic,
         "reverse_dcf": reverse,
         "residual_income": residual,
+        "sensitivity": sensitivity,
+        "bank_route": {"status": "available" if bank_route and adapter_status == "available" else "unavailable" if bank_route else "not_applicable", "path": "ISSUE-0099_fundamental_release" if bank_route else "industrial_dcf", "financial_projection_status": adapter_status, "metrics": bank_metrics},
         "model_disagreement": _model_disagreement(intrinsic, residual),
         "assumptions": assumption_values,
-        "source_lineage": _lineage(frame),
+        "market_evidence": dict(market_inputs or {}),
+        "provider_reported_multiples": {"status": "unavailable", "reason": "No issuer/provider multiple series is available in the supplied evidence."},
+        "snapshot": {"valuation_date": market.get("valuation_date"), "decision_time": as_known_at, "price_timestamp": market.get("price_timestamp"), "filing_vintage": market.get("filing_vintage", lineage.get("filing_versions", [])), "currency_conversion_timestamp": market.get("currency_conversion_timestamp"), "assumptions_version": assumption_values.get("version"), "assumptions": assumption_values, "market_evidence": dict(market_inputs or {}), "execution_allowed": False},
+        "peer_context": {"status": "available" if isinstance(peer_frame, pd.DataFrame) and not peer_frame.empty else "unavailable", "peer_ids": sorted({str(value) for value in peer_frame.get("instrument_id", pd.Series(dtype="object")).dropna()}) if isinstance(peer_frame, pd.DataFrame) and not peer_frame.empty else [], "period": lineage.get("periods", []), "accounting_scope": lineage.get("accounting_scopes", []), "currency": lineage.get("currencies", []), "outlier_treatment": "No peer multiple outlier treatment; issuer calculated multiples shown separately."},
+        "source_lineage": lineage,
         "execution_allowed": False,
     }
 
@@ -467,9 +565,10 @@ def build_stock_research_report(
     instrument_id: str | None = None,
     sector: str = "",
     peer_frame: pd.DataFrame | None = None,
+    peer_market_inputs: Mapping[str, Mapping[str, object]] | None = None,
     classification_context: Mapping[str, object] | None = None,
     peer_context: Mapping[str, object] | None = None,
-    financial_projection: Mapping[str, object] | None = None,
+    financial_projection: object | None = None,
     strict_comparability: bool = True,
     market_inputs: Mapping[str, object] | None = None,
     assumptions: Mapping[str, object] | None = None,
@@ -514,12 +613,24 @@ def build_stock_research_report(
         "profitability": profitability,
         "capital_efficiency": capital_efficiency,
         "balance_sheet": balance_sheet_analysis(frame, instrument_id=instrument_id, sector=sector, classification_context=classification_context, strict_comparability=strict_comparability, as_known_at=as_known_at),
-        "valuation": valuation_analysis(frame, instrument_id=instrument_id, market_inputs=market_inputs, assumptions=assumptions, as_known_at=as_known_at),
+        "valuation": valuation_analysis(
+            frame,
+            instrument_id=instrument_id,
+            market_inputs=market_inputs,
+            assumptions=assumptions,
+            as_known_at=as_known_at,
+            strict_comparability=strict_comparability,
+            sector=sector,
+            classification_context=classification_context,
+            peer_frame=peer_frame,
+            peer_market_inputs=peer_market_inputs,
+            financial_projection=financial_projection,
+        ),
         "growth": growth_analysis(frame, instrument_id=instrument_id, strict_comparability=strict_comparability, as_known_at=as_known_at),
         "expectations": _expectations_report(frame, expectation_evidence, guidance_evidence, instrument_id=instrument_id, as_known_at=as_known_at),
         "classification_context": dict(classification_context or {}),
         "peer_context": dict(peer_context or {}),
-        "financial_institutions": dict(financial_projection or {}),
+        "financial_institutions": _financial_projection_payload(financial_projection),
         "statement_context": _statement_context(frame),
         "source_lineage": _lineage(frame),
         "execution_allowed": False,
@@ -1687,29 +1798,29 @@ def _intrinsic_value(values: Mapping[str, float], assumptions: Mapping[str, obje
     net_debt = values.get("net_debt")
     discount = _float(assumptions.get("discount_rate"))
     terminal_growth = _float(assumptions.get("terminal_growth"))
-    years = int(assumptions.get("forecast_years", 0) or 0)
+    years = _forecast_years(assumptions)
     scenarios = assumptions.get("scenarios")
-    if fcf is None or shares is None or net_debt is None or discount is None or terminal_growth is None or years <= 0 or not isinstance(scenarios, Mapping) or not scenarios:
+    if fcf is None or shares is None or shares <= 0 or net_debt is None or discount is None or terminal_growth is None or years <= 0 or discount <= terminal_growth or discount <= -1.0 or terminal_growth <= -1.0 or not isinstance(scenarios, Mapping) or not scenarios:
         return {"status": "unavailable", "confidence": "low", "reason": "free cash flow, share count, net debt, forecast and explicit scenario assumptions are required", "scenarios": {}, "execution_allowed": False}
     results: dict[str, dict[str, object]] = {}
     for name, raw in scenarios.items():
-        if not isinstance(raw, Mapping) or _float(raw.get("growth")) is None:
+        growth = _float(raw.get("growth")) if isinstance(raw, Mapping) else None
+        if growth is None or growth <= -1.0:
             continue
-        growth = float(raw["growth"])
         margin = _float(raw.get("margin"))
-        cash_flow = fcf if margin is None else fcf * (margin / max(abs(values.get("operating_income", 1.0)), 1e-12))
-        present_value = sum(cash_flow * (1.0 + growth) ** year / (1.0 + discount) ** year for year in range(1, years + 1))
-        terminal_cash_flow = cash_flow * (1.0 + growth) ** years
-        denominator = discount - terminal_growth
-        if denominator <= 0:
+        per_share = _dcf_per_share(values, growth, margin, discount, terminal_growth, years)
+        if per_share is None:
             continue
-        terminal_value = terminal_cash_flow * (1.0 + terminal_growth) / denominator
-        enterprise_value = present_value + terminal_value / (1.0 + discount) ** years
+        forecast_path = [fcf * (1.0 + growth) ** year for year in range(1, years + 1)] if margin is None else [float(values["revenue"]) * margin * (1.0 + growth) ** year for year in range(1, years + 1)]
+        enterprise_value = _dcf_enterprise_value(forecast_path, discount, terminal_growth)
+        if enterprise_value is None:
+            continue
         equity_value = enterprise_value - net_debt
-        results[str(name)] = {"growth": growth, "margin": margin, "enterprise_value": enterprise_value, "equity_value": equity_value, "per_share": equity_value / shares, "confidence": "scenario_only", "execution_allowed": False}
+        results[str(name)] = {"growth": growth, "margin": margin, "margin_basis": "free_cash_flow_margin" if margin is not None else "reported_free_cash_flow", "growth_path": forecast_path, "enterprise_value": enterprise_value, "equity_value": equity_value, "per_share": per_share, "confidence": "scenario_only", "execution_allowed": False}
     if not results:
         return {"status": "unavailable", "confidence": "low", "reason": "no valid scenario assumptions", "scenarios": {}, "execution_allowed": False}
-    return {"status": "available", "confidence": "scenario_only", "forecast_years": years, "discount_rate": discount, "terminal_growth": terminal_growth, "scenarios": results, "execution_allowed": False}
+    per_share_values = [float(item["per_share"]) for item in results.values()]
+    return {"status": "available", "confidence": "scenario_only", "forecast_years": years, "discount_rate": discount, "terminal_growth": terminal_growth, "scenarios": results, "range": [min(per_share_values), max(per_share_values)], "execution_allowed": False}
 
 
 def _reverse_dcf(values: Mapping[str, float], assumptions: Mapping[str, object]) -> dict[str, object]:
@@ -1719,19 +1830,24 @@ def _reverse_dcf(values: Mapping[str, float], assumptions: Mapping[str, object])
     net_debt = values.get("net_debt")
     discount = _float(assumptions.get("discount_rate"))
     terminal_growth = _float(assumptions.get("terminal_growth"))
-    years = int(assumptions.get("forecast_years", 0) or 0)
-    if target is None or fcf is None or shares is None or net_debt is None or discount is None or terminal_growth is None or years <= 0 or discount <= terminal_growth:
-        return {"status": "unavailable", "confidence": "low", "execution_allowed": False}
+    years = _forecast_years(assumptions)
+    if target is None or fcf is None or fcf <= 0 or shares is None or shares <= 0 or net_debt is None or discount is None or terminal_growth is None or years <= 0 or discount <= terminal_growth or discount <= -1.0 or terminal_growth <= -1.0:
+        return {"status": "unavailable", "confidence": "low", "reason": "positive FCF, market value, diluted share count, net debt and explicit bounded assumptions are required", "execution_allowed": False}
     def equity_for(growth: float) -> float:
-        pv = sum(fcf * (1.0 + growth) ** year / (1.0 + discount) ** year for year in range(1, years + 1))
-        terminal = fcf * (1.0 + growth) ** years * (1.0 + terminal_growth) / (discount - terminal_growth)
-        return pv + terminal / (1.0 + discount) ** years - net_debt
+        return float(_dcf_per_share(values, growth, None, discount, terminal_growth, years) * shares) if _dcf_per_share(values, growth, None, discount, terminal_growth, years) is not None else math.nan
     low, high = -0.5, 1.0
-    if not (equity_for(low) <= target <= equity_for(high)):
+    try:
+        lower_value, upper_value = equity_for(low), equity_for(high)
+    except (ArithmeticError, OverflowError, ValueError):
+        lower_value, upper_value = math.nan, math.nan
+    if not math.isfinite(lower_value) or not math.isfinite(upper_value) or not (lower_value <= target <= upper_value):
         return {"status": "unavailable", "confidence": "low", "reason": "market value is outside the bounded growth search", "execution_allowed": False}
     for _ in range(80):
         middle = (low + high) / 2.0
-        if equity_for(middle) < target:
+        middle_value = equity_for(middle)
+        if not math.isfinite(middle_value):
+            return {"status": "unavailable", "confidence": "low", "reason": "bounded growth search produced a nonfinite value", "execution_allowed": False}
+        if middle_value < target:
             low = middle
         else:
             high = middle
@@ -1744,16 +1860,301 @@ def _residual_income(values: Mapping[str, float], assumptions: Mapping[str, obje
     shares = values.get("shares_outstanding")
     cost = _float(assumptions.get("cost_of_equity", assumptions.get("discount_rate")))
     growth = _float(assumptions.get("terminal_growth"))
-    years = int(assumptions.get("forecast_years", 0) or 0)
-    if book is None or net_income is None or shares is None or cost is None or growth is None or years <= 0 or cost <= growth:
-        return {"status": "unavailable", "confidence": "low", "execution_allowed": False}
-    value = book
-    residual = net_income - cost * book
-    for year in range(1, years + 1):
-        value += residual * (1.0 + growth) ** (year - 1) / (1.0 + cost) ** year
-    terminal = residual * (1.0 + growth) ** years / (cost - growth)
-    value += terminal / (1.0 + cost) ** years
-    return {"status": "available", "confidence": "scenario_only", "equity_value": value, "per_share": value / shares, "execution_allowed": False}
+    years = _forecast_years(assumptions)
+    if book is None or net_income is None or shares is None or shares <= 0 or cost is None or growth is None or years <= 0 or cost <= growth or cost <= -1.0 or growth <= -1.0:
+        return {"status": "unavailable", "confidence": "low", "reason": "book equity, net income, diluted share count and explicit cost-of-equity/terminal assumptions are required", "execution_allowed": False}
+    try:
+        value = book
+        residual = net_income - cost * book
+        for year in range(1, years + 1):
+            value += residual * (1.0 + growth) ** (year - 1) / (1.0 + cost) ** year
+        terminal = residual * (1.0 + growth) ** years / (cost - growth)
+        value += terminal / (1.0 + cost) ** years
+    except (ArithmeticError, OverflowError, ValueError):
+        return {"status": "unavailable", "confidence": "low", "reason": "residual-income calculation produced an invalid value", "execution_allowed": False}
+    if not math.isfinite(value):
+        return {"status": "unavailable", "confidence": "low", "reason": "residual-income calculation produced a nonfinite value", "execution_allowed": False}
+    return {"status": "available", "confidence": "scenario_only", "equity_value": value, "per_share": value / shares, "cost_of_equity": cost, "terminal_growth": growth, "forecast_years": years, "net_income_basis": values.get("net_income_basis", "latest_reported_net_income"), "execution_allowed": False}
+
+
+def _valuation_inputs_comparable(
+    frame: pd.DataFrame,
+    metrics: tuple[str, ...],
+    market_inputs: Mapping[str, object],
+    *,
+    net_debt: bool = False,
+) -> dict[str, str]:
+    if frame.empty or not {"canonical_metric", "period_end", "currency"}.issubset(frame.columns):
+        return {"status": "unavailable", "reason": "Statement period, currency and accounting-scope lineage are required for comparable valuation."}
+    periods: set[str] = set()
+    currencies: set[str] = set()
+    scopes: set[str] = set()
+    for metric in metrics:
+        rows = frame.loc[frame["canonical_metric"].astype(str).eq(metric)].copy()
+        if rows.empty or rows["period_end"].isna().all():
+            return {"status": "unavailable", "reason": f"{metric} period is unavailable; comparable valuation is withheld."}
+        sort_columns = ["period_end", "filed"] if "filed" in rows else ["period_end"]
+        rows = rows.sort_values(sort_columns, kind="stable", na_position="last")
+        latest_period = str(rows.iloc[-1]["period_end"])
+        selected = rows.loc[rows["period_end"].astype(str).eq(latest_period)]
+        if selected["currency"].isna().any():
+            return {"status": "unavailable", "reason": f"{metric} currency is unavailable; comparable valuation is withheld."}
+        currencies.update(str(value).strip().upper() for value in selected["currency"] if str(value).strip())
+        scopes.update(_accounting_scope(row) for row in selected.to_dict("records") if _accounting_scope(row))
+        periods.add(latest_period)
+    if len(periods) != 1:
+        return {"status": "unavailable", "reason": "Selected statement metrics do not share one reporting period."}
+    if len(currencies) != 1 or len(scopes) != 1:
+        return {"status": "unavailable", "reason": "Selected statement metrics have mixed or unavailable currency/accounting scope."}
+    reporting_currency = _text(market_inputs.get("reporting_currency")).upper()
+    if reporting_currency and reporting_currency not in currencies:
+        return {"status": "unavailable", "reason": "Market and statement reporting currencies do not match."}
+    statement_period = next(iter(periods))
+    if market_inputs.get("shares_outstanding") is not None or market_inputs.get("market_cap") is not None:
+        share_period = _text(market_inputs.get("share_count_period_end"))
+        if not share_period or share_period != statement_period:
+            return {"status": "unavailable", "reason": "Diluted share-count vintage does not match the selected statement period."}
+    if net_debt and market_inputs.get("net_debt") is not None:
+        debt_period = _text(market_inputs.get("net_debt_period_end"))
+        if not debt_period or debt_period != statement_period:
+            return {"status": "unavailable", "reason": "Net-debt vintage does not match the selected statement period."}
+    if net_debt and market_inputs.get("enterprise_value") is not None:
+        adjustment_status = market_inputs.get("enterprise_value_adjustments", {})
+        if isinstance(adjustment_status, Mapping) and adjustment_status.get("status") != "available":
+            return {"status": "unavailable", "reason": "Enterprise-value adjustment coverage is incomplete."}
+    return {"status": "available", "reason": "Selected values share a period, reporting currency and accounting scope."}
+
+
+def _mark_valuation_metric_unavailable(metric: Mapping[str, object], reason: str) -> dict[str, object]:
+    return {**metric, "value": None, "status": "unavailable", "confidence": "low", "limitation": reason}
+
+
+def _forecast_years(assumptions: Mapping[str, object]) -> int:
+    value = assumptions.get("forecast_years")
+    if isinstance(value, bool):
+        return 0
+    try:
+        years = int(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+    try:
+        return years if float(value or 0) == years and 0 < years <= 100 else 0
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _peer_relative_valuation_metrics(
+    statements: pd.DataFrame,
+    peer_frame: pd.DataFrame | None,
+    peer_market_inputs: Mapping[str, Mapping[str, object]],
+    *,
+    as_known_at: str | date | None,
+    instrument_id: str | None,
+    bank_route: bool,
+) -> dict[str, object]:
+    peer_statements = _statement_frame(peer_frame, None, as_known_at=as_known_at) if isinstance(peer_frame, pd.DataFrame) else pd.DataFrame()
+    peer_ids = sorted({str(value) for value in peer_statements.get("instrument_id", pd.Series(dtype="object")).dropna() if str(value) and str(value) != str(instrument_id or "")})
+    names = ("price_to_earnings", "price_to_book", "price_to_tangible_book") if bank_route else ("ev_to_sales", "ev_to_ebitda", "price_to_earnings", "price_to_book")
+    denominators = {
+        "ev_to_sales": ("enterprise_value", "revenue"),
+        "ev_to_ebitda": ("enterprise_value", "ebitda"),
+        "price_to_earnings": ("market_cap", "net_income"),
+        "price_to_book": ("market_cap", "equity"),
+        "price_to_tangible_book": ("market_cap", "tangible_book_value"),
+    }
+    observed: dict[str, list[dict[str, object]]] = {name: [] for name in names}
+    missing: dict[str, list[str]] = {name: [] for name in names}
+    for peer_id in peer_ids:
+        facts = _statement_frame(peer_statements, peer_id, as_known_at=as_known_at)
+        market = peer_market_inputs.get(peer_id)
+        if not facts.empty and isinstance(market, Mapping) and market.get("status") in {"available", "available_with_warning"}:
+            currencies = {_text(item).upper() for item in facts.get("currency", pd.Series(dtype="object")).dropna() if _text(item)}
+            scopes = {_accounting_scope(row) for row in facts.to_dict("records") if _accounting_scope(row)}
+            reporting_currency = _text(market.get("reporting_currency")).upper()
+            if len(currencies) == 1 and reporting_currency in currencies and len(scopes) == 1:
+                values = _latest_values(facts)
+                for name in names:
+                    numerator_name, denominator_name = denominators[name]
+                    numerator = _float(market.get(numerator_name))
+                    denominator = _float(values.get(denominator_name))
+                    if numerator is None or denominator is None or denominator <= 0:
+                        missing[name].append(peer_id)
+                        continue
+                    period_rows = facts.loc[facts["canonical_metric"].astype(str).eq(denominator_name)]
+                    period = _text(period_rows.sort_values("period_end", kind="stable").iloc[-1].get("period_end")) if not period_rows.empty and "period_end" in period_rows else "unavailable"
+                    observed[name].append({"instrument_id": peer_id, "value": numerator / denominator, "period": period, "currency": reporting_currency, "accounting_scope": next(iter(scopes)), "market_price_timestamp": market.get("price_timestamp"), "filing_vintage": market.get("filing_vintage", [])})
+                    continue
+        for name in names:
+            missing[name].append(peer_id)
+    metrics: dict[str, object] = {}
+    for name in names:
+        items = observed[name]
+        numbers = [float(item["value"]) for item in items]
+        metrics[name] = {
+            "status": "available" if numbers else "unavailable",
+            "median": float(pd.Series(numbers).median()) if numbers else None,
+            "range": [min(numbers), max(numbers)] if numbers else [],
+            "peer_count": len(items),
+            "peer_values": items,
+            "missing_peer_ids": sorted(set(missing[name])),
+            "formula": denominators[name][0] + " / " + denominators[name][1],
+            "outlier_treatment": "All available peer values are retained; median and range are reported without winsorisation or clipping.",
+        }
+    return {
+        "status": "available" if any(item["status"] == "available" for item in metrics.values()) else "unavailable",
+        "peer_ids": peer_ids,
+        "metrics": metrics,
+        "period_basis": "Each peer's latest then-known denominator period is disclosed per value; no synthetic common period is assigned.",
+        "currency_basis": "Each multiple is calculated within the peer's reporting currency; missing or mixed currency evidence excludes that peer.",
+        "accounting_scope": "A peer is included only when its available statement scope is unique.",
+        "execution_allowed": False,
+    }
+
+
+def _dcf_per_share(
+    values: Mapping[str, float], growth: float, margin: float | None,
+    discount: float, terminal_growth: float, years: int,
+) -> float | None:
+    shares, net_debt, fcf = values.get("shares_outstanding"), values.get("net_debt"), values.get("free_cash_flow")
+    if shares is None or shares <= 0 or net_debt is None or fcf is None or discount <= terminal_growth or discount <= -1.0 or terminal_growth <= -1.0 or growth <= -1.0:
+        return None
+    if margin is not None and values.get("revenue") is None:
+        return None
+    base_cash_flow = fcf if margin is None else values["revenue"] * margin
+    try:
+        path = [base_cash_flow * (1.0 + growth) ** year for year in range(1, years + 1)]
+    except (ArithmeticError, OverflowError, ValueError):
+        return None
+    enterprise_value = _dcf_enterprise_value(path, discount, terminal_growth)
+    if enterprise_value is None:
+        return None
+    result = (enterprise_value - net_debt) / shares
+    return result if math.isfinite(result) else None
+
+
+def _dcf_enterprise_value(path: list[float], discount: float, terminal_growth: float) -> float | None:
+    if not path or discount <= terminal_growth or discount <= -1.0:
+        return None
+    try:
+        present_value = sum(value / (1.0 + discount) ** year for year, value in enumerate(path, 1))
+        terminal = path[-1] * (1.0 + terminal_growth) / (discount - terminal_growth)
+        value = present_value + terminal / (1.0 + discount) ** len(path)
+    except (ArithmeticError, OverflowError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _valuation_sensitivity(values: Mapping[str, float], assumptions: Mapping[str, object]) -> dict[str, object]:
+    raw = assumptions.get("sensitivity")
+    years = _forecast_years(assumptions)
+    if not isinstance(raw, Mapping):
+        return {"status": "unavailable", "reason": "explicit discount-rate and terminal-growth sensitivity ranges are required", "grid": {}, "execution_allowed": False}
+    discounts = raw.get("discount_rates")
+    terminals = raw.get("terminal_growth_rates")
+    scenarios = assumptions.get("scenarios")
+    if not isinstance(discounts, (tuple, list)) or not isinstance(terminals, (tuple, list)) or not isinstance(scenarios, Mapping) or years <= 0:
+        return {"status": "unavailable", "reason": "explicit sensitivity ranges and DCF scenario assumptions are required", "grid": {}, "execution_allowed": False}
+    discount_values = [_float(value) for value in discounts]
+    terminal_values = [_float(value) for value in terminals]
+    if len(discount_values) < 2 or len(terminal_values) < 2 or any(value is None for value in (*discount_values, *terminal_values)):
+        return {"status": "unavailable", "reason": "sensitivity ranges need at least two finite values for each rate", "grid": {}, "execution_allowed": False}
+    grid: dict[str, object] = {}
+    for name, raw_scenario in scenarios.items():
+        if not isinstance(raw_scenario, Mapping):
+            continue
+        growth = _float(raw_scenario.get("growth"))
+        margin = _float(raw_scenario.get("margin"))
+        if growth is None:
+            continue
+        cells = []
+        outputs = []
+        for discount in discount_values:
+            for terminal in terminal_values:
+                if discount is None or terminal is None:
+                    continue
+                per_share = _dcf_per_share(values, growth, margin, discount, terminal, years)
+                cell = {"discount_rate": discount, "terminal_growth": terminal, "per_share": per_share, "status": "available" if per_share is not None else "unavailable"}
+                cells.append(cell)
+                if per_share is not None:
+                    outputs.append(per_share)
+        grid[str(name)] = {"cells": cells, "range": [min(outputs), max(outputs)] if outputs else [], "status": "available" if outputs else "unavailable"}
+    return {"status": "available" if any(item.get("status") == "available" for item in grid.values()) else "unavailable", "grid": grid, "execution_allowed": False}
+
+
+def _residual_income_sensitivity(values: Mapping[str, float], assumptions: Mapping[str, object]) -> dict[str, object]:
+    raw = assumptions.get("sensitivity")
+    if not isinstance(raw, Mapping):
+        return {"status": "unavailable", "reason": "Explicit cost-of-equity, terminal-growth and sustainable-ROE/ROTE ranges are required.", "grid": [], "execution_allowed": False}
+    costs = raw.get("cost_of_equity_rates", raw.get("discount_rates"))
+    terminal_rates = raw.get("terminal_growth_rates")
+    roe_rates = raw.get("sustainable_roe_rates")
+    rote_rates = raw.get("sustainable_rote_rates")
+    return_rates = roe_rates if isinstance(roe_rates, (tuple, list)) and len(roe_rates) >= 2 else rote_rates
+    if not isinstance(costs, (tuple, list)) or len(costs) < 2 or not isinstance(terminal_rates, (tuple, list)) or len(terminal_rates) < 2 or not isinstance(return_rates, (tuple, list)) or len(return_rates) < 2:
+        return {"status": "unavailable", "reason": "Sensitivity needs at least two explicit values for cost of equity, terminal growth and sustainable ROE or ROTE.", "grid": [], "execution_allowed": False}
+    cost_values = [_float(value) for value in costs]
+    terminal_values = [_float(value) for value in terminal_rates]
+    return_values = [_float(value) for value in return_rates]
+    if any(value is None for value in (*cost_values, *terminal_values, *return_values)):
+        return {"status": "unavailable", "reason": "Sensitivity assumptions must be finite numeric values.", "grid": [], "execution_allowed": False}
+    uses_roe = return_rates is roe_rates
+    grid = []
+    outputs = []
+    for sustainable_return in return_values:
+        for cost in cost_values:
+            for terminal in terminal_values:
+                scenario_values = dict(values)
+                if uses_roe and scenario_values.get("equity") is not None:
+                    scenario_values["net_income"] = scenario_values["equity"] * sustainable_return
+                    basis = "sustainable_roe"
+                elif not uses_roe and scenario_values.get("tangible_book_value") is not None:
+                    scenario_values["net_income"] = scenario_values["tangible_book_value"] * sustainable_return
+                    basis = "sustainable_rote"
+                else:
+                    continue
+                result = _residual_income(scenario_values, {**assumptions, "cost_of_equity": cost, "terminal_growth": terminal})
+                per_share = _float(result.get("per_share"))
+                cell = {"return_basis": basis, "sustainable_return": sustainable_return, "cost_of_equity": cost, "terminal_growth": terminal, "per_share": per_share, "status": result.get("status", "unavailable")}
+                grid.append(cell)
+                if per_share is not None:
+                    outputs.append(per_share)
+    return {"status": "available" if outputs else "unavailable", "grid": grid, "range": [min(outputs), max(outputs)] if outputs else [], "execution_allowed": False}
+
+
+def _not_applicable_valuation(reason: str) -> dict[str, object]:
+    return {"status": "not_applicable", "confidence": "low", "reason": reason, "execution_allowed": False}
+
+
+def _projection_member(value: object, name: str, default: object = None) -> object:
+    if isinstance(value, Mapping):
+        return value.get(name, default)
+    return getattr(value, name, default)
+
+
+def _financial_projection_payload(projection: object | None) -> dict[str, object]:
+    if projection is None:
+        return {}
+    if hasattr(projection, "__dataclass_fields__"):
+        return asdict(projection)
+    return dict(projection) if isinstance(projection, Mapping) else {}
+
+
+def _financial_projection_metrics(projection: object | None) -> dict[str, float]:
+    raw_metrics = _projection_member(projection, "metrics", ())
+    if isinstance(raw_metrics, Mapping):
+        rows = raw_metrics.items()
+    elif isinstance(raw_metrics, (tuple, list)):
+        rows = ((_projection_member(item, "metric"), item) for item in raw_metrics)
+    else:
+        return {}
+    result: dict[str, float] = {}
+    for name, item in rows:
+        if _projection_member(item, "status") not in {None, "available", "calculated"}:
+            continue
+        value = _float(_projection_member(item, "value"))
+        if value is not None:
+            result[str(name)] = value
+    return result
 
 
 def _model_disagreement(intrinsic: Mapping[str, object], residual: Mapping[str, object]) -> dict[str, object]:
