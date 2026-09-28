@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import flet as ft
 import pandas as pd
 
@@ -11,6 +13,7 @@ from etf_cockpit.application.ui_facade import (
     GUIDANCE_IMPORT_PATH,
     STATEMENT_FACTS_PATH,
     build_stock_research_report,
+    load_capital_allocation_analysis,
     load_optional_research_import,
     load_stock_research_context,
 )
@@ -42,6 +45,12 @@ def stock_research_page(_page: ft.Page, state: AppState) -> ft.Control:
     classification_status = str(context.get("classification_status", "unavailable"))
     sector = str(context.get("sector") or "unclassified")
     statement_view = "as known at " + str(context.get("decision_time")) if context.get("decision_time") else "latest restated"
+    capital_allocation = load_capital_allocation_analysis(
+        statements,
+        instrument_id=instrument_id,
+        market_inputs={},
+        decision_time=context.get("decision_time"),
+    )
     return ft.Column(
         [
             panel(
@@ -60,6 +69,7 @@ def stock_research_page(_page: ft.Page, state: AppState) -> ft.Control:
             _metrics_panel("Solvency", "Stress scenarios and contextual distress evidence; this is not a credit rating or execution authority.", report["balance_sheet"]),
             _metrics_panel("Financial institution adapter", "Financial-sector evidence is delegated to its dedicated adapter; industrial measures are marked inapplicable.", report["financial_institutions"]) if report.get("financial_institutions") else ft.Container(),
             _capital_efficiency_panel(report["capital_efficiency"], _page),
+            _capital_allocation_panel(capital_allocation),
             _growth_panel(report["growth"]),
             _expectations_panel(report["expectations"]),
             _valuation_panel(report["valuation"]),
@@ -68,6 +78,88 @@ def stock_research_page(_page: ft.Page, state: AppState) -> ft.Control:
         expand=True,
         spacing=14,
         scroll=ft.ScrollMode.AUTO,
+    )
+
+
+def _capital_allocation_panel(section: object) -> ft.Control:
+    value = section if isinstance(section, dict) else {}
+    metrics = value.get("metrics", {}) if isinstance(value.get("metrics"), dict) else {}
+    metric_names = (
+        "cash_from_operations_to_net_income",
+        "cash_from_operations_to_ebitda",
+        "free_cash_flow",
+        "free_cash_flow_margin",
+        "capex_intensity",
+        "dividend_yield",
+        "buyback_yield",
+        "issuance_dilution_yield",
+        "shareholder_yield",
+    )
+    cards: list[ft.Control] = []
+    details: list[str] = []
+    for name in metric_names:
+        item = metrics.get(name, {}) if isinstance(metrics, dict) else {}
+        if not isinstance(item, dict):
+            continue
+        metric_value = item.get("value")
+        if metric_value is None:
+            display = "n/a"
+        elif item.get("unit") == "ratio":
+            display = f"{float(metric_value) * 100.0:.2f}%"
+        else:
+            display = f"{_research_number(metric_value)} {item.get('currency', '')}".strip()
+        cards.append(metric_card(name.replace("_", " ").title(), display, str(item.get("status", "unavailable"))))
+        details.append(
+            f"{name}: formula={item.get('formula', 'n/a')}; denominator={item.get('denominator', 'n/a')}; "
+            f"currency={item.get('currency', 'unavailable')}; period={item.get('period', 'unavailable')}; "
+            f"sign={item.get('sign_convention', 'n/a')}; sources={item.get('source_ids', [])}"
+        )
+    if not cards:
+        cards = [metric_card("Capital allocation", "Unavailable", str(value.get("status", "unavailable")))]
+    coverage = value.get("coverage", {}) if isinstance(value.get("coverage"), dict) else {}
+    lineage = value.get("source_lineage", {}) if isinstance(value.get("source_lineage"), dict) else {}
+    source_ids = lineage.get("source_ids", []) if isinstance(lineage.get("source_ids"), list) else []
+    allocation = value.get("capital_allocation", {}) if isinstance(value.get("capital_allocation"), dict) else {}
+    allocation_lines = []
+    for name, item in allocation.items():
+        if not isinstance(item, dict):
+            continue
+        allocation_lines.append(f"{name}={_research_number(item.get('value'))} {item.get('currency', '')} ({item.get('status', 'unavailable')})")
+    checks = value.get("reconciliations", []) if isinstance(value.get("reconciliations"), list) else []
+    check_summary = ", ".join(f"{item.get('name')}={item.get('status')}" for item in checks if isinstance(item, dict)) or "No comparable reconciliations."
+    bank_projection = value.get("financial_projection") if isinstance(value.get("financial_projection"), dict) else None
+    bank_status = value.get("financial_projection_status", "not_applicable")
+    bank_line = f"Financial-institution projection: {bank_status}."
+    if bank_projection:
+        projection_metrics = bank_projection.get("metrics", [])
+        if isinstance(projection_metrics, (list, tuple)):
+            delegated = ", ".join(
+                f"{item.get('metric')}={_research_number(item.get('value'))} ({item.get('status', 'unavailable')})"
+                for item in projection_metrics
+                if isinstance(item, dict) and item.get("metric") in {"dividends", "retained_earnings", "issuance_dilution"}
+            )
+            if delegated:
+                bank_line += f" Delegated evidence: {delegated}."
+    capex_policy = value.get("maintenance_growth_capex", {}) if isinstance(value.get("maintenance_growth_capex"), dict) else {}
+    return panel(
+        ft.Column(
+            [
+                section_header("Capital Allocation", "Reported cash-flow evidence, calculated free cash flow, capital uses, dated shareholder yields and split-adjusted share changes remain separate."),
+                ft.Row(
+                    [
+                        evidence_chip("Coverage", str(coverage.get("status", "unavailable")), theme.CYAN if coverage.get("status") == "available" else theme.AMBER),
+                        evidence_chip("Periods", str(coverage.get("period_count", 0)), theme.BLUE_GREY),
+                        evidence_chip("Sources", str(len(source_ids)), theme.BLUE_GREY),
+                    ],
+                    wrap=True,
+                ),
+                _metric_cards(cards),
+                _selectable_text(" | ".join(details) or "Formula and period evidence are unavailable.", color=theme.MUTED),
+                _selectable_text(f"Capital-allocation records: {'; '.join(allocation_lines) or 'Unavailable.'}", color=theme.MUTED),
+                _selectable_text(f"Reconciliations: {check_summary}. {bank_line} Maintenance/growth capex: {capex_policy.get('reason', 'not inferred without issuer evidence')}; execution_allowed=false", color=theme.MUTED),
+            ],
+            spacing=8,
+        )
     )
 
 

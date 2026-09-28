@@ -16,6 +16,8 @@ import pandas as pd
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.data.etf_structure import project_etf_structure
 from etf_cockpit.data.event_calendar import normalise_event_decision_time
+from etf_cockpit.data.capital_allocation import capital_allocation_analysis
+from etf_cockpit.data.market_adjustments import CorporateActionCoverage
 from etf_cockpit.data.stock_research import valuation_analysis
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.parsed_disclosures import read_etf_report_records
@@ -869,6 +871,54 @@ def load_financial_institution_projection(
         return unavailable_financial_projection(
             instrument_id, "financial_evidence_invalid"
         )
+
+
+def load_capital_allocation_analysis(
+    statements: pd.DataFrame,
+    *,
+    instrument_id: str,
+    sector: str = "",
+    market_inputs: Mapping[str, object] | None = None,
+    corporate_actions: object = (),
+    corporate_action_coverage: object | None = None,
+    decision_time: str | None = None,
+    storage_root: Path | None = None,
+    financial_projection: object | None = None,
+) -> dict[str, object]:
+    """Adapt local capital-allocation evidence and delegate financial sectors."""
+
+    resolved_sector = str(sector or "").strip()
+    if not resolved_sector or resolved_sector.casefold() == "unclassified":
+        classification = load_classification_projection(
+            instrument_id,
+            storage_root=storage_root,
+            decision_time=decision_time,
+        )
+        context = classification.get("classification", {})
+        route = classification.get("sector_adapter_route", {})
+        if isinstance(context, Mapping) and isinstance(route, Mapping) and route.get("allowed") is True:
+            resolved_sector = str(context.get("sector") or context.get("industry") or "")
+
+    actions = tuple(corporate_actions) if isinstance(corporate_actions, (list, tuple)) else ()
+    coverage = corporate_action_coverage if isinstance(corporate_action_coverage, CorporateActionCoverage) else None
+    bank_projection = None
+    if resolved_sector.casefold() in {"bank", "banks", "financial", "financials", "insurance", "insurer"}:
+        bank_projection = load_financial_institution_projection(
+            instrument_id,
+            projection=financial_projection,
+            storage_root=storage_root,
+            decision_time=decision_time,
+        )
+    return capital_allocation_analysis(
+        statements,
+        instrument_id=instrument_id,
+        sector=resolved_sector,
+        market_inputs=market_inputs,
+        corporate_actions=actions,
+        corporate_action_coverage=coverage,
+        as_known_at=decision_time,
+        financial_projection=bank_projection,
+    )
 
 
 def _build_financial_projection_from_evidence(
