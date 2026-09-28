@@ -10,6 +10,7 @@ import pytest
 from etf_cockpit.app.pages.instrument_detail import _render_sparebank_workspace
 from etf_cockpit.app.selectors.instrument_detail import _sparebank_workspace
 from etf_cockpit.application.ui_facade import _select_ec_revision, load_financial_institution_projection
+from etf_cockpit.analysis.sparebank.events import merger_bridge, merger_ratios
 from etf_cockpit.data.classification import ClassificationEvidence, resolve_instrument_context
 from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.market_adjustments import CorporateAction, CorporateActionStore
@@ -173,12 +174,29 @@ def test_successor_ec_and_cash_preserve_merged_instrument_history(tmp_path: Path
         store.append(action)
         history = store.query("TOTG")
         successor_history = store.query("SPOL")
+        historical_analysis = store.replay(
+            "TOTG",
+            effective_at="2024-11-02T00:00:00Z",
+            known_at="2024-11-02T00:00:00Z",
+        )
     assert len(history) == 1
     assert history[0].terms["successor_instrument_id"] == "SPOL"
     assert history[0].ratio == pytest.approx(1.80)
     assert history[0].amount == pytest.approx(7.788)
     assert successor_history == ()
     assert history[0].execution_allowed is False
+    assert len(historical_analysis) == 1
+    assert historical_analysis[0].instrument_id == "TOTG"
+
+    ratios = merger_ratios(target_ec_exchange_ratio=history[0].terms["successor_ec_per_legacy_ec"])
+    value_bridge = merger_bridge(100.0, per_ec_increment=0.0)
+    successor_price = 51.22888888888889
+    successor_value = (
+        ratios["target_ec_exchange_ratio"] * successor_price
+        + history[0].terms["cash_per_legacy_ec"]
+    )
+    assert value_bridge["status"] == "resolved"
+    assert successor_value == pytest.approx(value_bridge["value_per_legacy_ec"])
 
 
 def test_roe_decomposition_uses_consistent_averages() -> None:
