@@ -1392,6 +1392,47 @@ def load_paper_trade_rows(root: Path) -> tuple[dict[str, object], ...]:
         return ()
 
 
+def load_paper_incidents(root: Path, *, account_id: str = "local-paper") -> dict[str, object]:
+    """Expose the verified local incident journal to presentation selectors."""
+
+    from etf_cockpit.trading.incidents import IncidentJournal, IncidentJournalError
+
+    journal = IncidentJournal(root, account_id=account_id)
+    if not journal.path.exists():
+        return {
+            "status": "unavailable",
+            "incidents": [],
+            "postmortems": [],
+            "reconciliations": [],
+            "frozen": False,
+            "reason_code": "incident_journal_missing",
+            "execution_allowed": False,
+        }
+    try:
+        projection = journal.snapshot()
+        events = projection["events"]
+        frozen = bool(projection["frozen"])
+    except (OSError, IncidentJournalError, ValueError):
+        return {
+            "status": "invalid",
+            "incidents": [],
+            "postmortems": [],
+            "reconciliations": [],
+            "frozen": True,
+            "reason_code": "incident_journal_invalid",
+            "execution_allowed": False,
+        }
+    return {
+        "status": "frozen" if frozen else "available",
+        "incidents": [dict(event["payload"]) for event in events if event["event_type"] == "incident_recorded"],
+        "postmortems": [dict(event["payload"]) for event in events if event["event_type"] == "postmortem_recorded"],
+        "reconciliations": [dict(event["payload"]) for event in events if event["event_type"] == "reconciliation_recorded"],
+        "frozen": frozen,
+        "source_authority": "local_paper_incident_journal",
+        "execution_allowed": False,
+    }
+
+
 def load_paper_timeline(
     root: Path,
     instrument_id: str,
