@@ -246,26 +246,32 @@ def test_valuation_fails_closed_when_cash_flow_inputs_are_unavailable() -> None:
 def test_valuation_bank_routing_uses_residual_income_and_suppresses_ev_multiples() -> None:
     frame = _statements()
     template = frame.loc[(frame["canonical_metric"] == "equity") & (frame["fiscal_year"] == 2026)].iloc[0].to_dict()
+    template.update({"currency": "EUR", "consolidation_scope": "consolidated"})
     frame = pd.concat(
         [frame, pd.DataFrame([{**template, "canonical_metric": "tangible_book_value", "value": 42.0}])],
         ignore_index=True,
     )
+    frame = frame.loc[~frame["canonical_metric"].isin(["equity", "net_income"])].copy()
 
-    result = valuation_analysis(
+    report = build_stock_research_report(
         frame,
         instrument_id="ACME",
         sector="bank",
-        market_inputs={"market_cap": 300.0, "shares_outstanding": 10.0, "net_debt": 18.0},
+        market_inputs={"market_cap": 300.0, "shares_outstanding": 10.0, "net_debt": 18.0, "reporting_currency": "EUR", "share_count_period_end": "2026-12-31"},
         assumptions={"forecast_years": 5, "cost_of_equity": 0.10, "terminal_growth": 0.02, "sustainable_roe": 0.12},
         financial_projection=SimpleNamespace(
             status="available",
+            instrument_id="ACME",
+            execution_allowed=False,
+            lineage={"decision_time": "2027-02-15T00:00:00Z", "sources": ("filing-2026",)},
             metrics=(
-                SimpleNamespace(metric="net_profit_attributable", status="available", value=20.0),
-                SimpleNamespace(metric="closing_equity", status="available", value=68.0),
-                SimpleNamespace(metric="tangible_book_value", status="available", value=42.0),
+                SimpleNamespace(metric="net_profit_attributable", status="available", value=20.0, unit="currency", period="2026-12-31", reporting_standard="IFRS", jurisdiction="NO", business_model="bank", scope="consolidated", source_id="filing-2026", source_authority="official", as_of="2026-12-31T00:00:00Z", known_at="2027-02-15T00:00:00Z", execution_allowed=False),
+                SimpleNamespace(metric="closing_equity", status="available", value=68.0, unit="currency", period="2026-12-31", reporting_standard="IFRS", jurisdiction="NO", business_model="bank", scope="consolidated", source_id="filing-2026", source_authority="official", as_of="2026-12-31T00:00:00Z", known_at="2027-02-15T00:00:00Z", execution_allowed=False),
+                SimpleNamespace(metric="tangible_book_value", status="available", value=42.0, unit="currency", period="2026-12-31", reporting_standard="IFRS", jurisdiction="NO", business_model="bank", scope="consolidated", source_id="filing-2026", source_authority="official", as_of="2026-12-31T00:00:00Z", known_at="2027-02-15T00:00:00Z", execution_allowed=False),
             ),
         ),
     )
+    result = report["valuation"]
 
     assert result["bank_route"]["path"] == "ISSUE-0099_fundamental_release"
     assert result["relative_metrics"]["ev_to_ebitda"]["status"] == "not_applicable"
@@ -275,6 +281,51 @@ def test_valuation_bank_routing_uses_residual_income_and_suppresses_ev_multiples
     assert result["intrinsic_value"]["status"] == "not_applicable"
     assert result["reverse_dcf"]["status"] == "not_applicable"
     assert result["residual_income"]["status"] == "available"
+
+
+def test_valuation_bank_residual_income_rejects_mixed_projection_lineage() -> None:
+    def projected_metric(metric: str, value: float, period: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            metric=metric,
+            status="available",
+            value=value,
+            unit="currency",
+            period=period,
+            reporting_standard="IFRS",
+            jurisdiction="NO",
+            business_model="bank",
+            scope="consolidated",
+            source_id="filing-2026",
+            source_authority="official",
+            as_of=f"{period}T00:00:00Z",
+            known_at="2027-02-15T00:00:00Z",
+            execution_allowed=False,
+        )
+
+    projection = SimpleNamespace(
+        status="available",
+        instrument_id="ACME",
+        execution_allowed=False,
+        lineage={"decision_time": "2027-02-15T00:00:00Z", "sources": ("filing-2026",)},
+        metrics=(
+            projected_metric("closing_equity", 68.0, "2026-12-31"),
+            projected_metric("tangible_book_value", 42.0, "2025-12-31"),
+        ),
+    )
+
+    result = valuation_analysis(
+        _statements(),
+        instrument_id="ACME",
+        sector="bank",
+        market_inputs={"market_cap": 300.0, "shares_outstanding": 10.0},
+        assumptions={"forecast_years": 5, "cost_of_equity": 0.10, "terminal_growth": 0.02, "sustainable_rote": 0.12},
+        financial_projection=projection,
+        as_known_at="2027-02-15T00:00:00Z",
+        strict_comparability=True,
+    )
+
+    assert result["residual_income"]["status"] == "unavailable"
+    assert "mixed period" in result["residual_income"]["reason"]
 
 
 def test_valuation_reverse_dcf_out_of_bound_target_is_unavailable() -> None:

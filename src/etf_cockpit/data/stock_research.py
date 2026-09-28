@@ -455,7 +455,24 @@ def valuation_analysis(
         )
         dcf_facts = ("free_cash_flow", "revenue") if margin_scenario else ("free_cash_flow",)
         dcf_basis = _valuation_inputs_comparable(frame, dcf_facts, market_inputs or {}, net_debt=True)
-        residual_basis = _valuation_inputs_comparable(frame, ("equity", "net_income"), market_inputs or {})
+        if bank_route:
+            sustainable_roe = _float(assumption_values.get("sustainable_roe"))
+            sustainable_rote = _float(assumption_values.get("sustainable_rote"))
+            projection_inputs = (
+                ("closing_equity", "tangible_book_value")
+                if sustainable_roe is None and sustainable_rote is not None
+                else ("closing_equity",)
+                if sustainable_roe is not None
+                else ("closing_equity", "net_profit_attributable")
+            )
+            residual_basis = _financial_projection_inputs_comparable(
+                financial_projection,
+                projection_inputs,
+                instrument_id=instrument_id,
+                as_known_at=as_known_at,
+            )
+        else:
+            residual_basis = _valuation_inputs_comparable(frame, ("equity", "net_income"), market_inputs or {})
         if not bank_route and dcf_basis["status"] != "available":
             intrinsic = {"status": "unavailable", "confidence": "low", "reason": str(dcf_basis["reason"]), "scenarios": {}, "execution_allowed": False}
             reverse = {"status": "unavailable", "confidence": "low", "reason": str(dcf_basis["reason"]), "execution_allowed": False}
@@ -2155,6 +2172,89 @@ def _financial_projection_metrics(projection: object | None) -> dict[str, float]
         if value is not None:
             result[str(name)] = value
     return result
+
+
+def _financial_projection_inputs_comparable(
+    projection: object | None,
+    metric_names: tuple[str, ...],
+    *,
+    instrument_id: str | None,
+    as_known_at: str | date | None,
+) -> dict[str, str]:
+    unavailable = "Financial-institution projection period, currency and accounting-scope lineage are required for comparable residual income."
+    if _projection_member(projection, "status") != "available":
+        return {"status": "unavailable", "reason": "Financial-institution projection inputs are unavailable."}
+    if instrument_id and _projection_member(projection, "instrument_id") != instrument_id:
+        return {"status": "unavailable", "reason": "Financial-institution projection identity does not match the instrument."}
+    if _projection_member(projection, "execution_allowed") is not False:
+        return {"status": "unavailable", "reason": "Financial-institution projection is not non-executable evidence."}
+
+    lineage = _projection_member(projection, "lineage", {})
+    projection_decision = _projection_member(lineage, "decision_time")
+    cutoff_value = as_known_at or projection_decision
+    cutoff = pd.to_datetime(cutoff_value, errors="coerce", utc=True)
+    built_at = pd.to_datetime(projection_decision, errors="coerce", utc=True)
+    if pd.isna(cutoff) or pd.isna(built_at) or built_at > cutoff:
+        return {"status": "unavailable", "reason": "Financial-institution projection decision-time lineage is missing or outside the valuation cutoff."}
+
+    source_ids = {
+        str(value).strip()
+        for value in _projection_member(lineage, "sources", ())
+        if str(value).strip()
+    }
+    raw_metrics = _projection_member(projection, "metrics", ())
+    if isinstance(raw_metrics, Mapping):
+        rows = list(raw_metrics.items())
+    elif isinstance(raw_metrics, (tuple, list)):
+        rows = [(_projection_member(item, "metric"), item) for item in raw_metrics]
+    else:
+        return {"status": "unavailable", "reason": unavailable}
+
+    selected: list[dict[str, str]] = []
+    for metric_name in metric_names:
+        matches = [
+            item
+            for name, item in rows
+            if str(_projection_member(item, "metric", name)) == metric_name
+        ]
+        if len(matches) != 1:
+            return {"status": "unavailable", "reason": f"{metric_name} projection lineage is unavailable; comparable residual income is withheld."}
+        item = matches[0]
+        if (
+            _projection_member(item, "status") not in {"available", "calculated"}
+            or _projection_member(item, "execution_allowed") is not False
+            or _float(_projection_member(item, "value")) is None
+        ):
+            return {"status": "unavailable", "reason": f"{metric_name} projection value is unavailable; comparable residual income is withheld."}
+        fields = {
+            name: str(_projection_member(item, name, "") or "").strip()
+            for name in (
+                "period",
+                "unit",
+                "reporting_standard",
+                "jurisdiction",
+                "business_model",
+                "scope",
+                "source_id",
+                "source_authority",
+                "as_of",
+                "known_at",
+            )
+        }
+        if any(not fields[name] for name in ("period", "unit", "reporting_standard", "jurisdiction", "business_model", "scope", "source_id", "source_authority", "as_of", "known_at")):
+            return {"status": "unavailable", "reason": f"{metric_name} projection lineage is incomplete; comparable residual income is withheld."}
+        as_of = pd.to_datetime(fields["as_of"], errors="coerce", utc=True)
+        known_at = pd.to_datetime(fields["known_at"], errors="coerce", utc=True)
+        if pd.isna(as_of) or pd.isna(known_at) or as_of > cutoff or known_at > cutoff:
+            return {"status": "unavailable", "reason": f"{metric_name} projection is outside the valuation decision-time cutoff."}
+        if fields["source_id"] not in source_ids:
+            return {"status": "unavailable", "reason": f"{metric_name} source is absent from projection lineage."}
+        selected.append(fields)
+
+    dimensions = ("period", "unit", "reporting_standard", "jurisdiction", "business_model", "scope")
+    if any(len({item[name] for item in selected}) != 1 for name in dimensions):
+        return {"status": "unavailable", "reason": "Selected ISSUE-0099 projection inputs have mixed period, currency, or accounting scope."}
+    return {"status": "available", "reason": ""}
 
 
 def _model_disagreement(intrinsic: Mapping[str, object], residual: Mapping[str, object]) -> dict[str, object]:
