@@ -130,6 +130,12 @@ def calculate_look_through(
     normaliser_input = selected.copy()
     if "instrument_type" not in normaliser_input.columns and "exposure_type" in normaliser_input.columns:
         normaliser_input["instrument_type"] = normaliser_input["exposure_type"]
+    typed_identity_counts: dict[str, int] = {}
+    for _, row in normaliser_input.iterrows():
+        identity = _typed_identity(row)
+        if identity is not None:
+            typed_identity_counts[identity] = typed_identity_counts.get(identity, 0) + 1
+    has_duplicate_typed_identities = any(count > 1 for count in typed_identity_counts.values())
     normalized = normalise_holdings(
         normaliser_input,
         instrument_id,
@@ -141,6 +147,8 @@ def calculate_look_through(
     lineage_source_ids = _unique_text(selected.get("source_id"))
     revisions = _unique_text(selected.get("revision"))
     limitations: list[str] = []
+    if has_duplicate_typed_identities:
+        limitations.append("Repeated typed holding identities were reported; duplicate rows are merged into one economic exposure after exact duplicate rows are removed.")
     if selection_warning:
         limitations.append(selection_warning)
     if selected_known_at is None:

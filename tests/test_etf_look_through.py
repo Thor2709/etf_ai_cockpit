@@ -173,6 +173,7 @@ def test_duplicate_rows_and_multiple_listings_merge_to_one_economic_exposure() -
     assert acme["weight"] == pytest.approx(0.4)
     assert len(acme["listing_identities"]) == 2
     assert summary.exposures["issuer"]["acme"] == pytest.approx(0.4)
+    assert any("Repeated typed holding identities" in item for item in summary.limitations)
 
 
 def test_missing_fundamentals_reduce_coverage_and_stale_holdings_are_flagged() -> None:
