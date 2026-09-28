@@ -54,9 +54,11 @@ from etf_cockpit.core.versioning import (
 from etf_cockpit.data.duckdb_store import FEATURE_PARQUET, initialise_store, load_features, load_holdings, load_prices, write_features
 from etf_cockpit.data.etf_economics import (
     ClosureProxyPolicy,
+    ETF_ECONOMICS_PATH,
     EtfEconomicsObservation,
     TotalReturnEvidence,
     load_closure_proxy_policy,
+    load_etf_economics_import_manifest,
     load_etf_economics_records,
     load_total_return_evidence,
 )
@@ -843,8 +845,8 @@ class CockpitSnapshot:
     # Revision of the canonical universe used to build cached derived data.
     universe_revision: str = ""
     etf_economics_records: tuple[EtfEconomicsObservation, ...] = ()
-    etf_fund_total_return: TotalReturnEvidence | None = None
-    etf_benchmark_total_return: TotalReturnEvidence | None = None
+    etf_fund_total_return: Mapping[str, TotalReturnEvidence] | None = None
+    etf_benchmark_total_return: Mapping[str, TotalReturnEvidence] | None = None
     etf_closure_policy: ClosureProxyPolicy | None = None
     benchmark_reference_registry: CanonicalBenchmarkRegistry = field(default_factory=CanonicalBenchmarkRegistry)
     benchmark_reference_instrument: Mapping[str, object] | None = None
@@ -2815,14 +2817,15 @@ def _current_portfolio_reference(
 
 
 def _trusted_etf_economics_records() -> tuple[EtfEconomicsObservation, ...]:
+    manifest = load_etf_economics_import_manifest(ETF_ECONOMICS_PATH)
+    if manifest is None:
+        return ()
     try:
         reports = read_etf_report_records()
     except (OSError, TypeError, ValueError):
         return ()
     required = {"source_id", "source_sha256", "source_authority", "verification_status", "evidence_eligible"}
-    if reports.empty:
-        return load_etf_economics_records()
-    if not required.issubset(reports.columns):
+    if reports.empty or not required.issubset(reports.columns):
         return ()
     eligible = (
         reports["source_authority"].astype(str).str.casefold().isin({"official_regulator", "issuer_document"})
@@ -2836,7 +2839,11 @@ def _trusted_etf_economics_records() -> tuple[EtfEconomicsObservation, ...]:
     }
     if not trusted:
         return ()
-    return load_etf_economics_records(trusted_sources=trusted)
+    return load_etf_economics_records(
+        ETF_ECONOMICS_PATH,
+        trusted_sha256=manifest["sha256"],
+        trusted_sources=trusted,
+    )
 
 
 def _canonical_total_return_from_prices(
@@ -2863,7 +2870,15 @@ def _canonical_total_return_from_prices(
         if frame.empty:
             return None
         frame["date"] = pd.to_datetime(frame["date"], errors="coerce", utc=True)
+        frame = frame.loc[frame["date"].notna() & frame["date"].le(cutoff)].copy()
+        if frame.empty or frame[["known_at", "source_id", "provenance"]].isna().any().any():
+            return None
+        if frame[["source_id", "provenance"]].astype(str).apply(lambda column: column.str.strip().eq("")).any().any():
+            return None
+        frame["date"] = pd.to_datetime(frame["date"], errors="coerce", utc=True)
         frame["known_at"] = pd.to_datetime(frame["known_at"], errors="coerce", utc=True)
+        if frame["known_at"].isna().any():
+            return None
         frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
         frame = frame.loc[
             frame["date"].notna()
@@ -2924,32 +2939,66 @@ def _etf_economics_snapshot_inputs(
     decision_time: object,
 ) -> tuple[
     tuple[EtfEconomicsObservation, ...],
-    TotalReturnEvidence | None,
-    TotalReturnEvidence | None,
+    Mapping[str, TotalReturnEvidence] | None,
+    Mapping[str, TotalReturnEvidence] | None,
     ClosureProxyPolicy | None,
 ]:
-    records = _trusted_etf_economics_records()
+    imported_records = _trusted_etf_economics_records()
     cutoff = pd.Timestamp(decision_time)
     if cutoff.tzinfo is None:
         cutoff = cutoff.tz_localize("UTC")
     else:
         cutoff = cutoff.tz_convert("UTC")
+    records = tuple(
+        item
+        for item in imported_records
+        if item.artifact_known_at is not None
+        and pd.Timestamp(item.artifact_known_at) <= cutoff
+    )
     eligible_funds = [
         item for item in records
         if item.scope == "fund"
         and pd.Timestamp(item.as_of) <= cutoff
         and pd.Timestamp(item.known_at) <= cutoff
     ]
-    fund = max(eligible_funds, key=lambda item: (item.as_of, item.known_at or ""), default=None)
-    fund_return = load_total_return_evidence(ETF_FUND_TOTAL_RETURN_PATH)
-    benchmark_return = load_total_return_evidence(ETF_BENCHMARK_TOTAL_RETURN_PATH)
-    if fund_return is None and fund is not None:
-        fund_return = _canonical_total_return_from_prices(prices, fund.instrument_id, fund.currency, decision_time)
-    if benchmark_return is None and fund is not None and fund.benchmark_id and fund.benchmark_currency:
-        benchmark_return = _canonical_total_return_from_prices(
-            prices, fund.benchmark_id, fund.benchmark_currency, decision_time
-        )
-    return records, fund_return, benchmark_return, load_closure_proxy_policy()
+    latest_by_instrument: dict[str, EtfEconomicsObservation] = {}
+    for item in eligible_funds:
+        current = latest_by_instrument.get(item.instrument_id)
+        if current is None or (item.as_of, item.known_at or "") > (current.as_of, current.known_at or ""):
+            latest_by_instrument[item.instrument_id] = item
+
+    fund_returns: dict[str, TotalReturnEvidence] = {}
+    benchmark_returns: dict[str, TotalReturnEvidence] = {}
+    persisted_fund = load_total_return_evidence(ETF_FUND_TOTAL_RETURN_PATH)
+    persisted_benchmark = load_total_return_evidence(ETF_BENCHMARK_TOTAL_RETURN_PATH)
+    if persisted_fund is not None:
+        fund_returns[persisted_fund.instrument_id] = persisted_fund
+    if persisted_benchmark is not None:
+        benchmark_returns[persisted_benchmark.instrument_id] = persisted_benchmark
+
+    for item in latest_by_instrument.values():
+        if item.instrument_id not in fund_returns and item.currency is not None:
+            evidence = _canonical_total_return_from_prices(
+                prices, item.instrument_id, item.currency, decision_time
+            )
+            if evidence is not None:
+                fund_returns[item.instrument_id] = evidence
+        if (
+            item.benchmark_id
+            and item.benchmark_currency
+            and item.benchmark_id not in benchmark_returns
+        ):
+            evidence = _canonical_total_return_from_prices(
+                prices, item.benchmark_id, item.benchmark_currency, decision_time
+            )
+            if evidence is not None:
+                benchmark_returns[item.benchmark_id] = evidence
+    return (
+        records,
+        fund_returns or None,
+        benchmark_returns or None,
+        load_closure_proxy_policy(),
+    )
 
 
 def _build_snapshot(

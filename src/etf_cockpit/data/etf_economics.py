@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 import hashlib
 import json
 import math
@@ -163,6 +163,12 @@ class EtfEconomicsObservation:
     benchmark_source_id: str | None = None
     benchmark_source_provenance: str | None = None
     benchmark_source_checksum: str | None = None
+    entity_status: str = "active"
+    successor_instrument_id: str | None = None
+    closure_effective_date: str | None = None
+    artifact_source_path: str | None = None
+    artifact_sha256: str | None = None
+    artifact_known_at: str | None = None
     execution_allowed: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
@@ -186,6 +192,31 @@ class EtfEconomicsObservation:
             raise EtfEconomicsError("fund observations cannot carry share_class_id")
         object.__setattr__(self, "scope", scope)
         object.__setattr__(self, "share_class_id", share_class_id)
+        entity_status = (_text(self.entity_status) or "active").casefold()
+        if entity_status not in {"active", "closing", "closed", "merged"}:
+            raise EtfEconomicsError("entity_status must be active, closing, closed, or merged")
+        successor_id = _text(self.successor_instrument_id)
+        closure_effective_date = _timestamp(
+            self.closure_effective_date,
+            "closure_effective_date",
+            required=entity_status in {"closing", "closed", "merged"},
+        )
+        if entity_status == "merged" and successor_id is None:
+            raise EtfEconomicsError("merged entities require successor_instrument_id")
+        if successor_id == instrument_id:
+            raise EtfEconomicsError("successor_instrument_id must differ from instrument_id")
+        if entity_status == "active" and (successor_id is not None or closure_effective_date is not None):
+            raise EtfEconomicsError("active entities cannot carry closure or successor details")
+        if entity_status == "closing" and (
+            closure_effective_date is None
+            or pd.Timestamp(closure_effective_date) <= pd.Timestamp(effective_as_of)
+        ):
+            raise EtfEconomicsError("closing entities require a future closure_effective_date")
+        if entity_status in {"closed", "merged"} and closure_effective_date is not None and pd.Timestamp(closure_effective_date) > pd.Timestamp(effective_as_of):
+            raise EtfEconomicsError("closure_effective_date cannot follow the observation as_of")
+        object.__setattr__(self, "entity_status", entity_status)
+        object.__setattr__(self, "successor_instrument_id", successor_id)
+        object.__setattr__(self, "closure_effective_date", closure_effective_date)
         object.__setattr__(self, "currency", _currency(self.currency, "currency"))
         object.__setattr__(self, "benchmark_id", _text(self.benchmark_id))
         object.__setattr__(self, "benchmark_name", _text(self.benchmark_name))
@@ -239,6 +270,13 @@ class EtfEconomicsObservation:
             value = getattr(self, field_name)
             if value is not None:
                 object.__setattr__(self, field_name, _source_checksum(value, field_name))
+        object.__setattr__(self, "artifact_source_path", _text(self.artifact_source_path))
+        artifact_sha256 = _text(self.artifact_sha256)
+        if artifact_sha256 is not None:
+            artifact_sha256 = _source_checksum(artifact_sha256, "artifact_sha256")
+        object.__setattr__(self, "artifact_sha256", artifact_sha256)
+        artifact_known_at = _timestamp(self.artifact_known_at, "artifact_known_at")
+        object.__setattr__(self, "artifact_known_at", artifact_known_at)
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, object]) -> "EtfEconomicsObservation":
@@ -327,6 +365,7 @@ class ClosureProxyPolicy:
     effective_from: str | None = None
     effective_until: str | None = None
     known_at: str | None = None
+    aum_max_age_days: int | None = None
     execution_allowed: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
@@ -361,6 +400,12 @@ class ClosureProxyPolicy:
         if period is None:
             raise EtfEconomicsError("flow_period_days is required")
         object.__setattr__(self, "flow_period_days", int(period))
+        aum_max_age_days = _number(self.aum_max_age_days, "aum_max_age_days", minimum=1.0)
+        object.__setattr__(
+            self,
+            "aum_max_age_days",
+            int(aum_max_age_days) if aum_max_age_days is not None else int(period),
+        )
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, object]) -> "ClosureProxyPolicy":
@@ -748,7 +793,6 @@ def _read_local_frame(
     path: Path,
     *,
     trusted_sha256: str | None = None,
-    trusted_sources: Mapping[str, str] | None = None,
 ) -> pd.DataFrame | None:
     candidates = [path]
     if path.suffix.lower() == ".parquet":
@@ -758,10 +802,7 @@ def _read_local_frame(
     for candidate in candidates:
         if not candidate.exists():
             continue
-        if trusted_sha256 is not None:
-            if not _matches_trusted_artifact(candidate, trusted_sha256):
-                continue
-        elif not trusted_sources:
+        if not _matches_trusted_artifact(candidate, trusted_sha256):
             continue
         try:
             return pd.read_csv(candidate) if candidate.suffix.lower() == ".csv" else pd.read_parquet(candidate)
@@ -784,21 +825,90 @@ def _matches_trusted_artifact(path: Path, trusted_sha256: str | None) -> bool:
         return False
 
 
+def _economics_import_manifest_path(path: Path) -> Path:
+    return Path(f"{path}.import.json")
+
+
+def load_etf_economics_import_manifest(path: Path | None = None) -> dict[str, str] | None:
+    """Return verified import lineage for an economics artifact, if available."""
+
+    target = Path(path or ETF_ECONOMICS_PATH)
+    manifest_path = _economics_import_manifest_path(target)
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, Mapping):
+            return None
+        source_path = _text(payload.get("source_path"))
+        sha256 = _source_checksum(payload.get("sha256"), "economics artifact sha256")
+        known_at = _timestamp(payload.get("known_at"), "economics artifact known_at", required=True)
+        imported_at = _timestamp(payload.get("imported_at"), "economics artifact imported_at", required=True)
+        if source_path is None or not _matches_trusted_artifact(target, sha256):
+            return None
+        return {
+            "source_path": source_path,
+            "sha256": sha256,
+            "known_at": known_at or "",
+            "imported_at": imported_at or "",
+        }
+    except (EtfEconomicsError, OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def import_etf_economics_artifact(
+    source: Path,
+    *,
+    known_at: object,
+    dest: Path = ETF_ECONOMICS_PATH,
+) -> dict[str, str]:
+    """Copy a trusted economics artifact and record its import-time checksum lineage."""
+
+    source_path = Path(source)
+    destination = Path(dest)
+    normalized_known_at = _timestamp(known_at, "economics artifact known_at", required=True) or ""
+    content = source_path.read_bytes()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(content)
+    manifest = {
+        "source_path": str(source_path.resolve()),
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "known_at": normalized_known_at,
+        "imported_at": pd.Timestamp.now(tz="UTC").isoformat().replace("+00:00", "Z"),
+    }
+    _economics_import_manifest_path(destination).write_text(
+        json.dumps(manifest, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
 def load_etf_economics_records(
     path: Path | None = None,
     *,
     trusted_sha256: str | None = None,
     trusted_sources: Mapping[str, str] | None = None,
 ) -> tuple[EtfEconomicsObservation, ...]:
+    target = Path(path or ETF_ECONOMICS_PATH)
+    manifest = load_etf_economics_import_manifest(target)
+    if trusted_sha256 is None and manifest is not None:
+        trusted_sha256 = manifest["sha256"]
     frame = _read_local_frame(
-        path or ETF_ECONOMICS_PATH,
+        target,
         trusted_sha256=trusted_sha256,
-        trusted_sources=trusted_sources,
     )
     if frame is None:
         return ()
     try:
         records = EtfEconomicsStore.from_frame(frame).records
+        if manifest is not None and trusted_sha256 == manifest["sha256"]:
+            records = tuple(
+                replace(
+                    item,
+                    artifact_source_path=manifest["source_path"],
+                    artifact_sha256=manifest["sha256"],
+                    artifact_known_at=manifest["known_at"],
+                )
+                for item in records
+            )
         if trusted_sources is None:
             return records
         trusted = {
@@ -847,7 +957,11 @@ def load_closure_proxy_policy(
     for candidate in candidates:
         if not candidate.exists():
             continue
-        if not _matches_trusted_artifact(candidate, trusted_sha256):
+        expected = trusted_sha256
+        if expected is None:
+            manifest = load_etf_economics_import_manifest(candidate)
+            expected = manifest["sha256"] if manifest is not None else None
+        if not _matches_trusted_artifact(candidate, expected):
             continue
         try:
             if candidate.suffix.lower() == ".json":
@@ -969,6 +1083,10 @@ def _fee_payload(record: EtfEconomicsObservation) -> dict[str, object]:
         "document_id": record.document_id, "document_date": record.document_date, "document_page": record.document_page,
         "revision_id": record.revision_id, "source_id": record.source_id, "source_provenance": record.source_provenance,
         "source_checksum": record.source_checksum, "confidence": record.confidence,
+        "artifact_source_path": record.artifact_source_path, "artifact_sha256": record.artifact_sha256,
+        "artifact_known_at": record.artifact_known_at,
+        "entity_status": record.entity_status, "successor_instrument_id": record.successor_instrument_id,
+        "closure_effective_date": record.closure_effective_date,
     }
 
 
@@ -1003,8 +1121,16 @@ def _closure_proxy(fund: EtfEconomicsObservation | None, as_of: str | None, poli
         }
     factors: dict[str, float] = {}
     missing: list[str] = []
-    if fund.aum is not None:
+    aum_age_days = max(0, (pd.Timestamp(as_of) - pd.Timestamp(fund.as_of)).days) if as_of is not None else None
+    aum_is_stale = (
+        fund.aum is not None
+        and aum_age_days is not None
+        and aum_age_days > int(policy.aum_max_age_days or policy.flow_period_days)
+    )
+    if fund.aum is not None and not aum_is_stale:
         factors["aum"] = round(max(0.0, min(1.0, 1.0 - fund.aum / policy.aum_threshold)), 8)
+    elif aum_is_stale:
+        missing.append("aum_stale")
     else:
         missing.append("aum")
     if fund.flows is not None and fund.flow_period_days == policy.flow_period_days:
@@ -1021,7 +1147,7 @@ def _closure_proxy(fund: EtfEconomicsObservation | None, as_of: str | None, poli
         "status": "available" if coverage == 1.0 else "unavailable", "label": label, "method": "versioned age/AUM/flow proxy",
         "policy_version": policy.version, "base_currency": policy.base_currency, "amount_unit": policy.amount_unit,
         "policy_interval": {"effective_from": policy.effective_from, "effective_until": policy.effective_until, "known_at": policy.known_at},
-        "policy_assumptions": {"aum_threshold": policy.aum_threshold, "flow_period_days": policy.flow_period_days, "flow_threshold": policy.flow_threshold, "young_age_years": policy.young_age_years},
+        "policy_assumptions": {"aum_threshold": policy.aum_threshold, "aum_max_age_days": policy.aum_max_age_days, "flow_period_days": policy.flow_period_days, "flow_threshold": policy.flow_threshold, "young_age_years": policy.young_age_years},
         "policy_provenance": {"source_id": policy.source_id, "source_provenance": policy.source_provenance, "source_checksum": policy.source_checksum},
         "score": round(sum(factors.values()) / len(factors), 8) if factors else None,
         "factors": factors, "missing_factors": tuple(missing), "factor_coverage": {"available": len(factors), "total": 3, "ratio": round(coverage, 8)},
@@ -1055,6 +1181,10 @@ def calculate_etf_economics(
         selected = store.as_of(instrument, cutoff)
         fund, classes = _latest_by_scope(selected)
         canonical_benchmark = fund.benchmark_id if fund else None
+        if isinstance(fund_total_return, Mapping):
+            fund_total_return = fund_total_return.get(instrument)
+        if isinstance(benchmark_total_return, Mapping):
+            benchmark_total_return = benchmark_total_return.get(canonical_benchmark)
         if benchmark_id is not None and _text(benchmark_id) != canonical_benchmark:
             return _unavailable(instrument, "benchmark override does not match canonical benchmark identity", missing=("benchmark_identity",), benchmark_id=canonical_benchmark)
         benchmark = canonical_benchmark
@@ -1064,6 +1194,14 @@ def calculate_etf_economics(
         output_currency = fund.currency if fund else requested_currency
         benchmark_currency = fund.benchmark_currency if fund else None
         effective_as_of = cutoff or (fund.as_of if fund else (history[-1].as_of if history else None))
+        class_event = classes.get(instrument)
+        class_closure_applies = bool(
+            class_event is not None
+            and class_event.entity_status in {"closed", "merged"}
+            and class_event.closure_effective_date is not None
+            and effective_as_of is not None
+            and pd.Timestamp(class_event.closure_effective_date) <= pd.Timestamp(effective_as_of)
+        )
         missing: set[str] = set()
         if fund is None:
             missing.add("fund_economics")
@@ -1075,6 +1213,10 @@ def calculate_etf_economics(
             missing.add("benchmark_currency")
         if benchmark_currency is not None and output_currency is not None and benchmark_currency != output_currency:
             missing.add("currency_match")
+        if class_closure_applies:
+            missing.add("share_class_closed")
+            if class_event is not None and class_event.entity_status == "merged":
+                missing.add("successor_total_return")
         if fund is not None and any(
             _text(getattr(fund, field_name)) is None
             for field_name in ("source_id", "source_provenance", "source_checksum")
@@ -1085,7 +1227,11 @@ def calculate_etf_economics(
         if requested_horizon < 1:
             raise EtfEconomicsError("horizon_days must be positive")
         evidence_cutoff = cutoff or effective_as_of
-        fund_frame = _series_frame(fund_total_return, "fund", instrument, evidence_cutoff) if fund_total_return is not None else pd.DataFrame()
+        fund_frame = (
+            _series_frame(fund_total_return, "fund", instrument, evidence_cutoff)
+            if fund_total_return is not None and not class_closure_applies
+            else pd.DataFrame()
+        )
         benchmark_frame = _series_frame(benchmark_total_return, "benchmark", benchmark, evidence_cutoff) if benchmark_total_return is not None and benchmark is not None else pd.DataFrame()
         if fund_total_return is None:
             missing.add("fund_total_return")
@@ -1159,6 +1305,37 @@ def calculate_etf_economics(
                 fee_changes.append({"scope": item.scope, "share_class_id": item.share_class_id, "from_as_of": prior.as_of, "to_as_of": item.as_of, "from_ter": prior.ter, "to_ter": item.ter, "from_ocf": prior.ocf, "to_ocf": item.ocf})
             previous[key] = item
         policy = closure_policy if isinstance(closure_policy, ClosureProxyPolicy) else ClosureProxyPolicy.from_mapping(closure_policy) if isinstance(closure_policy, Mapping) else None
+        warnings: list[str] = []
+        aum_age_days = max(0, (pd.Timestamp(effective_as_of) - pd.Timestamp(fund.as_of)).days) if fund is not None and effective_as_of is not None else None
+        aum_max_age_days = int(policy.aum_max_age_days or policy.flow_period_days) if policy is not None else None
+        aum_status = "unavailable"
+        aum_warning = None
+        if fund is not None and fund.aum is not None and aum_max_age_days is not None:
+            if aum_age_days is not None and aum_age_days > aum_max_age_days:
+                aum_status = "stale"
+                aum_warning = f"AUM evidence is {aum_age_days} days old; policy limit is {aum_max_age_days} days."
+                missing.add("aum_stale")
+                warnings.append(aum_warning)
+            else:
+                aum_status = "available"
+        elif fund is not None and fund.aum is not None:
+            aum_warning = "AUM freshness is unavailable because the closure policy is missing."
+            warnings.append(aum_warning)
+        fund_metrics.update(
+            {
+                "aum_status": aum_status,
+                "aum_age_days": aum_age_days,
+                "aum_max_age_days": aum_max_age_days,
+                "aum_warning": aum_warning,
+            }
+        )
+        if class_closure_applies and instrument in share_class_metrics:
+            share_class_metrics[instrument]["economic_quality_status"] = "closed_share_class"
+            closure_message = (
+                f"Share class {class_event.entity_status} effective {class_event.closure_effective_date}; "
+                "successor returns are not attributed to this identity."
+            )
+            warnings.append(closure_message)
         closure_report = _closure_proxy(fund, effective_as_of, policy)
         if policy is None:
             missing.add("closure_policy")
@@ -1192,7 +1369,7 @@ def calculate_etf_economics(
             tracking_evidence_label="calculated from matched canonical total-return evidence" if tracking_status == "available" else "unavailable",
             fund_metrics=fund_metrics,
             share_class_metrics=share_class_metrics, fee_history=fee_history, fee_changes=tuple(fee_changes), history=tuple(item.as_dict() for item in history),
-            closure_risk_proxy=closure_report, missing_evidence=tuple(sorted(missing)), warnings=(),
+            closure_risk_proxy=closure_report, missing_evidence=tuple(sorted(missing)), warnings=tuple(warnings),
         )
     except (EtfEconomicsError, TypeError, ValueError, OverflowError) as exc:
         return _unavailable(instrument, str(exc), missing=("economics_records",))
@@ -1201,6 +1378,7 @@ def calculate_etf_economics(
 __all__ = [
     "ETF_ECONOMICS_MODEL_ID", "EtfEconomicsError", "EtfEconomicsObservation", "EtfEconomicsReport", "EtfEconomicsStore",
     "ClosureProxyPolicy", "TotalReturnEvidence", "CanonicalTotalReturnEvidence", "calculate_etf_economics", "load_etf_economics_records",
+    "import_etf_economics_artifact", "load_etf_economics_import_manifest",
     "load_total_return_evidence", "load_closure_proxy_policy", "ETF_ECONOMICS_PATH", "ETF_FUND_TOTAL_RETURN_PATH",
     "ETF_BENCHMARK_TOTAL_RETURN_PATH", "ETF_CLOSURE_POLICY_PATH",
 ]

@@ -3,6 +3,7 @@
   "base_currency": "EUR",
   "amount_unit": "currency_units",
   "aum_threshold": 10000000,
+  "aum_max_age_days": 30,
   "flow_period_days": 30,
   "flow_threshold": 1000000,
   "young_age_years": 3,

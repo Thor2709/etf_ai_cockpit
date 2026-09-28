@@ -8,4 +8,6 @@ not describe a real instrument or provider.
 
 `manifest.json` identifies the synthetic disclosure checksum and synthetic
 corporate-action coverage records. `economics.csv` and `prices.csv` are consumed
-by production loaders in the focused integration tests.
+by production loaders in the focused integration tests. `closure-merger.csv`
+contains a synthetic share-class merger observation and successor identity;
+it is used only by the bounded closure regression test.
