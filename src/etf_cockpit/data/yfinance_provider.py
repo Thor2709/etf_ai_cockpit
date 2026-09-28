@@ -3,12 +3,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig, ETFConfig, ProviderSection
-from etf_cockpit.core.paths import RAW_DIR
+from etf_cockpit.core.paths import RAW_DIR as RAW_DIR
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.data.providers import DataProvider, PriceProvider, ProviderResult
 from etf_cockpit.data.provenance import metadata_from_frame
@@ -51,10 +52,12 @@ class YFinanceProvider(DataProvider, PriceProvider):
         *,
         default_currency: str = "EUR",
         instrument_metadata: dict[str, dict[str, object]] | None = None,
+        retrieval_root: Path | None = None,
     ):
         self.section = section or ProviderSection()
         self.default_currency = default_currency
         self.instrument_metadata = instrument_metadata or {}
+        self.retrieval_root = Path(retrieval_root) if retrieval_root is not None else None
 
     @classmethod
     def from_config(cls, config: AppConfig) -> "YFinanceProvider":
@@ -107,11 +110,11 @@ class YFinanceProvider(DataProvider, PriceProvider):
                 frame["date"] = pd.to_datetime(frame["date"]).dt.date
             return frame
 
-        retrieval_root = RAW_DIR / "prices" / "yfinance_retrieval"
+        retrieval_root = self.retrieval_root
         retriever = BatchRetriever[pd.DataFrame](
             provider=self.name,
-            cache_dir=retrieval_root / "cache",
-            checkpoint_path=retrieval_root / "checkpoint.json",
+            cache_dir=(retrieval_root / "cache") if retrieval_root is not None else None,
+            checkpoint_path=(retrieval_root / "checkpoint.json") if retrieval_root is not None else None,
             adjusted=False,
             adapter_version="yfinance-download-v1",
             limiter=provider_rate_limiter(self.name, max_calls_per_window=60, window_seconds=60.0),

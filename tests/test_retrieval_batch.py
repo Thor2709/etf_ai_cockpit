@@ -255,3 +255,78 @@ def test_yfinance_fetch_prices_uses_retrieval_layer_and_preserves_provider_resul
     assert result.data["etf_id"].tolist() == ["ETF-A"]
     assert result.data["provider_symbol"].tolist() == ["FAKE.DE"]
     assert result.data["date"].tolist() == [date(2026, 8, 1)]
+
+
+def test_yfinance_default_providers_do_not_share_persistent_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_download(symbol: str, **kwargs: object) -> pd.DataFrame:
+        calls.append(symbol)
+        return pd.DataFrame(
+            {
+                "Open": [10.0],
+                "High": [10.5],
+                "Low": [9.5],
+                "Close": [10.2],
+                "Adj Close": [10.1],
+                "Volume": [100],
+            },
+            index=pd.to_datetime(["2026-08-01"]),
+        )
+
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(download=fake_download))
+    monkeypatch.setattr("etf_cockpit.data.yfinance_provider.RAW_DIR", tmp_path)
+    section = ProviderSection(symbols_map={"ETF-A": "FAKE.DE"})
+
+    first = YFinanceProvider(section).fetch_prices([], date(2026, 8, 1), date(2026, 8, 31))
+    second = YFinanceProvider(section).fetch_prices([], date(2026, 8, 1), date(2026, 8, 31))
+
+    assert first.ok
+    assert second.ok
+    assert calls == ["FAKE.DE", "FAKE.DE"]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_yfinance_explicit_retrieval_root_reuses_cache_and_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_download(symbol: str, **kwargs: object) -> pd.DataFrame:
+        calls.append(symbol)
+        return pd.DataFrame(
+            {
+                "Open": [10.0],
+                "High": [10.5],
+                "Low": [9.5],
+                "Close": [10.2],
+                "Adj Close": [10.1],
+                "Volume": [100],
+            },
+            index=pd.to_datetime(["2026-08-01"]),
+        )
+
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(download=fake_download))
+    root = tmp_path / "retrieval"
+    section = ProviderSection(symbols_map={"ETF-A": "FAKE.DE"})
+
+    first = YFinanceProvider(section, retrieval_root=root).fetch_prices(
+        [], date(2026, 8, 1), date(2026, 8, 31)
+    )
+    checkpoint_path = root / "checkpoint.json"
+    first_checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    second = YFinanceProvider(section, retrieval_root=root).fetch_prices(
+        [], date(2026, 8, 1), date(2026, 8, 31)
+    )
+    second_checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+
+    assert first.ok
+    assert second.ok
+    assert calls == ["FAKE.DE"]
+    assert list((root / "cache").glob("*.json"))
+    assert first_checkpoint["run_id"] == second_checkpoint["run_id"]
+    assert second_checkpoint["symbols"]["FAKE.DE"]["status"] == "done"

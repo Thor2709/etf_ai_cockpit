@@ -126,8 +126,8 @@ class BatchRetriever(Generic[T]):
         self,
         *,
         provider: str,
-        cache_dir: Path,
-        checkpoint_path: Path,
+        cache_dir: Path | None,
+        checkpoint_path: Path | None,
         batch_size: int = 25,
         adjusted: bool = False,
         adapter_version: str = "1",
@@ -150,9 +150,11 @@ class BatchRetriever(Generic[T]):
             raise ValueError("backoff_seconds cannot be negative")
         if (encode is None) != (decode is None):
             raise ValueError("encode and decode must be supplied together")
+        if (cache_dir is None) != (checkpoint_path is None):
+            raise ValueError("cache_dir and checkpoint_path must be supplied together")
         self.provider = str(provider).strip()
-        self.cache_dir = Path(cache_dir)
-        self.checkpoint_path = Path(checkpoint_path)
+        self.cache_dir = Path(cache_dir) if cache_dir is not None else None
+        self.checkpoint_path = Path(checkpoint_path) if checkpoint_path is not None else None
         self.batch_size = batch_size
         self.adjusted = bool(adjusted)
         self.adapter_version = str(adapter_version)
@@ -164,6 +166,8 @@ class BatchRetriever(Generic[T]):
         self.encode = encode or _json_encode
         self.decode = decode or _json_decode
         self.is_available = is_available or (lambda value: value is not None)
+        self._memory_cache: dict[bytes, tuple[bytes, str]] = {}
+        self._memory_manifest: dict[str, object] | None = None
 
     def retrieve(
         self,
@@ -300,9 +304,19 @@ class BatchRetriever(Generic[T]):
         }
 
     def _cache_path(self, key: dict[str, object]) -> Path:
+        assert self.cache_dir is not None
         return self.cache_dir / f"{_sha256(_canonical_json(key))}.json"
 
     def _read_cache(self, key: dict[str, object]) -> tuple[T, str] | None:
+        if self.cache_dir is None:
+            cached = self._memory_cache.get(_canonical_json(key))
+            if cached is None:
+                return None
+            payload, retrieved_at = cached
+            try:
+                return self.decode(payload), retrieved_at
+            except Exception:
+                return None
         path = self._cache_path(key)
         if not path.is_file():
             return None
@@ -330,6 +344,9 @@ class BatchRetriever(Generic[T]):
             content = payload.decode("utf-8")
         except UnicodeError as exc:
             raise ValueError("cache encoder must return UTF-8 bytes") from exc
+        if self.cache_dir is None:
+            self._memory_cache[_canonical_json(key)] = (content.encode("utf-8"), retrieved_at)
+            return
         atomic_write_json(
             self._cache_path(key),
             {"key": key, "content": content, "sha256": _sha256(payload), "retrieved_at": retrieved_at},
@@ -337,11 +354,13 @@ class BatchRetriever(Generic[T]):
 
     def _load_or_start_manifest(self, request: dict[str, object], fingerprint: str) -> dict[str, object]:
         path = self.checkpoint_path
-        if path.is_file():
+        manifest = self._memory_manifest if path is None else None
+        if path is not None and path.is_file():
             try:
                 manifest = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, UnicodeError, json.JSONDecodeError) as exc:
                 raise RetrievalCheckpointError(f"retrieval checkpoint is corrupt or unreadable: {path.name}") from exc
+        if manifest is not None:
             if not isinstance(manifest, dict):
                 raise RetrievalCheckpointError("retrieval checkpoint must contain a JSON object")
             stored_request = manifest.get("request")
@@ -412,6 +431,9 @@ class BatchRetriever(Generic[T]):
 
     def _write_manifest(self, manifest: dict[str, object]) -> None:
         self._validate_manifest(manifest, manifest["request"])
+        if self.checkpoint_path is None:
+            self._memory_manifest = manifest
+            return
         self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(self.checkpoint_path, manifest)
 
