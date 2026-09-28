@@ -5717,7 +5717,19 @@
       "verified_date": "2026-07-21"
     },
     "ISSUE-0106": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "ETF liquidity, capacity, spread and premium-discount gaps closed (ISSUE-0106 commit in #804).",
+            "Merged in #804 as 62c5eac36077ef310a041f3f7d7692a31d7d9b71.",
+            "Full release gate run 36385238378 (Linux + Windows full suites, supply chain, validation-summary) passed on head 1215babc (T1 #806, which contains #803 and #804); main 9ecd68c2 has the identical tree."
+          ],
+          "review_reference": "Exact head 9ecd68c2397a88fe60718577eefd5e6e4973d294: Claude Code (claude-opus-5-5) root review with independent worker reviews, owner-authorised in place of Codex V2 reviewer/risk-reviewer.",
+          "reviewed_date": "2026-09-28",
+          "reviewer": "Claude Code root orchestrator self-review with independent worker reviews (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0128": {
           "contract_reference": "B04/ISSUE-0128/execution-cost-primitives-v1-for-ISSUE-0106",
@@ -5733,11 +5745,11 @@
         }
       },
       "phase": "phase-04-etf-research",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "status_transition": {
         "from": "implemented_initially",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "implemented_initially"
+        "review_reference": "Exact head 9ecd68c2397a88fe60718577eefd5e6e4973d294: Claude Code (claude-opus-5-5) root review with independent worker reviews, owner-authorised in place of Codex V2 reviewer/risk-reviewer.",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -5766,10 +5778,24 @@
           "reviewed_date": "2026-07-28",
           "reviewer": "Codex root orchestrator",
           "verified_commit": "2499fac050f9f3ef6a6476f0c65f538ebdc400df"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "ETF liquidity, capacity, spread and premium-discount gaps closed (ISSUE-0106 commit in #804).",
+            "Merged in #804 as 62c5eac36077ef310a041f3f7d7692a31d7d9b71.",
+            "Full release gate run 36385238378 (Linux + Windows full suites, supply chain, validation-summary) passed on head 1215babc (T1 #806, which contains #803 and #804); main 9ecd68c2 has the identical tree."
+          ],
+          "from": "implemented_initially",
+          "review_reference": "Exact head 9ecd68c2397a88fe60718577eefd5e6e4973d294: Claude Code (claude-opus-5-5) root review with independent worker reviews, owner-authorised in place of Codex V2 reviewer/risk-reviewer.",
+          "reviewed_date": "2026-09-28",
+          "reviewer": "Claude Code root orchestrator self-review with independent worker reviews (owner-authorised substitute for Codex V2 reviewer and risk reviewer)",
+          "to": "integrated",
+          "verified_commit": "9ecd68c2397a88fe60718577eefd5e6e4973d294"
         }
       ],
-      "verified_commit": "2499fac050f9f3ef6a6476f0c65f538ebdc400df",
-      "verified_date": "2026-07-28"
+      "verified_commit": "9ecd68c2397a88fe60718577eefd5e6e4973d294",
+      "verified_date": "2026-09-28"
     },
     "ISSUE-0107": {
       "acceptance_evidence": [],
