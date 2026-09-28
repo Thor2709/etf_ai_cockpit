@@ -13,6 +13,11 @@ from etf_cockpit.core.paths import FORECASTS_DIR
 from etf_cockpit.core.atomic_io import read_atomic_group
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.versioning import current_settings_revision
+from etf_cockpit.models.distribution_store import (
+    HORIZON_VALIDATION_STATUSES,
+    QUANTILE_FIELDS,
+    build_distribution_record,
+)
 
 PRIMARY_MODEL_HORIZON_DAYS = 60
 FALLBACK_MODEL_HORIZONS_DAYS = (120, 20, 5, 180)
@@ -376,40 +381,89 @@ def forecast_return_distributions(
     forecasts: pd.DataFrame,
     *,
     horizon_days: int = PRIMARY_MODEL_HORIZON_DAYS,
-) -> dict[str, dict[str, float | int | str | None]]:
+    decision_time: object = None,
+    return_components_by_instrument: Mapping[str, Mapping[str, object]] | None = None,
+    cost_deductions_by_instrument: Mapping[str, Mapping[str, object]] | None = None,
+) -> dict[str, dict[str, object]]:
     """Return point-in-time return distributions for the score consumers.
 
     This is deliberately separate from ``forecast_component_maps``.  A
     normalised model score is ordinal evidence; it must not be treated as a
-    percentage return.  Only allowed, successful forecast rows are used and
-    each model contributes its preferred horizon before the medians are
-    combined.  Missing quantiles remain unavailable rather than being
-    fabricated from an ordinal score.
+    percentage return. Only allowed, successful rows at the exact requested
+    horizon contribute; horizons are never substituted or combined. The
+    legacy three-quantile view remains available to existing consumers while
+    the canonical total-return contract reports unavailable components,
+    coverage, calibration or costs explicitly.
     """
 
-    output: dict[str, dict[str, float | int | str | None]] = {}
+    output: dict[str, dict[str, object]] = {}
     if forecasts.empty or not {"model_name", "etf_id", "horizon_days", "expected_return", "status", "model_allowed_in_score"}.issubset(forecasts.columns):
         return output
     frame = forecasts.copy()
     frame["model_name"] = frame["model_name"].astype(str).str.lower()
     frame["horizon_days"] = pd.to_numeric(frame["horizon_days"], errors="coerce")
-    for column in ("expected_return", "q10_return", "q50_return", "q90_return", "forecast_vol"):
+    decision_cutoff = _normalise_decision_time(decision_time)
+    has_forecast_date = "forecast_date" in frame.columns
+    if has_forecast_date and decision_cutoff is not None:
+        frame["forecast_date"] = pd.to_datetime(frame["forecast_date"], errors="coerce", utc=True, format="mixed")
+        frame = frame.loc[frame["forecast_date"].notna() & frame["forecast_date"].le(decision_cutoff)]
+    numeric_columns = (
+        "expected_return",
+        "q05_return",
+        "q10_return",
+        "q25_return",
+        "q50_return",
+        "q75_return",
+        "q90_return",
+        "q95_return",
+        "forecast_vol",
+        "coverage_ratio",
+        "calibration_horizon_days",
+        "prob_positive_return",
+        "prob_beat_cash",
+        "prob_beat_benchmark",
+        "price_return",
+        "income_return",
+        "fx_return",
+    )
+    for column in numeric_columns:
         if column not in frame:
             frame[column] = np.nan
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    if "calibration_status" not in frame:
+        frame["calibration_status"] = "unavailable"
+    if "target_id" not in frame:
+        frame["target_id"] = None
+    instrument_ids = forecasts["etf_id"].dropna().astype(str).drop_duplicates().tolist()
     allowed = frame["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})
     frame = frame[(frame["status"].astype(str).str.lower() == "ok") & allowed]
     frame = frame.dropna(subset=["etf_id", "model_name", "horizon_days", "expected_return"])
     if frame.empty:
+        for instrument_id in instrument_ids:
+            output[instrument_id] = _distribution_with_contract(
+                _unavailable_distribution("No allowed successful forecast row is available."),
+                instrument_id=instrument_id,
+                horizon_days=horizon_days,
+                return_components_by_instrument=return_components_by_instrument,
+                cost_deductions_by_instrument=cost_deductions_by_instrument,
+                decision_time=decision_cutoff,
+                point_in_time_bound=has_forecast_date and decision_cutoff is not None,
+            )
         return output
 
     for instrument_id, instrument_frame in frame.groupby(frame["etf_id"].astype(str), sort=True):
         selected_rows: list[dict[str, float | int]] = []
-        selected_horizons: list[int] = []
+        canonical_quantiles: list[dict[str, float]] = []
+        canonical_coverages: list[float] = []
+        canonical_components: list[dict[str, float]] = []
+        probabilities: list[dict[str, float | None]] = []
+        targets_by_model: dict[str, str | None] = {}
+        validations_by_model: dict[str, dict[str, object]] = {}
         for _, model_frame in instrument_frame.groupby("model_name", sort=True):
-            selected = _choose_horizon_row_for(model_frame, horizon_days)
-            if selected is None:
+            exact_horizon = model_frame.loc[model_frame["horizon_days"].eq(horizon_days)]
+            if exact_horizon.empty:
                 continue
+            selected = exact_horizon.iloc[-1]
             expected = _finite_or_none(selected.get("expected_return"))
             if expected is None:
                 continue
@@ -425,24 +479,193 @@ def forecast_return_distributions(
             if q10 is None or q90 is None or not q10 <= q50 <= q90:
                 continue
             selected_rows.append({"q10": q10, "q50": q50, "q90": q90, "horizon": int(selected["horizon_days"])})
-            selected_horizons.append(int(selected["horizon_days"]))
+            quantiles = {field: _finite_or_none(selected.get(field)) for field in QUANTILE_FIELDS}
+            if all(value is not None for value in quantiles.values()):
+                canonical_quantiles.append({field: float(value) for field, value in quantiles.items() if value is not None})
+            coverage = _finite_or_none(selected.get("coverage_ratio"))
+            if coverage is not None:
+                canonical_coverages.append(coverage)
+            components = {
+                field: _finite_or_none(selected.get(field))
+                for field in ("price_return", "income_return", "fx_return")
+            }
+            if all(value is not None for value in components.values()):
+                canonical_components.append({field: float(value) for field, value in components.items() if value is not None})
+            model_name = str(selected["model_name"])
+            target = selected.get("target_id")
+            targets_by_model[model_name] = target if isinstance(target, str) and target.strip() else None
+            calibration_status = str(selected.get("calibration_status") or "unavailable").strip().lower()
+            calibration_horizon = _finite_or_none(selected.get("calibration_horizon_days"))
+            validations_by_model[model_name] = {
+                "calibration_status": calibration_status,
+                "horizon_days": int(calibration_horizon) if calibration_horizon is not None and calibration_horizon.is_integer() else None,
+            }
+            if calibration_status == "good" and calibration_horizon == horizon_days:
+                positive = _bounded_probability(selected.get("prob_positive_return"))
+                probabilities.append({
+                    "probability_loss": None if positive is None else 1.0 - positive,
+                    "probability_beat_cash": _bounded_probability(selected.get("prob_beat_cash")),
+                    "probability_beat_benchmark": _bounded_probability(selected.get("prob_beat_benchmark")),
+                })
         if not selected_rows:
-            output[instrument_id] = _unavailable_distribution("No valid forecast quantiles are available for the selected horizon.")
+            output[instrument_id] = _distribution_with_contract(
+                _unavailable_distribution("No successful forecast row exists at the exact requested horizon."),
+                instrument_id=instrument_id,
+                horizon_days=horizon_days,
+                return_components_by_instrument=return_components_by_instrument,
+                cost_deductions_by_instrument=cost_deductions_by_instrument,
+                decision_time=decision_cutoff,
+                point_in_time_bound=has_forecast_date and decision_cutoff is not None,
+            )
             continue
-        if len(set(selected_horizons)) != 1:
-            output[instrument_id] = _unavailable_distribution("Allowed forecast rows do not share a common return horizon.")
-            continue
-        output[instrument_id] = {
+        distribution: dict[str, object] = {
             "q10_return": round(float(np.median([row["q10"] for row in selected_rows])), 12),
             "q50_return": round(float(np.median([row["q50"] for row in selected_rows])), 12),
             "q90_return": round(float(np.median([row["q90"] for row in selected_rows])), 12),
-            "horizon_days": selected_horizons[0],
+            "horizon_days": int(horizon_days),
             "model_count": len(selected_rows),
             "status": "available",
             "reason": "Median of allowed successful model return distributions at the selected horizon.",
             "source_dataset": "forecast_return_distribution",
+            "targets_by_model": targets_by_model,
+            "validation_by_model": validations_by_model,
         }
+        quantile_vector = None
+        if len(canonical_quantiles) == len(selected_rows):
+            quantile_vector = {
+                field: float(np.median([row[field] for row in canonical_quantiles]))
+                for field in QUANTILE_FIELDS
+            }
+        components = None
+        if return_components_by_instrument is not None:
+            components = return_components_by_instrument.get(instrument_id)
+        elif len(canonical_components) == len(selected_rows):
+            components = {
+                field: float(np.median([row[field] for row in canonical_components]))
+                for field in ("price_return", "income_return", "fx_return")
+            }
+        coverage_ratio = min(canonical_coverages) if len(canonical_coverages) == len(selected_rows) else None
+        calibrated_probabilities = {
+            field: float(np.median([row[field] for row in probabilities if row[field] is not None]))
+            if probabilities and any(row[field] is not None for row in probabilities)
+            else None
+            for field in ("probability_loss", "probability_beat_cash", "probability_beat_benchmark")
+        }
+        costs = cost_deductions_by_instrument.get(instrument_id) if cost_deductions_by_instrument is not None else None
+        canonical = build_distribution_record(
+            quantile_vector,
+            horizon_days=horizon_days,
+            coverage_ratio=coverage_ratio,
+            return_components=components,
+            calibration_status="good" if probabilities else None,
+            calibration_horizon_days=horizon_days if probabilities else None,
+            probability_positive_return=(
+                1.0 - calibrated_probabilities["probability_loss"]
+                if calibrated_probabilities["probability_loss"] is not None else None
+            ),
+            probability_beat_cash=calibrated_probabilities["probability_beat_cash"],
+            probability_beat_benchmark=calibrated_probabilities["probability_beat_benchmark"],
+            cost_deductions=costs,
+        )
+        targets_complete = len(targets_by_model) == len(selected_rows) and all(targets_by_model.values())
+        validations_complete = len(validations_by_model) == len(selected_rows) and all(
+            row["horizon_days"] == horizon_days and row["calibration_status"] in HORIZON_VALIDATION_STATUSES
+            for row in validations_by_model.values()
+        )
+        canonical["target_status"] = "available" if targets_complete else "unavailable"
+        canonical["validation_status"] = "available" if validations_complete else "unavailable"
+        canonical["point_in_time_status"] = "available" if has_forecast_date and decision_cutoff is not None else "unavailable"
+        canonical["decision_time"] = None if decision_cutoff is None else decision_cutoff.isoformat()
+        canonical["targets_by_model"] = targets_by_model
+        canonical["validation_by_model"] = validations_by_model
+        if canonical["status"] == "available" and not (targets_complete and validations_complete):
+            canonical["status"] = "unavailable"
+            canonical["reason"] = "A separate target and horizon-matched validation are required for each model."
+        if canonical["status"] == "available" and canonical["point_in_time_status"] != "available":
+            canonical["status"] = "unavailable"
+            canonical["reason"] = "A decision time and forecast date are required for point-in-time filtering."
+        output[instrument_id] = _attach_distribution_contract(distribution, canonical, calibrated_probabilities)
     return output
+
+
+def _distribution_with_contract(
+    distribution: dict[str, object],
+    *,
+    instrument_id: str,
+    horizon_days: object,
+    return_components_by_instrument: Mapping[str, Mapping[str, object]] | None,
+    cost_deductions_by_instrument: Mapping[str, Mapping[str, object]] | None,
+    decision_time: pd.Timestamp | None,
+    point_in_time_bound: bool,
+) -> dict[str, object]:
+    components = return_components_by_instrument.get(instrument_id) if return_components_by_instrument is not None else None
+    costs = cost_deductions_by_instrument.get(instrument_id) if cost_deductions_by_instrument is not None else None
+    canonical = build_distribution_record(
+        None,
+        horizon_days=horizon_days,
+        coverage_ratio=None,
+        return_components=components,
+        cost_deductions=costs,
+    )
+    canonical["point_in_time_status"] = "available" if point_in_time_bound else "unavailable"
+    canonical["decision_time"] = None if decision_time is None else decision_time.isoformat()
+    if canonical["status"] == "available" and not point_in_time_bound:
+        canonical["status"] = "unavailable"
+        canonical["reason"] = "A decision time and forecast date are required for point-in-time filtering."
+    return _attach_distribution_contract(distribution, canonical, {})
+
+
+def _attach_distribution_contract(
+    distribution: dict[str, object],
+    canonical: dict[str, object],
+    probabilities: Mapping[str, float | None],
+) -> dict[str, object]:
+    gross = canonical.get("gross_quantiles")
+    net = canonical.get("net_quantiles")
+    if isinstance(gross, Mapping):
+        for field in ("q10_return", "q50_return", "q90_return"):
+            distribution[field] = gross.get(field)
+    for field in QUANTILE_FIELDS:
+        distribution[field] = gross.get(field) if isinstance(gross, Mapping) else None
+        distribution[f"net_{field}"] = net.get(field) if isinstance(net, Mapping) else None
+    distribution.update({
+        "canonical_status": canonical["status"],
+        "canonical_reason": canonical["reason"],
+        "target_status": canonical.get("target_status", "unavailable"),
+        "validation_status": canonical.get("validation_status", "unavailable"),
+        "point_in_time_status": canonical.get("point_in_time_status", "unavailable"),
+        "decision_time": canonical.get("decision_time"),
+        "targets_by_model": canonical.get("targets_by_model", {}),
+        "validation_by_model": canonical.get("validation_by_model", {}),
+        "coverage_ratio": canonical["coverage_ratio"],
+        "gross_status": canonical["gross_status"],
+        "return_components": canonical["return_components"],
+        "components_status": canonical["components_status"],
+        "cost_deductions": canonical["cost_deductions"],
+        "net_status": canonical["net_status"],
+        "net_reason": canonical["net_reason"],
+        "probability_loss": probabilities.get("probability_loss"),
+        "probability_beat_cash": probabilities.get("probability_beat_cash"),
+        "probability_beat_benchmark": probabilities.get("probability_beat_benchmark"),
+        "schema_version": canonical["schema_version"],
+        "execution_allowed": False,
+    })
+    return distribution
+
+
+def _bounded_probability(value: object) -> float | None:
+    probability = _finite_or_none(value)
+    return probability if probability is not None and 0 <= probability <= 1 else None
+
+
+def _normalise_decision_time(value: object) -> pd.Timestamp | None:
+    if value is None:
+        return None
+    try:
+        parsed = pd.to_datetime(value, errors="coerce", utc=True, format="mixed")
+    except (TypeError, ValueError):
+        return None
+    return None if pd.isna(parsed) else pd.Timestamp(parsed)
 
 
 def _selected_forecast_row(forecasts: pd.DataFrame, model_name: str, etf_id: str) -> pd.Series | None:
