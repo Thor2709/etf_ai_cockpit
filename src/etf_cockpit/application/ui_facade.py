@@ -1485,6 +1485,22 @@ def _load_market_series_projection(
     }
 
 
+def load_etf_economics_projection(
+    snapshot: object,
+    instrument_id: str,
+    *,
+    as_of: object = None,
+    horizon_days: int = 252,
+) -> dict[str, object]:
+    """Load the economics panel through the application-facing read model."""
+
+    from etf_cockpit.app.selectors.instrument_detail import build_etf_economics_panel
+
+    return build_etf_economics_panel(
+        snapshot, instrument_id, as_of=as_of, horizon_days=horizon_days
+    )
+
+
 def load_market_series_projection(
     prices: object,
     instrument_id: str,

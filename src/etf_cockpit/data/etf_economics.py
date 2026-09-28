@@ -711,6 +711,8 @@ class EtfEconomicsReport:
     tracking_error: float | None = None
     tracking_unit: str = "decimal_fraction"
     tracking_status: str = "unavailable"
+    fee_evidence_label: str = "unavailable"
+    tracking_evidence_label: str = "unavailable"
     fund_metrics: Mapping[str, object] = field(default_factory=dict)
     share_class_metrics: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
     fee_history: tuple[Mapping[str, object], ...] = ()
@@ -742,7 +744,12 @@ def _frame_checksum(frame: pd.DataFrame) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _read_local_frame(path: Path, *, trusted_sha256: str | None = None) -> pd.DataFrame | None:
+def _read_local_frame(
+    path: Path,
+    *,
+    trusted_sha256: str | None = None,
+    trusted_sources: Mapping[str, str] | None = None,
+) -> pd.DataFrame | None:
     candidates = [path]
     if path.suffix.lower() == ".parquet":
         candidates.append(path.with_suffix(".csv"))
@@ -751,7 +758,10 @@ def _read_local_frame(path: Path, *, trusted_sha256: str | None = None) -> pd.Da
     for candidate in candidates:
         if not candidate.exists():
             continue
-        if not _matches_trusted_artifact(candidate, trusted_sha256):
+        if trusted_sha256 is not None:
+            if not _matches_trusted_artifact(candidate, trusted_sha256):
+                continue
+        elif not trusted_sources:
             continue
         try:
             return pd.read_csv(candidate) if candidate.suffix.lower() == ".csv" else pd.read_parquet(candidate)
@@ -778,12 +788,31 @@ def load_etf_economics_records(
     path: Path | None = None,
     *,
     trusted_sha256: str | None = None,
+    trusted_sources: Mapping[str, str] | None = None,
 ) -> tuple[EtfEconomicsObservation, ...]:
-    frame = _read_local_frame(path or ETF_ECONOMICS_PATH, trusted_sha256=trusted_sha256)
+    frame = _read_local_frame(
+        path or ETF_ECONOMICS_PATH,
+        trusted_sha256=trusted_sha256,
+        trusted_sources=trusted_sources,
+    )
     if frame is None:
         return ()
     try:
-        return EtfEconomicsStore.from_frame(frame).records
+        records = EtfEconomicsStore.from_frame(frame).records
+        if trusted_sources is None:
+            return records
+        trusted = {
+            str(source_id): str(checksum).casefold()
+            for source_id, checksum in trusted_sources.items()
+            if len(str(checksum)) == 64
+            and all(character in "0123456789abcdefABCDEF" for character in str(checksum))
+        }
+        return tuple(
+            item for item in records
+            if item.source_id in trusted
+            and item.source_checksum is not None
+            and item.source_checksum.casefold() == trusted[item.source_id]
+        )
     except (EtfEconomicsError, TypeError, ValueError):
         return ()
 
@@ -936,6 +965,7 @@ def _fee_payload(record: EtfEconomicsObservation) -> dict[str, object]:
     return {
         "scope": record.scope, "share_class_id": record.share_class_id, "as_of": record.as_of, "known_at": record.known_at,
         "ter": record.ter, "ocf": record.ocf, "fee_unit": "decimal_fraction" if record.fee_unit else None,
+        "value_origin": "disclosure-reported" if record.ter is not None or record.ocf is not None else "unavailable",
         "document_id": record.document_id, "document_date": record.document_date, "document_page": record.document_page,
         "revision_id": record.revision_id, "source_id": record.source_id, "source_provenance": record.source_provenance,
         "source_checksum": record.source_checksum, "confidence": record.confidence,
@@ -1107,6 +1137,9 @@ def calculate_etf_economics(
         fund_metrics: dict[str, object] = {
             "ter": fund.ter if fund else None, "ocf": fund.ocf if fund else None, "fee_unit": "decimal_fraction" if fund and fund.fee_unit else None, "aum": fund.aum if fund else None,
             "source_id": fund.source_id if fund else None, "source_provenance": fund.source_provenance if fund else None, "source_checksum": fund.source_checksum if fund else None,
+            "evidence_as_of": fund.as_of if fund else None, "evidence_known_at": fund.known_at if fund else None,
+            "aum_as_of": fund.as_of if fund and fund.aum is not None else None,
+            "flows_as_of": fund.as_of if fund and fund.flows is not None else None,
             "aum_unit": fund.aum_unit if fund else None, "flows": fund.flows if fund else None, "flows_unit": fund.flows_unit if fund else None,
             "flow_period_days": fund.flow_period_days if fund else None, "inception_date": fund.inception_date if fund else None,
             "age_years": None if fund is None or fund.inception_date is None or effective_as_of is None or pd.Timestamp(fund.inception_date) > pd.Timestamp(effective_as_of) else round((pd.Timestamp(effective_as_of) - pd.Timestamp(fund.inception_date)).days / 365.25, 8),
@@ -1154,7 +1187,10 @@ def calculate_etf_economics(
             currency=output_currency, horizon_days=requested_horizon, matched_start=None if selected_window.empty else pd.Timestamp(selected_window["date"].iloc[0]).isoformat().replace("+00:00", "Z"),
             matched_end=None if selected_window.empty else pd.Timestamp(selected_window["date"].iloc[-1]).isoformat().replace("+00:00", "Z"), sampling_frequency=_BUSINESS_DAILY,
             coverage=f"{len(selected_window)}/{expected_rows} business_daily observations" if not selected_window.empty else "unavailable", coverage_ratio=None if coverage_ratio is None else round(coverage_ratio, 8), matched_rows=len(selected_window),
-            tracking_difference=tracking_difference, tracking_error=tracking_error, tracking_status=tracking_status, fund_metrics=fund_metrics,
+            tracking_difference=tracking_difference, tracking_error=tracking_error, tracking_status=tracking_status,
+            fee_evidence_label="disclosure-reported" if fund is not None and (fund.ter is not None or fund.ocf is not None) else "unavailable",
+            tracking_evidence_label="calculated from matched canonical total-return evidence" if tracking_status == "available" else "unavailable",
+            fund_metrics=fund_metrics,
             share_class_metrics=share_class_metrics, fee_history=fee_history, fee_changes=tuple(fee_changes), history=tuple(item.as_dict() for item in history),
             closure_risk_proxy=closure_report, missing_evidence=tuple(sorted(missing)), warnings=(),
         )

@@ -1,0 +1,9 @@
+instrument_id,date,close,currency,known_at,source_id,provenance
+IE00B5BMR087,2026-01-05,100,EUR,2026-01-05,synthetic-fund-prices,synthetic non-official market observations
+IE00B5BMR087,2026-01-06,101,EUR,2026-01-06,synthetic-fund-prices,synthetic non-official market observations
+IE00B5BMR087,2026-01-07,102,EUR,2026-01-07,synthetic-fund-prices,synthetic non-official market observations
+IE00B5BMR087,2026-01-08,104,EUR,2026-01-08,synthetic-fund-prices,synthetic non-official market observations
+synthetic:world-index,2026-01-05,100,EUR,2026-01-05,synthetic-benchmark-prices,synthetic non-official market observations
+synthetic:world-index,2026-01-06,100.5,EUR,2026-01-06,synthetic-benchmark-prices,synthetic non-official market observations
+synthetic:world-index,2026-01-07,101,EUR,2026-01-07,synthetic-benchmark-prices,synthetic non-official market observations
+synthetic:world-index,2026-01-08,103,EUR,2026-01-08,synthetic-benchmark-prices,synthetic non-official market observations
