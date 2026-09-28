@@ -16,6 +16,7 @@ from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.core.versioning import current_settings_revision
 from etf_cockpit.data.sample_data import ensure_sample_files
 from etf_cockpit.data.validation import validate_prices
+from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
 
 PRICE_PARQUET = VALIDATED_DIR / "prices" / "prices_daily.parquet"
 FEATURE_PARQUET = FEATURES_DIR / "features_daily.parquet"
@@ -85,7 +86,8 @@ def write_prices(prices: pd.DataFrame, path: Path = PRICE_PARQUET) -> None:
         frame["calendar_identity"] = frame["calendar_identity"].map(
             _serialise_calendar_identity
         )
-    frame.to_parquet(path, index=False)
+    # Readers (including concurrent processes) must only ever see a complete file.
+    atomic_write_bytes(path, parquet_payload(frame), validate_parquet_file)
 
 
 def load_prices(path: Path = PRICE_PARQUET) -> pd.DataFrame:
