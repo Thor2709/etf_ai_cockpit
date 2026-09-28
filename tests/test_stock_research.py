@@ -397,6 +397,30 @@ def test_balance_sheet_missing_maturities_sets_coverage_limitation() -> None:
     assert "not treated as zero" in maturity["limitation"]
     assert maturity["coverage_limitations"]
     assert result["coverage_limitations"]
+def test_stock_research_page_uses_snapshot_decision_time(monkeypatch) -> None:
+    decision_time = "2026-12-31T00:00:00Z"
+    state = SimpleNamespace(
+        selected_etf="ACME",
+        snapshot=SimpleNamespace(
+            config=SimpleNamespace(ui=SimpleNamespace(default_etf="ACME")),
+            benchmark_reference_decision_time=decision_time,
+        ),
+    )
+    seen_decision_times: list[str | None] = []
+
+    monkeypatch.setattr(stock_research_page, "load_stock_research_frame", lambda *_args, **_kwargs: _statements())
+    monkeypatch.setattr(stock_research_page, "load_optional_research_import", lambda *_args, **_kwargs: pd.DataFrame())
+
+    def load_capital_allocation(_statements, **kwargs):
+        seen_decision_times.append(kwargs["decision_time"])
+        return {}
+
+    monkeypatch.setattr(stock_research_page, "load_capital_allocation_analysis", load_capital_allocation)
+
+    page = stock_research_page.stock_research_page(None, state)
+
+    assert page is not None
+    assert seen_decision_times == [decision_time]
 
 
 def test_growth_keeps_aggregate_and_per_share_series_period_aligned() -> None:

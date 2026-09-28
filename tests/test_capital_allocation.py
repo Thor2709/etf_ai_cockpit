@@ -203,6 +203,11 @@ def test_cash_sources_and_uses_reconcile_to_cash_and_broken_identity_is_flagged(
     assert allocation["disposals"]["value"] == 4.0
     assert allocation["debt_issuance"]["value"] == 50.0
     assert allocation["debt_repayment"]["value"] == 22.0
+    payouts = allocation["dividends"]["value"] + allocation["gross_buybacks"]["value"]
+    net_new_debt = allocation["debt_issuance"]["value"] - allocation["debt_repayment"]["value"]
+    assert payouts == 30.0
+    assert allocation["debt_issuance"]["value"] >= payouts
+    assert net_new_debt > 0.0
     assert allocation["cash_accumulation"]["value"] == 88.0
     assert checks["cash_flow_identity"]["status"] == "passed"
     assert checks["cash_balance_change"]["status"] == "passed"
@@ -294,9 +299,15 @@ def test_missing_dated_market_input_and_future_known_rows_remain_unavailable_or_
         market_inputs={},
         corporate_action_coverage=_coverage(),
     )
+    repeated = _analyse(
+        frame,
+        market_inputs={},
+        corporate_action_coverage=_coverage(),
+    )
     metrics = result["metrics"]
 
     assert metrics["free_cash_flow"]["value"] == 95.0
+    assert metrics["free_cash_flow"] == repeated["metrics"]["free_cash_flow"]
     assert metrics["dividend_yield"]["value"] is None
     assert metrics["dividend_yield"]["status"] == "missing"
     assert metrics["dividend_yield"]["limitation"] == "dated_price_or_market_cap_missing"
