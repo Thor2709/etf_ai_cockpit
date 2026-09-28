@@ -183,6 +183,7 @@ class PaperLedger:
             events = self._read_events()
             state = self._replay(events)
             self._require_open(state)
+            self._require_order_pipeline_open()
             if proposal_id in state["rejections"]:
                 raise PaperLedgerError("A rejected proposal cannot be accepted later.")
             if proposal_id in state["deferred"]:
@@ -338,6 +339,7 @@ class PaperLedger:
             events = self._read_events()
             state = self._replay(events)
             self._require_open(state)
+            self._require_order_pipeline_open()
             order = state["orders"].get(_clean_id(order_id, "order_id"))
             if order is None:
                 raise PaperLedgerError("The paper order does not exist.")
@@ -395,6 +397,7 @@ class PaperLedger:
             events = self._read_events()
             state = self._replay(events)
             self._require_open(state)
+            self._require_order_pipeline_open()
             key = _clean_id(order_id, "order_id")
             order = state["orders"].get(key)
             if order is None:
@@ -511,26 +514,81 @@ class PaperLedger:
         *,
         message: str,
         related_id: str | None = None,
+        requires_freeze: bool | None = None,
         occurred_at: datetime | None = None,
     ) -> dict[str, object]:
-        """Record a bounded operational incident without changing performance state."""
+        """Record an incident and freeze uncertain order state without changing P&L."""
 
         code_text = _bounded_text(code, "code", 80)
         message_text = _bounded_text(message, "message", 500)
         related = None if related_id is None else _clean_id(related_id, "related_id")
-        incident = {
-            "incident_id": "incident_" + _digest({"account_id": self.account_id, "code": code_text, "message": message_text, "related_id": related, "occurred_at": _timestamp(occurred_at)})[:20],
-            "code": code_text,
-            "message": message_text,
-            "related_id": related,
-            "execution_allowed": False,
-        }
         with self._lock, self._file_lock():
             events = self._read_events()
             state = self._replay(events)
             self._require_open(state)
+            from etf_cockpit.trading.incidents import (
+                IncidentJournal,
+                IncidentJournalError,
+                IncidentJournalIntegrityError,
+            )
+
+            freeze = _incident_requires_freeze(code_text) or requires_freeze is True
+            try:
+                incident = IncidentJournal(self.root, account_id=self.account_id).record(
+                    code_text,
+                    message=message_text,
+                    related_id=related,
+                    requires_freeze=freeze,
+                    occurred_at=occurred_at,
+                )
+            except IncidentJournalIntegrityError as exc:
+                raise PaperLedgerIntegrityError("The operational incident journal is invalid.") from exc
+            except IncidentJournalError as exc:
+                raise PaperLedgerError(str(exc)) from exc
+            existing = next(
+                (
+                    item
+                    for item in state["operational_errors"]
+                    if item.get("incident_id") == incident["incident_id"]
+                ),
+                None,
+            )
+            if existing is not None:
+                if existing != incident:
+                    raise PaperLedgerIntegrityError("A paper incident ID was reused with different content.")
+                return dict(incident)
             self._append("operational_error", incident, occurred_at=occurred_at)
-            return incident
+            return dict(incident)
+
+    def reconcile_operational_state(self, observed_state: Mapping[str, object]) -> dict[str, object]:
+        """Compare read-only observed paper state with the ledger before recovery."""
+
+        from etf_cockpit.trading.incidents import (
+            IncidentJournal,
+            IncidentJournalError,
+            IncidentJournalIntegrityError,
+        )
+
+        with self._lock, self._file_lock():
+            events = self._read_events()
+            state = self._replay(events)
+            self._require_open(state)
+            expected = self._reconciliation_state(state)
+            try:
+                return IncidentJournal(self.root, account_id=self.account_id).reconcile(observed_state, expected)
+            except IncidentJournalIntegrityError as exc:
+                raise PaperLedgerIntegrityError("The operational incident journal is invalid.") from exc
+            except IncidentJournalError as exc:
+                raise PaperLedgerError(str(exc)) from exc
+
+    def reconciliation_state(self) -> dict[str, object]:
+        """Return the current local paper state used by the recovery gate."""
+
+        with self._lock, self._file_lock():
+            events = self._read_events()
+            state = self._replay(events)
+            self._require_open(state)
+            return self._reconciliation_state(state)
 
     def outcomes(self) -> tuple[dict[str, object], ...]:
         with self._lock, self._file_lock():
@@ -633,7 +691,7 @@ class PaperLedger:
             state = self._replay(events)
             snapshot = self._snapshot(events, state)
             return {
-                "status": "ready" if state["opened"] else "unavailable",
+                "status": snapshot.reconciliation_status if state["opened"] else "unavailable",
                 "account_id": self.account_id,
                 "event_count": len(events),
                 "ledger_hash": snapshot.ledger_hash,
@@ -1156,6 +1214,49 @@ class PaperLedger:
         if not state.get("opened"):
             raise PaperLedgerError("Open the local paper account before submitting paper activity.")
 
+    def _require_order_pipeline_open(self) -> None:
+        from etf_cockpit.trading.incidents import (
+            IncidentJournal,
+            IncidentJournalError,
+            IncidentJournalIntegrityError,
+        )
+
+        try:
+            frozen = IncidentJournal(self.root, account_id=self.account_id).is_frozen
+        except IncidentJournalIntegrityError as exc:
+            raise PaperLedgerIntegrityError("The operational incident journal is invalid.") from exc
+        except IncidentJournalError as exc:
+            raise PaperLedgerError(str(exc)) from exc
+        if frozen:
+            raise PaperLedgerError("The paper order pipeline is frozen until clean reconciliation.")
+
+    def _reconciliation_state(self, state: Mapping[str, object]) -> dict[str, object]:
+        orders = state["orders"]
+        positions = state["positions"]
+        assert isinstance(orders, Mapping) and isinstance(positions, Mapping)
+        return {
+            "account_id": self.account_id,
+            "cash": round(float(state["cash"]), 8),
+            "orders": [
+                {
+                    "order_id": str(order_id),
+                    "status": str(order.get("status", "unknown")),
+                    "filled_quantity": round(float(order.get("filled_quantity", 0.0)), 8),
+                    "remaining_quantity": round(float(order.get("remaining_quantity", 0.0)), 8),
+                }
+                for order_id, order in sorted(orders.items())
+            ],
+            "positions": [
+                {
+                    "instrument_id": str(instrument_id),
+                    "quantity": round(float(position.get("quantity", 0.0)), 8),
+                    "average_cost": round(float(position.get("average_cost", 0.0)), 8),
+                }
+                for instrument_id, position in sorted(positions.items())
+                if float(position.get("quantity", 0.0)) > 1e-8
+            ],
+        }
+
     def _validate_proposal(self, proposal: Mapping[str, object]) -> None:
         self._validate_proposal_identity(proposal)
         if proposal.get("execution_allowed") is not False:
@@ -1236,6 +1337,13 @@ class PaperLedger:
         payoff_ratio = None if not wins or not losses else sum(wins) / abs(sum(losses))
         peak = max(initial_cash, float(state.get("equity_peak", initial_cash)))
         drawdown = None if peak <= 0 else (equity - peak) / peak
+        try:
+            from etf_cockpit.trading.incidents import IncidentJournal
+
+            journal = IncidentJournal(self.root, account_id=self.account_id)
+            frozen = journal.is_frozen
+        except (OSError, ValueError):
+            frozen = True
         return PaperAccountSnapshot(
             account_id=self.account_id,
             base_currency=str(state["base_currency"]),
@@ -1253,8 +1361,12 @@ class PaperLedger:
             order_count=len(state["orders"]),
             event_count=len(events),
             ledger_hash="" if not events else str(events[-1]["event_hash"]),
-            reconciliation_status="ready",
-            message="Local paper simulation only; execution_allowed=false.",
+            reconciliation_status="frozen" if frozen else "ready",
+            message=(
+                "Paper order pipeline frozen until clean reconciliation; execution_allowed=false."
+                if frozen
+                else "Local paper simulation only; execution_allowed=false."
+            ),
             matured_outcomes=len(state["outcomes"]),
             operational_incidents=len(state["operational_errors"]),
         )
@@ -1386,6 +1498,10 @@ def _validate_frozen_evidence(value: object) -> None:
 
 def _is_checksum(value: str) -> bool:
     return len(value) == 64 and all(character in "0123456789abcdef" for character in value.lower())
+
+
+def _incident_requires_freeze(code: str) -> bool:
+    return code.strip().lower() in {"unknown_state", "order_state_unknown", "disconnect", "order_break"}
 
 
 def load_proposal_for_paper(root: Path, proposal_id: str) -> dict[str, object]:
