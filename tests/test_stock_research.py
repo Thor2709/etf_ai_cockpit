@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pandas as pd
 
 from etf_cockpit.app.pages import stock_research as stock_research_page
+from etf_cockpit.app.components import valuation_lab
 from etf_cockpit.application import ui_facade
 from etf_cockpit.data import stock_research as stock_research_data
 from etf_cockpit.data.stock_research import (
@@ -390,7 +391,7 @@ def test_valuation_page_receives_market_inputs_from_snapshot(monkeypatch) -> Non
 
     assert reports[0][1]["market_inputs"]["market_cap"] == 300.0
     assert reports[0][0]["valuation"]["relative_metrics"]["ev_to_sales"]["value"] == 318.0 / 120.0
-    summary = stock_research_page._valuation_summary(reports[0][0]["valuation"])
+    summary = valuation_lab._valuation_summary(reports[0][0]["valuation"])
     assert "2.65" in summary.controls[1].content.value
     assert "calculated from underlying facts" in summary.controls[1].content.value
 
