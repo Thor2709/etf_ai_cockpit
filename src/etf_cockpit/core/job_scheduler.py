@@ -273,7 +273,7 @@ class DurableJobScheduler:
                     )
         return self.get_workflow(resolved_workflow_id)  # type: ignore[return-value]
 
-    def claim_next(self) -> JobRecord | None:
+    def claim_next(self, workflow_id: str | None = None) -> JobRecord | None:
         with TransactionalStore(self.root) as store:
             with store.transaction() as connection:
                 self._block_unrunnable(connection)
@@ -282,10 +282,13 @@ class DurableJobScheduler:
                 )
                 if running >= self.max_concurrency:
                     return None
+                workflow_filter = "" if workflow_id is None else "AND job.workflow_id = ?"
+                workflow_parameters = () if workflow_id is None else (workflow_id,)
                 row = connection.execute(
-                    """
+                    f"""
                     SELECT job_id, workflow_id FROM durable_jobs AS job
                     WHERE job.status = 'queued'
+                      {workflow_filter}
                       AND NOT EXISTS (
                           SELECT 1 FROM durable_job_dependencies AS dependency
                           JOIN durable_jobs AS prerequisite ON prerequisite.job_id = dependency.dependency_job_id
@@ -293,7 +296,8 @@ class DurableJobScheduler:
                       )
                     ORDER BY job.created_at, job.job_id
                     LIMIT 1
-                    """
+                    """,
+                    workflow_parameters,
                 ).fetchone()
                 if row is None:
                     return None
@@ -582,8 +586,13 @@ class DurableJobScheduler:
                     self._refresh_workflow(connection, workflow_id, now)
             return tuple(self.get_job(job_id) for job_id in recovered if self.get_job(job_id) is not None)  # type: ignore[misc]
 
-    def run_once(self, handler: Callable[[JobContext], object]) -> JobRecord | None:
-        job = self.claim_next()
+    def run_once(
+        self,
+        handler: Callable[[JobContext], object],
+        *,
+        workflow_id: str | None = None,
+    ) -> JobRecord | None:
+        job = self.claim_next(workflow_id=workflow_id)
         if job is None:
             return None
         context = JobContext(
