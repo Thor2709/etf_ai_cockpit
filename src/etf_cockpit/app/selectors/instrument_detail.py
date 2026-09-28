@@ -161,6 +161,14 @@ _FEATURE_DRIVER_SCORE_BOUNDS = (0.0, 10.0)
 
 _TAIL_DIAGNOSTIC_FIELDS = (
     "strategy_name",
+    "return_hit_rate",
+    "payoff_ratio",
+    "skew",
+    "payoff_profile",
+    "losses_dominate_wins",
+    "loss_dominance_warning",
+    "payoff_asymmetry_warning",
+    "payoff_profile_disclaimer",
     "diagnostic_status",
     "diagnostic_method",
     "worst_1d_return",
@@ -1621,7 +1629,7 @@ def _strategy_tail_diagnostics(report: object) -> list[dict[str, Any]]:
     for _, row in results.iterrows():
         record: dict[str, Any] = {
             "scope": "portfolio_strategy_backtest",
-            "scope_note": "Strategy-level tail diagnostics; not instrument-specific evidence.",
+            "scope_note": "Strategy-level payoff and tail diagnostics; not instrument-specific evidence.",
         }
         for field in selected_fields:
             value = row[field]

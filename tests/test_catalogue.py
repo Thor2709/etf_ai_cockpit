@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from etf_cockpit.data.catalogue import DataCatalogue, DataCatalogueError, DatasetDefinition, DatasetSnapshot
@@ -263,3 +265,109 @@ def test_downstream_impact_rejects_unknown_and_ambiguous_references(tmp_path) ->
         catalogue.downstream_impact(dataset_id="missing")
     with pytest.raises(DataCatalogueError, match="source is not registered"):
         catalogue.downstream_impact(source_id="missing")
+
+
+def test_canonical_inventory_registers_raw_clean_and_derived_files(tmp_path) -> None:
+    for relative in (
+        "data/raw/prices/source.csv",
+        "data/clean/prices.parquet",
+        "data/derived/scores.parquet",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("fixture", encoding="utf-8")
+
+    catalogue = DataCatalogue(tmp_path)
+    inventory = catalogue.canonical_inventory()
+    assert inventory["dataset_count"] == 3
+    assert inventory["catalogued_count"] == 0
+    assert inventory["complete"] is False
+    assert len(catalogue.validate()["orphan_paths"]) == 3
+
+    registered = catalogue.register_canonical_inventory()
+    assert registered["registered_dataset_ids"] == [
+        "clean:prices.parquet",
+        "derived:scores.parquet",
+        "raw:prices:source.csv",
+    ]
+    assert registered["complete"] is True
+    assert all(item.canonical_path for item in catalogue.datasets)
+    assert all(item.row_count is None for item in catalogue.datasets)
+    assert all(item.quality == "unavailable" for item in catalogue.datasets)
+    assert all(item.content_sha256 for item in catalogue.datasets)
+    reloaded = DataCatalogue(tmp_path)
+    assert all(item.row_count is None for item in reloaded.datasets)
+    assert all(item.quality == "unavailable" for item in reloaded.datasets)
+
+    source_path = tmp_path / "data/raw/prices/source.csv"
+    source_path.write_text("changed", encoding="utf-8")
+    changed = catalogue.canonical_inventory()["datasets"]
+    changed_item = next(item for item in changed if item["path"] == "data/raw/prices/source.csv")
+    assert changed_item["content_sha256"] != changed_item["registered_content_sha256"]
+    assert changed_item["stale"] is True
+    assert changed_item["status"] == "changed"
+
+    source_path.unlink()
+    assert catalogue.validate()["missing_paths"] == ["data/raw/prices/source.csv"]
+
+
+def test_data_dictionary_is_deterministic_and_contains_schema_access_and_licence(tmp_path) -> None:
+    catalogue = DataCatalogue(tmp_path)
+    catalogue.register_dataset(
+        replace(_definition("prices"), access_class="public", canonical_path="data/raw/prices.csv")
+    )
+    first = catalogue.data_dictionary()
+    path = catalogue.generate_data_dictionary()
+    second = catalogue.data_dictionary()
+
+    assert first == second
+    assert path.read_text(encoding="utf-8")
+    entry = first["datasets"]["prices"]
+    assert entry["schema"] == {"instrument_id": "string", "value": "number"}
+    assert entry["licence"] == "fixture"
+    assert entry["access_class"] == "public"
+
+
+def test_impact_analysis_persists_invalidation_state(tmp_path) -> None:
+    catalogue = DataCatalogue(tmp_path)
+    source = catalogue.register_dataset(_definition("source"))
+    derived = catalogue.register_dataset(_definition("derived", layer="derived"))
+    source_snapshot = catalogue.register_rows("source", [{"value": 1}], schema=source.schema)
+    derived_snapshot = catalogue.register_rows(
+        "derived",
+        [{"value": 1}],
+        schema=derived.schema,
+        dependency_snapshot_ids=(source_snapshot.snapshot_id,),
+    )
+
+    result = catalogue.impact_analysis(source_snapshot.snapshot_id)
+    later_snapshot = catalogue.register_rows(
+        "derived",
+        [{"value": 2}],
+        schema=derived.schema,
+        dependency_snapshot_ids=(derived_snapshot.snapshot_id,),
+    )
+    reloaded = DataCatalogue(tmp_path)
+    persisted = reloaded.invalidation_analysis(source_snapshot.snapshot_id)
+
+    assert result["invalidated_snapshot_ids"] == [derived_snapshot.snapshot_id]
+    assert persisted["invalidated_snapshot_ids"] == sorted(
+        [derived_snapshot.snapshot_id, later_snapshot.snapshot_id]
+    )
+    assert result["invalidation_token"] != persisted["invalidation_token"]
+    assert reloaded.summary()["invalidation_count"] == 1
+    assert persisted["execution_allowed"] is False
+
+
+def test_access_projection_rejects_unknown_and_hides_restricted_data(tmp_path) -> None:
+    catalogue = DataCatalogue(tmp_path)
+    catalogue.register_dataset(replace(_definition("public"), access_class="public"))
+    catalogue.register_dataset(
+        replace(_definition("restricted"), access_class="restricted")
+    )
+
+    assert catalogue.access_projection("public")["dataset_ids"] == ["public"]
+    assert catalogue.access_projection("restricted")["dataset_ids"] == ["public", "restricted"]
+    assert catalogue.access_projection("unknown")["dataset_ids"] == []
+    with pytest.raises(DataCatalogueError, match="invalid access class"):
+        catalogue.access_projection("operator")

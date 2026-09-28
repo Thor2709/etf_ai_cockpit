@@ -919,7 +919,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         _render_evidence_section(
             "Backtest trust",
             model.sections.get("backtests"),
-            subtitle="Instrument-scoped signals and trades determine instrument trust; strategy-level tail diagnostics are portfolio context only. execution_allowed=false.",
+            subtitle="Instrument-scoped signals and trades determine instrument trust; payoff profile, skew and loss dominance are descriptive portfolio context only and never recommendations. execution_allowed=false.",
         ),
         _render_evidence_section(
             "Operational evidence",
