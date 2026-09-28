@@ -26,7 +26,10 @@ def _forecast_row(**overrides: object) -> dict[str, object]:
         "fx_return": 0.0,
         "status": "ok",
         "model_allowed_in_score": True,
+        "model_id": "synthetic-model-60d",
+        "model_horizon_days": 60,
         "target_id": "synthetic-target-60d",
+        "target_horizon_days": 60,
         "calibration_status": "limited",
         "calibration_horizon_days": 60,
         "prob_positive_return": 0.6,
@@ -55,6 +58,21 @@ def test_unsupported_horizon_unavailable() -> None:
 
     assert distribution["status"] == "unavailable"
     assert distribution["horizon_days"] is None
+    assert distribution["canonical_status"] == "unavailable"
+
+
+def test_unsupported_requested_horizon_is_unavailable_when_row_matches() -> None:
+    forecasts = pd.DataFrame([_forecast_row(horizon_days=7)])
+
+    distribution = forecast_return_distributions(
+        forecasts,
+        horizon_days=7,
+        decision_time=DECISION_TIME,
+    )["SYNTHETIC-ETF"]
+
+    assert distribution["status"] == "unavailable"
+    assert distribution["horizon_days"] is None
+    assert distribution["q50_return"] is None
     assert distribution["canonical_status"] == "unavailable"
 
 
@@ -94,6 +112,63 @@ def test_probabilities_require_matching_horizon_calibration() -> None:
     assert calibrated["probability_beat_benchmark"] == 0.52
 
 
+def test_probabilities_are_unavailable_for_mixed_calibration() -> None:
+    forecasts = pd.DataFrame([
+        _forecast_row(
+            calibration_status="good",
+            calibration_horizon_days=60,
+        ),
+        _forecast_row(
+            model_name="challenger",
+            model_id="challenger-model-60d",
+            target_id="challenger-target-60d",
+            calibration_status="limited",
+            calibration_horizon_days=60,
+        ),
+    ])
+
+    distribution = forecast_return_distributions(
+        forecasts,
+        decision_time=DECISION_TIME,
+    )["SYNTHETIC-ETF"]
+
+    assert distribution["probability_loss"] is None
+    assert distribution["probability_beat_cash"] is None
+    assert distribution["probability_beat_benchmark"] is None
+
+
+def test_model_and_target_identities_must_be_bound_to_one_horizon() -> None:
+    forecasts = pd.DataFrame([
+        _forecast_row(),
+        _forecast_row(
+            horizon_days=120,
+            model_horizon_days=120,
+            target_horizon_days=120,
+            expected_return=0.08,
+        ),
+    ])
+
+    distribution = forecast_return_distributions(
+        forecasts,
+        decision_time=DECISION_TIME,
+    )["SYNTHETIC-ETF"]
+
+    assert distribution["status"] == "unavailable"
+    assert distribution["canonical_status"] == "unavailable"
+    assert distribution["target_status"] == "unavailable"
+    assert distribution["model_status"] == "unavailable"
+    assert distribution["q50_return"] is None
+
+    mismatched = pd.DataFrame([_forecast_row(model_horizon_days=120, target_horizon_days=120)])
+    mismatch_distribution = forecast_return_distributions(
+        mismatched,
+        decision_time=DECISION_TIME,
+    )["SYNTHETIC-ETF"]
+
+    assert mismatch_distribution["canonical_status"] == "unavailable"
+    assert mismatch_distribution["q50_return"] is None
+
+
 def test_low_coverage_widens_uncertainty() -> None:
     full = forecast_return_distributions(
         pd.DataFrame([_forecast_row()]), decision_time=DECISION_TIME,
@@ -115,3 +190,31 @@ def test_forecasts_after_decision_time_are_unavailable() -> None:
     assert distribution["status"] == "unavailable"
     assert distribution["canonical_status"] == "unavailable"
     assert distribution["point_in_time_status"] == "available"
+    assert distribution["q10_return"] is None
+    assert distribution["q50_return"] is None
+    assert distribution["q90_return"] is None
+
+
+def test_missing_decision_time_or_usable_forecast_date_is_unavailable() -> None:
+    forecasts = pd.DataFrame([_forecast_row()])
+
+    no_decision_time = forecast_return_distributions(forecasts)["SYNTHETIC-ETF"]
+    invalid_decision_time = forecast_return_distributions(
+        forecasts,
+        decision_time="not-a-time",
+    )["SYNTHETIC-ETF"]
+    missing_date = forecast_return_distributions(
+        forecasts.drop(columns=["forecast_date"]),
+        decision_time=DECISION_TIME,
+    )["SYNTHETIC-ETF"]
+    invalid_date = forecast_return_distributions(
+        pd.DataFrame([_forecast_row(forecast_date="not-a-date")]),
+        decision_time=DECISION_TIME,
+    )["SYNTHETIC-ETF"]
+
+    for distribution in (no_decision_time, invalid_decision_time, missing_date, invalid_date):
+        assert distribution["status"] == "unavailable"
+        assert distribution["canonical_status"] == "unavailable"
+        assert distribution["point_in_time_status"] == "unavailable"
+        assert all(distribution[field] is None for field in QUANTILE_FIELDS)
+        assert all(distribution[f"net_{field}"] is None for field in QUANTILE_FIELDS)

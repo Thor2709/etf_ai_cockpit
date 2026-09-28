@@ -21,6 +21,7 @@ from etf_cockpit.models.distribution_store import (
 
 PRIMARY_MODEL_HORIZON_DAYS = 60
 FALLBACK_MODEL_HORIZONS_DAYS = (120, 20, 5, 180)
+CANONICAL_DISTRIBUTION_HORIZONS_DAYS = frozenset({5, 20, 60, 120, 180, 504, 1260})
 
 
 def forecast_request_identity(
@@ -404,9 +405,40 @@ def forecast_return_distributions(
     frame["horizon_days"] = pd.to_numeric(frame["horizon_days"], errors="coerce")
     decision_cutoff = _normalise_decision_time(decision_time)
     has_forecast_date = "forecast_date" in frame.columns
-    if has_forecast_date and decision_cutoff is not None:
+    instrument_ids = forecasts["etf_id"].dropna().astype(str).drop_duplicates().tolist()
+    if has_forecast_date:
         frame["forecast_date"] = pd.to_datetime(frame["forecast_date"], errors="coerce", utc=True, format="mixed")
-        frame = frame.loc[frame["forecast_date"].notna() & frame["forecast_date"].le(decision_cutoff)]
+    usable_forecast_dates_by_instrument = {
+        instrument_id: bool(
+            frame.loc[frame["etf_id"].astype(str).eq(instrument_id), "forecast_date"].notna().any()
+        )
+        for instrument_id in instrument_ids
+    } if has_forecast_date else {}
+    usable_forecast_date = any(usable_forecast_dates_by_instrument.values())
+    point_in_time_bound = decision_cutoff is not None and usable_forecast_date
+    if not point_in_time_bound:
+        reason = "A valid decision time and usable forecast date are required for point-in-time filtering."
+        for instrument_id in instrument_ids:
+            output[instrument_id] = _unavailable_contract_distribution(
+                reason,
+                horizon_days=horizon_days,
+                decision_time=decision_cutoff,
+                point_in_time_bound=False,
+            )
+        return output
+    frame = frame.loc[frame["forecast_date"].le(decision_cutoff)]
+    canonical_horizon = _canonical_distribution_horizon(horizon_days)
+    if canonical_horizon is None:
+        reason = "The requested horizon is not in the canonical 1W–5Y set."
+        for instrument_id in instrument_ids:
+            output[instrument_id] = _unavailable_contract_distribution(
+                reason,
+                horizon_days=horizon_days,
+                decision_time=decision_cutoff,
+                point_in_time_bound=usable_forecast_dates_by_instrument.get(instrument_id, False),
+            )
+        return output
+    horizon_days = canonical_horizon
     numeric_columns = (
         "expected_return",
         "q05_return",
@@ -419,6 +451,8 @@ def forecast_return_distributions(
         "forecast_vol",
         "coverage_ratio",
         "calibration_horizon_days",
+        "model_horizon_days",
+        "target_horizon_days",
         "prob_positive_return",
         "prob_beat_cash",
         "prob_beat_benchmark",
@@ -434,20 +468,20 @@ def forecast_return_distributions(
         frame["calibration_status"] = "unavailable"
     if "target_id" not in frame:
         frame["target_id"] = None
-    instrument_ids = forecasts["etf_id"].dropna().astype(str).drop_duplicates().tolist()
+    if "model_id" not in frame:
+        frame["model_id"] = None
     allowed = frame["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})
     frame = frame[(frame["status"].astype(str).str.lower() == "ok") & allowed]
     frame = frame.dropna(subset=["etf_id", "model_name", "horizon_days", "expected_return"])
+    model_horizons_by_id = _declared_horizons_by_id(frame, "model_id", "model_horizon_days")
+    target_horizons_by_id = _declared_horizons_by_id(frame, "target_id", "target_horizon_days")
     if frame.empty:
         for instrument_id in instrument_ids:
-            output[instrument_id] = _distribution_with_contract(
-                _unavailable_distribution("No allowed successful forecast row is available."),
-                instrument_id=instrument_id,
+            output[instrument_id] = _unavailable_contract_distribution(
+                "No allowed successful forecast row is available.",
                 horizon_days=horizon_days,
-                return_components_by_instrument=return_components_by_instrument,
-                cost_deductions_by_instrument=cost_deductions_by_instrument,
                 decision_time=decision_cutoff,
-                point_in_time_bound=has_forecast_date and decision_cutoff is not None,
+                point_in_time_bound=usable_forecast_dates_by_instrument.get(instrument_id, False) and decision_cutoff is not None,
             )
         return output
 
@@ -459,6 +493,7 @@ def forecast_return_distributions(
         probabilities: list[dict[str, float | None]] = []
         targets_by_model: dict[str, str | None] = {}
         validations_by_model: dict[str, dict[str, object]] = {}
+        model_identities_valid_by_model: dict[str, bool] = {}
         for _, model_frame in instrument_frame.groupby("model_name", sort=True):
             exact_horizon = model_frame.loc[model_frame["horizon_days"].eq(horizon_days)]
             if exact_horizon.empty:
@@ -492,30 +527,53 @@ def forecast_return_distributions(
             if all(value is not None for value in components.values()):
                 canonical_components.append({field: float(value) for field, value in components.items() if value is not None})
             model_name = str(selected["model_name"])
+            model_id = selected.get("model_id")
+            model_horizon = _finite_integer(selected.get("model_horizon_days"))
+            model_identity_valid = _horizon_identity_is_valid(
+                model_id,
+                model_horizon,
+                horizon_days,
+                model_horizons_by_id,
+            )
+            model_identities_valid_by_model[model_name] = model_identity_valid
             target = selected.get("target_id")
-            targets_by_model[model_name] = target if isinstance(target, str) and target.strip() else None
+            target_horizon = _finite_integer(selected.get("target_horizon_days"))
+            target_identity_valid = _horizon_identity_is_valid(
+                target,
+                target_horizon,
+                horizon_days,
+                target_horizons_by_id,
+            )
+            targets_by_model[model_name] = target if target_identity_valid else None
             calibration_status = str(selected.get("calibration_status") or "unavailable").strip().lower()
             calibration_horizon = _finite_or_none(selected.get("calibration_horizon_days"))
             validations_by_model[model_name] = {
                 "calibration_status": calibration_status,
                 "horizon_days": int(calibration_horizon) if calibration_horizon is not None and calibration_horizon.is_integer() else None,
             }
-            if calibration_status == "good" and calibration_horizon == horizon_days:
-                positive = _bounded_probability(selected.get("prob_positive_return"))
+            positive = _bounded_probability(selected.get("prob_positive_return"))
+            beat_cash = _bounded_probability(selected.get("prob_beat_cash"))
+            beat_benchmark = _bounded_probability(selected.get("prob_beat_benchmark"))
+            if calibration_status == "good" and calibration_horizon == horizon_days and all(
+                value is not None for value in (positive, beat_cash, beat_benchmark)
+            ):
                 probabilities.append({
-                    "probability_loss": None if positive is None else 1.0 - positive,
-                    "probability_beat_cash": _bounded_probability(selected.get("prob_beat_cash")),
-                    "probability_beat_benchmark": _bounded_probability(selected.get("prob_beat_benchmark")),
+                    "probability_loss": 1.0 - positive,
+                    "probability_beat_cash": beat_cash,
+                    "probability_beat_benchmark": beat_benchmark,
+                })
+            else:
+                probabilities.append({
+                    "probability_loss": None,
+                    "probability_beat_cash": None,
+                    "probability_beat_benchmark": None,
                 })
         if not selected_rows:
-            output[instrument_id] = _distribution_with_contract(
-                _unavailable_distribution("No successful forecast row exists at the exact requested horizon."),
-                instrument_id=instrument_id,
+            output[instrument_id] = _unavailable_contract_distribution(
+                "No successful forecast row exists at the exact requested horizon.",
                 horizon_days=horizon_days,
-                return_components_by_instrument=return_components_by_instrument,
-                cost_deductions_by_instrument=cost_deductions_by_instrument,
                 decision_time=decision_cutoff,
-                point_in_time_bound=has_forecast_date and decision_cutoff is not None,
+                point_in_time_bound=usable_forecast_dates_by_instrument.get(instrument_id, False) and decision_cutoff is not None,
             )
             continue
         distribution: dict[str, object] = {
@@ -545,10 +603,12 @@ def forecast_return_distributions(
                 for field in ("price_return", "income_return", "fx_return")
             }
         coverage_ratio = min(canonical_coverages) if len(canonical_coverages) == len(selected_rows) else None
+        probabilities_complete = len(probabilities) == len(selected_rows) and all(
+            all(row[field] is not None for field in ("probability_loss", "probability_beat_cash", "probability_beat_benchmark"))
+            for row in probabilities
+        )
         calibrated_probabilities = {
-            field: float(np.median([row[field] for row in probabilities if row[field] is not None]))
-            if probabilities and any(row[field] is not None for row in probabilities)
-            else None
+            field: float(np.median([row[field] for row in probabilities])) if probabilities_complete else None
             for field in ("probability_loss", "probability_beat_cash", "probability_beat_benchmark")
         }
         costs = cost_deductions_by_instrument.get(instrument_id) if cost_deductions_by_instrument is not None else None
@@ -557,8 +617,8 @@ def forecast_return_distributions(
             horizon_days=horizon_days,
             coverage_ratio=coverage_ratio,
             return_components=components,
-            calibration_status="good" if probabilities else None,
-            calibration_horizon_days=horizon_days if probabilities else None,
+            calibration_status="good" if probabilities_complete else None,
+            calibration_horizon_days=horizon_days if probabilities_complete else None,
             probability_positive_return=(
                 1.0 - calibrated_probabilities["probability_loss"]
                 if calibrated_probabilities["probability_loss"] is not None else None
@@ -568,23 +628,33 @@ def forecast_return_distributions(
             cost_deductions=costs,
         )
         targets_complete = len(targets_by_model) == len(selected_rows) and all(targets_by_model.values())
+        models_complete = len(model_identities_valid_by_model) == len(selected_rows) and all(model_identities_valid_by_model.values())
         validations_complete = len(validations_by_model) == len(selected_rows) and all(
             row["horizon_days"] == horizon_days and row["calibration_status"] in HORIZON_VALIDATION_STATUSES
             for row in validations_by_model.values()
         )
         canonical["target_status"] = "available" if targets_complete else "unavailable"
+        canonical["model_status"] = "available" if models_complete else "unavailable"
         canonical["validation_status"] = "available" if validations_complete else "unavailable"
         canonical["point_in_time_status"] = "available" if has_forecast_date and decision_cutoff is not None else "unavailable"
         canonical["decision_time"] = None if decision_cutoff is None else decision_cutoff.isoformat()
         canonical["targets_by_model"] = targets_by_model
         canonical["validation_by_model"] = validations_by_model
-        if canonical["status"] == "available" and not (targets_complete and validations_complete):
+        if canonical["status"] == "available" and not (targets_complete and models_complete and validations_complete):
             canonical["status"] = "unavailable"
-            canonical["reason"] = "A separate target and horizon-matched validation are required for each model."
+            canonical["reason"] = "A horizon-bound model and target identity and horizon-matched validation are required for each model."
         if canonical["status"] == "available" and canonical["point_in_time_status"] != "available":
             canonical["status"] = "unavailable"
             canonical["reason"] = "A decision time and forecast date are required for point-in-time filtering."
         output[instrument_id] = _attach_distribution_contract(distribution, canonical, calibrated_probabilities)
+    for instrument_id in instrument_ids:
+        if instrument_id not in output:
+            output[instrument_id] = _unavailable_contract_distribution(
+                "No allowed successful forecast row is available at or before the decision time.",
+                horizon_days=horizon_days,
+                decision_time=decision_cutoff,
+                point_in_time_bound=usable_forecast_dates_by_instrument.get(instrument_id, False),
+            )
     return output
 
 
@@ -615,6 +685,36 @@ def _distribution_with_contract(
     return _attach_distribution_contract(distribution, canonical, {})
 
 
+def _unavailable_contract_distribution(
+    reason: str,
+    *,
+    horizon_days: object,
+    decision_time: pd.Timestamp | None,
+    point_in_time_bound: bool,
+) -> dict[str, object]:
+    distribution = _distribution_with_contract(
+        _unavailable_distribution(reason),
+        instrument_id="",
+        horizon_days=horizon_days,
+        return_components_by_instrument=None,
+        cost_deductions_by_instrument=None,
+        decision_time=decision_time,
+        point_in_time_bound=point_in_time_bound,
+    )
+    distribution.update({
+        "status": "unavailable",
+        "reason": reason,
+        "horizon_days": None,
+        "model_count": 0,
+        "canonical_status": "unavailable",
+        "canonical_reason": reason,
+    })
+    for field in QUANTILE_FIELDS:
+        distribution[field] = None
+        distribution[f"net_{field}"] = None
+    return distribution
+
+
 def _attach_distribution_contract(
     distribution: dict[str, object],
     canonical: dict[str, object],
@@ -632,6 +732,7 @@ def _attach_distribution_contract(
         "canonical_status": canonical["status"],
         "canonical_reason": canonical["reason"],
         "target_status": canonical.get("target_status", "unavailable"),
+        "model_status": canonical.get("model_status", "unavailable"),
         "validation_status": canonical.get("validation_status", "unavailable"),
         "point_in_time_status": canonical.get("point_in_time_status", "unavailable"),
         "decision_time": canonical.get("decision_time"),
@@ -644,12 +745,22 @@ def _attach_distribution_contract(
         "cost_deductions": canonical["cost_deductions"],
         "net_status": canonical["net_status"],
         "net_reason": canonical["net_reason"],
-        "probability_loss": probabilities.get("probability_loss"),
-        "probability_beat_cash": probabilities.get("probability_beat_cash"),
-        "probability_beat_benchmark": probabilities.get("probability_beat_benchmark"),
+        "probability_loss": probabilities.get("probability_loss") if canonical["status"] == "available" else None,
+        "probability_beat_cash": probabilities.get("probability_beat_cash") if canonical["status"] == "available" else None,
+        "probability_beat_benchmark": probabilities.get("probability_beat_benchmark") if canonical["status"] == "available" else None,
         "schema_version": canonical["schema_version"],
         "execution_allowed": False,
     })
+    if canonical["status"] != "available":
+        distribution.update({
+            "status": "unavailable",
+            "reason": canonical["reason"],
+            "horizon_days": None,
+            "model_count": 0,
+        })
+        for field in QUANTILE_FIELDS:
+            distribution[field] = None
+            distribution[f"net_{field}"] = None
     return distribution
 
 
@@ -666,6 +777,40 @@ def _normalise_decision_time(value: object) -> pd.Timestamp | None:
     except (TypeError, ValueError):
         return None
     return None if pd.isna(parsed) else pd.Timestamp(parsed)
+
+
+def _canonical_distribution_horizon(value: object) -> int | None:
+    horizon = _finite_integer(value)
+    return horizon if horizon in CANONICAL_DISTRIBUTION_HORIZONS_DAYS else None
+
+
+def _finite_integer(value: object) -> int | None:
+    number = _finite_or_none(value)
+    if number is None or not number.is_integer():
+        return None
+    return int(number)
+
+
+def _declared_horizons_by_id(frame: pd.DataFrame, identity_column: str, horizon_column: str) -> dict[str, frozenset[int]]:
+    horizons_by_id: dict[str, set[int]] = {}
+    for identity, raw_horizon in zip(frame[identity_column], frame[horizon_column], strict=False):
+        if not isinstance(identity, str) or not identity.strip():
+            continue
+        horizon = _finite_integer(raw_horizon)
+        if horizon is not None:
+            horizons_by_id.setdefault(identity.strip(), set()).add(horizon)
+    return {identity: frozenset(horizons) for identity, horizons in horizons_by_id.items()}
+
+
+def _horizon_identity_is_valid(
+    identity: object,
+    declared_horizon: int | None,
+    requested_horizon: int,
+    horizons_by_id: Mapping[str, frozenset[int]],
+) -> bool:
+    if not isinstance(identity, str) or not identity.strip() or declared_horizon != requested_horizon:
+        return False
+    return horizons_by_id.get(identity.strip()) == frozenset({requested_horizon})
 
 
 def _selected_forecast_row(forecasts: pd.DataFrame, model_name: str, etf_id: str) -> pd.Series | None:
