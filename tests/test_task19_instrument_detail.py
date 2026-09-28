@@ -1589,7 +1589,7 @@ def test_backtest_panel_renders_strategy_tail_context_without_claiming_instrumen
     assert len(panel["tail_diagnostics"]) == 1
     assert panel["tail_diagnostics"][0]["scope"] == "portfolio_strategy_backtest"
     assert panel["tail_diagnostics"][0]["execution_allowed"] is False
-    assert "Strategy-level tail diagnostics; not instrument-specific evidence." in rendered
+    assert "Strategy-level payoff and tail diagnostics; not instrument-specific evidence." in rendered
     assert "historical_tail_diagnostics.v2" in rendered
     assert "negative_return_concentration_status=unavailable" in rendered
     assert "no finite negative return observations are available" in rendered

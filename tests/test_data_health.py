@@ -25,6 +25,23 @@ def _text_values(control):
         yield from _text_values(content)
 
 
+def _control_by_key(control, key):
+    if getattr(control, "key", None) == key:
+        return control
+    for attribute in ("controls", "columns", "rows"):
+        children = getattr(control, attribute, []) or []
+        if not isinstance(children, (list, tuple)):
+            children = (children,)
+        for child in children:
+            found = _control_by_key(child, key)
+            if found is not None:
+                return found
+    content = getattr(control, "content", None)
+    if content is not None:
+        return _control_by_key(content, key)
+    return None
+
+
 def test_health_distinguishes_missing_stale_and_healthy_stores(tmp_path: Path) -> None:
     clean = tmp_path / "data" / "clean"
     clean.mkdir(parents=True)
@@ -89,6 +106,30 @@ def test_data_health_ui_names_cache_provenance_and_failure_columns() -> None:
     assert any("pass=" in value and "quarantine=" in value and "block=" in value for value in values)
     assert any("blocked downstream=" in value and "corrections=" in value for value in values)
     assert any("execution_allowed=false" in value for value in values)
+
+
+def test_data_health_export_failure_is_visible_and_refreshes_page(monkeypatch) -> None:
+    from etf_cockpit.app import theme
+    from etf_cockpit.app.pages import data_health
+    from etf_cockpit.app.state import AppState
+    from etf_cockpit.services import build_snapshot
+
+    snapshot = build_snapshot()
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    updates = []
+    page = type("Page", (), {"route": "/data-health", "update": lambda self: updates.append(True)})()
+
+    def fail_export(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(data_health, "export_data_health", fail_export)
+    rendered = data_health.data_health_page(page, state)
+    _control_by_key(rendered, "data-health.export").on_click(None)
+
+    assert state.last_message == "Data health export failed: OSError: disk full"
+    assert updates
+    feedback = next(control for control in rendered.controls[0].content.controls if getattr(control, "value", "") == state.last_message)
+    assert feedback.color == theme.RED
 
 
 def test_health_inventory_exposes_explicit_migration_status(tmp_path: Path) -> None:
