@@ -118,7 +118,25 @@ class Ledger:
         effective_at: str,
         postings: Iterable[LedgerPosting],
         description: str = "",
-        reversal_of_entry_id: str | None = None,
+    ) -> LedgerEntry:
+        return self._post(
+            entry_id,
+            authority=authority,
+            effective_at=effective_at,
+            postings=postings,
+            description=description,
+            reversal_of_entry_id=None,
+        )
+
+    def _post(
+        self,
+        entry_id: str,
+        *,
+        authority: str,
+        effective_at: str,
+        postings: Iterable[LedgerPosting],
+        description: str,
+        reversal_of_entry_id: str | None,
     ) -> LedgerEntry:
         _required_text(entry_id, "entry_id")
         _required_text(effective_at, "effective_at")
@@ -150,6 +168,25 @@ class Ledger:
         recorded_at = _utc_now()
         try:
             with _write_transaction(self.connection):
+                if reversal_of_entry_id is not None:
+                    original = self.get_entry(reversal_of_entry_id, authority=authority)
+                    if original is None:
+                        raise LedgerInvariantError(
+                            f"unknown posted ledger entry: {reversal_of_entry_id}"
+                        )
+                    expected_inverse = tuple(
+                        LedgerPosting(
+                            account_id=line.account_id,
+                            currency=line.currency,
+                            debit=line.credit,
+                            credit=line.debit,
+                        )
+                        for line in original.postings
+                    )
+                    if lines != expected_inverse:
+                        raise LedgerInvariantError(
+                            "reversal postings must exactly invert the referenced entry"
+                        )
                 self.connection.execute(
                     """
                     INSERT INTO ledger_entries(
@@ -179,15 +216,18 @@ class Ledger:
                     ),
                 )
                 cursor = self.connection.execute(
-                    "UPDATE ledger_entries SET status = 'posted' WHERE entry_id = ? AND status = 'posting'",
-                    (entry_id,),
+                    """
+                    UPDATE ledger_entries SET status = 'posted'
+                    WHERE entry_id = ? AND authority = ? AND status = 'posting'
+                    """,
+                    (entry_id, authority),
                 )
                 if cursor.rowcount != 1:
                     raise RuntimeError("ledger entry did not complete its posting transition")
         except sqlite3.IntegrityError as exc:
             raise LedgerInvariantError(f"ledger entry could not be posted: {exc}") from exc
 
-        result = self.get_entry(entry_id)
+        result = self.get_entry(entry_id, authority=authority)
         if result is None:
             raise RuntimeError("posted ledger entry could not be read back")
         return result
@@ -199,8 +239,9 @@ class Ledger:
         entry_id: str,
         effective_at: str,
         description: str | None = None,
+        authority: str | None = None,
     ) -> LedgerEntry:
-        original = self.get_entry(original_entry_id)
+        original = self.get_entry(original_entry_id, authority=authority)
         if original is None:
             raise LedgerInvariantError(f"unknown posted ledger entry: {original_entry_id}")
         reversal_postings = tuple(
@@ -212,7 +253,7 @@ class Ledger:
             )
             for line in original.postings
         )
-        return self.post(
+        return self._post(
             entry_id,
             authority=original.authority,
             effective_at=effective_at,
@@ -221,22 +262,39 @@ class Ledger:
             reversal_of_entry_id=original_entry_id,
         )
 
-    def get_entry(self, entry_id: str) -> LedgerEntry | None:
-        row = self.connection.execute(
-            """
-            SELECT entry_id, authority, effective_at, recorded_at, description, reversal_of_entry_id
-            FROM ledger_entries WHERE entry_id = ? AND status = 'posted'
-            """,
-            (entry_id,),
-        ).fetchone()
+    def get_entry(self, entry_id: str, *, authority: str | None = None) -> LedgerEntry | None:
+        if authority is not None:
+            _validate_authority(authority)
+            rows = self.connection.execute(
+                """
+                SELECT entry_id, authority, effective_at, recorded_at, description, reversal_of_entry_id
+                FROM ledger_entries
+                WHERE entry_id = ? AND authority = ? AND status = 'posted'
+                """,
+                (entry_id, authority),
+            ).fetchall()
+        else:
+            rows = self.connection.execute(
+                """
+                SELECT entry_id, authority, effective_at, recorded_at, description, reversal_of_entry_id
+                FROM ledger_entries
+                WHERE entry_id = ? AND status = 'posted'
+                """,
+                (entry_id,),
+            ).fetchall()
+        if len(rows) > 1:
+            raise LedgerInvariantError("entry_id is ambiguous; specify its authority")
+        row = rows[0] if rows else None
         if row is None:
             return None
         posting_rows = self.connection.execute(
             """
             SELECT account_id, currency, debit_amount, credit_amount
-            FROM ledger_postings WHERE entry_id = ? ORDER BY line_number
+            FROM ledger_postings
+            WHERE entry_id = ? AND authority = ?
+            ORDER BY line_number
             """,
-            (entry_id,),
+            (entry_id, row[1]),
         ).fetchall()
         try:
             lines = tuple(

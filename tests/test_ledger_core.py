@@ -82,7 +82,7 @@ def test_ledger_reversing_entry_preserves_immutable_audit(tmp_path):
 def test_ledger_v5_persists_account_hierarchy_and_authority(tmp_path):
     with TransactionalStore(tmp_path) as store:
         ledger = Ledger(store.connection)
-        assert store.integrity().schema_version == STORAGE_SCHEMA_VERSION == 5
+        assert store.integrity().schema_version == STORAGE_SCHEMA_VERSION == 6
         assert store.connection.execute(
             "SELECT name FROM schema_migrations WHERE version = 5"
         ).fetchone()[0] == "double_entry_ledger_v1"
@@ -121,3 +121,131 @@ def test_ledger_v5_persists_account_hierarchy_and_authority(tmp_path):
         assert ledger.get_account("paper-cash", authority="paper").parent_account_id == "paper-assets"
         assert ledger.get_account("paper-cash", authority="broker") is None
         assert ledger.get_entry("broker-entry").entry_id == entry.entry_id
+
+
+def test_direct_sql_cannot_persist_posted_unbalanced_or_invalid_amounts(tmp_path):
+    with TransactionalStore(tmp_path) as store:
+        ledger = Ledger(store.connection)
+        cash, equity = _accounts(ledger)
+        connection = store.connection
+
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                INSERT INTO ledger_entries(
+                    entry_id, authority, effective_at, recorded_at, description,
+                    reversal_of_entry_id, status
+                ) VALUES ('empty-posted', 'paper', '2026-09-28', '2026-09-28', '', NULL, 'posted')
+                """
+            )
+
+        for entry_id, invalid_amount in (
+            ("invalid-text", "not-a-decimal"),
+            ("negative-amount", "-0.01"),
+            ("nan-amount", "NaN"),
+            ("infinite-amount", "Infinity"),
+        ):
+            connection.execute(
+                """
+                INSERT INTO ledger_entries(
+                    entry_id, authority, effective_at, recorded_at, description,
+                    reversal_of_entry_id, status
+                ) VALUES (?, 'paper', '2026-09-28', '2026-09-28', '', NULL, 'posting')
+                """,
+                (entry_id,),
+            )
+            with pytest.raises(sqlite3.IntegrityError):
+                connection.execute(
+                    """
+                    INSERT INTO ledger_postings(
+                        entry_id, line_number, account_id, authority, currency, debit_amount, credit_amount
+                    ) VALUES (?, 1, 'cash', 'paper', 'EUR', ?, '0')
+                    """,
+                    (entry_id, invalid_amount),
+                )
+
+        connection.execute(
+            """
+            INSERT INTO ledger_entries(
+                entry_id, authority, effective_at, recorded_at, description,
+                reversal_of_entry_id, status
+            ) VALUES ('unbalanced-posting', 'paper', '2026-09-28', '2026-09-28', '', NULL, 'posting')
+            """
+        )
+        connection.executemany(
+            """
+            INSERT INTO ledger_postings(
+                entry_id, line_number, account_id, authority, currency, debit_amount, credit_amount
+            ) VALUES ('unbalanced-posting', ?, ?, 'paper', 'EUR', ?, ?)
+            """,
+            ((1, cash, "1.00", "0"), (2, equity, "0", "0.99")),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                UPDATE ledger_entries SET status = 'posted'
+                WHERE entry_id = 'unbalanced-posting' AND authority = 'paper'
+                """
+            )
+
+
+def test_post_cannot_claim_arbitrary_reversal_linkage(tmp_path):
+    with TransactionalStore(tmp_path) as store:
+        ledger = Ledger(store.connection)
+        cash, equity = _accounts(ledger)
+        original = ledger.post(
+            "original",
+            authority="paper",
+            effective_at="2026-09-28T12:00:00Z",
+            postings=(
+                LedgerPosting(cash, "EUR", debit=Decimal("10")),
+                LedgerPosting(equity, "EUR", credit=Decimal("10")),
+            ),
+        )
+
+        with pytest.raises(TypeError):
+            ledger.post(
+                "false-reversal",
+                authority="paper",
+                effective_at="2026-09-28T12:01:00Z",
+                postings=(
+                    LedgerPosting(cash, "EUR", debit=Decimal("10")),
+                    LedgerPosting(equity, "EUR", credit=Decimal("10")),
+                ),
+                reversal_of_entry_id=original.entry_id,
+            )
+        assert ledger.get_entry("false-reversal", authority="paper") is None
+
+
+def test_account_and_entry_identifiers_are_scoped_by_authority(tmp_path):
+    with TransactionalStore(tmp_path) as store:
+        ledger = Ledger(store.connection)
+        cash, equity = _accounts(ledger, authority="paper")
+        ledger.create_account("cash", name="Broker cash", account_type="asset", authority="broker")
+        ledger.create_account("equity", name="Broker equity", account_type="equity", authority="broker")
+
+        paper_entry = ledger.post(
+            "shared-entry",
+            authority="paper",
+            effective_at="2026-09-28T12:00:00Z",
+            postings=(
+                LedgerPosting(cash, "EUR", debit=Decimal("5")),
+                LedgerPosting(equity, "EUR", credit=Decimal("5")),
+            ),
+        )
+        broker_entry = ledger.post(
+            "shared-entry",
+            authority="broker",
+            effective_at="2026-09-28T12:00:00Z",
+            postings=(
+                LedgerPosting("cash", "EUR", debit=Decimal("7")),
+                LedgerPosting("equity", "EUR", credit=Decimal("7")),
+            ),
+        )
+
+        assert ledger.get_account("cash", authority="paper").name == "Cash"
+        assert ledger.get_account("cash", authority="broker").name == "Broker cash"
+        assert ledger.get_entry("shared-entry", authority="paper") == paper_entry
+        assert ledger.get_entry("shared-entry", authority="broker") == broker_entry
+        with pytest.raises(LedgerInvariantError, match="ambiguous"):
+            ledger.get_entry("shared-entry")
