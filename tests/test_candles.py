@@ -41,6 +41,25 @@ def test_valid_ohlcv_fixture_passes_and_features_are_available() -> None:
     assert features["execution_allowed"] is False
 
 
+def test_instrument_detail_accepts_raw_ohlc_with_adjusted_close() -> None:
+    prices = pd.DataFrame(
+        [
+            {
+                "instrument_id": "TEST",
+                **_candle("2026-01-02", open_=100.0, high=101.0, low=99.0, close=100.0),
+                "adjusted_close": 50.0,
+                "known_at": "2026-01-02T21:00:00Z",
+            }
+        ]
+    )
+
+    panel = _candle_evidence_panel(SimpleNamespace(prices=prices), "TEST", "2026-01-02")
+
+    assert panel["status"] == "available"
+    assert panel["latest_candle"]["price_basis"] == "adjusted_ohlc_from_same_row_adjustment"
+    assert panel["latest_candle"]["close"] == pytest.approx(50.0)
+
+
 @pytest.mark.parametrize(
     ("changes", "expected_reason"),
     [
@@ -87,6 +106,21 @@ def test_same_bar_stop_and_target_are_reported_without_exit_fill() -> None:
     assert result["rows"][0]["exit_price"] is None
     assert result["rows"][0]["fill_assumed"] is False
     assert "no ambiguous exit fill assumed" in result["ambiguity_warning"]
+
+
+def test_later_holding_bar_stop_and_target_are_reported_as_ambiguous() -> None:
+    signal = _candle("2026-01-01", open_=100.0, high=100.5, low=98.0, close=100.0)
+    entry = _candle("2026-01-02", open_=100.0, high=101.0, low=99.8, close=100.8)
+    later_ambiguous = _candle("2026-01-03", open_=100.8, high=105.0, low=97.0, close=100.0)
+
+    result = backtest_candle_templates([signal, entry, later_ambiguous], stop_pct=0.02, target_pct=0.04)
+
+    assert result["ambiguity_count"] == 1
+    assert result["rows"][0]["status"] == "ambiguous"
+    assert result["rows"][0]["execution_date"] == "2026-01-02"
+    assert result["rows"][0]["ambiguity_date"] == "2026-01-03"
+    assert result["rows"][0]["exit_price"] is None
+    assert result["rows"][0]["fill_assumed"] is False
 
 
 def test_score_is_capped_and_patterns_never_create_actions() -> None:

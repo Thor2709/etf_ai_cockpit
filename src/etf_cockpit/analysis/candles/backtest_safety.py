@@ -41,8 +41,9 @@ def backtest_candle_templates(
         bullish = any(pattern in _BULLISH for pattern in patterns)
         bearish = any(pattern in _BEARISH for pattern in patterns)
         signal_date = decision_candle.get("date", decision_candle.get("as_of_date"))
-        execution_candle = prepared[decision_index + 1]
-        execution_date = candles[decision_index + 1].get("date", candles[decision_index + 1].get("as_of_date"))
+        entry_index = decision_index + 1
+        execution_candle = prepared[entry_index]
+        execution_date = candles[entry_index].get("date", candles[entry_index].get("as_of_date"))
         if bullish and bearish:
             rows.append({
                 "status": "ambiguous_signal",
@@ -83,45 +84,62 @@ def backtest_candle_templates(
             continue
 
         entry = float(entry_features["open"])
-        high = float(entry_features["high"])
-        low = float(entry_features["low"])
         side = "long" if bullish else "short"
         stop = entry * (1.0 - stop_pct if side == "long" else 1.0 + stop_pct)
         target = entry * (1.0 + target_pct if side == "long" else 1.0 - target_pct)
-        stop_hit = low <= stop if side == "long" else high >= stop
-        target_hit = high >= target if side == "long" else low <= target
-        if stop_hit and target_hit:
-            rows.append({
-                "status": "ambiguous",
-                "signal_date": signal_date,
-                "execution_date": execution_date,
-                "patterns": patterns,
-                "side": side,
-                "entry_price": entry,
-                "exit_price": None,
-                "stop_price": stop,
-                "target_price": target,
-                "fill_assumed": False,
-                "ambiguous": True,
-                "ambiguity_reason": "stop_and_target_inside_same_bar",
-            })
-            continue
-
-        exit_price = stop if stop_hit else target if target_hit else None
-        rows.append({
-            "status": "closed" if exit_price is not None else "open_no_exit",
+        outcome: dict[str, object] = {
+            "status": "open_no_exit",
             "signal_date": signal_date,
             "execution_date": execution_date,
             "patterns": patterns,
             "side": side,
             "entry_price": entry,
-            "exit_price": exit_price,
+            "exit_price": None,
             "stop_price": stop,
             "target_price": target,
             "fill_assumed": True,
             "ambiguous": False,
             "execution_basis": "next_bar_open",
-        })
+        }
+        for holding_index in range(entry_index, len(prepared)):
+            holding_candle = prepared[holding_index]
+            holding_features = calculate_candle_features(holding_candle)
+            if holding_features.get("status") != "available":
+                outcome.update({
+                    "status": "unavailable",
+                    "fill_assumed": False,
+                    "reason": holding_features.get("reason", "holding_bar_ohlcv_unavailable"),
+                    "holding_bars": holding_index - entry_index + 1,
+                })
+                break
+
+            high = float(holding_features["high"])
+            low = float(holding_features["low"])
+            stop_hit = low <= stop if side == "long" else high >= stop
+            target_hit = high >= target if side == "long" else low <= target
+            holding_date = candles[holding_index].get("date", candles[holding_index].get("as_of_date"))
+            if stop_hit and target_hit:
+                outcome.update({
+                    "status": "ambiguous",
+                    "ambiguity_date": holding_date,
+                    "holding_bars": holding_index - entry_index + 1,
+                    "fill_assumed": False,
+                    "ambiguous": True,
+                    "ambiguity_reason": "stop_and_target_inside_same_bar",
+                })
+                break
+            if stop_hit or target_hit:
+                outcome.update({
+                    "status": "closed",
+                    "exit_date": holding_date,
+                    "holding_bars": holding_index - entry_index + 1,
+                    "exit_price": stop if stop_hit else target,
+                    "exit_reason": "stop" if stop_hit else "target",
+                })
+                break
+        else:
+            outcome["holding_bars"] = len(prepared) - entry_index
+        rows.append(outcome)
 
     ambiguous = sum(bool(row.get("ambiguous")) for row in rows)
     valid_candles = sum(calculate_candle_features(candle).get("status") == "available" for candle in candles)

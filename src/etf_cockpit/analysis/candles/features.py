@@ -25,16 +25,7 @@ def prepare_adjusted_ohlcv(candle: Mapping[str, object]) -> dict[str, object]:
     """Project one OHLCV row to adjusted prices without mixing price bases."""
 
     adjusted_presence = tuple(field in candle for field in _ADJUSTED_OHLC_FIELDS)
-    if "price_basis" in candle and all(field in candle for field in _OHLC_FIELDS):
-        prices = {field: candle[field] for field in _OHLC_FIELDS}
-        basis = candle.get("price_basis", "unavailable")
-    elif any(adjusted_presence):
-        if not all(adjusted_presence):
-            return {
-                "status": "unavailable",
-                "reason": "adjusted_ohlc_incomplete",
-                "execution_allowed": False,
-            }
+    if all(adjusted_presence):
         prices = {name: candle[field] for name, field in zip(_OHLC_FIELDS, _ADJUSTED_OHLC_FIELDS, strict=True)}
         basis = "provided_adjusted_ohlc"
     elif "adjusted_close" in candle:
@@ -56,6 +47,15 @@ def prepare_adjusted_ohlcv(candle: Mapping[str, object]) -> dict[str, object]:
         factor = adjusted_close / close
         prices = {field: float(value) * factor for field, value in raw_prices.items()}
         basis = "adjusted_ohlc_from_same_row_adjustment"
+    elif any(adjusted_presence):
+        return {
+            "status": "unavailable",
+            "reason": "adjusted_ohlc_incomplete",
+            "execution_allowed": False,
+        }
+    elif "price_basis" in candle and all(field in candle for field in _OHLC_FIELDS):
+        prices = {field: candle[field] for field in _OHLC_FIELDS}
+        basis = candle.get("price_basis", "unavailable")
     else:
         prices = {field: candle.get(field) for field in _OHLC_FIELDS}
         basis = "raw_ohlc"
