@@ -85,9 +85,9 @@ class TiingoProvider(DataProvider, PriceProvider):
             entitlement = "api_key_required"
             message = "Tiingo requires an API key (ETF_COCKPIT_TIINGO_API_KEY); none configured."
         else:
-            status = "ok"
+            status = "unavailable"
             entitlement = "free_tier"
-            message = "Tiingo adapter configured for daily, intraday, and adjusted OHLCV."
+            message = "Tiingo is configured for optional daily, intraday, and adjusted OHLCV; no score or release authority."
 
         return (
             ProviderCapability(

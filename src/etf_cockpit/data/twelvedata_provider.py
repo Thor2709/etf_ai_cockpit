@@ -183,9 +183,9 @@ class TwelveDataProvider(DataProvider, PriceProvider):
             entitlement = "api_key_required"
             message = "Twelve Data requires an API key (ETF_COCKPIT_TWELVEDATA_API_KEY); none configured."
         else:
-            status = "ok"
+            status = "unavailable"
             entitlement = "free_tier"
-            message = "Twelve Data adapter configured for daily, intraday, and adjusted OHLCV."
+            message = "Twelve Data is configured for optional daily, intraday, and adjusted OHLCV; no score or release authority."
 
         return (
             ProviderCapability(
