@@ -106,9 +106,21 @@ def data_health_page(page: ft.Page, state: AppState) -> ft.Control:
     )
     redraw()
 
+    export_feedback = ft.Text("", color=theme.MUTED, selectable=True)
+
     def export(_event: ft.ControlEvent) -> None:
         destination = ROOT / "data" / "derived" / "data_health.csv"
-        export_data_health(DataHealthReport(report.created_at, report.as_of_date, tuple(visible_rows)), destination)
+        try:
+            export_data_health(DataHealthReport(report.created_at, report.as_of_date, tuple(visible_rows)), destination)
+        except Exception as exc:
+            export_feedback.value = f"Data health export failed: {type(exc).__name__}: {exc}"
+            export_feedback.color = theme.RED
+            state.last_message = export_feedback.value
+            try:
+                page.update()
+            except Exception:
+                pass
+            return
         state.last_message = f"Data health exported: {destination}"
         from etf_cockpit.app.router import render_shell
 
@@ -127,6 +139,7 @@ def data_health_page(page: ft.Page, state: AppState) -> ft.Control:
                             ],
                             wrap=True,
                         ),
+                        export_feedback,
                     ],
                     spacing=10,
                 )
