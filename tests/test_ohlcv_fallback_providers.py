@@ -7,12 +7,15 @@ Tests cover:
 4. Split mismatch between providers detected as a discrepancy.
 5. Missing bars reported, not filled.
 6. Provider disagreement lowering candle quality cap without mutating higher-confidence data.
+7. Tiingo daily fetch parses adjClose, splitFactor and maps to canonical schema.
+8. API key appears in neither request URL nor any message.
+9. Mismatched or default active_provider performs zero I/O.
+10. Abstract methods return explicit unavailable status.
 """
 
 from __future__ import annotations
 
 from datetime import date
-from io import StringIO
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -62,11 +65,11 @@ def test_mock_stooq_ohlcv_normalises_to_canonical_schema(monkeypatch: pytest.Mon
     assert normalised["close"].iloc[0] == 121.2
     assert normalised["adjusted_close"].iloc[0] == 121.2
     assert normalised["volume"].iloc[0] == 45000.0
-    assert normalised["split_factor"].iloc[0] == 1.0
-    assert normalised["dividend"].iloc[0] == 0.0
+    assert pd.isna(normalised["split_factor"].iloc[0])
+    assert pd.isna(normalised["dividend"].iloc[0])
     assert normalised["source"].iloc[0] == "stooq"
     assert normalised["provider_symbol"].iloc[0] == "vwce.de"
-    assert normalised["is_adjusted"].iloc[0] is False
+    assert not bool(normalised["is_adjusted"].iloc[0])
 
 
 def test_twelvedata_quota_rate_limit_refuses_excess_calls_non_blocking() -> None:
@@ -102,6 +105,8 @@ def test_twelvedata_quota_rate_limit_refuses_excess_calls_non_blocking() -> None
     df1 = provider.fetch_daily_prices("VWCE", date(2026, 9, 25), date(2026, 9, 25))
     assert not df1.empty
     assert len(calls_made) == 1
+    assert "secret_test_key" not in calls_made[0]
+    assert "apikey" not in calls_made[0].lower()
 
     df2 = provider.fetch_daily_prices("VWCE", date(2026, 9, 25), date(2026, 9, 25))
     assert not df2.empty
@@ -380,3 +385,184 @@ def test_tiingo_fetch_daily_prices_normalises_splits_and_adjusted_fields() -> No
     assert df["split_factor"].iloc[0] == 1.0
     assert df["source"].iloc[0] == "tiingo"
     assert df["provider_symbol"].iloc[0] == "VWCE"
+
+
+def test_api_key_appears_in_neither_request_url_nor_messages() -> None:
+    """7. API key appears in neither request URL nor any message (Twelve Data and Tiingo)."""
+    twelve_secret = "twelve_secret_key_XYZ9876543210"
+    tiingo_secret = "tiingo_secret_token_ABC123456789"
+    captured_twelve_calls: list[tuple[str, dict[str, str]]] = []
+    captured_tiingo_calls: list[tuple[str, dict[str, str]]] = []
+
+    def mock_twelve_transport(url: str, headers: dict[str, str]) -> dict[str, object]:
+        captured_twelve_calls.append((url, headers))
+        return {
+            "meta": {"symbol": "VWCE", "currency": "EUR"},
+            "values": [
+                {
+                    "datetime": "2026-09-25",
+                    "open": "120.0",
+                    "high": "121.0",
+                    "low": "119.5",
+                    "close": "120.5",
+                    "volume": "1000",
+                }
+            ],
+            "status": "ok",
+        }
+
+    def mock_tiingo_transport(url: str, headers: dict[str, str]) -> list[object]:
+        captured_tiingo_calls.append((url, headers))
+        return [
+            {
+                "date": "2026-09-25T00:00:00.000Z",
+                "close": 120.5,
+                "high": 121.0,
+                "low": 119.5,
+                "open": 120.0,
+                "volume": 1000,
+                "adjClose": 120.5,
+                "splitFactor": 1.0,
+                "divCash": 0.0,
+            }
+        ]
+
+    twelve_provider = TwelveDataProvider(
+        section=ProviderSection(active_provider="twelvedata", api_key=twelve_secret),
+        transport=mock_twelve_transport,
+    )
+    tiingo_provider = TiingoProvider(
+        section=ProviderSection(active_provider="tiingo", api_key=tiingo_secret),
+        transport=mock_tiingo_transport,
+    )
+
+    # 1. Capability probe messages must not contain secrets
+    for cap in twelve_provider.probe_capabilities():
+        assert twelve_secret not in cap.message
+        assert cap.secret_present is True
+
+    for cap in tiingo_provider.probe_capabilities():
+        assert tiingo_secret not in cap.message
+        assert cap.secret_present is True
+
+    # 2. Daily price fetch URLs must not contain secrets
+    twelve_provider.fetch_daily_prices("VWCE", date(2026, 9, 25), date(2026, 9, 25))
+    assert len(captured_twelve_calls) == 1
+    twelve_url, twelve_headers = captured_twelve_calls[0]
+    assert twelve_secret not in twelve_url
+    assert "apikey" not in twelve_url.lower()
+    assert twelve_headers.get("Authorization") == f"apikey {twelve_secret}"
+
+    tiingo_provider.fetch_daily_prices("VWCE", date(2026, 9, 25), date(2026, 9, 25))
+    assert len(captured_tiingo_calls) == 1
+    tiingo_url, tiingo_headers = captured_tiingo_calls[0]
+    assert tiingo_secret not in tiingo_url
+    assert tiingo_headers.get("Authorization") == f"Token {tiingo_secret}"
+
+    # 3. Intraday price fetch URLs must not contain secrets
+    twelve_provider.fetch_intraday_prices("VWCE", interval="5min")
+    assert len(captured_twelve_calls) == 2
+    twelve_intra_url, twelve_intra_headers = captured_twelve_calls[1]
+    assert twelve_secret not in twelve_intra_url
+    assert "apikey" not in twelve_intra_url.lower()
+    assert twelve_intra_headers.get("Authorization") == f"apikey {twelve_secret}"
+
+    tiingo_provider.fetch_intraday_prices("VWCE", interval="5min")
+    assert len(captured_tiingo_calls) == 2
+    tiingo_intra_url, tiingo_intra_headers = captured_tiingo_calls[1]
+    assert tiingo_secret not in tiingo_intra_url
+    assert tiingo_intra_headers.get("Authorization") == f"Token {tiingo_secret}"
+
+    # 4. Error messages on transport failure must redact the secret
+    def error_transport(_url: str, _headers: dict[str, str]) -> None:
+        raise ValueError(f"Simulated network error containing {twelve_secret}")
+
+    failing_twelve = TwelveDataProvider(
+        section=ProviderSection(active_provider="twelvedata", api_key=twelve_secret),
+        transport=error_transport,
+    )
+    res = failing_twelve.fetch_prices(["VWCE"], date(2026, 9, 25), date(2026, 9, 25))
+    assert twelve_secret not in res.message
+
+
+def test_mismatched_active_provider_performs_zero_io() -> None:
+    """8. Mismatched or default active_provider performs zero I/O."""
+    transport_mock = MagicMock(side_effect=AssertionError("Transport must not be invoked when mismatched"))
+
+    # TwelveDataProvider with mismatched provider (e.g. active_provider="yfinance")
+    mismatched_twelve = TwelveDataProvider(
+        section=ProviderSection(active_provider="yfinance", api_key="twelve_key_123"),
+        transport=transport_mock,
+    )
+    assert mismatched_twelve.is_configured is False
+
+    caps_twelve = mismatched_twelve.probe_capabilities()
+    assert len(caps_twelve) == 1
+    assert caps_twelve[0].status == "unavailable"
+    assert caps_twelve[0].entitlement == "disabled"
+    assert caps_twelve[0].configured is False
+
+    assert mismatched_twelve.fetch_daily_prices("VWCE", date(2026, 9, 25), date(2026, 9, 25)).empty
+    assert mismatched_twelve.fetch_intraday_prices("VWCE", "5min").empty
+    res_twelve = mismatched_twelve.fetch_prices(["VWCE"], date(2026, 9, 25), date(2026, 9, 25))
+    assert res_twelve.status == "unavailable"
+    assert mismatched_twelve.validate_symbol("VWCE") is False
+
+    # TwelveDataProvider with default ProviderSection() (active_provider="none")
+    default_twelve = TwelveDataProvider(
+        section=ProviderSection(),
+        api_key="twelve_key_123",
+        transport=transport_mock,
+    )
+    assert default_twelve.is_configured is False
+    assert default_twelve.fetch_daily_prices("VWCE", date(2026, 9, 25), date(2026, 9, 25)).empty
+
+    # TiingoProvider with mismatched provider (e.g. active_provider="yfinance")
+    mismatched_tiingo = TiingoProvider(
+        section=ProviderSection(active_provider="yfinance", api_key="tiingo_key_123"),
+        transport=transport_mock,
+    )
+    assert mismatched_tiingo.is_configured is False
+
+    caps_tiingo = mismatched_tiingo.probe_capabilities()
+    assert len(caps_tiingo) == 1
+    assert caps_tiingo[0].status == "unavailable"
+    assert caps_tiingo[0].entitlement == "disabled"
+    assert caps_tiingo[0].configured is False
+
+    assert mismatched_tiingo.fetch_daily_prices("VWCE", date(2026, 9, 25), date(2026, 9, 25)).empty
+    assert mismatched_tiingo.fetch_intraday_prices("VWCE", "5min").empty
+    res_tiingo = mismatched_tiingo.fetch_prices(["VWCE"], date(2026, 9, 25), date(2026, 9, 25))
+    assert res_tiingo.status == "unavailable"
+    assert mismatched_tiingo.validate_symbol("VWCE") is False
+
+    # TiingoProvider with default ProviderSection()
+    default_tiingo = TiingoProvider(
+        section=ProviderSection(),
+        api_key="tiingo_key_123",
+        transport=transport_mock,
+    )
+    assert default_tiingo.is_configured is False
+    assert default_tiingo.fetch_daily_prices("VWCE", date(2026, 9, 25), date(2026, 9, 25)).empty
+
+    # Assert transport was never called throughout any of these checks
+    assert transport_mock.call_count == 0
+
+
+def test_abstract_methods_return_explicit_unavailable_status() -> None:
+    """9. Abstract methods fetch_fx, fetch_etf_metadata, fetch_etf_holdings return explicit unavailable status."""
+    twelve = TwelveDataProvider(section=ProviderSection(active_provider="twelvedata", api_key="key"))
+    tiingo = TiingoProvider(section=ProviderSection(active_provider="tiingo", api_key="key"))
+
+    for provider in (twelve, tiingo):
+        fx_res = provider.fetch_fx(["EURUSD"], date(2026, 9, 1), date(2026, 9, 2))
+        assert fx_res.status == "unavailable"
+        assert fx_res.dataset_type == "fx"
+
+        meta_res = provider.fetch_etf_metadata(["IE00BK5BQT80"])
+        assert meta_res.status == "unavailable"
+        assert meta_res.dataset_type == "etf_metadata"
+
+        holdings_res = provider.fetch_etf_holdings(["IE00BK5BQT80"])
+        assert holdings_res.status == "unavailable"
+        assert holdings_res.dataset_type == "etf_holdings"

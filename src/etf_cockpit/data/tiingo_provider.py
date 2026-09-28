@@ -8,7 +8,7 @@ and normalisation to the canonical cockpit schema. Optional fallback provider.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date
 import json
 import os
 from typing import Any
@@ -63,14 +63,20 @@ class TiingoProvider(DataProvider, PriceProvider):
     @property
     def is_configured(self) -> bool:
         active = (self.section.active_provider or "none").strip().lower()
-        return active not in {"", "none"} and bool(self._api_key)
+        return active == self.name and bool(self._api_key)
+
+    def _redact(self, text: str) -> str:
+        redacted = redact_text(text)
+        if self._api_key:
+            redacted = redacted.replace(self._api_key, "***redacted***")
+        return redacted
 
     def probe_capabilities(self) -> tuple[ProviderCapability, ...]:
         active = (self.section.active_provider or "none").strip().lower()
-        configured_flag = active not in {"", "none"}
+        is_active = active == self.name
         has_key = bool(self._api_key)
 
-        if not configured_flag:
+        if not is_active:
             status = "unavailable"
             entitlement = "disabled"
             message = "Tiingo is optional and disabled by configuration; no network request was made."
@@ -89,7 +95,7 @@ class TiingoProvider(DataProvider, PriceProvider):
                 dataset_type="prices",
                 status=status,
                 authority=self.authority,
-                configured=configured_flag and has_key,
+                configured=is_active and has_key,
                 entitlement=entitlement,
                 rate_limit_note=(
                     f"Free tier: {FREE_TIER_CALLS_PER_HOUR} requests/hour, {FREE_TIER_CALLS_PER_DAY} requests/day. "
@@ -98,7 +104,7 @@ class TiingoProvider(DataProvider, PriceProvider):
                 last_success_at=None,
                 error_fingerprint=None,
                 secret_present=has_key,
-                message=redact_text(message),
+                message=self._redact(message),
             ),
         )
 
@@ -117,11 +123,11 @@ class TiingoProvider(DataProvider, PriceProvider):
 
             response = requests.get(url, headers=headers, timeout=30)
             if response.status_code == 429:
-                return None, f"HTTP 429: {redact_text(response.text)}"
+                return None, f"HTTP 429: {self._redact(response.text)}"
             response.raise_for_status()
             return response.json(), None
         except Exception as exc:
-            return None, redact_text(f"{type(exc).__name__}: {exc}")
+            return None, self._redact(f"{type(exc).__name__}: {exc}")
 
     def fetch_daily_prices(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         """Fetch daily OHLCV from Tiingo and normalise to canonical schema."""
@@ -217,7 +223,7 @@ class TiingoProvider(DataProvider, PriceProvider):
 
         if not frames:
             msg = "Tiingo returned no usable price rows. " + "; ".join(errors)
-            return ProviderResult(self.name, "prices", "unavailable", redact_text(msg))
+            return ProviderResult(self.name, "prices", "unavailable", self._redact(msg))
 
         data = pd.concat(frames, ignore_index=True).sort_values(["provider_symbol", "date"]).reset_index(drop=True)
         latest = data["date"].max()
@@ -235,7 +241,34 @@ class TiingoProvider(DataProvider, PriceProvider):
         msg = f"Downloaded {len(data)} Tiingo rows for {data['provider_symbol'].nunique()} instruments."
         if errors:
             msg += " Partial fetch: " + "; ".join(errors)
-        return ProviderResult(self.name, "prices", status, redact_text(msg), data, meta)
+        return ProviderResult(self.name, "prices", status, self._redact(msg), data, meta)
+
+    def fetch_fx(self, pairs: list[str], start_date: date, end_date: date) -> ProviderResult:
+        """Explicit unavailable status for unsupported FX dataset."""
+        return ProviderResult(
+            self.name,
+            "fx",
+            "unavailable",
+            "Tiingo adapter does not implement FX dataset fetching in this profile.",
+        )
+
+    def fetch_etf_metadata(self, isins: list[str]) -> ProviderResult:
+        """Explicit unavailable status for unsupported ETF metadata dataset."""
+        return ProviderResult(
+            self.name,
+            "etf_metadata",
+            "unavailable",
+            "Tiingo adapter does not implement ETF metadata fetching.",
+        )
+
+    def fetch_etf_holdings(self, isins: list[str]) -> ProviderResult:
+        """Explicit unavailable status for unsupported ETF holdings dataset."""
+        return ProviderResult(
+            self.name,
+            "etf_holdings",
+            "unavailable",
+            "Tiingo adapter does not implement ETF holdings fetching.",
+        )
 
     def validate_symbol(self, symbol: str) -> bool:
         if not self.is_configured:

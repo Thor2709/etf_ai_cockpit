@@ -143,20 +143,38 @@ def normalise_ohlcv(
     else:
         df["volume"] = float("nan")
 
-    # Split factor (standard default is 1.0 = no split)
-    if "split_factor" in df.columns:
-        splits = pd.to_numeric(df["split_factor"], errors="coerce").fillna(1.0)
-        # In providers like yfinance, 0.0 indicates no split; standard factor is 1.0
-        splits = splits.apply(lambda x: 1.0 if x == 0.0 or pd.isna(x) else float(x))
-        df["split_factor"] = splits
-    else:
-        df["split_factor"] = 1.0
+    # Source
+    inferred_source = str(source or "").strip()
+    if not inferred_source and "source" in df.columns:
+        src_series = df["source"].dropna().astype(str).str.strip()
+        if not src_series.empty:
+            inferred_source = src_series.iloc[0]
+    df["source"] = inferred_source
 
-    # Dividend (default 0.0 if not reported)
-    if "dividend" in df.columns:
-        df["dividend"] = pd.to_numeric(df["dividend"], errors="coerce").fillna(0.0)
+    # Split factor: preserve missing values (NaN) without zero-filling.
+    # Translate only explicit provider 'no event' encodings under provider-specific rules.
+    if "split_factor" in df.columns:
+        raw_splits = pd.to_numeric(df["split_factor"], errors="coerce")
+        is_yfinance = (
+            "yfinance" in inferred_source.lower()
+            or "Stock Splits" in frame.columns
+            or "stock_splits" in frame.columns
+        )
+        if is_yfinance:
+            # yfinance encodes 'no split event' explicitly as 0.0, corresponding to ratio 1.0
+            raw_splits = raw_splits.apply(
+                lambda x: 1.0 if pd.notna(x) and float(x) == 0.0 else (float(x) if pd.notna(x) else float("nan"))
+            )
+        df["split_factor"] = raw_splits
     else:
-        df["dividend"] = 0.0
+        df["split_factor"] = float("nan")
+
+    # Dividend: preserve missing values (NaN) without zero-filling.
+    # Explicit provider reported dividends (including 0.0) are preserved; missing values remain NaN.
+    if "dividend" in df.columns:
+        df["dividend"] = pd.to_numeric(df["dividend"], errors="coerce")
+    else:
+        df["dividend"] = float("nan")
 
     # Provider symbol
     inferred_symbol = str(symbol or "").strip()
@@ -165,14 +183,6 @@ def normalise_ohlcv(
         if not non_empty.empty:
             inferred_symbol = non_empty.iloc[0]
     df["provider_symbol"] = inferred_symbol
-
-    # Source
-    inferred_source = str(source or "").strip()
-    if not inferred_source and "source" in df.columns:
-        src_series = df["source"].dropna().astype(str).str.strip()
-        if not src_series.empty:
-            inferred_source = src_series.iloc[0]
-    df["source"] = inferred_source
 
     # Currency
     inferred_currency = str(currency or "").strip()
@@ -470,26 +480,51 @@ def build_discrepancy_report(
                     )
                 )
 
-        # 4. Split factor
-        sf_p = float(row_p.get("split_factor") or 1.0)
-        sf_s = float(row_s.get("split_factor") or 1.0)
-        tol_split = tol_map.get("split_factor", TOLERANCE_SPLIT_FACTOR)
-        if abs(sf_p - sf_s) > tol_split:
-            discrepancies.append(
-                DiscrepancyRow(
-                    symbol=sym,
-                    date=d,
-                    field="split_factor",
-                    provider_a=p_source,
-                    value_a=sf_p,
-                    provider_b=s_source,
-                    value_b=sf_s,
-                    tolerance=tol_split,
-                    message=f"Split factor mismatch on {d}: {p_source}={sf_p} vs {s_source}={sf_s}.",
+        # 4. Split factor (compared when both providers report observations)
+        sf_p = row_p.get("split_factor")
+        sf_s = row_s.get("split_factor")
+        if sf_p is not None and sf_s is not None and pd.notna(sf_p) and pd.notna(sf_s):
+            sf_p_val = float(sf_p)
+            sf_s_val = float(sf_s)
+            tol_split = tol_map.get("split_factor", TOLERANCE_SPLIT_FACTOR)
+            if abs(sf_p_val - sf_s_val) > tol_split:
+                discrepancies.append(
+                    DiscrepancyRow(
+                        symbol=sym,
+                        date=d,
+                        field="split_factor",
+                        provider_a=p_source,
+                        value_a=sf_p_val,
+                        provider_b=s_source,
+                        value_b=sf_s_val,
+                        tolerance=tol_split,
+                        message=f"Split factor mismatch on {d}: {p_source}={sf_p_val} vs {s_source}={sf_s_val}.",
+                    )
                 )
-            )
 
-        # 5. Currency
+        # 5. Dividend (compared when both providers report observations)
+        div_p = row_p.get("dividend")
+        div_s = row_s.get("dividend")
+        if div_p is not None and div_s is not None and pd.notna(div_p) and pd.notna(div_s):
+            div_p_val = float(div_p)
+            div_s_val = float(div_s)
+            tol_div = tol_map.get("dividend", TOLERANCE_DIVIDEND)
+            if abs(div_p_val - div_s_val) > tol_div:
+                discrepancies.append(
+                    DiscrepancyRow(
+                        symbol=sym,
+                        date=d,
+                        field="dividend",
+                        provider_a=p_source,
+                        value_a=div_p_val,
+                        provider_b=s_source,
+                        value_b=div_s_val,
+                        tolerance=tol_div,
+                        message=f"Dividend mismatch on {d}: {p_source}={div_p_val} vs {s_source}={div_s_val}.",
+                    )
+                )
+
+        # 6. Currency
         curr_p = str(row_p.get("currency") or "").strip().upper()
         curr_s = str(row_s.get("currency") or "").strip().upper()
         if curr_p and curr_s and curr_p != curr_s:
