@@ -52,6 +52,7 @@ def test_tca_decomposes_spread_delay_and_fees() -> None:
             "arrival_spread_bps": 20.0,
             "decision_time": "2026-07-20T09:59:00+00:00",
             "arrival_time": "2026-07-20T10:00:00+00:00",
+            "available_at": "2026-07-20T10:00:00+00:00",
             "source_authority": "synthetic_test_quote",
             "source_checksum": "a" * 64,
         },
@@ -65,6 +66,13 @@ def test_tca_decomposes_spread_delay_and_fees() -> None:
     assert record.reconciliation_status == "reconciled"
     assert record.realised_fee == 2.0
     assert record.realised_total_cost == pytest.approx(25.0)
+    assert record.fee_cost == 2.0
+    assert record.component_total_cost == pytest.approx(
+        record.delay_cost + record.spread_cost + record.impact_cost + record.fee_cost
+    )
+    assert record.component_total_cost == pytest.approx(record.realised_total_cost)
+    assert record.component_total_cost == pytest.approx(25.0)
+    assert record.total_cost_reconciliation_status == "reconciled"
 
 
 def test_tca_preserves_original_cost_forecast() -> None:
@@ -98,6 +106,66 @@ def test_unfilled_orders_excluded_from_calibration() -> None:
     assert completed.calibration_eligible is True
     assert calibration["sample_count"] == 1
     assert calibration["mean_realised_cost_bps"] == pytest.approx(completed.realised_cost_bps)
+
+
+def test_only_completion_fill_is_eligible_for_calibration(tmp_path: Path) -> None:
+    ledger = PaperLedger(tmp_path)
+    ledger.open_account(initial_cash=1_000.0)
+    order = ledger.accept_proposal(_proposal(source="tca-partial-fills"), execution_price=10.0, fee=2.0)
+    ledger.record_fill(str(order["order_id"]), quantity=5.0, price=11.0, fee=1.0)
+    ledger.record_fill(str(order["order_id"]), quantity=5.0, price=12.0, fee=1.0)
+
+    view = load_paper_tca_view(tmp_path)
+    rows = view["rows"]
+    assert isinstance(rows, list)
+    assert len(rows) == 2
+    assert rows[0]["completed_order"] is False
+    assert rows[0]["calibration_eligible"] is False
+    assert rows[1]["completed_order"] is True
+    assert rows[1]["calibration_eligible"] is True
+    assert view["calibration"]["sample_count"] == 1
+
+
+def test_future_benchmark_timestamps_leave_attribution_unavailable() -> None:
+    valid_times = {
+        "decision_time": "2026-07-20T09:59:00+00:00",
+        "arrival_time": "2026-07-20T10:00:00+00:00",
+        "available_at": "2026-07-20T10:00:00+00:00",
+    }
+    invalid_times = (
+        {**valid_times, "decision_time": "2026-07-20T10:01:00+00:00"},
+        {**valid_times, "arrival_time": "2026-07-20T10:01:00+00:00"},
+        {**valid_times, "available_at": "2026-07-20T10:01:00+00:00"},
+        {**valid_times, "available_at": None},
+        {**valid_times, "decision_time": "not-a-timestamp"},
+        {
+            **valid_times,
+            "decision_time": "2026-07-20T09:59:30+00:00",
+            "arrival_time": "2026-07-20T09:59:00+00:00",
+        },
+    )
+    for timestamps in invalid_times:
+        record = TCACalculator().calculate(
+            _fill(),
+            _order(),
+            benchmark={
+                "decision_price": 100.0,
+                "arrival_mid_price": 102.0,
+                "arrival_spread_bps": 20.0,
+                **timestamps,
+            },
+        )
+
+        assert record.delay_cost is None
+        assert record.spread_cost is None
+        assert record.impact_cost is None
+        assert record.reconciliation_status == "incomplete"
+        expected_limitation = (
+            "benchmark_temporal_provenance_unavailable"
+            if timestamps.get("available_at") is None
+            else "benchmark_temporal_provenance_invalid"
+        )
+        assert expected_limitation in record.benchmark_limitations
 
 
 def test_paper_fill_costs_reconcile_to_ledger_and_persist_attribution(tmp_path: Path) -> None:

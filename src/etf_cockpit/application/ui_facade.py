@@ -1464,14 +1464,29 @@ def load_paper_tca_view(storage_root: Path | None = None, *, account_id: str = "
         orders = {str(row.get("order_id")): row for row in ledger.orders()}
         fills = ledger.trade_rows()
         calculator = TCACalculator()
-        records = tuple(
-            calculator.calculate(
-                fill,
-                orders.get(str(fill.get("order_id"))),
-                account_id=account_id,
+        cumulative_fills: dict[str, float] = {}
+        records_list = []
+        for fill in fills:
+            order_id = str(fill.get("order_id"))
+            order = orders.get(order_id)
+            cumulative = cumulative_fills.get(order_id, 0.0) + float(fill.get("quantity", 0.0))
+            cumulative_fills[order_id] = cumulative
+            order_quantity = float((order or {}).get("quantity", 0.0))
+            fill_is_completion = (
+                order is not None
+                and order.get("status") == "filled"
+                and order_quantity > 0
+                and cumulative + 1e-8 >= order_quantity
             )
-            for fill in fills
-        )
+            records_list.append(
+                calculator.calculate(
+                    fill,
+                    order,
+                    fill_is_completion=fill_is_completion,
+                    account_id=account_id,
+                )
+            )
+        records = tuple(records_list)
         store = TCAAttributionStore(ledger.path.parent / "tca_attributions")
         store.persist(records)
         stored_records = store.load()

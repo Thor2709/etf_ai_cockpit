@@ -9,6 +9,7 @@ import math
 import os
 import tempfile
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -40,6 +41,7 @@ class TCAAttributionRecord:
     reference_source: str | None
     benchmark_decision_time: str | None
     benchmark_arrival_time: str | None
+    benchmark_source_available_at: str | None
     benchmark_source_authority: str | None
     benchmark_source_checksum: str | None
     estimated_total_cost: float | None
@@ -50,8 +52,11 @@ class TCAAttributionRecord:
     delay_cost: float | None
     spread_cost: float | None
     impact_cost: float | None
+    fee_cost: float | None
     component_total_slippage: float | None
     reconciliation_status: str
+    component_total_cost: float | None
+    total_cost_reconciliation_status: str
     realised_cost_bps: float | None
     completed_order: bool
     calibration_eligible: bool
@@ -79,6 +84,7 @@ class TCACalculator:
         *,
         cost_forecast: Mapping[str, object] | None = None,
         benchmark: Mapping[str, object] | None = None,
+        fill_is_completion: bool | None = None,
         account_id: str = "local-paper",
     ) -> TCAAttributionRecord:
         fill_id = _text(fill.get("fill_id") or fill.get("paper_trade_id"))
@@ -116,13 +122,24 @@ class TCACalculator:
         ):
             estimated_total = None
 
-        decision_price = _number((benchmark or {}).get("decision_price"))
+        benchmark_decision_time = _text((benchmark or {}).get("decision_time"))
+        benchmark_arrival_time = _text((benchmark or {}).get("arrival_time"))
+        benchmark_source_available_at = _text((benchmark or {}).get("available_at"))
+        temporal_provenance_valid, temporal_limitation = _benchmark_temporal_provenance(
+            benchmark,
+            fill.get("as_of"),
+        )
+        limitations: list[str] = []
+        if temporal_limitation is not None:
+            limitations.append(temporal_limitation)
+        usable_benchmark = benchmark if temporal_provenance_valid else None
+        decision_price = _number((usable_benchmark or {}).get("decision_price"))
         if decision_price is not None and decision_price <= 0:
             decision_price = None
         reference = decision_price
-        reference_source = _text((benchmark or {}).get("reference_source"))
+        reference_source = _text((usable_benchmark or {}).get("reference_source"))
         if reference is None:
-            reference = _number((benchmark or {}).get("reference_price"))
+            reference = _number((usable_benchmark or {}).get("reference_price"))
         if reference is None and linked_order is not None:
             reference = _number(linked_order.get("execution_price"))
             if reference is not None:
@@ -134,16 +151,22 @@ class TCACalculator:
             if direction is not None and quantity is not None and price is not None and reference is not None
             else None
         )
+        realised_total = (
+            realised_slippage + fee
+            if realised_slippage is not None and fee is not None and currency is not None
+            else None
+        )
 
         delay_cost: float | None = None
         spread_cost: float | None = None
         impact_cost: float | None = None
+        fee_cost = fee
         component_total: float | None = None
-        limitations: list[str] = []
-        arrival_mid = _number((benchmark or {}).get("arrival_mid_price"))
+        component_total_cost: float | None = None
+        arrival_mid = _number((usable_benchmark or {}).get("arrival_mid_price"))
         if arrival_mid is not None and arrival_mid <= 0:
             arrival_mid = None
-        arrival_spread_bps = _number((benchmark or {}).get("arrival_spread_bps"))
+        arrival_spread_bps = _number((usable_benchmark or {}).get("arrival_spread_bps"))
         if decision_price is None or arrival_mid is None:
             limitations.append("decision_or_arrival_midpoint_unavailable")
         elif direction is not None and quantity is not None:
@@ -158,8 +181,18 @@ class TCACalculator:
             impact_cost = realised_slippage - delay_cost - spread_cost
             component_total = delay_cost + spread_cost + impact_cost
             reconciliation_status = "reconciled" if math.isclose(component_total, realised_slippage, rel_tol=1e-10, abs_tol=1e-8) else "mismatch"
+            if realised_total is not None and fee_cost is not None:
+                component_total_cost = component_total + fee_cost
+                total_cost_reconciliation_status = (
+                    "reconciled"
+                    if math.isclose(component_total_cost, realised_total, rel_tol=1e-10, abs_tol=1e-8)
+                    else "mismatch"
+                )
+            else:
+                total_cost_reconciliation_status = "incomplete"
         else:
             reconciliation_status = "incomplete"
+            total_cost_reconciliation_status = "incomplete"
         if reference is None:
             limitations.append("pre_fill_reference_price_unavailable")
         if quantity is None:
@@ -178,15 +211,15 @@ class TCACalculator:
             limitations.append("forecast_currency_or_order_quantity_unavailable")
         if currency is None:
             limitations.append("fill_currency_unavailable")
-        realised_total = (
-            realised_slippage + fee
-            if realised_slippage is not None and fee is not None and currency is not None
-            else None
-        )
         variance = realised_total - estimated_total if realised_total is not None and estimated_total is not None else None
         filled_value = quantity * price if quantity is not None and price is not None else None
         realised_cost_bps = realised_total / filled_value * 10_000.0 if realised_total is not None and filled_value and filled_value > 0 else None
         filled_quantity = _number((linked_order or {}).get("filled_quantity"))
+        fill_quantity_completes_order = (
+            fill_is_completion
+            if fill_is_completion is not None
+            else quantity is not None and order_quantity is not None and quantity + 1e-8 >= order_quantity
+        )
         completed_order = (
             linked_order is not None
             and order_status == "filled"
@@ -194,6 +227,7 @@ class TCACalculator:
             and order_quantity > 0
             and filled_quantity is not None
             and filled_quantity + 1e-8 >= order_quantity
+            and fill_quantity_completes_order
         )
         calibration_eligible = completed_order and realised_cost_bps is not None
         stable_fill_id = fill_id or "unknown-fill"
@@ -218,8 +252,9 @@ class TCACalculator:
             ledger_fee_reconciliation="matched" if fee is not None else "unavailable",
             reference_price=reference,
             reference_source=reference_source,
-            benchmark_decision_time=_text((benchmark or {}).get("decision_time")),
-            benchmark_arrival_time=_text((benchmark or {}).get("arrival_time")),
+            benchmark_decision_time=benchmark_decision_time,
+            benchmark_arrival_time=benchmark_arrival_time,
+            benchmark_source_available_at=benchmark_source_available_at,
             benchmark_source_authority=_text((benchmark or {}).get("source_authority")),
             benchmark_source_checksum=_text((benchmark or {}).get("source_checksum")),
             estimated_total_cost=estimated_total,
@@ -230,8 +265,11 @@ class TCACalculator:
             delay_cost=delay_cost,
             spread_cost=spread_cost,
             impact_cost=impact_cost,
+            fee_cost=fee_cost,
             component_total_slippage=component_total,
             reconciliation_status=reconciliation_status,
+            component_total_cost=component_total_cost,
+            total_cost_reconciliation_status=total_cost_reconciliation_status,
             realised_cost_bps=realised_cost_bps,
             completed_order=completed_order,
             calibration_eligible=calibration_eligible,
@@ -325,6 +363,43 @@ def _forecast_total(forecast: Mapping[str, object] | None) -> tuple[str | None, 
     if cost_bps is not None and order_value is not None:
         return currency or "EUR", order_value * cost_bps / 10_000.0
     return currency, None
+
+
+def _benchmark_temporal_provenance(
+    benchmark: Mapping[str, object] | None,
+    fill_as_of: object,
+) -> tuple[bool, str | None]:
+    if benchmark is None:
+        return False, None
+    raw_times = (
+        benchmark.get("decision_time"),
+        benchmark.get("arrival_time"),
+        benchmark.get("available_at"),
+        fill_as_of,
+    )
+    if any(_text(value) is None for value in raw_times):
+        return False, "benchmark_temporal_provenance_unavailable"
+    parsed_times = tuple(_parse_timestamp(value) for value in raw_times)
+    if any(value is None for value in parsed_times):
+        return False, "benchmark_temporal_provenance_invalid"
+    decision_time, arrival_time, available_at, fill_time = parsed_times
+    assert decision_time is not None and arrival_time is not None and available_at is not None and fill_time is not None
+    if decision_time > arrival_time or arrival_time > fill_time or available_at > fill_time:
+        return False, "benchmark_temporal_provenance_invalid"
+    return True, None
+
+
+def _parse_timestamp(value: object) -> datetime | None:
+    text = _text(value)
+    if text is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed
 
 
 def _number(value: object) -> float | None:
