@@ -54,7 +54,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0030` | `P0/P1` | `integrated` | `frontend-and-api` | - | - | - | `ISSUE-0010`, `ISSUE-0057`, `ISSUE-0129`, `ISSUE-0147` |
 | `ISSUE-0037` | `P1/P2` | `integrated` | `frontend-and-api` | - | - | `ISSUE-0176` | `ISSUE-0075`, `ISSUE-0076`, `ISSUE-0144` |
 | `ISSUE-0041` | `P1/P2` | `integrated` | `frontend-and-api` | - | - | - | `ISSUE-0137`, `ISSUE-0140`, `ISSUE-0143` |
-| `ISSUE-0042` | `P1/P2` | `implemented_initially` | `frontend-and-api` | - | - | - | `ISSUE-0090`, `ISSUE-0138`, `ISSUE-0147` |
+| `ISSUE-0042` | `P1/P2` | `integrated` | `frontend-and-api` | - | - | - | `ISSUE-0090`, `ISSUE-0138`, `ISSUE-0147` |
 | `ISSUE-0043` | `P2` | `planned` | `frontend-and-api` | - | - | `ISSUE-0148` | `ISSUE-0148`, `ISSUE-0149` |
 | `ISSUE-0045` | `P1` | `in_progress` | `frontend-and-api` | - | - | - | `ISSUE-0136`, `ISSUE-0143` |
 | `ISSUE-0136` | `P0` | `integrated` | `frontend-and-api` | `ISSUE-0071` | - | `ISSUE-0137`, `ISSUE-0139`, `ISSUE-0158`, `ISSUE-0169` | - |
