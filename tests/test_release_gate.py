@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import subprocess
 import tarfile
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
 import pytest
+import yaml
 
 from scripts import release_gate
 
@@ -28,7 +31,182 @@ def test_full_suite_timeout_is_scoped_to_the_full_release_test_command(
     release_gate.run_command(tmp_path, output, "full_tests", ("pytest",))
     release_gate.run_command(tmp_path, output, "package_build", ("build",))
 
-    assert observed == [2400, 1800]
+    assert observed == [3600, 1800]
+
+
+def test_full_tests_default_command_remains_the_serial_release_command(tmp_path: Path) -> None:
+    assert release_gate._full_test_commands(tmp_path, tmp_path / "evidence", 0) == (
+        (
+            release_gate.sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "--durations=100",
+            "--durations-min=0.25",
+            f"--junitxml={tmp_path / 'evidence' / 'junit-full.xml'}",
+        ),
+    )
+
+
+def test_full_tests_xdist_commands_use_disjoint_phases_and_canonical_junit_names(tmp_path: Path) -> None:
+    phase_a, phase_b = release_gate._full_test_commands(tmp_path, tmp_path / "evidence", 4)
+
+    marker_index = phase_a.index("-m", phase_a.index("-m") + 1)
+    assert phase_a[marker_index + 1] == "not serial"
+    assert phase_a[phase_a.index("-n") + 1] == "4"
+    assert phase_a[phase_a.index("--dist") + 1] == "loadgroup"
+    assert f"--junitxml={tmp_path / 'evidence' / 'junit-parallel.xml'}" in phase_a
+    assert "--durations=100" in phase_a
+    assert "--durations-min=0.25" in phase_a
+    marker_index = phase_b.index("-m", phase_b.index("-m") + 1)
+    assert phase_b[marker_index + 1] == "serial"
+    assert f"--junitxml={tmp_path / 'evidence' / 'junit-serial.xml'}" in phase_b
+    assert "--durations=100" in phase_b
+    assert "--durations-min=0.25" in phase_b
+
+
+def test_merge_junit_reports_sums_counts_and_keeps_anchor_style_suite_counts(tmp_path: Path) -> None:
+    parallel = tmp_path / "junit-parallel.xml"
+    serial = tmp_path / "junit-serial.xml"
+    parallel.write_text(
+        '<testsuites><testsuite name="parallel" tests="2" failures="1" errors="0" skipped="1">'
+        '<testcase name="failed"><failure message="assertion" /></testcase>'
+        '<testcase name="skipped"><skipped /></testcase></testsuite></testsuites>',
+        encoding="utf-8",
+    )
+    serial.write_text(
+        '<testsuite name="serial" tests="3" failures="0" errors="1" skipped="0">'
+        '<testcase name="error"><error message="exception" /></testcase>'
+        '<testcase name="passed-one" /><testcase name="passed-two" /></testsuite>',
+        encoding="utf-8",
+    )
+
+    counts = release_gate._merge_junit_reports((parallel, serial), tmp_path / "junit-full.xml")
+
+    merged = ET.parse(tmp_path / "junit-full.xml").getroot()
+    suites = merged.findall("testsuite")
+    assert merged.tag == "testsuites"
+    assert len(merged.findall(".//testcase")) == 5
+    assert counts == {"tests": 5, "failures": 1, "errors": 1, "skipped": 1}
+    assert {name: int(merged.get(name, "0")) for name in counts} == counts
+    assert sum(int(suite.get("tests", "0")) for suite in suites) == 5
+    assert sum(int(suite.get("failures", "0")) + int(suite.get("errors", "0")) for suite in suites) == 2
+
+
+@pytest.mark.parametrize("mismatch", ["missing", "overlap"])
+def test_full_tests_fails_with_readable_collection_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mismatch: str
+) -> None:
+    def collect(_root: Path, command: tuple[str, ...]) -> tuple[set[str], float, str]:
+        if command.count("-m") < 2:
+            return {"tests/test_sample.py::test_a", "tests/test_sample.py::test_b"}, 2.0, ""
+        marker_index = command.index("-m", command.index("-m") + 1)
+        if command[marker_index + 1] == "not serial":
+            phase_a = {"tests/test_sample.py::test_a"}
+            if mismatch == "overlap":
+                phase_a.add("tests/test_sample.py::test_b")
+            return phase_a, 1.0, ""
+        if mismatch == "overlap":
+            return {"tests/test_sample.py::test_b"}, 1.0, ""
+        return set(), 1.0, ""
+
+    def should_not_run(*_args, **_kwargs):
+        pytest.fail("test execution must not start after a collection mismatch")
+
+    monkeypatch.setattr(release_gate, "_collect_test_nodeids", collect)
+    monkeypatch.setattr(release_gate, "run_command", should_not_run)
+
+    result = release_gate.full_tests(tmp_path, tmp_path / "evidence", 4)
+
+    assert result.status == "failed"
+    assert "collection parity failed" in result.failure
+    assert "tests/test_sample.py::test_b" in result.failure
+    assert f"{mismatch}=1" in result.failure
+
+
+@pytest.mark.parametrize("failed_phase", ["full_tests_parallel", "full_tests_serial"])
+def test_full_tests_fails_when_either_xdist_phase_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failed_phase: str
+) -> None:
+    def collect(_root: Path, command: tuple[str, ...]) -> tuple[set[str], float, str]:
+        if command.count("-m") < 2:
+            return {"tests/test_sample.py::test_a", "tests/test_sample.py::test_b"}, 3.0, ""
+        marker_index = command.index("-m", command.index("-m") + 1)
+        if command[marker_index + 1] == "not serial":
+            return {"tests/test_sample.py::test_a"}, 1.0, ""
+        return {"tests/test_sample.py::test_b"}, 1.5, ""
+
+    def run_phase(_root: Path, _output: Path, name: str, command: tuple[str, ...]) -> release_gate.CheckResult:
+        junit_path = Path(next(value.split("=", 1)[1] for value in command if value.startswith("--junitxml=")))
+        junit_path.write_text(
+            '<testsuites><testsuite name="phase" tests="1" failures="0" errors="0" skipped="0">'
+            '<testcase name="sample" /></testsuite></testsuites>',
+            encoding="utf-8",
+        )
+        failed = name == failed_phase
+        return release_gate.CheckResult(
+            name,
+            "failed" if failed else "passed",
+            True,
+            command="pytest",
+            exit_code=1 if failed else 0,
+            duration_ms=12.5,
+            output="phase output",
+            failure="exit code 1" if failed else "",
+        )
+
+    monkeypatch.setattr(release_gate, "_collect_test_nodeids", collect)
+    monkeypatch.setattr(release_gate, "run_command", run_phase)
+
+    result = release_gate.full_tests(tmp_path, tmp_path / "evidence", 4)
+
+    expected_phase = "A" if failed_phase.endswith("parallel") else "B"
+    assert result.status == "failed"
+    assert f"phase {expected_phase} failed" in result.failure
+    evidence = json.loads(result.output.removeprefix(release_gate._FULL_TEST_EVIDENCE_PREFIX))
+    assert evidence["collection_node_counts"] == {"full": 2, "phase_a": 1, "phase_b": 1}
+    assert evidence["phase_duration_ms"] == {"phase_a": 12.5, "phase_b": 12.5}
+    report = release_gate._report_markdown(
+        {"schema_version": "1.0", "git": {}, "source_manifest_sha256": "test"},
+        release_gate.GateState(checks=[result]),
+        {},
+    )
+    assert "Full test execution evidence" in report
+    assert "phase_duration_ms" in report
+
+
+def test_workflow_enables_xdist_only_on_linux_and_excludes_pull_request_pilot() -> None:
+    root = Path(__file__).resolve().parents[1]
+    workflow = yaml.safe_load((root / ".github" / "workflows" / "release-gate.yml").read_text(encoding="utf-8"))
+    jobs = workflow["jobs"]
+    pilot_condition = jobs["parallel-pilot"]["if"]
+    assert "github.event_name != 'pull_request'" in pilot_condition
+
+    gate_step = next(step for step in jobs["release-gate"]["steps"] if step["name"] == "Run protected release gate")
+    linux_only = re.search(
+        r'if \[\[ "\$\{\{ matrix\.platform \}\}" == "linux" \]\]; then\s+'
+        r"arguments\+=\(--xdist-workers 4\)",
+        gate_step["run"],
+    )
+    assert linux_only is not None
+
+
+def test_main_reads_xdist_workers_from_environment_and_cli(tmp_path: Path, monkeypatch, capsys) -> None:
+    observed: list[int] = []
+
+    def run_gate(root: Path, **kwargs) -> release_gate.GateResult:
+        observed.append(kwargs["xdist_workers"])
+        return release_gate.GateResult(0, root, root / "manifest.json", root / "report.md", ())
+
+    monkeypatch.setattr(release_gate, "run_gate", run_gate)
+    monkeypatch.setenv(release_gate.XDIST_WORKERS_ENV, "3")
+
+    assert release_gate.main(["--root", str(tmp_path)]) == 0
+    capsys.readouterr()
+    assert release_gate.main(["--root", str(tmp_path), "--xdist-workers", "4"]) == 0
+    capsys.readouterr()
+
+    assert observed == [3, 4]
 
 
 def _source_fixture(root: Path) -> None:
@@ -397,3 +575,13 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "contents: read" in workflow
     assert "issues: write" not in workflow
     assert "releases: write" not in workflow
+
+
+def test_xdist_collection_lists_node_ids_despite_quiet_addopts() -> None:
+    root = Path(__file__).resolve().parents[1]
+    command = release_gate._python_command(
+        root, "-m", "pytest", "--collect-only", "--verbosity=-1", "tests/test_atomic_io.py"
+    )
+    nodeids, _elapsed, failure = release_gate._collect_test_nodeids(root, command)
+    assert failure == ""
+    assert nodeids and all(nodeid.startswith("tests/test_atomic_io.py::") for nodeid in nodeids)

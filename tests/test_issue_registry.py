@@ -96,12 +96,13 @@ def test_registry_json_and_ready_order_are_deterministic() -> None:
 def test_registry_generation_preserves_accepted_statuses_when_adding_one_transition() -> None:
     registry = build_registry(ROOT)
     statuses = {record["canonical_id"]: record["programme_status"] for record in registry["records"]}
+    # The invariant: generation reproduces the reviewed, accepted status for every record
+    # (not a snapshot of today's statuses, which legitimately change through lifecycle transitions).
+    accepted = json.loads((ROOT / "issues/programme_control_state.json").read_text(encoding="utf-8"))["records"]
 
-    assert statuses["ISSUE-0121"] == "implemented_initially"
-    assert statuses["ISSUE-0129"] == "integrated"
-    assert statuses["ISSUE-0130"] == "integrated"
-    assert statuses["ISSUE-0117"] == "implemented_initially"
-    assert statuses["ISSUE-0120"] == "implemented_initially"
+    for issue in ("ISSUE-0117", "ISSUE-0120", "ISSUE-0121", "ISSUE-0129", "ISSUE-0130"):
+        assert statuses[issue] == accepted[issue]["programme_status"]
+    assert {key: statuses[key] for key in accepted} == {key: value["programme_status"] for key, value in accepted.items()}
 
 
 def test_completion_markdown_writer_is_lf_deterministic(tmp_path: Path) -> None:
