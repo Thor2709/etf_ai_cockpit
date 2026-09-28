@@ -38,6 +38,7 @@ from etf_cockpit.app.pages.settings import settings_page
 from etf_cockpit.app.pages.screener import screener_page
 from etf_cockpit.app.pages.stock_research import stock_research_page
 from etf_cockpit.app.pages.signals import signals_page
+from etf_cockpit.app.pages.strategy_builder import strategy_builder_page
 from etf_cockpit.app.pages.trust_evidence import (
     etf_disclosures_page,
     evidence_ledger_page,
@@ -56,6 +57,7 @@ PAGES = {
     "/portfolio": ("Portfolio Sandbox", portfolio_page),
     "/portfolio-optimiser": ("Portfolio Optimiser Lab", portfolio_optimiser_page),
     "/signals": ("Scores", signals_page),
+    "/strategy-builder": ("Strategy Builder", strategy_builder_page),
     "/screener": ("Fundamentals Screener", screener_page),
     "/comparison": ("Comparison", comparison_page),
     "/stock-research": ("Stock Research", stock_research_page),
@@ -98,7 +100,7 @@ PAGES = {
 # independently testable while the shell gives them a decision-oriented home.
 WORKSPACE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Home", ("/",)),
-    ("Discover", ("/signals", "/screener", "/comparison", "/stock-research", "/universe", "/what-changed")),
+    ("Discover", ("/signals", "/strategy-builder", "/screener", "/comparison", "/stock-research", "/universe", "/what-changed")),
     ("Instrument", ("/etf", "/instrument")),
     ("Portfolio", ("/portfolio", "/portfolio-optimiser", "/risk", "/stress-lab")),
     ("Models", ("/data-models", "/forecasts", "/training-centre", "/feature-catalogue", "/macro")),
