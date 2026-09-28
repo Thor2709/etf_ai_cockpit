@@ -64,6 +64,15 @@ from etf_cockpit.application.ui_facade import (
 )
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.core.paths import ETF_QUOTES_PATH
+from etf_cockpit.analysis.candles import (
+    CANDLE_SCORE_CAP,
+    backtest_candle_templates,
+    calculate_candle_features,
+    detect_candle_templates,
+    prepare_adjusted_ohlcv,
+    score_candle_contribution,
+    validate_ohlcv,
+)
 from etf_cockpit.features.etf_economics import calculate_etf_liquidity
 from etf_cockpit.services import CockpitSnapshot
 from etf_cockpit.application.ui_facade import SimpleInstrumentScore
@@ -109,6 +118,7 @@ class InstrumentDetailViewModel:
 _SECTION_NAMES = (
     "identity",
     "price",
+    "candle_evidence",
     "market_clock",
     "fixed_income_terms",
     "fixed_income_market_data",
@@ -1311,6 +1321,136 @@ def _price_panel(snapshot: CockpitSnapshot, instrument_id: str, *, candidate_sco
         "currency": latest.get("currency", "unavailable"),
         "execution_allowed": False,
         **_provenance_fields(latest),
+    }
+
+
+def _candle_evidence_panel(
+    snapshot: CockpitSnapshot,
+    instrument_id: str,
+    decision_time: object,
+) -> dict[str, Any]:
+    """Build low-authority candle evidence from point-in-time price rows."""
+
+    unavailable = {
+        "status": "unavailable",
+        "reason": "candle_evidence_unavailable",
+        "latest_candle": "unavailable",
+        "template": "unavailable",
+        "context_filter_status": "unavailable",
+        "assessment": "unavailable",
+        "score_contribution": None,
+        "score_cap": CANDLE_SCORE_CAP,
+        "backtest_count": None,
+        "ambiguity_count": None,
+        "ambiguity_warning": "Backtest ambiguity unavailable.",
+        "action": "none",
+        "named_patterns_actionable": False,
+        "execution_allowed": False,
+        "action_authority": False,
+    }
+    rows = _instrument_rows(getattr(snapshot, "prices", None), instrument_id)
+    if rows.empty:
+        return {**unavailable, "reason": "candle_price_history_unavailable"}
+    date_column = "date" if "date" in rows.columns else "as_of_date" if "as_of_date" in rows.columns else None
+    if date_column is None:
+        return {**unavailable, "reason": "candle_date_column_unavailable"}
+
+    cutoff_text = str(decision_time or "").strip()
+    if len(cutoff_text) == 10:
+        cutoff_text = f"{cutoff_text}T23:59:59Z"
+    cutoff = _safe_datetime_scalar(cutoff_text)
+    if cutoff is None:
+        return {**unavailable, "reason": "decision_time_unavailable_for_candle_filter"}
+
+    frame = rows.copy()
+    frame["_candle_date"] = pd.to_datetime(frame[date_column], errors="coerce", utc=True, format="mixed")
+    frame = frame.loc[frame["_candle_date"].notna() & frame["_candle_date"].le(cutoff)].copy()
+    if frame.empty:
+        return {**unavailable, "reason": "no_candles_available_at_decision_time", "context_filter_status": "applied: decision-time date cutoff"}
+
+    knowledge_columns = tuple(column for column in ("known_at", "available_at", "imported_at") if column in frame.columns)
+    knowledge_status = "limited: source knowledge timestamps unavailable; event-date cutoff applied"
+    if knowledge_columns:
+        eligible_indices: list[object] = []
+        for index, row in frame.iterrows():
+            known_values = [_safe_datetime_scalar(row.get(column)) for column in knowledge_columns]
+            if any(value is None or value > cutoff for value in known_values):
+                continue
+            eligible_indices.append(index)
+        frame = frame.loc[eligible_indices].copy()
+        knowledge_status = "applied: event-date and source-knowledge cutoffs"
+    if frame.empty:
+        return {**unavailable, "reason": "no_candles_with_knownness_at_decision_time", "context_filter_status": knowledge_status}
+
+    frame = frame.sort_values("_candle_date", kind="stable")
+    if bool(frame["_candle_date"].duplicated(keep=False).any()):
+        return {**unavailable, "reason": "duplicate_candle_dates_are_ambiguous", "context_filter_status": knowledge_status}
+
+    candles: list[dict[str, object]] = []
+    for _, row in frame.iterrows():
+        source = row.to_dict()
+        source.pop("price_basis", None)
+        source["date"] = row[date_column]
+        prepared = prepare_adjusted_ohlcv(source)
+        prepared["date"] = row[date_column]
+        candles.append(prepared)
+
+    latest = candles[-1]
+    validation = validate_ohlcv(latest)
+    if validation.get("valid"):
+        latest_features = calculate_candle_features(latest)
+        previous = candles[-2] if len(candles) > 1 else None
+        templates = detect_candle_templates(latest, previous)
+        contribution = score_candle_contribution(templates, cap=CANDLE_SCORE_CAP)
+        contribution_value = contribution.get("contribution")
+        assessment = (
+            "confirms"
+            if isinstance(contribution_value, (int, float)) and contribution_value > 0
+            else "warns"
+            if isinstance(contribution_value, (int, float)) and contribution_value < 0
+            else "no useful signal"
+        )
+        latest_summary: object = {
+            "date": latest.get("date", "unavailable"),
+            "open": latest_features.get("open"),
+            "high": latest_features.get("high"),
+            "low": latest_features.get("low"),
+            "close": latest_features.get("close"),
+            "volume": latest_features.get("volume"),
+            "price_basis": latest_features.get("price_basis", "unavailable"),
+            "execution_allowed": False,
+        }
+    else:
+        templates = {"status": "unavailable", "template": "unavailable", "patterns": (), "reason": ", ".join(validation.get("reasons", ())), "action": "none", "action_authority": False}
+        contribution = score_candle_contribution(templates, cap=CANDLE_SCORE_CAP)
+        assessment = "no useful signal"
+        latest_summary = {
+            "date": latest.get("date", "unavailable"),
+            "status": "unavailable",
+            "reason": ", ".join(validation.get("reasons", ())),
+            "execution_allowed": False,
+        }
+
+    backtest = backtest_candle_templates(candles)
+    return {
+        "status": "available" if validation.get("valid") else "unavailable",
+        "reason": None if validation.get("valid") else ", ".join(validation.get("reasons", ())),
+        "latest_candle": latest_summary,
+        "template": templates.get("template", "unavailable"),
+        "context_filter_status": knowledge_status,
+        "assessment": assessment,
+        "score_contribution": contribution.get("contribution"),
+        "score_status": contribution.get("status", "unavailable"),
+        "score_reason": contribution.get("reason"),
+        "score_cap": CANDLE_SCORE_CAP,
+        "backtest_count": backtest.get("backtest_count") if backtest.get("status") == "available" else None,
+        "ambiguity_count": backtest.get("ambiguity_count") if backtest.get("status") == "available" else None,
+        "ambiguity_warning": backtest.get("ambiguity_warning", "Backtest ambiguity unavailable."),
+        "backtest_execution_basis": backtest.get("execution_basis", "unavailable"),
+        "action": "none",
+        "action_authority": False,
+        "named_patterns_actionable": False,
+        "execution_allowed": False,
     }
 
 
@@ -2535,6 +2675,7 @@ def build_instrument_detail(
         horizon_days=economics_horizon_days,
     )
     price = _price_panel(snapshot, instrument_id, candidate_score=candidate)
+    candle_evidence = _candle_evidence_panel(snapshot, instrument_id, projection_time or decision_time)
     observed_at = price.get("latest_date") if isinstance(price, Mapping) else None
     market_clock = build_market_clock_diagnostics(
         identity_evidence,
@@ -2587,6 +2728,7 @@ def build_instrument_detail(
         {
             "identity": identity_panel,
             "price": price,
+            "candle_evidence": candle_evidence,
             "market_clock": market_clock,
             "fixed_income_terms": fixed_income_terms,
             "fixed_income_market_data": fixed_income_market_data,
