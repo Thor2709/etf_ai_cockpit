@@ -66,6 +66,11 @@ def normalise_statement_facts(records: Iterable[object] | pd.DataFrame) -> pd.Da
         "manual_review_required": True,
         "restatement_kind": "reported",
         "available_at": None,
+        "known_at": None,
+        "effective_at": None,
+        "source_url": None,
+        "filing_version": None,
+        "consolidation_scope": None,
     }.items():
         if column not in frame.columns:
             frame[column] = default
@@ -75,7 +80,9 @@ def normalise_statement_facts(records: Iterable[object] | pd.DataFrame) -> pd.Da
     frame["period_key"] = frame.apply(_period_key, axis=1)
     frame["period_end"] = frame.apply(lambda row: row.get("end") or row.get("instant") or "", axis=1)
     frame["period_start"] = frame.get("start", pd.Series(index=frame.index, dtype="object"))
-    frame["availability_status"] = frame["available_at"].map(lambda value: "exact" if _text(value) else "unknown")
+    frame["known_at"] = frame["known_at"].where(frame["known_at"].map(lambda value: bool(_text(value))), frame["available_at"])
+    frame["effective_at"] = frame["effective_at"].where(frame["effective_at"].map(lambda value: bool(_text(value))), frame["period_end"])
+    frame["availability_status"] = frame["known_at"].map(lambda value: "exact" if _text(value) else "unknown")
     frame["restatement_kind"] = frame.apply(_restatement_kind, axis=1)
     return frame.sort_values(
         ["instrument_id", "canonical_metric", "concept", "period_type", "period_key", "dimensions", "filed", "source_id"],
@@ -101,7 +108,7 @@ def statement_view(
         if as_known_at is None:
             raise ValueError("as_known_at requires a date or ISO timestamp")
         cutoff = _date_text(as_known_at)
-        available = frame[frame["available_at"].map(lambda value: bool(_text(value))) & (frame["available_at"].astype(str) <= cutoff)].copy()
+        available = frame[frame["known_at"].map(lambda value: bool(_text(value))) & (frame["known_at"].astype(str) <= cutoff)].copy()
         return _latest_per_period(available)
     if view == "latest_restated":
         return _latest_per_period(frame)
@@ -245,6 +252,11 @@ def _empty_frame() -> pd.DataFrame:
             "manual_review_required",
             "restatement_kind",
             "available_at",
+            "known_at",
+            "effective_at",
+            "source_url",
+            "filing_version",
+            "consolidation_scope",
             "period_key",
             "period_end",
             "period_start",

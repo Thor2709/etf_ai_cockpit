@@ -1,0 +1,26 @@
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:ix="http://www.xbrl.org/2013/inlineXBRL"
+      xmlns:xbrli="http://www.xbrl.org/2003/instance"
+      xmlns:ifrs-full="https://xbrl.ifrs.org/taxonomy/ifrs-full"
+      xmlns:ming="https://example.invalid/ming-extension">
+  <head><title>Synthetic ESEF fixture</title></head>
+  <body>
+    <ix:header>
+      <xbrli:context id="duration2025"><xbrli:entity><xbrli:identifier scheme="http://standards.iso.org/iso/17442">7V6Z97IO7R1SEAO84Q32</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+      <xbrli:context id="instant2025"><xbrli:entity><xbrli:identifier scheme="http://standards.iso.org/iso/17442">7V6Z97IO7R1SEAO84Q32</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:instant>2025-12-31</xbrli:instant></xbrli:period></xbrli:context>
+    </ix:header>
+    <ix:nonFraction name="ifrs-full:Revenue" contextRef="duration2025" unitRef="NOK" decimals="0">1200</ix:nonFraction>
+    <ix:nonFraction name="ifrs-full:InterestIncome" contextRef="duration2025" unitRef="NOK" decimals="0">900</ix:nonFraction>
+    <ix:nonFraction name="ifrs-full:InterestExpense" contextRef="duration2025" unitRef="NOK" decimals="0">300</ix:nonFraction>
+    <ix:nonFraction name="ifrs-full:InterestRevenueExpense" contextRef="duration2025" unitRef="NOK" decimals="0">600</ix:nonFraction>
+    <ix:nonFraction name="ifrs-full:FeeAndCommissionIncome" contextRef="duration2025" unitRef="NOK" decimals="0">80</ix:nonFraction>
+    <ix:nonFraction name="ifrs-full:OperatingExpense" contextRef="duration2025" unitRef="NOK" decimals="0">250</ix:nonFraction>
+    <ix:nonFraction name="ifrs-full:ImpairmentLossOnFinancialAssets" contextRef="duration2025" unitRef="NOK" decimals="0">30</ix:nonFraction>
+    <ix:nonFraction name="ifrs-full:ProfitLoss" contextRef="duration2025" unitRef="NOK" decimals="0">400</ix:nonFraction>
+    <ix:nonFraction name="ifrs-full:LoansAndAdvancesToCustomers" contextRef="instant2025" unitRef="NOK" decimals="0">9000</ix:nonFraction>
+    <ix:nonFraction name="ifrs-full:DepositsFromCustomers" contextRef="instant2025" unitRef="NOK" decimals="0">7000</ix:nonFraction>
+    <ix:nonFraction name="ifrs-full:Equity" contextRef="instant2025" unitRef="NOK" decimals="0">1200</ix:nonFraction>
+    <ix:nonFraction name="ifrs-full:WeightedAverageNumberOfOrdinarySharesOutstandingBasic" contextRef="duration2025" unitRef="shares" decimals="0">100</ix:nonFraction>
+    <ix:nonFraction name="ming:RegisteredEquityCertificates" contextRef="instant2025" unitRef="shares" decimals="0">101</ix:nonFraction>
+  </body>
+</html>

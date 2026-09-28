@@ -46,6 +46,7 @@ class XbrlFact:
     mapping_status: str
     context_dimensions: tuple[tuple[str, str], ...] = ()
     namespace: str | None = None
+    consolidation_scope: str | None = None
 
 
 _IFRS_MAPPING = {
@@ -55,6 +56,24 @@ _IFRS_MAPPING = {
     "Equity": "equity",
     "NetIncomeLoss": "net_income",
     "CashAndCashEquivalents": "cash",
+    "InterestIncome": "interest_income",
+    "InterestExpense": "interest_expense",
+    "InterestRevenueExpense": "net_interest_income",
+    "FeeAndCommissionIncome": "fee_income",
+    "FeeAndCommissionExpense": "fee_expense",
+    "OperatingExpense": "operating_expenses",
+    "OperatingExpenseExcludingCostOfSales": "operating_expenses",
+    "ImpairmentLossOnFinancialAssets": "impairment_losses_on_loans",
+    "LoansAndAdvancesToCustomers": "loans_to_customers",
+    "DepositsFromCustomers": "deposits_from_customers",
+    "ProfitLossAttributableToOwnersOfParent": "net_income_attributable_to_owners",
+    "IssuedCapital": "issued_capital",
+    "SharePremium": "share_premium",
+    "OtherReserves": "other_reserves",
+    "RetainedEarnings": "retained_earnings",
+    "NumberOfSharesOutstanding": "shares_outstanding",
+    "WeightedAverageNumberOfOrdinarySharesOutstandingBasic": "weighted_average_shares",
+    "TreasuryShares": "treasury_shares",
 }
 _IFRS_PREFIXES = frozenset({"ifrs-full", "ifrs"})
 
@@ -100,6 +119,7 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
     contexts = _contexts(root)
     default_lei = _extract_lei(metadata, names) or next((item["entity_lei"] for item in contexts.values() if item["entity_lei"] != "unknown"), "unknown")
     period_hint = _extract_period(metadata, names)
+    consolidation_scope = _extract_consolidation_scope(metadata)
     facts: list[XbrlFact] = []
     seen: set[tuple[object, ...]] = set()
     warned_extensions: set[str] = set()
@@ -145,6 +165,7 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
                 mapping_status,
                 tuple(context.get("dimensions", ())),
                 namespace,
+                consolidation_scope,
             )
         )
 
@@ -262,6 +283,14 @@ def _extract_period(metadata: Any, names: list[str]) -> str | None:
     text = json.dumps(metadata) + " " + " ".join(names)
     match = re.search(r"\b20\d{2}-\d{2}-\d{2}\b", text)
     return match.group(0) if match else None
+
+
+def _extract_consolidation_scope(metadata: Any) -> str | None:
+    if not isinstance(metadata, dict):
+        return None
+    value = metadata.get("consolidationScope") or metadata.get("consolidation_scope")
+    text = str(value or "").strip().casefold()
+    return text if text in {"consolidated", "separate", "company"} else None
 
 
 def _optional_text(value: object) -> str | None:
