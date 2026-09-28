@@ -18,6 +18,13 @@ from .models import (
     SparebankAnalysis,
     SparebankRoutingResult,
     SparebankEventAnalysis,
+    SparebankScorecard,
+)
+from .scorecard import (
+    SparebankScorecardError,
+    SparebankScorecardPolicy,
+    build_sparebank_scorecard,
+    load_sparebank_scorecard_policy,
 )
 from .bank_economics import (
     CapitalResilience,
@@ -79,6 +86,7 @@ __all__ = [
     "CONTRACT_ID",
     "BankEconomics",
     "SparebankEventAnalysis",
+    "SparebankScorecard",
     "UNAVAILABLE",
     "ECClaimPath",
     "ECClaimState",
@@ -140,4 +148,8 @@ __all__ = [
     "scenario_value",
     "stable_pb",
     "valuation",
+    "SparebankScorecardError",
+    "SparebankScorecardPolicy",
+    "build_sparebank_scorecard",
+    "load_sparebank_scorecard_policy",
 ]

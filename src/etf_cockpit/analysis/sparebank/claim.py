@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import math
 from numbers import Real
@@ -362,6 +363,7 @@ def analyse_sparebank_ec(
     bank_economics_evidence: Mapping[str, object] | None = None,
     events: Iterable[Mapping[str, object]] = (),
     valuation_assumptions: Mapping[str, object] | None = None,
+    tactical_evidence: Mapping[str, object] | None = None,
 ) -> SparebankAnalysis:
     """Canonical pure entry point for the versioned Sparebank EC suite."""
 
@@ -382,10 +384,11 @@ def analyse_sparebank_ec(
     from .bank_economics import build_bank_economics
     from .events import analyse_events
     from .valuation import valuation
+    from .scorecard import build_sparebank_scorecard
     bank_economics = build_bank_economics(bank_economics_evidence, bank_metrics=bank_metrics)
     event_analysis = analyse_events(events, decision_time=decision_time)
     valuation_section = valuation(claim, price=price, assumptions=valuation_assumptions)
-    return SparebankAnalysis(
+    analysis = SparebankAnalysis(
         contract=CONTRACT_ID,
         routing=routed,
         claim_state=claim,
@@ -403,6 +406,16 @@ def analyse_sparebank_ec(
         bank_economics=bank_economics,
         events=event_analysis,
         valuation=valuation_section,
+    )
+    return replace(
+        analysis,
+        scorecard=build_sparebank_scorecard(
+            analysis,
+            decision_time=decision_time,
+            decision_price=price,
+            valuation_assumptions=valuation_assumptions,
+            tactical_evidence=tactical_evidence,
+        ),
     )
 
 

@@ -151,6 +151,27 @@ class SparebankEventAnalysis:
     execution_allowed: bool = False
 
 
+@dataclass(frozen=True)
+class SparebankScorecard:
+    """Versioned underwriting breakdown and separately labelled tactical evidence."""
+
+    status: str
+    formula_version: str
+    formula_checksum: str
+    judgement_version: str
+    judgement_status: str
+    judgement_source: str
+    axes: Mapping[str, object] = field(default_factory=dict)
+    composite_10: float | None = None
+    composite_before_gate_cap_10: float | None = None
+    gate_cap_10: float | None = None
+    overall_coverage: float = 0.0
+    gate_reasons: tuple[str, ...] = ()
+    underwriting: Mapping[str, object] = field(default_factory=dict)
+    tactical: Mapping[str, object] = field(default_factory=dict)
+    execution_allowed: bool = False
+
+
 __all__ = [
     "CONTRACT_ID",
     "UNAVAILABLE",
@@ -158,6 +179,7 @@ __all__ = [
     "ECClaimState",
     "BankEconomics",
     "SparebankEventAnalysis",
+    "SparebankScorecard",
     "RoutingResult",
     "SparebankAnalysis",
     "SparebankRoutingResult",

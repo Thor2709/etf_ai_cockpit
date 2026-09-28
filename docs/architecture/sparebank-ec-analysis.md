@@ -62,3 +62,39 @@ marketability, capital-policy, IRR, decision-price, timestamp/currency/quantity
 and implementation sections; omitted assumptions remain unavailable. Displayed depth is walked for a quantity-specific order. If
 depth is absent the result stays `UNAVAILABLE` and identifies the labelled
 `execution-cost-v1` estimate fallback. No valuation output enables execution.
+
+## Scorecard and Instrument Detail workspace
+
+SPBK-005 adds `configs/sparebank_scorecard_v1.yaml` and the pure
+`analysis.sparebank.scorecard` layer. Its formula hash is computed from its own
+LF-normalised config bytes; `score_engine_v3.yaml` remains unchanged. The
+provisional judgement-v1 anchors are versioned in that config, marked as
+judgement, and have not been tuned to historical cases.
+
+The scorecard consumes only the claim, bank-economics, event and valuation
+sections already attached to `SparebankAnalysis`. It checks claim resolution,
+point-in-time knowledge and the valuation denominator before rating axes.
+Missing inputs lower axis coverage; the lending-economics, capital-allocation
+and portfolio-context axes remain `UNAVAILABLE` until a producer exists. The
+composite is available only when owner claim, capital/liquidity, owner
+valuation and evidence quality are rated. Capital/liquidity and marketability
+caps apply after the equal-weight mean. Every axis retains inputs, calculation
+IDs, judgement rule version and coverage.
+
+The underwriting horizon is multi-year owner economics. Tactical evidence
+retains the existing 1–3-month momentum, trend, TimesFM and Toto components in
+a separate field and UI group; it cannot affect underwriting ratings, gates or
+the composite. Generic canonical scoring rejects explicit EC instrument
+types before the ordinary `STOCK`/`ETF` policy selection. The existing
+ETF-policy fallback for other, unconfigured asset types is unchanged.
+
+Instrument Detail exposes one Sparebank workspace from the facade's single
+`SparebankAnalysis`: ownership passport, bank economics, valuation and
+expectations, event transition, marketability, grouped axes, evidence and the
+separately labelled tactical horizon. The renderer reads those values without
+calculating a rating. Decision-card argument and review-trigger fields remain
+explicitly unavailable where the current analysis contract supplies no input.
+
+SPBK-006's equation inventory, analytical table references, owner-rule rows,
+implementation locators, test locators and explicit background/unimplemented
+dispositions are in [the book-to-code certification manifest](sparebank-book-manifest.md).

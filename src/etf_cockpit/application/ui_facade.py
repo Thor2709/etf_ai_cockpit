@@ -775,6 +775,7 @@ def load_financial_institution_projection(
     decision_time: str | None = None,
     effective_at: str | None = None,
     context: object | None = None,
+    tactical_evidence: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Load a verified projection, or build one from local point-in-time evidence."""
 
@@ -786,6 +787,7 @@ def load_financial_institution_projection(
                 decision_time=decision_time,
                 effective_at=effective_at,
                 context=context,
+                tactical_evidence=tactical_evidence,
             )
         except (FinancialAdapterError, OSError, TypeError, ValueError, KeyError):
             return unavailable_financial_projection(
@@ -809,6 +811,7 @@ def _build_financial_projection_from_evidence(
     decision_time: str | None,
     effective_at: str | None,
     context: object | None,
+    tactical_evidence: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Adapt #699's persisted statement/EC artifacts to the domain adapter."""
     from datetime import datetime, timezone
@@ -884,8 +887,9 @@ def _build_financial_projection_from_evidence(
         bank_economics_evidence=(ec_revision.get("bank_economics_evidence") if isinstance(ec_revision, Mapping) else None),
         events=(ec_revision.get("events", ()) if isinstance(ec_revision, Mapping) else ()),
         valuation_assumptions=(ec_revision.get("valuation_assumptions") if isinstance(ec_revision, Mapping) else None),
+        tactical_evidence=tactical_evidence,
     )
-    if isinstance(ec_facts, Mapping) and ec_facts:
+    if sparebank_analysis.routing.applies or (isinstance(ec_facts, Mapping) and ec_facts):
         from dataclasses import asdict, replace
         identity_payload = dict(result.share_class_identity) if isinstance(result.share_class_identity, Mapping) else {}
         identity_payload["facts"] = {
@@ -898,6 +902,7 @@ def _build_financial_projection_from_evidence(
                 "source": value.get("source_url") if isinstance(value, Mapping) else None,
             }
             for name, value in ec_facts.items()
+            if isinstance(ec_facts, Mapping)
         }
         identity_payload["sparebank_analysis"] = asdict(sparebank_analysis)
         identity_payload["native_suite"] = sparebank_analysis.contract if sparebank_analysis.routing.applies else None
