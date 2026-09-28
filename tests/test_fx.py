@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import date
 import math
 
@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.data.fx_data import build_fx_rate_snapshot, fx_cross_rate, validate_fx_rates
+from etf_cockpit.application.ui_facade import project_portfolio_currency as facade_project_portfolio_currency
 from etf_cockpit.portfolio.currency import project_portfolio_currency
 from etf_cockpit.portfolio.costs import CostEstimate, PortfolioCostEstimate
 from etf_cockpit.portfolio.sandbox import (
@@ -128,6 +129,33 @@ def test_currency_projection_immutability() -> None:
     with pytest.raises(TypeError):
         usd.monetary_fields["current_value_eur"]["value"] = 0.0
     assert deepcopy(asdict(analysis)) == before
+
+
+def test_currency_projection_handles_invalid_monetary_value_during_snapshot() -> None:
+    analysis = replace(_analysis("2026-07-10"), current_value_eur="not-a-number")
+
+    projection = project_portfolio_currency(analysis, "EUR", pd.DataFrame())
+
+    field = projection.monetary_fields["current_value_eur"]
+    assert projection.analysis_source_snapshot is not None
+    assert field["value"] is None
+    assert field["unavailable_reason"] == "Source monetary amount is invalid."
+
+
+def test_currency_facade_gives_detail_and_bulk_identical_projection() -> None:
+    analysis = _analysis("2026-07-10")
+    rates = pd.DataFrame(
+        [
+            {"as_of_date": "2026-07-09", "base_currency": "EUR", "quote_currency": "USD", "rate": 1.1},
+        ]
+    )
+    rates["source"] = "ECB"
+    rates["ingested_at"] = "2026-07-09T09:00:00Z"
+
+    detail_projection = facade_project_portfolio_currency(analysis, "USD", rates)
+    bulk_projection = facade_project_portfolio_currency(analysis, "USD", rates)
+
+    assert detail_projection == bulk_projection
 
 
 def _analysis(source_as_of: str) -> PortfolioAnalysis:

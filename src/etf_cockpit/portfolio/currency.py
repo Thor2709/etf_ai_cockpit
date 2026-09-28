@@ -87,29 +87,19 @@ def project_portfolio_currency(
     source_snapshot = tuple(snapshot_parts)
     projected_fields: dict[str, Mapping[str, object]] = {}
     for name, raw_value in _monetary_values(analysis):
-        amount_reason: str | None = None
+        amount, amount_reason = _canonical_monetary_value(raw_value)
         converted: float | None
-        if raw_value is None:
+        if amount_reason is not None:
             converted = None
-            amount_reason = "Source monetary amount is unavailable."
         elif not available or reference_rate is None:
             converted = None
             amount_reason = reason or "Currency projection is unavailable."
         else:
-            try:
-                amount = float(raw_value)
-            except (TypeError, ValueError, OverflowError):
+            assert amount is not None
+            converted = amount * reference_rate
+            if not math.isfinite(converted):
                 converted = None
-                amount_reason = "Source monetary amount is invalid."
-            else:
-                if not math.isfinite(amount):
-                    converted = None
-                    amount_reason = "Source monetary amount is not finite."
-                else:
-                    converted = amount * reference_rate
-                    if not math.isfinite(converted):
-                        converted = None
-                        amount_reason = "Projected monetary amount is not finite."
+                amount_reason = "Projected monetary amount is not finite."
         projected_fields[name] = MappingProxyType(
             {
                 "value": converted,
@@ -181,13 +171,26 @@ def _analysis_source_snapshot(analysis: PortfolioAnalysis) -> str | None:
         "binding_price_checksum": binding.price_source_checksum if binding else None,
         "binding_price_revision": binding.price_source_revision if binding else None,
         "monetary_fields": [
-            (name, None if value is None else float(value))
+            (name, {"value": amount, "unavailable_reason": reason})
             for name, value in _monetary_values(analysis)
+            for amount, reason in (_canonical_monetary_value(value),)
         ],
     }
     if not revision:
         return None
     return hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _canonical_monetary_value(value: object) -> tuple[float | None, str | None]:
+    if value is None:
+        return None, "Source monetary amount is unavailable."
+    try:
+        amount = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None, "Source monetary amount is invalid."
+    if not math.isfinite(amount):
+        return None, "Source monetary amount is not finite."
+    return amount, None
 
 
 def _monetary_values(analysis: PortfolioAnalysis) -> tuple[tuple[str, object], ...]:
