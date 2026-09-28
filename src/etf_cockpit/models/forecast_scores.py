@@ -770,7 +770,7 @@ def _bounded_probability(value: object) -> float | None:
 
 
 def _normalise_decision_time(value: object) -> pd.Timestamp | None:
-    if value is None:
+    if value is None or not pd.api.types.is_scalar(value):
         return None
     try:
         parsed = pd.to_datetime(value, errors="coerce", utc=True, format="mixed")

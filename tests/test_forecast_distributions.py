@@ -203,6 +203,10 @@ def test_missing_decision_time_or_usable_forecast_date_is_unavailable() -> None:
         forecasts,
         decision_time="not-a-time",
     )["SYNTHETIC-ETF"]
+    non_scalar_decision_times = [
+        forecast_return_distributions(forecasts, decision_time=value)["SYNTHETIC-ETF"]
+        for value in (["not-a-time"], {"at": DECISION_TIME})
+    ]
     missing_date = forecast_return_distributions(
         forecasts.drop(columns=["forecast_date"]),
         decision_time=DECISION_TIME,
@@ -212,7 +216,7 @@ def test_missing_decision_time_or_usable_forecast_date_is_unavailable() -> None:
         decision_time=DECISION_TIME,
     )["SYNTHETIC-ETF"]
 
-    for distribution in (no_decision_time, invalid_decision_time, missing_date, invalid_date):
+    for distribution in (no_decision_time, invalid_decision_time, *non_scalar_decision_times, missing_date, invalid_date):
         assert distribution["status"] == "unavailable"
         assert distribution["canonical_status"] == "unavailable"
         assert distribution["point_in_time_status"] == "unavailable"
