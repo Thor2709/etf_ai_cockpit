@@ -101,7 +101,7 @@ def test_401_and_403_are_forbidden_only_for_their_capabilities() -> None:
 
 def test_historical_use_rejects_missing_entitlement_coverage_and_pit_metadata() -> None:
     provider = FinnhubProvider(_section(), enabled=True, terms_accepted=True, transport=lambda *_: _covered_candles())
-    frame = pd.DataFrame({"date": [date(2023, 11, 14)], "close": [1.0]})
+    frame = pd.DataFrame({"date": [date(2023, 11, 14)], "symbol": ["caller-price-symbol"], "close": [1.0]})
     decision_time = datetime(2023, 11, 16, tzinfo=timezone.utc)
 
     no_entitlement = provider.validate_historical_data(
@@ -132,6 +132,7 @@ def test_historical_use_rejects_point_in_time_values_after_decision() -> None:
     frame = pd.DataFrame(
         {
             "date": [date(2023, 11, 14)],
+            "symbol": ["caller-price-symbol"],
             "known_at": ["2023-11-16T00:00:00+00:00"],
             "available_at": ["2023-11-16T00:00:00+00:00"],
         }
@@ -155,6 +156,7 @@ def test_historical_use_accepts_only_when_entitlement_coverage_and_pit_are_prove
     frame = pd.DataFrame(
         {
             "date": [date(2023, 11, 14)],
+            "symbol": ["caller-price-symbol"],
             "known_at": ["2023-11-14T23:00:00+00:00"],
             "available_at": ["2023-11-14T23:01:00+00:00"],
         }
@@ -171,6 +173,51 @@ def test_historical_use_accepts_only_when_entitlement_coverage_and_pit_are_prove
     assert result.status == "ok"
     assert result.data is not None
     assert result.data.equals(frame)
+
+
+def test_historical_use_rejects_identifiers_and_windows_not_bound_to_probe() -> None:
+    wider_coverage = {"s": "ok", "t": [1_699_833_600, 1_700_265_600]}
+    provider = FinnhubProvider(
+        _section(), enabled=True, terms_accepted=True, transport=lambda *_: wider_coverage
+    )
+    provider.probe_entitlements({"prices": _probe_inputs()["prices"]})
+    decision_time = datetime(2023, 11, 20, tzinfo=timezone.utc)
+    other_symbol = pd.DataFrame(
+        {
+            "date": [date(2023, 11, 14)],
+            "symbol": ["another-price-symbol"],
+            "known_at": ["2023-11-14T23:00:00+00:00"],
+            "available_at": ["2023-11-14T23:01:00+00:00"],
+        }
+    )
+
+    mismatched_identifier = provider.validate_historical_data(
+        "prices",
+        other_symbol,
+        start_date=date(2023, 11, 14),
+        end_date=date(2023, 11, 14),
+        decision_time=decision_time,
+    )
+    assert mismatched_identifier.status == "unavailable"
+    assert "identifiers do not match" in mismatched_identifier.message
+
+    outside_probe_window = pd.DataFrame(
+        {
+            "date": [date(2023, 11, 13)],
+            "symbol": ["caller-price-symbol"],
+            "known_at": ["2023-11-14T23:00:00+00:00"],
+            "available_at": ["2023-11-14T23:01:00+00:00"],
+        }
+    )
+    mismatched_window = provider.validate_historical_data(
+        "prices",
+        outside_probe_window,
+        start_date=date(2023, 11, 13),
+        end_date=date(2023, 11, 13),
+        decision_time=decision_time,
+    )
+    assert mismatched_window.status == "unavailable"
+    assert "probed request window" in mismatched_window.message
 
 
 def test_provider_authority_is_vendor_only_and_never_score_or_release_authoritative() -> None:

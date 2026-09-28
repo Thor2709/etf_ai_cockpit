@@ -60,6 +60,9 @@ class _CapabilityEvidence:
     entitled: bool = False
     coverage_start: date | None = None
     coverage_end: date | None = None
+    identifiers: tuple[tuple[str, str], ...] = ()
+    window_start: date | None = None
+    window_end: date | None = None
     reason: str = "Entitlement and historical coverage have not been proven."
     error_fingerprint: str | None = None
 
@@ -145,10 +148,17 @@ class FinnhubProvider(DataProvider):
                     if coverage_start is None or coverage_end is None
                     else "Entitlement and the returned coverage window are recorded; point-in-time metadata is still required."
                 )
+                identifiers = _probe_identifiers(params)
+                window_start, window_end = _probe_window(
+                    dataset, params, coverage_start, coverage_end
+                )
                 self._evidence[dataset] = _CapabilityEvidence(
                     entitled=True,
                     coverage_start=coverage_start,
                     coverage_end=coverage_end,
+                    identifiers=identifiers,
+                    window_start=window_start,
+                    window_end=window_end,
                     reason=coverage_reason,
                 )
             except Exception as exc:
@@ -180,6 +190,13 @@ class FinnhubProvider(DataProvider):
             return self._unavailable(dataset, "Historical use rejected: proven time coverage is missing.")
         if start_date < evidence.coverage_start or end_date > evidence.coverage_end:
             return self._unavailable(dataset, "Historical use rejected: requested dates exceed proven time coverage.")
+        if (
+            evidence.window_start is None
+            or evidence.window_end is None
+            or start_date < evidence.window_start
+            or end_date > evidence.window_end
+        ):
+            return self._unavailable(dataset, "Historical use rejected: requested dates exceed the probed request window.")
         if decision_time.tzinfo is None or decision_time.utcoffset() is None:
             return self._unavailable(dataset, "Historical use rejected: decision time must be timezone-aware.")
         required = {"date", "known_at", "available_at"}
@@ -188,6 +205,8 @@ class FinnhubProvider(DataProvider):
             return self._unavailable(dataset, f"Historical use rejected: point-in-time metadata is missing ({missing}).")
         if frame.empty:
             return self._unavailable(dataset, "Historical use rejected: no rows were returned.")
+        if not _frame_matches_identifiers(frame, evidence.identifiers):
+            return self._unavailable(dataset, "Historical use rejected: row identifiers do not match the probed request.")
 
         try:
             row_dates = pd.to_datetime(frame["date"], errors="raise").dt.date
@@ -344,6 +363,57 @@ def _unix_timestamp(value: object) -> int:
     if timestamp < 0:
         raise ValueError("probe timestamp is invalid")
     return timestamp
+
+
+def _probe_identifiers(params: Mapping[str, object]) -> tuple[tuple[str, str], ...]:
+    identifiers: list[tuple[str, str]] = []
+    for key in ("symbol", "isin"):
+        if key not in params:
+            continue
+        value = params[key]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("probe identifier is missing or invalid")
+        identifiers.append((key, value.strip().casefold()))
+    return tuple(identifiers)
+
+
+def _probe_window(
+    dataset: str,
+    params: Mapping[str, object],
+    coverage_start: date | None,
+    coverage_end: date | None,
+) -> tuple[date | None, date | None]:
+    if dataset in {"prices", "fx"}:
+        try:
+            start = datetime.fromtimestamp(int(params["from"]), timezone.utc).date()
+            end = datetime.fromtimestamp(int(params["to"]), timezone.utc).date()
+        except (KeyError, TypeError, ValueError, OverflowError, OSError):
+            return None, None
+        return start, end
+    if dataset == "etf_holdings":
+        try:
+            requested = date.fromisoformat(str(params["date"]))
+        except (KeyError, TypeError, ValueError):
+            return None, None
+        return requested, requested
+    return coverage_start, coverage_end
+
+
+def _frame_matches_identifiers(
+    frame: pd.DataFrame,
+    identifiers: tuple[tuple[str, str], ...],
+) -> bool:
+    if not identifiers:
+        return False
+    for column, expected in identifiers:
+        if column not in frame.columns:
+            return False
+        values = frame[column]
+        if values.isna().any():
+            return False
+        if any(str(value).strip().casefold() != expected for value in values):
+            return False
+    return True
 
 
 def _coverage(
