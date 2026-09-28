@@ -518,6 +518,9 @@ jobs:
         run: |
           output="artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}"
           arguments=(--root . --output "$output" --allow-unsigned)
+          if [[ "${{ matrix.platform }}" == "linux" ]]; then
+            arguments+=(--xdist-workers 4)
+          fi
           python scripts/release_gate.py "${arguments[@]}"
 
       - name: Upload release evidence
@@ -534,7 +537,7 @@ jobs:
     if: >-
       always() && needs.classifier.result == 'success' &&
       needs.preflight.result == 'success' && needs['supply-chain'].result == 'success' &&
-      needs.classifier.outputs.parallel_pilot_required == 'true'
+      needs.classifier.outputs.parallel_pilot_required == 'true' && github.event_name != 'pull_request'
     continue-on-error: true
     strategy:
       fail-fast: false
