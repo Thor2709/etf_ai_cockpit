@@ -720,6 +720,7 @@ def draft_portfolio_proposal(snapshot: object, analysis: PortfolioAnalysis) -> d
         "result_checksum": result["payload_checksum"],
         "source_snapshot": _jsonable(asdict(binding)),
         "service_evidence": _jsonable(analysis.service_evidence),
+        "no_trade_alternative": _draft_no_trade_alternative(snapshot, bound_analysis),
     }
     body = {
         "schema_version": "portfolio_sandbox_draft_handoff.v1",
@@ -740,6 +741,39 @@ def draft_portfolio_proposal(snapshot: object, analysis: PortfolioAnalysis) -> d
         "execution_allowed": False,
     }
     return {**body, "evidence_checksum": _payload_checksum(body)}
+
+
+def _draft_no_trade_alternative(snapshot: object, analysis: PortfolioAnalysis) -> dict[str, object]:
+    service = analysis.service_evidence.get("rebalancing")
+    if not isinstance(service, Mapping) or service.get("status") not in {"available", "partial"}:
+        reason = str(service.get("reason", "rebalance report unavailable")) if isinstance(service, Mapping) else "rebalance report unavailable"
+        return {"status": "unavailable", "reason": reason, "execution_allowed": False}
+    try:
+        limits = getattr(getattr(snapshot, "config"), "risks").portfolio_limits
+        report = build_rebalance_report(
+            getattr(snapshot, "config"),
+            _bound_holdings(snapshot, analysis),
+            dict(analysis.candidate.target_weights),
+            target_cash_weight=analysis.candidate.cash_weight,
+            portfolio_value_eur=analysis.candidate.analysis_notional_eur,
+            constraints=RebalanceConstraints(
+                cash_buffer_weight=float(getattr(limits, "cash_min_weight", 0.0)),
+                min_trade_eur=float(getattr(limits, "min_trade_value_eur", 0.0)),
+            ),
+        )
+    except (ArithmeticError, KeyError, TypeError, ValueError) as exc:
+        return {
+            "status": "unavailable",
+            "reason": str(exc) or "rebalance no-trade alternative unavailable",
+            "execution_allowed": False,
+        }
+    return {
+        "status": "available",
+        "alternative": _jsonable(asdict(report.alternatives["no_trade"])),
+        "assumptions": dict(report.assumptions),
+        "warnings": list(report.warnings),
+        "execution_allowed": False,
+    }
 
 
 def validate_portfolio_draft_handoff(payload: Mapping[str, object]) -> dict[str, object]:

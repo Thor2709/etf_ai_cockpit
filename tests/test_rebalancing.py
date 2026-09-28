@@ -4,7 +4,9 @@ from types import SimpleNamespace
 
 import pandas as pd
 
+import etf_cockpit.application.portfolio_sandbox as portfolio_sandbox
 from etf_cockpit.core.config import load_config
+from etf_cockpit.portfolio.sandbox import PortfolioSnapshotBinding
 from etf_cockpit.portfolio.rebalancing import (
     RebalanceConstraints,
     build_rebalance_report,
@@ -12,6 +14,7 @@ from etf_cockpit.portfolio.rebalancing import (
     rebalance_score,
     target_weight_drift,
 )
+from etf_cockpit.application.portfolio_sandbox import validate_portfolio_draft_handoff
 
 
 def test_target_weight_drift_and_rebalance_score() -> None:
@@ -92,3 +95,87 @@ def test_tax_lot_estimate_is_optional_and_jurisdiction_labelled() -> None:
     assert report.tax_jurisdiction == "AU"
     assert vwce.estimated_tax_eur == 750.0
     assert report.execution_allowed is False
+
+
+def test_rebalance_respects_bond_face_increments_and_persists_no_trade(monkeypatch) -> None:
+    # Synthetic face-unit fixture: LYP6 represents a bond lot with EUR 5 face increments.
+    holdings = _holdings()
+    holdings.loc[holdings["etf_id"] == "LYP6", "asset_type"] = "government_bond"
+    holdings.loc[holdings["etf_id"] == "LYP6", "minimum_denomination"] = 5.0
+    holdings.loc[holdings["etf_id"] == "LYP6", "denomination_increment"] = 5.0
+    targets = {"VWCE": 0.585, "LYP6": 0.315}
+    report = build_rebalance_report(
+        _config().config,
+        holdings,
+        targets,
+        target_cash_weight=0.10,
+        portfolio_value_eur=100_000.0,
+    )
+
+    bond = next(item for item in report.trades if item.instrument_id == "LYP6")
+    assert bond.quantity == 10.0
+    assert bond.trade_value_eur == 10_000.0
+    assert "denomination_increment=5" in bond.assumptions
+    assert report.cash_weight >= 0.10
+    assert report.assumptions["bond_face_policy"] == "minimum_denomination_and_increment"
+
+    below_denomination = build_rebalance_report(
+        _config().config,
+        holdings,
+        {"VWCE": 0.697, "LYP6": 0.203},
+        target_cash_weight=0.10,
+        portfolio_value_eur=100_000.0,
+    )
+    small_bond = next(item for item in below_denomination.trades if item.instrument_id == "LYP6")
+    assert small_bond.status == "deferred_below_lot"
+    assert small_bond.trade_value_eur == 0.0
+
+    missing_terms = build_rebalance_report(
+        _config().config,
+        holdings.drop(columns=["minimum_denomination", "denomination_increment"]),
+        targets,
+        target_cash_weight=0.10,
+        portfolio_value_eur=100_000.0,
+    )
+    unavailable_bond = next(item for item in missing_terms.trades if item.instrument_id == "LYP6")
+    assert unavailable_bond.status == "deferred_bond_terms_unavailable"
+    assert "bond_face_terms_unavailable" in missing_terms.warnings
+
+    binding = PortfolioSnapshotBinding(
+        account_id="default",
+        portfolio_id="default",
+        snapshot_id="synthetic",
+        source_revision="synthetic",
+        source_checksum="synthetic",
+        price_source_revision="synthetic",
+        price_source_checksum="synthetic",
+        as_of=None,
+        holdings_view="direct",
+    )
+    candidate = SimpleNamespace(
+        candidate_id="synthetic-candidate",
+        source_checksum="synthetic-source",
+        target_weights=tuple(sorted(targets.items())),
+        cash_weight=0.10,
+        analysis_notional_eur=100_000.0,
+    )
+    analysis = SimpleNamespace(
+        candidate=candidate,
+        snapshot_binding=binding,
+        allocations=(),
+        constraints=(),
+        why_not=(),
+        service_evidence={"rebalancing": {"status": "available"}},
+    )
+    snapshot = SimpleNamespace(config=_config().config, holdings=holdings)
+    monkeypatch.setattr(portfolio_sandbox, "portfolio_analysis_payload", lambda _analysis: {"payload_checksum": "a" * 64})
+    monkeypatch.setattr(portfolio_sandbox, "_candidate_payload", lambda _candidate: {"payload_checksum": "b" * 64})
+    monkeypatch.setattr(portfolio_sandbox, "_bound_holdings", lambda _snapshot, _analysis: holdings)
+
+    proposal = validate_portfolio_draft_handoff(portfolio_sandbox.draft_portfolio_proposal(snapshot, analysis))
+    no_trade = proposal["evidence"]["no_trade_alternative"]
+    assert no_trade["status"] == "available"
+    assert no_trade["alternative"]["name"] == "no_trade"
+    assert no_trade["alternative"]["trade_count"] == 0
+    assert all(item["trade_value_eur"] == 0.0 for item in no_trade["alternative"]["trades"])
+    assert no_trade["execution_allowed"] is False

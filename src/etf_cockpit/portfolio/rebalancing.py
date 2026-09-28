@@ -213,6 +213,10 @@ def build_rebalance_report(
     warnings: list[str] = []
     if any(item.price_eur is None and abs(item.trade_value_eur) > REBALANCE_TOLERANCE for item in full.trades):
         warnings.append("price_unavailable_lot_rounding_not_applied")
+    if any(item.status == "deferred_bond_terms_unavailable" for item in full.trades):
+        warnings.append("bond_face_terms_unavailable")
+    if any(item.status == "deferred_bond_quantity_unavailable" for item in full.trades):
+        warnings.append("bond_position_quantity_unavailable")
     if tax_lots is None or tax_lots.empty:
         warnings.append("tax_lots_unavailable")
     if limits.restricted_positions:
@@ -227,6 +231,7 @@ def build_rebalance_report(
         "min_trade_eur": round(float(limits.min_trade_eur), 8),
         "lot_policy": "fractional_lots" if limits.allow_fractional_lots else "integer_lots",
         "lot_size": round(float(limits.lot_size), 8),
+        "bond_face_policy": "minimum_denomination_and_increment",
         "cost_model": "configured local execution-cost estimate",
         "tax_model": tax_status,
         "tax_jurisdiction": jurisdiction,
@@ -248,7 +253,7 @@ def build_rebalance_report(
 def _alternative(
     name: str,
     config: AppConfig,
-    current: dict[str, dict[str, float | None]],
+    current: dict[str, dict[str, object]],
     targets: dict[str, float],
     portfolio_value: float,
     current_cash: float,
@@ -274,14 +279,39 @@ def _alternative(
             desired_value, status = 0.0, "restricted"
         elif abs(desired_value) < float(constraints.min_trade_eur):
             desired_value, status = 0.0, "deferred_below_minimum"
+        bond_face_terms = _requires_bond_face_terms(state)
+        minimum_denomination = _positive_or_none(state.get("minimum_denomination"))
+        denomination_increment = _positive_or_none(state.get("denomination_increment"))
+        if action != "hold" and bond_face_terms and status == "proposed":
+            if bool(state.get("bond_terms_conflict")) or minimum_denomination is None or denomination_increment is None:
+                desired_value, status = 0.0, "deferred_bond_terms_unavailable"
+            elif desired_value < 0 and state.get("quantity") is None:
+                desired_value, status = 0.0, "deferred_bond_quantity_unavailable"
         price = _positive_or_none(state.get("price"))
-        quantity = _lot_quantity(desired_value, price, state.get("quantity"), constraints)
+        quantity = _lot_quantity(
+            desired_value,
+            price,
+            _positive_or_none(state.get("quantity")),
+            constraints,
+            minimum_denomination=minimum_denomination if bond_face_terms else None,
+            denomination_increment=denomination_increment if bond_face_terms else None,
+        )
+        requested_value = desired_value
         assumptions = ["research_estimate_only", f"status={status}"]
+        if bond_face_terms and minimum_denomination is not None and denomination_increment is not None:
+            assumptions.extend((
+                f"minimum_denomination={minimum_denomination:g}",
+                f"denomination_increment={denomination_increment:g}",
+            ))
+        if status == "deferred_bond_terms_unavailable":
+            assumptions.append("bond_face_terms_unavailable")
+        if status == "deferred_bond_quantity_unavailable":
+            assumptions.append("bond_position_quantity_unavailable")
         if price is None and abs(desired_value) > REBALANCE_TOLERANCE:
             assumptions.append("price_unavailable")
         if price is not None and quantity is not None:
             desired_value = math.copysign(abs(quantity) * price, desired_value)
-        if price is not None and abs(desired_value) > REBALANCE_TOLERANCE and quantity == 0:
+        if price is not None and abs(requested_value) > REBALANCE_TOLERANCE and quantity == 0:
             status = "deferred_below_lot"
             desired_value = 0.0
         cost = estimate_execution_cost(config, instrument_id, abs(desired_value))
@@ -303,7 +333,7 @@ def _alternative(
             )
         )
 
-    rows = _fit_cash(rows, current_cash, target_cash, portfolio_value, constraints, config)
+    rows = _fit_cash(rows, current, current_cash, target_cash, portfolio_value, constraints, config)
     final_cash = current_cash - sum(item.trade_value_eur / portfolio_value for item in rows)
     tracking_error = sum(abs(item.target_weight - item.proposed_weight) for item in rows) + abs(target_cash - final_cash)
     cost_total = sum(item.estimated_cost_eur + item.estimated_tax_eur for item in rows)
@@ -320,7 +350,7 @@ def _alternative(
     )
 
 
-def _fit_cash(rows: list[RebalanceTrade], current_cash: float, target_cash: float, portfolio_value: float, constraints: RebalanceConstraints, config: AppConfig) -> list[RebalanceTrade]:
+def _fit_cash(rows: list[RebalanceTrade], current: dict[str, dict[str, object]], current_cash: float, target_cash: float, portfolio_value: float, constraints: RebalanceConstraints, config: AppConfig) -> list[RebalanceTrade]:
     available = (current_cash - target_cash - float(constraints.cash_buffer_weight)) * portfolio_value - float(constraints.settlement_buffer_eur)
     buys = sum(item.trade_value_eur + item.estimated_cost_eur for item in rows if item.trade_value_eur > 0)
     sells = sum(-item.trade_value_eur - item.estimated_cost_eur - item.estimated_tax_eur for item in rows if item.trade_value_eur < 0)
@@ -333,7 +363,16 @@ def _fit_cash(rows: list[RebalanceTrade], current_cash: float, target_cash: floa
             adjusted.append(item)
             continue
         value = item.trade_value_eur * ratio
-        quantity = _lot_quantity(value, item.price_eur, None, constraints)
+        state = current.get(item.instrument_id, {})
+        bond_face_terms = _requires_bond_face_terms(state)
+        quantity = _lot_quantity(
+            value,
+            item.price_eur,
+            _positive_or_none(state.get("quantity")),
+            constraints,
+            minimum_denomination=_positive_or_none(state.get("minimum_denomination")) if bond_face_terms else None,
+            denomination_increment=_positive_or_none(state.get("denomination_increment")) if bond_face_terms else None,
+        )
         if item.price_eur is not None and quantity is not None:
             value = quantity * item.price_eur
         cost = estimate_execution_cost(config, item.instrument_id, abs(value))
@@ -353,8 +392,8 @@ def _clean_targets(targets: Mapping[str, object]) -> dict[str, float]:
     return cleaned
 
 
-def _current_holdings(holdings: pd.DataFrame) -> tuple[dict[str, dict[str, float | None]], dict[str, float]]:
-    current: dict[str, dict[str, float | None]] = {}
+def _current_holdings(holdings: pd.DataFrame) -> tuple[dict[str, dict[str, object]], dict[str, float]]:
+    current: dict[str, dict[str, object]] = {}
     values: dict[str, float] = {}
     for _, row in holdings.iterrows():
         identifier = str(row.get("etf_id", row.get("instrument_id", ""))).strip()
@@ -362,7 +401,19 @@ def _current_holdings(holdings: pd.DataFrame) -> tuple[dict[str, dict[str, float
             continue
         weight = _finite_non_negative(row.get("current_weight", 0.0), "current_weight")
         market_value = _finite_non_negative(row.get("market_value_eur", 0.0), "market_value_eur")
-        state = current.setdefault(identifier, {"weight": 0.0, "value": 0.0, "quantity": None, "price": None})
+        state = current.setdefault(
+            identifier,
+            {
+                "weight": 0.0,
+                "value": 0.0,
+                "quantity": None,
+                "price": None,
+                "asset_type": "",
+                "minimum_denomination": None,
+                "denomination_increment": None,
+                "bond_terms_conflict": False,
+            },
+        )
         state["weight"] = float(state["weight"] or 0.0) + weight
         state["value"] = float(state["value"] or 0.0) + market_value
         quantity = _positive_or_none(row.get("quantity", row.get("shares")))
@@ -371,6 +422,27 @@ def _current_holdings(holdings: pd.DataFrame) -> tuple[dict[str, dict[str, float
             state["quantity"] = float(state["quantity"] or 0.0) + quantity
         if price is not None:
             state["price"] = price
+        raw_asset_type = row.get("asset_type", row.get("security_type", ""))
+        asset_type = "" if raw_asset_type is None or pd.isna(raw_asset_type) else str(raw_asset_type).strip().casefold()
+        existing_asset_type = str(state.get("asset_type") or "")
+        if asset_type and existing_asset_type and asset_type != existing_asset_type:
+            state["asset_type"] = "mixed"
+            state["bond_terms_conflict"] = True
+        elif asset_type:
+            state["asset_type"] = asset_type
+        for field in ("minimum_denomination", "denomination_increment"):
+            term = _positive_or_none(row.get(field))
+            existing_term = _positive_or_none(state.get(field))
+            if term is not None and existing_term is not None and not math.isclose(term, existing_term, rel_tol=0.0, abs_tol=REBALANCE_TOLERANCE):
+                state["bond_terms_conflict"] = True
+            elif term is not None:
+                state[field] = term
+        minimum = _positive_or_none(state.get("minimum_denomination"))
+        increment = _positive_or_none(state.get("denomination_increment"))
+        if minimum is not None and increment is not None:
+            units = minimum / increment
+            if minimum < increment or not math.isclose(units, round(units), rel_tol=0.0, abs_tol=REBALANCE_TOLERANCE):
+                state["bond_terms_conflict"] = True
         values[identifier] = values.get(identifier, 0.0) + market_value
     return current, values
 
@@ -382,20 +454,64 @@ def _portfolio_value(values: dict[str, float], supplied: object | None) -> float
     return value
 
 
-def _lot_quantity(value: float, price: float | None, current_quantity: float | None, constraints: RebalanceConstraints) -> float | None:
+def _lot_quantity(
+    value: float,
+    price: float | None,
+    current_quantity: float | None,
+    constraints: RebalanceConstraints,
+    *,
+    minimum_denomination: float | None = None,
+    denomination_increment: float | None = None,
+) -> float | None:
     if price is None or abs(value) <= REBALANCE_TOLERANCE:
         return None if price is None else 0.0
     raw = abs(value) / price
-    lot = float(constraints.lot_size)
-    if constraints.allow_fractional_lots:
-        quantity = round(raw / lot) * lot
-    elif value > 0:
-        quantity = math.floor(raw / lot) * lot
+    if minimum_denomination is not None or denomination_increment is not None:
+        if minimum_denomination is None or denomination_increment is None or minimum_denomination <= 0 or denomination_increment <= 0:
+            return math.copysign(0.0, value)
+        units = raw / denomination_increment
+        if value > 0:
+            quantity = math.floor(units + 1e-10) * denomination_increment
+        else:
+            quantity = math.ceil(units - 1e-10) * denomination_increment
+        if quantity + REBALANCE_TOLERANCE < minimum_denomination:
+            quantity = 0.0
+        if value < 0 and current_quantity is not None:
+            current_units = round(current_quantity / denomination_increment)
+            current_is_valid = math.isclose(
+                current_quantity,
+                current_units * denomination_increment,
+                rel_tol=0.0,
+                abs_tol=REBALANCE_TOLERANCE,
+            )
+            if not current_is_valid:
+                quantity = 0.0
+            else:
+                quantity = min(quantity, current_quantity)
+                remainder = current_quantity - quantity
+                if quantity > 0 and REBALANCE_TOLERANCE < remainder < minimum_denomination - REBALANCE_TOLERANCE:
+                    quantity = current_quantity
     else:
-        quantity = math.ceil(raw / lot) * lot
-    if value < 0 and current_quantity is not None:
+        lot = float(constraints.lot_size)
+        if constraints.allow_fractional_lots:
+            quantity = round(raw / lot) * lot
+        elif value > 0:
+            quantity = math.floor(raw / lot) * lot
+        else:
+            quantity = math.ceil(raw / lot) * lot
+    if denomination_increment is None and value < 0 and current_quantity is not None:
         quantity = min(quantity, current_quantity)
     return math.copysign(quantity, value)
+
+
+def _requires_bond_face_terms(state: Mapping[str, object]) -> bool:
+    asset_type = str(state.get("asset_type") or "").strip().casefold()
+    return (
+        "bond" in asset_type
+        or bool(state.get("bond_terms_conflict"))
+        or state.get("minimum_denomination") is not None
+        or state.get("denomination_increment") is not None
+    )
 
 
 def _tax_estimate(tax_lots: pd.DataFrame | None, instrument_id: str, trade_value: float, constraints: RebalanceConstraints) -> float:
