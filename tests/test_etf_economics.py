@@ -73,6 +73,22 @@ def test_etf_capacity_is_order_size_and_horizon_specific_and_cost_stress_widens(
     assert five_day.execution_allowed is False
 
 
+def test_etf_order_exceeding_capacity_is_blocked_by_liquidity_policy() -> None:
+    config = load_config()
+    blocked = calculate_etf_liquidity(
+        config,
+        _prices(),
+        "VWCE",
+        order_value_eur=2_000_000.0,
+        horizon_days=1,
+    )
+
+    assert blocked.capacity_status == "blocked_liquidity_policy"
+    assert blocked.capacity_headroom_eur is not None and blocked.capacity_headroom_eur < 0
+    assert any("exceeds the configured local liquidity policy" in warning for warning in blocked.warnings)
+    assert blocked.execution_allowed is False
+
+
 def test_etf_quote_panel_flags_stale_off_hours_and_calculates_premium_discount() -> None:
     config = load_config()
     prices = _prices()
