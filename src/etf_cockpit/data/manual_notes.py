@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import shutil
 from dataclasses import dataclass
@@ -11,7 +12,7 @@ from typing import Iterable
 import pandas as pd
 
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR, SNAPSHOTS_DIR
-from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, atomic_write_json, parquet_payload, validate_parquet_file
 from etf_cockpit.core.types import DatasetMetadata
 from etf_cockpit.data.provenance import metadata_from_frame, sha256_dataframe
 from etf_cockpit.data.providers import ProviderResult
@@ -284,6 +285,7 @@ def load_manual_news(path: Path = MANUAL_NEWS_CLEAN_PATH) -> pd.DataFrame:
             frame[column] = ""
         else:
             frame[column] = frame[column].fillna("").astype(str)
+    frame = _apply_persisted_manual_note_reviews(frame, path)
     frame["credibility_display_flags"] = [_credibility_display_flags(row) for _, row in frame.iterrows()]
     return frame
 
@@ -316,6 +318,82 @@ def record_manual_note_credibility_review(
     result.loc[row_index, "credibility_review_note"] = note_value
     result.loc[row_index, "credibility_display_flags"] = _credibility_display_flags(result.loc[row_index])
     result.loc[row_index, "executable_authority"] = False
+    return result
+
+
+def save_manual_note_credibility_review(
+    path: Path,
+    row_index: object,
+    *,
+    reviewer: str,
+    decision: str,
+    note: str,
+    reviewed_at: str | None = None,
+) -> pd.DataFrame:
+    """Atomically persist an advisory review beside its manual notes file."""
+    frame = load_manual_news(path)
+    reviewed = record_manual_note_credibility_review(
+        frame,
+        row_index,
+        reviewer=reviewer,
+        decision=decision,
+        note=note,
+        reviewed_at=reviewed_at,
+    )
+    row = reviewed.loc[row_index]
+    review_path = _manual_note_reviews_path(path)
+    reviews: dict[str, object] = {}
+    if review_path.exists():
+        stored = json.loads(review_path.read_text(encoding="utf-8"))
+        if not isinstance(stored, dict) or not isinstance(stored.get("reviews", {}), dict):
+            raise ValueError("Manual note review store has an invalid format.")
+        reviews = dict(stored.get("reviews", {}))
+    reviews[_manual_note_review_key(row)] = {
+        "reviewer": str(row["credibility_reviewed_by"]),
+        "reviewed_at": str(row["credibility_reviewed_at"]),
+        "note": str(row["credibility_review_note"]),
+        "decision": str(row["credibility_review_override"]),
+        "credibility_flags": str(row["credibility_flags"]),
+        "credibility_reason_codes": str(row["credibility_reason_codes"]),
+        "credibility_evidence": str(row["credibility_evidence"]),
+    }
+    atomic_write_json(review_path, {"schema_version": "manual_news.reviews.v1", "reviews": reviews})
+    return reviewed
+
+
+def _manual_note_reviews_path(path: Path) -> Path:
+    return path.with_name(f"{path.stem}_reviews.json")
+
+
+def _manual_note_review_key(row: pd.Series) -> str:
+    identity = [str(row.get(column) or "") for column in ("as_of_date", "etf_id", "title", "note", "source", "source_url")]
+    payload = json.dumps(identity, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _apply_persisted_manual_note_reviews(frame: pd.DataFrame, path: Path) -> pd.DataFrame:
+    review_path = _manual_note_reviews_path(path)
+    if not review_path.exists():
+        return frame
+    stored = json.loads(review_path.read_text(encoding="utf-8"))
+    if not isinstance(stored, dict) or not isinstance(stored.get("reviews", {}), dict):
+        raise ValueError("Manual note review store has an invalid format.")
+    result = frame.copy()
+    for index, row in result.iterrows():
+        review = stored.get("reviews", {}).get(_manual_note_review_key(row))
+        if not isinstance(review, dict):
+            continue
+        # Bind the human decision to the detector output that was reviewed.
+        if any(str(review.get(field, "")) != str(row.get(field, "")) for field in ("credibility_flags", "credibility_reason_codes", "credibility_evidence")):
+            continue
+        result = record_manual_note_credibility_review(
+            result,
+            index,
+            reviewer=str(review.get("reviewer", "")),
+            decision=str(review.get("decision", "")),
+            note=str(review.get("note", "")),
+            reviewed_at=str(review.get("reviewed_at", "")),
+        )
     return result
 
 
