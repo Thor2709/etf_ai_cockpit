@@ -133,6 +133,8 @@ class CanonicalIdentity:
     share_class: str | None = None
     issuer: str | None = None
     listing: str | None = None
+    fund_structure: str | None = None
+    sub_fund_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -263,6 +265,34 @@ def resolve_identity(
         warnings.append("missing_source_id")
     if any(item.manual_override or item.source.casefold() in {"manual_override", "override"} for item in eligible):
         warnings.append("manual_override_requires_review")
+    fund_structure_values = {
+        item.fields["fund_structure"].strip().casefold()
+        for item in objects
+        if item.fields.get("fund_structure", "").strip()
+    }
+    fund_structure_conflicted = any(item.field == "fund_structure" for item in conflicts)
+    fund_structure = (
+        next(iter(fund_structure_values))
+        if len(fund_structure_values) == 1 and not fund_structure_conflicted
+        else None
+    )
+    if len(fund_structure_values) > 1 or fund_structure_conflicted:
+        warnings.append("fund_structure_conflict")
+    subfund_ids = {
+        item.object_id
+        for item in objects
+        if item.object_type.casefold() in {"subfund", "sub_fund"}
+    }
+    linked_subfund_ids = {
+        item.parent_object_id
+        for item in objects
+        if item.object_type.casefold() in {"share_class", "fund_share_class"}
+        and item.relationship == "share_class_of"
+        and item.parent_object_id in subfund_ids
+    }
+    sub_fund_id = next(iter(linked_subfund_ids)) if len(linked_subfund_ids) == 1 else None
+    if len(linked_subfund_ids) > 1:
+        warnings.append("sub_fund_link_conflict")
     isin = _optional(selected.get("isin"), field="isin")
     isin_status = _isin_status(isin)
     exchange = _optional(selected.get("exchange"), field="exchange")
@@ -306,6 +336,8 @@ def resolve_identity(
         share_class=_optional(selected.get("share_class"), field="share_class"),
         issuer=_optional(selected.get("issuer"), field="issuer"),
         listing=_optional(selected.get("listing"), field="listing"),
+        fund_structure=fund_structure,
+        sub_fund_id=sub_fund_id,
     )
     history = tuple(
         IdentityHistoryEntry(
