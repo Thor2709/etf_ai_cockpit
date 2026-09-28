@@ -1,0 +1,3 @@
+SYNTHETIC NON-OFFICIAL TEST FIXTURE ONLY.
+The following fictional economics observations exist only to test ETF panel integration.
+They are not disclosures, provider data, or facts about a real ETF.
