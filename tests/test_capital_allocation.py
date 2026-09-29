@@ -384,3 +384,36 @@ def test_invalid_market_cap_and_missing_decision_time_do_not_become_zero() -> No
     assert no_decision["status"] == "unavailable"
     assert no_decision["metrics"]["free_cash_flow"]["value"] is None
     assert no_decision["metrics"]["free_cash_flow"]["limitation"] == "decision_time_required"
+
+
+def test_shareholder_yield_carries_exact_market_and_statement_timing() -> None:
+    exact_market = {
+        "market_cap": 1000.0,
+        "market_cap_at": "2025-12-31",
+        "market_cap_effective_at": "2025-12-31T00:00:00Z",
+        "market_cap_known_at": DECISION,
+        "market_cap_source_id": "caller-market-cap",
+        "currency": "USD",
+        "source_id": "caller-market-cap",
+    }
+    report = capital_allocation_analysis(
+        _statements(),
+        instrument_id="ACME",
+        as_known_at=DECISION,
+        market_inputs=exact_market,
+    )
+    untimed = capital_allocation_analysis(
+        _statements(),
+        instrument_id="ACME",
+        as_known_at=DECISION,
+        market_inputs={key: value for key, value in exact_market.items() if key != "market_cap_known_at"},
+    )
+    metric = report["metrics"]["shareholder_yield"]
+
+    assert metric["value"] is not None
+    assert metric["source_timing_status"] == "available"
+    assert "caller-market-cap" in {item["source_id"] for item in metric["source_provenance"]}
+    assert {"dividends-2025", "gross_buybacks-2025", "equity_issuance-2025"} <= {
+        item["source_id"] for item in metric["source_provenance"]
+    }
+    assert untimed["metrics"]["shareholder_yield"]["source_timing_status"] == "unavailable"

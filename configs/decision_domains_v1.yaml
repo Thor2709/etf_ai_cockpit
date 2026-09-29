@@ -147,3 +147,202 @@ metrics:
     requirement_class: CRITICAL
     gate_operator: gt
     gate_threshold: 0.0
+
+# Stock-specific questions are deliberately separate from the generic domains
+# above. Their equal baseline weight applies only to the six underwriting
+# questions; valuation, expectations and tactical evidence are composed apart.
+stock_decision:
+  schema_version: 1
+  version: stock-decision-v1.0.0
+  rank_authority: true
+  subdomains:
+    - domain: profitability_economic_returns
+      label: Profitability and economic returns
+      weight: 1.0
+      metrics:
+        - metric_id: economic_profit_spread
+          source: capital_efficiency.reported.metrics.economic_profit_spread
+          subfamily: economic_returns
+          metric_shape: higher_is_better
+          comparison_scope: INDUSTRY
+          requirement_class: CONDITIONAL
+        - metric_id: gross_margin
+          source: profitability.metrics.gross_margin
+          subfamily: gross_profitability
+          metric_shape: higher_is_better
+          comparison_scope: INDUSTRY
+          requirement_class: CONDITIONAL
+      financial_metrics:
+        - metric: roe
+          metric_shape: higher_is_better
+        - metric: rote
+          metric_shape: higher_is_better
+    - domain: earnings_cash_quality
+      label: Earnings and cash quality
+      weight: 1.0
+      metrics:
+        - metric_id: accrual_ratio
+          source: profitability.metrics.accrual_ratio
+          subfamily: cash_quality
+          metric_shape: lower_is_better
+          comparison_scope: INDUSTRY
+          requirement_class: CONDITIONAL
+        - metric_id: cash_conversion
+          source: profitability.metrics.cash_conversion
+          subfamily: cash_quality
+          metric_shape: higher_is_better
+          comparison_scope: INDUSTRY
+          requirement_class: CONDITIONAL
+      financial_metrics:
+        - metric: cost_of_risk
+          metric_shape: lower_is_better
+        - metric: npl_coverage_ratio
+          metric_shape: higher_is_better
+        - metric: coverage_ratio
+          metric_shape: higher_is_better
+    - domain: financial_resilience
+      label: Financial resilience
+      weight: 1.0
+      metrics:
+        - metric_id: interest_coverage
+          source: balance_sheet.metrics.interest_coverage
+          subfamily: coverage
+          metric_shape: higher_is_better
+          comparison_scope: INDUSTRY
+          requirement_class: CONDITIONAL
+        - metric_id: debt_to_equity
+          source: balance_sheet.metrics.debt_to_equity
+          subfamily: leverage
+          metric_shape: lower_is_better
+          comparison_scope: INDUSTRY
+          requirement_class: CONDITIONAL
+      financial_metrics:
+        - metric: capital_headroom
+          metric_shape: higher_is_better
+        - metric: cet1_ratio
+          metric_shape: higher_is_better
+        - metric: total_capital_ratio
+          metric_shape: higher_is_better
+        - metric: leverage_ratio
+          metric_shape: higher_is_better
+        - metric: liquidity_coverage_ratio
+          metric_shape: higher_is_better
+        - metric: solvency_capital_ratio
+          metric_shape: threshold_or_plateau
+    - domain: growth_reinvestment_quality
+      label: Growth and reinvestment quality
+      weight: 1.0
+      metrics:
+        - metric_id: incremental_roic
+          source: capital_efficiency.reported.metrics.incremental_roic
+          subfamily: reinvestment_returns
+          metric_shape: higher_is_better
+          comparison_scope: INDUSTRY
+          requirement_class: CONDITIONAL
+        - metric_id: reinvestment_rate
+          source: capital_efficiency.reported.metrics.reinvestment_rate
+          subfamily: reinvestment
+          metric_shape: higher_is_better
+          comparison_scope: INDUSTRY
+          requirement_class: CONDITIONAL
+      financial_metrics:
+        - metric: loan_growth
+          metric_shape: higher_is_better
+        - metric: deposit_growth
+          metric_shape: higher_is_better
+        - metric: premium_growth
+          metric_shape: higher_is_better
+    - domain: capital_allocation_shareholder_treatment
+      label: Capital allocation and shareholder treatment
+      weight: 1.0
+      metrics:
+        - metric_id: shareholder_yield
+          source: capital_allocation.metrics.shareholder_yield
+          subfamily: shareholder_return
+          metric_shape: higher_is_better
+          comparison_scope: INDUSTRY
+          requirement_class: CONDITIONAL
+        - metric_id: diluted_share_count_change
+          source: capital_allocation.metrics.diluted_share_count_change
+          subfamily: dilution_sbc
+          metric_shape: lower_is_better
+          comparison_scope: INDUSTRY
+          requirement_class: CONDITIONAL
+        - metric_id: buybacks_vs_sbc_issuance
+          source: capital_allocation.metrics.buybacks_vs_sbc_issuance
+          subfamily: dilution_sbc
+          metric_shape: higher_is_better
+          comparison_scope: INDUSTRY
+          requirement_class: CONDITIONAL
+      financial_metrics:
+        - metric: issuance_dilution
+          metric_shape: higher_is_better
+        - metric: payout_headroom
+          metric_shape: higher_is_better
+    - domain: durability
+      label: Durability
+      weight: 1.0
+      metrics:
+        - metric_id: capital_return_persistence
+          source: capital_efficiency.business_quality_proxies.capital_return_persistence
+          subfamily: returns_persistence
+          metric_shape: higher_is_better
+          comparison_scope: INDUSTRY
+          requirement_class: CONDITIONAL
+        - metric_id: margin_stability
+          source: profitability.metrics.margin_stability
+          subfamily: margin_persistence
+          metric_shape: lower_is_better
+          comparison_scope: INDUSTRY
+          requirement_class: CONDITIONAL
+        - metric_id: recurring_revenue_share
+          source: capital_efficiency.business_quality_proxies.recurring_revenue_share
+          subfamily: franchise_evidence
+          metric_shape: higher_is_better
+          comparison_scope: BUSINESS_MODEL
+          requirement_class: CONDITIONAL
+        - metric_id: customer_concentration
+          source: capital_efficiency.business_quality_proxies.customer_concentration
+          subfamily: franchise_evidence
+          metric_shape: lower_is_better
+          comparison_scope: BUSINESS_MODEL
+          requirement_class: CONDITIONAL
+        - metric_id: supplier_concentration
+          source: capital_efficiency.business_quality_proxies.supplier_concentration
+          subfamily: franchise_evidence
+          metric_shape: lower_is_better
+          comparison_scope: BUSINESS_MODEL
+          requirement_class: CONDITIONAL
+      financial_metrics:
+        - metric: npl_ratio
+          metric_shape: lower_is_better
+        - metric: stage_3_exposure
+          metric_shape: lower_is_better
+        - metric: reserve_adequacy
+          metric_shape: higher_is_better
+        - metric: covered_bond_concentration
+          metric_shape: lower_is_better
+  valuation_components:
+    - relative_metrics
+    - intrinsic_value
+    - residual_income
+    - reverse_dcf
+    - normalized_mid_cycle
+    - model_disagreement
+    - margin_of_safety
+  expectations_components:
+    - agreement
+    - magnitude
+    - surprise
+    - dispersion
+    - guidance
+  tactical_price_family:
+    one_vote: true
+    members:
+      - momentum
+      - trend
+      - relative_strength
+  tactical_separate_components:
+    - earnings_momentum
+    - model_evidence
+  execution_allowed: false
