@@ -26,7 +26,7 @@ from etf_cockpit.app.pages.what_changed import what_changed_page
 from etf_cockpit.app.pages.instrument_detail import instrument_detail_page
 from etf_cockpit.app.pages.import_export import import_export_page
 from etf_cockpit.app.pages.system_map import system_map_page
-from etf_cockpit.app.pages.help_glossary import help_glossary_page
+from etf_cockpit.app.pages.help_glossary import help_glossary_page, page_help_panel
 from etf_cockpit.app.pages.decision_journal import decision_journal_page
 from etf_cockpit.app.pages.forward_evidence import forward_evidence_page
 from etf_cockpit.app.pages.jobs import jobs_page
@@ -417,7 +417,16 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
                 route,
                 f"The page could not be rendered safely ({type(exc).__name__}).",
             )
-    content_container = ft.Container(content=page_content, expand=True, padding=theme.SPACE_3 if narrow else theme.SPACE_5)
+    context_help = page_help_panel(
+        canonical_route,
+        title,
+        on_open_help=lambda _event: navigate_to(page, state, "/help"),
+    )
+    content_container = ft.Container(
+        content=ft.Column([context_help, page_content], expand=True, spacing=theme.SPACE_3),
+        expand=True,
+        padding=theme.SPACE_3 if narrow else theme.SPACE_5,
+    )
     body = ft.Column(
         [
             header,
