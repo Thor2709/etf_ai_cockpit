@@ -30,6 +30,13 @@ def test_button_inventory_covers_workflow_and_recovery_actions() -> None:
     assert {"portfolio.export", "portfolio.draft-proposal"} <= keys
     assert "import-export.backup-restore" not in keys
     assert {"import-export.bulk-cache", "import-export.commit", "import-export.restore-commit", "import-export.restore-cancel"} <= keys
+    assert {
+        "import-export.portfolio-adjust",
+        "import-export.portfolio-audit-export",
+        "import-export.portfolio-map-account",
+        "import-export.portfolio-reverse-orphan",
+        "import-export.portfolio-rollback",
+    } <= keys
 
 
 def test_button_inventory_covers_registered_routes_and_control_metadata() -> None:
@@ -88,6 +95,49 @@ def test_source_discovery_covers_constructor_post_binding_inputs_and_file_picker
     assert controls["shell.command-palette.on-submit"].events == ("on_submit",)
     assert controls["shell.command-palette.on-submit"].callbacks == ("submit_palette",)
     assert "shell.command-palette" not in controls
+    assert controls["import-export.portfolio-rollback"].events == ("on_click",)
+    assert controls["import-export.portfolio-rollback"].callbacks == ("rollback_portfolio",)
+
+
+@pytest.mark.parametrize(
+    ("key", "control_label", "callback"),
+    (
+        (
+            "import-export.portfolio-adjust",
+            "Post/reverse source correction",
+            "apply_portfolio_adjustment",
+        ),
+        (
+            "import-export.portfolio-audit-export",
+            "Export reconciliation audit",
+            "export_portfolio_audit",
+        ),
+        (
+            "import-export.portfolio-map-account",
+            "Map source account",
+            "map_portfolio_account",
+        ),
+        (
+            "import-export.portfolio-reverse-orphan",
+            "Reverse orphaned source entry",
+            "reverse_orphaned_portfolio_entry",
+        ),
+    ),
+)
+def test_portfolio_reconciliation_contracts_match_source_callbacks(
+    key: str, control_label: str, callback: str
+) -> None:
+    contracts = {item.key: item for item in load_ui_acceptance_contracts()}
+    contract = contracts[key]
+    controls = discover_actionable_controls(Path("src/etf_cockpit/app"))
+
+    assert contract.route == "/import-export"
+    assert contract.control_label == control_label
+    assert contract.callback == callback
+    assert contract.control_type == "button"
+    assert contract.success_signal and contract.controlled_error_signal
+    assert controls[key].events == ("on_click",)
+    assert controls[key].callbacks == (callback,)
 
 
 @pytest.mark.parametrize("removed_key", ["dashboard.export-audit", "operations.paper-open"])
