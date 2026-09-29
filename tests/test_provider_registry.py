@@ -117,6 +117,24 @@ def test_data_provider_adapters_expose_non_network_probe_contract() -> None:
         assert all(item.status == "unavailable" for item in capabilities)
 
 
+def test_registered_finnhub_adapter_preserves_dataset_capabilities() -> None:
+    config = DataProvidersConfig(
+        providers={"finnhub": ProviderSection(active_provider="finnhub", api_key="local-test-key")}
+    )
+    capabilities = [
+        item for item in ProviderRegistry(config).probe_all() if item.provider_id == "finnhub"
+    ]
+
+    assert {item.dataset_type for item in capabilities} == {
+        "prices",
+        "fx",
+        "etf_metadata",
+        "etf_holdings",
+    }
+    assert all(item.status == "unavailable" for item in capabilities)
+    assert all(not item.score_eligible for item in capabilities)
+
+
 def test_startup_probe_writer_persists_versioned_registry_rows_and_legacy_columns(tmp_path, monkeypatch) -> None:
     path = tmp_path / "provider_probe_results.parquet"
     monkeypatch.setattr(trust_artifacts, "PROVIDER_PROBE_PATH", path)

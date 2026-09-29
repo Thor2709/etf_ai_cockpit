@@ -1,33 +1,94 @@
 from __future__ import annotations
 
+
+
 import flet as ft
+import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, section_header
+from etf_cockpit.app.components.valuation_lab import (
+    _recalculate_valuation,
+    _research_number,
+    _research_value,
+    _selectable_text,
+    _valuation_panel,
+)
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
     CONSENSUS_IMPORT_PATH,
     GUIDANCE_IMPORT_PATH,
     STATEMENT_FACTS_PATH,
     build_stock_research_report,
+    load_capital_allocation_analysis,
     load_optional_research_import,
-    load_stock_research_frame,
+    load_valuation_market_inputs,
+    load_stock_research_context,
 )
 
 
 def stock_research_page(_page: ft.Page, state: AppState) -> ft.Control:
     instrument_id = str(getattr(state, "selected_etf", "") or state.snapshot.config.ui.default_etf)
-    statements = load_stock_research_frame(STATEMENT_FACTS_PATH, instrument_id=instrument_id)
+    snapshot_decision_time = getattr(getattr(state, "snapshot", None), "benchmark_reference_decision_time", None)
+    context = load_stock_research_context(instrument_id, statements_path=STATEMENT_FACTS_PATH, decision_time=snapshot_decision_time)
+    statements = context.get("statements")
+    statements = statements if isinstance(statements, pd.DataFrame) else pd.DataFrame()
     consensus = load_optional_research_import(CONSENSUS_IMPORT_PATH, instrument_id=instrument_id)
     guidance = load_optional_research_import(GUIDANCE_IMPORT_PATH, instrument_id=instrument_id)
-    report = build_stock_research_report(statements, instrument_id=instrument_id, market_inputs={}, assumptions={}, expectation_evidence=consensus, guidance_evidence=guidance)
+    snapshot = getattr(state, "snapshot", None)
+    benchmark_context = {
+        name: getattr(snapshot, name, None)
+        for name in (
+            "benchmark_reference_instrument",
+            "benchmark_reference_currency",
+            "benchmark_reference_horizon_years",
+            "benchmark_reference_start_date",
+            "benchmark_reference_end_date",
+            "benchmark_reference_decision_time",
+        )
+    }
+    market_inputs = context.get("valuation_market_inputs")
+    market_inputs = dict(market_inputs) if isinstance(market_inputs, dict) else load_valuation_market_inputs(
+        instrument_id,
+        statements=statements,
+        decision_time=context.get("decision_time"),
+        benchmark_context=benchmark_context,
+    )
+    market_inputs["benchmark_context"] = benchmark_context
+    report_arguments = dict(
+        instrument_id=instrument_id,
+        sector=str(context.get("sector") or ""),
+        peer_frame=context.get("peer_frame") if isinstance(context.get("peer_frame"), pd.DataFrame) else None,
+        peer_market_inputs=context.get("peer_valuation_market_inputs") if isinstance(context.get("peer_valuation_market_inputs"), dict) else {},
+        classification_context=context.get("classification") if isinstance(context.get("classification"), dict) else None,
+        peer_context=context.get("peer_context") if isinstance(context.get("peer_context"), dict) else None,
+        financial_projection=context.get("financial_projection") if isinstance(context.get("financial_projection"), dict) else None,
+        market_inputs=market_inputs,
+        assumptions={},
+        expectation_evidence=consensus,
+        guidance_evidence=guidance,
+        as_known_at=context.get("decision_time"),
+    )
+    report = build_stock_research_report(statements, **report_arguments)
+    statement_context = report.get("statement_context", {})
+    statement_context = statement_context if isinstance(statement_context, dict) else {}
+    classification_status = str(context.get("classification_status", "unavailable"))
+    sector = str(context.get("sector") or "unclassified")
+    statement_view = "as known at " + str(context.get("decision_time")) if context.get("decision_time") else "latest restated"
+    capital_allocation = load_capital_allocation_analysis(
+        statements,
+        instrument_id=instrument_id,
+        market_inputs={},
+        decision_time=context.get("decision_time"),
+    )
     return ft.Column(
         [
             panel(
                 ft.Column(
                     [
                         section_header("Stock Research", "Transparent statement-derived evidence. Reported facts, derived metrics and valuation assumptions remain separate."),
-                        ft.Row([evidence_chip("Instrument", instrument_id or "unselected", theme.CYAN), evidence_chip("Statement view", "latest restated", theme.BLUE_GREY), evidence_chip("Execution", "disabled", theme.GREEN)], wrap=True),
+                        ft.Row([evidence_chip("Instrument", instrument_id or "unselected", theme.CYAN), evidence_chip("Sector", sector, theme.BLUE_GREY), evidence_chip("Statement view", statement_view, theme.BLUE_GREY), evidence_chip("Execution", "disabled", theme.GREEN)], wrap=True),
+                        _selectable_text(f"Classification: {classification_status}; currency={statement_context.get('currency', 'unavailable')}; accounting scope={statement_context.get('accounting_scope', 'unavailable')}; period={statement_context.get('period', 'unavailable')}; known_at={statement_context.get('known_at', 'unavailable')}", color=theme.MUTED),
                     ],
                     spacing=8,
                 )
@@ -36,10 +97,23 @@ def stock_research_page(_page: ft.Page, state: AppState) -> ft.Control:
             _metrics_panel("Earnings quality", "Accruals, exceptional-item dependence, margin stability and transparent quality components.", report["profitability"]),
             _metrics_panel("Balance sheet", "Debt, liquidity, working capital and source-linked coverage; missing maturities remain unavailable.", report["balance_sheet"]),
             _metrics_panel("Solvency", "Stress scenarios and contextual distress evidence; this is not a credit rating or execution authority.", report["balance_sheet"]),
+            _metrics_panel("Financial institution adapter", "Financial-sector evidence is delegated to its dedicated adapter; industrial measures are marked inapplicable.", report["financial_institutions"]) if report.get("financial_institutions") else ft.Container(),
             _capital_efficiency_panel(report["capital_efficiency"], _page),
+            _capital_allocation_panel(capital_allocation),
             _growth_panel(report["growth"]),
             _expectations_panel(report["expectations"]),
-            _valuation_panel(report["valuation"]),
+            _valuation_panel(
+                report["valuation"],
+                on_calculate=lambda assumptions: _recalculate_valuation(
+                    statements,
+                    report_arguments,
+                    instrument_id=instrument_id,
+                    decision_time=context.get("decision_time"),
+                    benchmark_context=benchmark_context,
+                    assumptions=assumptions,
+                ),
+                page=_page,
+            ),
             panel(_selectable_text("All stock research outputs are evidence-only and carry execution_allowed=false. Import an official local statement package to replace the explicit unavailable state.", color=theme.MUTED)),
         ],
         expand=True,
@@ -48,11 +122,102 @@ def stock_research_page(_page: ft.Page, state: AppState) -> ft.Control:
     )
 
 
+def _capital_allocation_panel(section: object) -> ft.Control:
+    value = section if isinstance(section, dict) else {}
+    metrics = value.get("metrics", {}) if isinstance(value.get("metrics"), dict) else {}
+    metric_names = (
+        "cash_from_operations_to_net_income",
+        "cash_from_operations_to_ebitda",
+        "free_cash_flow",
+        "free_cash_flow_margin",
+        "capex_intensity",
+        "dividend_yield",
+        "buyback_yield",
+        "issuance_dilution_yield",
+        "shareholder_yield",
+    )
+    cards: list[ft.Control] = []
+    details: list[str] = []
+    for name in metric_names:
+        item = metrics.get(name, {}) if isinstance(metrics, dict) else {}
+        if not isinstance(item, dict):
+            continue
+        metric_value = item.get("value")
+        if metric_value is None:
+            display = "n/a"
+        elif item.get("unit") == "ratio":
+            display = f"{float(metric_value) * 100.0:.2f}%"
+        else:
+            display = f"{_research_number(metric_value)} {item.get('currency', '')}".strip()
+        cards.append(metric_card(name.replace("_", " ").title(), display, str(item.get("status", "unavailable"))))
+        details.append(
+            f"{name}: formula={item.get('formula', 'n/a')}; denominator={item.get('denominator', 'n/a')}; "
+            f"currency={item.get('currency', 'unavailable')}; period={item.get('period', 'unavailable')}; "
+            f"sign={item.get('sign_convention', 'n/a')}; sources={item.get('source_ids', [])}"
+        )
+    if not cards:
+        cards = [metric_card("Capital allocation", "Unavailable", str(value.get("status", "unavailable")))]
+    coverage = value.get("coverage", {}) if isinstance(value.get("coverage"), dict) else {}
+    lineage = value.get("source_lineage", {}) if isinstance(value.get("source_lineage"), dict) else {}
+    source_ids = lineage.get("source_ids", []) if isinstance(lineage.get("source_ids"), list) else []
+    allocation = value.get("capital_allocation", {}) if isinstance(value.get("capital_allocation"), dict) else {}
+    allocation_lines = []
+    for name, item in allocation.items():
+        if not isinstance(item, dict):
+            continue
+        allocation_lines.append(f"{name}={_research_number(item.get('value'))} {item.get('currency', '')} ({item.get('status', 'unavailable')})")
+    checks = value.get("reconciliations", []) if isinstance(value.get("reconciliations"), list) else []
+    check_summary = ", ".join(f"{item.get('name')}={item.get('status')}" for item in checks if isinstance(item, dict)) or "No comparable reconciliations."
+    bank_projection = value.get("financial_projection") if isinstance(value.get("financial_projection"), dict) else None
+    bank_status = value.get("financial_projection_status", "not_applicable")
+    bank_line = f"Financial-institution projection: {bank_status}."
+    if bank_projection:
+        projection_metrics = bank_projection.get("metrics", [])
+        if isinstance(projection_metrics, (list, tuple)):
+            delegated = ", ".join(
+                f"{item.get('metric')}={_research_number(item.get('value'))} ({item.get('status', 'unavailable')})"
+                for item in projection_metrics
+                if isinstance(item, dict) and item.get("metric") in {"dividends", "retained_earnings", "issuance_dilution"}
+            )
+            if delegated:
+                bank_line += f" Delegated evidence: {delegated}."
+    capex_policy = value.get("maintenance_growth_capex", {}) if isinstance(value.get("maintenance_growth_capex"), dict) else {}
+    return panel(
+        ft.Column(
+            [
+                section_header("Capital Allocation", "Reported cash-flow evidence, calculated free cash flow, capital uses, dated shareholder yields and split-adjusted share changes remain separate."),
+                ft.Row(
+                    [
+                        evidence_chip("Coverage", str(coverage.get("status", "unavailable")), theme.CYAN if coverage.get("status") == "available" else theme.AMBER),
+                        evidence_chip("Periods", str(coverage.get("period_count", 0)), theme.BLUE_GREY),
+                        evidence_chip("Sources", str(len(source_ids)), theme.BLUE_GREY),
+                    ],
+                    wrap=True,
+                ),
+                _metric_cards(cards),
+                _selectable_text(" | ".join(details) or "Formula and period evidence are unavailable.", color=theme.MUTED),
+                _selectable_text(f"Capital-allocation records: {'; '.join(allocation_lines) or 'Unavailable.'}", color=theme.MUTED),
+                _selectable_text(f"Reconciliations: {check_summary}. {bank_line} Maintenance/growth capex: {capex_policy.get('reason', 'not inferred without issuer evidence')}; execution_allowed=false", color=theme.MUTED),
+            ],
+            spacing=8,
+        )
+    )
+
+
 def _metrics_panel(title: str, description: str, section: object) -> ft.Control:
     value = section if isinstance(section, dict) else {}
     metrics = value.get("metrics", {}) if isinstance(value, dict) else {}
+    metric_order = {
+        "Profitability": ("gross_margin", "operating_margin", "net_margin", "roa", "roe", "roic", "cash_conversion"),
+        "Earnings quality": ("cash_conversion", "accrual_ratio", "exceptional_item_dependence", "margin_stability"),
+        "Balance sheet": ("net_debt", "debt_to_equity", "current_ratio", "quick_ratio", "working_capital", "interest_coverage"),
+        "Solvency": ("altman_like_distress",),
+    }
+    selected_names = metric_order.get(title, tuple(metrics)[:6])
     cards = []
-    for name in list(metrics)[:6]:
+    for name in selected_names:
+        if name not in metrics:
+            continue
         item = metrics[name]
         if not isinstance(item, dict):
             continue
@@ -60,16 +225,17 @@ def _metrics_panel(title: str, description: str, section: object) -> ft.Control:
         cards.append(metric_card(name.replace("_", " ").title(), display, str(item.get("status", "unavailable"))))
     if not cards:
         cards = [metric_card("Evidence", "Unavailable", "No canonical statement rows")]
-    return panel(ft.Column([section_header(title, description), _metric_cards(cards), _selectable_text(f"Source lineage: {value.get('source_lineage', {}).get('source_ids', []) if isinstance(value, dict) else []}; execution_allowed=false", color=theme.MUTED)], spacing=8))
-
-
-def _valuation_panel(section: object) -> ft.Control:
-    value = section if isinstance(section, dict) else {}
-    intrinsic = value.get("intrinsic_value", {}) if isinstance(value, dict) else {}
-    relative = value.get("relative_metrics", {}) if isinstance(value, dict) else {}
-    status = str(intrinsic.get("status", "unavailable")) if isinstance(intrinsic, dict) else "unavailable"
-    multiples = ", ".join(f"{name.replace('_', ' ')}={item.get('value', 'n/a')}" for name, item in relative.items() if isinstance(item, dict)) or "No relative valuation inputs available."
-    return panel(ft.Column([section_header("Valuation Lab", "Relative valuation, intrinsic-value scenarios, reverse DCF and residual income require explicit local assumptions."), _selectable_text(f"Relative measures: {multiples}", color=theme.MUTED), _selectable_text(f"Intrinsic scenarios: {status}; reverse DCF={value.get('reverse_dcf', {}).get('status', 'unavailable')}; residual income={value.get('residual_income', {}).get('status', 'unavailable')}; no single fair-value point is presented.", color=theme.AMBER if status != "available" else theme.CYAN), _selectable_text("execution_allowed=false", color=theme.GREEN)], spacing=8))
+    definitions = " | ".join(
+        f"{name}: {item.get('formula', 'definition unavailable')} ({item.get('status', 'unavailable')}; period={item.get('period', 'unavailable')})"
+        for name, item in [(name, metrics[name]) for name in selected_names if name in metrics][:8]
+        if isinstance(item, dict)
+    ) or "No metric definitions are available."
+    peer_status = value.get("peer_comparisons", {}) if isinstance(value.get("peer_comparisons"), dict) else {}
+    peer_text = f"Peer percentiles: {value.get('peer_percentiles', {})}; comparison coverage: {peer_status}"
+    coverage = value.get("coverage_limitations", []) if isinstance(value.get("coverage_limitations"), list) else []
+    maturity = value.get("maturity_timeline", {}) if isinstance(value.get("maturity_timeline"), dict) else {}
+    coverage_text = f"Coverage limitations: {coverage}; maturity status={maturity.get('status', 'unavailable')}; maturity limitation={maturity.get('limitation', 'unavailable')}"
+    return panel(ft.Column([section_header(title, description), _metric_cards(cards), _selectable_text(f"Definitions and denominators: {definitions}", color=theme.MUTED), _selectable_text(peer_text, color=theme.MUTED), _selectable_text(coverage_text, color=theme.AMBER if coverage or maturity.get("status") == "missing" else theme.MUTED), _selectable_text(f"Source lineage: {value.get('source_lineage', {}).get('source_ids', []) if isinstance(value, dict) else []}; execution_allowed=false", color=theme.MUTED)], spacing=8))
 
 
 def _capital_efficiency_panel(section: object, page: object | None = None) -> ft.Control:
@@ -188,10 +354,6 @@ def _expectations_panel(section: object) -> ft.Control:
     return panel(ft.Column([section_header("Growth & Expectations", "Realised reported growth, reviewed management guidance and optional licensed point-in-time consensus are separate evidence classes."), _selectable_text("Reported growth: available in the separate Growth panel.", color=theme.MUTED), _selectable_text(f"Management guidance ({guidance_status})\n" + "\n".join(_guidance_lines(guidance)), color=theme.CYAN if guidance_status == "available" else theme.MUTED), _selectable_text(f"Optional consensus ({consensus_status})\n" + "\n".join(_consensus_lines(consensus)), color=theme.CYAN if consensus_status == "available" else theme.MUTED), _selectable_text(f"Rejected import records: guidance={guidance_rejected}; consensus={consensus_rejected}. Current or unlicensed analyst fields are rejected.", color=theme.AMBER), _selectable_text(f"Local import paths: {GUIDANCE_IMPORT_PATH} | {CONSENSUS_IMPORT_PATH}", color=theme.MUTED), _selectable_text("execution_allowed=false", color=theme.GREEN)], spacing=8))
 
 
-def _selectable_text(value: str, *, color: str) -> ft.SelectionArea:
-    """Keep evidence copyable without Flet's oversized selectable Text overlay."""
-    return ft.SelectionArea(ft.Text(value, color=color))
-
 
 def _metric_cards(cards: list[ft.Control]) -> ft.ResponsiveRow:
     """Give expanding metric cards finite responsive cells inside scrolling pages."""
@@ -232,24 +394,6 @@ def _consensus_lines(consensus: object) -> list[str]:
             if len(lines) >= 8:
                 return lines
     return lines or [str(value.get("reason") or "No licensed point-in-time consensus import is available; revisions, dispersion, surprises and staleness remain n/a.")]
-
-
-def _research_number(value: object) -> str:
-    if value is None:
-        return "n/a"
-    try:
-        return f"{float(value):.4g}"
-    except (TypeError, ValueError):
-        return str(value)
-
-
-def _research_value(value: object) -> str:
-    if value is None:
-        return "n/a"
-    try:
-        return f"{float(value) * 100.0:.2f}%"
-    except (TypeError, ValueError):
-        return str(value)
 
 
 __all__ = ["stock_research_page"]
