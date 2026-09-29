@@ -151,6 +151,7 @@ from etf_cockpit.data.screen_store import *  # noqa: F401,F403
 from etf_cockpit.core.versioning import *  # noqa: F401,F403
 from etf_cockpit.core.job_scheduler import *  # noqa: F401,F403
 from etf_cockpit.core.resource_profiles import *  # noqa: F401,F403
+from etf_cockpit.core.resource_profiles import HardwareSnapshot, resource_profile_report
 from etf_cockpit.models.forecast_scores import *  # noqa: F401,F403
 from etf_cockpit.models.model_zoo import *  # noqa: F401,F403
 from etf_cockpit.models.coverage_audit import *  # noqa: F401,F403
@@ -165,8 +166,9 @@ from etf_cockpit.portfolio.proposal_policy import *  # noqa: F401,F403
 from etf_cockpit.portfolio.robust_risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk_analytics import *  # noqa: F401,F403
+from etf_cockpit.portfolio.currency import CurrencyProjection, project_portfolio_currency as _project_portfolio_currency
 from etf_cockpit.application.portfolio_sandbox import *  # noqa: F401,F403
-from etf_cockpit.portfolio.sandbox import select_holdings_view  # noqa: F401
+from etf_cockpit.portfolio.sandbox import PortfolioAnalysis, select_holdings_view  # noqa: F401
 from etf_cockpit.application.overlap import *  # noqa: F401,F403
 from etf_cockpit.signals.simple_scores import *  # noqa: F401,F403
 from etf_cockpit.signals.feature_drivers import (  # noqa: F401
@@ -184,6 +186,50 @@ from etf_cockpit.signals.feature_drivers import (  # noqa: F401
     _source_vintage_hash,
     normalise_bound_claim,
 )
+
+
+def build_profiled_forecast_lab_workspace(
+    config: object,
+    forecasts: object,
+    prices: object,
+    *,
+    profile_id: str = "auto",
+) -> dict[str, object]:
+    """Build Forecast Lab through the app facade with an explicit hardware profile."""
+
+    from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace
+
+    return build_forecast_lab_workspace(
+        config, forecasts, prices, profile_id=profile_id
+    )
+
+
+def build_resource_profile_diagnostics(
+    root: Path | None = None,
+    *,
+    requested_profile: str = "auto",
+    snapshot: HardwareSnapshot | None = None,
+) -> dict[str, object]:
+    """Expose local hardware limitations in the application diagnostics payload."""
+
+    report = resource_profile_report(
+        root, requested_profile=requested_profile, snapshot=snapshot
+    )
+    return {
+        "status": report["selected_status"],
+        "limitations": list(report["limitations"]),
+        "resource_profile": report,
+        "execution_allowed": False,
+    }
+
+
+def project_portfolio_currency(
+    analysis: PortfolioAnalysis,
+    target_currency: str,
+    fx_rates: pd.DataFrame,
+) -> CurrencyProjection:
+    """Return the canonical informational currency projection for presentation."""
+    return _project_portfolio_currency(analysis, target_currency, fx_rates)
 
 
 def _normalise_valuation_assumptions(value: object) -> dict[str, object]:
@@ -1906,6 +1952,37 @@ def load_paper_trade_rows(root: Path) -> tuple[dict[str, object], ...]:
         return PaperLedger(root).trade_rows()
     except (OSError, PaperLedgerError, ValueError):
         return ()
+
+
+def load_paper_incidents(root: Path, *, account_id: str = "local-paper") -> dict[str, object]:
+    """Expose the verified local incident journal to presentation selectors."""
+
+    from etf_cockpit.trading.incidents import IncidentJournal, IncidentJournalError
+
+    journal = IncidentJournal(root, account_id=account_id)
+    try:
+        projection = journal.snapshot()
+        events = projection["events"]
+        frozen = bool(projection["frozen"])
+    except (OSError, IncidentJournalError, ValueError):
+        return {
+            "status": "invalid",
+            "incidents": [],
+            "postmortems": [],
+            "reconciliations": [],
+            "frozen": True,
+            "reason_code": "incident_journal_invalid",
+            "execution_allowed": False,
+        }
+    return {
+        "status": "frozen" if frozen else "available",
+        "incidents": [dict(event["payload"]) for event in events if event["event_type"] == "incident_recorded"],
+        "postmortems": [dict(event["payload"]) for event in events if event["event_type"] == "postmortem_recorded"],
+        "reconciliations": [dict(event["payload"]) for event in events if event["event_type"] == "reconciliation_recorded"],
+        "frozen": frozen,
+        "source_authority": "local_paper_incident_journal",
+        "execution_allowed": False,
+    }
 
 
 def load_paper_timeline(

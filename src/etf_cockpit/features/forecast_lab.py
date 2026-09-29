@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
+from etf_cockpit.core.resource_profiles import ResourcePolicy, estimate_workflow_resources
 from etf_cockpit.core.timing import timing_summary
 from etf_cockpit.models.model_zoo import model_zoo_frame
 from etf_cockpit.portfolio.costs import estimated_cost_bps
@@ -143,6 +144,7 @@ def build_forecast_lab_workspace(
     *,
     as_of_date: date | str | None = None,
     timing_records: Iterable[Mapping[str, object]] | None = None,
+    profile_id: str = "auto",
 ) -> dict[str, object]:
     """Build the Forecast Lab report with canonical costs and measured runtimes."""
 
@@ -158,6 +160,7 @@ def build_forecast_lab_workspace(
         round_trip_cost_bps=forecast_round_trip_cost_bps(config, instrument_ids),
         model_runtime_ms=latest_forecast_runtimes(records),
         configured_horizons=config.models.forecast_horizons_trading_days,
+        profile_id=profile_id,
     )
 
 
@@ -170,6 +173,7 @@ def build_forecast_lab_report(
     round_trip_cost_bps: Mapping[str, float] | None = None,
     model_runtime_ms: Mapping[tuple[str, str], float] | None = None,
     configured_horizons: Iterable[int] | None = None,
+    profile_id: str = "auto",
 ) -> dict[str, object]:
     """Build a read-only report from local forecast and adjusted-price rows.
 
@@ -182,6 +186,12 @@ def build_forecast_lab_report(
     Net forward value is the forecast direction times the matured return less
     ``round_trip_cost_bps`` for that instrument; without a cost it is unavailable.
     """
+
+    policy = ResourcePolicy(requested_profile=profile_id)
+    resource_estimate = estimate_workflow_resources(
+        "analysis", requested_profile=profile_id, snapshot=policy.snapshot
+    )
+    policy.require_allowed(resource_estimate)
 
     empty_models = pd.DataFrame(columns=LAB_MODEL_COLUMNS)
     empty_runs = pd.DataFrame(columns=LAB_RUN_COLUMNS)
@@ -205,6 +215,7 @@ def build_forecast_lab_report(
                 [f"Forecast columns missing: {', '.join(missing_forecasts)}."] if missing_forecasts else []
             )
             + tuple([f"Adjusted-price columns missing: {', '.join(missing_prices)}."] if missing_prices else []),
+            "resource_profile": resource_estimate,
             "execution_allowed": False,
         }
 
@@ -220,6 +231,7 @@ def build_forecast_lab_report(
             "walk_forward_evaluation": empty_evaluation,
             "forecast_outcomes": empty_outcomes,
             "notes": ("Unadjusted price rows were rejected; forecast diagnostics require adjusted_close.",),
+            "resource_profile": resource_estimate,
             "execution_allowed": False,
         }
 
@@ -252,6 +264,7 @@ def build_forecast_lab_report(
             "walk_forward_evaluation": empty_evaluation,
             "forecast_outcomes": empty_outcomes,
             "notes": ("No dated forecast rows are available in the local cache.",),
+            "resource_profile": resource_estimate,
             "execution_allowed": False,
         }
 
@@ -271,6 +284,7 @@ def build_forecast_lab_report(
             "walk_forward_evaluation": empty_evaluation,
             "forecast_outcomes": empty_outcomes,
             "notes": ("No forecast rows are available at the selected as-of date.",),
+            "resource_profile": resource_estimate,
             "execution_allowed": False,
         }
 
@@ -324,6 +338,7 @@ def build_forecast_lab_report(
         "walk_forward_splits": split_rows,
         "walk_forward_evaluation": evaluate_walk_forward(split_rows, matured),
         "notes": tuple(notes),
+        "resource_profile": resource_estimate,
         "execution_allowed": False,
     }
 

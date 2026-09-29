@@ -594,6 +594,7 @@ class DurableJobScheduler:
             is_cancel_requested=lambda: bool(self.get_job(job.job_id) and self.get_job(job.job_id).cancel_requested),
         )
         try:
+            self.resource_policy.require_allowed(dict(job.resources))
             output = handler(context)
             if context.is_cancel_requested():
                 self.cancel(job.workflow_id, job_id=job.job_id)

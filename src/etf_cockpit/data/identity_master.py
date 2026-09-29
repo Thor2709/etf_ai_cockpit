@@ -19,6 +19,11 @@ import sqlite3
 from typing import Any
 
 from etf_cockpit.data.contracts import SourceAuthority
+from etf_cockpit.data.fund_identity import (
+    FundLifecycleEvent,
+    fund_hierarchy,
+    lifecycle_events_from_claims,
+)
 from etf_cockpit.data.instrument_identity import (
     IdentityClaim,
     IdentityConflict,
@@ -61,6 +66,7 @@ _OBJECT_TYPES = frozenset(
         "sub_fund",
         "share_class",
         "fund_share_class",
+        "fund_lifecycle_event",
         "listing",
         "quotation",
         "dealing",
@@ -276,6 +282,40 @@ class IdentityMasterStore:
             raise IdentityMasterSchemaError(f"identity claims rejected: {exc}") from exc
         return tuple(record_id for _, record_id, _ in records)
 
+    def append_fund_lifecycle_events(
+        self, events: Iterable[FundLifecycleEvent]
+    ) -> tuple[str, ...]:
+        """Persist immutable lifecycle events in the canonical identity store."""
+
+        return self.append_claims(
+            claim for event in events for claim in event.to_claims()
+        )
+
+    def fund_lifecycle_events(
+        self,
+        fund_id: str,
+        *,
+        effective_at: str | datetime,
+        decision_time: str | datetime,
+    ) -> tuple[FundLifecycleEvent, ...]:
+        """Replay only lifecycle events valid and known at the requested cut-off."""
+
+        canonical_id = str(fund_id).strip()
+        if not canonical_id:
+            raise ValueError("fund_id must be non-empty")
+        claims = tuple(
+            claim
+            for claim in self._load_claims()
+            if claim.instrument_id == canonical_id
+            and claim.object_type == "fund_lifecycle_event"
+            and _claim_is_eligible(
+                claim,
+                effective_at=effective_at,
+                decision_time=decision_time,
+            )
+        )
+        return lifecycle_events_from_claims(claims)
+
     def append_reviews(self, decisions: Iterable[IdentityReviewDecision]) -> tuple[str, ...]:
         """Persist human review decisions as immutable conflict revisions."""
 
@@ -355,6 +395,7 @@ class IdentityMasterStore:
             {conflict.conflict_id for conflict in resolution.conflicts},
             decision_time,
         )
+        hierarchy = fund_hierarchy(resolution.objects, conflicts=resolution.conflicts)
         return {
             "status": "available",
             "instrument_id": resolution.identity.instrument_id,
@@ -367,6 +408,10 @@ class IdentityMasterStore:
             "identity_effective_at": resolution.effective_at or "latest",
             "identity_decision_time": resolution.decision_time or "latest",
             "identity_objects": [asdict(item) for item in resolution.objects],
+            "fund_identity": {
+                "sub_funds": [asdict(item) for item in hierarchy.sub_funds],
+                "share_classes": [asdict(item) for item in hierarchy.share_classes],
+            },
             "identity_history": [asdict(item) for item in resolution.history],
             "identity_conflicts": [asdict(item) for item in resolution.conflicts],
             "identity_reviews": [asdict(item) | {"decision_id": item.decision_id} for item in known_reviews],
