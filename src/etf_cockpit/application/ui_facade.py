@@ -42,6 +42,14 @@ from etf_cockpit.analysis.fixed_income_risk import (
     FixedIncomeRiskInput,
     calculate_fixed_income_risk,
 )
+from etf_cockpit.analysis.etf_tax_context import (
+    ETFContextAssumptions,  # noqa: F401
+    NetReturnScenario,  # noqa: F401
+    build_currency_context,  # noqa: F401
+    calculate_core_quality_tax_bias,  # noqa: F401
+    calculate_net_return_scenario,  # noqa: F401
+    load_tax_hedge_assumptions,  # noqa: F401
+)
 from etf_cockpit.data.fixed_income_risk_store import read_fixed_income_risk
 from etf_cockpit.application.portfolio_valuation import load_portfolio_valuation_history  # noqa: F401
 
@@ -363,6 +371,51 @@ def load_valuation_evidence(path: Path, *, instrument_id: str, decision_time: ob
         return unavailable("Arithmetic failure in canonical valuation; valuation unavailable.")
     except (OSError, ValueError, TypeError, ImportError, KeyError):
         return unavailable("Canonical statement store is unreadable or malformed; valuation unavailable.")
+
+
+def load_etf_look_through(
+    instrument_id: str,
+    *,
+    decision_time: object,
+    holdings_frame: object = None,
+    fundamentals_frame: object = None,
+    identity_map: Mapping[str, str] | None = None,
+    provider_metrics: Mapping[str, object] | None = None,
+    max_holdings_age_days: int = 90,
+) -> dict[str, object]:
+    """Read local ETF holdings and constituent evidence for the pure analyzer."""
+    from dataclasses import asdict
+
+    from etf_cockpit.analysis.look_through import calculate_look_through
+    from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
+    from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH
+
+    try:
+        holdings = pd.read_parquet(FUND_HOLDINGS_PATH) if holdings_frame is None else holdings_frame
+        if fundamentals_frame is None:
+            try:
+                fundamentals = pd.read_parquet(FUNDAMENTAL_CLEAN_PATH)
+            except (FileNotFoundError, OSError, ValueError, ImportError):
+                fundamentals = pd.DataFrame()
+        else:
+            fundamentals = fundamentals_frame
+        summary = calculate_look_through(
+            holdings,
+            instrument_id=instrument_id,
+            decision_time=decision_time,
+            constituent_fundamentals=fundamentals,
+            identity_map=identity_map,
+            provider_metrics=provider_metrics,
+            max_holdings_age_days=max_holdings_age_days,
+        )
+        return asdict(summary)
+    except (OSError, ValueError, TypeError, KeyError, ImportError):
+        return {
+            "instrument_id": instrument_id,
+            "status": "unavailable",
+            "message": "Local holdings look-through evidence is unavailable or malformed.",
+            "execution_allowed": False,
+        }
 
 
 def load_etf_structure_projection(
@@ -2211,6 +2264,67 @@ def _load_market_series_projection(
         "total_return_convention": derived.convention,
         "execution_allowed": False,
     }
+
+
+def load_etf_economics_projection(
+    snapshot: object,
+    instrument_id: str,
+    *,
+    as_of: object = None,
+    horizon_days: int = 252,
+) -> dict[str, object]:
+    """Load the economics panel through the application-facing read model."""
+
+    from types import SimpleNamespace
+
+    from etf_cockpit.app.selectors.instrument_detail import build_etf_economics_panel
+
+    fund_evidence = getattr(snapshot, "etf_fund_total_return", None)
+    benchmark_evidence = getattr(snapshot, "etf_benchmark_total_return", None)
+    if isinstance(fund_evidence, dict) or isinstance(benchmark_evidence, dict):
+        import pandas as pd
+
+        records = getattr(snapshot, "etf_economics_records", ())
+        decision_time = as_of if as_of is not None else getattr(
+            getattr(snapshot, "data_report", None), "as_of_date", None
+        )
+        cutoff = None
+        if decision_time is not None:
+            cutoff = pd.Timestamp(decision_time)
+            cutoff = cutoff.tz_localize("UTC") if cutoff.tzinfo is None else cutoff.tz_convert("UTC")
+            if len(str(decision_time).strip()) <= 10:
+                cutoff += pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+        eligible_funds = [
+            item
+            for item in records
+            if getattr(item, "scope", None) == "fund"
+            and getattr(item, "instrument_id", None) == instrument_id
+            and (
+                cutoff is None
+                or (pd.Timestamp(item.as_of) <= cutoff and pd.Timestamp(item.known_at) <= cutoff)
+            )
+        ]
+        latest_fund = max(
+            eligible_funds,
+            key=lambda item: (item.as_of, item.known_at or ""),
+            default=None,
+        )
+        if isinstance(fund_evidence, dict):
+            fund_evidence = fund_evidence.get(instrument_id)
+        if isinstance(benchmark_evidence, dict):
+            benchmark_id = latest_fund.benchmark_id if latest_fund is not None else None
+            benchmark_evidence = benchmark_evidence.get(benchmark_id)
+        snapshot = SimpleNamespace(
+            etf_economics_records=records,
+            etf_fund_total_return=fund_evidence,
+            etf_benchmark_total_return=benchmark_evidence,
+            etf_closure_policy=getattr(snapshot, "etf_closure_policy", None),
+            data_report=getattr(snapshot, "data_report", None),
+        )
+
+    return build_etf_economics_panel(
+        snapshot, instrument_id, as_of=as_of, horizon_days=horizon_days
+    )
 
 
 def load_market_series_projection(

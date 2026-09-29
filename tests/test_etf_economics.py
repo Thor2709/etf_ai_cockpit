@@ -664,7 +664,7 @@ def test_build_snapshot_loader_outputs_reach_available_instrument_economics(monk
     benchmark = _total_return_series(
         [100.0 + index * 0.08 for index in range(253)], instrument_id="FTSE-ALL-WORLD", start="2020-01-01"
     )
-    monkeypatch.setattr(services, "load_etf_economics_records", lambda: EtfEconomicsStore(records).records)
+    monkeypatch.setattr(services, "_trusted_etf_economics_records", lambda: tuple(replace(item, artifact_known_at=effective) for item in EtfEconomicsStore(records).records))
     monkeypatch.setattr(
         services,
         "load_total_return_evidence",

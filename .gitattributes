@@ -18,3 +18,5 @@ docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implemen
 
 # Exact historical evidence copies: preserve original blob bytes on every platform.
 plans/archive/2026-09-08-control-plane/** -text
+# Checksummed synthetic economics fixtures must stay byte-exact on every platform.
+tests/fixtures/economics/** -text

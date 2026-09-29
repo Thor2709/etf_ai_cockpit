@@ -1,0 +1,40 @@
+{
+  "fixture_id": "synthetic-etf-economics-v1",
+  "data_status": "SYNTHETIC_NON_OFFICIAL_TEST_ONLY",
+  "instrument_id": "IE00B5BMR087",
+  "benchmark_id": "synthetic:world-index",
+  "disclosure_source_id": "synthetic-disclosure-ie00b5bmr087",
+  "disclosure_source_checksum": "7a582588927e8b6500a855de3875a6ed92165108c20e62bb06b98fa60967e11d",
+  "closure_merger_case": {
+    "file": "closure-merger.csv",
+    "entity_status": "merged",
+    "closure_effective_date": "2026-01-07",
+    "successor_instrument_id": "synthetic:successor-share-class"
+  },
+  "corporate_action_coverage": [
+    {
+      "instrument_id": "IE00B5BMR087",
+      "coverage_through": "2026-01-08",
+      "published_at": "2026-01-08",
+      "retrieved_at": "2026-01-08",
+      "known_at": "2026-01-08",
+      "revision": 1,
+      "source": "synthetic non-official fixture",
+      "source_id": "synthetic-action-coverage-fund",
+      "source_checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "status": "active"
+    },
+    {
+      "instrument_id": "synthetic:world-index",
+      "coverage_through": "2026-01-08",
+      "published_at": "2026-01-08",
+      "retrieved_at": "2026-01-08",
+      "known_at": "2026-01-08",
+      "revision": 1,
+      "source": "synthetic non-official fixture",
+      "source_id": "synthetic-action-coverage-benchmark",
+      "source_checksum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "status": "active"
+    }
+  ]
+}
