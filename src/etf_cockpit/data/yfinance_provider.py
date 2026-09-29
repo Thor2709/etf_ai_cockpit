@@ -115,6 +115,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
             provider=self.name,
             cache_dir=(retrieval_root / "cache") if retrieval_root is not None else None,
             checkpoint_path=(retrieval_root / "checkpoint.json") if retrieval_root is not None else None,
+            max_retries=0,
             adjusted=False,
             adapter_version="yfinance-download-v1",
             limiter=provider_rate_limiter(self.name, max_calls_per_window=60, window_seconds=60.0),
