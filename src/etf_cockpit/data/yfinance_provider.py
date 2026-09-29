@@ -3,14 +3,17 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig, ETFConfig, ProviderSection
+from etf_cockpit.core.paths import RAW_DIR as RAW_DIR
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.data.providers import DataProvider, PriceProvider, ProviderResult
 from etf_cockpit.data.provenance import metadata_from_frame
+from etf_cockpit.data.retrieval_batch import BatchRetriever, provider_rate_limiter
 from etf_cockpit.data.universe_store import support_decision
 
 
@@ -49,10 +52,12 @@ class YFinanceProvider(DataProvider, PriceProvider):
         *,
         default_currency: str = "EUR",
         instrument_metadata: dict[str, dict[str, object]] | None = None,
+        retrieval_root: Path | None = None,
     ):
         self.section = section or ProviderSection()
         self.default_currency = default_currency
         self.instrument_metadata = instrument_metadata or {}
+        self.retrieval_root = Path(retrieval_root) if retrieval_root is not None else None
 
     @classmethod
     def from_config(cls, config: AppConfig) -> "YFinanceProvider":
@@ -93,17 +98,56 @@ class YFinanceProvider(DataProvider, PriceProvider):
         symbol_map = self._symbol_map(symbols)
         if not symbol_map:
             return ProviderResult(self.name, "prices", "unavailable", "No Yahoo Finance symbols were configured.")
+
+        from io import BytesIO
+
+        def encode_frame(frame: pd.DataFrame) -> bytes:
+            return frame.to_json(orient="table", date_format="iso").encode("utf-8")
+
+        def decode_frame(payload: bytes) -> pd.DataFrame:
+            frame = pd.read_json(BytesIO(payload), orient="table")
+            if "date" in frame.columns:
+                frame["date"] = pd.to_datetime(frame["date"]).dt.date
+            return frame
+
+        retrieval_root = self.retrieval_root
+        retriever = BatchRetriever[pd.DataFrame](
+            provider=self.name,
+            cache_dir=(retrieval_root / "cache") if retrieval_root is not None else None,
+            checkpoint_path=(retrieval_root / "checkpoint.json") if retrieval_root is not None else None,
+            max_retries=0,
+            adjusted=False,
+            adapter_version="yfinance-download-v1",
+            limiter=provider_rate_limiter(self.name, max_calls_per_window=60, window_seconds=60.0),
+            encode=encode_frame,
+            decode=decode_frame,
+            is_available=lambda frame: frame is not None and not frame.empty,
+        )
+        retrieval = retriever.retrieve(
+            list(dict.fromkeys(symbol_map.values())),
+            start=start_date,
+            end=end_date,
+            downloader=lambda yahoo_symbol: self._download_one(
+                symbol=yahoo_symbol,
+                etf_id=yahoo_symbol,
+                start_date=start_date,
+                end_date=end_date,
+            ),
+        )
         frames: list[pd.DataFrame] = []
         errors: list[str] = []
         for etf_id, yahoo_symbol in symbol_map.items():
-            try:
-                frame = self._download_one(symbol=yahoo_symbol, etf_id=etf_id, start_date=start_date, end_date=end_date)
-                if frame.empty:
-                    errors.append(f"{etf_id}/{yahoo_symbol}: no rows returned")
-                else:
-                    frames.append(frame)
-            except Exception as exc:
-                errors.append(redact_text(f"{etf_id}/{yahoo_symbol}: {type(exc).__name__}: {exc}"))
+            item = retrieval.symbols[yahoo_symbol]
+            if item.status == "unavailable":
+                errors.append(f"{etf_id}/{yahoo_symbol}: no rows returned")
+            elif item.status == "failed":
+                errors.append(redact_text(f"{etf_id}/{yahoo_symbol}: {item.error or 'retrieval failed'}"))
+            elif item.status == "done" and item.value is not None:
+                frame = item.value.copy()
+                frame["etf_id"] = etf_id
+                frames.append(frame)
+            else:
+                errors.append(f"{etf_id}/{yahoo_symbol}: retrieval did not complete")
         if not frames:
             return ProviderResult(self.name, "prices", "error", "Yahoo Finance returned no usable price rows. " + "; ".join(errors))
         data = pd.concat(frames, ignore_index=True).sort_values(["etf_id", "date"])

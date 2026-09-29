@@ -12,7 +12,12 @@ import pandas as pd
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
 from etf_cockpit.core.config import DataProvidersConfig, ProviderSection
 from etf_cockpit.core.paths import CLEAN_DIR
+from etf_cockpit.data.alphavantage_provider import AlphaVantageProvider
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority, redact_mapping, redact_text
+from etf_cockpit.data.finnhub_provider import FinnhubProvider
+from etf_cockpit.data.fmp_provider import FmpProvider
+from etf_cockpit.data.tiingo_provider import TiingoProvider
+from etf_cockpit.data.twelvedata_provider import TwelveDataProvider
 from etf_cockpit.data.source_policy import SourcePolicyError, load_source_policies
 
 
@@ -27,6 +32,11 @@ REQUIRED_PROVIDER_IDS = frozenset(
         "manual_local",
         "issuer_document",
         "index_provider",
+        "alphavantage",
+        "fmp",
+        "finnhub",
+        "twelvedata",
+        "tiingo",
     }
 )
 DEFAULT_PROBE_PATH = CLEAN_DIR / "provider_probe_results.parquet"
@@ -69,6 +79,11 @@ class ProviderRegistry:
     def __init__(self, config: DataProvidersConfig) -> None:
         self.config = config
         self._probes: dict[str, Probe] = {}
+        self.register_adapter("alphavantage", AlphaVantageProvider(config.section("alphavantage")))
+        self.register_adapter("fmp", FmpProvider(section=config.section("fmp")))
+        self.register_adapter("finnhub", FinnhubProvider(config.section("finnhub")))
+        self.register_adapter("twelvedata", TwelveDataProvider(config.section("twelvedata")))
+        self.register_adapter("tiingo", TiingoProvider(config.section("tiingo")))
 
     def register_probe(self, provider_id: str, probe: Probe) -> None:
         self._probes[str(provider_id).strip()] = probe
@@ -84,7 +99,7 @@ class ProviderRegistry:
 
     def probe_all(self) -> tuple[ProviderCapability, ...]:
         provider_ids = sorted(REQUIRED_PROVIDER_IDS | set(self.config.providers) | set(self._probes))
-        return tuple(self._probe(provider_id) for provider_id in provider_ids)
+        return tuple(capability for provider_id in provider_ids for capability in self._probe(provider_id))
 
     def status_rows(self, capabilities: Iterable[ProviderCapability] | None = None) -> tuple[dict[str, object], ...]:
         rows = capabilities if capabilities is not None else self.probe_all()
@@ -172,7 +187,7 @@ class ProviderRegistry:
         )
         return destination
 
-    def _probe(self, provider_id: str) -> ProviderCapability:
+    def _probe(self, provider_id: str) -> tuple[ProviderCapability, ...]:
         section, dataset_type = self._section_for(provider_id)
         active = (section.active_provider or "none").strip().lower()
         configured = active not in {"", "none"}
@@ -190,30 +205,30 @@ class ProviderRegistry:
             secret_present=bool(section.api_key),
         )
         if not configured:
-            return replace(base, entitlement="disabled", message="Provider disabled by configuration.")
+            return (replace(base, entitlement="disabled", message="Provider disabled by configuration."),)
         if self._requires_api_key(provider_id, active) and not section.api_key.strip():
-            return replace(
+            return (replace(
                 base,
                 configured=False,
                 entitlement="api_key_required",
                 message="Provider unavailable: required API key is not configured.",
-            )
+            ),)
         probe = self._probes.get(provider_id) or self._probes.get(active)
         if probe is None:
-            return replace(base, entitlement="configured", message="No capability probe registered; no network call was made.")
+            return (replace(base, entitlement="configured", message="No capability probe registered; no network call was made."),)
         try:
             result = probe()
             return self._normalise_result(base, result)
         except Exception as exc:
             status = _exception_status(exc)
             fingerprint = hashlib.sha256(f"{type(exc).__name__}:{redact_text(exc)}".encode()).hexdigest()[:16]
-            return replace(
+            return (replace(
                 base,
                 status=status,
                 rate_limit_note="probe failed; retry policy is provider-specific" if status != "ok" else base.rate_limit_note,
                 error_fingerprint=fingerprint,
                 message=f"Capability probe failed: {type(exc).__name__}.",
-            )
+            ),)
 
     def _section_for(self, provider_id: str) -> tuple[ProviderSection, str]:
         direct = self.config.providers.get(provider_id)
@@ -229,30 +244,30 @@ class ProviderRegistry:
         return provider_id == "fred" or active not in _KEYLESS_PROVIDERS
 
     @staticmethod
-    def _normalise_result(base: ProviderCapability, result: object) -> ProviderCapability:
+    def _normalise_result(base: ProviderCapability, result: object) -> tuple[ProviderCapability, ...]:
         if isinstance(result, ProviderCapability):
-            return _merge_capability(base, result)
+            return (_merge_capability(base, result),)
         if isinstance(result, (tuple, list)):
-            if len(result) != 1 or not isinstance(result[0], ProviderCapability):
-                return replace(base, status="malformed", message="Capability probe returned malformed capability data.")
-            return _merge_capability(base, result[0])
+            if not result or not all(isinstance(item, ProviderCapability) for item in result):
+                return (replace(base, status="malformed", message="Capability probe returned malformed capability data."),)
+            return tuple(_merge_capability(base, item) for item in result)
         if isinstance(result, Mapping):
             raw_status = str(result.get("status") or "malformed").strip().lower()
             status = raw_status if raw_status in _VALID_STATUSES else "malformed"
             message = redact_text(result.get("message") or ("Injected capability probe completed." if status == "ok" else "Capability probe unavailable."))
             last_success = _utc_now() if status == "ok" else None
-            return replace(
+            return (replace(
                 base,
                 status=status,
                 entitlement=redact_text(result.get("entitlement") or base.entitlement),
                 rate_limit_note=redact_text(result.get("rate_limit_note") or base.rate_limit_note),
                 last_success_at=last_success,
                 message=message,
-            )
+            ),)
         if isinstance(result, bool):
             status = "ok" if result else "unavailable"
-            return replace(base, status=status, last_success_at=_utc_now() if status == "ok" else None, message="Injected capability probe completed." if result else "Injected capability probe unavailable.")
-        return replace(base, status="malformed", message="Capability probe returned malformed data.")
+            return (replace(base, status=status, last_success_at=_utc_now() if status == "ok" else None, message="Injected capability probe completed." if result else "Injected capability probe unavailable."),)
+        return (replace(base, status="malformed", message="Capability probe returned malformed data."),)
 
 
 def _merge_capability(base: ProviderCapability, result: ProviderCapability) -> ProviderCapability:
