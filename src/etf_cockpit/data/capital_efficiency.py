@@ -15,7 +15,7 @@ import pandas as pd
 from etf_cockpit.data.statement_normalisation import statement_coverage, statement_view
 
 
-CAPITAL_EFFICIENCY_SCHEMA_VERSION = "capital_efficiency.v1"
+CAPITAL_EFFICIENCY_SCHEMA_VERSION = "capital_efficiency.v2"
 _SPECIAL_SECTORS = frozenset(
     {"bank", "banks", "insurance", "insurer", "financial", "financials"}
 )
@@ -38,6 +38,8 @@ _ALIASES = {
     "equity": ("equity", "shareholders_equity", "stockholders_equity"),
     "debt": ("debt", "total_debt"),
     "cash": ("cash", "cash_and_equivalents"),
+    "goodwill": ("goodwill",),
+    "acquired_intangibles": ("acquired_intangibles",),
     "research_and_development": (
         "research_and_development",
         "research_expense",
@@ -56,6 +58,8 @@ def capital_efficiency_analysis(
     tax_rate: float | None = None,
     cost_of_capital: float | None = None,
     intangible_assumptions: Mapping[str, object] | None = None,
+    profitability_output: Mapping[str, object] | None = None,
+    strict_comparability: bool = False,
     as_known_at: str | date | None = None,
 ) -> dict[str, object]:
     """Calculate source-linked reported and optional adjusted evidence."""
@@ -64,9 +68,63 @@ def capital_efficiency_analysis(
     inferred_tax = _reported_tax_rate(frame)
     tax = _rate(tax_rate if tax_rate is not None else inferred_tax)
     capital_cost = _rate(cost_of_capital)
-    periods = _period_records(frame, tax)
     special_sector = sector.casefold() in _SPECIAL_SECTORS
+    periods = [] if special_sector else _period_records(frame, tax)
+    profitability_basis = {
+        "status": "not_provided",
+        "reason": "Audited profitability output was not supplied.",
+    }
+    if profitability_output is not None:
+        profitability_basis = (
+            {"status": "not_applicable", "reason": "Special-sector adapter required."}
+            if special_sector
+            else _consume_audited_profitability(periods, profitability_output, tax)
+        )
     reported = _section(frame, periods, capital_cost, special_sector=special_sector)
+    reported["invested_capital_breakdown"] = _invested_capital_breakdown(
+        frame, periods, special_sector=special_sector
+    )
+    period_comparability = _period_comparability(frame, periods)
+    reported["period_comparability"] = period_comparability
+    comparability_by_period = {
+        (item.get("period_key"), item.get("period_end")): item
+        for item in period_comparability["periods"]
+    }
+    for item in reported["history"]:
+        period = comparability_by_period.get((item.get("period_key"), item.get("period_end")), {})
+        item["comparability"] = {
+            "status": period.get("status", "unavailable"),
+            "reason": period.get("reason", "period_facts_missing"),
+            "currency": period.get("currency"),
+            "accounting_scope": period.get("accounting_scope"),
+            "source_ids": period.get("source_ids", ()),
+        }
+    breakdown = reported["invested_capital_breakdown"]
+    for item in breakdown["history"]:
+        period = comparability_by_period.get((item.get("period_key"), item.get("period_end")), {})
+        item["comparability"] = {
+            "status": period.get("status", "unavailable"),
+            "reason": period.get("reason", "period_facts_missing"),
+            "currency": period.get("currency"),
+            "accounting_scope": period.get("accounting_scope"),
+            "source_ids": period.get("source_ids", ()),
+        }
+        if strict_comparability and period.get("status") != "available":
+            for name in (
+                "reported_invested_capital",
+                "goodwill",
+                "acquired_intangibles",
+                "invested_capital_excluding_goodwill",
+                "invested_capital_excluding_goodwill_and_acquired_intangibles",
+            ):
+                item[name] = None
+    if strict_comparability and not special_sector and period_comparability["status"] != "available":
+        if period_comparability["periods"] and period_comparability["periods"][-1]["status"] != "available":
+            _mark_current_metrics_unavailable(reported, period_comparability["reason"])
+        else:
+            _mark_incremental_metrics_unavailable(reported, period_comparability["reason"])
+    if profitability_basis["status"] == "unavailable":
+        _mark_profitability_metrics_unavailable(reported, str(profitability_basis["reason"]))
     adjusted, sensitivity = _adjusted_evidence(
         frame,
         periods,
@@ -75,6 +133,24 @@ def capital_efficiency_analysis(
         intangible_assumptions,
         special_sector=special_sector,
     )
+    adjusted["profitability_basis"] = profitability_basis
+    adjusted["period_comparability"] = period_comparability
+    if adjusted.get("status") == "available" and profitability_basis["status"] == "unavailable":
+        adjusted.update(
+            {
+                "status": "unavailable",
+                "reason": str(profitability_basis["reason"]),
+            }
+        )
+        sensitivity = []
+    elif adjusted.get("status") == "available" and strict_comparability and period_comparability["status"] != "available":
+        adjusted.update(
+            {
+                "status": "unavailable",
+                "reason": str(period_comparability["reason"]),
+            }
+        )
+        sensitivity = []
     return {
         "schema_version": CAPITAL_EFFICIENCY_SCHEMA_VERSION,
         "instrument_id": instrument_id or "",
@@ -93,7 +169,10 @@ def capital_efficiency_analysis(
             "cost_of_capital_basis": "explicit_assumption"
             if cost_of_capital is not None
             else "unavailable",
+            "profitability_basis": profitability_basis,
+            "period_comparability": period_comparability,
         },
+        "profitability_basis": profitability_basis,
         "sector_relative": _peer_context(peer_frame, tax, reported),
         "business_quality_proxies": _quality_proxies(frame, reported["history"]),
         "proxy_authority": "descriptive_only",
@@ -208,6 +287,262 @@ def _period_records(
             }
         )
     return records
+
+
+def _consume_audited_profitability(
+    periods: list[dict[str, object]],
+    profitability_output: Mapping[str, object],
+    tax_rate: float | None,
+) -> dict[str, object]:
+    metrics = profitability_output.get("metrics")
+    roic = metrics.get("roic") if isinstance(metrics, Mapping) else None
+    if not isinstance(roic, Mapping) or roic.get("status") not in {"available", "negative"}:
+        _clear_period_returns(periods)
+        return {
+            "status": "unavailable",
+            "reason": "Audited profitability ROIC is unavailable or not applicable.",
+        }
+    if not periods or tax_rate is None:
+        _clear_period_returns(periods)
+        return {"status": "unavailable", "reason": "Comparable period or tax-rate evidence is missing."}
+    latest = periods[-1]
+    audited_period = str(roic.get("period") or "")
+    if audited_period not in {str(latest.get("period_end") or ""), str(latest.get("period_key") or "")}:
+        _clear_period_returns(periods)
+        return {"status": "unavailable", "reason": "Audited profitability period does not match capital-efficiency period."}
+    audited_roic = _float(roic.get("value"))
+    operating_income = _float(latest.get("operating_income"))
+    invested_capital = _float(latest.get("invested_capital"))
+    if audited_roic is None or operating_income is None or invested_capital in (None, 0.0):
+        _clear_period_returns(periods)
+        return {"status": "unavailable", "reason": "Audited NOPAT or invested-capital inputs are missing."}
+    audited_nopat = operating_income * (1.0 - tax_rate)
+    calculated_roic = _divide(audited_nopat, invested_capital)
+    if calculated_roic is None or not math.isclose(audited_roic, calculated_roic, rel_tol=1e-9, abs_tol=1e-12):
+        _clear_period_returns(periods)
+        return {"status": "unavailable", "reason": "Audited ROIC does not reconcile to NOPAT and invested capital."}
+    latest["nopat"] = audited_nopat
+    latest["roic"] = audited_roic
+    return {
+        "status": "consumed",
+        "metric": "roic",
+        "period": audited_period,
+        "roic": audited_roic,
+        "nopat": audited_nopat,
+        "tax_rate": tax_rate,
+        "tax_rate_basis": "shared_with_audited_profitability",
+        "source_ids": tuple(roic.get("source_ids") or ()),
+    }
+
+
+def _clear_period_returns(periods: list[dict[str, object]]) -> None:
+    for period in periods:
+        period["nopat"] = None
+        period["roic"] = None
+
+
+def _period_comparability(
+    frame: pd.DataFrame, history: list[dict[str, object]]
+) -> dict[str, object]:
+    periods = []
+    for item in history:
+        rows = frame
+        for column, key in (("period_type", "period_type"), ("period_key", "period_key"), ("period_end", "period_end")):
+            if column in rows and item.get(key) is not None:
+                rows = rows[rows[column].astype(str).eq(str(item[key]))]
+        currencies = {
+            str(value).strip().upper()
+            for value in rows.get("currency", pd.Series(dtype="object")).tolist()
+            if _metadata_text(value)
+        }
+        scopes = set()
+        for record in rows.to_dict("records"):
+            scope = _metadata_text(record.get("consolidation_scope")) or _metadata_text(record.get("accounting_scope"))
+            if scope:
+                scopes.add(scope)
+        reason = ""
+        if rows.empty:
+            reason = "period_facts_missing"
+        elif not currencies:
+            reason = "currency_missing"
+        elif len(currencies) > 1:
+            reason = "currency_mismatch_within_period"
+        elif not scopes:
+            reason = "accounting_scope_missing"
+        elif len(scopes) > 1:
+            reason = "accounting_scope_mismatch_within_period"
+        periods.append(
+            {
+                "period_key": item.get("period_key"),
+                "period_end": item.get("period_end"),
+                "status": "unavailable" if reason else "available",
+                "reason": reason or "comparable_period_facts",
+                "currency": next(iter(currencies)) if len(currencies) == 1 else None,
+                "accounting_scope": next(iter(scopes)) if len(scopes) == 1 else None,
+                "source_ids": item.get("source_ids", ()),
+            }
+        )
+    valid = [item for item in periods if item["status"] == "available"]
+    signatures = {(item["currency"], item["accounting_scope"]) for item in valid}
+    reason = ""
+    if not periods:
+        reason = "period_history_missing"
+    elif any(item["status"] != "available" for item in periods):
+        reason = next(item["reason"] for item in periods if item["status"] != "available")
+    elif len(signatures) > 1:
+        reason = "currency_or_accounting_scope_changes_across_periods"
+    return {
+        "status": "unavailable" if reason else "available",
+        "reason": reason or "comparable_currency_scope_and_periods",
+        "statement_view": frame.attrs.get("statement_view", "latest_restated"),
+        "as_known_at": frame.attrs.get("as_known_at"),
+        "periods": periods,
+        "execution_allowed": False,
+    }
+
+
+def _metadata_text(value: object) -> str:
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        return ""
+    return str(value).strip()
+
+
+def _mark_current_metrics_unavailable(section: dict[str, object], reason: str) -> None:
+    metrics = section.get("metrics")
+    if isinstance(metrics, dict):
+        for metric in metrics.values():
+            if isinstance(metric, dict):
+                metric.update({"value": None, "status": "unavailable", "confidence": "low", "limitation": reason})
+    for period in section.get("history", []):
+        if (period.get("comparability") or {}).get("status") != "available":
+            for name in ("invested_capital", "nopat", "roic", "sales_to_capital", "asset_turns"):
+                period[name] = None
+    breakdown = section.get("invested_capital_breakdown")
+    if isinstance(breakdown, dict):
+        breakdown["status"] = "unavailable"
+        breakdown["limitation"] = reason
+        for metric in breakdown.get("metrics", {}).values():
+            if isinstance(metric, dict):
+                metric.update({"value": None, "status": "unavailable", "confidence": "low", "limitation": reason})
+
+
+def _mark_incremental_metrics_unavailable(section: dict[str, object], reason: str) -> None:
+    metrics = section.get("metrics")
+    if not isinstance(metrics, dict):
+        return
+    for name in ("incremental_roic", "reinvestment_rate"):
+        metric = metrics.get(name)
+        if isinstance(metric, dict):
+            metric.update({"value": None, "status": "unavailable", "confidence": "low", "limitation": reason})
+
+
+def _mark_profitability_metrics_unavailable(
+    section: dict[str, object], reason: str
+) -> None:
+    metrics = section.get("metrics")
+    if not isinstance(metrics, dict):
+        return
+    for name in (
+        "nopat",
+        "roic",
+        "incremental_roic",
+        "reinvestment_rate",
+        "economic_profit_spread",
+    ):
+        metric = metrics.get(name)
+        if isinstance(metric, dict):
+            metric.update(
+                {"value": None, "status": "unavailable", "confidence": "low", "limitation": reason}
+            )
+
+
+def _invested_capital_breakdown(
+    frame: pd.DataFrame,
+    history: list[dict[str, object]],
+    *,
+    special_sector: bool,
+) -> dict[str, object]:
+    latest = history[-1] if history else {}
+    period_frame = frame
+    if not frame.empty and "period_end" in frame and latest.get("period_end"):
+        period_frame = frame[frame["period_end"].astype(str).eq(str(latest["period_end"]))]
+    applicability = "not_applicable" if special_sector else "applicable"
+    limitation = "Special-sector adapter required." if special_sector else ""
+    reported_capital = None if special_sector else _float(latest.get("invested_capital"))
+    goodwill = None if special_sector else _float(latest.get("goodwill"))
+    acquired = None if special_sector else _float(latest.get("acquired_intangibles"))
+    metrics = {
+        "reported_invested_capital": _metric(
+            "reported_invested_capital",
+            reported_capital,
+            _FORMULAS["invested_capital"],
+            period_frame,
+            source_metric="equity",
+            applicability=applicability,
+            limitation=limitation,
+        ),
+        "goodwill": _metric(
+            "goodwill", goodwill, "reported goodwill", period_frame,
+            source_metric="goodwill", applicability=applicability, limitation=limitation,
+        ),
+        "acquired_intangibles": _metric(
+            "acquired_intangibles", acquired, "reported acquired intangibles", period_frame,
+            source_metric="acquired_intangibles", applicability=applicability, limitation=limitation,
+        ),
+        "invested_capital_excluding_goodwill": _metric(
+            "invested_capital_excluding_goodwill",
+            None if reported_capital is None or goodwill is None else reported_capital - goodwill,
+            "reported invested capital - goodwill",
+            period_frame,
+            source_metric="equity",
+            applicability=applicability,
+            limitation=limitation or "Reported goodwill is required for this adjustment.",
+        ),
+        "invested_capital_excluding_goodwill_and_acquired_intangibles": _metric(
+            "invested_capital_excluding_goodwill_and_acquired_intangibles",
+            None
+            if reported_capital is None or goodwill is None or acquired is None
+            else reported_capital - goodwill - acquired,
+            "reported invested capital - goodwill - acquired intangibles",
+            period_frame,
+            source_metric="equity",
+            applicability=applicability,
+            limitation=limitation or "Reported goodwill and acquired intangibles are required for this adjustment.",
+        ),
+    }
+    public_history = []
+    for period in history:
+        capital = _float(period.get("invested_capital"))
+        period_goodwill = _float(period.get("goodwill"))
+        period_acquired = _float(period.get("acquired_intangibles"))
+        public_history.append(
+            {
+                "period_key": period.get("period_key"),
+                "period_end": period.get("period_end"),
+                "reported_invested_capital": capital,
+                "goodwill": period_goodwill,
+                "acquired_intangibles": period_acquired,
+                "invested_capital_excluding_goodwill": None
+                if capital is None or period_goodwill is None
+                else capital - period_goodwill,
+                "invested_capital_excluding_goodwill_and_acquired_intangibles": None
+                if capital is None or period_goodwill is None or period_acquired is None
+                else capital - period_goodwill - period_acquired,
+            }
+        )
+    return {
+        "status": "not_applicable" if special_sector else "available" if reported_capital is not None else "unavailable",
+        "formula": "reported invested capital - goodwill - acquired intangibles",
+        "metrics": metrics,
+        "history": [] if special_sector else public_history,
+        "limitation": limitation,
+        "execution_allowed": False,
+    }
 
 
 def _section(
