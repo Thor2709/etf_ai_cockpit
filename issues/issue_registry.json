@@ -6395,9 +6395,9 @@
       "edges": [
         {
           "dependency_id": "ISSUE-0073",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "partial_interface",
+          "reason_code": "EDGE_EVIDENCE_PARTIAL_INTERFACE",
+          "resolved": true
         },
         {
           "dependency_id": "ISSUE-0082",
@@ -19953,12 +19953,17 @@
       "dependency_conversions": [],
       "dependency_edge_evidence": {
         "ISSUE-0073": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "src/etf_cockpit/data/bitemporal.py#BitemporalStore",
+          "evidence_references": [
+            "PR #305 merged as 328e51fe938d429c7bb70ab348054803f8e993e9 provides the narrow BitemporalStore append-only/as-of/vintage interface consumed by ISSUE-0126",
+            "src/etf_cockpit/data/bitemporal.py#BitemporalStore append-only revisions and as_of/vintage selection contract",
+            "tests/test_bitemporal.py bitemporal revision/as_of/vintage contract cases",
+            "Scope limited to ISSUE-0126 -> ISSUE-0073 consumer interface; does not assert broader ISSUE-0073 completion and leaves ISSUE-0126 -> ISSUE-0082 unresolved"
+          ],
+          "reviewed_date": "2026-09-29",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0082": {
           "contract_reference": "",
@@ -20024,8 +20029,8 @@
       ],
       "title": "Implement point-in-time universes, delistings and survivorship-bias controls",
       "ui_requirement": "Backtest Universe and Coverage panels.",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "0630b496997400f9e0600004cc13ba809826cd7c",
+      "verified_date": "2026-09-29",
       "why": "Survivorship and selection bias can materially overstate long-term strategy performance.",
       "write_conflict_group": "backtest-and-paper"
     },
@@ -28503,7 +28508,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "507fbe9be0dbc2952462c45aefdb77e46989fb5f40a3c2161a232a477bb3078c",
+    "programme_control_state_sha256": "dcb564adffd37e232db13b187eeb18fe8ac4e470ae69f594df8f3a5f70de5d16",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

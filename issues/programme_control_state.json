@@ -4764,7 +4764,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #545 merged the sole ISSUE-0099\u2192ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
+            "PR #545 merged the sole ISSUE-0099→ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies the required adapter registration, point-in-time cohort, robust statistics, lineage and replay boundary while ISSUE-0099 retains financial-sector implementation"
           ],
           "review_reference": "B04 ISSUE-0099 readiness after complete ISSUE-0098 dependency review",
@@ -4857,7 +4857,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #545 merged the sole ISSUE-0099\u2192ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
+            "PR #545 merged the sole ISSUE-0099→ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies the required adapter registration, point-in-time cohort, robust statistics, lineage and replay boundary while ISSUE-0099 retains financial-sector implementation"
           ],
           "from": "planned",
@@ -4916,7 +4916,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #551 merged the sole ISSUE-0100\u2192ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
+            "PR #551 merged the sole ISSUE-0100→ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0100 retains all REIT, utility and infrastructure implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5011,7 +5011,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #551 merged the sole ISSUE-0100\u2192ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
+            "PR #551 merged the sole ISSUE-0100→ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0100 retains all REIT, utility and infrastructure implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5072,7 +5072,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #557 merged the sole ISSUE-0101\u2192ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
+            "PR #557 merged the sole ISSUE-0101→ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0101 retains all energy, materials and industrial implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5167,7 +5167,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #557 merged the sole ISSUE-0101\u2192ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
+            "PR #557 merged the sole ISSUE-0101→ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0101 retains all energy, materials and industrial implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5228,7 +5228,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #638 merged the sole ISSUE-0102\u2192ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
+            "PR #638 merged the sole ISSUE-0102→ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
             "Release run 30737461361 passed classifier, preflight, supply-chain, authoritative Linux and Windows package gates and terminal validation summary; standalone status guard 30737461338 passed",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology implementation scope; convergence run 30738361187 was zero action and execution_allowed remains false"
           ],
@@ -5323,7 +5323,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #638 merged the sole ISSUE-0102\u2192ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
+            "PR #638 merged the sole ISSUE-0102→ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
             "Release run 30737461361 passed classifier, preflight, supply-chain, authoritative Linux and Windows package gates and terminal validation summary; standalone status guard 30737461338 passed",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology implementation scope; convergence run 30738361187 was zero action and execution_allowed remains false"
           ],
@@ -6561,12 +6561,17 @@
       "acceptance_evidence": [],
       "dependency_edge_evidence": {
         "ISSUE-0073": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "src/etf_cockpit/data/bitemporal.py#BitemporalStore",
+          "evidence_references": [
+            "PR #305 merged as 328e51fe938d429c7bb70ab348054803f8e993e9 provides the narrow BitemporalStore append-only/as-of/vintage interface consumed by ISSUE-0126",
+            "src/etf_cockpit/data/bitemporal.py#BitemporalStore append-only revisions and as_of/vintage selection contract",
+            "tests/test_bitemporal.py bitemporal revision/as_of/vintage contract cases",
+            "Scope limited to ISSUE-0126 -> ISSUE-0073 consumer interface; does not assert broader ISSUE-0073 completion and leaves ISSUE-0126 -> ISSUE-0082 unresolved"
+          ],
+          "reviewed_date": "2026-09-29",
+          "reviewer": "Codex root orchestrator",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "partial_interface"
         },
         "ISSUE-0082": {
           "contract_reference": "",
@@ -6584,8 +6589,39 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "planned"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0073",
+            "evidence": {
+              "contract_reference": "src/etf_cockpit/data/bitemporal.py#BitemporalStore",
+              "evidence_references": [
+                "PR #305 merged as 328e51fe938d429c7bb70ab348054803f8e993e9 provides the narrow BitemporalStore append-only/as-of/vintage interface consumed by ISSUE-0126",
+                "src/etf_cockpit/data/bitemporal.py#BitemporalStore append-only revisions and as_of/vintage selection contract",
+                "tests/test_bitemporal.py bitemporal revision/as_of/vintage contract cases",
+                "Scope limited to ISSUE-0126 -> ISSUE-0073 consumer interface; does not assert broader ISSUE-0073 completion and leaves ISSUE-0126 -> ISSUE-0082 unresolved"
+              ],
+              "reviewed_date": "2026-09-29",
+              "reviewer": "Codex root orchestrator",
+              "schema_version": "1.0",
+              "state": "partial_interface"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "PR #305 merged as 328e51fe938d429c7bb70ab348054803f8e993e9 provides the narrow BitemporalStore append-only/as-of/vintage interface consumed by ISSUE-0126",
+            "src/etf_cockpit/data/bitemporal.py#BitemporalStore append-only revisions and as_of/vintage selection contract",
+            "tests/test_bitemporal.py bitemporal revision/as_of/vintage contract cases",
+            "Scope limited to ISSUE-0126 -> ISSUE-0073 consumer interface; does not assert broader ISSUE-0073 completion and leaves ISSUE-0126 -> ISSUE-0082 unresolved"
+          ],
+          "review_reference": "B02 ISSUE-0126 dependency-interface review: PR #305 bitemporal append-only/as-of/vintage contract; ISSUE-0082 remains unresolved",
+          "reviewed_date": "2026-09-29",
+          "reviewer": "Codex root orchestrator",
+          "verified_commit": "0630b496997400f9e0600004cc13ba809826cd7c"
+        }
+      ],
+      "verified_commit": "0630b496997400f9e0600004cc13ba809826cd7c",
+      "verified_date": "2026-09-29"
     },
     "ISSUE-0127": {
       "acceptance_evidence": [],
