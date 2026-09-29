@@ -915,6 +915,12 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             key="instrument-detail.classification",
         ),
         _render_evidence_section("Price history", model.sections.get("price"), subtitle="Adjusted-price history, latest value/date and freshness."),
+        _render_evidence_section(
+            "Candle Evidence",
+            model.sections.get("candle_evidence"),
+            subtitle="Validated adjusted OHLCV templates are low-authority context; score contribution is capped, named patterns do not trigger actions, and ambiguous same-bar exits remain unfilled.",
+            key="instrument-detail.candle-evidence",
+        ),
         _render_evidence_section("ETF Liquidity", model.sections.get("etf_liquidity"), subtitle="Rolling turnover, spread/gap proxies, zero-volume days, quote/NAV evidence and primary-market context remain explicit."),
         _render_etf_order_preview(page, state, selected, model.sections.get("etf_liquidity")),
         _render_evidence_section("ETF Economics", model.sections.get("etf_economics"), subtitle="Historical fees, share-class metrics, matched point-in-time tracking and closure-quality proxy evidence; missing values remain unavailable."),
