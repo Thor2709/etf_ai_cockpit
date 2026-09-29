@@ -533,6 +533,8 @@ those subjects are deliberately not duplicated. Proposed future
 broker designs under `future/` are **TARGET / PLANNED**, not accepted execution
 authority.
 
+[Decision Architecture v1](decision-architecture-v1.md) defines the additive, read-only domain scoring layer and its migration policy.
+
 ## 15. Traceability and glossary
 
 [TRACEABILITY.md](TRACEABILITY.md) maps architecture families to issues, code,

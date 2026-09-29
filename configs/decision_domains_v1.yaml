@@ -1,0 +1,149 @@
+schema_version: 1
+version: decision-domains-v1.0.0
+hash_scheme: sha256-lf-v1
+metrics:
+  - metric_id: gross_margin
+    domain: business_quality
+    subfamily: profitability
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: INDUSTRY
+    metric_shape: higher_is_better
+    requirement_class: CONDITIONAL
+    rank_authority: true
+  - metric_id: operating_margin
+    domain: business_quality
+    subfamily: profitability
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: INDUSTRY
+    metric_shape: higher_is_better
+    requirement_class: CONDITIONAL
+    rank_authority: true
+  - metric_id: net_margin
+    domain: business_quality
+    subfamily: profitability
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: INDUSTRY
+    metric_shape: higher_is_better
+    requirement_class: CONDITIONAL
+    rank_authority: true
+  - metric_id: roic
+    domain: capital_efficiency
+    subfamily: returns
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: INDUSTRY
+    metric_shape: higher_is_better
+    requirement_class: CRITICAL
+    rank_authority: true
+  - metric_id: roa
+    domain: capital_efficiency
+    subfamily: returns
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: INDUSTRY
+    metric_shape: higher_is_better
+    requirement_class: CONDITIONAL
+    rank_authority: true
+  - metric_id: roe
+    domain: capital_efficiency
+    subfamily: returns
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: INDUSTRY
+    metric_shape: higher_is_better
+    requirement_class: CONDITIONAL
+    rank_authority: true
+  - metric_id: cash_conversion
+    domain: business_quality
+    subfamily: cash_quality
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: INDUSTRY
+    metric_shape: higher_is_better
+    requirement_class: OPTIONAL
+    rank_authority: true
+  - metric_id: accrual_ratio
+    domain: business_quality
+    subfamily: cash_quality
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: INDUSTRY
+    metric_shape: lower_is_better
+    requirement_class: OPTIONAL
+    rank_authority: true
+  - metric_id: exceptional_item_dependence
+    domain: business_quality
+    subfamily: earnings_quality
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: INDUSTRY
+    metric_shape: lower_is_better
+    requirement_class: OPTIONAL
+    rank_authority: true
+  - metric_id: margin_stability
+    domain: business_quality
+    subfamily: earnings_quality
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: INDUSTRY
+    metric_shape: lower_is_better
+    requirement_class: OPTIONAL
+    rank_authority: true
+  - metric_id: ev_to_sales
+    domain: valuation
+    subfamily: valuation_ratios
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: INDUSTRY
+    metric_shape: lower_is_better
+    requirement_class: CONDITIONAL
+    rank_authority: true
+  - metric_id: ev_to_ebitda
+    domain: valuation
+    subfamily: valuation_ratios
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: INDUSTRY
+    metric_shape: lower_is_better
+    requirement_class: CONDITIONAL
+    rank_authority: true
+  - metric_id: price_to_earnings
+    domain: valuation
+    subfamily: valuation_ratios
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: INDUSTRY
+    metric_shape: lower_is_better
+    requirement_class: CONDITIONAL
+    rank_authority: true
+  - metric_id: price_to_book
+    domain: valuation
+    subfamily: valuation_ratios
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: INDUSTRY
+    metric_shape: lower_is_better
+    requirement_class: CONDITIONAL
+    rank_authority: true
+  - metric_id: dividend_yield
+    domain: valuation
+    subfamily: valuation_ratios
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: INDUSTRY
+    metric_shape: higher_is_better
+    requirement_class: CONDITIONAL
+    rank_authority: true
+  - metric_id: economic_profit_spread
+    domain: capital_efficiency
+    subfamily: returns
+    weight: 1.0
+    subfamily_weight: 1.0
+    comparison_scope: UNIVERSE
+    metric_shape: gate
+    requirement_class: CRITICAL
+    gate_operator: gt
+    gate_threshold: 0.0
