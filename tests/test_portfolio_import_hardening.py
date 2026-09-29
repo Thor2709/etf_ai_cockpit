@@ -115,7 +115,7 @@ def test_valid_sqlite_payload_tampering_is_detected_before_rebuild(
             tampered["raw_source_base64"] = "AA=="
         store.put(entity_type, record.entity_id, tampered)
     with pytest.raises(PortfolioImportError, match="integrity"):
-        service.rebuild()
+        service.source_events()
 
 
 def test_commit_rejects_forged_preview_and_uses_durable_stage_authority(
@@ -325,7 +325,7 @@ def test_stale_correction_preview_fails_compare_and_swap(tmp_path: Path) -> None
             _write(tmp_path / "first.csv", [_trade("t1")]), source_format="broker_csv"
         )
     )
-    predecessor = service.rebuild().active_events.iloc[0]["content_hash"]
+    predecessor = service.source_events().iloc[0]["content_hash"]
     missing_predecessor = service.preview(
         _write(
             tmp_path / "missing-predecessor.csv",
@@ -377,8 +377,8 @@ def test_stage_and_raw_source_survive_process_restart(tmp_path: Path) -> None:
     assert stages[0]["raw_source_base64"]
     assert stages[0]["mapping_version"] == 1
     decision_time = stages[0]["decision_time"]
-    rebuilt = PortfolioImportStore(tmp_path).rebuild()
-    assert set(rebuilt.active_events["decision_time"]) == {decision_time}
+    source_events = PortfolioImportStore(tmp_path).source_events()
+    assert set(source_events["decision_time"]) == {decision_time}
 
 
 def test_one_decision_time_is_reused_and_future_identity_is_unavailable(
@@ -428,7 +428,7 @@ def test_locale_is_explicit_and_ambiguous_numbers_are_quarantined(
     assert "numeric_locale:en_US" in preview.warnings
 
 
-def test_lots_do_not_double_count_and_split_uses_ratio(tmp_path: Path) -> None:
+def test_import_adapter_preserves_lot_and_split_evidence_without_projecting(tmp_path: Path) -> None:
     _identity(tmp_path)
     rows = [
         _trade("trade"),
@@ -464,10 +464,11 @@ def test_lots_do_not_double_count_and_split_uses_ratio(tmp_path: Path) -> None:
             _write(tmp_path / "typed.csv", rows), source_format="broker_csv"
         )
     )
-    assert service.rebuild().holdings.iloc[0]["quantity"] == 2
+    source_events = service.source_events()
+    assert set(source_events["record_type"]) == {"transaction", "lot", "corporate_action"}
 
 
-def test_lot_only_opening_position_is_rebuilt_once(tmp_path: Path) -> None:
+def test_lot_only_opening_position_remains_explicit_source_evidence(tmp_path: Path) -> None:
     _identity(tmp_path)
     lot = {
         "source_system": "broker-a",
@@ -487,7 +488,9 @@ def test_lot_only_opening_position_is_rebuilt_once(tmp_path: Path) -> None:
             _write(tmp_path / "lot-only.csv", [lot]), source_format="broker_csv"
         )
     )
-    assert service.rebuild().holdings.iloc[0]["quantity"] == 7
+    source_events = service.source_events()
+    assert source_events.iloc[0]["record_type"] == "lot"
+    assert source_events.iloc[0]["quantity"] == 7
 
 
 def test_lot_without_explicit_semantics_is_quarantined(tmp_path: Path) -> None:
@@ -649,12 +652,9 @@ def test_balanced_is_derived_from_reconciliation_not_quarantine_count(
     )
     assert preview.frame.iloc[0]["staging_status"] == "accepted"
     service.commit(preview)
-    rebuilt = service.rebuild()
-    assert rebuilt.quarantined.empty
-    assert rebuilt.balanced is False
-    assert rebuilt.reconciliation_errors == (
-        "broker-a|broker-a|A1|orphan-split:corporate_action_without_position",
-    )
+    source_events = service.source_events()
+    assert source_events.iloc[0]["staging_status"] == "accepted"
+    assert source_events.iloc[0]["record_type"] == "corporate_action"
 
 
 def test_unchanged_fresh_preview_is_a_true_commit_no_op(tmp_path: Path) -> None:

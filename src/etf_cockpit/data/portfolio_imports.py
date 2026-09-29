@@ -450,108 +450,55 @@ class PortfolioImportStore:
             )
         return True
 
+    def source_events(
+        self,
+        *,
+        as_of: str | None = None,
+        known_at: str | None = None,
+        store: TransactionalStore | None = None,
+    ) -> pd.DataFrame:
+        """Return imported source evidence, optionally visible at both cutoffs.
+
+        This store is an ingestion adapter. Canonical balances are available only
+        from the journal replay in ``PortfolioImportApplication.reconcile``.
+        """
+
+        if store is not None and as_of is not None and known_at is not None:
+            events = self._active_events_as_of(store, as_of=as_of, known_at=known_at)
+        else:
+            events = self._active_events(store)
+        if events.empty or (as_of is None and known_at is None):
+            return events
+        selected = events.copy()
+        if as_of is not None:
+            cutoff = pd.Timestamp(as_of)
+            if cutoff.tzinfo is None:
+                cutoff = cutoff.tz_localize("UTC")
+            else:
+                cutoff = cutoff.tz_convert("UTC")
+            occurred = pd.to_datetime(selected["occurred_at"], utc=True, errors="coerce")
+            selected = selected.loc[occurred.le(cutoff)]
+        if known_at is not None:
+            cutoff = pd.Timestamp(known_at)
+            if cutoff.tzinfo is None:
+                cutoff = cutoff.tz_localize("UTC")
+            else:
+                cutoff = cutoff.tz_convert("UTC")
+            decision = pd.to_datetime(selected["decision_time"], utc=True, errors="coerce")
+            selected = selected.loc[decision.le(cutoff)]
+        return selected.copy()
+
     def rebuild(self) -> PortfolioRebuild:
-        events = self._active_events()
-        quarantined = events.loc[
-            events.get("staging_status", pd.Series(dtype=str)).eq("quarantined")
-        ].copy()
-        active = events.loc[
-            events.get("staging_status", pd.Series(dtype=str)).isin(
-                ["accepted", "correction"]
-            )
-        ].copy()
-        holdings: defaultdict[tuple[str, str], Decimal] = defaultdict(Decimal)
-        cash: defaultdict[tuple[str, str], Decimal] = defaultdict(Decimal)
-        reconciliation_errors: list[str] = []
-        for row in active.sort_values(
-            ["occurred_at", "event_key", "content_hash"], kind="stable"
-        ).to_dict(orient="records"):
-            record_type = str(row["record_type"])
-            account_id = str(row.get("account_id") or "default")
-            instrument_id = str(row.get("instrument_id") or "")
-            currency = str(row.get("currency") or "").upper()
-            invariant_error = _row_error(row)
-            if invariant_error:
-                reconciliation_errors.append(f"{row['event_key']}:{invariant_error}")
-                continue
-            if record_type == "transaction" and instrument_id:
-                direction = (
-                    Decimal(1) if str(row.get("side")).lower() == "buy" else Decimal(-1)
-                )
-                holdings[(account_id, instrument_id)] += direction * _decimal(
-                    row.get("quantity")
-                )
-            if (
-                record_type == "lot"
-                and instrument_id
-                and row.get("lot_role") == "opening_position"
-            ):
-                holdings[(account_id, instrument_id)] += _decimal(row.get("quantity"))
-            if record_type == "corporate_action" and instrument_id:
-                key = (account_id, instrument_id)
-                if key not in holdings:
-                    reconciliation_errors.append(
-                        f"{row['event_key']}:corporate_action_without_position"
-                    )
-                    continue
-                ratio = _decimal(row.get("ratio_numerator")) / _decimal(
-                    row.get("ratio_denominator")
-                )
-                holdings[key] *= ratio
-            if record_type in _CASH_RECORDS and currency:
-                amount = (
-                    row.get("settlement_cash")
-                    if record_type == "transaction"
-                    else row.get("cash_amount")
-                )
-                cash[(account_id, currency)] += _decimal(amount, default=Decimal(0))
-            if record_type == "fx":
-                from_currency = str(row.get("from_currency") or "").upper()
-                to_currency = str(row.get("to_currency") or "").upper()
-                if from_currency:
-                    cash[(account_id, from_currency)] += _decimal(
-                        row.get("from_amount"), default=Decimal(0)
-                    )
-                if to_currency:
-                    cash[(account_id, to_currency)] += _decimal(
-                        row.get("to_amount"), default=Decimal(0)
-                    )
-        holdings_frame = pd.DataFrame(
-            [
-                {
-                    "account_id": account,
-                    "instrument_id": instrument,
-                    "quantity": float(quantity),
-                }
-                for (account, instrument), quantity in sorted(holdings.items())
-                if quantity != 0
-            ],
-            columns=["account_id", "instrument_id", "quantity"],
-        )
-        cash_frame = pd.DataFrame(
-            [
-                {
-                    "account_id": account,
-                    "currency": currency,
-                    "cash_balance": float(amount),
-                }
-                for (account, currency), amount in sorted(cash.items())
-                if amount != 0
-            ],
-            columns=["account_id", "currency", "cash_balance"],
-        )
-        return PortfolioRebuild(
-            holdings=holdings_frame,
-            cash=cash_frame,
-            active_events=active,
-            quarantined=quarantined,
-            balanced=not reconciliation_errors,
-            reconciliation_errors=tuple(reconciliation_errors),
+        raise PortfolioImportError(
+            "PortfolioImportStore is an ingestion adapter; use the canonical ledger replay"
         )
 
     def export_canonical(self, destination: Path) -> Path:
-        rebuilt = self.rebuild()
-        frame = rebuilt.active_events.reindex(columns=CANONICAL_COLUMNS).copy()
+        frame = self.source_events().loc[
+            lambda value: value.get("staging_status", pd.Series(dtype=str)).isin(
+                ["accepted", "correction"]
+            )
+        ].reindex(columns=CANONICAL_COLUMNS).copy()
         for column in frame.select_dtypes(include=["object", "string"]).columns:
             frame[column] = frame[column].map(_spreadsheet_safe)
         target = Path(destination)
@@ -813,31 +760,36 @@ class PortfolioImportStore:
         _PREVIEWS[preview_id] = preview
         return preview
 
-    def _active_events(self) -> pd.DataFrame:
+    def _active_events(self, store: TransactionalStore | None = None) -> pd.DataFrame:
+        if store is None:
+            try:
+                with TransactionalStore(self.root) as owned_store:
+                    return self._active_events(owned_store)
+            except (StorageSchemaError, sqlite3.DatabaseError, OSError) as exc:
+                raise PortfolioImportError(f"portfolio storage unavailable: {exc}") from exc
         try:
-            with TransactionalStore(self.root) as store:
-                integrity = store.integrity()
-                if not integrity.ok:
-                    raise PortfolioImportError(
-                        "portfolio storage integrity check failed"
-                    )
-                batches = [
-                    (record.entity_id, dict(record.payload))
-                    for record in store.list(_BATCH_TYPE)
-                ]
-                events = [
-                    (record.entity_id, dict(record.payload))
-                    for record in store.list(_EVENT_TYPE)
-                ]
-                rollbacks = [
-                    (record.entity_id, dict(record.payload))
-                    for record in store.list(_ROLLBACK_TYPE)
-                ]
-                stages = [
-                    (record.entity_id, dict(record.payload))
-                    for record in store.list(_STAGE_TYPE)
-                ]
-                rows = _verified_active_payloads(batches, events, rollbacks, stages)
+            integrity = store.integrity()
+            if not integrity.ok:
+                raise PortfolioImportError(
+                    "portfolio storage integrity check failed"
+                )
+            batches = [
+                (record.entity_id, dict(record.payload))
+                for record in store.list(_BATCH_TYPE)
+            ]
+            events = [
+                (record.entity_id, dict(record.payload))
+                for record in store.list(_EVENT_TYPE)
+            ]
+            rollbacks = [
+                (record.entity_id, dict(record.payload))
+                for record in store.list(_ROLLBACK_TYPE)
+            ]
+            stages = [
+                (record.entity_id, dict(record.payload))
+                for record in store.list(_STAGE_TYPE)
+            ]
+            rows = _verified_active_payloads(batches, events, rollbacks, stages)
         except (StorageSchemaError, sqlite3.DatabaseError, OSError) as exc:
             raise PortfolioImportError(f"portfolio storage unavailable: {exc}") from exc
         if not rows:
@@ -855,6 +807,93 @@ class PortfolioImportStore:
         latest: dict[str, dict[str, Any]] = {}
         quarantined: dict[str, dict[str, Any]] = {}
         for row in rows:
+            status = str(row.get("staging_status"))
+            if status in {"accepted", "correction"}:
+                latest[str(row["event_key"])] = row
+            elif status == "quarantined":
+                quarantined[str(row["event_id"])] = row
+        return pd.DataFrame([*latest.values(), *quarantined.values()])
+
+    def _active_events_as_of(
+        self, store: TransactionalStore, *, as_of: str, known_at: str
+    ) -> pd.DataFrame:
+        """Reconstruct import-source state using commit and rollback knowledge time."""
+
+        try:
+            known_cutoff = pd.Timestamp(known_at)
+            effective_cutoff = pd.Timestamp(as_of)
+            if known_cutoff.tzinfo is None:
+                known_cutoff = known_cutoff.tz_localize("UTC")
+            else:
+                known_cutoff = known_cutoff.tz_convert("UTC")
+            if effective_cutoff.tzinfo is None:
+                effective_cutoff = effective_cutoff.tz_localize("UTC")
+            else:
+                effective_cutoff = effective_cutoff.tz_convert("UTC")
+            # Validate the complete current source journal before filtering it;
+            # malformed future or rolled-back evidence must not disappear by cutoff.
+            self._active_events(store)
+            integrity = store.integrity()
+            if not integrity.ok:
+                raise PortfolioImportError("portfolio storage integrity check failed")
+            all_batches = store.list(_BATCH_TYPE)
+            batches = []
+            for record in all_batches:
+                committed_at = pd.Timestamp(record.payload.get("committed_at"))
+                if pd.isna(committed_at):
+                    raise PortfolioImportError(
+                        f"portfolio integrity failure: invalid batch commit time {record.entity_id}"
+                    )
+                if committed_at.tzinfo is None:
+                    committed_at = committed_at.tz_localize("UTC")
+                else:
+                    committed_at = committed_at.tz_convert("UTC")
+                if committed_at <= known_cutoff:
+                    batches.append(record)
+            batch_ids = {record.entity_id for record in batches}
+            stage_ids = {
+                str(record.payload.get("stage_id") or "")
+                for record in batches
+            }
+            stages = [
+                record
+                for record in store.list(_STAGE_TYPE)
+                if record.entity_id in stage_ids
+            ]
+            events = [
+                record
+                for record in store.list(_EVENT_TYPE)
+                if str(record.payload.get("batch_id") or "") in batch_ids
+                and (
+                    pd.isna(pd.Timestamp(record.payload.get("decision_time")))
+                    or pd.Timestamp(record.payload.get("decision_time")) <= known_cutoff
+                )
+            ]
+            rollbacks = [
+                record
+                for record in store.list(_ROLLBACK_TYPE)
+                if pd.Timestamp(record.created_at) <= known_cutoff
+            ]
+            rows = _verified_active_payloads(
+                ((record.entity_id, dict(record.payload)) for record in batches),
+                ((record.entity_id, dict(record.payload)) for record in events),
+                ((record.entity_id, dict(record.payload)) for record in rollbacks),
+                ((record.entity_id, dict(record.payload)) for record in stages),
+            )
+        except (StorageSchemaError, sqlite3.DatabaseError, OSError, TypeError, ValueError) as exc:
+            if isinstance(exc, PortfolioImportError):
+                raise
+            raise PortfolioImportError(f"portfolio as-of evidence unavailable: {exc}") from exc
+
+        latest: dict[str, dict[str, Any]] = {}
+        quarantined: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            occurred = pd.to_datetime(row.get("occurred_at"), utc=True, errors="coerce")
+            decision = pd.to_datetime(row.get("decision_time"), utc=True, errors="coerce")
+            if not pd.isna(decision) and decision > known_cutoff:
+                continue
+            if not pd.isna(occurred) and occurred > effective_cutoff:
+                continue
             status = str(row.get("staging_status"))
             if status in {"accepted", "correction"}:
                 latest[str(row["event_key"])] = row
@@ -1262,8 +1301,8 @@ def _identity_candidates(
     explicit = str(row.get("instrument_id") or "").strip()
     if explicit:
         try:
-            with IdentityMasterStore(root) as store:
-                store.resolve(
+            with IdentityMasterStore(root) as identity_store:
+                identity_store.resolve(
                     explicit,
                     effective_at=effective_at,
                     decision_time=decision_time,

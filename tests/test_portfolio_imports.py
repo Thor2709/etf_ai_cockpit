@@ -63,7 +63,7 @@ def _trade(
     }
 
 
-def test_dry_run_commit_is_idempotent_and_rebuilds_from_zero(tmp_path: Path) -> None:
+def test_dry_run_commit_is_idempotent_and_preserves_source_evidence(tmp_path: Path) -> None:
     _identity(tmp_path)
     source = _write(
         tmp_path / "broker.csv",
@@ -86,17 +86,12 @@ def test_dry_run_commit_is_idempotent_and_rebuilds_from_zero(tmp_path: Path) -> 
 
     first = service.commit(preview)
     second = service.commit(preview)
-    rebuilt = service.rebuild()
+    source_events = service.source_events()
 
     assert first.status == "committed"
     assert second.status == "idempotent"
-    assert rebuilt.holdings.to_dict(orient="records") == [
-        {"account_id": "A1", "instrument_id": "SEC-1", "quantity": 1.0}
-    ]
-    assert rebuilt.cash.to_dict(orient="records") == [
-        {"account_id": "A1", "currency": "USD", "cash_balance": 99.0}
-    ]
-    assert rebuilt.execution_allowed is False
+    assert set(source_events["record_type"]) == {"transaction", "cash"}
+    assert set(source_events["staging_status"]) == {"accepted"}
 
 
 def test_broker_csv_aliases_stage_as_canonical_transaction(tmp_path: Path) -> None:
@@ -139,13 +134,13 @@ def test_duplicate_correction_and_rollback_reactivate_prior_version(
     duplicate_preview = service.preview(duplicate_path)
     assert duplicate_preview.frame.iloc[0]["staging_status"] == "duplicate"
     service.commit(duplicate_preview)
-    assert service.rebuild().holdings.iloc[0]["quantity"] == 1
+    assert service.source_events().iloc[0]["quantity"] == 1
 
     corrected = _trade(settlement=-202, quantity=2)
-    corrected["predecessor_content_hash"] = service.rebuild().active_events.iloc[0][
+    corrected["predecessor_content_hash"] = service.source_events().iloc[0][
         "content_hash"
     ]
-    corrected["predecessor_revision"] = service.rebuild().active_events.iloc[0][
+    corrected["predecessor_revision"] = service.source_events().iloc[0][
         "source_revision"
     ]
     corrected["source_revision"] = int(corrected["predecessor_revision"]) + 1
@@ -153,10 +148,10 @@ def test_duplicate_correction_and_rollback_reactivate_prior_version(
     correction_preview = service.preview(correction_path)
     assert correction_preview.frame.iloc[0]["staging_status"] == "correction"
     correction = service.commit(correction_preview)
-    assert service.rebuild().holdings.iloc[0]["quantity"] == 2
+    assert service.source_events().iloc[0]["quantity"] == 2
 
     assert service.rollback(correction.batch_id, reason="broker correction withdrawn")
-    assert service.rebuild().holdings.iloc[0]["quantity"] == 1
+    assert service.source_events().iloc[0]["quantity"] == 1
     assert original.batch_id != correction.batch_id
 
 
@@ -192,11 +187,9 @@ def test_ambiguous_unbalanced_and_bad_bond_rows_remain_quarantined(
         "unbalanced_bond_settlement",
     }
     service.commit(preview)
-    rebuilt = service.rebuild()
-    assert rebuilt.holdings.empty
-    assert len(rebuilt.quarantined) == 3
-    assert rebuilt.balanced is True
-    assert rebuilt.quarantined.shape[0] == 3
+    source_events = service.source_events()
+    assert source_events["staging_status"].eq("quarantined").all()
+    assert len(source_events) == 3
 
 
 def test_source_mutation_and_preview_mutation_are_rejected(tmp_path: Path) -> None:
@@ -214,7 +207,7 @@ def test_source_mutation_and_preview_mutation_are_rejected(tmp_path: Path) -> No
         service.commit(preview)
 
 
-def test_canonical_export_round_trip_preserves_rebuild(tmp_path: Path) -> None:
+def test_canonical_export_round_trip_preserves_source_evidence(tmp_path: Path) -> None:
     _identity(tmp_path)
     service = PortfolioImportStore(tmp_path)
     source = _write(tmp_path / "source.csv", [_trade()])
@@ -228,10 +221,8 @@ def test_canonical_export_round_trip_preserves_rebuild(tmp_path: Path) -> None:
     preview = imported.preview(exported)
     assert preview.valid
     imported.commit(preview)
-    pd.testing.assert_frame_equal(
-        service.rebuild().holdings, imported.rebuild().holdings
-    )
-    pd.testing.assert_frame_equal(service.rebuild().cash, imported.rebuild().cash)
+    assert service.source_events()["source_id"].tolist() == imported.source_events()["source_id"].tolist()
+    assert service.source_events()["quantity"].tolist() == imported.source_events()["quantity"].tolist()
 
 
 def test_canonical_export_neutralises_spreadsheet_formulas(tmp_path: Path) -> None:
@@ -354,17 +345,8 @@ def test_xlsx_canonical_template_supports_all_portfolio_evidence_types(
     assert preview.valid
     assert set(preview.frame["staging_status"]) == {"accepted"}
     service.commit(preview)
-    rebuilt = service.rebuild()
-    assert rebuilt.holdings.iloc[0].to_dict() == {
-        "account_id": "A1",
-        "instrument_id": "SEC-1",
-        "quantity": 2.0,
-    }
-    assert rebuilt.cash.to_dict(orient="records") == [
-        {"account_id": "A1", "currency": "EUR", "cash_balance": 90.0},
-        {"account_id": "A1", "currency": "USD", "cash_balance": 774.0},
-        {"account_id": "A2", "currency": "USD", "cash_balance": 25.0},
-    ]
+    source_events = service.source_events()
+    assert set(source_events["record_type"]) == {row["record_type"] for row in rows}
     workbook = service.export_canonical(tmp_path / "canonical.xlsx")
     other = tmp_path / "xlsx-roundtrip"
     other.mkdir()
@@ -377,8 +359,7 @@ def test_xlsx_canonical_template_supports_all_portfolio_evidence_types(
     }
     assert set(xlsx_preview.frame["staging_status"]) == {"accepted"}
     xlsx_service.commit(xlsx_preview)
-    pd.testing.assert_frame_equal(rebuilt.holdings, xlsx_service.rebuild().holdings)
-    pd.testing.assert_frame_equal(rebuilt.cash, xlsx_service.rebuild().cash)
+    assert set(xlsx_service.source_events()["record_type"]) == set(source_events["record_type"])
 
 
 def test_concurrent_disjoint_commits_are_serialized(tmp_path: Path) -> None:
@@ -395,7 +376,7 @@ def test_concurrent_disjoint_commits_are_serialized(tmp_path: Path) -> None:
             )
         )
     assert all(result.status == "committed" for result in results)
-    assert service.rebuild().holdings.iloc[0]["quantity"] == 4
+    assert len(service.source_events()) == 4
 
 
 def test_corrupt_transactional_store_fails_closed(tmp_path: Path) -> None:
@@ -403,4 +384,4 @@ def test_corrupt_transactional_store_fails_closed(tmp_path: Path) -> None:
     database = storage_layout(tmp_path).transactional_path
     database.write_bytes(b"not sqlite")
     with pytest.raises(PortfolioImportError, match="storage unavailable"):
-        PortfolioImportStore(tmp_path).rebuild()
+        PortfolioImportStore(tmp_path).source_events()

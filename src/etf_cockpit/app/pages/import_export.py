@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 import threading
 
@@ -95,6 +96,43 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         selectable=True,
         key="import-export.portfolio-reconciliation-status",
     )
+    portfolio_authority = ft.Dropdown(
+        label="Ledger authority",
+        value="broker",
+        options=[ft.dropdown.Option("broker"), ft.dropdown.Option("paper")],
+        width=150,
+        key="import-export.portfolio-authority",
+    )
+    portfolio_as_of = ft.TextField(
+        label="Effective cutoff (ISO-8601)",
+        value=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        width=270,
+        key="import-export.portfolio-as-of",
+    )
+    portfolio_known_at = ft.TextField(
+        label="Known-time cutoff (ISO-8601)",
+        value=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        width=270,
+        key="import-export.portfolio-known-at",
+    )
+    source_account_id = ft.TextField(
+        label="Source account ID", width=170, key="import-export.portfolio-source-account"
+    )
+    ledger_cash_account = ft.TextField(
+        label="Ledger cash account ID", width=190, key="import-export.portfolio-ledger-cash"
+    )
+    ledger_position_account = ft.TextField(
+        label="Ledger position account ID", width=210, key="import-export.portfolio-ledger-position"
+    )
+    ledger_clearing_account = ft.TextField(
+        label="Ledger clearing account ID", width=210, key="import-export.portfolio-ledger-clearing"
+    )
+    source_adjustment_event = ft.TextField(
+        label="Source event ID to post", width=330, key="import-export.portfolio-adjust-event"
+    )
+    orphan_entry_id = ft.TextField(
+        label="Orphaned source-linked entry ID", width=330, key="import-export.portfolio-orphan-entry"
+    )
     rollback_batch = ft.TextField(
         label="Portfolio batch ID",
         width=300,
@@ -110,6 +148,12 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         value=str(ROOT / "exports" / "portfolio_history.csv"),
         width=460,
         key="import-export.portfolio-export-path",
+    )
+    portfolio_audit_path = ft.TextField(
+        label="Deterministic ledger audit JSON",
+        value=str(ROOT / "exports" / "portfolio_reconciliation.json"),
+        width=460,
+        key="import-export.portfolio-audit-path",
     )
     portfolio_source_system = ft.TextField(label="Source system", value="user_local", width=180, key="import-export.portfolio-source-system")
     portfolio_provider = ft.TextField(label="Provider", value="user_local", width=180, key="import-export.portfolio-provider")
@@ -148,6 +192,9 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             selected_preview = portfolio_imports.preview(source, source_format="broker_csv", numeric_locale=portfolio_locale.value or "en_US", source_system=portfolio_source_system.value or None, provider_id=portfolio_provider.value or None)
             if not selected_preview.frame.empty:
                 staged = selected_preview.frame
+                accounts = tuple(sorted(str(value) for value in staged["account_id"].dropna().unique()))
+                if len(accounts) == 1:
+                    source_account_id.value = accounts[0]
                 counts = staged["staging_status"].value_counts().to_dict()
                 exceptions = staged.loc[
                     staged["staging_status"].isin(["quarantined", "correction"]),
@@ -242,9 +289,30 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
 
     def reconcile_portfolio(_event: ft.ControlEvent) -> None:
         try:
-            result = portfolio_imports.reconcile()
-            reconciliation_status.value = f"Rebuilt from zero: {len(result.holdings)} holding positions, {len(result.cash)} cash balances, {len(result.active_events)} active rows; accounting={'balanced' if result.balanced else 'unbalanced'}; reconciliation_errors={list(result.reconciliation_errors) or 'none'}; quarantined={len(result.quarantined)} ({'complete' if result.quarantined.empty else 'manual review'}); execution_allowed=false."
-            reconciliation_status.color = theme.GREEN if result.balanced and result.quarantined.empty else theme.AMBER
+            result = portfolio_imports.reconcile(
+                authority=portfolio_authority.value or "broker",
+                as_of=portfolio_as_of.value or "",
+                known_at=portfolio_known_at.value or "",
+            )
+            issues = [
+                {
+                    "kind": item.kind,
+                    "event_id": item.event_id,
+                    "ledger_entry_id": item.ledger_entry_id,
+                    "detail": item.detail,
+                }
+                for item in result.discrepancies[:8]
+            ]
+            replay = result.replay
+            reconciliation_status.value = (
+                f"Canonical replay: {len(replay.positions)} positions, {len(replay.cash)} cash balances, "
+                f"{len(replay.trial_balance)} trial-balance rows; balanced={replay.trial_balance_balanced}; "
+                f"source matched={result.matched_source_rows}/{result.active_source_rows}; "
+                f"discrepancies={len(result.discrepancies)} {issues}; missing FX="
+                f"{sum(item.status == 'missing' for item in replay.fx_conversions)}; "
+                f"missing lots={list(replay.missing_lot_identity)}; execution_allowed=false."
+            )
+            reconciliation_status.color = theme.GREEN if replay.trial_balance_balanced and not result.discrepancies and not replay.missing_lot_identity else theme.AMBER
         except Exception as exc:
             reconciliation_status.value = f"Reconciliation unavailable: {type(exc).__name__}: {redact_text(str(exc))}; no data changed."
             reconciliation_status.color = theme.RED
@@ -253,8 +321,8 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     def rollback_portfolio(_event: ft.ControlEvent) -> None:
         try:
             portfolio_imports.rollback(rollback_batch.value or "", reason=rollback_reason.value or "")
-            reconciliation_status.value = f"Rollback recorded for {rollback_batch.value}; rebuild required; execution_allowed=false."
-            reconciliation_status.color = theme.GREEN
+            reconciliation_status.value = f"Source-evidence rollback recorded for {rollback_batch.value}; posted ledger facts remain immutable and require an explicit reversing adjustment; execution_allowed=false."
+            reconciliation_status.color = theme.AMBER
         except Exception as exc:
             reconciliation_status.value = f"Rollback blocked: {type(exc).__name__}: {redact_text(str(exc))}; no data changed."
             reconciliation_status.color = theme.RED
@@ -267,6 +335,71 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             reconciliation_status.color = theme.GREEN
         except Exception as exc:
             reconciliation_status.value = f"Portfolio export unavailable: {type(exc).__name__}: {redact_text(str(exc))}; no placeholder written."
+            reconciliation_status.color = theme.RED
+        page.update()
+
+    def map_portfolio_account(_event: ft.ControlEvent) -> None:
+        try:
+            mapping = portfolio_imports.map_source_account(
+                authority=portfolio_authority.value or "broker",
+                source_account_id=source_account_id.value or "",
+                cash_account_id=ledger_cash_account.value or "",
+                position_account_id=ledger_position_account.value or "",
+                clearing_account_id=ledger_clearing_account.value or "",
+                reviewer=mapping_reviewer.value or "",
+                reason=mapping_reason.value or "",
+            )
+            reconciliation_status.value = f"Account mapping {mapping.mapping_id} recorded for source account {mapping.source_account_id}; reviewer={mapping.reviewer}; immutable decision."
+            reconciliation_status.color = theme.GREEN
+        except Exception as exc:
+            reconciliation_status.value = f"Account mapping rejected: {type(exc).__name__}: {redact_text(str(exc))}; prior mapping preserved."
+            reconciliation_status.color = theme.RED
+        page.update()
+
+    def apply_portfolio_adjustment(_event: ft.ControlEvent) -> None:
+        try:
+            result = portfolio_imports.apply_adjustment(
+                source_adjustment_event.value or "",
+                authority=portfolio_authority.value or "broker",
+                as_of=portfolio_as_of.value or "",
+                known_at=portfolio_known_at.value or "",
+                reviewer=mapping_reviewer.value or "",
+                reason=mapping_reason.value or "",
+            )
+            reconciliation_status.value = f"Adjustment {result.adjustment_id} posted as {result.ledger_entry_id}; reversed={list(result.reversed_entry_ids)}; reviewer={result.reviewer}; execution_allowed=false."
+            reconciliation_status.color = theme.AMBER
+        except Exception as exc:
+            reconciliation_status.value = f"Adjustment blocked: {type(exc).__name__}: {redact_text(str(exc))}; no ledger fact changed."
+            reconciliation_status.color = theme.RED
+        page.update()
+
+    def reverse_orphaned_portfolio_entry(_event: ft.ControlEvent) -> None:
+        try:
+            reversal_id = portfolio_imports.reverse_orphaned_entry(
+                orphan_entry_id.value or "",
+                authority=portfolio_authority.value or "broker",
+                reviewer=mapping_reviewer.value or "",
+                reason=mapping_reason.value or "",
+            )
+            reconciliation_status.value = f"Orphan discrepancy reversed with immutable entry {reversal_id}; execution_allowed=false."
+            reconciliation_status.color = theme.AMBER
+        except Exception as exc:
+            reconciliation_status.value = f"Reversal blocked: {type(exc).__name__}: {redact_text(str(exc))}; no ledger fact changed."
+            reconciliation_status.color = theme.RED
+        page.update()
+
+    def export_portfolio_audit(_event: ft.ControlEvent) -> None:
+        try:
+            destination = portfolio_imports.export_reconciliation_audit(
+                Path(portfolio_audit_path.value or ""),
+                authority=portfolio_authority.value or "broker",
+                as_of=portfolio_as_of.value or "",
+                known_at=portfolio_known_at.value or "",
+            )
+            reconciliation_status.value = f"Deterministic reconciliation audit exported to {destination}; no ledger data changed."
+            reconciliation_status.color = theme.GREEN
+        except Exception as exc:
+            reconciliation_status.value = f"Audit export unavailable: {type(exc).__name__}: {redact_text(str(exc))}; no placeholder written."
             reconciliation_status.color = theme.RED
         page.update()
 
@@ -505,7 +638,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     return ft.Column(
         [
             panel(ft.Column([section_header("Import and Export Centre", "Preview and validate local evidence before any commit. All actions remain non-executable."), ft.Text("execution_allowed=false", color=theme.AMBER), ft.Row([import_type, portfolio_source_system, portfolio_provider, portfolio_locale], wrap=True), ft.Row([path_field, ft.OutlinedButton("Choose and preview", key="import-export.import", icon=ft.Icons.UPLOAD_FILE, on_click=open_import)], wrap=True), ft.Row([commit_button], wrap=True), preview_text, staging_report], spacing=10)),
-            panel(ft.Column([section_header("Portfolio reconciliation", "Review identity candidates, apply checksum-bound mapping decisions, rebuild holdings and cash from zero, roll back a batch, or export the canonical local ledger."), ft.Row([mapping_source, mapping_canonical, mapping_reviewer, mapping_reason, ft.OutlinedButton("Apply identity mapping", key="import-export.portfolio-apply-mapping", on_click=apply_portfolio_mapping)], wrap=True), ft.Row([ft.OutlinedButton("Reconcile portfolio history", key="import-export.portfolio-reconcile", on_click=reconcile_portfolio), rollback_batch, rollback_reason, ft.OutlinedButton("Rollback batch", key="import-export.portfolio-rollback", on_click=rollback_portfolio)], wrap=True), ft.Row([portfolio_export_path, ft.OutlinedButton("Export canonical portfolio", key="import-export.portfolio-export", icon=ft.Icons.DOWNLOAD, on_click=export_portfolio)], wrap=True), reconciliation_status], spacing=10)),
+            panel(ft.Column([section_header("Portfolio reconciliation", "Match imported source evidence against point-in-time canonical ledger replay. Account mappings and corrections require explicit reviewer decisions; imported evidence is never a second balance calculation."), ft.Row([mapping_source, mapping_canonical, mapping_reviewer, mapping_reason, ft.OutlinedButton("Apply identity mapping", key="import-export.portfolio-apply-mapping", on_click=apply_portfolio_mapping)], wrap=True), ft.Row([portfolio_authority, portfolio_as_of, portfolio_known_at], wrap=True), ft.Row([source_account_id, ledger_cash_account, ledger_position_account, ledger_clearing_account, ft.OutlinedButton("Map source account", key="import-export.portfolio-map-account", on_click=map_portfolio_account)], wrap=True), ft.Row([ft.OutlinedButton("Reconcile against ledger", key="import-export.portfolio-reconcile", on_click=reconcile_portfolio), source_adjustment_event, ft.OutlinedButton("Post/reverse source correction", key="import-export.portfolio-adjust", on_click=apply_portfolio_adjustment)], wrap=True), ft.Row([orphan_entry_id, ft.OutlinedButton("Reverse orphaned source entry", key="import-export.portfolio-reverse-orphan", on_click=reverse_orphaned_portfolio_entry)], wrap=True), ft.Row([portfolio_export_path, ft.OutlinedButton("Export source evidence", key="import-export.portfolio-export", icon=ft.Icons.DOWNLOAD, on_click=export_portfolio)], wrap=True), ft.Row([portfolio_audit_path, ft.OutlinedButton("Export reconciliation audit", key="import-export.portfolio-audit-export", icon=ft.Icons.DOWNLOAD, on_click=export_portfolio_audit)], wrap=True), reconciliation_status], spacing=10)),
             panel(ft.Column([section_header("Bulk source cache", "Cache a local bulk snapshot by content hash before parsing. Interrupted, changed or invalid sources remain outside the promoted generation."), ft.Row([bulk_source_id, ft.OutlinedButton("Cache local source", key="import-export.bulk-cache", icon=ft.Icons.FOLDER_COPY, on_click=cache_bulk_source)], wrap=True), ft.Text(cache_summary, color=theme.MUTED, size=11, selectable=True), bulk_status], spacing=10)),
             panel(ft.Column([section_header("Exports", "Scoreboard, audit packet, watchlist, journals, plan/issues snapshot and analytical tables use explicit local paths."), ft.Row([export_path, ft.OutlinedButton("Export scoreboard", key="import-export.export-scoreboard", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("scoreboard")), ft.OutlinedButton("Export audit packet", key="import-export.export-audit-packet", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("audit_packet")), ft.OutlinedButton("Export watchlist", key="import-export.export-watchlist", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("watchlist")), ft.OutlinedButton("Export paper-trade journal", key="import-export.export-paper-trade-journal", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("paper_trade_journal")), ft.OutlinedButton("Export decision journal", key="import-export.export-decision-journal", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("decision_journal")), ft.OutlinedButton("Export plan/issues snapshot", key="import-export.export-plan-issues-snapshot", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("plan_issues_snapshot"))], wrap=True), ft.Text("Export status and destination are shown above; unavailable sources are reported without writing placeholders.", color=theme.MUTED, selectable=True)], spacing=10)),
             panel(ft.Column([section_header("Backup and Restore", "Validate a restore preview before an explicit commit; cancel leaves the destination unchanged."), ft.Row([backup_path, ft.OutlinedButton("Create backup", key="import-export.create-backup", icon=ft.Icons.ARCHIVE, on_click=backup)], wrap=True), ft.Row([restore_path, ft.OutlinedButton("Validate restore preview", key="import-export.restore-validate", icon=ft.Icons.RESTORE, on_click=validate_restore_preview), restore_commit_button, restore_cancel_button], wrap=True), restore_status], spacing=10)),

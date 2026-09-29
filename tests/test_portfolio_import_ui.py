@@ -17,7 +17,10 @@ def test_portfolio_import_controls_are_registered_and_non_executable() -> None:
     source = inspect.getsource(import_export_page)
     assert 'value="portfolio_history"' in source
     assert "execution_allowed=false" in source
-    assert "Rebuilt from zero" in source
+    assert "Canonical replay:" in source
+    assert "explicit reviewer decisions" in source
+    assert "execution_allowed=false" in source
+    assert "Export reconciliation audit" in source
     assert "Identity ambiguities remain quarantined" in source
     assert "identity_candidates" in source
     assert "mapping decision is checksum-bound and immutable" in source
