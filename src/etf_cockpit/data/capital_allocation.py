@@ -380,6 +380,15 @@ def _period_analysis(
         period_end=period_end,
         statement_currency=payout_currency,
     )
+    if _finite(market_inputs.get("market_cap")) is not None:
+        market_provenance = _market_source_provenance(market_inputs, "market_cap")
+    else:
+        market_provenance = _market_source_provenance(market_inputs, "share_price")
+        market_provenance.extend(
+            _row_source_provenance_for_first_metric(
+                point_rows, ("shares_outstanding", "basic_shares")
+            )
+        )
     if payout_currency_reason:
         market_reason = market_reason or payout_currency_reason
     if market_currency and payout_currency and market_currency != payout_currency:
@@ -423,8 +432,21 @@ def _period_analysis(
         status="available" if shareholder_value is not None else "missing",
         limitation=shareholder_reason,
         unit="ratio",
+        source_provenance=_merge_source_provenance(
+            *(item for item in payout_components),
+            extra=market_provenance,
+        ),
     )
     metrics["shareholder_yield"]["market_input_date"] = market_date
+    metrics["shareholder_yield"]["source_timing_status"] = (
+        "available"
+        if _source_timing_complete(metrics["shareholder_yield"].get("source_provenance", ()))
+        else "unavailable"
+    )
+    if metrics["shareholder_yield"]["source_timing_status"] == "unavailable":
+        metrics["shareholder_yield"]["source_timing_limitation"] = (
+            "Exact payout or market-input source timing is incomplete."
+        )
 
     buyback_vs_issuance = None
     offset_reason = _missing_reason(buyback, _metric_value(flow_rows, "stock_based_compensation"), issuance, fallback="buyback_sbc_and_issuance_not_separately_reported")
@@ -452,6 +474,12 @@ def _period_analysis(
         sign_convention="positive means gross buybacks exceed separately reported SBC plus equity issuance; zero means offset",
         source_ids=_sources(buyback, sbc, issuance), status=offset_status,
         limitation=offset_reason, unit="currency",
+        source_provenance=_merge_source_provenance(buyback, sbc, issuance),
+    )
+    metrics["buybacks_vs_sbc_issuance"]["source_timing_status"] = (
+        "available"
+        if _source_timing_complete(metrics["buybacks_vs_sbc_issuance"].get("source_provenance", ()))
+        else "unavailable"
     )
 
     action_evidence = _split_factor(
@@ -638,9 +666,9 @@ def _split_factor(
     decision_time: pd.Timestamp,
 ) -> dict[str, object]:
     if coverage is None:
-        return {"status": "unavailable", "split_factor": None, "source_ids": (), "reason": "corporate_action_coverage_missing"}
+        return {"status": "unavailable", "split_factor": None, "source_ids": (), "source_provenance": (), "reason": "corporate_action_coverage_missing"}
     if coverage.status != "active" or (instrument_id and coverage.instrument_id != str(instrument_id)):
-        return {"status": "unavailable", "split_factor": None, "source_ids": (), "reason": "corporate_action_coverage_identity_or_status_invalid"}
+        return {"status": "unavailable", "split_factor": None, "source_ids": (), "source_provenance": (), "reason": "corporate_action_coverage_identity_or_status_invalid"}
     try:
         coverage_known = _timestamp(coverage.known_at)
         coverage_through = _timestamp(coverage.coverage_through)
@@ -648,7 +676,7 @@ def _split_factor(
     except (TypeError, ValueError):
         coverage_known = coverage_through = end = None
     if coverage_known is None or coverage_through is None or end is None or coverage_known > decision_time or coverage_through < end:
-        return {"status": "unavailable", "split_factor": None, "source_ids": (), "reason": "corporate_action_coverage_not_known_through_period_end"}
+        return {"status": "unavailable", "split_factor": None, "source_ids": (), "source_provenance": (), "reason": "corporate_action_coverage_not_known_through_period_end"}
     start = _timestamp(previous_end) if previous_end else None
     eligible: list[CorporateAction] = []
     for action in actions:
@@ -663,7 +691,7 @@ def _split_factor(
         try:
             action.validate()
         except (TypeError, ValueError):
-            return {"status": "quarantined", "split_factor": None, "source_ids": (action.source_id,), "reason": "invalid_split_action"}
+            return {"status": "quarantined", "split_factor": None, "source_ids": (action.source_id,), "source_provenance": (), "reason": "invalid_split_action"}
         eligible.append(action)
     by_action: dict[tuple[str, str], list[CorporateAction]] = defaultdict(list)
     for action in eligible:
@@ -672,13 +700,31 @@ def _split_factor(
     for candidates in by_action.values():
         reconciliation = reconcile_provider_observations(tuple(candidates))
         if not reconciliation.available or reconciliation.selected_source_id is None:
-            return {"status": "quarantined", "split_factor": None, "source_ids": tuple(sorted(item.source_id for item in candidates)), "reason": "conflicted_split_action_evidence"}
+            return {"status": "quarantined", "split_factor": None, "source_ids": tuple(sorted(item.source_id for item in candidates)), "source_provenance": (), "reason": "conflicted_split_action_evidence"}
         selected.append(next(item for item in candidates if item.source_id == reconciliation.selected_source_id))
     factor = math.prod(float(item.quantity_factor) for item in selected)
+    source_provenance = [
+        {
+            "source_id": item.source_id,
+            "effective_at": item.effective_at,
+            "known_at": item.known_at,
+            "canonical_metric": "corporate_action:split",
+        }
+        for item in selected
+    ]
+    source_provenance.append(
+        {
+            "source_id": coverage.source_id,
+            "effective_at": coverage.coverage_through,
+            "known_at": coverage.known_at,
+            "canonical_metric": "corporate_action:coverage",
+        }
+    )
     return {
         "status": "available",
         "split_factor": factor,
         "source_ids": tuple(sorted(item.source_id for item in selected)),
+        "source_provenance": source_provenance,
         "reason": "",
     }
 
@@ -698,7 +744,7 @@ def _share_change_record(name: str, current: Mapping[str, object], previous: Map
     else:
         value = float(current["value"]) / (float(previous["value"]) * float(factor)) - 1.0
         limitation = ""
-    return _record(
+    result = _record(
         name, value,
         "current_shares / (prior_shares * split_quantity_factor) - 1",
         period, currency="not_applicable", denominator="prior_shares * split_quantity_factor",
@@ -706,7 +752,18 @@ def _share_change_record(name: str, current: Mapping[str, object], previous: Map
         sign_convention="positive means share-count growth after known splits; treasury-share movements are not added again",
         source_ids=source_ids, status="available" if value is not None else "missing",
         limitation=limitation, unit="ratio",
+        source_provenance=_merge_source_provenance(
+            current,
+            previous,
+            extra=action_evidence.get("source_provenance", ()),
+        ),
     )
+    result["source_timing_status"] = (
+        "available"
+        if _source_timing_complete(result.get("source_provenance", ()))
+        else "unavailable"
+    )
+    return result
 
 
 def _treasury_change_record(current: Mapping[str, object], previous: Mapping[str, object], period: str) -> dict[str, object]:
@@ -891,6 +948,7 @@ def _record(
     unit: str = "currency",
     denominator_value: float | None = None,
     applicability: str = "applicable",
+    source_provenance: Sequence[Mapping[str, object]] | None = None,
 ) -> dict[str, object]:
     numeric = _finite(value)
     if value is not None and numeric is None and status == "available":
@@ -901,7 +959,7 @@ def _record(
         limitation = limitation or "required_input_missing"
     elif numeric is not None and numeric < 0 and status == "available":
         status = "negative"
-    return {
+    result: dict[str, object] = {
         "name": name,
         "value": numeric,
         "status": status,
@@ -918,6 +976,9 @@ def _record(
         "unit": unit,
         "execution_allowed": False,
     }
+    if source_provenance is not None:
+        result["source_provenance"] = [dict(item) for item in source_provenance]
+    return result
 
 
 def _check_record(name: str, status: str, formula: str, period: str, value: float | None, currency: str | None, source_ids: Sequence[str], reason: str) -> dict[str, object]:
@@ -948,19 +1009,20 @@ def _metric_value(rows: pd.DataFrame, metric: str) -> dict[str, object]:
     selected = selected.loc[valid].copy()
     selected["__numeric"] = numeric.loc[valid].astype(float)
     source_ids = tuple(sorted({str(item) for item in selected.get("source_id", pd.Series(dtype="object")).dropna() if str(item)}))
+    source_provenance = _row_source_provenance(selected, (metric,))
     if selected.empty:
-        return {"value": None, "currency": None, "source_ids": source_ids, "reason": f"{metric}_invalid_value"}
+        return {"value": None, "currency": None, "source_ids": source_ids, "source_provenance": source_provenance, "reason": f"{metric}_invalid_value"}
     values = set(float(item) for item in selected["__numeric"].tolist())
     dimensions = {str(item).strip() for item in selected.get("dimensions", pd.Series(dtype="object")).fillna("")}
     if len(values) != 1 or len(dimensions) > 1:
-        return {"value": None, "currency": None, "source_ids": source_ids, "reason": f"{metric}_ambiguous_evidence"}
+        return {"value": None, "currency": None, "source_ids": source_ids, "source_provenance": source_provenance, "reason": f"{metric}_ambiguous_evidence"}
     currencies = {_row_currency(row) for row in selected.to_dict("records")}
     if len(currencies) != 1:
-        return {"value": None, "currency": None, "source_ids": source_ids, "reason": f"{metric}_currency_mismatch"}
+        return {"value": None, "currency": None, "source_ids": source_ids, "source_provenance": source_provenance, "reason": f"{metric}_currency_mismatch"}
     currency = next(iter(currencies))
     if currency is None:
-        return {"value": None, "currency": None, "source_ids": source_ids, "reason": f"{metric}_currency_missing"}
-    return {"value": next(iter(values)), "currency": currency, "source_ids": source_ids, "reason": ""}
+        return {"value": None, "currency": None, "source_ids": source_ids, "source_provenance": source_provenance, "reason": f"{metric}_currency_missing"}
+    return {"value": next(iter(values)), "currency": currency, "source_ids": source_ids, "source_provenance": source_provenance, "reason": ""}
 
 
 def _first_metric_value(rows: pd.DataFrame, names: Sequence[str]) -> dict[str, object]:
@@ -986,6 +1048,152 @@ def _common_currency(*items: Mapping[str, object]) -> tuple[str | None, str]:
     if len(set(values)) != 1:
         return None, "currency_mismatch"
     return values[0], ""
+
+
+def _row_source_provenance(
+    rows: pd.DataFrame, metric_names: Sequence[str]
+) -> list[dict[str, object]]:
+    if rows.empty or "canonical_metric" not in rows.columns:
+        return []
+    result: list[dict[str, object]] = []
+    for metric in metric_names:
+        selected = rows.loc[rows["canonical_metric"].astype(str).eq(metric)]
+        for _index, row in selected.iterrows():
+            result.append(
+                {
+                    "source_id": _source_text(row.get("source_id")) or None,
+                    "effective_at": _source_text(row.get("effective_at")) or None,
+                    "known_at": _source_text(row.get("known_at")) or None,
+                    "canonical_metric": metric,
+                    "period_key": _source_text(row.get("period_key")),
+                }
+            )
+    return result
+
+
+def _market_source_provenance(
+    market_inputs: Mapping[str, object], input_name: str
+) -> list[dict[str, object]]:
+    raw_map = market_inputs.get("source_provenance")
+    mapped = raw_map.get(input_name) if isinstance(raw_map, Mapping) else None
+    raw = market_inputs.get(f"{input_name}_source_provenance", mapped)
+    if isinstance(raw, Mapping):
+        items: Sequence[object] = (raw,)
+    elif isinstance(raw, (tuple, list)):
+        items = raw
+    else:
+        items = ()
+    result: list[dict[str, object]] = []
+    for item in items:
+        if isinstance(item, Mapping):
+            result.append(
+                {
+                    "source_id": _source_text(item.get("source_id")) or None,
+                    "effective_at": _source_text(item.get("effective_at")) or None,
+                    "known_at": _source_text(item.get("known_at")) or None,
+                    "canonical_metric": f"market:{input_name}",
+                }
+            )
+    if result:
+        return result
+    if input_name == "share_price":
+        source_values = market_inputs.get(
+            "share_price_source_ids",
+            market_inputs.get("price_source_ids", market_inputs.get("source_ids", market_inputs.get("source_id"))),
+        )
+        effective = next(
+            (
+                market_inputs.get(key)
+                for key in ("share_price_effective_at", "share_price_at", "price_timestamp", "price_at", "price_date")
+                if market_inputs.get(key) is not None
+            ),
+            None,
+        )
+        known = next(
+            (
+                market_inputs.get(key)
+                for key in ("share_price_known_at", "price_known_at", "known_at")
+                if market_inputs.get(key) is not None
+            ),
+            None,
+        )
+    else:
+        source_values = market_inputs.get(
+            f"{input_name}_source_ids",
+            market_inputs.get(f"{input_name}_source_id"),
+        )
+        effective = market_inputs.get(f"{input_name}_effective_at", market_inputs.get(f"{input_name}_at"))
+        known = market_inputs.get(f"{input_name}_known_at")
+    if isinstance(source_values, (tuple, list)):
+        source_ids = [_source_text(item) for item in source_values if _source_text(item)]
+    else:
+        source_ids = [_source_text(source_values)] if _source_text(source_values) else []
+    return [
+        {
+            "source_id": source_id,
+            "effective_at": _source_text(effective) or None,
+            "known_at": _source_text(known) or None,
+            "canonical_metric": f"market:{input_name}",
+        }
+        for source_id in dict.fromkeys(source_ids)
+    ]
+
+
+def _merge_source_provenance(
+    *items: Mapping[str, object], extra: Sequence[Mapping[str, object]] = ()
+) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+    for item in items:
+        raw = item.get("source_provenance", ())
+        if isinstance(raw, (tuple, list)):
+            records.extend(dict(value) for value in raw if isinstance(value, Mapping))
+    records.extend(dict(value) for value in extra if isinstance(value, Mapping))
+    return records
+
+
+def _source_timing_complete(provenance: object) -> bool:
+    if not isinstance(provenance, (tuple, list)) or not provenance:
+        return False
+    for item in provenance:
+        if not isinstance(item, Mapping):
+            return False
+        known_value = _source_text(item.get("known_at"))
+        try:
+            known = pd.Timestamp(known_value)
+        except (TypeError, ValueError, OverflowError):
+            known = pd.NaT
+        if (
+            not _source_text(item.get("source_id"))
+            or not _source_text(item.get("effective_at"))
+            or pd.isna(known)
+            or known.tzinfo is None
+        ):
+            return False
+    return True
+
+
+def _source_text(value: object) -> str:
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        return ""
+    return str(value).strip()
+
+
+def _row_source_provenance_for_first_metric(
+    rows: pd.DataFrame, metric_names: Sequence[str]
+) -> list[dict[str, object]]:
+    found = [
+        name
+        for name in metric_names
+        if not rows.empty
+        and "canonical_metric" in rows
+        and rows["canonical_metric"].astype(str).eq(name).any()
+    ]
+    return _row_source_provenance(rows, found[:1])
 
 
 def _sources(*items: Mapping[str, object], extra: Sequence[str] = ()) -> tuple[str, ...]:

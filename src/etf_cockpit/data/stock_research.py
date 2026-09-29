@@ -8,7 +8,7 @@ inapplicable sectors are not forced through industrial formulas.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date
 import hashlib
@@ -109,6 +109,7 @@ def profitability_analysis(
 
     metrics["gross_margin"] = _ratio_metric(
         "gross_margin", gross_profit, revenue, "gross_profit / revenue", frame, "revenue",
+        source_metrics=("gross_profit", "revenue"),
         applicability="not_applicable" if special else "applicable",
         limitation="Financial-institution profitability is delegated to the financial-sector adapter." if special else "",
     )
@@ -130,13 +131,14 @@ def profitability_analysis(
     )
     metrics["cash_conversion"] = _ratio_metric(
         "cash_conversion", cfo, net_income, "cash_from_operations / net_income", frame,
-        "cash_from_operations", applicability="not_applicable" if special else "applicable",
+        "cash_from_operations", source_metrics=("cash_from_operations", "net_income"), applicability="not_applicable" if special else "applicable",
         limitation="Industrial cash-conversion analysis is not applicable to financial institutions." if special else "",
         zero_denominator_status="not_applicable",
     )
     accrual_numerator = None if net_income is None or cfo is None else net_income - cfo
     metrics["accrual_ratio"] = _ratio_metric(
         "accrual_ratio", accrual_numerator, assets, "(net_income - cash_from_operations) / assets", frame, "assets",
+        source_metrics=("net_income", "cash_from_operations", "assets"),
         applicability="not_applicable" if special else "applicable",
         limitation="Industrial cash-flow accrual analysis is not applicable to financial institutions." if special else "",
     )
@@ -174,6 +176,24 @@ def profitability_analysis(
         frame,
         status_override="not_applicable" if special else "missing" if len(margins) == 0 else "not_applicable" if len(margins) == 1 else None,
         limitation="Financial-institution profitability is delegated to the financial-sector adapter." if special else "At least two comparable periods are required." if len(margins) < 2 else "",
+    )
+    margin_provenance = _history_source_provenance(frame, ("gross_profit", "revenue"))
+    metrics["margin_stability"]["source_provenance"] = margin_provenance
+    metrics["margin_stability"]["source_ids"] = tuple(
+        sorted(
+            {
+                str(item.get("source_id"))
+                for item in margin_provenance
+                if _text(item.get("source_id"))
+            }
+        )
+    )
+    metrics["margin_stability"]["source_timing_status"] = (
+        "available"
+        if _source_provenance_is_complete(
+            margin_provenance, ("gross_profit", "revenue")
+        )
+        else "unavailable"
     )
     if strict_comparability and not special:
         current_specs = {
@@ -291,12 +311,12 @@ def balance_sheet_analysis(
     industrial_reason = "Industrial-company balance-sheet analysis is delegated to the financial-sector adapter."
     debt_name = "contractual_debt" if "contractual_debt" in latest else "debt"
     metrics["net_debt"] = _metric("net_debt", None if special or debt is None or cash is None else debt - cash, f"reported {debt_name} - reported cash; lease and restricted-cash treatment is separate", frame, status_override="not_applicable" if special else None, limitation=industrial_reason if special else "")
-    metrics["debt_to_equity"] = _ratio_metric("debt_to_equity", debt, equity, f"{debt_name} / equity", frame, debt_name, applicability="not_applicable" if special else "applicable", limitation=industrial_reason if special else "")
+    metrics["debt_to_equity"] = _ratio_metric("debt_to_equity", debt, equity, f"{debt_name} / equity", frame, debt_name, source_metrics=(debt_name, "equity"), applicability="not_applicable" if special else "applicable", limitation=industrial_reason if special else "")
     metrics["current_ratio"] = _ratio_metric("current_ratio", current_assets, current_liabilities, "current_assets / current_liabilities", frame, "current_assets", applicability="not_applicable" if special else "applicable", limitation=industrial_reason if special else "")
     quick_assets = _sum_if_present(cash, receivables)
     metrics["quick_ratio"] = _ratio_metric("quick_ratio", quick_assets, current_liabilities, "(cash + receivables) / current_liabilities", frame, "cash", applicability="not_applicable" if special else "applicable", limitation=industrial_reason if special else "")
     metrics["working_capital"] = _metric("working_capital", None if special or current_assets is None or current_liabilities is None else current_assets - current_liabilities, "current_assets - current_liabilities", frame, status_override="not_applicable" if special else None, limitation=industrial_reason if special else "")
-    metrics["interest_coverage"] = _ratio_metric("interest_coverage", operating_income, interest_expense, "operating_income / interest_expense", frame, "operating_income", applicability="not_applicable" if special else "applicable", limitation=industrial_reason if special else "", zero_denominator_status="not_applicable")
+    metrics["interest_coverage"] = _ratio_metric("interest_coverage", operating_income, interest_expense, "operating_income / interest_expense", frame, "operating_income", source_metrics=("operating_income", "interest_expense"), applicability="not_applicable" if special else "applicable", limitation=industrial_reason if special else "", zero_denominator_status="not_applicable")
 
     distress = _distress_metric(latest, frame, special)
     metrics["altman_like_distress"] = distress
@@ -479,6 +499,80 @@ def valuation_analysis(
         if residual_basis["status"] != "available":
             residual = {"status": "unavailable", "confidence": "low", "reason": str(residual_basis["reason"]), "execution_allowed": False}
     sensitivity = _residual_income_sensitivity(values, assumption_values) if bank_route else _valuation_sensitivity(values, assumption_values)
+    price_provenance = _market_input_provenance(
+        market_inputs or {}, "share_price"
+    )
+    mos_models: dict[str, dict[str, object]] = {}
+    dcf_provenance = _valuation_model_provenance(
+        frame,
+        latest,
+        market_inputs or {},
+        assumption_values,
+        model="dcf",
+        use_margin=any(
+            isinstance(item, Mapping) and _float(item.get("margin")) is not None
+            for item in (assumption_values.get("scenarios", {}) or {}).values()
+        )
+        if isinstance(assumption_values.get("scenarios"), Mapping)
+        else False,
+        financial_projection=financial_projection,
+        bank_route=bank_route,
+    )
+    scenarios = intrinsic.get("scenarios")
+    if isinstance(scenarios, dict):
+        for scenario_name, scenario in scenarios.items():
+            if not isinstance(scenario, dict):
+                continue
+            mos = _margin_of_safety(
+                scenario.get("per_share"),
+                market.get("share_price"),
+                dcf_provenance,
+                price_provenance,
+                model=f"dcf:{scenario_name}",
+            )
+            scenario["margin_of_safety"] = mos
+            mos_models[f"dcf:{scenario_name}"] = mos
+    residual_provenance = _valuation_model_provenance(
+        frame,
+        latest,
+        market_inputs or {},
+        assumption_values,
+        model="residual_income",
+        financial_projection=financial_projection,
+        bank_route=bank_route,
+    )
+    residual_mos = _margin_of_safety(
+        residual.get("per_share"),
+        market.get("share_price"),
+        residual_provenance,
+        price_provenance,
+        model="residual_income",
+    )
+    residual["margin_of_safety"] = residual_mos
+    mos_models["residual_income"] = residual_mos
+    reverse_provenance = _valuation_model_provenance(
+        frame,
+        latest,
+        market_inputs or {},
+        assumption_values,
+        model="dcf",
+        financial_projection=financial_projection,
+        bank_route=bank_route,
+    )
+    reverse_provenance.extend(
+        _market_input_provenance(market_inputs or {}, "market_cap")
+    )
+    if not _source_triplets_complete(reverse_provenance):
+        reverse_provenance.append(
+            {
+                "source_id": None,
+                "effective_at": None,
+                "known_at": None,
+                "canonical_metric": "missing_reverse_dcf_input_provenance",
+            }
+        )
+    reverse["source_provenance"] = reverse_provenance
+    reverse_gap = _reverse_dcf_gap(reverse, assumption_values)
     bank_metrics = {
         "sustainable_roe": assumption_values.get("sustainable_roe", projection_metrics.get("sustainable_roe")),
         "sustainable_rote": assumption_values.get("sustainable_rote", projection_metrics.get("rote")),
@@ -494,7 +588,20 @@ def valuation_analysis(
         "peer_relative_metrics": peer_relative_metrics,
         "intrinsic_value": intrinsic,
         "reverse_dcf": reverse,
+        "reverse_dcf_gap": reverse_gap,
         "residual_income": residual,
+        "margin_of_safety": {
+            "status": "available"
+            if any(item.get("status") == "available" for item in mos_models.values())
+            else "unavailable",
+            "models": mos_models,
+            "execution_allowed": False,
+        },
+        "normalized_mid_cycle": {
+            "status": "unavailable",
+            "reason": "No normalized or mid-cycle earnings evidence was supplied.",
+            "execution_allowed": False,
+        },
         "sensitivity": sensitivity,
         "bank_route": {"status": "available" if bank_route and adapter_status == "available" else "unavailable" if bank_route else "not_applicable", "path": "ISSUE-0099_fundamental_release" if bank_route else "industrial_dcf", "financial_projection_status": adapter_status, "metrics": bank_metrics},
         "model_disagreement": _model_disagreement(intrinsic, residual),
@@ -624,6 +731,9 @@ def build_stock_research_report(
     )
     if strict_comparability and not sector_known:
         _mark_capital_efficiency_unavailable(capital_efficiency, "Classification is unavailable or unresolved; industrial capital-efficiency applicability cannot be established.")
+    _bind_capital_efficiency_source_provenance(
+        capital_efficiency, frame, assumption_values
+    )
     return {
         "schema_version": STOCK_RESEARCH_SCHEMA_VERSION,
         "instrument_id": instrument_id or "",
@@ -1305,24 +1415,657 @@ def _derived_history(histories: Mapping[str, list[float]], numerator: str, denom
     return [float(numerator_value / denominator_value) for numerator_value, denominator_value in zip(numerators, denominators) if denominator_value != 0]
 
 
-def _ratio_metric(name: str, numerator: float | None, denominator: float | None, formula: str, frame: pd.DataFrame, source_metric: str, *, applicability: str = "applicable", limitation: str = "", zero_denominator_status: str = "missing") -> dict[str, object]:
+def _ratio_metric(name: str, numerator: float | None, denominator: float | None, formula: str, frame: pd.DataFrame, source_metric: str, *, source_metrics: Sequence[str] | None = None, applicability: str = "applicable", limitation: str = "", zero_denominator_status: str = "missing") -> dict[str, object]:
     if applicability != "applicable":
-        return _metric(name, None, formula, frame, status_override="not_applicable", source_metric=source_metric, applicability=applicability, limitation=limitation)
+        return _metric(name, None, formula, frame, status_override="not_applicable", source_metric=source_metric, source_metrics=source_metrics, applicability=applicability, limitation=limitation)
     if numerator is None or denominator is None:
-        return _metric(name, None, formula, frame, status_override="missing", source_metric=source_metric, limitation=limitation)
+        return _metric(name, None, formula, frame, status_override="missing", source_metric=source_metric, source_metrics=source_metrics, limitation=limitation)
     if denominator == 0:
-        return _metric(name, None, formula, frame, status_override=zero_denominator_status, source_metric=source_metric, limitation="Denominator is zero; the ratio is not defined.")
-    return _metric(name, float(numerator / denominator), formula, frame, source_metric=source_metric, limitation=limitation)
+        return _metric(name, None, formula, frame, status_override=zero_denominator_status, source_metric=source_metric, source_metrics=source_metrics, limitation="Denominator is zero; the ratio is not defined.")
+    return _metric(name, float(numerator / denominator), formula, frame, source_metric=source_metric, source_metrics=source_metrics, limitation=limitation)
 
 
-def _metric(name: str, value: float | None, formula: str, frame: pd.DataFrame, *, status_override: str | None = None, source_metric: str | None = None, applicability: str = "applicable", limitation: str = "") -> dict[str, object]:
-    source_ids = _source_ids(frame, source_metric or name)
+def _metric(name: str, value: float | None, formula: str, frame: pd.DataFrame, *, status_override: str | None = None, source_metric: str | None = None, source_metrics: Sequence[str] | None = None, applicability: str = "applicable", limitation: str = "") -> dict[str, object]:
+    source_ids = (
+        tuple(sorted({
+            source_id
+            for metric_name in source_metrics
+            for source_id in _source_ids(frame, metric_name)
+        }))
+        if source_metrics is not None
+        else _source_ids(frame, source_metric or name)
+    )
     period = _period_label(frame)
     status = status_override or ("missing" if value is None else "negative" if value < 0 else "available")
     result = asdict(MetricEvidence(name, value, status, formula, period, source_ids, "high" if value is not None and source_ids else "low", applicability, limitation))
     result["value_kind"] = "calculated"
     result["evidence"] = _evidence_metadata(frame)
+    if source_metrics is not None:
+        provenance = _latest_source_provenance(frame, source_metrics)
+        result["source_provenance"] = provenance
+        result["source_timing_status"] = (
+            "available"
+            if _source_provenance_is_complete(provenance, source_metrics)
+            else "unavailable"
+        )
+        if result["source_timing_status"] == "unavailable":
+            result["source_timing_limitation"] = "Exact selected source timing is incomplete."
     return result
+
+
+def _latest_source_provenance(
+    frame: pd.DataFrame, source_metrics: Sequence[str]
+) -> list[dict[str, object]]:
+    """Return exact source triplets for the rows backing latest-value metrics."""
+
+    if frame.empty or "canonical_metric" not in frame.columns:
+        return []
+    ordered = frame.copy()
+    for column in ("period_end", "filed", "fiscal_year", "period_key"):
+        if column not in ordered:
+            ordered[column] = ""
+    ordered = ordered.sort_values(
+        ["canonical_metric", "period_end", "filed", "fiscal_year", "period_key"],
+        kind="stable",
+        na_position="last",
+    )
+    result: list[dict[str, object]] = []
+    for metric in dict.fromkeys(source_metrics):
+        rows = ordered.loc[ordered["canonical_metric"].astype(str).eq(metric)]
+        if rows.empty:
+            continue
+        numeric = pd.to_numeric(rows["value"], errors="coerce")
+        selected = rows.loc[numeric.notna()]
+        if selected.empty:
+            continue
+        row = selected.iloc[-1]
+        result.append(
+            {
+                "source_id": _text(row.get("source_id")) or None,
+                "effective_at": _text(row.get("effective_at")) or None,
+                "known_at": _text(row.get("known_at")) or None,
+                "canonical_metric": metric,
+            }
+        )
+    return result
+
+
+def _source_provenance_is_complete(
+    provenance: Sequence[Mapping[str, object]], source_metrics: Sequence[str]
+) -> bool:
+    if not provenance or {str(item.get("canonical_metric")) for item in provenance} != set(source_metrics):
+        return False
+    return all(
+        _text(item.get("source_id"))
+        and _text(item.get("effective_at"))
+        and _timezone_aware(_text(item.get("known_at")))
+        for item in provenance
+    )
+
+
+def _period_source_provenance(
+    frame: pd.DataFrame,
+    source_metrics: Sequence[str],
+    periods: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    if frame.empty or "canonical_metric" not in frame.columns:
+        return []
+    result: list[dict[str, object]] = []
+    for period in periods:
+        rows = frame
+        for column in ("period_type", "period_key", "period_end"):
+            value = period.get(column)
+            if column not in rows or value is None:
+                rows = rows.iloc[0:0]
+                break
+            rows = rows.loc[rows[column].astype(str).eq(str(value))]
+        for metric in source_metrics:
+            candidates = rows.loc[rows["canonical_metric"].astype(str).eq(metric)]
+            if candidates.empty:
+                continue
+            numeric = pd.to_numeric(candidates["value"], errors="coerce")
+            candidates = candidates.loc[numeric.notna()].copy()
+            if candidates.empty:
+                continue
+            if "source_id" in candidates:
+                candidates = candidates.sort_values("source_id", kind="stable")
+            row = candidates.iloc[-1]
+            result.append(
+                {
+                    "source_id": _text(row.get("source_id")) or None,
+                    "effective_at": _text(row.get("effective_at")) or None,
+                    "known_at": _text(row.get("known_at")) or None,
+                    "canonical_metric": metric,
+                    "period_key": _text(period.get("period_key")),
+                }
+            )
+    return result
+
+
+def _history_source_provenance(
+    frame: pd.DataFrame, source_metrics: Sequence[str]
+) -> list[dict[str, object]]:
+    if frame.empty or "canonical_metric" not in frame.columns:
+        return []
+    result: list[dict[str, object]] = []
+    for metric in source_metrics:
+        rows = frame.loc[frame["canonical_metric"].astype(str).eq(metric)]
+        numeric = pd.to_numeric(rows.get("value", pd.Series(dtype="float64")), errors="coerce")
+        for index, row in rows.loc[numeric.notna()].iterrows():
+            result.append(
+                {
+                    "source_id": _text(row.get("source_id")) or None,
+                    "effective_at": _text(row.get("effective_at")) or None,
+                    "known_at": _text(row.get("known_at")) or None,
+                    "canonical_metric": metric,
+                    "period_key": _text(row.get("period_key")),
+                }
+            )
+    return result
+
+
+def _external_source_provenance(
+    assumptions: Mapping[str, object], input_name: str
+) -> list[dict[str, object]]:
+    raw = assumptions.get("source_provenance", assumptions.get("provenance"))
+    item = raw.get(input_name) if isinstance(raw, Mapping) else None
+    if isinstance(item, Mapping):
+        items: Sequence[object] = (item,)
+    elif isinstance(item, (tuple, list)):
+        items = item
+    else:
+        return []
+    result: list[dict[str, object]] = []
+    for candidate in items:
+        if not isinstance(candidate, Mapping):
+            continue
+        result.append(
+            {
+                "source_id": _text(candidate.get("source_id")) or None,
+                "effective_at": _text(candidate.get("effective_at")) or None,
+                "known_at": _text(candidate.get("known_at")) or None,
+                "canonical_metric": f"assumption:{input_name}",
+            }
+        )
+    return result
+
+
+def _market_input_provenance(
+    market_inputs: Mapping[str, object], input_name: str
+) -> list[dict[str, object]]:
+    raw_map = market_inputs.get("source_provenance")
+    mapped = raw_map.get(input_name) if isinstance(raw_map, Mapping) else None
+    raw = market_inputs.get(f"{input_name}_source_provenance", mapped)
+    if isinstance(raw, Mapping):
+        raw_items: Sequence[object] = (raw,)
+    elif isinstance(raw, (tuple, list)):
+        raw_items = raw
+    else:
+        raw_items = ()
+    result: list[dict[str, object]] = []
+    for item in raw_items:
+        if not isinstance(item, Mapping):
+            continue
+        result.append(
+            {
+                "source_id": _text(item.get("source_id")) or None,
+                "effective_at": _text(item.get("effective_at")) or None,
+                "known_at": _text(item.get("known_at")) or None,
+                "canonical_metric": f"market:{input_name}",
+            }
+        )
+    if result:
+        return result
+
+    source_fields = (
+        (f"{input_name}_source_ids", f"{input_name}_source_id")
+        if input_name != "share_price"
+        else ("share_price_source_ids", "share_price_source_id", "price_source_ids", "price_source_id", "source_ids", "source_id")
+    )
+    sources: list[str] = []
+    for key in source_fields:
+        value = market_inputs.get(key)
+        if isinstance(value, (tuple, list)):
+            sources.extend(_text(item) for item in value if _text(item))
+        elif _text(value):
+            sources.append(_text(value))
+        if sources:
+            break
+    if input_name == "share_price":
+        effective = _first_present(
+            market_inputs.get("share_price_effective_at"),
+            market_inputs.get("share_price_at"),
+            market_inputs.get("price_timestamp"),
+            market_inputs.get("price_at"),
+            market_inputs.get("price_date"),
+        )
+        known = _first_present(
+            market_inputs.get("share_price_known_at"),
+            market_inputs.get("price_known_at"),
+            market_inputs.get("known_at"),
+        )
+    else:
+        effective = market_inputs.get(f"{input_name}_effective_at")
+        known = market_inputs.get(f"{input_name}_known_at")
+    return [
+        {
+            "source_id": source_id,
+            "effective_at": _text(effective) or None,
+            "known_at": _text(known) or None,
+            "canonical_metric": f"market:{input_name}",
+        }
+        for source_id in dict.fromkeys(sources)
+    ]
+
+
+def _financial_projection_source_provenance(
+    projection: object | None, metric_names: Sequence[str]
+) -> list[dict[str, object]]:
+    raw_metrics = _projection_member(projection, "metrics", ())
+    if isinstance(raw_metrics, Mapping):
+        items = list(raw_metrics.items())
+    elif isinstance(raw_metrics, (tuple, list)):
+        items = [(_projection_member(item, "metric"), item) for item in raw_metrics]
+    else:
+        return []
+    result: list[dict[str, object]] = []
+    for metric_name in metric_names:
+        matches = [
+            item
+            for name, item in items
+            if str(_projection_member(item, "metric", name)) == metric_name
+        ]
+        if len(matches) != 1:
+            continue
+        item = matches[0]
+        result.append(
+            {
+                "source_id": _text(_projection_member(item, "source_id")) or None,
+                "effective_at": _text(_projection_member(item, "as_of")) or None,
+                "known_at": _text(_projection_member(item, "known_at")) or None,
+                "canonical_metric": f"financial_projection:{metric_name}",
+            }
+        )
+    return result
+
+
+def _valuation_model_provenance(
+    frame: pd.DataFrame,
+    latest: Mapping[str, float],
+    market_inputs: Mapping[str, object],
+    assumptions: Mapping[str, object],
+    *,
+    model: str,
+    use_margin: bool = False,
+    financial_projection: object | None = None,
+    bank_route: bool = False,
+) -> list[dict[str, object]]:
+    source_metrics: list[str] = []
+    market_metric_names: list[str] = []
+    projection_metric_names: list[str] = []
+    required_inputs: list[tuple[str, str]] = []
+    if model == "dcf":
+        if _float(market_inputs.get("free_cash_flow")) is not None:
+            market_metric_names.append("free_cash_flow")
+            required_inputs.append(("market:free_cash_flow", "free_cash_flow"))
+        else:
+            source_metrics.append("free_cash_flow")
+            required_inputs.append(("statement:free_cash_flow", "free_cash_flow"))
+        if use_margin:
+            source_metrics.append("revenue")
+            required_inputs.append(("statement:revenue", "revenue"))
+        if "diluted_shares_outstanding" in latest:
+            source_metrics.append("diluted_shares_outstanding")
+            required_inputs.append(("statement:diluted_shares_outstanding", "diluted_shares_outstanding"))
+        elif _float(market_inputs.get("shares_outstanding")) is not None:
+            market_metric_names.append("shares_outstanding")
+            required_inputs.append(("market:shares_outstanding", "shares_outstanding"))
+        elif "shares_outstanding" in latest:
+            source_metrics.append("shares_outstanding")
+            required_inputs.append(("statement:shares_outstanding", "shares_outstanding"))
+        else:
+            market_metric_names.append("shares_outstanding")
+            required_inputs.append(("market:shares_outstanding", "shares_outstanding"))
+        net_debt = _float(market_inputs.get("net_debt"))
+        if net_debt is not None:
+            market_metric_names.append("net_debt")
+            required_inputs.append(("market:net_debt", "net_debt"))
+        elif "net_debt" in latest:
+            source_metrics.append("net_debt")
+            required_inputs.append(("statement:net_debt", "net_debt"))
+        else:
+            source_metrics.extend(("debt", "cash"))
+            required_inputs.extend(
+                [("statement:debt", "debt"), ("statement:cash", "cash")]
+            )
+    elif model == "residual_income":
+        if bank_route:
+            projection_metric_names.extend(("closing_equity", "net_profit_attributable"))
+            if _float(assumptions.get("sustainable_roe")) is not None:
+                projection_metric_names = ["closing_equity"]
+            elif _float(assumptions.get("sustainable_rote")) is not None:
+                projection_metric_names = ["tangible_book_value"]
+            else:
+                projection_metric_names.append("tangible_book_value")
+            required_inputs.extend(
+                (f"projection:{name}", name) for name in projection_metric_names
+            )
+            if _float(assumptions.get("sustainable_roe")) is not None:
+                required_inputs.append(("assumption:sustainable_roe", "sustainable_roe"))
+            if _float(assumptions.get("sustainable_rote")) is not None:
+                required_inputs.append(("assumption:sustainable_rote", "sustainable_rote"))
+        else:
+            source_metrics.extend(("equity", "net_income"))
+            required_inputs.extend(
+                [("statement:equity", "equity"), ("statement:net_income", "net_income")]
+            )
+            if "diluted_shares_outstanding" in latest:
+                source_metrics.append("diluted_shares_outstanding")
+                required_inputs.append(("statement:diluted_shares_outstanding", "diluted_shares_outstanding"))
+            elif _float(market_inputs.get("shares_outstanding")) is not None:
+                market_metric_names.append("shares_outstanding")
+                required_inputs.append(("market:shares_outstanding", "shares_outstanding"))
+            elif "shares_outstanding" in latest:
+                source_metrics.append("shares_outstanding")
+                required_inputs.append(("statement:shares_outstanding", "shares_outstanding"))
+            else:
+                market_metric_names.append("shares_outstanding")
+                required_inputs.append(("market:shares_outstanding", "shares_outstanding"))
+        if _float(market_inputs.get("equity")) is not None and not bank_route:
+            market_metric_names.append("equity")
+            required_inputs = [item for item in required_inputs if item[1] != "equity"]
+            required_inputs.append(("market:equity", "equity"))
+        if _float(market_inputs.get("net_income")) is not None and not bank_route:
+            market_metric_names.append("net_income")
+            required_inputs = [item for item in required_inputs if item[1] != "net_income"]
+            required_inputs.append(("market:net_income", "net_income"))
+        if bank_route:
+            if "diluted_shares_outstanding" in latest:
+                source_metrics.append("diluted_shares_outstanding")
+                required_inputs.append(("statement:diluted_shares_outstanding", "diluted_shares_outstanding"))
+            elif _float(market_inputs.get("shares_outstanding")) is not None:
+                market_metric_names.append("shares_outstanding")
+                required_inputs.append(("market:shares_outstanding", "shares_outstanding"))
+            elif "shares_outstanding" in latest:
+                source_metrics.append("shares_outstanding")
+                required_inputs.append(("statement:shares_outstanding", "shares_outstanding"))
+            else:
+                market_metric_names.append("shares_outstanding")
+                required_inputs.append(("market:shares_outstanding", "shares_outstanding"))
+    provenance = _latest_source_provenance(frame, source_metrics)
+    for market_metric in dict.fromkeys(market_metric_names):
+        provenance.extend(_market_input_provenance(market_inputs, market_metric))
+    if projection_metric_names:
+        provenance.extend(
+            _financial_projection_source_provenance(
+                financial_projection, tuple(dict.fromkeys(projection_metric_names))
+            )
+        )
+    provenance.extend(_external_source_provenance(assumptions, model))
+    for assumption_name in (
+        ("sustainable_roe", "sustainable_rote")
+        if model == "residual_income"
+        else ()
+    ):
+        if _float(assumptions.get(assumption_name)) is not None:
+            provenance.extend(_external_source_provenance(assumptions, assumption_name))
+    available_pairs = {
+        (f"statement:{item.get('canonical_metric')}", str(item.get("canonical_metric")))
+        for item in provenance
+        if item.get("canonical_metric")
+        and not str(item.get("canonical_metric")).startswith(("market:", "assumption:", "financial_projection:"))
+    }
+    available_pairs.update(
+        (f"market:{str(item.get('canonical_metric')).removeprefix('market:')}", str(item.get("canonical_metric")).removeprefix("market:"))
+        for item in provenance
+        if str(item.get("canonical_metric", "")).startswith("market:")
+    )
+    available_pairs.update(
+        (f"projection:{str(item.get('canonical_metric')).removeprefix('financial_projection:')}", str(item.get("canonical_metric")).removeprefix("financial_projection:"))
+        for item in provenance
+        if str(item.get("canonical_metric", "")).startswith("financial_projection:")
+    )
+    available_pairs.update(
+        (str(item.get("canonical_metric")), str(item.get("canonical_metric")).removeprefix("assumption:"))
+        for item in provenance
+        if str(item.get("canonical_metric", "")).startswith("assumption:")
+    )
+    missing_required = [item for item in required_inputs if item not in available_pairs]
+    if not any(str(item.get("canonical_metric")) == f"assumption:{model}" for item in provenance):
+        missing_required.append((f"assumption:{model}", model))
+    if missing_required:
+        provenance.append(
+            {
+                "source_id": None,
+                "effective_at": None,
+                "known_at": None,
+                "canonical_metric": "missing_model_input_provenance",
+                "missing_inputs": tuple(name for _key, name in missing_required),
+            }
+        )
+    return provenance
+
+
+def _margin_of_safety(
+    value_per_share: object,
+    price: object,
+    value_provenance: Sequence[Mapping[str, object]],
+    price_provenance: Sequence[Mapping[str, object]],
+    *,
+    model: str,
+) -> dict[str, object]:
+    model_value = _float(value_per_share)
+    current_price = _float(price)
+    provenance = [dict(item) for item in (*value_provenance, *price_provenance)]
+    missing = []
+    if model_value is None:
+        missing.append("model_value_unavailable")
+    if current_price is None or current_price <= 0:
+        missing.append("positive_current_price_unavailable")
+    if not _source_triplets_complete(value_provenance):
+        missing.append("model_source_timing_unavailable")
+    if not _source_triplets_complete(price_provenance):
+        missing.append("price_source_timing_unavailable")
+    if missing:
+        return {
+            "model": model,
+            "status": "unavailable",
+            "value": None,
+            "per_share_value": model_value,
+            "price": current_price,
+            "reason_codes": tuple(dict.fromkeys(missing)),
+            "source_provenance": provenance,
+            "execution_allowed": False,
+        }
+    assert model_value is not None and current_price is not None
+    mos = (model_value - current_price) / current_price
+    return {
+        "model": model,
+        "status": "available" if math.isfinite(mos) else "unavailable",
+        "value": mos if math.isfinite(mos) else None,
+        "formula": "(model_per_share_value - current_price) / current_price",
+        "per_share_value": model_value,
+        "price": current_price,
+        "reason_codes": () if math.isfinite(mos) else ("nonfinite_margin_of_safety",),
+        "source_provenance": provenance,
+        "execution_allowed": False,
+    }
+
+
+def _reverse_dcf_gap(
+    reverse_dcf: Mapping[str, object], assumptions: Mapping[str, object]
+) -> dict[str, object]:
+    reference = assumptions.get("reverse_dcf_reference")
+    if not isinstance(reference, Mapping):
+        return {
+            "status": "unavailable",
+            "reason": "Explicit source-backed reverse-DCF comparison evidence is required.",
+            "execution_allowed": False,
+        }
+    reference_growth = _float(reference.get("growth"))
+    raw_provenance = reference.get("source_provenance")
+    reference_provenance = (
+        [dict(item) for item in raw_provenance if isinstance(item, Mapping)]
+        if isinstance(raw_provenance, (tuple, list))
+        else []
+    )
+    model_provenance = reverse_dcf.get("source_provenance")
+    implied = _float(reverse_dcf.get("implied_growth"))
+    if (
+        reverse_dcf.get("status") != "available"
+        or implied is None
+        or reference_growth is None
+        or not _source_triplets_complete(reference_provenance)
+        or not isinstance(model_provenance, (tuple, list))
+        or not _source_triplets_complete(model_provenance)
+    ):
+        return {
+            "status": "unavailable",
+            "reason": "Reverse-DCF model and explicit comparison evidence must both be available and timed.",
+            "execution_allowed": False,
+        }
+    assert implied is not None
+    gap = reference_growth - implied
+    return {
+        "status": "available" if math.isfinite(gap) else "unavailable",
+        "value": gap if math.isfinite(gap) else None,
+        "formula": "explicit_reference_growth - reverse_dcf_implied_growth",
+        "implied_growth": implied,
+        "reference_growth": reference_growth,
+        "source_provenance": [*model_provenance, *reference_provenance],
+        "execution_allowed": False,
+    }
+
+
+def _source_triplets_complete(
+    provenance: Sequence[Mapping[str, object]],
+) -> bool:
+    return bool(provenance) and all(
+        _text(item.get("source_id"))
+        and _text(item.get("effective_at"))
+        and _timezone_aware(_text(item.get("known_at")))
+        for item in provenance
+    )
+
+
+def _bind_capital_efficiency_source_provenance(
+    output: dict[str, object],
+    frame: pd.DataFrame,
+    assumptions: Mapping[str, object],
+) -> None:
+    reported = output.get("reported")
+    if not isinstance(reported, dict):
+        return
+    metrics = reported.get("metrics")
+    history = reported.get("history")
+    if not isinstance(metrics, dict) or not isinstance(history, list):
+        return
+    history_rows = [item for item in history if isinstance(item, Mapping)]
+    calculation_inputs = output.get("calculation_inputs")
+    tax_basis = (
+        calculation_inputs.get("tax_rate_basis")
+        if isinstance(calculation_inputs, Mapping)
+        else "unavailable"
+    )
+    period_metrics = ("operating_income", "equity", "debt", "cash")
+    tax_metrics = ("income_before_tax", "tax_expense")
+    history_specs: dict[str, list[Mapping[str, object]]] = {
+        "economic_profit_spread": history_rows[-1:],
+        "incremental_roic": history_rows[-2:],
+        "reinvestment_rate": history_rows[-2:],
+    }
+    for name, selected_periods in history_specs.items():
+        metric = metrics.get(name)
+        if not isinstance(metric, dict):
+            continue
+        metrics_needed = (*period_metrics, *tax_metrics) if tax_basis == "reported_effective_rate" else period_metrics
+        provenance = _period_source_provenance(frame, metrics_needed, selected_periods)
+        if tax_basis == "explicit_assumption":
+            provenance.extend(_external_source_provenance(assumptions, "tax_rate"))
+        if name == "economic_profit_spread":
+            provenance.extend(_external_source_provenance(assumptions, "cost_of_capital"))
+        metric["source_provenance"] = provenance
+        required_statement_metrics = set(metrics_needed)
+        actual_statement_metrics = {
+            str(item.get("canonical_metric"))
+            for item in provenance
+            if not str(item.get("canonical_metric", "")).startswith("assumption:")
+        }
+        assumptions_complete = (
+            tax_basis != "explicit_assumption"
+            or any(item.get("canonical_metric") == "assumption:tax_rate" for item in provenance)
+        )
+        if name == "economic_profit_spread":
+            assumptions_complete = assumptions_complete and any(
+                item.get("canonical_metric") == "assumption:cost_of_capital"
+                for item in provenance
+            )
+        complete = (
+            bool(selected_periods)
+            and required_statement_metrics <= actual_statement_metrics
+            and assumptions_complete
+            and _source_triplets_complete(provenance)
+        )
+        metric["source_timing_status"] = "available" if complete else "unavailable"
+        if not complete:
+            metric["source_timing_limitation"] = "Exact selected source or assumption timing is incomplete."
+
+    proxy_section = output.get("business_quality_proxies")
+    proxies = proxy_section if isinstance(proxy_section, dict) else {}
+    for name, source_metrics in (
+        ("recurring_revenue_share", ("recurring_revenue", "revenue")),
+        ("customer_concentration", ("customer_concentration",)),
+        ("supplier_concentration", ("supplier_concentration",)),
+    ):
+        metric = proxies.get(name)
+        if not isinstance(metric, dict):
+            continue
+        provenance = _latest_source_provenance(frame, source_metrics)
+        metric["source_provenance"] = provenance
+        metric["source_ids"] = tuple(
+            sorted(
+                {
+                    str(item.get("source_id"))
+                    for item in provenance
+                    if _text(item.get("source_id"))
+                }
+            )
+        )
+        metric["source_timing_status"] = (
+            "available"
+            if _source_provenance_is_complete(provenance, source_metrics)
+            else "unavailable"
+        )
+    persistence = proxies.get("capital_return_persistence")
+    if isinstance(persistence, dict):
+        persistence_metrics = (*period_metrics, *tax_metrics) if tax_basis == "reported_effective_rate" else period_metrics
+        provenance = _period_source_provenance(frame, persistence_metrics, history_rows)
+        if tax_basis == "explicit_assumption":
+            provenance.extend(_external_source_provenance(assumptions, "tax_rate"))
+        persistence["source_provenance"] = provenance
+        actual_metrics = {
+            str(item.get("canonical_metric"))
+            for item in provenance
+            if not str(item.get("canonical_metric", "")).startswith("assumption:")
+        }
+        complete = (
+            len(history_rows) >= 3
+            and set(persistence_metrics) <= actual_metrics
+            and (tax_basis != "explicit_assumption" or any(item.get("canonical_metric") == "assumption:tax_rate" for item in provenance))
+            and _source_triplets_complete(provenance)
+        )
+        persistence["source_timing_status"] = "available" if complete else "unavailable"
+
+
+
+def _timezone_aware(value: str) -> bool:
+    if not value:
+        return False
+    try:
+        parsed = pd.Timestamp(value)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return not pd.isna(parsed) and parsed.tzinfo is not None
 
 
 def _source_ids(frame: pd.DataFrame, metric: str) -> tuple[str, ...]:

@@ -20,6 +20,11 @@ from etf_cockpit.analysis.decision.domains import (
     build_instrument_assessment,
     load_domain_registry,
 )
+from etf_cockpit.analysis.decision.stock import (
+    StockDecisionMap,
+    compose_stock_decision,
+    load_stock_decision_map,
+)
 
 __all__ = [
     "ComparisonScope",
@@ -36,6 +41,9 @@ __all__ = [
     "RequirementClass",
     "ScoredMetric",
     "SubfamilySlot",
+    "StockDecisionMap",
     "build_instrument_assessment",
+    "compose_stock_decision",
     "load_domain_registry",
+    "load_stock_decision_map",
 ]
