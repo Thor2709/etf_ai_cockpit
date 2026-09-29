@@ -9,14 +9,14 @@ import json
 from pathlib import Path
 import sqlite3
 import time
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
 
 
-STORAGE_SCHEMA_VERSION = 6
+STORAGE_SCHEMA_VERSION = 7
 
 
 class StorageSchemaError(RuntimeError):
@@ -175,6 +175,7 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
         (4, "durable_workflows_v1", _migration_v4),
         (5, "double_entry_ledger_v1", _migration_v5),
         (6, "ledger_authority_and_integrity_v2", _migration_v6),
+        (7, "ledger_positions_and_settlement_v1", _migration_v7),
     )
     connection.execute(
         """
@@ -783,6 +784,253 @@ def _migration_v6(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migration_v7(connection: sqlite3.Connection) -> None:
+    """Add explicit cash/position dimensions without rewriting posted facts."""
+
+    connection.execute("PRAGMA defer_foreign_keys = ON")
+    for trigger in (
+        "ledger_entries_posting_only",
+        "ledger_entries_post_transition",
+        "ledger_entries_validate_posted",
+        "ledger_entries_no_delete",
+        "ledger_postings_insert_while_posting",
+        "ledger_postings_validate_insert",
+        "ledger_postings_no_update",
+        "ledger_postings_no_delete",
+    ):
+        connection.execute(f"DROP TRIGGER {trigger}")
+    connection.execute("DROP INDEX ledger_entries_effective")
+    connection.execute("DROP INDEX ledger_postings_account")
+    connection.execute("ALTER TABLE ledger_postings RENAME TO ledger_postings_v6")
+    connection.execute("ALTER TABLE ledger_entries RENAME TO ledger_entries_v6")
+    connection.execute("ALTER TABLE ledger_accounts RENAME TO ledger_accounts_v6")
+
+    connection.execute(
+        """
+        CREATE TABLE ledger_accounts (
+            account_id TEXT NOT NULL,
+            parent_account_id TEXT,
+            name TEXT NOT NULL CHECK(length(trim(name)) > 0),
+            account_type TEXT NOT NULL CHECK(account_type IN ('asset', 'liability', 'equity', 'income', 'expense')),
+            account_role TEXT NOT NULL DEFAULT 'general' CHECK(account_role IN ('general', 'cash', 'position')),
+            authority TEXT NOT NULL CHECK(authority IN ('paper', 'broker')),
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(account_id, authority),
+            FOREIGN KEY(parent_account_id, authority)
+                REFERENCES ledger_accounts(account_id, authority),
+            CHECK(parent_account_id IS NULL OR parent_account_id <> account_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE ledger_entries (
+            entry_id TEXT NOT NULL,
+            authority TEXT NOT NULL CHECK(authority IN ('paper', 'broker')),
+            effective_at TEXT NOT NULL CHECK(length(trim(effective_at)) > 0),
+            settlement_at TEXT CHECK(settlement_at IS NULL OR length(trim(settlement_at)) > 0),
+            recorded_at TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            reversal_of_entry_id TEXT,
+            status TEXT NOT NULL CHECK(status IN ('posting', 'posted')),
+            PRIMARY KEY(entry_id, authority),
+            UNIQUE(reversal_of_entry_id, authority),
+            FOREIGN KEY(reversal_of_entry_id, authority)
+                REFERENCES ledger_entries(entry_id, authority),
+            CHECK(reversal_of_entry_id IS NULL OR reversal_of_entry_id <> entry_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE ledger_postings (
+            entry_id TEXT NOT NULL,
+            line_number INTEGER NOT NULL CHECK(line_number > 0),
+            account_id TEXT NOT NULL,
+            authority TEXT NOT NULL CHECK(authority IN ('paper', 'broker')),
+            currency TEXT,
+            debit_amount TEXT NOT NULL CHECK(ledger_decimal_valid(debit_amount) = 1),
+            credit_amount TEXT NOT NULL CHECK(ledger_decimal_valid(credit_amount) = 1),
+            instrument_id TEXT,
+            quantity_delta TEXT,
+            lot_id TEXT,
+            PRIMARY KEY(entry_id, authority, line_number),
+            FOREIGN KEY(entry_id, authority)
+                REFERENCES ledger_entries(entry_id, authority),
+            FOREIGN KEY(account_id, authority)
+                REFERENCES ledger_accounts(account_id, authority),
+            CHECK(
+                (currency IS NOT NULL AND currency GLOB '[A-Z][A-Z][A-Z]' AND
+                 ledger_posting_amounts_valid(debit_amount, credit_amount) = 1)
+                OR
+                (currency IS NULL AND debit_amount = '0' AND credit_amount = '0' AND
+                 instrument_id IS NOT NULL AND quantity_delta IS NOT NULL AND
+                 ledger_quantity_nonzero_valid(quantity_delta) = 1)
+            ),
+            CHECK(
+                (instrument_id IS NULL AND quantity_delta IS NULL AND lot_id IS NULL)
+                OR
+                (instrument_id IS NOT NULL AND length(trim(instrument_id)) > 0 AND
+                 quantity_delta IS NOT NULL AND ledger_signed_decimal_valid(quantity_delta) = 1 AND
+                 (lot_id IS NULL OR length(trim(lot_id)) > 0))
+            )
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO ledger_accounts(
+            account_id, parent_account_id, name, account_type, account_role, authority, created_at
+        )
+        SELECT account_id, parent_account_id, name, account_type, 'general', authority, created_at
+        FROM ledger_accounts_v6
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO ledger_entries(
+            entry_id, authority, effective_at, settlement_at, recorded_at,
+            description, reversal_of_entry_id, status
+        )
+        SELECT entry_id, authority, effective_at, NULL, recorded_at,
+            description, reversal_of_entry_id, status
+        FROM ledger_entries_v6
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO ledger_postings(
+            entry_id, line_number, account_id, authority, currency, debit_amount,
+            credit_amount, instrument_id, quantity_delta, lot_id
+        )
+        SELECT entry_id, line_number, account_id, authority, currency, debit_amount,
+            credit_amount, NULL, NULL, NULL
+        FROM ledger_postings_v6
+        """
+    )
+    connection.execute("DROP TABLE ledger_postings_v6")
+    connection.execute("DROP TABLE ledger_entries_v6")
+    connection.execute("DROP TABLE ledger_accounts_v6")
+
+    connection.execute(
+        "CREATE INDEX ledger_entries_effective ON ledger_entries(authority, effective_at, entry_id)"
+    )
+    connection.execute(
+        "CREATE INDEX ledger_postings_account ON ledger_postings(authority, account_id, currency, entry_id)"
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_entries_posting_only
+        BEFORE INSERT ON ledger_entries
+        WHEN NEW.status <> 'posting'
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger entries must be inserted in posting status');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_entries_post_transition
+        BEFORE UPDATE ON ledger_entries
+        WHEN NOT (
+            OLD.status = 'posting' AND NEW.status = 'posted' AND
+            NEW.entry_id IS OLD.entry_id AND NEW.authority IS OLD.authority AND
+            NEW.effective_at IS OLD.effective_at AND NEW.settlement_at IS OLD.settlement_at AND
+            NEW.recorded_at IS OLD.recorded_at AND NEW.description IS OLD.description AND
+            NEW.reversal_of_entry_id IS OLD.reversal_of_entry_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger entries are immutable after posting');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_entries_validate_posted
+        BEFORE UPDATE OF status ON ledger_entries
+        WHEN OLD.status = 'posting' AND NEW.status = 'posted'
+          AND (
+              (SELECT COUNT(*) FROM ledger_postings
+               WHERE entry_id = NEW.entry_id AND authority = NEW.authority) < 2
+              OR EXISTS (
+                  SELECT currency FROM ledger_postings
+                  WHERE entry_id = NEW.entry_id AND authority = NEW.authority
+                  GROUP BY currency
+                  HAVING ledger_currency_balanced(debit_amount, credit_amount) <> 1
+              )
+              OR EXISTS (
+                  SELECT instrument_id, lot_id FROM ledger_postings
+                  WHERE entry_id = NEW.entry_id AND authority = NEW.authority
+                    AND instrument_id IS NOT NULL
+                  GROUP BY instrument_id, lot_id
+                  HAVING ledger_quantity_balanced(quantity_delta) <> 1
+              )
+          )
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger entry postings must balance by currency and quantity');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_entries_no_delete
+        BEFORE DELETE ON ledger_entries
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger entries cannot be deleted');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_postings_validate_insert
+        BEFORE INSERT ON ledger_postings
+        WHEN NOT (
+            (NEW.currency IS NOT NULL AND
+             ledger_posting_amounts_valid(NEW.debit_amount, NEW.credit_amount) = 1)
+            OR
+            (NEW.currency IS NULL AND NEW.debit_amount = '0' AND NEW.credit_amount = '0' AND
+             NEW.instrument_id IS NOT NULL AND NEW.quantity_delta IS NOT NULL AND
+             ledger_quantity_nonzero_valid(NEW.quantity_delta) = 1)
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger posting must contain valid money or quantity');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_postings_insert_while_posting
+        BEFORE INSERT ON ledger_postings
+        WHEN COALESCE(
+            (SELECT status FROM ledger_entries
+             WHERE entry_id = NEW.entry_id AND authority = NEW.authority),
+            ''
+        ) <> 'posting'
+        BEGIN
+            SELECT RAISE(ABORT, 'postings can only be added while an entry is being posted');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_postings_no_update
+        BEFORE UPDATE ON ledger_postings
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger postings are immutable');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER ledger_postings_no_delete
+        BEFORE DELETE ON ledger_postings
+        BEGIN
+            SELECT RAISE(ABORT, 'ledger postings cannot be deleted');
+        END
+        """
+    )
+
+
 class TransactionalStore:
     """Small ACID store for user-owned state; analytical data remains Parquet."""
 
@@ -1120,8 +1368,11 @@ def _utc_now() -> str:
 
 def _register_ledger_sql_functions(connection: sqlite3.Connection) -> None:
     connection.create_function("ledger_decimal_valid", 1, _ledger_decimal_valid, deterministic=True)
+    connection.create_function("ledger_signed_decimal_valid", 1, _ledger_signed_decimal_valid, deterministic=True)
+    connection.create_function("ledger_quantity_nonzero_valid", 1, _ledger_quantity_nonzero_valid, deterministic=True)
     connection.create_function("ledger_posting_amounts_valid", 2, _ledger_posting_amounts_valid, deterministic=True)
-    connection.create_aggregate("ledger_currency_balanced", 2, _LedgerCurrencyBalance)
+    connection.create_aggregate("ledger_currency_balanced", 2, cast(Any, _LedgerCurrencyBalance))
+    connection.create_aggregate("ledger_quantity_balanced", 1, cast(Any, _LedgerQuantityBalance))
 
 
 def _as_ledger_decimal(value: object) -> Decimal | None:
@@ -1136,6 +1387,16 @@ def _as_ledger_decimal(value: object) -> Decimal | None:
 def _ledger_decimal_valid(value: object) -> int:
     amount = _as_ledger_decimal(value)
     return int(amount is not None and amount.is_finite() and amount >= 0)
+
+
+def _ledger_signed_decimal_valid(value: object) -> int:
+    amount = _as_ledger_decimal(value)
+    return int(amount is not None and amount.is_finite())
+
+
+def _ledger_quantity_nonzero_valid(value: object) -> int:
+    amount = _as_ledger_decimal(value)
+    return int(amount is not None and amount.is_finite() and amount != 0)
 
 
 def _ledger_posting_amounts_valid(debit_value: object, credit_value: object) -> int:
@@ -1174,11 +1435,41 @@ class _LedgerCurrencyBalance:
         return int(_ledger_decimal_total(self.debits) == _ledger_decimal_total(self.credits))
 
 
+class _LedgerQuantityBalance:
+    def __init__(self) -> None:
+        self.quantities: list[Decimal] = []
+        self.valid = True
+
+    def step(self, quantity_value: object) -> None:
+        quantity = _as_ledger_decimal(quantity_value)
+        if quantity is None or not quantity.is_finite():
+            self.valid = False
+            return
+        self.quantities.append(quantity)
+
+    def finalize(self) -> int:
+        if not self.valid or not self.quantities:
+            return 0
+        return int(_ledger_decimal_sum(self.quantities) == 0)
+
+
 def _ledger_decimal_total(amounts: list[Decimal]) -> Decimal:
     nonzero = [amount for amount in amounts if amount]
     if not nonzero:
         return Decimal("0")
-    min_exponent = min(amount.as_tuple().exponent for amount in nonzero)
+    min_exponent = min(int(amount.as_tuple().exponent) for amount in nonzero)
+    max_adjusted = max(amount.adjusted() for amount in nonzero)
+    precision = max(28, max_adjusted - min_exponent + len(str(len(nonzero))) + 2)
+    with localcontext() as context:
+        context.prec = precision
+        return sum(amounts, Decimal("0"))
+
+
+def _ledger_decimal_sum(amounts: list[Decimal]) -> Decimal:
+    nonzero = [amount for amount in amounts if amount]
+    if not nonzero:
+        return Decimal("0")
+    min_exponent = min(int(amount.as_tuple().exponent) for amount in nonzero)
     max_adjusted = max(amount.adjusted() for amount in nonzero)
     precision = max(28, max_adjusted - min_exponent + len(str(len(nonzero))) + 2)
     with localcontext() as context:
