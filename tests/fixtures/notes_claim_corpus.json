@@ -1,0 +1,18 @@
+{
+  "positives": [
+    {"id": "performance_screenshot_without_methodology", "text": "Performance screenshot shows a 40% return, but no methodology is disclosed."},
+    {"id": "dm_or_funnel_language", "text": "DM me and join the paid group through the funnel."},
+    {"id": "closed_source_claim", "text": "The strategy is a closed-source black box."},
+    {"id": "missing_benchmark", "text": "Performance return claim with no benchmark."},
+    {"id": "missing_drawdown", "text": "Performance return claim with no drawdown."},
+    {"id": "missing_cost_slippage", "text": "Performance return claim with no cost or slippage disclosure."},
+    {"id": "missing_sample_size", "text": "Performance return claim with no sample size."},
+    {"id": "missing_reproducible_method", "text": "Performance return claim with no reproducible method."},
+    {"id": "too_good_to_be_true_return_claim", "text": "Guaranteed +500% returns, too good to be true."}
+  ],
+  "clean": [
+    {"text": "A neutral factor study compares monthly returns to its benchmark, reports drawdown and fees, uses 120 observations, and publishes reproducible methodology."},
+    {"text": "No screenshot, no funnel, and no closed-source claim. The note reports no performance claim and does not promise returns."},
+    {"text": "The review found no missing benchmark, drawdown, costs, sample size, or methodology."}
+  ]
+}

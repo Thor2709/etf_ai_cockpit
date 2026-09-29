@@ -56,6 +56,7 @@ from etf_cockpit.application.ui_facade import (
     import_etf_holdings_with_document,
     legal_terms_rows,
     load_manual_news,
+    save_manual_note_credibility_review,
     load_news_items,
     load_calendar_events,
     events_available_as_of,
@@ -446,7 +447,7 @@ def _sfdr_panel(path: Path) -> ft.Control:
     return panel(ft.Column([section_header("SFDR disclosure", "Classification and sustainability disclosures are evidence-only; SFDR never contributes return alpha, scores or execution authority."), body], spacing=8))
 
 
-def news_context_page(_page: ft.Page, state: AppState) -> ft.Control:
+def news_context_page(page: ft.Page, state: AppState) -> ft.Control:
     return _status_page(
         "News & Context",
         "Free/manual news and context evidence. News is non-executable and cannot directly change scores or actions.",
@@ -457,11 +458,11 @@ def news_context_page(_page: ft.Page, state: AppState) -> ft.Control:
             ("Optional free provider status", PROVIDER_PROBE_PATH, ["dataset_type", "provider_name", "status", "message"]),
             ("Fundamental source limitations", FUNDAMENTAL_CLEAN_PATH, ["instrument_id", "source", "source_authority", "limitations", "score_eligible", "executable_authority"]),
         ],
-        extra=_news_context_extra(state),
+        extra=_news_context_extra(state, page),
     )
 
 
-def _news_context_extra(state: AppState) -> ft.Control:
+def _news_context_extra(state: AppState, page: ft.Page | None = None) -> ft.Control:
     frame = load_news_items(NEWS_CONTEXT_PATH)
     prices = state.snapshot.prices if isinstance(state.snapshot.prices, pd.DataFrame) else pd.DataFrame()
     decision_time = normalise_event_decision_time(
@@ -499,20 +500,71 @@ def _news_context_extra(state: AppState) -> ft.Control:
     elif manual_notes.empty:
         manual_body: ft.Control = ft.Text("No manual thesis/news notes imported; credibility flags are unavailable.", color=theme.MUTED, selectable=True)
     else:
-        manual_body = ft.Column(
-            [
-                ft.Text(
-                    f"{row.get('as_of_date', 'unavailable')} | {row.get('etf_id') or 'portfolio'} | "
-                    f"{row.get('title') or 'Untitled note'} | credibility_flag_status={row.get('credibility_flag_status', 'unavailable')} | "
-                    f"credibility_flags={row.get('credibility_flags', 'unknown')} | "
-                    f"credibility_reason_codes={row.get('credibility_reason_codes', 'unknown')} | executable_authority=false",
-                    color=theme.MUTED,
-                    selectable=True,
-                    size=11,
+        reviewer_field = ft.TextField(label="Reviewer", key="manual-note.reviewer", width=180)
+        review_note_field = ft.TextField(label="Review note", key="manual-note.review-note", width=320)
+        manual_rows: list[ft.Control] = []
+        for row_index, row in manual_notes.sort_values("as_of_date", ascending=False).head(20).iterrows():
+            review_text = ft.Text(
+                f"{row.get('as_of_date', 'unavailable')} | {row.get('etf_id') or 'portfolio'} | "
+                f"{row.get('title') or 'Untitled note'} | credibility_flag_status={row.get('credibility_flag_status', 'unavailable')} | "
+                f"credibility_flags={row.get('credibility_flags', 'unknown')} | "
+                f"credibility_reason_codes={row.get('credibility_reason_codes', 'unknown')} | "
+                f"displayed_badges={row.get('credibility_display_flags', row.get('credibility_flags', 'unknown'))} | "
+                f"review={row.get('credibility_review_status', 'unreviewed')}:{row.get('credibility_review_override', 'none')} | "
+                f"reviewed_by={row.get('credibility_reviewed_by', '')} | review_note={row.get('credibility_review_note', '')} | executable_authority=false",
+                color=theme.MUTED,
+                selectable=True,
+                size=11,
+            )
+            review_badge = ft.Text(
+                f"Reviewed badge: {row.get('credibility_review_status', 'unreviewed')}",
+                color=theme.GREEN if row.get("credibility_review_status") == "reviewed" else theme.MUTED,
+                key=f"manual-note.review-badge.{row_index}",
+            )
+
+            def save_review(decision: str, selected_index: object = row_index) -> None:
+                try:
+                    updated = save_manual_note_credibility_review(
+                        MANUAL_NEWS_CLEAN_PATH,
+                        selected_index,
+                        reviewer=str(reviewer_field.value or ""),
+                        decision=decision,
+                        note=str(review_note_field.value or ""),
+                    )
+                    reviewed_row = updated.loc[selected_index]
+                    review_badge.value = f"Reviewed badge: {reviewed_row['credibility_review_status']} ({reviewed_row['credibility_review_override']})"
+                    review_badge.color = theme.GREEN
+                    review_text.value = (
+                        f"{reviewed_row.get('as_of_date', 'unavailable')} | {reviewed_row.get('etf_id') or 'portfolio'} | "
+                        f"{reviewed_row.get('title') or 'Untitled note'} | credibility_flag_status={reviewed_row.get('credibility_flag_status', 'unavailable')} | "
+                        f"credibility_flags={reviewed_row.get('credibility_flags', 'unknown')} | "
+                        f"credibility_reason_codes={reviewed_row.get('credibility_reason_codes', 'unknown')} | "
+                        f"displayed_badges={reviewed_row.get('credibility_display_flags', reviewed_row.get('credibility_flags', 'unknown'))} | "
+                        f"review={reviewed_row.get('credibility_review_status', 'unreviewed')}:{reviewed_row.get('credibility_review_override', 'none')} | "
+                        f"reviewed_by={reviewed_row.get('credibility_reviewed_by', '')} | review_note={reviewed_row.get('credibility_review_note', '')} | executable_authority=false"
+                    )
+                except Exception as exc:
+                    review_badge.value = f"Review save failed safely: {type(exc).__name__}"
+                    review_badge.color = theme.AMBER
+                if page is not None:
+                    page.update()
+
+            row_controls: list[ft.Control] = [review_text, review_badge]
+            if str(row.get("credibility_flag_status", "")) == "available":
+                row_key = str(row_index)
+                row_controls.append(
+                    ft.Row(
+                        [
+                            ft.OutlinedButton("Confirm flags", key=f"manual-note.confirm.{row_key}", on_click=lambda _event, decision="confirm_flags": save_review(decision)),
+                            ft.OutlinedButton("Clear flags", key=f"manual-note.clear.{row_key}", on_click=lambda _event, decision="clear_flags": save_review(decision)),
+                        ],
+                        wrap=True,
+                    )
                 )
-                for _, row in manual_notes.sort_values("as_of_date", ascending=False).head(20).iterrows()
-            ],
-            spacing=4,
+            manual_rows.append(ft.Column(row_controls, spacing=3))
+        manual_body = ft.Column(
+            [reviewer_field, review_note_field, *manual_rows],
+            spacing=6,
         )
     try:
         events = load_calendar_events(EVENT_CLEAN_PATH)

@@ -28,6 +28,7 @@ capabilities:
   - {capability_id: "route:/", kind: route, authority_stage: research, description: Simple Scores workspace}
   - {capability_id: "route:/portfolio", kind: route, authority_stage: research, description: Local non-executable portfolio candidate sandbox}
   - {capability_id: "route:/signals", kind: route, authority_stage: research, description: Scores workspace}
+  - {capability_id: "route:/strategy-builder", kind: route, authority_stage: research, description: Non-executable strategy template research workspace}
   - {capability_id: "route:/screener", kind: route, authority_stage: research, description: Fundamentals screener workspace}
   - {capability_id: "route:/risk", kind: route, authority_stage: research, description: Risk evidence workspace}
   - {capability_id: "route:/etf", kind: route, authority_stage: research, description: Instrument detail workspace}
@@ -129,6 +130,7 @@ capabilities:
   - {capability_id: "dataset:robust_risk", kind: dataset, authority_stage: research, description: Robust risk evidence}
   - {capability_id: "dataset:saved_screens", kind: dataset, authority_stage: research, description: Saved screen definitions}
   - {capability_id: "dataset:scores", kind: dataset, authority_stage: research, description: Score evidence}
+  - {capability_id: "dataset:signals", kind: dataset, authority_stage: research, description: Local descriptive signal evidence}
   - {capability_id: "dataset:source_policy", kind: dataset, authority_stage: research, description: Source policy evidence}
   - {capability_id: "dataset:supply_chain_intake", kind: dataset, authority_stage: research, description: Supply-chain intake evidence}
   - {capability_id: "dataset:synthetic_fixtures", kind: dataset, authority_stage: research, description: Synthetic validation fixtures}
