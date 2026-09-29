@@ -85,3 +85,78 @@ glossary:
   - term: not_scoreable
     definition: "Required evidence or policy is unavailable, so no score is authoritative"
     authority_note: "Fail-closed state"
+  - term: attractiveness score
+    definition: "A 0–10 weighted summary of configured evidence about an instrument's appeal; it is not a probability, price target or instruction"
+    authority_note: "Read its components, coverage and formula version; risk and evidence gates remain separate"
+  - term: expected-return score
+    definition: "A 0–10 summary of baseline and any available optional forecast evidence for the configured horizon"
+    authority_note: "A score is not the forecast value itself and does not create trading authority"
+  - term: risk/implementation score
+    definition: "A 0–10 summary of risk, liquidity/cost, rebalance and concentration evidence"
+    authority_note: "It does not mean risk is absent; inspect each component and its units"
+  - term: final score
+    definition: "The displayed canonical score for its named group and formula version; score groups are not silently merged into one recommendation"
+    authority_note: "Check the group name, component evidence, as-of date and eligibility gates"
+  - term: evidence coverage
+    definition: "How much of the required evidence is present and usable for a score or report"
+    authority_note: "Low coverage lowers confidence; missing fields are not neutral values"
+  - term: evidence confidence
+    definition: "A summary of source quality, freshness, uncertainty and conflicts supporting evidence"
+    authority_note: "It is not the probability that an investment will succeed"
+  - term: momentum
+    definition: "Price performance over the score policy's declared lookback periods"
+    authority_note: "Historical movement can reverse and does not predict a return"
+  - term: trend
+    definition: "A summary of the direction and persistence of price movement over declared periods"
+    authority_note: "The displayed window and source data govern interpretation"
+  - term: relative strength
+    definition: "Instrument performance compared with a declared benchmark or peer over the same period"
+    authority_note: "It is not a universal measure of quality and depends on the comparison set"
+  - term: ETF exposure
+    definition: "Evidence about a fund's disclosed holdings or investment exposures"
+    authority_note: "Interpret it within the shown holdings date and coverage; missing holdings are not inferred"
+  - term: stock value
+    definition: "Formula-labelled valuation evidence using the reported periods and market inputs shown with the result"
+    authority_note: "Scenario estimates depend on assumptions and are not a fair-value guarantee"
+  - term: stock quality
+    definition: "Formula-labelled profitability, balance-sheet, accounting and cash-generation evidence"
+    authority_note: "Comparability depends on reporting periods, source coverage and sector"
+  - term: MAE
+    definition: "Mean absolute error: the average absolute difference between forecast and observed values"
+    authority_note: "Interpret it with the target's units, horizon and comparison baseline"
+  - term: directional accuracy
+    definition: "The share of evaluated forecasts that correctly identify the direction of the observed change"
+    authority_note: "It does not measure the size of the error or profitability after costs"
+  - term: interval coverage
+    definition: "The share of matured observations that fall inside the forecast uncertainty interval"
+    authority_note: "Coverage is meaningful only alongside interval width, sample size and horizon"
+  - term: deflated Sharpe
+    definition: "A Sharpe-ratio estimate adjusted for multiple testing and non-normal returns"
+    authority_note: "It is a robustness diagnostic, not proof of future performance"
+  - term: sector adapter
+    definition: "A sector-specific route that applies metrics suited to the business type when classification and source evidence support it"
+    authority_note: "If the route or inputs are unsupported, the result remains unavailable or inapplicable"
+  - term: model card
+    definition: "A summary of a model's intended task, data, validation, limits, version and licence"
+    authority_note: "A card documents a model; it does not approve the model for decisions or execution"
+  - term: research
+    definition: "The default authority stage for evidence and deterministic analysis presented for human review"
+    authority_note: "Enabled by default; execution_allowed remains false"
+  - term: shadow proposal
+    definition: "A frozen, non-executable proposal preview available only after applicable research gates"
+    authority_note: "Disabled by default; it cannot submit or transmit an order"
+  - term: paper
+    definition: "A local simulation and forward-evidence stage for manually reviewed activity"
+    authority_note: "It is not a broker connection or live account; execution_allowed remains false"
+  - term: broker read-only
+    definition: "A reserved stage for read-only reconciliation with no credentials or orders in this release"
+    authority_note: "Unavailable in this release"
+  - term: draft order
+    definition: "A reserved, disabled contract for a possible separately approved future capability"
+    authority_note: "No draft-order authority is enabled in this release"
+  - term: capped automatic
+    definition: "A reserved disabled automation stage that would require separate authority and release evidence"
+    authority_note: "Unavailable in this release; no automatic order submission is permitted"
+  - term: disabled
+    definition: "A declared capability is unavailable and cannot influence mandatory workflows"
+    authority_note: "Disabled is not an empty result or permission to use another route"
