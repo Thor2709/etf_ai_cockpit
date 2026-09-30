@@ -216,9 +216,20 @@ def test_missing_decision_time_or_usable_forecast_date_is_unavailable() -> None:
         decision_time=DECISION_TIME,
     )["SYNTHETIC-ETF"]
 
-    for distribution in (no_decision_time, invalid_decision_time, *non_scalar_decision_times, missing_date, invalid_date):
+    for distribution in (invalid_decision_time, *non_scalar_decision_times, missing_date, invalid_date):
         assert distribution["status"] == "unavailable"
         assert distribution["canonical_status"] == "unavailable"
         assert distribution["point_in_time_status"] == "unavailable"
         assert all(distribution[field] is None for field in QUANTILE_FIELDS)
         assert all(distribution[f"net_{field}"] is None for field in QUANTILE_FIELDS)
+    # Legacy callers (no decision time) keep only the pre-existing three-quantile view;
+    # the canonical contract and every extended/net quantile stay unavailable.
+    assert no_decision_time["canonical_status"] == "unavailable"
+    assert no_decision_time["point_in_time_status"] == "unavailable"
+    assert no_decision_time["probability_loss"] is None
+    assert all(no_decision_time[f"net_{field}"] is None for field in QUANTILE_FIELDS)
+    assert all(
+        no_decision_time[field] is None
+        for field in QUANTILE_FIELDS
+        if field not in {"q10_return", "q50_return", "q90_return"}
+    )

@@ -417,7 +417,10 @@ def forecast_return_distributions(
     } if has_forecast_date else {}
     usable_forecast_date = any(usable_forecast_dates_by_instrument.values())
     point_in_time_bound = decision_cutoff is not None and usable_forecast_date
-    if not point_in_time_bound:
+    # Legacy consumers (no decision time) keep the unbound three-quantile view, flagged
+    # point_in_time_bound=False; a supplied decision time without usable forecast dates fails closed.
+    legacy_view = decision_time is None
+    if not legacy_view and not point_in_time_bound:
         reason = "A valid decision time and usable forecast date are required for point-in-time filtering."
         for instrument_id in instrument_ids:
             output[instrument_id] = _unavailable_contract_distribution(
@@ -427,7 +430,8 @@ def forecast_return_distributions(
                 point_in_time_bound=False,
             )
         return output
-    frame = frame.loc[frame["forecast_date"].le(decision_cutoff)]
+    if point_in_time_bound:
+        frame = frame.loc[frame["forecast_date"].le(decision_cutoff)]
     canonical_horizon = _canonical_distribution_horizon(horizon_days)
     if canonical_horizon is None:
         reason = "The requested horizon is not in the canonical 1W–5Y set."
@@ -664,7 +668,9 @@ def forecast_return_distributions(
         if canonical["status"] == "available" and canonical["point_in_time_status"] != "available":
             canonical["status"] = "unavailable"
             canonical["reason"] = "A decision time and forecast date are required for point-in-time filtering."
-        output[instrument_id] = _attach_distribution_contract(distribution, canonical, calibrated_probabilities)
+        output[instrument_id] = _attach_distribution_contract(
+            distribution, canonical, calibrated_probabilities, legacy_view=legacy_view
+        )
     for instrument_id in instrument_ids:
         if instrument_id not in output:
             output[instrument_id] = _unavailable_contract_distribution(
@@ -737,7 +743,10 @@ def _attach_distribution_contract(
     distribution: dict[str, object],
     canonical: dict[str, object],
     probabilities: Mapping[str, float | None],
+    *,
+    legacy_view: bool = False,
 ) -> dict[str, object]:
+    legacy = {field: distribution.get(field) for field in ("q10_return", "q50_return", "q90_return")}
     gross = canonical.get("gross_quantiles")
     net = canonical.get("net_quantiles")
     if isinstance(gross, Mapping):
@@ -771,15 +780,21 @@ def _attach_distribution_contract(
         "execution_allowed": False,
     })
     if canonical["status"] != "available":
-        distribution.update({
-            "status": "unavailable",
-            "reason": canonical["reason"],
-            "horizon_days": None,
-            "model_count": 0,
-        })
         for field in QUANTILE_FIELDS:
             distribution[field] = None
             distribution[f"net_{field}"] = None
+        if legacy_view:
+            # Legacy callers pass no decision time: the canonical contract is unavailable
+            # (canonical_reason), but the pre-existing three-quantile median view is kept for
+            # them. Any supplied decision time, valid or not, never takes this path.
+            distribution.update(legacy)
+        else:
+            distribution.update({
+                "status": "unavailable",
+                "reason": canonical["reason"],
+                "horizon_days": None,
+                "model_count": 0,
+            })
     distribution.setdefault(
         "uncertainty_decomposition",
         unavailable_decomposition("Uncertainty thresholds are applied by the signal pipeline."),
