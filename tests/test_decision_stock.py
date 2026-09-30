@@ -555,3 +555,18 @@ def test_confirmed_norwegian_ec_bypasses_generic_and_requires_native_result() ->
     assert missing["valuation"]["status"] == "unavailable"
     assert missing["expectations"]["status"] == "unavailable"
     assert missing["tactical"]["status"] == "unavailable"
+
+
+def test_stock_composer_exposes_point_in_time_valuation_domain_score() -> None:
+    result = compose_stock_decision(
+        "ACME",
+        _context("ACME"),
+        DECISION_TIME,
+        _report(),
+    )
+
+    valuation_domain = result["valuation_domain"]
+    assert valuation_domain.domain == "valuation"
+    assert valuation_domain.status == "UNAVAILABLE"
+    assert valuation_domain.reason_code
+    assert result["valuation_z_score"] is None

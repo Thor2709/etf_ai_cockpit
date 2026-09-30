@@ -8,6 +8,8 @@ from etf_cockpit.analysis.decision.contracts import (
     GateResult,
     InstrumentDecisionAssessment,
     MetricShape,
+    OpportunityBenchmarkRank,
+    OpportunityResult,
     OpportunitySlot,
     RequirementClass,
     ScoredMetric,
@@ -26,6 +28,11 @@ from etf_cockpit.analysis.decision.stock import (
     load_stock_decision_map,
 )
 from etf_cockpit.analysis.decision.etf import compose_etf_decision
+from etf_cockpit.analysis.decision.opportunity import (
+    build_opportunity_results,
+    load_opportunity_policy,
+    opportunity_result_payload,
+)
 
 __all__ = [
     "ComparisonScope",
@@ -38,14 +45,19 @@ __all__ = [
     "InstrumentDecisionAssessment",
     "MetricDefinition",
     "MetricShape",
+    "OpportunityBenchmarkRank",
+    "OpportunityResult",
     "OpportunitySlot",
     "RequirementClass",
     "ScoredMetric",
     "SubfamilySlot",
     "StockDecisionMap",
     "build_instrument_assessment",
+    "build_opportunity_results",
     "compose_stock_decision",
     "compose_etf_decision",
     "load_domain_registry",
+    "load_opportunity_policy",
     "load_stock_decision_map",
+    "opportunity_result_payload",
 ]

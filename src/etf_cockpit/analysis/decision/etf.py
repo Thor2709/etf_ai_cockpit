@@ -119,13 +119,32 @@ def compose_etf_decision(
         minimum_support=minimum_support,
     )
     vehicle_domains = tuple(
-        replace(item, domain=_DOMAIN_LABELS[item.domain])
+        replace(item, domain=_domain_label(item.domain))
         for item in vehicle.domain_slots
     )
     vehicle_rank = _rank_slot("Vehicle Rank", vehicle.domain_slots)
+    vehicle_critical_domains = tuple(
+        sorted(
+            {
+                _domain_label(item.domain)
+                for item in vehicle_registry.metrics
+                if item.requirement_class == "CRITICAL"
+            }
+        )
+    )
 
     exposure: InstrumentDecisionAssessment | None = None
     exposure_reason: str | None = None
+    exposure_domains = ()
+    exposure_critical_domains = tuple(
+        sorted(
+            {
+                _domain_label(item.domain)
+                for item in exposure_registry.metrics
+                if item.requirement_class == "CRITICAL"
+            }
+        )
+    )
     if not _is_equity_etf(target_context):
         exposure_reason = "EXPOSURE_ADAPTER_NOT_IMPLEMENTED"
     elif look_through is None or not _look_through_usable(look_through, decision):
@@ -143,6 +162,7 @@ def compose_etf_decision(
             comparison_groups=comparison_groups,
             minimum_support=minimum_support,
         )
+        exposure_domains = exposure.domain_slots
 
     if exposure is None:
         exposure_rank = OpportunitySlot(
@@ -196,6 +216,18 @@ def compose_etf_decision(
         vehicle,
         domain_slots=vehicle_domains,
         opportunity_slots=(vehicle_rank, exposure_rank),
+        exposure_domain_slots=tuple(
+            replace(item, domain=_domain_label(item.domain))
+            for item in exposure_domains
+        ),
+        critical_domains=tuple(
+            sorted(
+                {
+                    *vehicle_critical_domains,
+                    *exposure_critical_domains,
+                }
+            )
+        ),
         formula_checksum=checksum,
         source_vintage_hash=combined_vintage,
         comparison_universe_hash=combined_cohort,
@@ -895,6 +927,12 @@ def _rank_slot(name: str, domains: Sequence[object]) -> OpportunitySlot:
         math.fsum(scores) / len(scores),
         "MEAN_DOMAIN_Z_SCORE",
     )
+
+
+def _domain_label(domain: str) -> str:
+    """Keep established vehicle labels and render configured exposure ids plainly."""
+
+    return _DOMAIN_LABELS.get(domain, domain.replace("_", " ").title())
 
 
 def _is_equity_etf(context: InstrumentContextV2) -> bool:

@@ -482,3 +482,22 @@ def test_missing_look_through_reduces_coverage_without_zero_filling() -> None:
     assert hhi.raw_value is None
     assert exposure.status == "UNAVAILABLE"
     assert exposure.reason_code == "LOOK_THROUGH_UNAVAILABLE"
+
+
+def test_etf_composer_exposes_per_domain_exposure_scores() -> None:
+    look_through = _simple_look_through()
+    exposure_peers = [
+        *_observations("look_through_pe_ratio", (15.0, 20.0, 25.0, 30.0)),
+        *_observations("look_through_roic", (0.10, 0.15, 0.20, 0.25)),
+    ]
+    assessment = compose_etf_decision(
+        "target",
+        _context("target"),
+        DECISION,
+        look_through=look_through,
+        exposure_peer_observations=exposure_peers,
+        comparison_groups=_comparison_groups(exposure_peers),
+    )
+
+    assert assessment.exposure_domain_slots
+    assert all(slot.domain for slot in assessment.exposure_domain_slots)

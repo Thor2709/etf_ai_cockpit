@@ -168,6 +168,52 @@ class DecisionDriver:
 
 
 @dataclass(frozen=True)
+class OpportunityBenchmarkRank:
+    ranker: str
+    score: float | None
+    percentile: float | None
+    status: str
+    reason_code: str
+
+
+@dataclass(frozen=True)
+class OpportunityResult:
+    instrument: str
+    asset_type: str
+    decision_time: str
+    status: str
+    baseline_z: float | None
+    percentile: float | None
+    universe_rank: int | None
+    universe_support: int
+    peer_percentile: float | None
+    peer_rank: int | None
+    peer_support: int
+    domain_scores: tuple[tuple[str, float | None], ...]
+    confidence: float | None
+    coverage: float | None
+    positive_drivers: tuple[DecisionDriver, ...]
+    negative_drivers: tuple[DecisionDriver, ...]
+    explanation: str
+    timing: str
+    timing_reason_code: str
+    benchmark_rankers: tuple[OpportunityBenchmarkRank, ...]
+    universe_hash: str
+    peer_id: str
+    config_hash: str
+    source_vintage_hash: str
+    reason_code: str
+    execution_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        if self.execution_allowed:
+            raise ValueError("opportunity results never authorize execution")
+        if not self.instrument.strip() or not self.asset_type.strip():
+            raise ValueError("instrument and asset_type must be non-empty")
+        _aware_datetime(self.decision_time, "decision_time")
+
+
+@dataclass(frozen=True)
 class InstrumentDecisionAssessment:
     instrument: str
     asset_type: str
@@ -184,6 +230,8 @@ class InstrumentDecisionAssessment:
     drivers: tuple[DecisionDriver, ...]
     warnings: tuple[str, ...]
     execution_allowed: bool = False
+    exposure_domain_slots: tuple[DomainSlot, ...] = ()
+    critical_domains: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.execution_allowed:
