@@ -323,6 +323,9 @@ def test_checkpoint_subset_and_concurrent_merge_retain_all_ciks(tmp_path: Path) 
     assert set(entries) == {"0000000001", "0000000002"}
 
 
+# Concurrent imports contend on file guards with bounded waits; under full worker load a guard wait can
+# expire and turn an import into "failed", so it runs without parallel contention.
+@pytest.mark.serial
 def test_concurrent_subset_imports_merge_checkpoint_and_statement_stores(tmp_path: Path) -> None:
     archive = _archive(tmp_path, {"CIK0000000001.json": _facts(), "CIK0000000002.json": _facts(2)})
 

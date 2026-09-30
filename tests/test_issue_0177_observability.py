@@ -19,7 +19,7 @@ def test_release_pytest_contract_writes_junit_and_slowest_phase_durations(tmp_pa
     assert "--junitxml=<output>/junit-full.xml" in serial_command
     assert "not serial" in parallel_command
     assert "-n 4" in parallel_command
-    assert "--dist loadgroup" in parallel_command
+    assert "--dist loadfile" in parallel_command
     assert "-m serial" in serial_phase_command
 
 

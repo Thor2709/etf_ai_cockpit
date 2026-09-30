@@ -245,6 +245,9 @@ def test_expiry_event_cannot_backdate_expiry_before_event(tmp_path: Path) -> Non
     assert len(store.export_packet()["events"]) == 1
 
 
+# Spawns 4 interpreters and waits 20 s for them; on a fully loaded Windows runner the spawn alone can exceed
+# that, so it runs without contention from parallel workers.
+@pytest.mark.serial
 def test_multiprocess_create_append_read_and_export_are_serialized(tmp_path: Path) -> None:
     context = mp.get_context("spawn")
     creators = [context.Process(target=_create_diary_worker, args=(str(tmp_path), index)) for index in range(4)]

@@ -361,7 +361,7 @@ def profile(
                 phases = (("full_serial", [], "full_serial"),)
             else:
                 phases = (
-                    ("candidate_safe", ["-m", "not serial", "-n", "4", "--dist", "loadgroup"], "safe"),
+                    ("candidate_safe", ["-m", "not serial", "-n", "4", "--dist", "loadfile"], "safe"),
                     ("candidate_unsafe", ["-m", "serial"], "unsafe"),
                 )
             for mode, mode_args, phase in phases:

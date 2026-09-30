@@ -162,6 +162,9 @@ def test_windows_pid_probe_does_not_terminate_a_child_process() -> None:
             child.wait(timeout=5)
 
 
+# Waits at most 5 s for a child interpreter to start and exit; Windows interpreter start-up under
+# full worker load can exceed that, so it runs without CPU contention.
+@pytest.mark.serial
 @pytest.mark.skipif(os.name != "nt", reason="requires Windows OpenProcess semantics")
 def test_windows_pid_probe_detects_exited_child_before_popen_handle_closes() -> None:
     child = subprocess.Popen([sys.executable, "-c", "pass"])

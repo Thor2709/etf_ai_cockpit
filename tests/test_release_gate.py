@@ -54,7 +54,7 @@ def test_full_tests_xdist_commands_use_disjoint_phases_and_canonical_junit_names
     marker_index = phase_a.index("-m", phase_a.index("-m") + 1)
     assert phase_a[marker_index + 1] == "not serial"
     assert phase_a[phase_a.index("-n") + 1] == "4"
-    assert phase_a[phase_a.index("--dist") + 1] == "loadgroup"
+    assert phase_a[phase_a.index("--dist") + 1] == "loadfile"
     assert f"--junitxml={tmp_path / 'evidence' / 'junit-parallel.xml'}" in phase_a
     assert "--durations=100" in phase_a
     assert "--durations-min=0.25" in phase_a
@@ -97,7 +97,7 @@ def test_merge_junit_reports_sums_counts_and_keeps_anchor_style_suite_counts(tmp
 def test_full_tests_fails_with_readable_collection_mismatch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mismatch: str
 ) -> None:
-    def collect(_root: Path, command: tuple[str, ...]) -> tuple[set[str], float, str]:
+    def collect(_root: Path, command: tuple[str, ...], **_kwargs) -> tuple[set[str], float, str]:
         if command.count("-m") < 2:
             return {"tests/test_sample.py::test_a", "tests/test_sample.py::test_b"}, 2.0, ""
         marker_index = command.index("-m", command.index("-m") + 1)
@@ -128,7 +128,7 @@ def test_full_tests_fails_with_readable_collection_mismatch(
 def test_full_tests_fails_when_either_xdist_phase_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failed_phase: str
 ) -> None:
-    def collect(_root: Path, command: tuple[str, ...]) -> tuple[set[str], float, str]:
+    def collect(_root: Path, command: tuple[str, ...], **_kwargs) -> tuple[set[str], float, str]:
         if command.count("-m") < 2:
             return {"tests/test_sample.py::test_a", "tests/test_sample.py::test_b"}, 3.0, ""
         marker_index = command.index("-m", command.index("-m") + 1)
@@ -175,7 +175,7 @@ def test_full_tests_fails_when_either_xdist_phase_fails(
     assert "phase_duration_ms" in report
 
 
-def test_workflow_enables_xdist_only_on_linux_and_excludes_pull_request_pilot() -> None:
+def test_workflow_runs_xdist_auto_on_both_platforms_and_excludes_pull_request_pilot() -> None:
     root = Path(__file__).resolve().parents[1]
     workflow = yaml.safe_load((root / ".github" / "workflows" / "release-gate.yml").read_text(encoding="utf-8"))
     jobs = workflow["jobs"]
@@ -183,12 +183,17 @@ def test_workflow_enables_xdist_only_on_linux_and_excludes_pull_request_pilot() 
     assert "github.event_name != 'pull_request'" in pilot_condition
 
     gate_step = next(step for step in jobs["release-gate"]["steps"] if step["name"] == "Run protected release gate")
-    linux_only = re.search(
-        r'if \[\[ "\$\{\{ matrix\.platform \}\}" == "linux" \]\]; then\s+'
-        r"arguments\+=\(--xdist-workers 4\)",
-        gate_step["run"],
-    )
-    assert linux_only is not None
+    assert re.search(r"arguments=\(--root \. --output \"\$output\" --allow-unsigned --xdist-workers auto\)", gate_step["run"])
+    assert '== "linux"' not in gate_step["run"]
+    assert gate_step["env"]["ETF_COCKPIT_XDIST_MAX"] == "4"
+    # Three file-level shards per platform run in parallel; the gate does not wait for preflight,
+    # but validation-summary still requires preflight and every shard.
+    gate = jobs["release-gate"]
+    assert gate["strategy"]["matrix"]["shard"] == [1, 2, 3]
+    assert gate["strategy"]["matrix"]["platform"] == ["windows", "linux"]
+    assert gate_step["env"]["ETF_COCKPIT_TEST_SHARD"] == "${{ matrix.shard }}/3"
+    assert "preflight" not in gate["needs"]
+    assert {"preflight", "release-gate"} <= set(jobs["validation-summary"]["needs"])
 
 
 def test_main_reads_xdist_workers_from_environment_and_cli(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -207,6 +212,63 @@ def test_main_reads_xdist_workers_from_environment_and_cli(tmp_path: Path, monke
     capsys.readouterr()
 
     assert observed == [3, 4]
+
+
+def test_auto_xdist_workers_use_usable_cpus_capped_and_serial_on_one_cpu(monkeypatch) -> None:
+    monkeypatch.setattr(release_gate, "_usable_cpu_count", lambda: 20)
+    monkeypatch.setenv(release_gate.XDIST_MAX_ENV, "14")
+    assert release_gate._nonnegative_int("auto") == 14
+    monkeypatch.delenv(release_gate.XDIST_MAX_ENV)
+    assert release_gate._nonnegative_int("AUTO") == 16
+    monkeypatch.setattr(release_gate, "_usable_cpu_count", lambda: 4)
+    assert release_gate._nonnegative_int("auto") == 4
+    monkeypatch.setattr(release_gate, "_usable_cpu_count", lambda: 1)
+    assert release_gate._nonnegative_int("auto") == 0
+
+
+def _junit_report(path: Path, cases: list[tuple[str, str]]) -> Path:
+    body = "".join(f'<testcase classname="{classname}" name="{name}" />' for classname, name in cases)
+    path.write_text(f'<testsuites><testsuite name="pytest">{body}</testsuite></testsuites>', encoding="utf-8")
+    return path
+
+
+def test_junit_execution_parity_requires_every_collected_test_exactly_once(tmp_path: Path) -> None:
+    collected = {
+        "tests/test_a.py::test_one[x-1]",
+        "tests/ui/test_b.py::TestView::test_two",
+        "tests/test_c.py::test_three",
+    }
+    parallel = _junit_report(tmp_path / "p.xml", [("tests.test_a", "test_one[x-1]"), ("tests.ui.test_b.TestView", "test_two")])
+    serial = _junit_report(tmp_path / "s.xml", [("tests.test_c", "test_three")])
+    assert release_gate._junit_execution_problems((parallel, serial), collected) == []
+
+    backslash = _junit_report(tmp_path / "b.xml", [("tests.test_c", "test_three"), ("tests.test_e", r"test_zip[C:\x.xhtml]")])
+    # Collection output is normalised backslash -> "/"; JUnit keeps the raw parameter id.
+    assert release_gate._junit_execution_problems((parallel, backslash), collected | {"tests/test_e.py::test_zip[C:/x.xhtml]"}) == []
+    teardown = tmp_path / "t.xml"
+    teardown.write_text(
+        '<testsuites><testsuite name="pytest"><testcase classname="tests.test_c" name="test_three"><failure message="x" /></testcase>'
+        '<testcase classname="tests.test_c" name="test_three"><error message="failed on teardown with &quot;x&quot;" /></testcase>'
+        "</testsuite></testsuites>",
+        encoding="utf-8",
+    )
+    # A call failure plus a teardown error is one execution reported as two JUnit entries.
+    assert release_gate._junit_execution_problems((parallel, teardown), collected) == []
+    nested = _junit_report(tmp_path / "n.xml", [("tests.test_c", "test_three"), ("tests.test_f", "test_lane[tests/x.py::test_y-1]")])
+    assert release_gate._junit_execution_problems((parallel, nested), collected | {"tests/test_f.py::test_lane[tests/x.py::test_y-1]"}) == []
+
+    missing = _junit_report(tmp_path / "s2.xml", [])
+    duplicated = _junit_report(tmp_path / "s3.xml", [("tests.test_c", "test_three"), ("tests.test_a", "test_one[x-1]")])
+    unexpected = _junit_report(tmp_path / "s4.xml", [("tests.test_c", "test_three"), ("tests.test_d", "test_new")])
+    assert "1 test(s) not executed: tests.test_c::test_three" in release_gate._junit_execution_problems(
+        (parallel, missing), collected
+    )
+    assert "1 test(s) executed more than once: tests.test_a::test_one[x-1]" in release_gate._junit_execution_problems(
+        (parallel, duplicated), collected
+    )
+    assert "1 test(s) not collected: tests.test_d::test_new" in release_gate._junit_execution_problems(
+        (parallel, unexpected), collected
+    )
 
 
 def _source_fixture(root: Path) -> None:
@@ -515,7 +577,7 @@ def test_parallel_pilot_is_report_only_when_xdist_is_unavailable(monkeypatch) ->
     }
     assert evidence["schema_version"] == "pytest-parallel-pilot.v2"
     assert "--collect-only" in evidence["commands"]["candidate_safe_collection"]
-    assert "-n 4 --dist loadgroup" in evidence["commands"]["candidate_safe_execution"]
+    assert "-n 4 --dist loadfile" in evidence["commands"]["candidate_safe_execution"]
     assert evidence["serial_groups"] == [
         "concurrency",
         "environment",
@@ -566,7 +628,7 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "ETF_COCKPIT_RELEASE_BUILD: \"1\"" in workflow
     assert "secrets.RELEASE_SIGNING_KEY" not in workflow
     assert "github.event_name == 'pull_request' && needs.classifier.outputs.package_gate_required == 'true'" in workflow
-    assert "arguments=(--root . --output \"$output\" --allow-unsigned)" in workflow
+    assert "arguments=(--root . --output \"$output\" --allow-unsigned --xdist-workers auto)" in workflow
     assert "repository_dispatch:" in trigger
     assert "workflow_dispatch:" not in trigger
     assert "parallel-pilot-drift" in trigger
@@ -585,3 +647,61 @@ def test_xdist_collection_lists_node_ids_despite_quiet_addopts() -> None:
     nodeids, _elapsed, failure = release_gate._collect_test_nodeids(root, command)
     assert failure == ""
     assert nodeids and all(nodeid.startswith("tests/test_atomic_io.py::") for nodeid in nodeids)
+
+
+def test_failure_digest_groups_causes_and_names_product_and_test_frames(tmp_path: Path) -> None:
+    from scripts import failure_digest
+
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_x.py").write_text("", encoding="utf-8")
+    trace = (
+        "def test_a():\n>       run()\ntests/test_x.py:7: in test_a\nsrc/etf_cockpit/core/io.py:42: in run\n"
+        "E   PermissionError: [WinError 5] Access is denied: 'data/x.parquet'\n"
+    )
+    cases = "".join(
+        f'<testcase classname="tests.test_x" name="{name}" time="1.5"><failure message="PermissionError">{trace}</failure></testcase>'
+        for name in ("test_a", "test_b[1]")
+    )
+    junit = tmp_path / "junit.xml"
+    junit.write_text(
+        f'<testsuites><testsuite name="pytest">{cases}<testcase classname="tests.test_x" name="test_ok" time="0.1" />'
+        "</testsuite></testsuites>",
+        encoding="utf-8",
+    )
+    digest = failure_digest.render([junit], tmp_path)
+
+    assert digest.splitlines()[0] == "TESTS 3 | failed 2 | errors 0 | skipped 0 | slowest test 2s"
+    assert "[1] 2x PermissionError: [WinError 5] Access is denied: 'data/x.parquet'" in digest
+    assert "at: product src/etf_cockpit/core/io.py:42 | test tests/test_x.py:7" in digest
+    assert "- tests/test_x.py::test_b[1]" in digest
+
+
+def test_failure_digest_reports_failed_gate_checks_and_passes_cleanly(tmp_path: Path) -> None:
+    from scripts import failure_digest
+
+    (tmp_path / "release-report.md").write_text(
+        "- Schema: `1.0`\n\n## Failures\n- pinned_environment: missing locked packages: pdfplumber\n", encoding="utf-8"
+    )
+    _junit_report(tmp_path / "junit-parallel.xml", [("tests.test_c", "test_three")])
+    digest = failure_digest.render([tmp_path], tmp_path)
+
+    assert "CHECK FAILED pinned_environment: missing locked packages: pdfplumber" in digest
+    assert "Schema" not in digest
+    assert failure_digest.render([tmp_path / "junit-parallel.xml"], tmp_path).endswith("OK: no failing tests or checks")
+
+
+def test_shard_phase_without_tests_is_recorded_empty_but_an_empty_full_collection_fails(tmp_path: Path, monkeypatch) -> None:
+    def no_tests(*_args, **_kwargs):
+        return subprocess.CompletedProcess([], 5, stdout="no tests collected (12 deselected)\n", stderr="")
+
+    monkeypatch.setattr(release_gate.subprocess, "run", no_tests)
+    assert release_gate._collect_test_nodeids(tmp_path, ("pytest",), allow_empty=True)[::2] == (set(), "")
+    assert release_gate._collect_test_nodeids(tmp_path, ("pytest",))[2].startswith("exit code 5")
+
+    result = release_gate._empty_phase(tmp_path, "full_tests_serial", ("pytest", "-m", "serial"), "junit-serial.xml")
+    assert result.status == "passed" and result.output == "no tests collected in this shard"
+    _junit_report(tmp_path / "junit-parallel.xml", [("tests.test_c", "test_three")])
+    release_gate._merge_junit_reports((tmp_path / "junit-parallel.xml", tmp_path / "junit-serial.xml"), tmp_path / "full.xml")
+    assert release_gate._junit_execution_problems(
+        (tmp_path / "junit-parallel.xml", tmp_path / "junit-serial.xml"), {"tests/test_c.py::test_three"}
+    ) == []

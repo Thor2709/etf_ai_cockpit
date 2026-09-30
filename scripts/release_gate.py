@@ -10,6 +10,7 @@ causes a non-zero exit code.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import hmac
 import importlib.metadata
@@ -38,6 +39,7 @@ DEFAULT_OUTPUT = Path("artifacts/release/latest")
 SIGNING_KEY_ENV = "ETF_COCKPIT_RELEASE_SIGNING_KEY"
 SIGNING_KEY_ID_ENV = "ETF_COCKPIT_RELEASE_SIGNING_KEY_ID"
 XDIST_WORKERS_ENV = "ETF_COCKPIT_XDIST_WORKERS"
+XDIST_MAX_ENV = "ETF_COCKPIT_XDIST_MAX"
 _FULL_TEST_EVIDENCE_PREFIX = "Two-phase xdist evidence: "
 TEXT_SUFFIXES = frozenset(
     {
@@ -325,7 +327,7 @@ def parallel_pilot_evidence() -> dict[str, object]:
             "serial_collection": "python -m pytest --collect-only -q",
             "candidate_safe_collection": "python -m pytest -m \"not serial\" --collect-only -q",
             "candidate_unsafe_collection": "python -m pytest -m serial --collect-only -q",
-            "candidate_safe_execution": "python -m pytest -m \"not serial\" -n 4 --dist loadgroup -q",
+            "candidate_safe_execution": "python -m pytest -m \"not serial\" -n 4 --dist loadfile -q",
             "candidate_unsafe_execution": "python -m pytest -m serial -q",
         },
         "collection_parity": {
@@ -491,7 +493,7 @@ def _full_test_commands(
             "-n",
             str(xdist_workers),
             "--dist",
-            "loadgroup",
+            "loadfile",
             *common,
             f"--junitxml={_junit_path(output_dir, 'junit-parallel.xml')}",
         ),
@@ -514,7 +516,12 @@ def _nodeids_from_collection(output: str) -> set[str]:
     return nodeids
 
 
-def _collect_test_nodeids(root: Path, command: tuple[str, ...]) -> tuple[set[str], float, str]:
+_PYTEST_NO_TESTS_COLLECTED = 5
+
+
+def _collect_test_nodeids(
+    root: Path, command: tuple[str, ...], *, allow_empty: bool = False
+) -> tuple[set[str], float, str]:
     started = time.perf_counter()
     try:
         completed = subprocess.run(
@@ -531,6 +538,9 @@ def _collect_test_nodeids(root: Path, command: tuple[str, ...]) -> tuple[set[str
         return set(), round((time.perf_counter() - started) * 1000, 3), str(exc)
     elapsed = round((time.perf_counter() - started) * 1000, 3)
     output = completed.stdout + completed.stderr
+    if allow_empty and completed.returncode == _PYTEST_NO_TESTS_COLLECTED:
+        # A CI shard may hold no tests of one phase (e.g. no serial tests); parity still checks the union.
+        return set(), elapsed, ""
     if completed.returncode != 0:
         detail = output.strip()[-1000:]
         return set(), elapsed, f"exit code {completed.returncode}" + (f": {detail}" if detail else "")
@@ -538,6 +548,52 @@ def _collect_test_nodeids(root: Path, command: tuple[str, ...]) -> tuple[set[str
     if not nodeids:
         return set(), elapsed, "collection produced no parseable tests node ids"
     return nodeids, elapsed, ""
+
+
+def _junit_key(nodeid: str) -> tuple[str, str]:
+    """Map a collected nodeid to pytest's JUnit (classname, name) identity."""
+
+    nodeid = nodeid.replace("\\", "/")
+    bracket = nodeid.find("[")
+    base, parameters = (nodeid, "") if bracket < 0 else (nodeid[:bracket], nodeid[bracket:])
+    parts = base.split("::")  # parameter ids may themselves contain "::"
+    parts[-1] += parameters
+    module = parts[0][:-3] if parts[0].endswith(".py") else parts[0]
+    return ".".join([module.replace("/", "."), *parts[1:-1]]), parts[-1]
+
+
+def _junit_execution_problems(reports: tuple[Path, ...], expected_nodeids: set[str]) -> list[str]:
+    """Every collected test must appear exactly once across the phase reports."""
+
+    executed: dict[tuple[str, str], int] = {}
+    for report in reports:
+        for case in ET.parse(report).getroot().iter("testcase"):
+            error = case.find("error")
+            if error is not None and (error.get("message") or "").startswith("failed on teardown"):
+                continue  # pytest adds a second entry for a teardown error of an executed test
+            # Same normalisation as _nodeids_from_collection, which maps every backslash to "/".
+            key = (case.get("classname", "").replace("\\", "/"), case.get("name", "").replace("\\", "/"))
+            executed[key] = executed.get(key, 0) + 1
+    expected = {_junit_key(nodeid) for nodeid in expected_nodeids}
+    missing = sorted(expected - executed.keys())
+    unexpected = sorted(executed.keys() - expected)
+    duplicated = sorted(key for key, count in executed.items() if count > 1)
+    problems = []
+    for label, keys in (("not executed", missing), ("not collected", unexpected), ("executed more than once", duplicated)):
+        if keys:
+            problems.append(f"{len(keys)} test(s) {label}: " + ", ".join("::".join(key) for key in keys[:3]))
+    return problems
+
+
+def _empty_phase(output_dir: Path, name: str, command: tuple[str, ...], junit_name: str) -> CheckResult:
+    """A phase with no collected tests (possible in a CI shard): recorded, not executed."""
+
+    (output_dir / junit_name).write_text(
+        '<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" tests="0" failures="0" '
+        'errors="0" skipped="0" /></testsuites>\n',
+        encoding="utf-8",
+    )
+    return CheckResult(name, "passed", True, command=_command_text(command), exit_code=0, output="no tests collected in this shard")
 
 
 def _merge_junit_reports(reports: tuple[Path, Path], destination: Path) -> dict[str, int]:
@@ -582,7 +638,14 @@ def full_tests(root: Path, output_dir: Path, xdist_workers: int = 0) -> CheckRes
         _python_command(root, "-m", "pytest", "-m", "not serial", "--collect-only", "--verbosity=-1"),
         _python_command(root, "-m", "pytest", "-m", "serial", "--collect-only", "--verbosity=-1"),
     )
-    collected = [_collect_test_nodeids(root, command) for command in collection_commands]
+    # The three collections are independent read-only subprocesses; run them concurrently.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(collection_commands)) as pool:
+        collected = list(
+            pool.map(
+                lambda indexed: _collect_test_nodeids(root, indexed[1], allow_empty=indexed[0] > 0),
+                enumerate(collection_commands),
+            )
+        )
     full_nodes, phase_a_nodes, phase_b_nodes = (row[0] for row in collected)
     phase_union = phase_a_nodes | phase_b_nodes
     missing = full_nodes - phase_union
@@ -595,6 +658,8 @@ def full_tests(root: Path, output_dir: Path, xdist_workers: int = 0) -> CheckRes
     ]
     evidence: dict[str, object] = {
         "xdist_workers": xdist_workers,
+        # CI shards partition the suite by file (tests/conftest.py); parity below holds within the shard.
+        "test_shard": os.environ.get("ETF_COCKPIT_TEST_SHARD") or "all",
         "collection_node_counts": {
             "full": len(full_nodes),
             "phase_a": len(phase_a_nodes),
@@ -636,7 +701,11 @@ def full_tests(root: Path, output_dir: Path, xdist_workers: int = 0) -> CheckRes
     phase_names = ("full_tests_parallel", "full_tests_serial")
     phases = tuple(
         run_command(root, output_dir, name, command)
-        for name, command in zip(phase_names, commands, strict=True)
+        if nodes
+        else _empty_phase(output_dir, name, command, junit)
+        for name, command, nodes, junit in zip(
+            phase_names, commands, (phase_a_nodes, phase_b_nodes), ("junit-parallel.xml", "junit-serial.xml"), strict=True
+        )
     )
     evidence["phase_duration_ms"] = {"phase_a": phases[0].duration_ms, "phase_b": phases[1].duration_ms}
     evidence["phase_status"] = {"phase_a": phases[0].status, "phase_b": phases[1].status}
@@ -651,6 +720,12 @@ def full_tests(root: Path, output_dir: Path, xdist_workers: int = 0) -> CheckRes
             (output_dir / "junit-parallel.xml", output_dir / "junit-serial.xml"),
             output_dir / "junit-full.xml",
         )
+        execution_problems = _junit_execution_problems(
+            (output_dir / "junit-parallel.xml", output_dir / "junit-serial.xml"),
+            full_nodes,
+        )
+        evidence["execution_parity"] = execution_problems or "every collected test executed exactly once"
+        failures.extend(f"execution parity failed: {problem}" for problem in execution_problems)
     except (OSError, ET.ParseError, ValueError) as exc:
         failures.append(f"JUnit merge failed: {exc}")
     if failures:
@@ -669,7 +744,23 @@ def full_tests(root: Path, output_dir: Path, xdist_workers: int = 0) -> CheckRes
     )
 
 
+def _usable_cpu_count() -> int:
+    if hasattr(os, "sched_getaffinity"):
+        return max(1, len(os.sched_getaffinity(0)))
+    return max(1, os.cpu_count() or 1)
+
+
+def _auto_xdist_workers() -> int:
+    """One worker per usable CPU, capped by ETF_COCKPIT_XDIST_MAX (default 16); 0 (serial) on one CPU."""
+
+    cap = _nonnegative_int(os.environ.get(XDIST_MAX_ENV, "16"))
+    workers = min(_usable_cpu_count(), cap)
+    return workers if workers > 1 else 0
+
+
 def _nonnegative_int(value: str) -> int:
+    if value.strip().lower() == "auto":
+        return _auto_xdist_workers()
     try:
         workers = int(value)
     except ValueError as exc:
@@ -1302,7 +1393,24 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     print(json.dumps({"exit_code": result.exit_code, "output_dir": str(result.output_dir), "manifest": str(result.manifest_path), "report": str(result.report_path)}, indent=2))
+    _print_failure_digest(root, result.output_dir)
     return result.exit_code
+
+
+def _print_failure_digest(root: Path, output_dir: Path) -> None:
+    """Print the compact failure digest (scripts/failure_digest.py); presentation only, never the verdict."""
+
+    try:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("failure_digest", Path(__file__).with_name("failure_digest.py"))
+        if spec is None or spec.loader is None:
+            return
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        print("\n--- failure digest ---\n" + module.render([output_dir], root))
+    except Exception as exc:  # noqa: BLE001 - the digest must never change the gate outcome
+        print(f"failure digest unavailable: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":
