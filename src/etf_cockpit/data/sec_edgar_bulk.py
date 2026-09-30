@@ -47,12 +47,37 @@ _PARTIAL_SCHEMA_VERSION = 2
 _DATASET_LIMITS = {
     "companyfacts": (8 * 1024**3, 50_000, 32 * 1024**2),
     "submissions": (8 * 1024**3, 1_000_000, 256 * 1024**2),
+    # N-PORT quarterly archives are larger than the other fund archive. Keep
+    # them under the existing global bulk limits while retaining the same
+    # bounded ZIP validation as every other dataset.
+    "nport": (MAX_BULK_BYTES, MAX_BULK_MEMBERS, MAX_CENTRAL_DIRECTORY_BYTES),
+    "ncen": (MAX_BULK_BYTES, MAX_BULK_MEMBERS, MAX_CENTRAL_DIRECTORY_BYTES),
 }
 
 
 def _dataset_limits(dataset: str) -> tuple[int, int, int]:
-    byte_limit, members, directory_bytes = _DATASET_LIMITS[dataset]
+    dataset_kind = dataset
+    if dataset not in _DATASET_LIMITS:
+        match = re.fullmatch(r"(nport|ncen)_20\d{2}q[1-4]", dataset)
+        if match is None:
+            raise ValueError("SEC bulk dataset is not registered")
+        dataset_kind = match.group(1)
+    byte_limit, members, directory_bytes = _DATASET_LIMITS[dataset_kind]
     return min(byte_limit, MAX_BULK_BYTES), min(members, MAX_BULK_MEMBERS), min(directory_bytes, MAX_CENTRAL_DIRECTORY_BYTES)
+
+
+def _dataset_url(dataset: str) -> str:
+    if dataset == "companyfacts":
+        return COMPANYFACTS_BULK_URL
+    if dataset == "submissions":
+        return SUBMISSIONS_BULK_URL
+    match = re.fullmatch(r"(?P<form>nport|ncen)_(?P<period>20\d{2}q[1-4])", dataset)
+    if match is None:
+        raise ValueError("SEC bulk dataset must be companyfacts, submissions, or a dated N-PORT/N-CEN archive")
+    form = match.group("form")
+    archive = "nport" if form == "nport" else "ncen"
+    form_page = "form-n-port-data-sets" if form == "nport" else "form-n-cen-data-sets"
+    return f"https://www.sec.gov/files/dera/data/{form_page}/{match.group('period')}_{archive}.zip"
 
 
 class SecEdgarBulkError(RuntimeError):
@@ -72,9 +97,8 @@ class SecEdgarBulkEndpointError(SecEdgarBulkUnavailable):
 
 
 def fetch_bulk(provider: Any, dataset: str, *, publish_guard: PublicationScopeFactory | None = None, cache_only: bool = False) -> RawDocument:
-    if dataset not in {"companyfacts", "submissions"}:
-        raise ValueError("SEC bulk dataset must be companyfacts or submissions")
-    url = COMPANYFACTS_BULK_URL if dataset == "companyfacts" else SUBMISSIONS_BULK_URL
+    url = _dataset_url(dataset)
+    _dataset_limits(dataset)
     root = Path(provider.cache_dir) / "sec_edgar_bulk"
     _validate_root(root)
     paths = _paths(root, dataset)

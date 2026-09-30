@@ -341,6 +341,40 @@ def load_config(config_dir: Path = CONFIG_DIR) -> AppConfig:
         raise ConfigError(f"Config validation failed: {exc}") from exc
 
 
+def resolve_provider_api_key(
+    provider_name: str,
+    *,
+    config_dir: Path = CONFIG_DIR,
+    vault: Any | None = None,
+    configured_value: str | None = None,
+) -> str | None:
+    """Resolve a provider credential from the Windows vault, then the existing environment overlay."""
+
+    provider_key = str(provider_name).strip()
+    if not provider_key:
+        raise ConfigError("Provider name cannot be empty.")
+    try:
+        if vault is None:
+            from etf_cockpit.security.credentials import CredentialVault
+
+            vault = CredentialVault()
+        credential = vault.get(provider_key)
+    except Exception:
+        raise ConfigError("Provider credential could not be read from the local vault.") from None
+    if credential and str(credential).strip():
+        return str(credential)
+    try:
+        env_file_values = {
+            key: value
+            for key, value in dotenv_values(Path(config_dir).parent / ".env").items()
+            if value is not None
+        }
+    except Exception:
+        raise ConfigError("Provider credential fallback could not be read safely.") from None
+    environment_value = _env_value(_provider_env_key(provider_key, "API_KEY"), env_file_values)
+    return environment_value if environment_value is not None else configured_value
+
+
 def _universe_config_from_records(records: Any, *, allow_cross_tier_duplicates: bool = False) -> UniverseConfig:
     return UniverseConfig(
         etfs=[

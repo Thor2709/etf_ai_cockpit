@@ -25,6 +25,7 @@ from etf_cockpit.analysis.decision.domains import (
     DomainRegistry,
     MetricDefinition,
     build_instrument_assessment,
+    load_domain_registry,
     registry_checksum,
 )
 from etf_cockpit.analysis.financial_sector_adapters import (
@@ -217,6 +218,7 @@ def compose_stock_decision(
     valuation_output = _valuation_components(stock_research)
     expectations_output = _copy_path(stock_research, "expectations")
     tactical_output = _tactical_components(tactical_evidence)
+    valuation_assessment = None
     if ec_route.applies:
         native_valid = _is_native_spbk_result(native_spbk_result)
         assessment = native_spbk_result if native_valid else None
@@ -331,6 +333,31 @@ def compose_stock_decision(
             for item in stock_map.domains
             if str(item["domain"]) in domains_by_name
         )
+        valuation_registry = load_domain_registry(registry_path)
+        valuation_definitions = tuple(
+            item for item in valuation_registry.metrics if item.domain == "valuation"
+        )
+        valuation_assessment = build_instrument_assessment(
+            instrument,
+            "stock",
+            _business_model(target_context),
+            decision_time,
+            _valuation_scored_metrics(
+                stock_research,
+                valuation_definitions,
+                target_context,
+            ),
+            DomainRegistry(
+                valuation_registry.version,
+                valuation_registry.checksum,
+                valuation_definitions,
+            ),
+            target_context=target_context,
+            peer_observations=peer_observations,
+            domain_reference_z=domain_reference_z,
+            minimum_support=minimum_support,
+        )
+        valuation_domain = valuation_assessment.domain_slots[0]
 
     return {
         "instrument": instrument,
@@ -341,13 +368,86 @@ def compose_stock_decision(
         "assessment": assessment,
         "underwriting": generic_assessment,
         "underwriting_domains": domains,
+        "underwriting_domain_labels": {
+            str(item["domain"]): str(item["label"])
+            for item in stock_map.domains
+        },
         "underwriting_baseline_weights": _domain_weights(stock_map.domains),
+        "underwriting_z_score": _weighted_domain_z(domains, _domain_weights(stock_map.domains)),
+        "critical_underwriting_domains": tuple(
+            sorted(
+                {
+                    item.domain
+                    for item in stock_map.registry.metrics
+                    if item.requirement_class == "CRITICAL"
+                }
+            )
+        ),
         "underwriting_input_evidence": input_evidence,
+        "valuation_domain": valuation_domain if generic_assessment is not None else DomainSlot(
+            "valuation", "UNAVAILABLE", None, None, 0.0, 0.0,
+            "NATIVE_VALUATION_DOMAIN_UNAVAILABLE", (),
+        ),
+        "valuation_z_score": (
+            valuation_domain.z_score
+            if generic_assessment is not None and valuation_domain.status == "AVAILABLE"
+            else None
+        ),
+        "valuation_drivers": (
+            tuple(valuation_assessment.drivers)
+            if valuation_assessment is not None
+            else ()
+        ),
         "valuation": valuation_output,
         "expectations": expectations_output,
         "tactical": tactical_output,
         "execution_allowed": False,
     }
+
+
+def _valuation_scored_metrics(
+    stock_research: Mapping[str, object],
+    definitions: Sequence[MetricDefinition],
+    context: InstrumentContextV2,
+) -> list[ScoredMetric]:
+    valuation = stock_research.get("valuation")
+    relative = valuation.get("relative_metrics") if isinstance(valuation, Mapping) else None
+    if not isinstance(relative, Mapping):
+        return []
+    return [
+        metric
+        for definition in definitions
+        if (
+            metric := _make_scored_metric(
+                definition.metric_id,
+                relative.get(definition.metric_id),
+                definition,
+                rank_authority=definition.rank_authority,
+                context=context,
+            )
+        )
+        is not None
+    ]
+
+
+def _weighted_domain_z(
+    domains: Sequence[DomainSlot], weights: Mapping[str, float]
+) -> float | None:
+    by_domain = {item.domain: item for item in domains}
+    if not weights or any(
+        domain not in by_domain
+        or by_domain[domain].status != "AVAILABLE"
+        or by_domain[domain].z_score is None
+        for domain in weights
+    ):
+        return None
+    total = sum(weights.values())
+    if total <= 0:
+        return None
+    return sum(
+        float(by_domain[domain].z_score) * weight
+        for domain, weight in weights.items()
+    ) / total
 
 
 def _definition_from_map(raw: Mapping[str, object], domain_id: str) -> MetricDefinition:
