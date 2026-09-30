@@ -314,12 +314,9 @@ class ProviderRegistry:
 
     @staticmethod
     def _requires_api_key(provider_id: str, active: str) -> bool:
-        return (
-            provider_id not in _KEYLESS_PROVIDERS
-            and active not in _KEYLESS_PROVIDERS
-            and provider_id not in _OPTIONAL_CREDENTIAL_CAPABILITIES
-            and active not in _OPTIONAL_CREDENTIAL_CAPABILITIES
-        )
+        # Key-required providers (T8 contract, e.g. finnhub) stay api_key_required without a
+        # credential; the capability mapping only limits what a keyed probe may declare.
+        return provider_id == "fred" or active not in _KEYLESS_PROVIDERS
 
     @staticmethod
     def _normalise_result(base: ProviderCapability, result: object) -> tuple[ProviderCapability, ...]:

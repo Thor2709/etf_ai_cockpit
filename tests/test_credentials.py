@@ -231,7 +231,7 @@ def test_credential_mutations_leave_vault_unchanged_when_probe_invalidation_fail
     assert vault.get("fred") == "before"
 
 
-def test_optional_finnhub_credential_resolves_and_limits_capabilities_to_mapping(
+def test_finnhub_credential_resolves_and_limits_capabilities_to_mapping(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     current: dict[str, str | None] = {"credential": None}
@@ -263,7 +263,7 @@ def test_optional_finnhub_credential_resolves_and_limits_capabilities_to_mapping
     unrelated_with = next(item for item in with_credential if item.provider_id == "sec_edgar")
 
     declared = {"prices", "fx", "etf_metadata", "etf_holdings"}
-    assert {item.dataset_type for item in missing} == declared
+    assert [(item.status, item.entitlement) for item in missing] == [("unavailable", "api_key_required")]
     assert {item.dataset_type for item in present} == declared
     assert all(not item.secret_present for item in missing)
     assert all(item.secret_present for item in present)
