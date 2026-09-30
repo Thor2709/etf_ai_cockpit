@@ -224,6 +224,9 @@ def _seed_isolated_data() -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
+    xdist_controller = bool(getattr(config.option, "numprocesses", None)) and not hasattr(config, "workerinput")
+    if not xdist_controller:
+        os.environ.pop(_SHARD_ENV, None)
     if config.option.collectonly:
         return  # collection never reads project data
     try:
@@ -398,6 +401,9 @@ def _file_weights() -> dict[str, float]:
 # shard k.  The assignment is a pure function of the scope and N, independent of which tests a run
 # collects, so the N shards partition the suite for every marker selection and every process.
 _SHARD_ENV = "ETF_COCKPIT_TEST_SHARD"
+# Captured at import: processes that run tests drop the variable (pytest_configure) so pytest
+# subprocesses started by tests see the whole suite; an xdist controller keeps it for its workers.
+_SHARD_VALUE = os.environ.get(_SHARD_ENV, "")
 
 
 def _parse_shard(value: str) -> tuple[int, int] | None:
@@ -437,7 +443,7 @@ def _shard_of(scope: str, total: int, assignment: dict[str, int]) -> int:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    shard = _parse_shard(os.environ.get(_SHARD_ENV, ""))
+    shard = _parse_shard(_SHARD_VALUE)
     if shard is not None:
         index, total = shard
         assignment = _shard_assignment(total)

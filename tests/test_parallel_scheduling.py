@@ -162,3 +162,8 @@ def test_shards_partition_every_scope_exactly_once_and_balance_recorded_time() -
 def test_invalid_shard_values_are_rejected(value: str) -> None:
     with pytest.raises(pytest.UsageError):
         conftest._parse_shard(value)
+
+
+def test_test_processes_do_not_leak_the_shard_to_pytest_subprocesses() -> None:
+    # Tests that launch pytest themselves must collect the whole suite, whatever shard runs them.
+    assert conftest._SHARD_ENV not in os.environ
