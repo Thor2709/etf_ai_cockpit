@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from pathlib import Path
 
 import flet as ft
+import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
 from etf_cockpit.app.components.charts import portfolio_performance_chart
 from etf_cockpit.app.components.overlap import overlap_evidence_panel
+from etf_cockpit.app.formatting import format_currency, format_number, format_percent
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
     PortfolioAnalysis,
@@ -26,8 +29,11 @@ from etf_cockpit.application.ui_facade import (
     draft_portfolio_candidate,
     load_portfolio_candidate,
     load_portfolio_performance_series,
+    load_portfolio_holdings_projection,
     portfolio_snapshot_binding,
     performance_series_frame,
+    CANONICAL_DISTRIBUTION_HORIZONS_DAYS,
+    PRIMARY_MODEL_HORIZON_DAYS,
     rebalance_inapplicable_instruments,
     save_portfolio_candidate,
     select_holdings_view,
@@ -175,6 +181,389 @@ def _portfolio_performance_block(page: ft.Page | None) -> ft.Control:
     )
 
 
+def _portfolio_holdings_block(
+    page: ft.Page | None,
+    state: AppState,
+    current_analysis: list[PortfolioAnalysis],
+    proposal_callback: Callable[[ft.ControlEvent | None], None],
+    refresh_callbacks: list[Callable[[ft.ControlEvent | None], None]],
+) -> ft.Control:
+    initial = load_portfolio_holdings_projection(
+        state.snapshot,
+        current_analysis[0],
+        horizon_days=PRIMARY_MODEL_HORIZON_DAYS,
+    )
+    run_rows = initial.get("analysis_runs", ())
+    run_ids = [
+        str(item.get("run_id"))
+        for item in run_rows
+        if isinstance(item, Mapping) and str(item.get("run_id", "")).strip()
+    ]
+    selected_run = str(initial.get("selected_analysis_run_id") or "unavailable")
+    if selected_run != "unavailable" and selected_run not in run_ids:
+        run_ids.insert(0, selected_run)
+    run_options = [ft.dropdown.Option(value) for value in run_ids] or [ft.dropdown.Option("unavailable")]
+
+    analysis_run = ft.Dropdown(
+        key="portfolio.holdings.analysis-run",
+        label="Analysis run",
+        value=selected_run,
+        options=run_options,
+        width=260,
+        dense=True,
+    )
+    horizon = ft.Dropdown(
+        key="portfolio.holdings.horizon",
+        label="Exact forecast horizon (days)",
+        value=str(PRIMARY_MODEL_HORIZON_DAYS),
+        options=[ft.dropdown.Option(str(value)) for value in sorted(CANONICAL_DISTRIBUTION_HORIZONS_DAYS)],
+        width=210,
+        dense=True,
+    )
+    currency = ft.TextField(
+        key="portfolio.holdings.currency",
+        label="Output currency",
+        value="EUR",
+        width=145,
+        dense=True,
+    )
+    search = ft.TextField(
+        key="portfolio.holdings.search",
+        label="Filter holdings",
+        width=200,
+        dense=True,
+    )
+    export_path = ft.TextField(
+        key="portfolio.holdings.export-path",
+        label="CSV destination",
+        hint_text="Enter a local file path",
+        width=280,
+        dense=True,
+    )
+    asset_filter = ft.Dropdown(
+        key="portfolio.holdings.asset-filter",
+        label="Asset type",
+        value="all",
+        options=[ft.dropdown.Option(value) for value in ("all", "stock", "etf", "bond")],
+        width=150,
+        dense=True,
+    )
+    sort = ft.Dropdown(
+        key="portfolio.holdings.sort",
+        label="Sort",
+        value="instrument_id:asc",
+        options=[
+            ft.dropdown.Option(value, text=label)
+            for value, label in (
+                ("instrument_id:asc", "Instrument A–Z"),
+                ("instrument_id:desc", "Instrument Z–A"),
+                ("value:desc", "Value high to low"),
+                ("value:asc", "Value low to high"),
+                ("weight:desc", "Weight high to low"),
+                ("expected_return:desc", "Expected return high to low"),
+            )
+        ],
+        width=210,
+        dense=True,
+    )
+    preset = ft.Dropdown(
+        key="portfolio.holdings.column-preset",
+        label="Columns",
+        value="full",
+        options=[ft.dropdown.Option(value) for value in ("full", "values", "analysis")],
+        width=135,
+        dense=True,
+    )
+    status = ft.Text("Loading holdings evidence…", key="portfolio.holdings.status", color=theme.MUTED, selectable=True)
+    row_host = ft.ListView(key="portfolio.holdings.rows", spacing=5, expand=True)
+    projection_state: list[dict[str, object]] = [initial]
+
+    def refresh(_event: ft.ControlEvent | None = None) -> None:
+        selected_sort, _, direction = str(sort.value or "instrument_id:asc").partition(":")
+        try:
+            selected_horizon = int(str(horizon.value or PRIMARY_MODEL_HORIZON_DAYS))
+        except (TypeError, ValueError):
+            selected_horizon = 0
+        projection = load_portfolio_holdings_projection(
+            state.snapshot,
+            current_analysis[0],
+            horizon_days=selected_horizon,
+            output_currency=str(currency.value or ""),
+            analysis_run_id=None if str(analysis_run.value or "") == "unavailable" else str(analysis_run.value),
+            search=str(search.value or ""),
+            asset_type=None if str(asset_filter.value or "all").casefold() == "all" else str(asset_filter.value),
+            sort_by=selected_sort,
+            descending=direction == "desc",
+            column_preset=str(preset.value or "full").casefold(),
+        )
+        projection_state[:] = [projection]
+        render_projection(projection)
+        if _event is not None:
+            _safe_update(page)
+
+    def open_detail(_event: ft.ControlEvent, instrument_id: str) -> None:
+        state.selected_etf = instrument_id
+        if page is not None:
+            page.go("/etf")
+
+    def prepare_proposal(event: ft.ControlEvent | None) -> None:
+        if not bool(projection_state[0].get("proposal_handoff_allowed")):
+            status.value = "Proposal hand-off blocked: " + str(
+                projection_state[0].get("proposal_handoff_reason") or "analysis_is_not_current_for_selected_snapshot"
+            )
+            status.color = theme.AMBER
+            _safe_update(page)
+            return
+        proposal_callback(event)
+
+    def export_selected(_event: ft.ControlEvent | None) -> None:
+        destination_text = str(export_path.value or "").strip()
+        if not destination_text:
+            status.value = "CSV export unavailable: enter a local destination path."
+            status.color = theme.AMBER
+            _safe_update(page)
+            return
+        projection = projection_state[0]
+        rows = projection.get("rows", ())
+        rows = rows if isinstance(rows, list) else []
+        if not rows:
+            status.value = "CSV export unavailable: the selected projection has no holding rows."
+            status.color = theme.AMBER
+            _safe_update(page)
+            return
+        portfolio_meta = projection.get("portfolio_snapshot")
+        portfolio_meta = portfolio_meta if isinstance(portfolio_meta, Mapping) else {}
+        performance_meta = projection.get("performance_snapshot")
+        performance_meta = performance_meta if isinstance(performance_meta, Mapping) else {}
+        metadata = {
+            "projection_status": projection.get("status"),
+            "portfolio_id": portfolio_meta.get("portfolio_id"),
+            "portfolio_snapshot_id": portfolio_meta.get("snapshot_id"),
+            "portfolio_source_checksum": portfolio_meta.get("source_checksum"),
+            "performance_snapshot_date": performance_meta.get("date"),
+            "analysis_run_id": projection.get("analysis_run_id"),
+            "analysis_date": projection.get("analysis_date"),
+            "analysis_policy_id": projection.get("analysis_policy_id"),
+            "horizon_days": projection.get("horizon_days"),
+            "output_currency": projection.get("output_currency"),
+            "projection_reasons": ";".join(str(item) for item in projection.get("reasons", ())),
+            "projection_conflicts": ";".join(str(item) for item in projection.get("conflicts", ())),
+        }
+        records: list[dict[str, object]] = []
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            record = dict(metadata)
+            for field, value in row.items():
+                if isinstance(value, Mapping) and "status" in value:
+                    record[field] = value.get("value")
+                    record[f"{field}_status"] = value.get("status")
+                    record[f"{field}_reason"] = value.get("reason")
+                elif isinstance(value, Mapping):
+                    for subfield, cell in value.items():
+                        name = f"{field}_{subfield}"
+                        if isinstance(cell, Mapping) and "status" in cell:
+                            record[name] = cell.get("value")
+                            record[f"{name}_status"] = cell.get("status")
+                            record[f"{name}_reason"] = cell.get("reason")
+                        else:
+                            record[name] = cell
+                elif isinstance(value, (tuple, list)):
+                    record[field] = ";".join(str(item) for item in value)
+                else:
+                    record[field] = value
+            records.append(record)
+        result = export_table(
+            "portfolio_holdings_analysis",
+            pd.DataFrame.from_records(records),
+            Path(destination_text),
+        )
+        if result.ok:
+            status.value = f"Holdings evidence CSV ready: {result.destination} ({result.rows} rows)."
+            status.color = theme.GREEN
+        else:
+            status.value = f"Holdings evidence CSV unavailable: {result.error}; previous output preserved."
+            status.color = theme.AMBER
+        _safe_update(page)
+
+    def render_projection(projection: dict[str, object]) -> None:
+        rows = projection.get("rows", ())
+        rows = rows if isinstance(rows, list) else []
+        output_currency = str(projection.get("output_currency") or "EUR")
+        horizon_days = projection.get("horizon_days")
+        portfolio_meta = projection.get("portfolio_snapshot")
+        portfolio_meta = portfolio_meta if isinstance(portfolio_meta, Mapping) else {}
+        performance_meta = projection.get("performance_snapshot")
+        performance_meta = performance_meta if isinstance(performance_meta, Mapping) else {}
+        reason = projection.get("reason") or projection.get("analysis_reason")
+        status.value = (
+            f"Holdings: {projection.get('status', 'unavailable')} · {projection.get('row_count', 0)} of "
+            f"{projection.get('total_rows', 0)} positions · run {projection.get('analysis_run_id') or 'unavailable'} · "
+            f"data/performance as-of {portfolio_meta.get('as_of') or 'unavailable'}/"
+            f"{performance_meta.get('date') or 'unavailable'} · "
+            f"analysis as-of {projection.get('analysis_date') or 'unavailable'} · "
+            f"policy {projection.get('analysis_policy_ids') or 'unavailable'} · horizon {horizon_days or 'unavailable'} days"
+        )
+        if projection.get("conflicts"):
+            status.value += " · conflicts: " + ", ".join(str(item) for item in projection["conflicts"])
+        if reason:
+            status.value += f" · {reason}"
+        status.color = theme.GREEN if projection.get("status") == "available" else theme.AMBER
+        proposal_button.disabled = not bool(projection.get("proposal_handoff_allowed"))
+        controls: list[ft.Control] = []
+        for item in rows:
+            if not isinstance(item, Mapping):
+                continue
+            instrument_id = str(item.get("instrument_id", ""))
+            if not instrument_id:
+                continue
+            asset = _holding_display(item.get("asset_type"))
+            quantity_cell = item.get("quantity")
+            if isinstance(quantity_cell, Mapping) and quantity_cell.get("status") != "available":
+                quantity_cell = item.get("face_value")
+            quantity = _holding_display(quantity_cell)
+            value = _holding_display(item.get("value"), currency=output_currency)
+            weight = _holding_display(item.get("weight"), percent=True)
+            action = _holding_display(item.get("action"))
+            expected = _holding_display(item.get("expected_return"), percent=True)
+            details: list[ft.Control] = []
+            preset_value = str(projection.get("column_preset", "full"))
+            value_fields = (
+                ("Quantity / face value", "quantity", None),
+                ("Face value", "face_value", None),
+                ("Local currency", "local_currency", None),
+                ("Local value", "local_value", None),
+                ("Output value", "value", output_currency),
+                ("Weight", "weight", "percent"),
+                ("Cost basis", "cost_basis", output_currency),
+                ("Realised P&L", "realised_pnl", output_currency),
+                ("Unrealised P&L", "unrealised_pnl", output_currency),
+                ("Income", "income", output_currency),
+                ("Fees", "fees", output_currency),
+            )
+            analysis_fields = (
+                ("Scores", "scores", None),
+                ("Universe rank", "rank", None),
+                ("Peer rank", "peer_rank", None),
+                ("Action", "action", None),
+                ("Blockers", "blockers", None),
+                ("Coverage", "coverage", "percent"),
+                ("Data as-of", "data_as_of", None),
+                ("Performance as-of", "performance_as_of", None),
+                ("Analysis as-of", "analysis_as_of", None),
+                ("Model as-of", "model_as_of", None),
+                ("Analysis stale", "analysis_stale", None),
+                ("Policy identities", "policy_ids", None),
+                ("Expected return", "expected_return", "percent"),
+                ("Forecast quantiles", "forecast_quantiles", "percent"),
+                ("Expected gain / loss", "expected_gain_loss", output_currency),
+            )
+            selected_fields = value_fields if preset_value == "values" else analysis_fields if preset_value == "analysis" else (*value_fields, *analysis_fields)
+            for label, field, style in selected_fields:
+                raw = item.get(field)
+                if field == "scores" and isinstance(raw, Mapping):
+                    shown = ", ".join(f"{name}: {_holding_display(cell)}" for name, cell in raw.items())
+                elif field in {"forecast_quantiles", "expected_gain_loss", "asset_details"} and isinstance(raw, Mapping):
+                    shown = ", ".join(f"{name}: {_holding_display(cell, currency=style if field == 'expected_gain_loss' else None, percent=field == 'forecast_quantiles') }" for name, cell in raw.items())
+                else:
+                    shown = _holding_display(raw, currency=style if style != "percent" else None, percent=style == "percent")
+                details.append(ft.Text(f"{label}: {shown}", size=11, color=theme.MUTED, selectable=True))
+            asset_details = item.get("asset_details")
+            if isinstance(asset_details, Mapping) and preset_value != "analysis":
+                details.append(
+                    ft.Text(
+                        "Asset-specific: " + ", ".join(f"{name}: {_holding_display(cell)}" for name, cell in asset_details.items()),
+                        size=11,
+                        color=theme.MUTED,
+                        selectable=True,
+                    )
+                )
+            for label, field in (("Transactions / lots", "transactions"), ("Lots", "lots"), ("Events", "events"), ("Portfolio impact", "portfolio_impact")):
+                details.append(ft.Text(f"{label}: {_holding_display(item.get(field))}", size=11, color=theme.MUTED, selectable=True))
+            details.append(
+                ft.OutlinedButton(
+                    "Open instrument detail",
+                    key=f"portfolio.holdings.instrument-detail.{instrument_id}",
+                    on_click=lambda event, selected_id=instrument_id: open_detail(event, selected_id),
+                )
+            )
+            controls.append(
+                ft.ExpansionTile(
+                    key=f"portfolio.holdings.row.{instrument_id}",
+                    title=ft.Row(
+                        [
+                            ft.Text(instrument_id, width=135, size=12),
+                            ft.Text(asset, width=80, size=11),
+                            ft.Text(quantity, width=100, size=11),
+                            ft.Text(value, width=140, size=11),
+                            ft.Text(weight, width=85, size=11),
+                            ft.Text(action, width=130, size=11),
+                            ft.Text(expected, width=110, size=11),
+                        ],
+                        scroll=ft.ScrollMode.AUTO,
+                    ),
+                    controls=details,
+                )
+            )
+        row_host.controls = controls or [ft.Text("No holdings match the selected snapshot and filters.", color=theme.MUTED)]
+
+    proposal_button = ft.OutlinedButton(
+        "Prepare ISSUE-0130 draft",
+        key="portfolio.holdings.proposal",
+        on_click=prepare_proposal,
+        disabled=True,
+    )
+    analysis_run.on_change = refresh
+    horizon.on_change = refresh
+    currency.on_change = refresh
+    search.on_change = refresh
+    asset_filter.on_change = refresh
+    sort.on_change = refresh
+    preset.on_change = refresh
+    refresh_callbacks[:] = [refresh]
+    render_projection(initial)
+
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Portfolio holdings analysis",
+                    "Bound to the selected local holdings snapshot and exact analysis run. Missing values and drill-down evidence remain explicit; execution is disabled.",
+                ),
+                ft.Row([analysis_run, horizon, currency, asset_filter, sort, preset], wrap=True, spacing=8),
+                ft.Row([search, export_path, ft.OutlinedButton("Refresh holdings", key="portfolio.holdings.refresh", on_click=refresh), ft.OutlinedButton("Export holdings evidence", key="portfolio.holdings.export", on_click=export_selected), proposal_button], wrap=True, spacing=8),
+                status,
+                ft.Container(content=row_host, height=520),
+            ],
+            spacing=8,
+        )
+    )
+
+
+def _holding_display(
+    cell: object,
+    *,
+    currency: str | None = None,
+    percent: bool = False,
+) -> str:
+    if isinstance(cell, Mapping):
+        if cell.get("status") != "available" or cell.get("value") is None:
+            reason = str(cell.get("reason") or "source_value_unavailable")
+            return f"unavailable · {reason}"
+        value = cell.get("value")
+    else:
+        value = cell
+    if value is None:
+        return "unavailable · source_value_unavailable"
+    if percent:
+        return format_percent(value)
+    if currency:
+        return format_currency(value, currency=currency)
+    if isinstance(value, (tuple, list)):
+        return ", ".join(str(item) for item in value) or "none"
+    return format_number(value) if isinstance(value, (int, float)) else str(value)
+
+
 def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
     """Render editable research candidates without creating executable intent."""
 
@@ -250,6 +639,16 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
         width=160,
         dense=True,
     )
+    initial_analysis = analyse_portfolio_candidate(
+        state.snapshot,
+        initial,
+        account_id=str(account.value or "default"),
+        portfolio_id=str(portfolio.value or "default"),
+        snapshot_id=str(snapshot.value or "current"),
+        holdings_view=str(holdings_view.value or "combined"),
+    )
+    current_analysis = [initial_analysis]
+    holdings_refresh_callbacks: list[Callable[[ft.ControlEvent | None], None]] = []
     initial_status = "Unsaved candidate. Edit weights and select Analyse candidate."
     if state.snapshot.holdings.empty:
         initial_status = "No current holdings are available. Candidate targets can still be analysed from a zero-current baseline."
@@ -260,7 +659,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
         selectable=True,
     )
     result_host = ft.Column(
-        [_analysis_view(analyse_portfolio_candidate(state.snapshot, initial, account_id=account.value, portfolio_id=portfolio.value, snapshot_id=snapshot.value, holdings_view=holdings_view.value), benchmark_registry=getattr(state.snapshot, "benchmark_reference_registry", None))],
+        [_analysis_view(initial_analysis, benchmark_registry=getattr(state.snapshot, "benchmark_reference_registry", None))],
         key="portfolio.results",
         spacing=12,
     )
@@ -290,7 +689,10 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
             snapshot_id=str(snapshot.value or "current"),
             holdings_view=str(holdings_view.value or "combined"),
         )
+        current_analysis[:] = [analysis]
         result_host.controls = [_analysis_view(analysis, benchmark_registry=getattr(state.snapshot, "benchmark_reference_registry", None))]
+        if holdings_refresh_callbacks:
+            holdings_refresh_callbacks[0](None)
         status.value = message
         status.color = colour
         state.last_message = message
@@ -512,6 +914,21 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
             status.color = theme.AMBER
             _safe_update(page)
 
+    def draft_holdings_proposal(_event: ft.ControlEvent | None) -> None:
+        binding = current_analysis[0].snapshot_binding
+        if (
+            binding is None
+            or binding.account_id != str(account.value or "default")
+            or binding.portfolio_id != str(portfolio.value or "default")
+            or binding.snapshot_id != str(snapshot.value or "current")
+            or binding.holdings_view != str(holdings_view.value or "combined")
+        ):
+            status.value = "Proposal hand-off blocked: analyse the currently selected portfolio snapshot before using the holdings action."
+            status.color = theme.AMBER
+            _safe_update(page)
+            return
+        draft_proposal(_event)
+
     def reset_current(_event: ft.ControlEvent | None) -> None:
         current_lines = {instrument_id: [] for instrument_id in target_inputs}
         selected_holdings = select_holdings_view(
@@ -584,6 +1001,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 )
             ),
             _portfolio_performance_block(page),
+            _portfolio_holdings_block(page, state, current_analysis, draft_holdings_proposal, holdings_refresh_callbacks),
             result_host,
             rebalance_host,
         ],

@@ -59,6 +59,7 @@ from etf_cockpit.portfolio.performance_series import (
     build_portfolio_performance_series,
     performance_series_frame,  # noqa: F401
 )
+from etf_cockpit.portfolio.holdings_table import build_portfolio_holdings_table
 
 from etf_cockpit.chatgpt_bridge.audit_packet import *  # noqa: F401,F403
 from etf_cockpit.data.backup_restore import *  # noqa: F401,F403
@@ -169,7 +170,11 @@ from etf_cockpit.core.job_scheduler import *  # noqa: F401,F403
 from etf_cockpit.core.resource_profiles import *  # noqa: F401,F403
 from etf_cockpit.core.resource_profiles import HardwareSnapshot, resource_profile_report
 from etf_cockpit.models.forecast_scores import *  # noqa: F401,F403
-from etf_cockpit.models.forecast_scores import forecast_return_distributions as load_forecast_return_distributions  # noqa: F401
+from etf_cockpit.models.forecast_scores import (
+    CANONICAL_DISTRIBUTION_HORIZONS_DAYS,  # noqa: F401
+    PRIMARY_MODEL_HORIZON_DAYS,  # noqa: F401
+    forecast_return_distributions as load_forecast_return_distributions,
+)  # noqa: F401
 from etf_cockpit.models.model_zoo import *  # noqa: F401,F403
 from etf_cockpit.models.coverage_audit import *  # noqa: F401,F403
 from etf_cockpit.models.local_weights import *  # noqa: F401,F403
@@ -233,6 +238,271 @@ def load_portfolio_performance_series(
         custom_end=custom_end,  # type: ignore[arg-type]
         fx_rates=fx_rates,
     )
+
+
+def load_portfolio_holdings_projection(
+    snapshot: object,
+    analysis: PortfolioAnalysis,
+    *,
+    horizon_days: int,
+    output_currency: str = "EUR",
+    analysis_run_id: str | None = None,
+    search: str = "",
+    asset_type: str | None = None,
+    sort_by: str = "instrument_id",
+    descending: bool = False,
+    column_preset: str = "full",
+    storage_root: Path | None = None,
+    artifact_directory: Path | None = None,
+) -> dict[str, object]:
+    """Load a holding view from one bound portfolio, performance and analysis run."""
+
+    source = Path(storage_root or ROOT).resolve()
+    artifact_root = Path(artifact_directory or LOG_DIR).resolve()
+    binding = analysis.snapshot_binding
+    unavailable = {
+        "status": "unavailable",
+        "reason": "portfolio_snapshot_binding_unavailable",
+        "portfolio_snapshot": None,
+        "performance_snapshot": None,
+        "analysis_run_id": None,
+        "analysis_date": None,
+        "analysis_policy_id": None,
+        "analysis_current": False,
+        "horizon_days": horizon_days,
+        "output_currency": str(output_currency or "").strip().upper(),
+        "proposal_handoff_allowed": False,
+        "proposal_handoff_reason": "portfolio_snapshot_binding_unavailable",
+        "row_count": 0,
+        "total_rows": 0,
+        "rows": [],
+        "analysis_runs": [],
+        "execution_allowed": False,
+    }
+    if binding is None:
+        return unavailable
+
+    portfolio_snapshot = {
+        "portfolio_id": getattr(binding, "portfolio_id", None),
+        "snapshot_id": getattr(binding, "snapshot_id", None),
+        "as_of": getattr(binding, "as_of", None),
+        "source_checksum": getattr(binding, "source_checksum", None),
+        "policy_id": getattr(snapshot, "policy_id", None),
+    }
+    holdings = getattr(snapshot, "holdings", None)
+    holdings = select_holdings_view(holdings, str(getattr(binding, "holdings_view", "combined")))
+    if isinstance(holdings, pd.DataFrame) and not holdings.empty and "asset_type" not in holdings.columns:
+        identity_column = next((name for name in ("instrument_id", "etf_id") if name in holdings.columns), None)
+        configured = getattr(getattr(snapshot, "config", None), "universe", None)
+        configured_by_id = configured.by_id() if configured is not None and callable(getattr(configured, "by_id", None)) else {}
+        if identity_column is not None:
+            holdings = holdings.copy()
+            holdings["asset_type"] = holdings[identity_column].map(
+                lambda value: getattr(configured_by_id.get(str(value)), "instrument_type", None)
+            )
+
+    report = load_portfolio_valuation_history(storage_root=source)
+    snapshots = report.get("snapshots")
+    performance_snapshot: dict[str, object] | None = None
+    as_of = _holdings_date(getattr(binding, "as_of", None))
+    if isinstance(snapshots, pd.DataFrame) and not snapshots.empty and as_of and "date" in snapshots:
+        dates = pd.to_datetime(snapshots["date"], errors="coerce", utc=True).dt.strftime("%Y-%m-%d")
+        selected = snapshots.loc[dates.eq(as_of)]
+        if len(selected) == 1:
+            performance_snapshot = selected.iloc[0].to_dict()
+            performance_snapshot["date"] = as_of
+            performance_snapshot["execution_allowed"] = False
+
+    signals = tuple(getattr(snapshot, "signals", ()) or ())
+    current_run_ids = {
+        str(getattr(signal, "run_id", "")).strip()
+        for signal in signals
+        if str(getattr(signal, "run_id", "")).strip()
+    }
+
+    artifacts: list[dict[str, object]] = []
+    try:
+        paths = sorted(artifact_root.glob("decision_opportunity_*.json"))
+    except OSError:
+        paths = []
+    for path in paths:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if (
+            not isinstance(payload, Mapping)
+            or payload.get("schema_version") != 1
+            or payload.get("artifact_version") != "decision-opportunity-shadow-v1"
+            or payload.get("execution_allowed") is not False
+        ):
+            continue
+        run_id = str(payload.get("run_id", "")).strip()
+        run_date = _holdings_date(payload.get("decision_time"))
+        if run_id and run_date and as_of and run_date <= as_of:
+            artifacts.append(dict(payload))
+    analysis_runs = [
+        {
+            "run_id": str(item.get("run_id", "")),
+            "decision_time": str(item.get("decision_time", "")),
+            "status": str(item.get("status", "unavailable")),
+        }
+        for item in sorted(artifacts, key=lambda item: (str(item.get("decision_time", "")), str(item.get("run_id", ""))), reverse=True)
+    ]
+
+    chosen_run_id = str(analysis_run_id or "").strip()
+    if not chosen_run_id and len(current_run_ids) == 1:
+        chosen_run_id = next(iter(current_run_ids))
+    if not chosen_run_id and analysis_runs:
+        chosen_run_id = str(analysis_runs[0]["run_id"])
+    signal_by_id = {
+        str(getattr(signal, "etf_id", "")).strip(): signal
+        for signal in signals
+        if str(getattr(signal, "run_id", "")).strip() == chosen_run_id
+        and str(getattr(signal, "etf_id", "")).strip()
+    } if chosen_run_id else {}
+    selected_artifacts = [item for item in artifacts if str(item.get("run_id", "")) == chosen_run_id]
+    artifact = selected_artifacts[0] if len(selected_artifacts) == 1 else None
+    analysis_date = _holdings_date(artifact.get("decision_time")) if artifact is not None else None
+    config_hashes = artifact.get("config_hashes") if artifact is not None else None
+    policy_id = (
+        str(config_hashes.get("decision_opportunity_v1", "")).strip()
+        if isinstance(config_hashes, Mapping)
+        else ""
+    )
+    raw_results = artifact.get("results") if artifact is not None else None
+    results = {
+        str(item.get("instrument", "")).strip(): dict(item)
+        for item in raw_results or ()
+        if isinstance(item, Mapping) and str(item.get("instrument", "")).strip()
+    } if isinstance(raw_results, list) else {}
+    opportunity_policy_matches = bool(
+        policy_id
+        and policy_id != "unavailable"
+        and results
+        and all(str(item.get("config_hash", "")).strip() == policy_id for item in results.values())
+    )
+    selected_signals_current = bool(
+        chosen_run_id
+        and current_run_ids == {chosen_run_id}
+        and signal_by_id
+        and all(_holdings_date(getattr(signal, "signal_date", None)) == analysis_date for signal in signal_by_id.values())
+    )
+    gate_policy_checksums = {
+        str(getattr(signal, "gate_policy_checksum", "")).strip()
+        for signal in signal_by_id.values()
+    }
+    gate_policy_id = next(iter(gate_policy_checksums)) if len(gate_policy_checksums) == 1 else ""
+    gate_policy_matches = bool(gate_policy_id and gate_policy_id != "unavailable")
+    analysis_status = (
+        "complete"
+        if artifact is not None and artifact.get("status") == "complete" and opportunity_policy_matches and selected_signals_current
+        else "partial"
+        if artifact is not None and artifact.get("status") == "partial"
+        else "unavailable"
+    )
+    table_rows: dict[str, dict[str, object]] = {}
+    for instrument_id, opportunity in results.items():
+        signal = signal_by_id.get(instrument_id)
+        if signal is None:
+            continue
+        canonical_score = getattr(signal, "canonical_score", None)
+        scores = {
+            "evidence": getattr(canonical_score, "evidence_confidence_10", None),
+            "quality": getattr(canonical_score, "attractiveness_10", None),
+            "risk": getattr(canonical_score, "risk_implementation_10", None),
+            "total": getattr(signal, "total_score", None),
+        }
+        table_rows[instrument_id] = {
+            "instrument_id": instrument_id,
+            "analysis_run_id": chosen_run_id,
+            "scores": scores,
+            "rank": opportunity.get("universe_rank"),
+            "peer_rank": opportunity.get("peer_rank"),
+            "action": getattr(signal, "action", None),
+            "blockers": tuple(getattr(signal, "blocked_by", ()) or ()),
+            "coverage": opportunity.get("coverage"),
+        }
+
+    distributions: dict[str, object] = {}
+    decision_time = artifact.get("decision_time") if artifact is not None else None
+    if selected_signals_current and decision_time:
+        try:
+            distribution_rows = load_forecast_return_distributions(
+                getattr(snapshot, "forecasts", pd.DataFrame()),
+                horizon_days=horizon_days,
+                decision_time=decision_time,
+            )
+        except (TypeError, ValueError, KeyError):
+            distribution_rows = {}
+        distributions = {
+            instrument_id: distribution
+            for instrument_id, distribution in distribution_rows.items()
+            if instrument_id in table_rows
+        }
+
+    analysis_snapshot = {
+        "analysis_run_id": chosen_run_id or None,
+        "run_id": str(artifact.get("run_id", "")) if artifact is not None else None,
+        "decision_time": artifact.get("decision_time") if artifact is not None else None,
+        "status": analysis_status,
+        "policy_id": policy_id or None,
+        "policy_ids": {
+            "opportunity": policy_id or None,
+            "gate": gate_policy_id or None,
+        },
+        "policy_status": "available" if opportunity_policy_matches and selected_signals_current and gate_policy_matches else "unavailable",
+        "rows": table_rows,
+        "distributions": distributions,
+    }
+    try:
+        fx_rates = load_fx_rates()
+    except (OSError, ValueError, TypeError, ImportError):
+        fx_rates = pd.DataFrame()
+    try:
+        currency_projection = project_portfolio_currency(analysis, output_currency, fx_rates)
+    except (TypeError, ValueError, ArithmeticError):
+        currency_projection = None
+
+    projection = build_portfolio_holdings_table(
+        holdings if isinstance(holdings, pd.DataFrame) else None,
+        portfolio_snapshot=portfolio_snapshot,
+        performance_snapshot=performance_snapshot,
+        analysis_snapshot=analysis_snapshot,
+        horizon_days=horizon_days,
+        output_currency=output_currency,
+        currency_projection=currency_projection,
+        search=search,
+        asset_type=asset_type,
+        sort_by=sort_by,
+        descending=descending,
+        column_preset=column_preset,
+    )
+    projection["analysis_runs"] = analysis_runs
+    projection["selected_analysis_run_id"] = chosen_run_id or None
+    if artifact is None:
+        projection["analysis_reason"] = "selected_analysis_run_unavailable"
+    elif not selected_signals_current:
+        projection["analysis_reason"] = "analysis_run_does_not_match_saved_signal_snapshot"
+    elif not opportunity_policy_matches or not gate_policy_matches:
+        projection["analysis_reason"] = "analysis_policy_hash_mismatch_or_unavailable"
+    else:
+        projection["analysis_reason"] = None
+    return projection
+
+
+def _holdings_date(value: object) -> str | None:
+    if value is None:
+        return None
+    try:
+        parsed = pd.Timestamp(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if pd.isna(parsed):
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.tz_convert("UTC")
+    return parsed.date().isoformat()
 
 
 def build_profiled_forecast_lab_workspace(
