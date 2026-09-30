@@ -19,6 +19,7 @@ from etf_cockpit.data.fmp_provider import FmpProvider
 from etf_cockpit.data.tiingo_provider import TiingoProvider
 from etf_cockpit.data.twelvedata_provider import TwelveDataProvider
 from etf_cockpit.data.source_policy import SourcePolicyError, load_source_policies
+from etf_cockpit.security.credentials import canonical_provider_account
 
 
 REQUIRED_PROVIDER_IDS = frozenset(
@@ -84,7 +85,7 @@ def invalidate_cached_probe_results(provider_id: str, path: Path | None = None) 
         frame = pd.read_parquet(destination) if destination.is_file() else pd.read_csv(csv_destination)
         if "provider_id" not in frame.columns:
             raise ValueError("provider probe cache has no provider_id column")
-        selected = str(provider_id).strip().casefold()
+        selected = canonical_provider_account(provider_id)
         frame = frame.loc[frame["provider_id"].astype(str).str.casefold() != selected].copy()
         parquet_payload: bytes | None = None
         if destination.is_file():
@@ -250,7 +251,7 @@ class ProviderRegistry:
         credential: str | None = None
         if requires_api_key or optional_capabilities:
             try:
-                credential_name = active if active in _OPTIONAL_CREDENTIAL_CAPABILITIES else provider_id
+                credential_name = canonical_provider_account(active)
                 credential = resolve_provider_api_key(
                     credential_name,
                     configured_value=section.api_key,
@@ -393,5 +394,6 @@ __all__ = [
     "PROBE_SCHEMA_VERSION",
     "REQUIRED_PROVIDER_IDS",
     "ProviderRegistry",
+    "canonical_provider_account",
     "invalidate_cached_probe_results",
 ]

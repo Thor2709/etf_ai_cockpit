@@ -31,7 +31,11 @@ from etf_cockpit.core.constants import APP_VERSION
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, ROOT
 from etf_cockpit.core.secure_update import describe_release_evidence
 from etf_cockpit.governance.product_scope import load_authority_matrix, load_product_governance
-from etf_cockpit.security.credentials import CredentialVault, CredentialVaultError
+from etf_cockpit.security.credentials import (
+    CredentialVault,
+    CredentialVaultError,
+    canonical_provider_account,
+)
 
 
 def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
@@ -250,7 +254,7 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
         try:
             if not provider_name:
                 raise CredentialVaultError("A provider name is required.")
-            CredentialVault().set(provider_name, secret)
+            CredentialVault().set(canonical_provider_account(provider_name), secret)
             credential_status.value = "Credential saved in the Windows-protected vault; cached provider probes were invalidated."
             credential_status.color = theme.GREEN
         except CredentialVaultError as exc:
@@ -268,7 +272,7 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
         try:
             if not provider_name:
                 raise CredentialVaultError("A provider name is required.")
-            CredentialVault().delete(provider_name)
+            CredentialVault().delete(canonical_provider_account(provider_name))
             credential_status.value = "Credential removed from the Windows-protected vault; cached provider probes were invalidated."
             credential_status.color = theme.GREEN
         except CredentialVaultError as exc:
@@ -281,7 +285,18 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
             credential_value.value = ""
         refresh_settings_status()
 
-    credential_provider_names = sorted(config.data_providers.providers)
+    credential_provider_names = sorted(
+        {
+            canonical_provider_account(provider_name)
+            for provider_name, section in config.data_providers.providers.items()
+            if provider_name not in {"prices", "fx", "etf_metadata", "etf_holdings"}
+        }
+        | {
+            canonical_provider_account(section.active_provider)
+            for section in config.data_providers.providers.values()
+            if (section.active_provider or "none").strip().casefold() not in {"", "none"}
+        }
+    )
     credential_provider = ft.Dropdown(
         label="Provider",
         value=credential_provider_names[0] if credential_provider_names else None,

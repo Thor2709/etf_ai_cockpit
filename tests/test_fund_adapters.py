@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 from etf_cockpit.data import sec_edgar_bulk
@@ -16,6 +17,7 @@ from etf_cockpit.data.fund_adapters import (
     resolve_fund_evidence,
     run_sec_fund_adapters,
 )
+from etf_cockpit.data.fund_holdings import normalise_holdings
 from etf_cockpit.data.sec_edgar_bulk import SecEdgarBulkUnavailable
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
 
@@ -108,12 +110,26 @@ def test_holdings_conservation_keeps_unknown_amount_visible(tmp_path: Path) -> N
     )
 
     assert len(results) == 1
-    assert results[0].authority == "issuer"
+    assert results[0].authority == "official"
     assert results[0].frame["weight"].sum() == pytest.approx(0.70)
     assert coverage["mapped_pct"].sum() + coverage["unknown_pct"].sum() == pytest.approx(100.0)
     assert coverage["mapped_pct"].sum() == pytest.approx(70.0)
     assert coverage["unknown_pct"].sum() == pytest.approx(30.0)
     assert (coverage["unknown_pct"] > 0).any()
+
+
+def test_complete_sec_nport_holdings_keep_official_score_authority() -> None:
+    result = normalise_holdings(
+        pd.DataFrame({"security": ["Holding A"], "weight": [1.0], "isin": ["US0000000001"]}),
+        "SYNTHETF",
+        "2025-02-14",
+        "sec_nport",
+        today="2025-02-15",
+    )
+
+    assert result.authority == "official"
+    assert result.frame["authority"].eq("official").all()
+    assert result.score_eligible
 
 
 def test_official_sec_evidence_outranks_convenience_and_records_conflict() -> None:

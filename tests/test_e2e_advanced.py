@@ -63,33 +63,135 @@ def _count_open_handles() -> int:
     return len(list(Path("/proc/self/fd").iterdir()))
 
 
-def test_source_dashboard_refresh_analyse_score_and_export_journey(monkeypatch) -> None:
+def test_source_dashboard_refresh_analyse_score_and_export_journey(tmp_path: Path, monkeypatch) -> None:
+    from etf_cockpit.app import state as state_module
+    from etf_cockpit.app.state import AppState
+    from etf_cockpit.chatgpt_bridge import export_pack
+    from etf_cockpit.core.config import ProviderSection
+    from etf_cockpit.data import import_pipeline, trade_candidate_analysis
+    from etf_cockpit.data.providers import ProviderResult
+    from etf_cockpit.services import build_snapshot
+    import etf_cockpit.services as services_module
+
     events: list[str] = []
+    snapshot = build_snapshot()
 
-    class JourneyState:
-        last_message = "Ready"
+    class OfflineYFinance:
+        def __init__(
+            self,
+            section: ProviderSection | None = None,
+            default_currency: str | None = None,
+            config=None,
+        ) -> None:
+            self.section = section or ProviderSection()
+            self.config = config
 
-        def refresh_yfinance_data(self) -> str:
-            events.append("refresh")
-            return "refreshed"
+        @classmethod
+        def from_config(cls, config):
+            return cls(config.data_providers.section("prices"), config=config)
 
-        def run_algorithm_scores(self) -> str:
-            events.append("analyse")
-            return "analysed"
+        def fetch_prices(self, _symbols, _start, end):
+            instruments = (
+                list(self.section.symbols_map)
+                if self.section.symbols_map
+                else [item.id for item in self.config.universe.etfs]
+            )
+            dates = pd.bdate_range(end=pd.Timestamp(end), periods=260)
+            rows = []
+            for instrument_id in instruments:
+                for index, day in enumerate(dates):
+                    close = 100.0 + index * 0.1
+                    rows.append(
+                        {
+                            "etf_id": instrument_id,
+                            "date": day,
+                            "open": close,
+                            "high": close + 0.2,
+                            "low": close - 0.2,
+                            "close": close,
+                            "adjusted_close": close,
+                            "volume": 1000,
+                            "currency": "USD",
+                        }
+                    )
+            return ProviderResult(
+                "yfinance",
+                "prices",
+                "ok",
+                "Synthetic offline price fixture.",
+                pd.DataFrame(rows),
+            )
 
-        def export_audit_packet(self) -> str:
-            events.append("report/export")
-            return "exported"
+        def fetch_etf_metadata(self, _isins):
+            return ProviderResult("yfinance", "etf_metadata", "unavailable", "No synthetic metadata fixture.")
 
-    state = JourneyState()
-    page = SimpleNamespace()
+        def fetch_etf_holdings(self, _isins):
+            return ProviderResult("yfinance", "etf_holdings", "unavailable", "No synthetic holdings fixture.")
+
+    monkeypatch.setattr(services_module, "YFinanceProvider", OfflineYFinance)
+    monkeypatch.setattr(trade_candidate_analysis, "YFinanceProvider", OfflineYFinance)
+    monkeypatch.setattr(services_module.DataService, "_reference_context", lambda _self: {
+        "known_etfs": [], "isin_to_etf_id": {}, "ticker_to_etf_id": {}
+    })
+    monkeypatch.setattr(
+        services_module,
+        "commit_price_import",
+        lambda result: import_pipeline.commit_price_import(
+            result,
+            clean_path=tmp_path / "clean" / "prices.parquet",
+            compatibility_path=tmp_path / "clean" / "prices_compat.parquet",
+            raw_dir=tmp_path / "raw" / "prices",
+            snapshots_dir=tmp_path / "snapshots" / "prices",
+        ),
+    )
+    candidate_path = tmp_path / "candidates.csv"
+    pd.DataFrame([{"instrument_id": "SYNTH", "yahoo_symbol": "SYNTH"}]).to_csv(candidate_path, index=False)
+    monkeypatch.setattr(trade_candidate_analysis, "latest_candidate_input", lambda: candidate_path)
+    monkeypatch.setattr(trade_candidate_analysis, "REPORTS_DIR", tmp_path / "reports")
+    monkeypatch.setattr(
+        trade_candidate_analysis,
+        "fetch_candidate_fundamentals",
+        lambda candidates: pd.DataFrame(columns=["instrument_id"]).assign(
+            instrument_id=candidates["instrument_id"].astype(str)
+        ),
+    )
+    monkeypatch.setattr(state_module, "ACTIVITY_LOG_PATH", tmp_path / "logs" / "activity.jsonl")
+    monkeypatch.setattr(state_module, "build_snapshot", lambda *_args, **_kwargs: snapshot)
+    monkeypatch.setattr(export_pack, "CHATGPT_EXPORTS_DIR", tmp_path / "exports")
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    monkeypatch.setattr(state, "_write_current_scoreboard", lambda: tmp_path / "scoreboard.csv")
+
+    original_refresh = state.refresh_yfinance_data
+    original_analyse = state.run_algorithm_scores
+    original_export = state.export_audit_packet
+
+    def refresh() -> str:
+        events.append("refresh")
+        return original_refresh()
+
+    def analyse() -> str:
+        events.append("analyse")
+        return original_analyse()
+
+    def export():
+        events.append("report/export")
+        return original_export()
+
+    monkeypatch.setattr(state, "refresh_yfinance_data", refresh)
+    monkeypatch.setattr(state, "run_algorithm_scores", analyse)
+    monkeypatch.setattr(state, "export_audit_packet", export)
+    page = SimpleNamespace(route="/", update=lambda: None)
 
     def run_action(_page, _state, _label, action) -> None:
         action()
 
     monkeypatch.setattr(dashboard, "_run_action", run_action)
     monkeypatch.setattr(dashboard, "_go_to", lambda _page, _state, route: events.append(f"score:{route}"))
-    monkeypatch.setattr(dashboard, "_export_pack", lambda _page, target: target.export_audit_packet())
+    monkeypatch.setattr(
+        dashboard,
+        "_export_pack",
+        lambda _page, target: target.export_audit_packet(),
+    )
 
     workflow = dashboard._action_bar(page, state)
     secondary = dashboard._secondary_actions(page, state)
@@ -100,61 +202,74 @@ def test_source_dashboard_refresh_analyse_score_and_export_journey(monkeypatch) 
         (secondary, "dashboard.export-audit"),
     ):
         _control_by_key(root, key).on_click(None)
+    deadline = time.monotonic() + 15
+    while state.current_activity is not None and time.monotonic() < deadline:
+        time.sleep(0.01)
 
     assert events == ["refresh", "analyse", "score:/signals", "report/export"]
+    assert (tmp_path / "clean" / "prices.parquet").is_file()
+    report_path = next((tmp_path / "reports").glob("yfinance_trade_candidate_analysis_*.csv"))
+    scores = pd.read_csv(report_path)
+    assert scores["instrument_id"].tolist() == ["SYNTH"]
+    assert scores["technical_score"].notna().all()
+    assert state.last_export_path is not None and state.last_export_path.is_file()
+    from zipfile import ZipFile
+
+    with ZipFile(state.last_export_path) as export_file:
+        assert "01_portfolio_summary.json" in export_file.namelist()
 
 
 def test_portfolio_import_and_reconcile_source_controls(monkeypatch, tmp_path: Path) -> None:
     from contextlib import nullcontext
+    from datetime import datetime, timedelta, timezone
 
     from etf_cockpit.app.pages import import_export as import_export_module
+    from etf_cockpit.data.contracts import SourceAuthority
+    from etf_cockpit.data.identity_master import IdentityMasterStore, IdentitySourceRow
 
-    events: list[str] = []
-    preview = SimpleNamespace(
-        valid=True,
-        rows=1,
-        errors=(),
-        import_type="portfolio_history",
-        preview_id="preview-fixture",
-        frame=pd.DataFrame(),
+    monkeypatch.setattr(import_export_module, "ROOT", tmp_path)
+    identity = IdentitySourceRow(
+        row_id="identity-SEC-1",
+        instrument_id="SEC-1",
+        object_type="instrument",
+        object_id="SEC-1",
+        parent_object_id=None,
+        relationship=None,
+        identifiers={"isin": "US0000000001"},
+        attributes={"ticker": "SEC-1", "exchange": "XNAS", "currency": "USD"},
+        source="fixture",
+        authority=SourceAuthority.OFFICIAL,
+        source_id="fixture:SEC-1",
+        valid_from="2020-01-01T00:00:00Z",
+        available_at="2020-01-01T00:00:00Z",
     )
-    replay = SimpleNamespace(
-        positions=(),
-        cash=(),
-        trial_balance=(),
-        trial_balance_balanced=True,
-        missing_lot_identity=(),
-        fx_conversions=(),
-    )
-    reconciliation = SimpleNamespace(
-        discrepancies=(),
-        replay=replay,
-        matched_source_rows=1,
-        active_source_rows=1,
-    )
-
-    class PortfolioImports:
-        def __init__(self, _root) -> None:
-            pass
-
-        def preview(self, *_args, **_kwargs):
-            events.append("preview")
-            return preview
-
-        def commit(self, _preview):
-            events.append("import")
-            return SimpleNamespace(status="accepted", batch_id="batch-fixture", accepted=1, quarantined=0, duplicates=0, corrections=0)
-
-        def reconcile(self, **_kwargs):
-            events.append("reconcile")
-            return reconciliation
+    with IdentityMasterStore(tmp_path) as identity_store:
+        identity_store.import_rows((identity,))
+    source_path = tmp_path / "portfolio.csv"
+    pd.DataFrame(
+        [
+            {
+                "Transaction Type": "BUY",
+                "Trade ID": "broker-100",
+                "Trade Date": "2024-01-02T10:00:00Z",
+                "Account Number": "BROKER-A",
+                "Symbol": "SEC-1",
+                "ISIN": "US0000000001",
+                "Currency": "USD",
+                "Units": 3,
+                "Price": 100,
+                "Commission Amount": -3,
+                "Net Amount": -303,
+            }
+        ]
+    ).to_csv(source_path, index=False)
 
     class FilePicker:
         def __init__(self, **_kwargs) -> None:
             pass
 
         async def pick_files(self, **_kwargs):
-            return [SimpleNamespace(path=str(tmp_path / "portfolio.csv"), name="portfolio.csv")]
+            return [SimpleNamespace(path=str(source_path), name="portfolio.csv")]
 
     class State:
         current_activity = None
@@ -184,25 +299,21 @@ def test_portfolio_import_and_reconcile_source_controls(monkeypatch, tmp_path: P
         def release_activity(self, _action_id):
             pass
 
-    monkeypatch.setattr(import_export_module, "PortfolioImportApplication", PortfolioImports)
     monkeypatch.setattr(import_export_module.ft, "FilePicker", FilePicker)
-    monkeypatch.setattr(import_export_module, "bulk_cache_health", lambda _root: {
-        "status": "ok",
-        "object_count": 0,
-        "manifest_count": 0,
-        "staged_file_count": 0,
-        "promoted_generation_count": 0,
-    })
     monkeypatch.setattr(import_export_module, "_refresh_activity_shell", lambda *_args: None)
     page = SimpleNamespace(services=[], overlay=[], update=lambda: None)
     view = import_export_module.import_export_page(page, State())
 
     asyncio.run(_control_by_key(view, "import-export.import").on_click(None))
+    assert "Preview valid: 1 rows" in _control_by_key(view, "import-export.preview-status").value
     _control_by_key(view, "import-export.commit").on_click(None)
+    known_at = (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
+    _control_by_key(view, "import-export.portfolio-known-at").value = known_at
     _control_by_key(view, "import-export.portfolio-reconcile").on_click(None)
 
-    assert events == ["preview", "import", "reconcile"]
-    assert "Canonical replay: 0 positions" in _control_by_key(view, "import-export.portfolio-reconciliation-status").value
+    assert "source matched=" in _control_by_key(view, "import-export.portfolio-reconciliation-status").value
+    assert "source matched=0/1" in _control_by_key(view, "import-export.portfolio-reconciliation-status").value
+    assert "balanced=True" in _control_by_key(view, "import-export.portfolio-reconciliation-status").value
 
 
 def test_settings_page_previews_and_saves_local_settings(tmp_path: Path, monkeypatch) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -10,7 +11,11 @@ from etf_cockpit.core.exceptions import ConfigError
 from etf_cockpit.data import provider_registry
 from etf_cockpit.data.provider_registry import ProviderRegistry
 from etf_cockpit.security import credentials
-from etf_cockpit.security.credentials import CredentialVault, CredentialVaultError
+from etf_cockpit.security.credentials import (
+    CredentialVault,
+    CredentialVaultError,
+    canonical_provider_account,
+)
 from etf_cockpit.security.policy import redact_secrets
 
 
@@ -24,6 +29,15 @@ def _stub_dpapi(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(credentials, "_protect", transform)
     monkeypatch.setattr(credentials, "_unprotect", transform)
     monkeypatch.setattr(credentials, "_dpapi_available", lambda: True)
+
+
+def _walk_controls(control: object):
+    yield control
+    for child in getattr(control, "controls", []) or []:
+        yield from _walk_controls(child)
+    content = getattr(control, "content", None)
+    if content is not None:
+        yield from _walk_controls(content)
 
 
 def test_dpapi_secret_roundtrip(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -121,11 +135,27 @@ def test_provider_credential_resolution_sanitizes_vault_errors(tmp_path) -> None
     assert _SECRET not in str(error.value)
 
 
-def _persist_fred_probe_cache(path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(provider_registry, "resolve_provider_api_key", lambda _provider: "configured")
+def _persist_fred_probe_cache(
+    path,
+    monkeypatch: pytest.MonkeyPatch,
+    vault: CredentialVault,
+    config_dir,
+):
+    monkeypatch.setattr(
+        provider_registry,
+        "resolve_provider_api_key",
+        lambda provider, **kwargs: resolve_provider_api_key(
+            provider,
+            config_dir=config_dir,
+            vault=vault,
+            configured_value=kwargs.get("configured_value"),
+        ),
+    )
     registry = ProviderRegistry(DataProvidersConfig(providers={"fred": ProviderSection(active_provider="fred")}))
     registry.register_probe("fred", lambda: {"status": "ok"})
-    registry.persist_probe_results(path)
+    resolved = registry._probe("fred")
+    registry.persist_probe_results(path, capabilities=resolved)
+    return resolved[0]
 
 
 def test_rotating_vault_credential_invalidates_dependent_probe_cache(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -134,7 +164,9 @@ def test_rotating_vault_credential_invalidates_dependent_probe_cache(tmp_path, m
     monkeypatch.setattr(provider_registry, "DEFAULT_PROBE_PATH", cache_path)
     vault = CredentialVault(tmp_path / "vault.dpapi")
     vault.set("fred", "first-value")
-    _persist_fred_probe_cache(cache_path, monkeypatch)
+    resolved = _persist_fred_probe_cache(cache_path, monkeypatch, vault, tmp_path / "configs")
+
+    assert (resolved.status, resolved.secret_present) == ("ok", True)
 
     vault.set("fred", "rotated-value")
 
@@ -148,7 +180,9 @@ def test_deleting_vault_credential_invalidates_dependent_probe_cache(tmp_path, m
     monkeypatch.setattr(provider_registry, "DEFAULT_PROBE_PATH", cache_path)
     vault = CredentialVault(tmp_path / "vault.dpapi")
     vault.set("fred", "credential-value")
-    _persist_fred_probe_cache(cache_path, monkeypatch)
+    resolved = _persist_fred_probe_cache(cache_path, monkeypatch, vault, tmp_path / "configs")
+
+    assert (resolved.status, resolved.secret_present) == ("ok", True)
 
     vault.delete("fred")
 
@@ -200,47 +234,122 @@ def test_credential_mutations_leave_vault_unchanged_when_probe_invalidation_fail
 def test_optional_finnhub_credential_resolves_and_limits_capabilities_to_mapping(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    current: dict[str, str | None] = {"credential": None}
     resolved: list[str] = []
-    calls: list[bool] = []
+    unrelated_calls: list[bool] = []
 
-    def resolve(provider: str, **_kwargs: object) -> str:
-        assert provider == "finnhub"
+    def resolve(provider: str, **_kwargs: object) -> str | None:
         resolved.append(provider)
-        return _SECRET
-
-    def probe() -> tuple[provider_registry.ProviderCapability, ...]:
-        calls.append(True)
-        return tuple(
-            provider_registry.ProviderCapability(
-                provider_id="finnhub",
-                dataset_type=dataset,
-                status="ok",
-                authority=provider_registry.SourceAuthority.VENDOR,
-                configured=True,
-                entitlement="configured",
-                rate_limit_note="credential-enhanced limit",
-                last_success_at=None,
-                error_fingerprint=None,
-                secret_present=True,
-                message="Capability available.",
-            )
-            for dataset in ("prices", "fx", "etf_metadata", "etf_holdings", "undeclared")
-        )
+        assert provider == "finnhub"
+        return current["credential"]
 
     monkeypatch.setattr(provider_registry, "resolve_provider_api_key", resolve)
     registry = ProviderRegistry(
-        DataProvidersConfig(providers={"finnhub": ProviderSection(active_provider="finnhub")})
+        DataProvidersConfig(
+            providers={
+                "prices": ProviderSection(active_provider="finnhub"),
+                "sec_edgar": ProviderSection(active_provider="sec_edgar"),
+            }
+        )
     )
-    registry.register_probe("finnhub", probe)
+    registry.register_probe("sec_edgar", lambda: unrelated_calls.append(True) or {"status": "ok"})
 
-    capabilities = [item for item in registry.probe_all() if item.provider_id == "finnhub"]
+    without_credential = registry.probe_all()
+    missing = [item for item in without_credential if item.provider_id == "finnhub"]
+    unrelated_without = next(item for item in without_credential if item.provider_id == "sec_edgar")
+    current["credential"] = _SECRET
+    with_credential = registry.probe_all()
+    present = [item for item in with_credential if item.provider_id == "finnhub"]
+    unrelated_with = next(item for item in with_credential if item.provider_id == "sec_edgar")
 
-    assert resolved == ["finnhub"]
-    assert calls == [True]
-    assert {item.dataset_type for item in capabilities} == {"prices", "fx", "etf_metadata", "etf_holdings"}
-    assert all(item.rate_limit_note == "credential-enhanced limit" for item in capabilities)
-    assert all(item.secret_present for item in capabilities)
-    assert _SECRET not in str([item.to_dict() for item in capabilities])
+    declared = {"prices", "fx", "etf_metadata", "etf_holdings"}
+    assert {item.dataset_type for item in missing} == declared
+    assert {item.dataset_type for item in present} == declared
+    assert all(not item.secret_present for item in missing)
+    assert all(item.secret_present for item in present)
+    assert all(item.rate_limit_note == "experimental optional source; quota failures are non-blocking" for item in present)
+    assert (unrelated_without.status, unrelated_without.secret_present) == ("ok", False)
+    assert (unrelated_with.status, unrelated_with.secret_present) == ("ok", False)
+    assert unrelated_calls == [True, True]
+    assert "finnhub" in resolved and "sec_edgar" not in resolved
+    assert _SECRET not in str([item.to_dict() for item in with_credential])
+
+
+def test_settings_saves_resolves_and_deletes_credentials_by_active_provider_id(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from etf_cockpit.app.pages import settings as settings_module
+    from etf_cockpit.core.config import load_config
+
+    _stub_dpapi(monkeypatch)
+    cache_path = tmp_path / "provider_probe_results.parquet"
+    monkeypatch.setattr(provider_registry, "DEFAULT_PROBE_PATH", cache_path)
+    base_config = load_config()
+    providers = dict(base_config.data_providers.providers)
+    providers["prices"] = ProviderSection(active_provider="finnhub")
+    data_providers = base_config.data_providers.model_copy(update={"providers": providers})
+    config = base_config.model_copy(update={"data_providers": data_providers})
+    monkeypatch.setattr(settings_module, "ROOT", tmp_path)
+    monkeypatch.setattr(settings_module, "CONFIG_DIR", tmp_path / "configs")
+    monkeypatch.setattr(settings_module, "DATA_DIR", tmp_path / "data")
+    monkeypatch.setattr(settings_module, "load_config", lambda: config)
+    monkeypatch.setattr(settings_module, "load_product_governance", lambda: SimpleNamespace(
+        policy=SimpleNamespace(product=SimpleNamespace(canonical_name="fixture"))
+    ))
+    monkeypatch.setattr(settings_module, "load_authority_matrix", lambda: SimpleNamespace(
+        policy=SimpleNamespace(adr_id="fixture", capabilities=()), checksum="fixture"
+    ))
+    monkeypatch.setattr(settings_module, "describe_release_evidence", lambda _root: {
+        "verification": "available", "version": "fixture", "notices": "available", "notices_path": "notices"
+    })
+    monkeypatch.setattr(settings_module, "legal_terms_report", lambda _root: {
+        "status": "available", "review_status": "reviewed", "registry_sha256": "fixture"
+    })
+    monkeypatch.setattr(settings_module, "supply_chain_intake_report", lambda _root: {
+        "status": "available", "review_status": "reviewed", "component_count": 0,
+        "dependency_count": 0, "registry_sha256": "fixture", "third_party_notices": "available"
+    })
+    monkeypatch.setattr(settings_module, "read_changelog_excerpt", lambda _root: "fixture")
+    monkeypatch.setattr(settings_module, "read_rebuild_timestamp", lambda _root: "fixture")
+    vault = CredentialVault(tmp_path / "vault.dpapi")
+    vault.set("finnhub", "old-credential")
+    monkeypatch.setattr(settings_module, "CredentialVault", lambda: vault)
+
+    def resolve(provider: str, **kwargs: object) -> str | None:
+        return resolve_provider_api_key(
+            provider,
+            config_dir=tmp_path / "configs",
+            vault=vault,
+            configured_value=kwargs.get("configured_value"),
+        )
+
+    monkeypatch.setattr(provider_registry, "resolve_provider_api_key", resolve)
+    registry = ProviderRegistry(data_providers)
+    old_capability = registry._probe("finnhub")[0]
+    assert old_capability.secret_present
+    registry.persist_probe_results(cache_path, capabilities=(old_capability,))
+
+    state = SimpleNamespace(snapshot=SimpleNamespace(config=config), last_message="Ready")
+    view = settings_module.settings_page(SimpleNamespace(update=lambda: None), state)
+    controls = _walk_controls(view)
+    provider_control = next(item for item in controls if getattr(item, "key", None) == "settings.credential-provider")
+    credential_control = next(item for item in controls if getattr(item, "key", None) == "settings.credential-value")
+    provider_control.value = "finnhub"
+    credential_control.value = "new-credential"
+    next(item for item in controls if getattr(item, "key", None) == "settings.credential-save").on_click(None)
+
+    assert canonical_provider_account("FINNHUB") == "finnhub"
+    assert resolve_provider_api_key("finnhub", vault=vault) == "new-credential"
+    assert registry._probe("finnhub")[0].secret_present
+    assert "finnhub" not in set(pd.read_parquet(cache_path)["provider_id"].astype(str))
+
+    registry.persist_probe_results(cache_path, capabilities=(registry._probe("finnhub")[0],))
+    next(item for item in controls if getattr(item, "key", None) == "settings.credential-delete").on_click(None)
+
+    assert resolve_provider_api_key("finnhub", vault=vault) is None
+    assert not registry._probe("finnhub")[0].secret_present
+    assert "finnhub" not in set(pd.read_parquet(cache_path)["provider_id"].astype(str))
 
 
 def test_registered_finnhub_adapter_preserves_all_dataset_capabilities(

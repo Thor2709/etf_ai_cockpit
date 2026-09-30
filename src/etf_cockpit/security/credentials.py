@@ -27,7 +27,7 @@ class CredentialVault:
         self.path = Path(path) if path is not None else None
 
     def get(self, account: str) -> str | None:
-        name = _account_name(account)
+        name = canonical_provider_account(account)
         if not _dpapi_available():
             return None
         path = self._path()
@@ -44,7 +44,7 @@ class CredentialVault:
         return entries.get(name)
 
     def set(self, account: str, value: str) -> None:
-        name = _account_name(account)
+        name = canonical_provider_account(account)
         secret = str(value)
         if not secret.strip():
             raise CredentialVaultError("A non-empty provider credential is required.")
@@ -61,7 +61,7 @@ class CredentialVault:
             raise CredentialVaultError("The provider credential could not be protected and saved.") from None
 
     def delete(self, account: str) -> None:
-        name = _account_name(account)
+        name = canonical_provider_account(account)
         if not _dpapi_available():
             raise CredentialVaultError("Windows DPAPI is unavailable; credentials remain disabled.")
         path = self._path()
@@ -143,8 +143,10 @@ class CredentialVault:
                 temp_path.unlink(missing_ok=True)
 
 
-def _account_name(account: str) -> str:
-    name = str(account).strip()
+def canonical_provider_account(provider_id: str) -> str:
+    """Return the one vault account name for a canonical provider ID."""
+
+    name = str(provider_id).strip().casefold()
     if not name:
         raise CredentialVaultError("A provider name is required.")
     return name
@@ -207,9 +209,9 @@ def _invalidate_probe_cache(provider_name: str) -> None:
     try:
         from etf_cockpit.data.provider_registry import invalidate_cached_probe_results
 
-        invalidate_cached_probe_results(provider_name)
+        invalidate_cached_probe_results(canonical_provider_account(provider_name))
     except Exception:
         raise CredentialVaultError("The credential changed, but cached provider probes could not be invalidated.") from None
 
 
-__all__ = ["CredentialVault", "CredentialVaultError"]
+__all__ = ["CredentialVault", "CredentialVaultError", "canonical_provider_account"]

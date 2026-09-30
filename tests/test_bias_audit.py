@@ -6,6 +6,7 @@ import pandas as pd
 
 from etf_cockpit.models.coverage_audit import build_coverage_audit, coverage_summary_lines, write_coverage_audit
 from etf_cockpit.models.model_zoo import model_zoo_frame
+from etf_cockpit.features.forecast_lab import build_forecast_lab_report
 
 
 def test_model_cards_expose_subgroup_results_and_unavailable_reason() -> None:
@@ -24,6 +25,50 @@ def test_model_cards_expose_subgroup_results_and_unavailable_reason() -> None:
     assert cards.loc["naive_drift", "subgroup_status"] == "available"
     assert cards.loc["naive_drift", "subgroup_results"] == [result]
     assert cards.loc["naive_drift", "subgroup_reason"] is None
+    assert cards.loc["historical_median", "subgroup_status"] == "unavailable"
+    assert cards.loc["historical_median", "subgroup_reason"]
+
+
+def test_forecast_lab_passes_per_model_subgroup_audits_to_model_cards() -> None:
+    dates = pd.bdate_range("2026-01-01", periods=12)
+    prices = pd.DataFrame(
+        [
+            {"etf_id": etf_id, "date": day, "adjusted_close": 100.0 + index}
+            for etf_id in ("A", "B")
+            for index, day in enumerate(dates)
+        ]
+    )
+    forecasts = pd.DataFrame(
+        [
+            {
+                "model_name": "naive_drift",
+                "etf_id": etf_id,
+                "forecast_date": dates[index],
+                "horizon_days": 1,
+                "expected_return": 0.01,
+                "q10_return": -0.01,
+                "q90_return": 0.03,
+                "status": "ok",
+            }
+            for etf_id in ("A", "B")
+            for index in range(3, 9)
+        ]
+    )
+    universe = [
+        {"id": "A", "enabled": True, "region": "EU", "sector": "Technology", "currency": "EUR", "exchange": "XETRA"},
+        {"id": "B", "enabled": True, "region": "US", "sector": "Technology", "currency": "USD", "exchange": "NYSE"},
+    ]
+
+    report = build_forecast_lab_report(
+        forecasts,
+        prices,
+        as_of_date=dates[-1],
+        subgroup_universe=universe,
+    )
+    cards = report["model_catalogue"].set_index("model_id")
+
+    assert cards.loc["naive_drift", "subgroup_status"] == "available"
+    assert any(group["dimension"] == "geography" for group in cards.loc["naive_drift", "subgroup_results"])
     assert cards.loc["historical_median", "subgroup_status"] == "unavailable"
     assert cards.loc["historical_median", "subgroup_reason"]
 
