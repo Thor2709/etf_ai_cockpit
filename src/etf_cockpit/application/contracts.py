@@ -439,6 +439,7 @@ class BulkAnalysisRun(ContractModel):
 
     schema_version: str = APPLICATION_API_SCHEMA_VERSION
     run_id: str
+    analyzer_id: str
     status: Literal["queued", "running", "succeeded", "failed", "cancelled", "blocked"]
     hashes: dict[str, str]
     states: dict[str, str]

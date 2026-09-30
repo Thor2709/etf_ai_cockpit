@@ -34,10 +34,11 @@ class BulkAnalysisService:
         inputs: Mapping[str, object],
         analyze: AnalysisFunction,
         *,
+        analyzer_id: str,
         max_jobs: int | None = None,
     ) -> BulkAnalysisRun:
-        """Create a new historical run, then execute up to ``max_jobs`` jobs."""
-        self._validate_execution(analyze, max_jobs)
+        """Create a run with a stable analyzer implementation/version identifier."""
+        analyzer_id = self._validate_execution(analyze, analyzer_id, max_jobs)
         if not inputs:
             raise ValueError("bulk analysis requires at least one instrument")
         if any(not isinstance(instrument_id, str) or not instrument_id.strip() for instrument_id in inputs):
@@ -56,7 +57,7 @@ class BulkAnalysisService:
             self.workflow_type,
             "Bulk instrument analysis",
             jobs,
-            input_payload={"instrument_count": len(jobs)},
+            input_payload={"instrument_count": len(jobs), "analyzer_id": analyzer_id},
             dedupe_key=run_id,
             workflow_id=run_id,
         )
@@ -67,11 +68,14 @@ class BulkAnalysisService:
         run_id: str,
         analyze: AnalysisFunction,
         *,
+        analyzer_id: str,
         max_jobs: int | None = None,
     ) -> BulkAnalysisRun:
-        """Continue queued work without changing the stored input manifest."""
-        self._validate_execution(analyze, max_jobs)
-        self._require_run(run_id)
+        """Continue queued work only with the stored analyzer implementation/version."""
+        analyzer_id = self._validate_execution(analyze, analyzer_id, max_jobs)
+        workflow = self._require_run(run_id)
+        if self._stored_analyzer_id(workflow) != analyzer_id:
+            raise ValueError("analyzer identifier does not match the stored bulk run")
         return self._execute(run_id, analyze, max_jobs)
 
     def get_run(self, run_id: str) -> BulkAnalysisRun:
@@ -106,6 +110,7 @@ class BulkAnalysisService:
 
         return BulkAnalysisRun(
             run_id=run_id,
+            analyzer_id=self._stored_analyzer_id(workflow),
             status=status.value,
             hashes=hashes,
             states=states,
@@ -157,6 +162,15 @@ class BulkAnalysisService:
         return workflow
 
     @staticmethod
+    def _stored_analyzer_id(workflow) -> str:
+        if not isinstance(workflow.inputs, Mapping):
+            raise ValueError("bulk analysis run manifest is unavailable")
+        analyzer_id = workflow.inputs.get("analyzer_id")
+        if not isinstance(analyzer_id, str) or not analyzer_id.strip():
+            raise ValueError("bulk analysis run manifest has no analyzer identifier")
+        return analyzer_id
+
+    @staticmethod
     def _instrument_id(job: JobRecord) -> str:
         if not isinstance(job.inputs, Mapping):
             raise ValueError(f"bulk analysis input is unavailable for job {job.job_id}")
@@ -166,11 +180,23 @@ class BulkAnalysisService:
         return instrument_id
 
     @staticmethod
-    def _validate_execution(analyze: AnalysisFunction, max_jobs: int | None) -> None:
+    def _validate_execution(
+        analyze: AnalysisFunction,
+        analyzer_id: str,
+        max_jobs: int | None,
+    ) -> str:
         if not callable(analyze):
             raise TypeError("analyze must be callable")
+        if (
+            not isinstance(analyzer_id, str)
+            or not analyzer_id.strip()
+            or len(analyzer_id) > 160
+            or any(char in analyzer_id for char in "\r\n")
+        ):
+            raise ValueError("analyzer_id must be a bounded single-line identifier")
         if max_jobs is not None and (isinstance(max_jobs, bool) or max_jobs < 0):
             raise ValueError("max_jobs must be a non-negative integer")
+        return analyzer_id.strip()
 
 
 __all__ = ["AnalysisFunction", "BulkAnalysisService"]
