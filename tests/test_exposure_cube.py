@@ -180,7 +180,6 @@ def test_nested_fund_and_direct_position_aggregate_same_security_once() -> None:
         position_metadata={
             "GB0002634946": {
                 "exposure_type": "security",
-                "identity": "isin:GB0002634946",
                 "asset_class": "equity",
                 "issuer": "Alpha Issuer",
                 "sector": "Technology",
@@ -197,6 +196,26 @@ def test_nested_fund_and_direct_position_aggregate_same_security_once() -> None:
     assert alpha[0].direct_weight == pytest.approx(0.44)
     assert alpha[0].indirect_weight == pytest.approx(0.16)
     assert sum(item.percentage for item in security.segments) == pytest.approx(100.0)
+
+
+def test_future_holding_metadata_is_unknown_at_decision_time() -> None:
+    cube = build_portfolio_exposure_cube(
+        _apple_holding(),
+        {"ETF-A": 1.0},
+        decision_time=_DECISION_TIME,
+        holding_metadata={
+            "isin:US0378331005": {
+                "asset_class": "equity",
+                "known_at": "2099-01-01T00:00:00Z",
+            }
+        },
+    )
+    asset_class = next(item for item in cube.dimensions if item.dimension == "asset_class")
+    unknown = next(item for item in asset_class.segments if item.bucket == "Unknown/Unmapped")
+
+    assert asset_class.mapped_weight == 0.0
+    assert unknown.amount == pytest.approx(1.0)
+    assert any("unavailable at decision time" in reason for reason in unknown.reasons)
 
 
 def test_stale_holdings_are_reported_as_stale_not_mapped() -> None:

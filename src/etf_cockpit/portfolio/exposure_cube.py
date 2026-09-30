@@ -16,6 +16,7 @@ from etf_cockpit.features.overlap import (
     DirectOverlapReport,
     ExposureContributor,
     LookThroughExposure,
+    _typed_identity,
     calculate_direct_overlap,
 )
 
@@ -234,6 +235,7 @@ def build_portfolio_exposure_cube(
         reasons,
         holding_facts,
         source_by_id,
+        cutoff,
     )
     _add_direct_positions(
         direct_positions,
@@ -241,6 +243,7 @@ def build_portfolio_exposure_cube(
         metadata,
         accumulators,
         reasons,
+        cutoff,
     )
     _add_position_currency(
         weights,
@@ -250,6 +253,7 @@ def build_portfolio_exposure_cube(
         dimension="trading_currency",
         fields=("trading_currency",),
         absent_reason="Trading currency is unavailable for this position.",
+        cutoff=cutoff,
     )
     _add_reporting_currency(total_weight, reporting_currency, accumulators, reasons)
 
@@ -365,7 +369,7 @@ def _add_canonical_dimensions(report, accumulators, reasons, source_by_id) -> No
                 reasons[target].update(_unknown_reasons(exposure, report.warnings))
 
 
-def _add_metadata_dimensions(report, accumulators, reasons, facts, source_by_id) -> None:
+def _add_metadata_dimensions(report, accumulators, reasons, facts, source_by_id, cutoff) -> None:
     security = [item for item in report.exposures if item.dimension == "security"]
     exposure_types = {
         item.bucket: item
@@ -385,9 +389,10 @@ def _add_metadata_dimensions(report, accumulators, reasons, facts, source_by_id)
                 reasons[dimension].update(_unknown_reasons(exposure, report.warnings))
             continue
         attributes = facts.get(identity, {})
+        metadata_available = _metadata_available_as_of(attributes, cutoff)
         for dimension, fields in _METADATA_FIELDS.items():
-            value = _first_text(attributes, fields)
-            if not value and dimension == "asset_class":
+            value = _first_text(attributes, fields) if metadata_available else None
+            if metadata_available and not value and dimension == "asset_class":
                 value = _asset_class_from_exposure(identity, exposure_types)
             bucket = value or _UNKNOWN
             _add_exposure(
@@ -397,7 +402,10 @@ def _add_metadata_dimensions(report, accumulators, reasons, facts, source_by_id)
                 _exposure_sources(exposure.contributors, source_by_id),
             )
             if bucket == _UNKNOWN:
-                reasons[dimension].add(f"{dimension.replace('_', ' ').capitalize()} data is unavailable for {identity}.")
+                if metadata_available:
+                    reasons[dimension].add(f"{dimension.replace('_', ' ').capitalize()} data is unavailable for {identity}.")
+                else:
+                    reasons[dimension].add(f"Supplemental metadata was unavailable at decision time for {identity}.")
 
 
 def _asset_class_from_exposure(identity, exposure_types) -> str | None:
@@ -410,16 +418,23 @@ def _asset_class_from_exposure(identity, exposure_types) -> str | None:
     return None
 
 
-def _add_direct_positions(direct_positions, weights, metadata, accumulators, reasons) -> None:
+def _add_direct_positions(direct_positions, weights, metadata, accumulators, reasons, cutoff) -> None:
     for instrument_id, attributes in direct_positions.items():
         amount = weights[instrument_id]
-        identity = _first_text(attributes, ("identity", "security_identity", "security")) or instrument_id
+        metadata_available = _metadata_available_as_of(attributes, cutoff)
+        identity = _first_text(attributes, ("identity", "security_identity", "security")) if metadata_available else None
+        if identity:
+            identity = _typed_identity(pd.Series({"isin": identity})) or identity
+        else:
+            identity = _typed_identity(pd.Series({"isin": instrument_id})) or instrument_id
         contributor = ExposureContributor(instrument_id, (instrument_id,), "direct", round(amount, 12))
         for dimension in _DIMENSIONS:
             if dimension in {"trading_currency", "reporting_currency"}:
                 continue
             if dimension == "security":
                 value = identity
+            elif not metadata_available:
+                value = None
             elif dimension == "asset_class":
                 value = _first_text(attributes, ("asset_class",))
             elif dimension == "economic_country":
@@ -450,17 +465,33 @@ def _add_direct_positions(direct_positions, weights, metadata, accumulators, rea
                 (),
             )
             if bucket == _UNKNOWN:
-                reasons[dimension].add(f"{dimension.replace('_', ' ').capitalize()} data is unavailable for direct position {instrument_id}.")
+                if metadata_available:
+                    reasons[dimension].add(f"{dimension.replace('_', ' ').capitalize()} data is unavailable for direct position {instrument_id}.")
+                else:
+                    reasons[dimension].add(f"Supplemental metadata was unavailable at decision time for direct position {instrument_id}.")
 
 
-def _add_position_currency(weights, metadata, accumulators, reasons, *, dimension, fields, absent_reason) -> None:
+def _metadata_available_as_of(attributes, cutoff) -> bool:
+    known_at = _optional_text(attributes.get("known_at"))
+    if not known_at:
+        return True
+    observed_at = normalise_event_decision_time(known_at)
+    return observed_at is not None and observed_at <= cutoff
+
+
+def _add_position_currency(weights, metadata, accumulators, reasons, *, dimension, fields, absent_reason, cutoff) -> None:
     for instrument_id, amount in weights.items():
-        value = _first_text(metadata.get(instrument_id, {}), fields)
+        attributes = metadata.get(instrument_id, {})
+        metadata_available = _metadata_available_as_of(attributes, cutoff)
+        value = _first_text(attributes, fields) if metadata_available else None
         bucket = value or _UNKNOWN
         contributor = ExposureContributor(instrument_id, (instrument_id,), "direct", round(amount, 12))
         _add_values(accumulators[dimension], bucket, amount, 0.0, (contributor,), ())
         if not value:
-            reasons[dimension].add(f"{absent_reason} ({instrument_id})")
+            if metadata_available:
+                reasons[dimension].add(f"{absent_reason} ({instrument_id})")
+            else:
+                reasons[dimension].add(f"Supplemental metadata was unavailable at decision time for {instrument_id}.")
 
 
 def _add_reporting_currency(total_weight, reporting_currency, accumulators, reasons) -> None:
