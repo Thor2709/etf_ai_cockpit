@@ -201,12 +201,20 @@ def build_portfolio_exposure_cube(
     total_weight = math.fsum(weights.values())
     metadata = _normalise_metadata(position_metadata)
     holding_facts = _normalise_metadata(holding_metadata)
-    direct_positions = {
-        instrument_id: metadata[instrument_id]
+    # Classification is itself supplemental evidence: metadata not yet known at
+    # decision_time must not turn a fund into a direct position (no look-ahead).
+    declared_direct = {
+        instrument_id
         for instrument_id in weights
         if _text(metadata.get(instrument_id, {}).get("exposure_type")).lower()
         in {"security", "cash", "derivative"}
     }
+    direct_positions = {
+        instrument_id: metadata[instrument_id]
+        for instrument_id in declared_direct
+        if _metadata_available_as_of(metadata[instrument_id], cutoff)
+    }
+    rejected_classification = sorted(declared_direct - set(direct_positions))
     fund_weights = {key: value for key, value in weights.items() if key not in direct_positions}
     frame = holdings.copy() if isinstance(holdings, pd.DataFrame) else pd.DataFrame()
 
@@ -237,6 +245,10 @@ def build_portfolio_exposure_cube(
         source_by_id,
         cutoff,
     )
+    for instrument_id in rejected_classification:
+        reasons["security"].add(
+            f"Classification metadata for {instrument_id} was not known at decision time; position treated as a fund for look-through."
+        )
     _add_direct_positions(
         direct_positions,
         {key: weights[key] for key in direct_positions},

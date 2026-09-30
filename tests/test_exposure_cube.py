@@ -235,3 +235,17 @@ def test_stale_holdings_are_reported_as_stale_not_mapped() -> None:
     assert sector.unmapped_weight == 0.0
     assert sector.coverage_fraction == 0.0
     assert next(item for item in cube.sources if item.instrument_id == "ETF-A").freshness == "stale"
+
+
+def test_future_classification_metadata_cannot_replace_look_through() -> None:
+    cube = build_portfolio_exposure_cube(
+        _apple_holding(),
+        {"ETF-A": 1.0},
+        decision_time=_DECISION_TIME,
+        position_metadata={"ETF-A": {"exposure_type": "security", "known_at": "2099-01-01T00:00:00Z"}},
+    )
+    security = next(item for item in cube.dimensions if item.dimension == "security")
+    buckets = {item.bucket: item.amount for item in security.segments}
+
+    assert not any("ETF-A" in bucket for bucket in buckets)
+    assert any("US0378331005" in bucket and amount == pytest.approx(1.0) for bucket, amount in buckets.items())
