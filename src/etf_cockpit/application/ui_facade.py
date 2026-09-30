@@ -163,6 +163,7 @@ from etf_cockpit.application.api import *  # noqa: F401,F403
 from etf_cockpit.application.contracts import *  # noqa: F401,F403
 from etf_cockpit.application.screening import *  # noqa: F401,F403
 from etf_cockpit.application.screening_data import *  # noqa: F401,F403
+from etf_cockpit.application.screening_data import build_screen_rows as _build_screen_rows_v3
 from etf_cockpit.data.screen_store import *  # noqa: F401,F403
 from etf_cockpit.core.versioning import *  # noqa: F401,F403
 from etf_cockpit.core.job_scheduler import *  # noqa: F401,F403
@@ -948,6 +949,8 @@ def load_opportunity_assessment(
     decision_time: object = None,
     run_id: str | None = None,
     artifact_directory: Path | None = None,
+    promotion_record: Mapping[str, object] | None = None,
+    cutover_enabled: bool | None = None,
 ) -> dict[str, object]:
     """Read the latest valid local opportunity result without recalculation."""
 
@@ -1029,7 +1032,22 @@ def load_opportunity_assessment(
     if not records:
         return unavailable
     records.sort(key=lambda item: (item[0], item[1]))
-    return records[-1][2]
+    result = records[-1][2]
+    ranker_rows = result.get("benchmark_rankers", ())
+    rank_scores = {
+        str(item.get("ranker")): item.get("score")
+        for item in ranker_rows
+        if isinstance(item, Mapping) and item.get("ranker")
+    } if isinstance(ranker_rows, (list, tuple)) else {}
+    route = _ui_decision_rank_route(
+        "instrument_detail", rank_scores, promotion_record=promotion_record,
+        cutover_enabled=cutover_enabled,
+    )
+    result["rank_cutover"] = route
+    result["active_ranker"] = route["ranker"]
+    result["active_rank_score"] = route["rank_score"]
+    result["v3_replay_score"] = route["v3_replay_score"]
+    return result
 
 
 def load_stock_research_context(
@@ -2732,7 +2750,14 @@ _METRIC_HISTORY_DISPLAY_COLUMNS = (
 )
 
 
-def load_score_metric_history_projection(instrument_id: str, *, frame=None) -> dict:
+def load_score_metric_history_projection(
+    instrument_id: str,
+    *,
+    frame=None,
+    rank_scores: Mapping[str, object] | None = None,
+    promotion_record: Mapping[str, object] | None = None,
+    cutover_enabled: bool | None = None,
+) -> dict:
     """Read stored component snapshots without deriving scores or PIT authority."""
     import math
     from numbers import Real
@@ -2775,6 +2800,66 @@ def load_score_metric_history_projection(instrument_id: str, *, frame=None) -> d
                 return unavailable("malformed_metric_history")
         record["execution_allowed"] = False
         records.append(record)
+    route = _ui_decision_rank_route(
+        "score_history", rank_scores or {}, promotion_record=promotion_record,
+        cutover_enabled=cutover_enabled,
+    )
     return {"status": "available", "instrument_id": instrument_id, "rows": records,
+            "rank_cutover": route, "active_ranker": route["ranker"],
+            "active_rank_score": route["rank_score"], "v3_replay_score": route["v3_replay_score"],
             "message": "Persisted score-component snapshots across local runs. As-of dates and stored provenance do not establish knowledge-time availability or replay guarantees.",
             "execution_allowed": False}
+
+
+def _ui_decision_rank_route(
+    consumer: str,
+    rank_scores: Mapping[str, object],
+    *,
+    promotion_record: Mapping[str, object] | None = None,
+    cutover_enabled: bool | None = None,
+) -> dict[str, object]:
+    from etf_cockpit.services import decision_rank_route
+
+    return decision_rank_route(
+        consumer,
+        rank_scores,
+        promotion_record=promotion_record,
+        cutover_enabled=cutover_enabled,
+    )
+
+
+def route_decision_rank_rows(
+    frame: pd.DataFrame,
+    consumer: str,
+    *,
+    promotion_record: Mapping[str, object] | None = None,
+    cutover_enabled: bool | None = None,
+) -> pd.DataFrame:
+    """Apply the configured rank route to frame rows carrying rank scores."""
+
+    from etf_cockpit.analysis.decision.rank_validation import route_ranked_frame
+
+    return route_ranked_frame(
+        frame,
+        consumer,
+        promotion_record=promotion_record,
+        cutover_enabled=cutover_enabled,
+    )
+
+
+def build_screen_rows(
+    snapshot: object,
+    fundamentals: pd.DataFrame,
+    *,
+    promotion_record: Mapping[str, object] | None = None,
+    cutover_enabled: bool | None = None,
+) -> pd.DataFrame:
+    """Build screener evidence and route an available rank through the facade."""
+
+    frame = _build_screen_rows_v3(snapshot, fundamentals)
+    return route_decision_rank_rows(
+        frame,
+        "screener",
+        promotion_record=promotion_record,
+        cutover_enabled=cutover_enabled,
+    )
