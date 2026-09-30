@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
 import json
 import os
 from pathlib import Path
@@ -262,6 +263,53 @@ class DataProvidersConfig(BaseModel):
         return {"providers": {name: section.redacted() for name, section in self.providers.items()}}
 
 
+class SettlementConfig(BaseModel):
+    """Configured T+N lag by exact venue label and instrument type."""
+
+    settlement_lags: dict[str, dict[str, int]] = Field(default_factory=dict)
+
+    @field_validator("settlement_lags")
+    @classmethod
+    def validate_settlement_lags(cls, value: dict[str, dict[str, int]]) -> dict[str, dict[str, int]]:
+        for venue, instrument_lags in value.items():
+            if not venue.strip():
+                raise ValueError("settlement venue labels must be non-empty")
+            for instrument_type, lag in instrument_lags.items():
+                if not instrument_type.strip() or isinstance(lag, bool) or not 0 <= lag <= 10:
+                    raise ValueError("settlement instrument types need integer lags from 0 to 10")
+        return value
+
+    def settlement_date(self, venue: str | None, instrument_type: str | None, trade_date: date) -> date | None:
+        """Return T+N using weekdays; unknown venue/type remains unsettled indefinitely.
+
+        Holiday data is not part of this config, so cash release uses configured
+        weekday settlement dates. Callers must retain a manual reconciliation
+        path for exceptional market closures or a corrected settlement date.
+        """
+
+        if not venue or not instrument_type:
+            return None
+        venue_rules = next(
+            (rules for name, rules in self.settlement_lags.items() if name.casefold() == venue.strip().casefold()),
+            None,
+        )
+        if venue_rules is None:
+            return None
+        lag = next(
+            (days for name, days in venue_rules.items() if name.casefold() == instrument_type.strip().casefold()),
+            None,
+        )
+        if lag is None:
+            return None
+        settlement = trade_date
+        remaining = lag
+        while remaining:
+            settlement += timedelta(days=1)
+            if settlement.weekday() < 5:
+                remaining -= 1
+        return settlement
+
+
 class AppConfig(BaseModel):
     universe: UniverseConfig
     targets: PortfolioTargets
@@ -271,6 +319,7 @@ class AppConfig(BaseModel):
     ui: UISettings
     chatgpt_schema: dict[str, Any]
     data_providers: DataProvidersConfig = Field(default_factory=DataProvidersConfig)
+    settlement: SettlementConfig = Field(default_factory=SettlementConfig)
 
     @property
     def forecast_uncertainty(self) -> ForecastUncertaintySettings:
@@ -293,6 +342,20 @@ def _read_json(path: Path) -> dict[str, Any]:
         raise ConfigError(f"Could not read JSON config {path}: {exc}") from exc
 
 
+def load_settlement_config(config_dir: Path = CONFIG_DIR) -> SettlementConfig:
+    """Load settlement rules additively; absent rules fail closed at lookup time."""
+
+    path = config_dir / "settlement_v1.yaml"
+    if not path.exists():
+        return SettlementConfig()
+    try:
+        return SettlementConfig(**_read_yaml(path))
+    except ConfigError:
+        raise
+    except Exception as exc:
+        raise ConfigError(f"Settlement config validation failed: {exc}") from exc
+
+
 def load_config(config_dir: Path = CONFIG_DIR) -> AppConfig:
     try:
         provider_path = config_dir / "data_providers.yaml"
@@ -308,11 +371,46 @@ def load_config(config_dir: Path = CONFIG_DIR) -> AppConfig:
             ui=UISettings(**(_read_yaml(config_dir / "ui_settings.yaml") if (config_dir / "ui_settings.yaml").exists() else {})),
             chatgpt_schema=_read_json(config_dir / "chatgpt_schema.json") if (config_dir / "chatgpt_schema.json").exists() else {},
             data_providers=data_providers,
+            settlement=load_settlement_config(config_dir),
         )
     except ConfigError:
         raise
     except Exception as exc:
         raise ConfigError(f"Config validation failed: {exc}") from exc
+
+
+def resolve_provider_api_key(
+    provider_name: str,
+    *,
+    config_dir: Path = CONFIG_DIR,
+    vault: Any | None = None,
+    configured_value: str | None = None,
+) -> str | None:
+    """Resolve a provider credential from the Windows vault, then the existing environment overlay."""
+
+    provider_key = str(provider_name).strip()
+    if not provider_key:
+        raise ConfigError("Provider name cannot be empty.")
+    try:
+        if vault is None:
+            from etf_cockpit.security.credentials import CredentialVault
+
+            vault = CredentialVault()
+        credential = vault.get(provider_key)
+    except Exception:
+        raise ConfigError("Provider credential could not be read from the local vault.") from None
+    if credential and str(credential).strip():
+        return str(credential)
+    try:
+        env_file_values = {
+            key: value
+            for key, value in dotenv_values(Path(config_dir).parent / ".env").items()
+            if value is not None
+        }
+    except Exception:
+        raise ConfigError("Provider credential fallback could not be read safely.") from None
+    environment_value = _env_value(_provider_env_key(provider_key, "API_KEY"), env_file_values)
+    return environment_value if environment_value is not None else configured_value
 
 
 def _universe_config_from_records(records: Any, *, allow_cross_tier_duplicates: bool = False) -> UniverseConfig:

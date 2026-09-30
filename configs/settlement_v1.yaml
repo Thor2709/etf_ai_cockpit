@@ -1,0 +1,33 @@
+settlement_lags:
+  XETRA:
+    stock: 2
+    equity: 2
+    etf: 2
+  Euronext:
+    stock: 2
+    equity: 2
+    etf: 2
+  Euronext Paris:
+    stock: 2
+    equity: 2
+    etf: 2
+  Borsa Italiana:
+    stock: 2
+    equity: 2
+    etf: 2
+  Oslo Børs:
+    stock: 2
+    equity: 2
+    etf: 2
+  OSE:
+    stock: 2
+    equity: 2
+    etf: 2
+  LSE:
+    stock: 2
+    equity: 2
+    etf: 2
+  US:
+    stock: 1
+    equity: 1
+    etf: 1

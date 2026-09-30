@@ -1823,7 +1823,7 @@ class SignalService:
             else pd.DataFrame()
         )
         structure_caps = _load_structure_caps(self.config.universe.enabled_ids, effective_date)
-        return generate_signals(
+        signals = generate_signals(
             self.config,
             latest,
             holdings,
@@ -1838,6 +1838,58 @@ class SignalService:
             calibration_prices=prices,
             decision_time=pd.Timestamp(effective_date, tz="UTC"),
         )
+        _run_decision_shadow_guard(
+            self.config,
+            signals,
+            decision_time=effective_date,
+            latest_features=latest,
+            price_history=feature_frame,
+        )
+        return signals
+
+
+def _run_decision_shadow_guard(
+    config: AppConfig,
+    signals: Sequence[SignalResult],
+    *,
+    decision_time: date,
+    latest_features: pd.DataFrame | None = None,
+    price_history: pd.DataFrame | None = None,
+) -> None:
+    """Publish decision v1 beside v3 without allowing shadow errors to escape."""
+
+    run_id = signals[0].run_id if signals else None
+    try:
+        liquidity_reports = {}
+        if price_history is not None:
+            from etf_cockpit.features.etf_economics import calculate_etf_liquidity
+
+            for instrument in config.universe.enabled_ids:
+                try:
+                    liquidity_reports[instrument] = calculate_etf_liquidity(
+                        config, price_history, instrument, as_of=decision_time
+                    )
+                except Exception:
+                    liquidity_reports[instrument] = None
+        from etf_cockpit.analysis.decision.shadow_run import run_decision_shadow
+
+        run_decision_shadow(
+            config,
+            signals,
+            decision_time=decision_time,
+            latest_features=latest_features,
+            liquidity_reports=liquidity_reports,
+        )
+    except Exception as exc:
+        try:
+            append_jsonl(
+                "decision_opportunity_shadow_failures.jsonl",
+                "decision_opportunity_shadow_failed",
+                {"reason_code": f"SHADOW_RUN_FAILED:{type(exc).__name__}"},
+                run_id=run_id,
+            )
+        except Exception:
+            pass
 
 
 def _sanitize_unavailable_relative_features(features: pd.DataFrame) -> None:
@@ -3088,6 +3140,13 @@ def _build_snapshot(
             forecast_distributions=forecast_return_distributions(forecasts),
             structure_confidence_caps=structure_caps,
         )
+    )
+    _run_decision_shadow_guard(
+        config,
+        signals,
+        decision_time=data_report.as_of_date,
+        latest_features=latest,
+        price_history=features,
     )
     backtest = (
         _empty_backtest_report("Backtest skipped because no clean prices exist for the current two-tier universe yet.")

@@ -1,0 +1,13 @@
+schema_version: 1
+version: opportunity-v1.0.0
+minimum_universe_support: 3
+minimum_peer_support: 3
+minimum_exposure_peer_sector_share: 0.35
+labels:
+  high_opportunity_percentile: 90.0
+  attractive_percentile: 75.0
+  fair_mixed_percentile: 40.0
+  low_percentile: 25.0
+timing:
+  supportive_momentum_percentile: 75.0
+  adverse_momentum_percentile: 25.0

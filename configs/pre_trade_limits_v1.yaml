@@ -1,0 +1,9 @@
+schema_version: pre_trade_limits.v1
+# Conservative local-paper limits; reviewed independently of proposal policy.
+max_order_value: 10000
+max_position_exposure: 25000
+max_daily_turnover: 50000
+allowed_instruments:
+  - VWCE
+cancel_open_paper_orders_on_kill_switch: true
+max_override_ttl_seconds: 3600

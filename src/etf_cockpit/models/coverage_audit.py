@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -18,6 +18,7 @@ from etf_cockpit.models.calibration import evaluate_forecast_calibration
 
 
 COVERAGE_SCHEMA_VERSION = "coverage-audit.v1"
+COVERAGE_HISTORY_SCHEMA_VERSION = "coverage-audit-history.v1"
 DIMENSIONS = ("geography", "sector", "size", "currency", "listing")
 _UNAVAILABLE = "unavailable"
 _DIMENSION_COLUMNS = {
@@ -192,13 +193,23 @@ def build_coverage_audit(
 
 
 def write_coverage_audit(report: CoverageAudit, directory: Path = REPORTS_DIR) -> tuple[Path, Path]:
-    """Write a deterministic JSON/Markdown local audit and return both paths."""
+    """Write current reports and append a versioned, dated JSONL history record."""
 
     directory.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(report.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     checksum = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     json_path = directory / "coverage_audit.json"
     markdown_path = directory / "coverage_audit.md"
+    history_path = directory / "coverage_audit_history.jsonl"
+    history_record = {
+        "history_schema_version": COVERAGE_HISTORY_SCHEMA_VERSION,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "as_of_date": report.as_of_date,
+        "report_checksum": checksum,
+        "report": report.to_dict(),
+    }
+    with history_path.open("a", encoding="utf-8", newline="\n") as history:
+        history.write(json.dumps(history_record, ensure_ascii=False, sort_keys=True) + "\n")
     json_path.write_text(payload, encoding="utf-8")
     markdown_path.write_text(_markdown(report, checksum), encoding="utf-8")
     return json_path, markdown_path

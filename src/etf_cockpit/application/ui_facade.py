@@ -7,13 +7,15 @@ ports and application commands.
 """
 
 from collections.abc import Mapping
+from datetime import date, datetime
+import json
 import math
 from numbers import Real
 from pathlib import Path
 
 import pandas as pd
 
-from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
+from etf_cockpit.core.paths import LOG_DIR, STATEMENT_FACTS_PATH
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data.etf_structure import project_etf_structure
 from etf_cockpit.data.event_calendar import normalise_event_decision_time
@@ -52,6 +54,11 @@ from etf_cockpit.analysis.etf_tax_context import (
 )
 from etf_cockpit.data.fixed_income_risk_store import read_fixed_income_risk
 from etf_cockpit.application.portfolio_valuation import load_portfolio_valuation_history  # noqa: F401
+from etf_cockpit.portfolio.performance_series import (
+    PerformanceSeries,
+    build_portfolio_performance_series,
+    performance_series_frame,  # noqa: F401
+)
 
 from etf_cockpit.chatgpt_bridge.audit_packet import *  # noqa: F401,F403
 from etf_cockpit.data.backup_restore import *  # noqa: F401,F403
@@ -177,9 +184,11 @@ from etf_cockpit.portfolio.robust_risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk_analytics import *  # noqa: F401,F403
 from etf_cockpit.portfolio.currency import CurrencyProjection, project_portfolio_currency as _project_portfolio_currency
+from etf_cockpit.portfolio.exposure_cube import build_portfolio_exposure_cube
 from etf_cockpit.application.portfolio_sandbox import *  # noqa: F401,F403
 from etf_cockpit.portfolio.sandbox import PortfolioAnalysis, select_holdings_view  # noqa: F401
 from etf_cockpit.application.overlap import *  # noqa: F401,F403
+from etf_cockpit.application.overlap import load_direct_holdings
 from etf_cockpit.signals.simple_scores import *  # noqa: F401,F403
 from etf_cockpit.signals.feature_drivers import (  # noqa: F401
     _canonical_cohort_time,
@@ -196,6 +205,34 @@ from etf_cockpit.signals.feature_drivers import (  # noqa: F401
     _source_vintage_hash,
     normalise_bound_claim,
 )
+
+
+def load_portfolio_performance_series(
+    *,
+    metric: str = "twr_index",
+    date_range: str = "inception",
+    aggregation: str = "day",
+    currency: str = "EUR",
+    custom_start: object = None,
+    custom_end: object = None,
+) -> PerformanceSeries:
+    """Load saved valuation and local FX evidence for one portfolio view."""
+    report = load_portfolio_valuation_history()
+    snapshots = report.get("snapshots")
+    try:
+        fx_rates = load_fx_rates()
+    except (OSError, ValueError, TypeError, ImportError):
+        fx_rates = pd.DataFrame()
+    return build_portfolio_performance_series(
+        snapshots if isinstance(snapshots, pd.DataFrame) else None,
+        metric=metric,
+        date_range=date_range,
+        aggregation=aggregation,
+        currency=currency,
+        custom_start=custom_start,  # type: ignore[arg-type]
+        custom_end=custom_end,  # type: ignore[arg-type]
+        fx_rates=fx_rates,
+    )
 
 
 def build_profiled_forecast_lab_workspace(
@@ -240,6 +277,35 @@ def project_portfolio_currency(
 ) -> CurrencyProjection:
     """Return the canonical informational currency projection for presentation."""
     return _project_portfolio_currency(analysis, target_currency, fx_rates)
+
+
+def load_portfolio_exposure_projection(
+    position_weights: Mapping[str, float],
+    *,
+    decision_time: str | datetime,
+    analysis_date: str | date | datetime | None = None,
+    portfolio_id: str | None = None,
+    snapshot_id: str | None = None,
+    position_metadata: Mapping[str, Mapping[str, object]] | None = None,
+    holding_metadata: Mapping[str, Mapping[str, object]] | None = None,
+    reporting_currency: str | None = None,
+    holdings: pd.DataFrame | None = None,
+    root: Path = ROOT,
+) -> dict[str, object]:
+    """Load the read-only exposure chart projection for a ledger-weight snapshot."""
+    evidence = holdings if isinstance(holdings, pd.DataFrame) else load_direct_holdings(root=root)
+    cube = build_portfolio_exposure_cube(
+        evidence,
+        position_weights,
+        decision_time=decision_time,
+        analysis_date=analysis_date,
+        portfolio_id=portfolio_id,
+        snapshot_id=snapshot_id,
+        position_metadata=position_metadata,
+        holding_metadata=holding_metadata,
+        reporting_currency=reporting_currency,
+    )
+    return cube.to_projection()
 
 
 def _normalise_valuation_assumptions(value: object) -> dict[str, object]:
@@ -874,6 +940,96 @@ def load_peer_cohort_projection(
             "reason_code": "peer_cohort_evidence_invalid",
             "execution_allowed": False,
         }
+
+
+def load_opportunity_assessment(
+    instrument_id: str,
+    *,
+    decision_time: object = None,
+    run_id: str | None = None,
+    artifact_directory: Path | None = None,
+) -> dict[str, object]:
+    """Read the latest valid local opportunity result without recalculation."""
+
+    instrument = str(instrument_id or "").strip()
+    unavailable = {
+        "status": "unavailable",
+        "instrument": instrument,
+        "reason_code": "opportunity_result_unavailable",
+        "execution_allowed": False,
+    }
+    if not instrument:
+        return unavailable | {"reason_code": "instrument_id_unavailable"}
+    root = Path(artifact_directory or LOG_DIR)
+    cutoff = None
+    if decision_time is not None:
+        try:
+            cutoff = pd.Timestamp(decision_time)
+            if cutoff.tzinfo is None:
+                cutoff = cutoff.tz_localize("UTC")
+            else:
+                cutoff = cutoff.tz_convert("UTC")
+            if len(str(decision_time).strip()) == 10:
+                cutoff = cutoff + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+        except (TypeError, ValueError, OverflowError):
+            return unavailable | {"reason_code": "decision_time_invalid"}
+    records: list[tuple[pd.Timestamp, str, dict[str, object]]] = []
+    try:
+        paths = sorted(root.glob("decision_opportunity_*.json"))
+    except OSError:
+        return unavailable
+    for path in paths:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if (
+            not isinstance(payload, Mapping)
+            or payload.get("schema_version") != 1
+            or payload.get("artifact_version") != "decision-opportunity-shadow-v1"
+            or payload.get("execution_allowed") is not False
+            or (run_id is not None and str(payload.get("run_id")) != run_id)
+        ):
+            continue
+        try:
+            timestamp = pd.Timestamp(payload.get("decision_time"))
+            if timestamp.tzinfo is None:
+                continue
+            timestamp = timestamp.tz_convert("UTC")
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if cutoff is not None and timestamp > cutoff:
+            continue
+        hashes = payload.get("config_hashes")
+        if not isinstance(hashes, Mapping):
+            continue
+        rows = payload.get("results")
+        if not isinstance(rows, list):
+            continue
+        result = next(
+            (
+                dict(item)
+                for item in rows
+                if isinstance(item, Mapping)
+                and str(item.get("instrument", "")) == instrument
+                and item.get("execution_allowed") is False
+            ),
+            None,
+        )
+        if result is None:
+            continue
+        result.update(
+            {
+                "artifact_status": str(payload.get("status", "unavailable")),
+                "run_id": str(payload.get("run_id", "")),
+                "config_hashes": dict(hashes),
+            }
+        )
+        records.append((timestamp, str(payload.get("run_id", "")), result))
+    if not records:
+        return unavailable
+    records.sort(key=lambda item: (item[0], item[1]))
+    return records[-1][2]
 
 
 def load_stock_research_context(
@@ -2007,6 +2163,38 @@ def load_paper_trade_rows(root: Path) -> tuple[dict[str, object], ...]:
         return PaperLedger(root).trade_rows()
     except (OSError, PaperLedgerError, ValueError):
         return ()
+
+
+def load_canary_status(
+    root: Path | None = None,
+    *,
+    account_id: str = "local-paper",
+    config: object | None = None,
+) -> dict[str, object]:
+    """Expose the local paper-canary state and its permanently blocked live gate."""
+
+    from etf_cockpit.trading.canary import CanaryConfig, CanaryController, CanaryError
+
+    if config is not None and not isinstance(config, CanaryConfig):
+        return {
+            "state": "invalid",
+            "stage": "disabled",
+            "opted_in": False,
+            "live_submission": "blocked",
+            "live_unmet_dependencies": ["canary_config_invalid"],
+            "execution_allowed": False,
+        }
+    try:
+        return CanaryController(root or ROOT, account_id=account_id, config=config).status()
+    except (CanaryError, OSError, TypeError, ValueError):
+        return {
+            "state": "invalid",
+            "stage": "disabled",
+            "opted_in": False,
+            "live_submission": "blocked",
+            "live_unmet_dependencies": ["canary_state_unavailable"],
+            "execution_allowed": False,
+        }
 
 
 def load_paper_incidents(root: Path, *, account_id: str = "local-paper") -> dict[str, object]:

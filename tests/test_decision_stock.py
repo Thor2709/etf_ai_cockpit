@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
+from etf_cockpit.analysis.decision.contracts import DecisionDriver, DomainSlot
+from etf_cockpit.analysis.decision.opportunity import build_opportunity_results
+from etf_cockpit.analysis.decision import shadow_run
 from etf_cockpit.analysis.decision.stock import (
     compose_stock_decision,
     load_stock_decision_map,
@@ -555,3 +560,112 @@ def test_confirmed_norwegian_ec_bypasses_generic_and_requires_native_result() ->
     assert missing["valuation"]["status"] == "unavailable"
     assert missing["expectations"]["status"] == "unavailable"
     assert missing["tactical"]["status"] == "unavailable"
+
+
+def test_stock_composer_exposes_point_in_time_valuation_domain_score() -> None:
+    result = compose_stock_decision(
+        "ACME",
+        _context("ACME"),
+        DECISION_TIME,
+        _report(),
+    )
+
+    valuation_domain = result["valuation_domain"]
+    assert valuation_domain.domain == "valuation"
+    assert valuation_domain.status == "UNAVAILABLE"
+    assert valuation_domain.reason_code
+    assert result["valuation_z_score"] is None
+    assert isinstance(result["valuation_drivers"], tuple)
+
+
+def test_shadow_routes_equity_certificate_through_stock_composer(monkeypatch) -> None:
+    instrument = "CERT"
+    config = SimpleNamespace(
+        universe=SimpleNamespace(
+            etfs=(SimpleNamespace(id=instrument, instrument_type="equity_certificate"),),
+            enabled_ids=(instrument,),
+        )
+    )
+    stock_calls: list[str] = []
+    monkeypatch.setattr(
+        shadow_run,
+        "read_instrument_context",
+        lambda *args, **kwargs: SimpleNamespace(instrument_type=None),
+    )
+    monkeypatch.setattr(shadow_run, "load_etf_economics_records", lambda: ())
+    monkeypatch.setattr(
+        shadow_run,
+        "_prepare_stock_candidate",
+        lambda identity, *args: (
+            stock_calls.append(identity)
+            or {"instrument": identity, "asset_type": "stock", "peer_id": "unavailable"}
+        ),
+    )
+    monkeypatch.setattr(
+        shadow_run,
+        "_prepare_etf_candidate",
+        lambda *args, **kwargs: pytest.fail("equity certificate used ETF route"),
+    )
+    monkeypatch.setattr(
+        shadow_run,
+        "_compose_stock_candidate",
+        lambda prepared, *args: {**prepared, "route": "stock"},
+    )
+
+    rows = shadow_run._compose_universe(
+        config, (), datetime.now(timezone.utc), latest_features=None
+    )
+
+    assert stock_calls == [instrument]
+    assert rows[0]["route"] == "stock"
+
+
+def test_stock_shadow_candidate_includes_valuation_negative_drivers(monkeypatch) -> None:
+    underwriting_driver = DecisionDriver(
+        "quality_metric", "AVAILABLE", 1.0, "ratio", 2.0, "AVAILABLE"
+    )
+    valuation_driver = DecisionDriver(
+        "valuation_metric", "AVAILABLE", 20.0, "ratio", -3.0, "AVAILABLE"
+    )
+    assessment = SimpleNamespace(
+        eligibility_results=(),
+        gate_results=(),
+        drivers=(underwriting_driver,),
+        source_vintage_hash="source:test",
+    )
+    composed = {
+        "assessment": assessment,
+        "underwriting_domains": (
+            DomainSlot("Underwriting", "AVAILABLE", 2.0, 2.0, 1.0, 0.8, "AVAILABLE"),
+        ),
+        "underwriting_domain_labels": {},
+        "underwriting_z_score": 2.0,
+        "valuation_domain": DomainSlot(
+            "valuation", "AVAILABLE", -3.0, -3.0, 1.0, 0.8, "AVAILABLE"
+        ),
+        "valuation_z_score": -3.0,
+        "critical_underwriting_domains": (),
+        "valuation_drivers": (valuation_driver,),
+    }
+    monkeypatch.setattr(
+        shadow_run, "compose_stock_decision", lambda *args, **kwargs: composed
+    )
+    candidate = shadow_run._compose_stock_candidate(
+        {"instrument": "ACME", "context": object(), "research": {}},
+        datetime(2026, 1, 1, tzinfo=timezone.utc),
+        (),
+        minimum_support=3,
+    )
+
+    result = build_opportunity_results(
+        (candidate,), decision_time="2026-01-01T00:00:00Z"
+    )["ACME"]
+
+    assert {driver.metric_id for driver in candidate["drivers"]} == {
+        "quality_metric",
+        "valuation_metric",
+    }
+    assert any(
+        driver.metric_id == "valuation_metric"
+        for driver in result.negative_drivers
+    )
