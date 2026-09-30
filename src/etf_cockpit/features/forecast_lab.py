@@ -75,6 +75,9 @@ FORECAST_OUTCOME_COLUMNS = [
     "outcome_reason",
     "target_date",
     "actual_return",
+    "prediction_id",
+    "fold_id",
+    "out_of_fold",
 ]
 LAB_RUN_COLUMNS = [
     "run_id",
@@ -314,6 +317,8 @@ def build_forecast_lab_report(
         str(instrument_id): group.sort_values("date").set_index("date")[["adjusted_close", *stale_columns]]
         for instrument_id, group in known_prices.groupby("etf_id", sort=False)
     }
+    split_rows = build_walk_forward_splits(frame["forecast_date"].dt.date.unique())
+    frame = _mark_walk_forward_provenance(frame, split_rows)
     matured, outcomes = _matured_rows(frame, price_lookup, round_trip_cost_bps)
     model_rows = _model_summaries(
         frame,
@@ -324,7 +329,6 @@ def build_forecast_lab_report(
         configured_horizons,
     )
     run_rows = _run_summaries(frame)
-    split_rows = build_walk_forward_splits(frame["forecast_date"].dt.date.unique())
     notes = [
         "Evaluation uses only local forecast artefacts and adjusted-close prices; a historical as-of replay "
         "uses only prices up to that date.",
@@ -428,6 +432,43 @@ def evaluate_walk_forward(splits: pd.DataFrame, matured: pd.DataFrame) -> pd.Dat
     return pd.DataFrame(rows, columns=WALK_FORWARD_EVALUATION_COLUMNS)
 
 
+def _mark_walk_forward_provenance(frame: pd.DataFrame, splits: pd.DataFrame) -> pd.DataFrame:
+    marked = frame.copy()
+    marked["prediction_id"] = marked.apply(_prediction_identifier, axis=1)
+    marked["fold_id"] = None
+    marked["out_of_fold"] = False
+    fold_count = pd.Series(0, index=marked.index, dtype="int64")
+    for split in splits.itertuples(index=False):
+        forecast_days = _naive_utc(marked["forecast_date"]).dt.normalize()
+        start, end = pd.Timestamp(split.test_start), pd.Timestamp(split.test_end)
+        mask = forecast_days.ge(start) & forecast_days.le(end)
+        fold_count.loc[mask] += 1
+        first_assignment = mask & fold_count.eq(1)
+        marked.loc[first_assignment, "fold_id"] = str(split.split_id)
+        marked.loc[first_assignment, "out_of_fold"] = True
+    overlapping = fold_count.ne(1)
+    marked.loc[overlapping, "fold_id"] = None
+    marked.loc[overlapping, "out_of_fold"] = False
+    return marked
+
+
+def _prediction_identifier(row: pd.Series) -> str:
+    existing = _noneable_text(row.get("prediction_id"))
+    if existing is not None:
+        return existing
+    model_id = _noneable_text(row.get("model_id")) or str(row.get("model_name") or "")
+    forecast_date = pd.Timestamp(row["forecast_date"]).isoformat()
+    return "|".join(
+        (
+            model_id,
+            str(_noneable_text(row.get("run_id")) or ""),
+            str(row.get("etf_id") or ""),
+            forecast_date,
+            str(int(row["horizon_days"])),
+        )
+    )
+
+
 def _matured_rows(
     frame: pd.DataFrame,
     price_lookup: dict[str, pd.DataFrame],
@@ -449,6 +490,9 @@ def _matured_rows(
             "outcome_reason": None,
             "target_date": None,
             "actual_return": None,
+            "prediction_id": row["prediction_id"],
+            "fold_id": row["fold_id"],
+            "out_of_fold": bool(row["out_of_fold"]),
         }
         if row["status"] != "ok":
             outcome_row["outcome_status"] = "skipped" if row["status"] == "skipped" else "unavailable"
@@ -498,6 +542,9 @@ def _matured_rows(
                 "direction_hit": float(np.sign(expected) == np.sign(actual)),
                 "q10_return": q10,
                 "q90_return": q90,
+                "prediction_id": row["prediction_id"],
+                "fold_id": row["fold_id"],
+                "out_of_fold": bool(row["out_of_fold"]),
                 "interval_hit": None if q10 is None or q90 is None else float(q10 <= actual <= q90),
                 "gross_forward_value": gross_value,
                 "round_trip_cost": round_trip_cost,

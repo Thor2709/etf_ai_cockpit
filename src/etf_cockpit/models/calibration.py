@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from math import ceil, isfinite, sqrt
 from numbers import Real
@@ -116,6 +116,11 @@ def calibrate_forecast_distribution(
     """
 
     output = dict(distribution) if isinstance(distribution, Mapping) else {}
+    probability_fields = ("probability_loss", "probability_beat_cash", "probability_beat_benchmark")
+    for field in probability_fields:
+        output[field] = None
+    output["probability_calibration_status"] = "unavailable"
+    output["probability_calibration_reason"] = "Matching calibrated probability evidence is unavailable."
     metadata: dict[str, object] = {
         "status": "unavailable",
         "reason": "Forecast calibration inputs are unavailable.",
@@ -127,8 +132,15 @@ def calibrate_forecast_distribution(
         "coverage_tolerance": None,
         "adjustment": None,
         "poor_calibration": False,
+        "model_construction": [],
     }
     output["conformal_calibration"] = metadata
+
+    model_construction = _distribution_model_construction(output)
+    if model_construction is None:
+        metadata["reason"] = "Target model identity is missing or invalid for calibration."
+        return output
+    metadata["model_construction"] = model_construction
 
     minimum = _setting_number(settings, "minimum_matured_samples", integer=True)
     tolerance = _setting_number(settings, "coverage_tolerance")
@@ -154,10 +166,11 @@ def calibrate_forecast_distribution(
         return output
     forecast_columns = {
         "etf_id", "model_name", "forecast_date", "horizon_days", "expected_return",
-        "q10_return", "q90_return", "status", "model_allowed_in_score",
+        "q10_return", "q90_return", "status", "model_allowed_in_score", "model_id",
+        "prediction_id", "fold_id", "out_of_fold",
     }
     if not forecast_columns.issubset(forecasts.columns):
-        metadata["reason"] = "Historical forecasts are missing required calibration fields."
+        metadata["reason"] = "Historical forecasts are missing out-of-fold model and prediction provenance."
         return output
     price_columns = {"etf_id", "date", "adjusted_close"}
     if not isinstance(prices, pd.DataFrame) or prices.empty or not price_columns.issubset(prices.columns):
@@ -193,12 +206,31 @@ def calibrate_forecast_distribution(
     history["expected_return"] = pd.to_numeric(history["expected_return"], errors="coerce")
     history["q10_return"] = pd.to_numeric(history["q10_return"], errors="coerce")
     history["q90_return"] = pd.to_numeric(history["q90_return"], errors="coerce")
-    history = history.loc[history["forecast_date"].notna() & history["forecast_date"].lt(decision_day)]
+    history["model_id"] = history["model_id"].map(_nonempty_text)
+    history["prediction_id"] = history["prediction_id"].map(_nonempty_text)
+    history["fold_id"] = history["fold_id"].map(_nonempty_text)
+    history["_model_member"] = history.apply(lambda row: _matching_model_member(row, model_construction), axis=1)
+    history["_out_of_fold"] = history["out_of_fold"].map(_truthy)
+    history["_run_id"] = history["run_id"].map(_nonempty_text) if "run_id" in history else ""
+    history = history.loc[
+        history["forecast_date"].notna()
+        & history["forecast_date"].lt(decision_day)
+        & history["_model_member"].notna()
+        & history["_out_of_fold"]
+        & history["fold_id"].notna()
+        & history["prediction_id"].notna()
+        & history["expected_return"].notna()
+        & history["q10_return"].notna()
+        & history["q90_return"].notna()
+    ]
+    if history.empty:
+        metadata["reason"] = "No matching out-of-fold predictions with verifiable provenance are available."
+        return output
 
-    scores: list[float] = []
-    hits: list[float] = []
-    for row in history.itertuples(index=False):
-        origin = price_dates.get_indexer([row.forecast_date])[0]
+    candidates: dict[tuple[str, tuple[str, str, int]], dict[str, object]] = {}
+    conflicts: set[tuple[str, tuple[str, str, int]]] = set()
+    for row in history.to_dict(orient="records"):
+        origin = price_dates.get_indexer([row["forecast_date"]])[0]
         if origin < 0 or origin + int(horizon) >= len(price_dates):
             continue
         target_day = price_dates[origin + int(horizon)]
@@ -206,9 +238,9 @@ def calibrate_forecast_distribution(
             continue
         if stale_prices[origin] or stale_prices[origin + int(horizon)]:
             continue
-        expected = _finite_number(row.expected_return)
-        lower = _finite_number(row.q10_return)
-        upper = _finite_number(row.q90_return)
+        expected = _finite_number(row.get("expected_return"))
+        lower = _finite_number(row.get("q10_return"))
+        upper = _finite_number(row.get("q90_return"))
         origin_close = closes[origin]
         target_close = closes[origin + int(horizon)]
         if (
@@ -224,6 +256,60 @@ def calibrate_forecast_distribution(
             continue
         actual = target_close / origin_close - 1.0
         if not isfinite(actual):
+            continue
+        prediction_id = str(row["prediction_id"])
+        outcome_identity = (str(instrument_id), target_day.date().isoformat(), int(horizon))
+        dedupe_key = (prediction_id, outcome_identity)
+        candidate = {
+            "model_member": int(row["_model_member"]),
+            "forecast_date": row["forecast_date"],
+            "run_id": str(row["_run_id"] or ""),
+            "prediction_id": prediction_id,
+            "expected": expected,
+            "lower": lower,
+            "upper": upper,
+            "actual": actual,
+            "target_day": target_day,
+            "outcome_identity": outcome_identity,
+        }
+        previous = candidates.get(dedupe_key)
+        if previous is not None:
+            if any(previous[field] != candidate[field] for field in ("model_member", "forecast_date", "run_id", "expected", "lower", "upper", "actual")):
+                conflicts.add(dedupe_key)
+            continue
+        candidates[dedupe_key] = candidate
+
+    for key in conflicts:
+        candidates.pop(key, None)
+
+    events: dict[tuple[object, ...], dict[int, dict[str, object]]] = {}
+    for candidate in candidates.values():
+        event_key = (
+            candidate["forecast_date"],
+            candidate["run_id"],
+            candidate["target_day"],
+            candidate["outcome_identity"],
+        )
+        members = events.setdefault(event_key, {})
+        member = int(candidate["model_member"])
+        if member in members:
+            # Multiple distinct predictions from one ensemble member make
+            # this historical ensemble outcome ambiguous.
+            members[member] = {}
+        elif members.get(member) != {}:
+            members[member] = candidate
+
+    scores: list[float] = []
+    hits: list[float] = []
+    expected_members = set(range(len(model_construction)))
+    for members in events.values():
+        if set(members) != expected_members or any(not member for member in members.values()):
+            continue
+        member_rows = list(members.values())
+        actual = float(member_rows[0]["actual"])
+        lower = float(np.median([float(member["lower"]) for member in member_rows]))
+        upper = float(np.median([float(member["upper"]) for member in member_rows]))
+        if lower > upper:
             continue
         # Interval nonconformity is zero inside the historical q10–q90 band.
         scores.append(max(lower - actual, actual - upper, 0.0))
@@ -254,11 +340,108 @@ def calibrate_forecast_distribution(
         if poor_calibration
         else "Matured interval coverage is within the configured tolerance."
     )
+    if poor_calibration:
+        output["probability_calibration_reason"] = "Probability evidence is unavailable because interval calibration is poor."
+    else:
+        probability_evidence = _matching_probability_evidence(output, model_construction, minimum, decision_day)
+        if probability_evidence is not None:
+            output.update(probability_evidence)
+            output["probability_calibration_status"] = "available"
+            output["probability_calibration_reason"] = None
 
     conformal_adjustment = float(adjustment["adjustment"])
     output = _widen_distribution_quantiles(output, conformal_adjustment)
     output["conformal_calibration"] = metadata
     return output
+
+
+def _distribution_model_construction(distribution: Mapping[str, object]) -> list[dict[str, str | None]] | None:
+    raw = distribution.get("per_model_distributions")
+    if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes)) and raw:
+        entries = [item for item in raw if isinstance(item, Mapping)]
+        if len(entries) != len(raw):
+            return None
+    else:
+        entries = [distribution]
+    construction = []
+    for entry in entries:
+        model_id = _nonempty_text(entry.get("model_id"))
+        if model_id is None:
+            return None
+        construction.append(
+            {
+                "model_name": _nonempty_text(entry.get("model_name")),
+                "model_id": model_id,
+                "model_version": _nonempty_text(entry.get("model_version")),
+                "target_id": _nonempty_text(entry.get("target_id")),
+            }
+        )
+    ordered = sorted(construction, key=lambda item: (item["model_id"] or "", item["model_version"] or "", item["target_id"] or ""))
+    keys = [tuple(item.values()) for item in ordered]
+    return None if not ordered or len(keys) != len(set(keys)) else ordered
+
+
+def _matching_model_member(row: pd.Series, construction: list[dict[str, str | None]]) -> int | None:
+    model_id = _nonempty_text(row.get("model_id"))
+    model_name = _nonempty_text(row.get("model_name"))
+    model_version = _nonempty_text(row.get("model_version"))
+    target_id = _nonempty_text(row.get("target_id"))
+    for index, member in enumerate(construction):
+        if (
+            model_id == member["model_id"]
+            and (member["model_name"] is None or (model_name or "").casefold() == member["model_name"].casefold())
+            and model_version == member["model_version"]
+            and target_id == member["target_id"]
+        ):
+            return index
+    return None
+
+
+def _matching_probability_evidence(
+    distribution: Mapping[str, object],
+    construction: list[dict[str, str | None]],
+    minimum_samples: int,
+    decision_day: pd.Timestamp,
+) -> dict[str, float] | None:
+    evidence = distribution.get("probability_calibration_evidence")
+    if not isinstance(evidence, Mapping) or evidence.get("status") != "calibrated":
+        return None
+    count = _finite_number(evidence.get("sample_count"))
+    evidence_time = _decision_cutoff(evidence.get("matured_through"))
+    if (
+        count is None
+        or not count.is_integer()
+        or count < minimum_samples
+        or evidence.get("model_construction") != construction
+        or evidence_time is None
+        or not evidence_time.normalize() < decision_day.normalize()
+    ):
+        return None
+    probabilities = evidence.get("probabilities")
+    if not isinstance(probabilities, Mapping):
+        return None
+    output = {field: _finite_number(probabilities.get(field)) for field in ("probability_loss", "probability_beat_cash", "probability_beat_benchmark")}
+    if any(value is None or not 0.0 <= value <= 1.0 for value in output.values()):
+        return None
+    return {field: float(value) for field, value in output.items() if value is not None}
+
+
+def _nonempty_text(value: object) -> str | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().casefold() in {"true", "1", "yes"}
 
 
 def _repair_distribution_quantiles(distribution: Mapping[str, object]) -> dict[str, object]:

@@ -7,6 +7,7 @@ existing ``_drift`` rule, so monitoring stays comparable across reports.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 import math
@@ -84,13 +85,27 @@ def assess_drift(
     observations: tuple[DatedValue, ...] | list[DatedValue],
     *,
     as_of: datetime | date,
+    settings: Mapping[str, object] | object | None = None,
 ) -> DriftAssessment:
     """Assess only observations available at ``as_of`` in chronological order.
 
-    A score at or above the existing Forecast Lab boundary of 1.0 creates a
-    warning alert. The caller may create a review request but must never
-    promote a challenger from this result.
+    A score at or above the configured alert threshold creates a warning
+    alert. The caller may create a review request but must never promote a
+    challenger from this result.
     """
+
+    minimum = _setting(settings, "minimum_observations")
+    threshold = _setting(settings, "alert_threshold")
+    if (
+        minimum is None
+        or isinstance(minimum, bool)
+        or not isinstance(minimum, int)
+        or minimum < 2
+        or threshold is None
+        or not _finite(threshold)
+        or float(threshold) <= 0.0
+    ):
+        return DriftAssessment(model_id, "unavailable", None, "drift monitoring settings are missing or invalid", None)
 
     cutoff = _utc(as_of)
     dated: list[tuple[datetime, float]] = []
@@ -104,8 +119,14 @@ def assess_drift(
     dated.sort(key=lambda item: item[0])
     if len({item[0] for item in dated}) != len(dated):
         return DriftAssessment(model_id, "unavailable", None, "drift observation timestamps are not unique", None)
-    if len(dated) < 4:
-        return DriftAssessment(model_id, "unavailable", None, "at least four point-in-time observations are required", None)
+    if len(dated) < minimum:
+        return DriftAssessment(
+            model_id,
+            "unavailable",
+            None,
+            f"at least {minimum} point-in-time observations are required",
+            None,
+        )
 
     values = [item[1] for item in dated]
     scale = pstdev(values)
@@ -117,21 +138,21 @@ def assess_drift(
     score = abs(recent_mean - earlier_mean) / scale
     if not math.isfinite(score):
         return DriftAssessment(model_id, "unavailable", None, "drift score is non-finite", None)
-    if score < 1.0:
+    if score < float(threshold):
         return DriftAssessment(model_id, "stable", score, None, None)
 
     alert = DriftAlert(
         alert_id=f"drift_{uuid4().hex}",
         model_id=model_id,
         score=score,
-        threshold=1.0,
+        threshold=float(threshold),
         earlier_mean=earlier_mean,
         recent_mean=recent_mean,
         observation_count=len(values),
         first_observation_at=dated[0][0],
         last_observation_at=dated[-1][0],
         as_of=cutoff,
-        reason="standardized expected-return shift reached the Forecast Lab monitoring boundary",
+        reason="standardized expected-return shift reached the configured monitoring boundary",
     )
     return DriftAssessment(model_id, "warning", score, alert.reason, alert)
 
@@ -215,6 +236,12 @@ def _utc(value: datetime | date) -> datetime:
 
 def _finite(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+
+
+def _setting(settings: Mapping[str, object] | object | None, name: str) -> object | None:
+    if isinstance(settings, Mapping):
+        return settings.get(name)
+    return getattr(settings, name, None)
 
 
 __all__ = [

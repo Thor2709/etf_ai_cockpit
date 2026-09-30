@@ -207,12 +207,18 @@ class ForecastCalibrationSettings(BaseModel):
     coverage_tolerance: float = Field(default=0.05, ge=0, le=0.2)
 
 
+class ModelMonitoringSettings(BaseModel):
+    minimum_observations: int = Field(default=4, ge=2)
+    alert_threshold: float = Field(default=1.0, gt=0)
+
+
 class ModelSettings(BaseModel):
     forecast_horizons_trading_days: list[int] = Field(default_factory=lambda: [5, 20, 60, 120, 180])
     models: dict[str, Any] = Field(default_factory=dict)
     ensemble: dict[str, Any] = Field(default_factory=dict)
     forecast_uncertainty: ForecastUncertaintySettings = Field(default_factory=ForecastUncertaintySettings)
     calibration: ForecastCalibrationSettings = Field(default_factory=ForecastCalibrationSettings)
+    monitoring: ModelMonitoringSettings = Field(default_factory=ModelMonitoringSettings)
 
     def runtime(self, name: str) -> ModelRuntimeConfig:
         raw = self.models.get(name, {})

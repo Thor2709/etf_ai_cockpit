@@ -8,6 +8,7 @@ import pandas as pd
 
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.types import DataQualityReport, DatasetMetadata
+from etf_cockpit.features.forecast_lab import _mark_walk_forward_provenance, build_walk_forward_splits
 from etf_cockpit.models.calibration import calibrate_forecast_distribution
 from etf_cockpit.signals import signal_pipeline
 
@@ -28,6 +29,12 @@ def _forecasts(prices: pd.DataFrame, count: int, *, lower: float = -0.1, upper: 
         {
             "etf_id": "AAA",
             "model_name": "baseline",
+            "model_id": "model-A",
+            "model_version": "v1",
+            "target_id": "target-1",
+            "prediction_id": [f"prediction-{index}" for index in range(count)],
+            "fold_id": "wf-01",
+            "out_of_fold": True,
             "forecast_date": prices["date"].iloc[:count].to_numpy(),
             "horizon_days": 1,
             "expected_return": 0.01,
@@ -42,6 +49,10 @@ def _forecasts(prices: pd.DataFrame, count: int, *, lower: float = -0.1, upper: 
 def _distribution(**overrides: object) -> dict[str, object]:
     values: dict[str, object] = {
         "status": "available",
+        "model_name": "baseline",
+        "model_id": "model-A",
+        "model_version": "v1",
+        "target_id": "target-1",
         "horizon_days": 1,
         "q05_return": -0.2,
         "q10_return": -0.1,
@@ -50,6 +61,9 @@ def _distribution(**overrides: object) -> dict[str, object]:
         "q75_return": 0.05,
         "q90_return": 0.1,
         "q95_return": 0.2,
+        "probability_loss": 0.4,
+        "probability_beat_cash": 0.55,
+        "probability_beat_benchmark": 0.52,
     }
     values.update(overrides)
     return values
@@ -74,6 +88,65 @@ def test_calibration_excludes_outcomes_maturing_at_decision_time() -> None:
     evidence = calibrated["conformal_calibration"]
     assert evidence["status"] == "calibrated"
     assert evidence["sample_count"] == 2
+
+
+def test_calibration_rejects_in_sample_rows_and_accepts_out_of_fold_rows() -> None:
+    prices = _prices(12)
+    forecasts = _forecasts(prices, 5)
+    forecasts["out_of_fold"] = False
+    splits = build_walk_forward_splits(forecasts["forecast_date"].dt.date.unique())
+
+    in_sample = calibrate_forecast_distribution(
+        forecasts,
+        prices,
+        _distribution(),
+        instrument_id="AAA",
+        decision_time=prices["date"].iloc[6],
+        settings=_settings(minimum=2),
+    )
+    assert in_sample["conformal_calibration"]["status"] == "unavailable"
+    assert "out-of-fold" in in_sample["conformal_calibration"]["reason"]
+
+    forecasts = _mark_walk_forward_provenance(forecasts, splits)
+    assert forecasts["out_of_fold"].tolist() == [False, False, False, True, True]
+    assert forecasts.loc[forecasts["out_of_fold"], "fold_id"].notna().all()
+    out_of_fold = calibrate_forecast_distribution(
+        forecasts,
+        prices,
+        _distribution(),
+        instrument_id="AAA",
+        decision_time=prices["date"].iloc[6],
+        settings=_settings(minimum=2),
+    )
+    assert out_of_fold["conformal_calibration"]["status"] == "calibrated"
+    assert out_of_fold["conformal_calibration"]["sample_count"] == 2
+
+
+def test_duplicate_predictions_do_not_meet_floor_and_other_model_evidence_is_ignored() -> None:
+    prices = _prices(12)
+    one_prediction = _forecasts(prices, 1)
+    duplicates = pd.concat([one_prediction] * 30, ignore_index=True)
+    duplicated = calibrate_forecast_distribution(
+        duplicates,
+        prices,
+        _distribution(),
+        instrument_id="AAA",
+        decision_time=prices["date"].iloc[3],
+        settings=_settings(minimum=30),
+    )
+    assert duplicated["conformal_calibration"]["status"] == "unavailable"
+    assert duplicated["conformal_calibration"]["sample_count"] == 1
+
+    other_model = calibrate_forecast_distribution(
+        one_prediction,
+        prices,
+        _distribution(model_id="model-B", model_version="v2"),
+        instrument_id="AAA",
+        decision_time=prices["date"].iloc[3],
+        settings=_settings(minimum=2),
+    )
+    assert other_model["conformal_calibration"]["status"] == "unavailable"
+    assert other_model["conformal_calibration"]["sample_count"] == 0
 
 
 def test_calibrated_quantiles_are_repaired_to_monotonic_order() -> None:
@@ -107,6 +180,11 @@ def test_poor_calibration_widens_band_and_reduces_signal_authority(monkeypatch) 
     evidence = calibrated["conformal_calibration"]
     assert evidence["status"] == "poor_calibration"
     assert calibrated["q90_return"] - calibrated["q10_return"] > 0.02
+    assert calibrated["probability_loss"] is None
+    assert calibrated["probability_beat_cash"] is None
+    assert calibrated["probability_beat_benchmark"] is None
+    assert calibrated["probability_calibration_status"] == "unavailable"
+    assert "poor" in calibrated["probability_calibration_reason"]
 
     config = load_config()
     scores = pd.DataFrame(
@@ -260,3 +338,65 @@ def test_missing_calibration_configuration_fails_closed() -> None:
     assert evidence["status"] == "unavailable"
     assert evidence["adjustment"] is None
     assert "configuration" in evidence["reason"]
+
+
+def test_probabilities_restore_only_from_matching_matured_calibration_evidence() -> None:
+    prices = _prices(12)
+    forecasts = _forecasts(prices, 5)
+    construction = [{
+        "model_name": "baseline",
+        "model_id": "model-A",
+        "model_version": "v1",
+        "target_id": "target-1",
+    }]
+    probability_evidence = {
+        "status": "calibrated",
+        "sample_count": 2,
+        "matured_through": prices["date"].iloc[6],
+        "model_construction": construction,
+        "probabilities": {
+            "probability_loss": 0.2,
+            "probability_beat_cash": 0.6,
+            "probability_beat_benchmark": 0.7,
+        },
+    }
+    calibrated = calibrate_forecast_distribution(
+        forecasts,
+        prices,
+        _distribution(probability_calibration_evidence=probability_evidence),
+        instrument_id="AAA",
+        decision_time=prices["date"].iloc[8],
+        settings=_settings(minimum=2),
+    )
+    assert calibrated["probability_loss"] == 0.2
+    assert calibrated["probability_beat_cash"] == 0.6
+    assert calibrated["probability_beat_benchmark"] == 0.7
+    assert calibrated["probability_calibration_status"] == "available"
+
+    same_day_evidence = _distribution(
+        probability_calibration_evidence={
+            **probability_evidence,
+            "matured_through": prices["date"].iloc[8],
+        }
+    )
+    same_day = calibrate_forecast_distribution(
+        forecasts,
+        prices,
+        same_day_evidence,
+        instrument_id="AAA",
+        decision_time=prices["date"].iloc[8] + pd.Timedelta(hours=12),
+        settings=_settings(minimum=2),
+    )
+    assert same_day["probability_loss"] is None
+    assert same_day["probability_calibration_status"] == "unavailable"
+
+    mismatched = calibrate_forecast_distribution(
+        forecasts,
+        prices,
+        _distribution(probability_calibration_evidence={**probability_evidence, "model_construction": []}),
+        instrument_id="AAA",
+        decision_time=prices["date"].iloc[8],
+        settings=_settings(minimum=2),
+    )
+    assert mismatched["probability_loss"] is None
+    assert mismatched["probability_calibration_status"] == "unavailable"

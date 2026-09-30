@@ -74,6 +74,12 @@ def test_artefact_integrity_and_approval_gated_promotion(tmp_path: Path) -> None
     approved = registry.approve_model(str(model["model_id"]), reviewer="analyst", evaluation={"walk_forward": "passed"})
     promoted = registry.promote_model(str(approved["model_id"]), "challenger")
     assert promoted["aliases"] == ["challenger"]
+    reapproved = registry.approve_model(
+        str(approved["model_id"]), reviewer="second-analyst", evaluation={"walk_forward": "passed"}
+    )
+    assert reapproved["promotion_state"] == "challenger"
+    assert reapproved["aliases"] == ["challenger"]
+    assert registry.audit_history()[-1]["event_type"] == "model_approval_noop"
     assert registry.verify_artifact(str(artifact["artifact_id"])).verified is True
     model_path.write_text('{"model":"tampered"}', encoding="utf-8")
     assert registry.verify_artifact(str(artifact["artifact_id"])).verified is False

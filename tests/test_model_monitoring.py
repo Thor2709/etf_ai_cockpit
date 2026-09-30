@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 
 from etf_cockpit.features.training_centre import LocalTrainingRegistry, TrainingRegistryError
-from etf_cockpit.models.monitoring import DatedReturn, DatedValue, DriftAlert, compare_net_performance
+from etf_cockpit.core.config import ModelMonitoringSettings, ModelSettings
+from etf_cockpit.models.monitoring import DatedReturn, DatedValue, DriftAlert, assess_drift, compare_net_performance
 from etf_cockpit.models.registry import ModelScoringRejected, require_scoreable_model
+from etf_cockpit.models import registry as model_registry
 
 
 def _hash(value: str) -> str:
@@ -57,7 +59,9 @@ def test_drift_emits_alert_and_requests_review_without_changing_champion(tmp_pat
         DatedValue(date(2026, 2, 1), 100.0),
     ]
 
-    result = registry.monitor_model_drift(str(champion["model_id"]), observations, as_of=cutoff)
+    result = registry.monitor_model_drift(
+        str(champion["model_id"]), observations, as_of=cutoff, settings=ModelMonitoringSettings()
+    )
 
     assert isinstance(result.alert, DriftAlert)
     assert result.alert.score >= result.alert.threshold
@@ -94,6 +98,13 @@ def test_champion_rollback_restores_prior_models_and_appends_audit_event(tmp_pat
     candidate_before = dict(candidate)
     history_before = registry.audit_history()
     registry.promote_model(str(candidate["model_id"]), "champion")
+    reapproved = registry.approve_model(
+        str(candidate["model_id"]), reviewer="second-analyst", evaluation={"walk_forward": "passed"}
+    )
+
+    assert reapproved["promotion_state"] == "champion"
+    assert reapproved["aliases"] == ["champion"]
+    assert registry.audit_history()[-1]["event_type"] == "model_approval_noop"
 
     restored = registry.rollback_champion(str(candidate["model_id"]), reviewer="analyst", reason="regression review")
 
@@ -110,6 +121,32 @@ def test_champion_rollback_restores_prior_models_and_appends_audit_event(tmp_pat
     assert rollback["prior_state"]["promotion_state"] == "champion"
     assert rollback["new_state"]["promotion_state"] == "approved"
     assert history_after[: len(history_before)] == history_before
+
+
+def test_drift_thresholds_use_settings_and_invalid_settings_fail_closed() -> None:
+    observations = [DatedValue(date(2026, 1, 1), 0.0), DatedValue(date(2026, 1, 2), 0.2)]
+    settings = ModelMonitoringSettings(minimum_observations=2, alert_threshold=0.5)
+
+    result = assess_drift("candidate", observations, as_of=date(2026, 1, 3), settings=settings)
+
+    assert result.status == "warning"
+    assert result.alert is not None
+    assert result.alert.threshold == 0.5
+    assert ModelSettings().monitoring.minimum_observations == 4
+    assert ModelSettings().monitoring.alert_threshold == 1.0
+
+    invalid = assess_drift(
+        "candidate",
+        observations,
+        as_of=date(2026, 1, 3),
+        settings={"minimum_observations": 1, "alert_threshold": 0},
+    )
+    assert invalid.status == "unavailable"
+    assert "settings" in invalid.reason
+    missing = assess_drift("candidate", observations, as_of=date(2026, 1, 3), settings=None)
+    assert missing.status == "unavailable"
+    omitted = assess_drift("candidate", observations, as_of=date(2026, 1, 3))
+    assert omitted.status == "unavailable"
 
 
 def test_performance_comparison_uses_net_returns_against_deterministic_baseline() -> None:
@@ -150,3 +187,35 @@ def test_artifact_sha256_mismatch_blocks_model_scoring(tmp_path: Path) -> None:
 
     with pytest.raises(ModelScoringRejected, match="checksum mismatch"):
         require_scoreable_model(model, registry.verify_artifact)
+
+
+def test_production_model_availability_blocks_retired_and_checksum_failed_models(tmp_path: Path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from etf_cockpit.core.config import load_config
+
+    monkeypatch.setattr(
+        model_registry,
+        "model_weight_inventory",
+        lambda _config: [SimpleNamespace(model_name="timesfm", live_ready=True, message="ready")],
+    )
+    config = load_config()
+
+    retired_root = tmp_path / "retired"
+    retired_registry = LocalTrainingRegistry(retired_root)
+    retired_model = _approved_model(retired_registry, retired_root, "timesfm")
+    retired_registry.retire_model(str(retired_model["model_id"]), reviewer="analyst", reason="superseded")
+    retired_availability = model_registry.model_availability(config, training_registry=retired_registry)
+
+    assert retired_availability["timesfm"] is False
+    assert "retired" in retired_availability["reasons"]["timesfm"]
+
+    checksum_root = tmp_path / "checksum"
+    checksum_registry = LocalTrainingRegistry(checksum_root)
+    checksum_model = _approved_model(checksum_registry, checksum_root, "timesfm")
+    artifact = checksum_registry.require("training.artifact", str(checksum_model["artifact_ids"][0]))
+    (checksum_root / str(artifact["path"])).write_text('{"model":"changed"}', encoding="utf-8")
+    checksum_availability = model_registry.model_availability(config, training_registry=checksum_registry)
+
+    assert checksum_availability["timesfm"] is False
+    assert "checksum mismatch" in checksum_availability["reasons"]["timesfm"]

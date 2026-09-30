@@ -412,6 +412,27 @@ class LocalTrainingRegistry:
         if not evaluation:
             raise TrainingRegistryError("model approval requires an evaluation report")
         self._verify_model_artifacts(model)
+        if model.get("promotion_state") in {"champion", "challenger"}:
+            who = _bounded_text(reviewer, "reviewer")
+            audit_id = f"audit_{uuid4().hex}"
+            state = dict(model)
+            self._put(
+                _ENTITY_MODEL_AUDIT,
+                audit_id,
+                {
+                    "audit_id": audit_id,
+                    "event_type": "model_approval_noop",
+                    "model_id": model_id,
+                    "who": who,
+                    "when": _utc_now(),
+                    "why": f"reapproval preserved existing {model['promotion_state']} promotion state",
+                    "prior_state": state,
+                    "new_state": state,
+                    "related_states": {model_id: {"prior_state": state, "new_state": state}},
+                    "execution_allowed": False,
+                },
+            )
+            return state
         payload = dict(model)
         payload.update({"approval_state": "approved", "promotion_state": "approved", "reviewer": _bounded_text(reviewer, "reviewer"), "evaluation": _safe_mapping(evaluation), "approved_at": _utc_now()})
         return self._commit_model_transition(
@@ -593,12 +614,13 @@ class LocalTrainingRegistry:
         observations: tuple[DatedValue, ...] | list[DatedValue],
         *,
         as_of: datetime,
+        settings: object | None = None,
     ) -> DriftAssessment:
         """Persist warning alerts and review requests without changing promotion state."""
 
         model = self.require(_ENTITY_MODEL, model_id)
         self._reject_retired(model)
-        result = assess_drift(model_id, observations, as_of=as_of)
+        result = assess_drift(model_id, observations, as_of=as_of, settings=settings)
         if result.alert is None:
             return result
 

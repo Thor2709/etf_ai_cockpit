@@ -1,22 +1,74 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 
 from etf_cockpit.core.config import AppConfig
+from etf_cockpit.core.paths import ROOT
+from etf_cockpit.data.local_storage import storage_layout
+from etf_cockpit.features.training_centre import LocalTrainingRegistry
 from etf_cockpit.models.local_weights import LocalModelStatus, model_weight_inventory
 
 
-def model_availability(config: AppConfig) -> dict[str, bool]:
+def model_availability(
+    config: AppConfig,
+    *,
+    training_registry: LocalTrainingRegistry | None = None,
+) -> dict[str, object]:
     inventory = model_weight_inventory(config)
-    return {
+    availability: dict[str, object] = {
         "baseline": True,
         "timesfm": any(status.model_name == "timesfm" and status.live_ready for status in inventory),
         "toto": any(status.model_name == "toto" and status.live_ready for status in inventory),
     }
+    reasons: dict[str, str | None] = {"timesfm": None, "toto": None}
+    for model_name in ("timesfm", "toto"):
+        status = next((item for item in inventory if item.model_name == model_name), None)
+        if not availability[model_name] and status is not None:
+            reasons[model_name] = status.message
+
+    registry = training_registry
+    if registry is None:
+        if not storage_layout(ROOT).transactional_path.exists():
+            availability["reasons"] = reasons
+            return availability
+        registry = LocalTrainingRegistry(ROOT)
+    try:
+        registered_models = registry.list_records("training.model")
+        for model_name in ("timesfm", "toto"):
+            matching = [
+                model
+                for model in registered_models
+                if str(model.get("name") or "").strip().casefold() == model_name
+            ]
+            for model in matching:
+                try:
+                    require_scoreable_model(model, registry.verify_artifact)
+                except ModelScoringRejected as exc:
+                    availability[model_name] = False
+                    reasons[model_name] = exc.reason
+                    break
+    except Exception as exc:
+        reason = f"registered model integrity is unavailable: {type(exc).__name__}: {exc}"
+        for model_name in ("timesfm", "toto"):
+            availability[model_name] = False
+            reasons[model_name] = reason
+    availability["reasons"] = reasons
+    return availability
 
 
 def model_diagnostics(config: AppConfig) -> list[LocalModelStatus]:
-    return model_weight_inventory(config)
+    inventory = model_weight_inventory(config)
+    availability = model_availability(config)
+    reasons = availability.get("reasons", {})
+    if not isinstance(reasons, Mapping):
+        return inventory
+    return [
+        replace(item, live_ready=False, status="unavailable", message=str(reasons[item.model_name]))
+        if item.model_name in reasons and reasons[item.model_name] is not None
+        else item
+        for item in inventory
+    ]
 
 
 class ModelScoringRejected(RuntimeError):
