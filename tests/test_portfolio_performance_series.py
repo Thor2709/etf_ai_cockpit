@@ -5,7 +5,9 @@ from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+from flet.canvas import Canvas, Line, Rect
 
+from etf_cockpit.app.components.charts import portfolio_performance_chart
 from etf_cockpit.app.pages import portfolio
 from etf_cockpit.application import ui_facade
 from etf_cockpit.application.portfolio_valuation import save_portfolio_valuation_history
@@ -84,10 +86,12 @@ def test_quarter_and_year_bars_reconcile_to_canonical_twr_and_pnl() -> None:
         assert twr.status == "available"
         assert pnl.status == "available"
         for twr_point, pnl_point in zip(twr.points, pnl.points, strict=True):
-            period = snapshots.loc[
+            period_rows = snapshots.loc[
                 snapshots["date"].ge(pd.Timestamp(twr_point.period_start))
                 & snapshots["date"].le(pd.Timestamp(twr_point.period_end))
             ]
+            previous_rows = snapshots.loc[snapshots["date"].lt(period_rows.iloc[0]["date"])].tail(1)
+            period = pd.concat([previous_rows, period_rows]) if not previous_rows.empty else period_rows
             canonical = link_time_weighted_return(
                 period,
                 start=period.iloc[0]["date"],
@@ -95,7 +99,52 @@ def test_quarter_and_year_bars_reconcile_to_canonical_twr_and_pnl() -> None:
             )
             assert canonical["status"] == "available"
             assert twr_point.value == pytest.approx(canonical["value"])
-            assert pnl_point.value == pytest.approx(period["investment_pnl"].iloc[1:].sum())
+            expected_pnl = period_rows["investment_pnl"].sum() if not previous_rows.empty else period_rows["investment_pnl"].iloc[1:].sum()
+            assert pnl_point.value == pytest.approx(expected_pnl)
+
+        chained_return = 1.0
+        for point in twr.points:
+            assert point.value is not None
+            chained_return *= 1.0 + point.value
+        whole_period = link_time_weighted_return(snapshots)
+        assert whole_period["status"] == "available"
+        assert chained_return - 1.0 == pytest.approx(whole_period["value"])
+        assert sum(point.value for point in pnl.points if point.value is not None) == pytest.approx(
+            snapshots["investment_pnl"].iloc[1:].sum()
+        )
+
+    boundary = _snapshots(
+        pd.to_datetime(["2024-03-28", "2024-03-29", "2024-04-01", "2024-04-02"]),
+        [100.0, 100.0, 105.0, 110.0],
+    )
+    quarter_returns = build_portfolio_performance_series(boundary, metric="twr_return", aggregation="quarter")
+    quarter_pnl = build_portfolio_performance_series(boundary, metric="investment_pnl", aggregation="quarter")
+    assert [point.value for point in quarter_returns.points] == pytest.approx([0.0, 0.1])
+    assert [point.value for point in quarter_pnl.points] == pytest.approx([0.0, 10.0])
+    chained_return = 1.0
+    for point in quarter_returns.points:
+        assert point.value is not None
+        chained_return *= 1.0 + point.value
+    assert chained_return - 1.0 == pytest.approx(0.1)
+    assert sum(point.value for point in quarter_pnl.points if point.value is not None) == pytest.approx(10.0)
+
+
+@pytest.mark.parametrize("date_range", ["1M", "custom"])
+def test_non_inception_twr_index_is_available_for_every_selected_row(date_range: str) -> None:
+    dates = pd.bdate_range("2026-01-05", periods=60)
+    snapshots = _snapshots(dates, [100.0 + index for index in range(len(dates))])
+    series = build_portfolio_performance_series(
+        snapshots,
+        metric="twr_index",
+        date_range=date_range,
+        aggregation="day",
+        custom_start=dates[10].date() if date_range == "custom" else None,
+        custom_end=dates[20].date() if date_range == "custom" else None,
+    )
+
+    assert series.status == "available"
+    assert series.points
+    assert all(point.value is not None and point.status == "available" for point in series.points)
 
 
 def test_external_flows_stay_separate_from_negative_investment_pnl() -> None:
@@ -128,6 +177,22 @@ def test_missing_valuation_is_partial_without_interpolation_and_empty_is_unavail
     assert "Missing daily valuations" in (missing.reason or "")
     assert empty.status == "unavailable"
     assert empty.reason
+
+
+def test_monthly_drawdown_uses_the_daily_twr_peak() -> None:
+    dates = pd.bdate_range("2024-03-01", "2024-03-29")
+    peak_index = len(dates) // 2
+    values = [100.0 + 20.0 * index / peak_index for index in range(peak_index + 1)]
+    values.extend(120.0 - 10.0 * (index + 1) / (len(dates) - peak_index - 1) for index in range(len(dates) - peak_index - 1))
+    rising_then_falling = _snapshots(dates, values)
+    monthly = build_portfolio_performance_series(rising_then_falling, metric="drawdown", aggregation="month")
+
+    falling_dates = pd.bdate_range("2024-04-01", periods=2)
+    falling = _snapshots(falling_dates, [100.0, 90.0])
+    first_month_fall = build_portfolio_performance_series(falling, metric="drawdown", aggregation="month")
+
+    assert monthly.points[0].value == pytest.approx(-0.0833333333)
+    assert first_month_fall.points[0].value == pytest.approx(-0.1)
 
 
 def test_view_changes_leave_saved_snapshot_bytes_unchanged(tmp_path) -> None:
@@ -198,3 +263,39 @@ def test_csv_matches_series_and_facade_loader_feeds_portfolio_chart_block(monkey
     assert captured_exports[0]["value"].tolist() == pd.read_csv(
         StringIO(performance_series_to_csv(ui_facade.load_portfolio_performance_series(metric="twr_index")))
     )["value"].tolist()
+
+
+def test_performance_chart_describes_daily_lines_and_quarter_bars() -> None:
+    common = {
+        "period_start": ["2026-01-01", "2026-01-02", "2026-01-03"],
+        "period_end": ["2026-01-01", "2026-01-02", "2026-01-03"],
+        "partial": [False, False, False],
+        "quality": ["complete", "complete", "complete"],
+        "status": ["available", "available", "available"],
+        "source_snapshot": [None, None, None],
+    }
+    daily = portfolio_performance_chart(
+        pd.DataFrame({**common, "value": [100.0, 105.0, 103.0]}),
+        metric="portfolio_value",
+        unit="currency",
+        currency="EUR",
+        status="available",
+        reason=None,
+        aggregation="day",
+    )
+    quarterly = portfolio_performance_chart(
+        pd.DataFrame({**common, "value": [10.0, -2.0, 4.0]}),
+        metric="investment_pnl",
+        unit="currency",
+        currency="EUR",
+        status="available",
+        reason=None,
+        aggregation="quarter",
+    )
+    daily_canvas = next(control for control in daily.control.content.controls if isinstance(control, Canvas))
+    quarterly_canvas = next(control for control in quarterly.control.content.controls if isinstance(control, Canvas))
+
+    assert daily.chart_type == "line"
+    assert any(isinstance(shape, Line) for shape in daily_canvas.shapes)
+    assert quarterly.chart_type == "bar"
+    assert any(isinstance(shape, Rect) for shape in quarterly_canvas.shapes)

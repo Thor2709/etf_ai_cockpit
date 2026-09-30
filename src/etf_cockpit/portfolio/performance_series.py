@@ -156,7 +156,7 @@ def build_portfolio_performance_series(
     range_start, range_end = bounds
     selected = normalized.loc[
         normalized["date"].ge(pd.Timestamp(range_start)) & normalized["date"].le(pd.Timestamp(range_end))
-    ].copy()
+    ].copy().reset_index(drop=True)
     if selected.empty:
         return _unavailable(
             selected_metric,
@@ -172,13 +172,30 @@ def build_portfolio_performance_series(
     converted = _convert_snapshots(selected, rates)
     periods = _periods(range_start, range_end, selected_aggregation, selected["date"])
     points: list[PerformancePoint] = []
-    twr_peak: float | None = None
+    daily_drawdowns: dict[int, tuple[float | None, str | None]] = {}
+    if selected_metric == "drawdown":
+        twr_peak: float | None = None
+        for position, row_index in enumerate(converted.index):
+            index_value, index_reason = _cumulative_twr_index(converted.iloc[: position + 1])
+            if index_value is None:
+                daily_drawdowns[row_index] = (None, index_reason)
+                continue
+            twr_peak = index_value if twr_peak is None else max(twr_peak, index_value)
+            daily_drawdowns[row_index] = (index_value / twr_peak - 1.0, None)
 
     for period_start, period_end in periods:
         period_rows = selected.loc[
             selected["date"].ge(pd.Timestamp(period_start)) & selected["date"].le(pd.Timestamp(period_end))
         ]
         converted_period = converted.loc[period_rows.index]
+        if (
+            not period_rows.empty
+            and selected_aggregation in {"quarter", "year"}
+            and selected_metric in {"twr_index", "twr_return", "investment_pnl"}
+        ):
+            previous_rows = selected.loc[selected["date"].lt(period_rows.iloc[0]["date"])].tail(1)
+            if not previous_rows.empty:
+                converted_period = pd.concat([converted.loc[previous_rows.index], converted_period])
         lineage_rows = (
             selected.loc[selected["date"].le(pd.Timestamp(period_end))]
             if selected_metric in {"twr_index", "drawdown"}
@@ -208,11 +225,7 @@ def build_portfolio_performance_series(
         if selected_metric == "twr_index":
             point_value, metric_reason = index_value, index_reason
         elif selected_metric == "drawdown":
-            if index_value is None:
-                point_value, metric_reason = None, index_reason
-            else:
-                twr_peak = index_value if twr_peak is None else max(twr_peak, index_value)
-                point_value, metric_reason = index_value / twr_peak - 1.0, None
+            point_value, metric_reason = daily_drawdowns[period_rows.index[-1]]
         else:
             point_value, metric_reason = _metric_value(
                 selected_metric,
