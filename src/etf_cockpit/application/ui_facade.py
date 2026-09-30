@@ -7,6 +7,7 @@ ports and application commands.
 """
 
 from collections.abc import Mapping
+from datetime import date, datetime
 import math
 from numbers import Real
 from pathlib import Path
@@ -176,9 +177,11 @@ from etf_cockpit.portfolio.robust_risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk_analytics import *  # noqa: F401,F403
 from etf_cockpit.portfolio.currency import CurrencyProjection, project_portfolio_currency as _project_portfolio_currency
+from etf_cockpit.portfolio.exposure_cube import build_portfolio_exposure_cube
 from etf_cockpit.application.portfolio_sandbox import *  # noqa: F401,F403
 from etf_cockpit.portfolio.sandbox import PortfolioAnalysis, select_holdings_view  # noqa: F401
 from etf_cockpit.application.overlap import *  # noqa: F401,F403
+from etf_cockpit.application.overlap import load_direct_holdings
 from etf_cockpit.signals.simple_scores import *  # noqa: F401,F403
 from etf_cockpit.signals.feature_drivers import (  # noqa: F401
     _canonical_cohort_time,
@@ -239,6 +242,35 @@ def project_portfolio_currency(
 ) -> CurrencyProjection:
     """Return the canonical informational currency projection for presentation."""
     return _project_portfolio_currency(analysis, target_currency, fx_rates)
+
+
+def load_portfolio_exposure_projection(
+    position_weights: Mapping[str, float],
+    *,
+    decision_time: str | datetime,
+    analysis_date: str | date | datetime | None = None,
+    portfolio_id: str | None = None,
+    snapshot_id: str | None = None,
+    position_metadata: Mapping[str, Mapping[str, object]] | None = None,
+    holding_metadata: Mapping[str, Mapping[str, object]] | None = None,
+    reporting_currency: str | None = None,
+    holdings: pd.DataFrame | None = None,
+    root: Path = ROOT,
+) -> dict[str, object]:
+    """Load the read-only exposure chart projection for a ledger-weight snapshot."""
+    evidence = holdings if isinstance(holdings, pd.DataFrame) else load_direct_holdings(root=root)
+    cube = build_portfolio_exposure_cube(
+        evidence,
+        position_weights,
+        decision_time=decision_time,
+        analysis_date=analysis_date,
+        portfolio_id=portfolio_id,
+        snapshot_id=snapshot_id,
+        position_metadata=position_metadata,
+        holding_metadata=holding_metadata,
+        reporting_currency=reporting_currency,
+    )
+    return cube.to_projection()
 
 
 def _normalise_valuation_assumptions(value: object) -> dict[str, object]:
