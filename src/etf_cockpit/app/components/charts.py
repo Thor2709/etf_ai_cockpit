@@ -6,6 +6,7 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app.components.flet_compat import border_all
+from etf_cockpit.app.formatting import format_currency, format_percent
 from etf_cockpit.app.theme import AMBER, BORDER, CYAN, GREEN, MUTED, RED, SURFACE_2, TEXT
 
 
@@ -56,6 +57,61 @@ def equity_drawdown_chart(frame: pd.DataFrame | None) -> ChartDescriptor:
         border=border_all(1, BORDER),
     )
     return ChartDescriptor("Backtest equity and drawdown", "backtest_equity_drawdown", control, available, data)
+
+
+def portfolio_performance_chart(
+    frame: pd.DataFrame | None,
+    *,
+    metric: str,
+    unit: str,
+    currency: str,
+    status: str,
+    reason: str | None,
+    aggregation: str,
+) -> ChartDescriptor:
+    """Render saved portfolio series as an accessible, downloadable chart view."""
+    available = (
+        isinstance(frame, pd.DataFrame)
+        and not frame.empty
+        and "value" in frame.columns
+        and pd.to_numeric(frame["value"], errors="coerce").notna().any()
+    )
+    data = _series_data(frame, ("period_start", "period_end", "value", "partial", "quality", "status", "source_snapshot"))
+    title = f"Portfolio performance: {metric.replace('_', ' ')} ({aggregation})"
+    detail = f"{title}; status={status}; unit={unit}; currency={currency}."
+    if reason:
+        detail = f"{detail} {reason}"
+    if available:
+        display = frame.copy()
+        display["formatted_value"] = [
+            _format_performance_value(value, unit, currency) for value in display["value"]
+        ]
+        table = _series_table(display, ("period_start", "period_end", "formatted_value", "partial", "status"))
+    else:
+        table = ft.Text(reason or "Selected performance values are unavailable.", color=MUTED, selectable=True)
+    control = ft.Container(
+        content=ft.Column(
+            [
+                ft.Text(detail, color=TEXT if available else MUTED, selectable=True),
+                table,
+            ],
+            spacing=6,
+        ),
+        padding=10,
+        border=border_all(1, BORDER),
+    )
+    return ChartDescriptor(title, "portfolio_performance_series", control, bool(available), data)
+
+
+def _format_performance_value(value: object, unit: str, currency: str) -> str:
+    number = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(number):
+        return "N/A"
+    if unit == "currency":
+        return format_currency(number, currency=currency)
+    if unit == "percent":
+        return format_percent(number)
+    return f"{float(number):.2f}"
 
 
 def _series_data(frame: pd.DataFrame | None, columns: tuple[str, ...]) -> dict[str, tuple[object, ...]]:

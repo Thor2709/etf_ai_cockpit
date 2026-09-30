@@ -52,6 +52,11 @@ from etf_cockpit.analysis.etf_tax_context import (
 )
 from etf_cockpit.data.fixed_income_risk_store import read_fixed_income_risk
 from etf_cockpit.application.portfolio_valuation import load_portfolio_valuation_history  # noqa: F401
+from etf_cockpit.portfolio.performance_series import (
+    PerformanceSeries,
+    build_portfolio_performance_series,
+    performance_series_frame,  # noqa: F401
+)
 
 from etf_cockpit.chatgpt_bridge.audit_packet import *  # noqa: F401,F403
 from etf_cockpit.data.backup_restore import *  # noqa: F401,F403
@@ -195,6 +200,34 @@ from etf_cockpit.signals.feature_drivers import (  # noqa: F401
     _source_vintage_hash,
     normalise_bound_claim,
 )
+
+
+def load_portfolio_performance_series(
+    *,
+    metric: str = "twr_index",
+    date_range: str = "inception",
+    aggregation: str = "day",
+    currency: str = "EUR",
+    custom_start: object = None,
+    custom_end: object = None,
+) -> PerformanceSeries:
+    """Load saved valuation and local FX evidence for one portfolio view."""
+    report = load_portfolio_valuation_history()
+    snapshots = report.get("snapshots")
+    try:
+        fx_rates = load_fx_rates()
+    except (OSError, ValueError, TypeError, ImportError):
+        fx_rates = pd.DataFrame()
+    return build_portfolio_performance_series(
+        snapshots if isinstance(snapshots, pd.DataFrame) else None,
+        metric=metric,
+        date_range=date_range,
+        aggregation=aggregation,
+        currency=currency,
+        custom_start=custom_start,  # type: ignore[arg-type]
+        custom_end=custom_end,  # type: ignore[arg-type]
+        fx_rates=fx_rates,
+    )
 
 
 def build_profiled_forecast_lab_workspace(
