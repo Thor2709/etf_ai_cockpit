@@ -145,3 +145,20 @@ def test_stale_roots_are_pruned_by_heartbeat_and_live_roots_are_kept() -> None:
         assert Path(os.environ["ETF_COCKPIT_ROOT"]).exists()
     finally:
         conftest._remove_isolated_root(live)
+
+
+def test_shards_partition_every_scope_exactly_once_and_balance_recorded_time() -> None:
+    weights = conftest._file_weights()
+    scopes = {conftest._scheduling_scope(f"{path}::x") for path in weights} | {"tests/test_brand_new_file.py"}
+    for total in (2, 3, 4):
+        assignment = conftest._shard_assignment(total)
+        owners = {scope: conftest._shard_of(scope, total, assignment) for scope in scopes}
+        assert set(owners.values()) == set(range(1, total + 1))
+        loads = [sum(weights.get(scope, 0.0) for scope in scopes if owners[scope] == shard) for shard in range(1, total + 1)]
+        assert max(loads) - min(loads) <= max(weights.values())  # LPT bound: within one file of balance
+
+
+@pytest.mark.parametrize("value", ["0/3", "4/3", "x/3", "1"])
+def test_invalid_shard_values_are_rejected(value: str) -> None:
+    with pytest.raises(pytest.UsageError):
+        conftest._parse_shard(value)

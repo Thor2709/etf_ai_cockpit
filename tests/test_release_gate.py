@@ -186,6 +186,14 @@ def test_workflow_runs_xdist_auto_on_both_platforms_and_excludes_pull_request_pi
     assert re.search(r"arguments=\(--root \. --output \"\$output\" --allow-unsigned --xdist-workers auto\)", gate_step["run"])
     assert '== "linux"' not in gate_step["run"]
     assert gate_step["env"]["ETF_COCKPIT_XDIST_MAX"] == "4"
+    # Three file-level shards per platform run in parallel; the gate does not wait for preflight,
+    # but validation-summary still requires preflight and every shard.
+    gate = jobs["release-gate"]
+    assert gate["strategy"]["matrix"]["shard"] == [1, 2, 3]
+    assert gate["strategy"]["matrix"]["platform"] == ["windows", "linux"]
+    assert gate_step["env"]["ETF_COCKPIT_TEST_SHARD"] == "${{ matrix.shard }}/3"
+    assert "preflight" not in gate["needs"]
+    assert {"preflight", "release-gate"} <= set(jobs["validation-summary"]["needs"])
 
 
 def test_main_reads_xdist_workers_from_environment_and_cli(tmp_path: Path, monkeypatch, capsys) -> None:

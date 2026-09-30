@@ -403,11 +403,15 @@ jobs:
           if-no-files-found: error
 
   release-gate:
-    needs: [classifier, preflight, supply-chain]
+    # Independent of preflight so the long gate starts at once; validation-summary still requires both.
+    needs: [classifier, supply-chain]
     if: github.event_name == 'pull_request' && needs.classifier.outputs.package_gate_required == 'true'
+    name: release-gate (${{ matrix.platform }}, shard ${{ matrix.shard }}/3)
     strategy:
       fail-fast: false
       matrix:
+        platform: [windows, linux]
+        shard: [1, 2, 3]
         include:
           - platform: windows
             runner: windows-latest
@@ -516,8 +520,10 @@ jobs:
           ETF_COCKPIT_RELEASE_BUILD: "1"
           ETF_COCKPIT_SETUP_PYTHON_CACHE_HIT: ${{ steps.setup-python.outputs.cache-hit }}
           ETF_COCKPIT_XDIST_MAX: "4"
+          # File-level partition of the suite (tests/conftest.py); each shard runs the complete gate.
+          ETF_COCKPIT_TEST_SHARD: "${{ matrix.shard }}/3"
         run: |
-          output="artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}"
+          output="artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}-s${{ matrix.shard }}"
           # Both platforms: one xdist worker per usable runner CPU (capped at 4); serial on one CPU.
           # Collection parity and node-level execution parity keep the two-phase run exhaustive.
           arguments=(--root . --output "$output" --allow-unsigned --xdist-workers auto)
@@ -530,15 +536,15 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          output="artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}"
+          output="artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}-s${{ matrix.shard }}"
           { echo '```text'; python scripts/failure_digest.py "$output" --root .; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload release evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: release-gate-${{ github.sha }}-${{ matrix.platform }}
-          path: artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}
+          name: release-gate-${{ github.sha }}-${{ matrix.platform }}-s${{ matrix.shard }}
+          path: artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}-s${{ matrix.shard }}
           if-no-files-found: error
 
   parallel-pilot:

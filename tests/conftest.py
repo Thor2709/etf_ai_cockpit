@@ -393,7 +393,60 @@ def _file_weights() -> dict[str, float]:
         return {}
 
 
+# --- CI sharding ------------------------------------------------------------------------------
+# ETF_COCKPIT_TEST_SHARD="k/N" keeps only the scheduling scopes (files, or shared-resource groups) of
+# shard k.  The assignment is a pure function of the scope and N, independent of which tests a run
+# collects, so the N shards partition the suite for every marker selection and every process.
+_SHARD_ENV = "ETF_COCKPIT_TEST_SHARD"
+
+
+def _parse_shard(value: str) -> tuple[int, int] | None:
+    if not value.strip():
+        return None
+    index, _, count = value.partition("/")
+    try:
+        shard, total = int(index), int(count)
+    except ValueError:
+        raise pytest.UsageError(f"{_SHARD_ENV} must look like k/N, got {value!r}") from None
+    if not 1 <= shard <= total:
+        raise pytest.UsageError(f"{_SHARD_ENV} must satisfy 1 <= k <= N, got {value!r}")
+    return shard, total
+
+
+def _shard_assignment(total: int) -> dict[str, int]:
+    """LPT over the recorded file durations: balanced, deterministic, 1-based shard per scope."""
+
+    weights: dict[str, float] = {}
+    for path, seconds in _file_weights().items():
+        scope = _scheduling_scope(f"{path}::x")
+        weights[scope] = weights.get(scope, 0.0) + seconds
+    loads = [0.0] * total
+    assignment: dict[str, int] = {}
+    for scope, seconds in sorted(weights.items(), key=lambda item: (-item[1], item[0])):
+        target = min(range(total), key=lambda index: (loads[index], index))
+        assignment[scope] = target + 1
+        loads[target] += seconds
+    return assignment
+
+
+def _shard_of(scope: str, total: int, assignment: dict[str, int]) -> int:
+    import zlib
+
+    # Files without a recorded duration (new tests) are spread by a stable hash.
+    return assignment.get(scope) or zlib.crc32(scope.encode("utf-8")) % total + 1
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    shard = _parse_shard(os.environ.get(_SHARD_ENV, ""))
+    if shard is not None:
+        index, total = shard
+        assignment = _shard_assignment(total)
+        keep, dropped = [], []
+        for item in items:
+            (keep if _shard_of(_scheduling_scope(item.nodeid), total, assignment) == index else dropped).append(item)
+        if dropped:
+            config.hook.pytest_deselected(items=dropped)
+            items[:] = keep
     if not getattr(config.option, "numprocesses", None) and not _XDIST_WORKER:
         return  # serial runs keep pytest's natural order
     # Longest scheduling scopes first (LPT): the heaviest files cannot end up as the tail.  The sort

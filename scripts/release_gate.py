@@ -634,6 +634,8 @@ def full_tests(root: Path, output_dir: Path, xdist_workers: int = 0) -> CheckRes
     ]
     evidence: dict[str, object] = {
         "xdist_workers": xdist_workers,
+        # CI shards partition the suite by file (tests/conftest.py); parity below holds within the shard.
+        "test_shard": os.environ.get("ETF_COCKPIT_TEST_SHARD") or "all",
         "collection_node_counts": {
             "full": len(full_nodes),
             "phase_a": len(phase_a_nodes),
