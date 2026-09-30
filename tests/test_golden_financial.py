@@ -40,8 +40,10 @@ def _load_fixture(manifest: dict[str, object], name: str) -> tuple[dict[str, obj
     path = (_GOLDEN_ROOT / file_name).resolve()
     assert path.parent == _GOLDEN_ROOT.resolve()
     fixture = json.loads(path.read_text(encoding="utf-8"))
-    version = int(manifest["version"])
-    assert int(fixture["version"]) == version
+    manifest_version = int(manifest["version"])
+    version = int(fixture["version"])
+    # A fixture keeps its own version; only changed fixtures are bumped with the manifest.
+    assert 1 <= version <= manifest_version
     assert f"_v{version}" in path.stem
     return fixture, version
 
@@ -50,7 +52,7 @@ def _numerical_change_approved(name: str, expected: object, version: int, approv
     if name not in _APPROVED_VALUES:
         return False
     if expected == _APPROVED_VALUES[name]:
-        return version == _APPROVED_VERSION
+        return version >= _APPROVED_VERSION
     return version > _APPROVED_VERSION and isinstance(approval_note, str) and bool(approval_note.strip())
 
 
@@ -110,3 +112,13 @@ def test_numerical_golden_change_requires_version_bump_and_approval_note() -> No
     assert not _numerical_change_approved("bond_pricing", changed, 2, "")
     assert _numerical_change_approved("bond_pricing", changed, 2, "Owner approval recorded.")
 
+
+def test_mixed_update_keeps_unchanged_goldens_valid() -> None:
+    changed = {**_APPROVED_VALUES["bond_pricing"], "_marker": "changed"} if isinstance(_APPROVED_VALUES["bond_pricing"], dict) else "changed"
+    later = _APPROVED_VERSION + 1
+    # Unchanged fixture values stay valid after another fixture's approved bump.
+    assert _numerical_change_approved("portfolio_performance", _APPROVED_VALUES["portfolio_performance"], later, None)
+    # A changed value still needs a version bump and a non-empty approval note.
+    assert not _numerical_change_approved("bond_pricing", changed, _APPROVED_VERSION, "note")
+    assert not _numerical_change_approved("bond_pricing", changed, later, "  ")
+    assert _numerical_change_approved("bond_pricing", changed, later, "owner approved new day-count")
