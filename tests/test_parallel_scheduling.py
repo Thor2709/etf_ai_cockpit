@@ -167,3 +167,21 @@ def test_invalid_shard_values_are_rejected(value: str) -> None:
 def test_test_processes_do_not_leak_the_shard_to_pytest_subprocesses() -> None:
     # Tests that launch pytest themselves must collect the whole suite, whatever shard runs them.
     assert conftest._SHARD_ENV not in os.environ
+
+
+def test_abandoned_seed_lock_is_reclaimed_after_the_stale_age(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(conftest, "DATA_SEEDS", tmp_path)
+    seed = tmp_path / "abcdef"
+    lock = tmp_path / "abcdef.lock"
+    lock.touch()
+    old = time.time() - conftest._SEED_LOCK_STALE_SECONDS - 5
+    os.utime(lock, (old, old))
+    monkeypatch.setattr(conftest, "_create_isolated_root", lambda: (_ for _ in ()).throw(AssertionError("no build")))
+    conftest._build_data_seed(seed)  # abandoned lock: reclaimed, this call does not build
+    assert not lock.exists() and not seed.exists()
+    assert conftest._SEED_BUILD_TIMEOUT_SECONDS <= conftest._SEED_LOCK_STALE_SECONDS
+
+
+def test_isolated_roots_and_seeds_live_outside_the_checkout() -> None:
+    for path in (conftest.ISOLATED_ROOTS, conftest.DATA_SEEDS, Path(os.environ["ETF_COCKPIT_ROOT"])):
+        assert not path.resolve().is_relative_to(CHECKOUT), path

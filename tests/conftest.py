@@ -17,6 +17,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+# The real system temp, captured before TEMP is redirected below; inherited by pytest subprocesses.
+_SYSTEM_TEMP = Path(os.environ.setdefault("ETF_COCKPIT_TEST_SYSTEM_TEMP", tempfile.gettempdir()))
 _repo_pytest_temp = ROOT / "logs" / "pytest_system_tmp"
 if os.name == "nt" and len(str(_repo_pytest_temp)) > 90:
     # Linked worktrees can exceed Windows' legacy path limit before the test
@@ -45,7 +47,9 @@ if _XDIST_WORKER:
 # fresh copies of their tracked files only (the state of a clean CI checkout) and every other
 # top-level entry is linked to the checkout.  Writes through those links are rejected by
 # _repo_write_guard below.
-ISOLATED_ROOTS = PYTEST_TEMP / "project_roots"
+# Outside the checkout: roots contain links back into it, and nothing that walks or cleans the
+# checkout (e.g. the local_storage budget over data/ and logs/) may ever traverse those links.
+ISOLATED_ROOTS = _SYSTEM_TEMP / "etf_ai_cockpit_roots"
 _PRIVATE_DIRECTORIES = ("configs", "data", "artifacts", "logs", "exports", "backups")
 _UNLINKED_ENTRIES = {".hypothesis", ".pytest_cache", "__pycache__", ".mypy_cache", ".ruff_cache"}
 # A root whose heartbeat (touched after every test) is older than this belongs to a finished or
@@ -148,9 +152,12 @@ os.environ["ETF_COCKPIT_ROOT"] = str(ISOLATED_ROOT)
 # would be paid by every worker.  So the dataset is built once per source state (keyed by a hash of
 # src/, configs/ and tracked data) and copied into each root before collection: the same state a
 # serial run reaches after its first snapshot.  If the seed cannot be built, data/ stays empty.
-DATA_SEEDS = PYTEST_TEMP / "data_seeds"
-_SEED_BUILD_TIMEOUT_SECONDS = 900
-_SEED_KEEP = 2
+DATA_SEEDS = _SYSTEM_TEMP / "etf_ai_cockpit_data_seeds"
+_SEED_BUILD_TIMEOUT_SECONDS = 300  # equal to the stale-lock age: no second builder can start while one runs
+# A build takes ~45-90 s; a lock older than this belongs to a killed session.  Waiting sessions give
+# up after the same time and run unseeded (slower, never wrong) instead of stalling.
+_SEED_LOCK_STALE_SECONDS = 300
+_SEED_KEEP = 4  # shared by all worktrees on the machine
 
 
 def _seed_key() -> str:
@@ -174,7 +181,7 @@ def _build_data_seed(seed: Path) -> None:
     try:
         descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
-        if time.time() - lock.stat().st_mtime > _SEED_BUILD_TIMEOUT_SECONDS:
+        if time.time() - lock.stat().st_mtime > _SEED_LOCK_STALE_SECONDS:
             lock.unlink(missing_ok=True)  # abandoned by a killed session
         return
     os.close(descriptor)
@@ -206,7 +213,7 @@ def _build_data_seed(seed: Path) -> None:
 def _seed_isolated_data() -> None:
     DATA_SEEDS.mkdir(parents=True, exist_ok=True)
     seed = DATA_SEEDS / _seed_key()
-    deadline = time.monotonic() + _SEED_BUILD_TIMEOUT_SECONDS
+    deadline = time.monotonic() + _SEED_LOCK_STALE_SECONDS
     while not seed.is_dir() and time.monotonic() < deadline:
         _build_data_seed(seed)
         if not seed.is_dir():

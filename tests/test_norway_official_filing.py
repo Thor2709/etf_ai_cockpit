@@ -30,6 +30,8 @@ def _run(output: Path, **kwargs: object) -> dict[str, object]:
     return import_official_filing(FIXTURE, **args)  # type: ignore[arg-type]
 
 
+# Arelle validation runs under a bounded wall-clock timeout that parallel CPU load can exceed.
+@pytest.mark.serial
 def test_synthetic_ming_import_reaches_normalised_pit_statements(tmp_path: Path) -> None:
     result = _run(tmp_path)
     assert result["execution_allowed"] is False
