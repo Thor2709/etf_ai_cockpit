@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -127,3 +128,20 @@ def test_write_guard_resolves_fd_relative_removal_against_its_directory(tmp_path
     assert violations == []
     conftest._write_guard_hook("os.remove", (str(CHECKOUT / "journal.json"), None))
     assert len(violations) == 1
+
+
+def test_stale_roots_are_pruned_by_heartbeat_and_live_roots_are_kept() -> None:
+    stale = conftest.ISOLATED_ROOTS / f"stale-{os.getpid()}"
+    live = conftest.ISOLATED_ROOTS / f"live-{os.getpid()}"
+    for root in (stale, live):
+        root.mkdir(parents=True)
+        (root / conftest._HEARTBEAT).touch()
+    old = time.time() - conftest._STALE_ROOT_SECONDS - 60
+    os.utime(stale / conftest._HEARTBEAT, (old, old))
+    try:
+        conftest._prune_stale_isolated_roots()
+        assert not stale.exists()
+        assert live.exists()
+        assert Path(os.environ["ETF_COCKPIT_ROOT"]).exists()
+    finally:
+        conftest._remove_isolated_root(live)

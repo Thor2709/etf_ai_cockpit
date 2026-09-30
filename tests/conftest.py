@@ -48,7 +48,10 @@ if _XDIST_WORKER:
 ISOLATED_ROOTS = PYTEST_TEMP / "project_roots"
 _PRIVATE_DIRECTORIES = ("configs", "data", "artifacts", "logs", "exports", "backups")
 _UNLINKED_ENTRIES = {".hypothesis", ".pytest_cache", "__pycache__", ".mypy_cache", ".ruff_cache"}
-_STALE_ROOT_SECONDS = 12 * 3600
+# A root whose heartbeat (touched after every test) is older than this belongs to a finished or
+# killed session: a failing run's roots stay inspectable for this long, then the next session prunes them.
+_STALE_ROOT_SECONDS = 30 * 60
+_HEARTBEAT = ".pytest-heartbeat"
 
 
 def _is_link(path: Path) -> bool:
@@ -79,7 +82,8 @@ def _prune_stale_isolated_roots() -> None:
     cutoff = time.time() - _STALE_ROOT_SECONDS
     for candidate in ISOLATED_ROOTS.iterdir():
         try:
-            if candidate.stat().st_mtime < cutoff:
+            heartbeat = candidate / _HEARTBEAT
+            if (heartbeat if heartbeat.exists() else candidate).stat().st_mtime < cutoff:
                 _remove_isolated_root(candidate)
         except OSError:
             continue  # still in use, or removed by a concurrent session
@@ -130,6 +134,7 @@ def _create_isolated_root() -> Path:
             shutil.copy2(source, destination)
     for name in _PRIVATE_DIRECTORIES:
         (root / name).mkdir(exist_ok=True)
+    (root / _HEARTBEAT).touch()
     return root
 
 
@@ -318,6 +323,10 @@ def pytest_runtest_protocol(item: pytest.Item, nextitem: pytest.Item | None):
 @pytest.fixture(autouse=True)
 def _repo_write_guard() -> Iterator[None]:
     yield
+    try:
+        os.utime(ISOLATED_ROOT / _HEARTBEAT)
+    except OSError:
+        pass
     violations = sorted(set(_guard_state["violations"]))  # type: ignore[arg-type]
     if violations:
         pytest.fail(
