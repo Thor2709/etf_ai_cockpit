@@ -196,7 +196,14 @@ def construct_cohort(
         raise PeerCohortError("minimum_support must be positive")
     effective = _time(effective_at)
     decision = _time(decision_time)
-    _validate_context(target, effective, decision, target=True)
+    scope = comparison_scope.upper() if comparison_scope is not None else None
+    _validate_context(
+        target,
+        effective,
+        decision,
+        target=True,
+        comparison_scope=scope,
+    )
     candidates: list[PeerObservation] = []
     exclusions: dict[str, str] = {}
     relevant = [item for item in observations if item.metric == metric]
@@ -205,7 +212,9 @@ def construct_cohort(
         if item.instrument_id != item.context.instrument_id:
             exclusions[item.instrument_id] = "classification_identity_mismatch"
             continue
-        reason = _exclusion_reason(item, effective, decision)
+        reason = _exclusion_reason(
+            item, effective, decision, comparison_scope=scope
+        )
         if reason is not None:
             exclusions[item.instrument_id] = reason
             continue
@@ -230,7 +239,6 @@ def construct_cohort(
                     "superseded_revision"
                 )
 
-    scope = comparison_scope.upper() if comparison_scope is not None else None
     if scope not in {
         None,
         "UNIVERSE",
@@ -281,6 +289,10 @@ def construct_cohort(
         selected_index = index
         if len(subset) >= minimum_support:
             break
+    if scope == "ETF_EXPOSURE_PEERS" and len(selected) < minimum_support:
+        raise PeerCohortError(
+            "ETF_EXPOSURE_PEERS cohort lacks minimum support"
+        )
     if selected_index + 1 < len(levels):
         parent_key, parent_fields = levels[selected_index + 1]
         parent, _ = _deduplicate(
@@ -795,7 +807,6 @@ def _cohort_levels(
                     "ETF_EXPOSURE_PEERS",
                     ("__comparison_group:ETF_EXPOSURE_PEERS",),
                 ),
-                ("UNIVERSE", ()),
             ),
         }
         if comparison_scope not in scope_levels:
@@ -920,12 +931,18 @@ def _observation_hash(item: PeerObservation) -> str:
 
 
 def _exclusion_reason(
-    item: PeerObservation, effective: datetime, decision: datetime
+    item: PeerObservation,
+    effective: datetime,
+    decision: datetime,
+    *,
+    comparison_scope: str | None = None,
 ) -> str | None:
     if isinstance(item.revision, bool) or item.revision < 1:
         return "invalid_revision"
     try:
-        if not _context_is_valid(item.context, effective, decision):
+        if not _context_is_valid(
+            item.context, effective, decision, comparison_scope
+        ):
             return "classification_cutoff_mismatch"
         if _time(item.known_at) > decision:
             return "future_known"
@@ -947,19 +964,38 @@ def _exclusion_reason(
 
 
 def _context_is_valid(
-    context: InstrumentContextV2, effective: datetime, decision: datetime
+    context: InstrumentContextV2,
+    effective: datetime,
+    decision: datetime,
+    comparison_scope: str | None = None,
 ) -> bool:
     try:
+        stock_context = (
+            context.instrument_type == "stock" and context.asset_class == "equity"
+        )
+        etf_context = (
+            comparison_scope == "ETF_EXPOSURE_PEERS"
+            and "etf" in (context.instrument_type or "").casefold()
+            and bool(context.asset_class)
+        )
+        context_effective = _time(context.effective_at)
+        effective_cutoff_matches = (
+            context_effective == effective
+            if stock_context
+            else context_effective <= effective
+        )
         return (
-            context.instrument_type == "stock"
-            and context.asset_class == "equity"
+            (stock_context or etf_context)
             and context.classification_status not in {"unresolved", "manual_review"}
             and context.execution_allowed is False
-            and _time(context.effective_at) == effective
+            and effective_cutoff_matches
             and _time(context.decision_time) == decision
             and _hex_digest(context.version_id)
             and _hex_digest(context.score_invalidation_token)
-            and sector_adapter_route(context).context_version == context.version_id
+            and (
+                not stock_context
+                or sector_adapter_route(context).context_version == context.version_id
+            )
             and context.sector_adapter_allowed
             == (
                 context.sector is not None
@@ -977,8 +1013,9 @@ def _validate_context(
     decision: datetime,
     *,
     target: bool,
+    comparison_scope: str | None = None,
 ) -> None:
-    if not _context_is_valid(context, effective, decision):
+    if not _context_is_valid(context, effective, decision, comparison_scope):
         label = "target" if target else "candidate"
         raise PeerCohortError(
             f"{label} classification is invalid at the requested cutoff"

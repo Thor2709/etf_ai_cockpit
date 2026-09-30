@@ -37,6 +37,21 @@ confidence factors; confidence never changes the rank. Gate
 and context-only metrics are recorded outside the peer rank. Every assessment
 has `execution_allowed=false`.
 
+## ETF decision graph
+
+ETFs have a separate Vehicle Rank and Exposure Opportunity Rank. Vehicle metrics
+use `ETF_EXPOSURE_PEERS`; their output domains are Tracking,
+Cost/Implementation, Diversification and Structural risk. Equity exposure uses
+the point-in-time look-through summary through the shared DA-001 domain engine.
+Bond, commodity and multi-asset exposure remains `UNAVAILABLE` until its adapter
+exists. Tracking Difference uses the canonical compounded value from
+`etf_economics` (fund return minus benchmark return, annualised); its provenance
+records `td_definition: compounded (canonical etf_economics)`. Tracking Error
+uses the canonical `sqrt(A) * sigma(a)` value. When the matched TD history is
+reliable, expected ETF return is index return plus canonical TD minus trading
+costs; otherwise it is index return minus TER, structural drag and trading
+costs. The selected method is recorded with the expected return evidence.
+
 Nothing with `known_at` or `effective_at` after decision time can contribute.
 Peer scopes are explicit: `UNIVERSE`, `SECTOR`, `INDUSTRY`, `BUSINESS_MODEL`,
 `ETF_CATEGORY` and `ETF_EXPOSURE_PEERS`. ETF category and exposure groups must

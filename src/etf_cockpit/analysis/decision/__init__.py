@@ -25,6 +25,7 @@ from etf_cockpit.analysis.decision.stock import (
     compose_stock_decision,
     load_stock_decision_map,
 )
+from etf_cockpit.analysis.decision.etf import compose_etf_decision
 
 __all__ = [
     "ComparisonScope",
@@ -44,6 +45,7 @@ __all__ = [
     "StockDecisionMap",
     "build_instrument_assessment",
     "compose_stock_decision",
+    "compose_etf_decision",
     "load_domain_registry",
     "load_stock_decision_map",
 ]
