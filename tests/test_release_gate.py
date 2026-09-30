@@ -234,6 +234,12 @@ def test_junit_execution_parity_requires_every_collected_test_exactly_once(tmp_p
     serial = _junit_report(tmp_path / "s.xml", [("tests.test_c", "test_three")])
     assert release_gate._junit_execution_problems((parallel, serial), collected) == []
 
+    backslash = _junit_report(tmp_path / "b.xml", [("tests.test_c", "test_three"), ("tests.test_e", r"test_zip[C:\x.xhtml]")])
+    # Collection output is normalised backslash -> "/"; JUnit keeps the raw parameter id.
+    assert release_gate._junit_execution_problems((parallel, backslash), collected | {"tests/test_e.py::test_zip[C:/x.xhtml]"}) == []
+    nested = _junit_report(tmp_path / "n.xml", [("tests.test_c", "test_three"), ("tests.test_f", "test_lane[tests/x.py::test_y-1]")])
+    assert release_gate._junit_execution_problems((parallel, nested), collected | {"tests/test_f.py::test_lane[tests/x.py::test_y-1]"}) == []
+
     missing = _junit_report(tmp_path / "s2.xml", [])
     duplicated = _junit_report(tmp_path / "s3.xml", [("tests.test_c", "test_three"), ("tests.test_a", "test_one[x-1]")])
     unexpected = _junit_report(tmp_path / "s4.xml", [("tests.test_c", "test_three"), ("tests.test_d", "test_new")])

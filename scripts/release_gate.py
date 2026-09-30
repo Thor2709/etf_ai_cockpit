@@ -545,7 +545,11 @@ def _collect_test_nodeids(root: Path, command: tuple[str, ...]) -> tuple[set[str
 def _junit_key(nodeid: str) -> tuple[str, str]:
     """Map a collected nodeid to pytest's JUnit (classname, name) identity."""
 
-    parts = nodeid.replace("\\", "/").split("::")
+    nodeid = nodeid.replace("\\", "/")
+    bracket = nodeid.find("[")
+    base, parameters = (nodeid, "") if bracket < 0 else (nodeid[:bracket], nodeid[bracket:])
+    parts = base.split("::")  # parameter ids may themselves contain "::"
+    parts[-1] += parameters
     module = parts[0][:-3] if parts[0].endswith(".py") else parts[0]
     return ".".join([module.replace("/", "."), *parts[1:-1]]), parts[-1]
 
@@ -556,7 +560,8 @@ def _junit_execution_problems(reports: tuple[Path, ...], expected_nodeids: set[s
     executed: dict[tuple[str, str], int] = {}
     for report in reports:
         for case in ET.parse(report).getroot().iter("testcase"):
-            key = (case.get("classname", ""), case.get("name", ""))
+            # Same normalisation as _nodeids_from_collection, which maps every backslash to "/".
+            key = (case.get("classname", "").replace("\\", "/"), case.get("name", "").replace("\\", "/"))
             executed[key] = executed.get(key, 0) + 1
     expected = {_junit_key(nodeid) for nodeid in expected_nodeids}
     missing = sorted(expected - executed.keys())
