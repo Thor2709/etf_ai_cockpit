@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "dates": ["2024-03-28", "2024-03-29", "2024-04-01", "2024-04-02"],
+  "total_values": [100.0, 100.0, 105.0, 110.0],
+  "external_flows": [0.0, 0.0, 0.0, 0.0],
+  "expected": {
+    "quarter_twr_returns": [0.0, 0.1],
+    "quarter_investment_pnl": [0.0, 10.0]
+  }
+}
