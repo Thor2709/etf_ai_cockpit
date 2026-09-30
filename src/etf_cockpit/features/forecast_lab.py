@@ -18,6 +18,7 @@ import pandas as pd
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.resource_profiles import ResourcePolicy, estimate_workflow_resources
 from etf_cockpit.core.timing import timing_summary
+from etf_cockpit.models.coverage_audit import build_coverage_audit
 from etf_cockpit.models.model_zoo import model_zoo_frame
 from etf_cockpit.portfolio.costs import estimated_cost_bps
 
@@ -160,6 +161,7 @@ def build_forecast_lab_workspace(
         round_trip_cost_bps=forecast_round_trip_cost_bps(config, instrument_ids),
         model_runtime_ms=latest_forecast_runtimes(records),
         configured_horizons=config.models.forecast_horizons_trading_days,
+        subgroup_universe=config.universe.etfs,
         profile_id=profile_id,
     )
 
@@ -173,6 +175,7 @@ def build_forecast_lab_report(
     round_trip_cost_bps: Mapping[str, float] | None = None,
     model_runtime_ms: Mapping[tuple[str, str], float] | None = None,
     configured_horizons: Iterable[int] | None = None,
+    subgroup_universe: Iterable[object] | None = None,
     profile_id: str = "auto",
 ) -> dict[str, object]:
     """Build a read-only report from local forecast and adjusted-price rows.
@@ -287,6 +290,23 @@ def build_forecast_lab_report(
             "resource_profile": resource_estimate,
             "execution_allowed": False,
         }
+
+    subgroup_results_by_model: dict[str, list[dict[str, object]]] = {}
+    if subgroup_universe is not None:
+        known_model_ids = set(model_catalogue["model_id"].astype(str))
+        for model_name, model_forecasts in frame.groupby("model_name", sort=True):
+            if str(model_name) not in known_model_ids:
+                continue
+            subgroup_results_by_model[str(model_name)] = build_coverage_audit(
+                subgroup_universe,
+                price_frame,
+                model_forecasts,
+                as_of_date=effective_as_of.date(),
+            ).to_dict()["groups"]
+        model_catalogue = model_zoo_frame(
+            optional_status=optional_status,
+            subgroup_results_by_model=subgroup_results_by_model,
+        )
 
     # For a requested historical as-of, later outcomes were not yet knowable.
     known_prices = (
