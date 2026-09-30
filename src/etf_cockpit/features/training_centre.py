@@ -17,14 +17,23 @@ import math
 from pathlib import Path
 import re
 from typing import Any, Literal
+from uuid import uuid4
 
 from etf_cockpit.core.job_scheduler import DurableJobScheduler, JobSpec, WorkflowRecord
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.data.local_storage import StoredRecord, StorageRevisionConflict, TransactionalStore
+from etf_cockpit.models.monitoring import (
+    DatedReturn,
+    DatedValue,
+    DriftAssessment,
+    PerformanceComparison,
+    assess_drift,
+    compare_net_performance,
+)
 
 
 RunStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
-PromotionState = Literal["unpromoted", "approved", "challenger", "champion"]
+PromotionState = Literal["unpromoted", "approved", "challenger", "champion", "retired"]
 
 _ENTITY_EXPERIMENT = "training.experiment"
 _ENTITY_RUN = "training.run"
@@ -36,6 +45,10 @@ _ENTITY_VALIDATION_REPORT = "validation.report"
 _ENTITY_VALIDATION_TRIAL = "validation.trial"
 _ENTITY_VALIDATION_DECISION = "validation.researcher_decision"
 _ENTITY_VALIDATION_PROMOTION = "validation.promotion_result"
+_ENTITY_MODEL_AUDIT = "training.model.audit"
+_ENTITY_DRIFT_ALERT = "training.model.drift_alert"
+_ENTITY_MONITORING_REVIEW = "training.model.monitoring_review"
+_ENTITY_PERFORMANCE_ASSESSMENT = "training.model.performance_assessment"
 _SAFE_HASH = re.compile(r"^[0-9a-f]{64}$")
 _UNSAFE_SUFFIXES = {".pkl", ".pickle", ".joblib", ".dill", ".pt", ".pth"}
 _SECRET_KEY = re.compile(r"(?:api[_-]?key|access[_-]?token|client[_-]?secret|password|passwd|authorization|bearer|secret|token)", re.I)
@@ -386,11 +399,13 @@ class LocalTrainingRegistry:
         payload = {"model_id": model_id, "run_id": run_id, "name": _bounded_text(name, "name"), "artifact_ids": list(artifact_ids), "model_card": _safe_mapping(model_card), "approval_state": "pending", "promotion_state": "unpromoted", "aliases": [], "created_at": _utc_now(), "execution_allowed": False}
         existing = self.get(_ENTITY_MODEL, model_id)
         if existing is not None:
+            self._reject_retired(existing)
             return existing
         return self._put(_ENTITY_MODEL, model_id, payload)
 
     def approve_model(self, model_id: str, *, reviewer: str, evaluation: Mapping[str, object]) -> dict[str, object]:
         model = self.require(_ENTITY_MODEL, model_id)
+        self._reject_retired(model)
         run = self.require(_ENTITY_RUN, str(model["run_id"]))
         if str(run["status"]) != "completed":
             raise TrainingRegistryError("only completed runs can be approved")
@@ -398,22 +413,247 @@ class LocalTrainingRegistry:
             raise TrainingRegistryError("model approval requires an evaluation report")
         self._verify_model_artifacts(model)
         payload = dict(model)
-        payload.update({"approval_state": "approved", "reviewer": _bounded_text(reviewer, "reviewer"), "evaluation": _safe_mapping(evaluation), "approved_at": _utc_now()})
-        return self._put(_ENTITY_MODEL, model_id, payload)
+        payload.update({"approval_state": "approved", "promotion_state": "approved", "reviewer": _bounded_text(reviewer, "reviewer"), "evaluation": _safe_mapping(evaluation), "approved_at": _utc_now()})
+        return self._commit_model_transition(
+            model_id,
+            model,
+            payload,
+            event_type="model_approved",
+            who=reviewer,
+            why="model approved after the recorded evaluation",
+        )
 
-    def promote_model(self, model_id: str, target: Literal["challenger", "champion"]) -> dict[str, object]:
+    def promote_model(
+        self,
+        model_id: str,
+        target: Literal["challenger", "champion"],
+        *,
+        reviewer: str | None = None,
+        reason: str | None = None,
+    ) -> dict[str, object]:
         model = self.require(_ENTITY_MODEL, model_id)
+        self._reject_retired(model)
         run = self.require(_ENTITY_RUN, str(model["run_id"]))
         if str(run["status"]) in {"failed", "cancelled"}:
             raise TrainingRegistryError("failed or cancelled runs cannot publish model aliases")
         if str(model["approval_state"]) != "approved":
             raise TrainingRegistryError("only approved models can become challengers or champions")
         self._verify_model_artifacts(model)
-        payload = dict(model)
-        aliases = sorted(set(str(item) for item in payload.get("aliases", [])) | {target})
-        payload.update({"promotion_state": target, "aliases": aliases, "promoted_at": _utc_now()})
-        return self._put(_ENTITY_MODEL, model_id, payload)
 
+        who = _bounded_text(reviewer or str(model.get("reviewer", "")), "reviewer")
+        if not who:
+            raise TrainingRegistryError("model promotion requires a named reviewer")
+        why = _bounded_text(reason or f"approved model explicitly promoted to {target}", "reason")
+        if not why:
+            raise TrainingRegistryError("model promotion requires a reason")
+
+        transitions: dict[str, tuple[dict[str, object], dict[str, object]]] = {}
+        payload = dict(model)
+        aliases = set(str(item) for item in payload.get("aliases", []))
+        aliases.discard("champion")
+        aliases.discard("challenger")
+        aliases.add(target)
+        if target == "champion":
+            payload["promotion_state"] = "champion"
+            for previous in self.list_records(_ENTITY_MODEL):
+                previous_id = str(previous.get("model_id", ""))
+                previous_aliases = set(str(item) for item in previous.get("aliases", []))
+                if previous_id == model_id or (previous.get("promotion_state") != "champion" and "champion" not in previous_aliases):
+                    continue
+                self._reject_retired(previous)
+                demoted = dict(previous)
+                demoted.update(
+                    {
+                        "promotion_state": "approved",
+                        "aliases": sorted(previous_aliases - {"champion", "challenger"}),
+                    }
+                )
+                transitions[previous_id] = (dict(previous), demoted)
+        else:
+            payload["promotion_state"] = "challenger"
+        payload.update({"aliases": sorted(aliases), "promoted_at": _utc_now()})
+        transitions[model_id] = (dict(model), payload)
+        event_type = "model_champion_promoted" if target == "champion" else "model_challenger_promoted"
+        return self._commit_model_transitions(
+            transitions,
+            event_type=event_type,
+            model_id=model_id,
+            who=who,
+            why=why,
+        )[model_id]
+
+    def retire_model(self, model_id: str, *, reviewer: str, reason: str) -> dict[str, object]:
+        """Retire a model explicitly; no challenger or champion is selected in its place."""
+
+        model = self.require(_ENTITY_MODEL, model_id)
+        if model.get("promotion_state") == "retired":
+            raise TrainingRegistryError("model is already retired")
+        who = _bounded_text(reviewer, "reviewer")
+        why = _bounded_text(reason, "reason")
+        if not who or not why:
+            raise TrainingRegistryError("model retirement requires a named reviewer and reason")
+        payload = dict(model)
+        payload.update(
+            {
+                "promotion_state": "retired",
+                "aliases": sorted(set(str(item) for item in payload.get("aliases", [])) - {"challenger", "champion"}),
+                "retired_at": _utc_now(),
+                "retirement_reason": why,
+            }
+        )
+        return self._commit_model_transition(
+            model_id,
+            model,
+            payload,
+            event_type="model_retired",
+            who=who,
+            why=why,
+        )
+
+    def rollback_champion(self, model_id: str, *, reviewer: str, reason: str) -> dict[str, object]:
+        """Restore the exact model snapshots captured before the current champion promotion."""
+
+        current = self.require(_ENTITY_MODEL, model_id)
+        self._reject_retired(current)
+        if current.get("promotion_state") != "champion" or "champion" not in current.get("aliases", []):
+            raise TrainingRegistryError("rollback target is not the current champion")
+        who = _bounded_text(reviewer, "reviewer")
+        why = _bounded_text(reason, "reason")
+        if not who or not why:
+            raise TrainingRegistryError("champion rollback requires a named reviewer and reason")
+
+        history = self.audit_history()
+        already_reversed = {
+            str(event.get("reverses_audit_id"))
+            for event in history
+            if event.get("event_type") == "champion_rollback"
+        }
+        promotion = next(
+            (
+                event
+                for event in reversed(history)
+                if event.get("event_type") == "model_champion_promoted"
+                and event.get("model_id") == model_id
+                and event.get("audit_id") not in already_reversed
+            ),
+            None,
+        )
+        if promotion is None:
+            raise TrainingRegistryError("no unreversed champion promotion history is available")
+        related = promotion.get("related_states")
+        if not isinstance(related, Mapping):
+            raise TrainingRegistryError("champion promotion history is incomplete")
+        prior_champions = [str(key) for key in related if str(key) != model_id]
+        if len(prior_champions) != 1:
+            raise TrainingRegistryError("champion rollback requires exactly one recorded prior champion")
+
+        transitions: dict[str, tuple[dict[str, object], dict[str, object]]] = {}
+        for restored_id in (model_id, prior_champions[0]):
+            states = related.get(restored_id)
+            if not isinstance(states, Mapping):
+                raise TrainingRegistryError("champion promotion history is incomplete")
+            prior_state = states.get("prior_state")
+            if not isinstance(prior_state, Mapping):
+                raise TrainingRegistryError("champion promotion history is incomplete")
+            before = self.require(_ENTITY_MODEL, restored_id)
+            self._reject_retired(before)
+            transitions[restored_id] = (dict(before), dict(prior_state))
+
+        restored = self._commit_model_transitions(
+            transitions,
+            event_type="champion_rollback",
+            model_id=model_id,
+            who=who,
+            why=why,
+            reverses_audit_id=str(promotion["audit_id"]),
+        )
+        return restored[prior_champions[0]]
+
+    def audit_history(self, model_id: str | None = None) -> tuple[dict[str, object], ...]:
+        """Return append-only state-transition events in storage order."""
+
+        events = tuple(
+            sorted(
+                self.list_records(_ENTITY_MODEL_AUDIT),
+                key=lambda event: (str(event.get("when", "")), str(event.get("audit_id", ""))),
+            )
+        )
+        if model_id is None:
+            return events
+        return tuple(
+            event
+            for event in events
+            if event.get("model_id") == model_id
+            or (isinstance(event.get("related_states"), Mapping) and model_id in event["related_states"])
+        )
+
+    def monitor_model_drift(
+        self,
+        model_id: str,
+        observations: tuple[DatedValue, ...] | list[DatedValue],
+        *,
+        as_of: datetime,
+    ) -> DriftAssessment:
+        """Persist warning alerts and review requests without changing promotion state."""
+
+        model = self.require(_ENTITY_MODEL, model_id)
+        self._reject_retired(model)
+        result = assess_drift(model_id, observations, as_of=as_of)
+        if result.alert is None:
+            return result
+
+        alert = result.alert
+        review_id = f"review_{uuid4().hex}"
+        review = {
+            "review_id": review_id,
+            "model_id": model_id,
+            "alert_id": alert.alert_id,
+            "review_type": "warning_challenger",
+            "status": "pending",
+            "created_at": _utc_now(),
+            "execution_allowed": False,
+        }
+        payload = dict(model)
+        payload.update({"monitoring_status": "warning", "review_required": True, "last_drift_alert_id": alert.alert_id})
+        self._commit_model_transitions(
+            {model_id: (dict(model), payload)},
+            event_type="warning_challenger_review_requested",
+            model_id=model_id,
+            who="model_monitoring",
+            why=alert.reason,
+            extra_records=(
+                (_ENTITY_DRIFT_ALERT, alert.alert_id, _safe_mapping(asdict(alert))),
+                (_ENTITY_MONITORING_REVIEW, review_id, review),
+            ),
+        )
+        return result
+
+    def assess_model_performance(
+        self,
+        model_id: str,
+        model_returns: tuple[DatedReturn, ...] | list[DatedReturn],
+        baseline_id: str,
+        baseline_returns: tuple[DatedReturn, ...] | list[DatedReturn],
+        *,
+        baseline_is_deterministic: bool,
+        as_of: datetime,
+    ) -> PerformanceComparison:
+        """Persist a point-in-time, net-of-cost comparison to a deterministic baseline."""
+
+        model = self.require(_ENTITY_MODEL, model_id)
+        self._reject_retired(model)
+        result = compare_net_performance(
+            model_id,
+            model_returns,
+            baseline_id,
+            baseline_returns,
+            baseline_is_deterministic=baseline_is_deterministic,
+            as_of=as_of,
+        )
+        assessment_id = f"performance_{uuid4().hex}"
+        assessment = {"assessment_id": assessment_id, **_safe_mapping(asdict(result))}
+        self._put(_ENTITY_PERFORMANCE_ASSESSMENT, assessment_id, assessment)
+        return result
     def replay(self, run_id: str, *, dataset_hash: str, feature_hash: str, code_hash: str, environment_hash: str, parameters: Mapping[str, object] | None = None) -> ReplayReport:
         run = self.require(_ENTITY_RUN, run_id)
         expected = {"dataset_hash": dataset_hash, "feature_hash": feature_hash, "code_hash": code_hash, "environment_hash": environment_hash, "parameters": _safe_mapping(parameters or {})}
@@ -424,7 +664,25 @@ class LocalTrainingRegistry:
         return tuple(record.payload for record in self._list(entity_type))
 
     def snapshot(self) -> dict[str, tuple[dict[str, object], ...]]:
-        return {key: self.list_records(key) for key in (_ENTITY_EXPERIMENT, _ENTITY_RUN, _ENTITY_METRIC, _ENTITY_DATASET, _ENTITY_ARTIFACT, _ENTITY_MODEL, _ENTITY_VALIDATION_REPORT, _ENTITY_VALIDATION_TRIAL, _ENTITY_VALIDATION_DECISION, _ENTITY_VALIDATION_PROMOTION)}
+        return {
+            key: self.list_records(key)
+            for key in (
+                _ENTITY_EXPERIMENT,
+                _ENTITY_RUN,
+                _ENTITY_METRIC,
+                _ENTITY_DATASET,
+                _ENTITY_ARTIFACT,
+                _ENTITY_MODEL,
+                _ENTITY_VALIDATION_REPORT,
+                _ENTITY_VALIDATION_TRIAL,
+                _ENTITY_VALIDATION_DECISION,
+                _ENTITY_VALIDATION_PROMOTION,
+                _ENTITY_MODEL_AUDIT,
+                _ENTITY_DRIFT_ALERT,
+                _ENTITY_MONITORING_REVIEW,
+                _ENTITY_PERFORMANCE_ASSESSMENT,
+            )
+        }
 
     def get(self, entity_type: str, entity_id: str) -> dict[str, object] | None:
         record = self._store_get(entity_type, entity_id)
@@ -435,6 +693,70 @@ class LocalTrainingRegistry:
         if value is None:
             raise TrainingRegistryError(f"unknown {entity_type}: {entity_id}")
         return value
+
+    def _reject_retired(self, model: Mapping[str, object]) -> None:
+        if model.get("promotion_state") == "retired":
+            raise TrainingRegistryError("retired models cannot be proposed, approved, monitored, or scored")
+
+    def _commit_model_transition(
+        self,
+        model_id: str,
+        before: Mapping[str, object],
+        after: Mapping[str, object],
+        *,
+        event_type: str,
+        who: str,
+        why: str,
+    ) -> dict[str, object]:
+        return self._commit_model_transitions(
+            {model_id: (dict(before), dict(after))},
+            event_type=event_type,
+            model_id=model_id,
+            who=who,
+            why=why,
+        )[model_id]
+
+    def _commit_model_transitions(
+        self,
+        transitions: Mapping[str, tuple[Mapping[str, object], Mapping[str, object]]],
+        *,
+        event_type: str,
+        model_id: str,
+        who: str,
+        why: str,
+        reverses_audit_id: str | None = None,
+        extra_records: Sequence[tuple[str, str, Mapping[str, object]]] = (),
+    ) -> dict[str, dict[str, object]]:
+        if model_id not in transitions:
+            raise TrainingRegistryError("model transition history is incomplete")
+        related_states = {
+            related_id: {"prior_state": dict(before), "new_state": dict(after)}
+            for related_id, (before, after) in transitions.items()
+        }
+        before, after = transitions[model_id]
+        audit_id = f"audit_{uuid4().hex}"
+        event: dict[str, object] = {
+            "audit_id": audit_id,
+            "event_type": event_type,
+            "model_id": model_id,
+            "who": _bounded_text(who, "who"),
+            "when": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+            "why": _bounded_text(why, "why"),
+            "prior_state": dict(before),
+            "new_state": dict(after),
+            "related_states": related_states,
+            "execution_allowed": False,
+        }
+        if reverses_audit_id is not None:
+            event["reverses_audit_id"] = reverses_audit_id
+        records: list[tuple[str, str, Mapping[str, object]]] = [
+            (_ENTITY_MODEL, related_id, dict(next_state))
+            for related_id, (_prior_state, next_state) in transitions.items()
+        ]
+        records.extend(extra_records)
+        records.append((_ENTITY_MODEL_AUDIT, audit_id, event))
+        self._store_put_many(records)
+        return {related_id: dict(next_state) for related_id, (_prior_state, next_state) in transitions.items()}
 
     def _put(self, entity_type: str, entity_id: str, payload: Mapping[str, object]) -> dict[str, object]:
         return self._store_put(entity_type, entity_id, payload).payload
@@ -461,6 +783,10 @@ class LocalTrainingRegistry:
     def _store_put(self, entity_type: str, entity_id: str, payload: Mapping[str, object]) -> StoredRecord:
         with TransactionalStore(self.root) as store:
             return store.put(entity_type, entity_id, payload)
+
+    def _store_put_many(self, records: Sequence[tuple[str, str, Mapping[str, object]]]) -> None:
+        with TransactionalStore(self.root) as store:
+            store.put_many(records)
 
     def _safe_artifact_path(self, path: Path) -> Path:
         candidate = Path(path)
