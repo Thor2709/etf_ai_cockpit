@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from etf_cockpit.analysis.parity_report import validate_parity_report
 from etf_cockpit.core.paths import LOG_DIR, STATEMENT_FACTS_PATH
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data.etf_structure import project_etf_structure
@@ -1300,6 +1301,70 @@ def load_opportunity_assessment(
         return unavailable
     records.sort(key=lambda item: (item[0], item[1]))
     return records[-1][2]
+
+
+def load_analysis_parity_report(
+    *, report_path: Path | None = None
+) -> dict[str, object]:
+    """Read a v2 parity report; the caller must supply its approved artifact path."""
+
+    unavailable = {
+        "schema_version": 2,
+        "status": "unavailable",
+        "first_mismatch": None,
+        "reason": "analysis parity report unavailable",
+        "execution_allowed": False,
+    }
+    if report_path is None:
+        return unavailable | {"reason": "analysis parity report path was not supplied"}
+    path = Path(report_path)
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return unavailable
+    if not isinstance(report, Mapping) or report.get("schema_version") != 2:
+        return unavailable | {"reason": "analysis parity report schema is invalid"}
+    if validate_parity_report(report):
+        return {
+            "schema_version": 2,
+            "status": "failed",
+            "first_mismatch": {
+                "stage": "report_security",
+                "path": "sensitive_report_field",
+                "dependency_path": ["stored_report", "diagnostics"],
+            },
+            "reason": "analysis parity report contains a sensitive field",
+            "execution_allowed": False,
+        }
+    lanes = report.get("lanes")
+    lane_statuses = [
+        str(lane.get("status", "unavailable"))
+        for lane in lanes.values()
+        if isinstance(lane, Mapping)
+    ] if isinstance(lanes, Mapping) else []
+    stored_status = str(report.get("release_status", report.get("status", "unavailable")))
+    security = report.get("security")
+    security_failed = isinstance(security, Mapping) and security.get("status") == "failed"
+    if "failed" in lane_statuses or stored_status == "failed" or security_failed:
+        status = "failed"
+    elif (
+        lane_statuses
+        and all(item == "passed" for item in lane_statuses)
+        and stored_status == "passed"
+    ):
+        status = "passed"
+    else:
+        status = "unavailable" if stored_status == "unavailable" else "incomplete"
+    mismatch = report.get("first_mismatch")
+    if not isinstance(mismatch, Mapping):
+        mismatch = None
+    return {
+        "schema_version": 2,
+        "status": status,
+        "first_mismatch": dict(mismatch) if mismatch is not None else None,
+        "reason": None,
+        "execution_allowed": False,
+    }
 
 
 def load_stock_research_context(

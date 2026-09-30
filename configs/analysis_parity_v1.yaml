@@ -1,0 +1,13 @@
+schema_version: 1
+version: analysis-parity-v1
+numeric_tolerances:
+  absolute: 1.0e-9
+  relative: 1.0e-9
+required_core_surfaces:
+  - detail
+  - bulk
+  - holdings
+portfolio_artifacts:
+  - ledger
+  - performance_series
+  - csv_export

@@ -16,7 +16,12 @@ from etf_cockpit.core.session_log import read_session_events, session_log_status
 from etf_cockpit.core.errors import ErrorStore
 from etf_cockpit.core.timing import timing_summary
 from etf_cockpit.core.performance import PerformanceBudgetError, build_performance_report
-from etf_cockpit.application.ui_facade import TransactionalStore, build_version_registry, compatibility_summary
+from etf_cockpit.application.ui_facade import (
+    TransactionalStore,
+    build_version_registry,
+    compatibility_summary,
+    load_analysis_parity_report,
+)
 from etf_cockpit.operations.event_store import load_events_with_tail_recovery
 from etf_cockpit.security.policy import build_security_report
 
@@ -44,6 +49,14 @@ def diagnostics_page(_page: ft.Page, state: AppState) -> ft.Control:
     architecture = build_architecture_report(ROOT)
     storage = _storage_status()
     versions = compatibility_summary(build_version_registry(ROOT))
+    parity = load_analysis_parity_report()
+    parity_status = str(parity.get("status", "unavailable"))
+    mismatch = parity.get("first_mismatch")
+    mismatch_path = (
+        str(mismatch.get("path", mismatch.get("stage", "unavailable")))
+        if isinstance(mismatch, dict)
+        else "none"
+    )
     lines = [
         f"Python: {sys.version}",
         f"Executable: {sys.executable}",
@@ -74,6 +87,28 @@ def diagnostics_page(_page: ft.Page, state: AppState) -> ft.Control:
                         ft.Text("\n".join(lines), color=theme.MUTED, selectable=True),
                     ],
                     scroll=ft.ScrollMode.AUTO,
+                )
+            ),
+            panel(
+                ft.Column(
+                    [
+                        section_header(
+                            "Analysis parity",
+                            "Saved replay report status and first divergence.",
+                        ),
+                        ft.Text(
+                            f"Status: {parity_status} | First mismatch: {mismatch_path}",
+                            color=(
+                                theme.RED
+                                if parity_status == "failed"
+                                else theme.GREEN
+                                if parity_status == "passed"
+                                else theme.MUTED
+                            ),
+                            selectable=True,
+                        ),
+                    ],
+                    spacing=6,
                 )
             ),
             _security_panel(),
