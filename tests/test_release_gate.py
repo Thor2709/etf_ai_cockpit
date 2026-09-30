@@ -54,7 +54,7 @@ def test_full_tests_xdist_commands_use_disjoint_phases_and_canonical_junit_names
     marker_index = phase_a.index("-m", phase_a.index("-m") + 1)
     assert phase_a[marker_index + 1] == "not serial"
     assert phase_a[phase_a.index("-n") + 1] == "4"
-    assert phase_a[phase_a.index("--dist") + 1] == "loadgroup"
+    assert phase_a[phase_a.index("--dist") + 1] == "loadfile"
     assert f"--junitxml={tmp_path / 'evidence' / 'junit-parallel.xml'}" in phase_a
     assert "--durations=100" in phase_a
     assert "--durations-min=0.25" in phase_a
@@ -207,6 +207,48 @@ def test_main_reads_xdist_workers_from_environment_and_cli(tmp_path: Path, monke
     capsys.readouterr()
 
     assert observed == [3, 4]
+
+
+def test_auto_xdist_workers_use_usable_cpus_capped_and_serial_on_one_cpu(monkeypatch) -> None:
+    monkeypatch.setattr(release_gate, "_usable_cpu_count", lambda: 20)
+    monkeypatch.setenv(release_gate.XDIST_MAX_ENV, "14")
+    assert release_gate._nonnegative_int("auto") == 14
+    monkeypatch.delenv(release_gate.XDIST_MAX_ENV)
+    assert release_gate._nonnegative_int("AUTO") == 16
+    monkeypatch.setattr(release_gate, "_usable_cpu_count", lambda: 4)
+    assert release_gate._nonnegative_int("auto") == 4
+    monkeypatch.setattr(release_gate, "_usable_cpu_count", lambda: 1)
+    assert release_gate._nonnegative_int("auto") == 0
+
+
+def _junit_report(path: Path, cases: list[tuple[str, str]]) -> Path:
+    body = "".join(f'<testcase classname="{classname}" name="{name}" />' for classname, name in cases)
+    path.write_text(f'<testsuites><testsuite name="pytest">{body}</testsuite></testsuites>', encoding="utf-8")
+    return path
+
+
+def test_junit_execution_parity_requires_every_collected_test_exactly_once(tmp_path: Path) -> None:
+    collected = {
+        "tests/test_a.py::test_one[x-1]",
+        "tests/ui/test_b.py::TestView::test_two",
+        "tests/test_c.py::test_three",
+    }
+    parallel = _junit_report(tmp_path / "p.xml", [("tests.test_a", "test_one[x-1]"), ("tests.ui.test_b.TestView", "test_two")])
+    serial = _junit_report(tmp_path / "s.xml", [("tests.test_c", "test_three")])
+    assert release_gate._junit_execution_problems((parallel, serial), collected) == []
+
+    missing = _junit_report(tmp_path / "s2.xml", [])
+    duplicated = _junit_report(tmp_path / "s3.xml", [("tests.test_c", "test_three"), ("tests.test_a", "test_one[x-1]")])
+    unexpected = _junit_report(tmp_path / "s4.xml", [("tests.test_c", "test_three"), ("tests.test_d", "test_new")])
+    assert "1 test(s) not executed: tests.test_c::test_three" in release_gate._junit_execution_problems(
+        (parallel, missing), collected
+    )
+    assert "1 test(s) executed more than once: tests.test_a::test_one[x-1]" in release_gate._junit_execution_problems(
+        (parallel, duplicated), collected
+    )
+    assert "1 test(s) not collected: tests.test_d::test_new" in release_gate._junit_execution_problems(
+        (parallel, unexpected), collected
+    )
 
 
 def _source_fixture(root: Path) -> None:
@@ -515,7 +557,7 @@ def test_parallel_pilot_is_report_only_when_xdist_is_unavailable(monkeypatch) ->
     }
     assert evidence["schema_version"] == "pytest-parallel-pilot.v2"
     assert "--collect-only" in evidence["commands"]["candidate_safe_collection"]
-    assert "-n 4 --dist loadgroup" in evidence["commands"]["candidate_safe_execution"]
+    assert "-n 4 --dist loadfile" in evidence["commands"]["candidate_safe_execution"]
     assert evidence["serial_groups"] == [
         "concurrency",
         "environment",

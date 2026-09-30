@@ -129,6 +129,7 @@ def test_mark_transaction_ready_rejects_transaction_id_outside_supplied_root(tmp
     assert outside_journal.read_text(encoding="utf-8") == "must-not-be-read-or-written"
 
 
+# Thread interleaving with timed waits; CPU contention from other workers skews the schedule.
 @pytest.mark.serial
 @pytest.mark.xdist_group("concurrency")
 def test_group_reader_cannot_observe_mixed_generation_during_activation(
@@ -553,6 +554,7 @@ def test_activation_rollback_failure_preserves_recovery_evidence(
     assert journals[0].exists()
 
 
+# Interrupts a real writer process mid-commit; timing-dependent under CPU contention.
 @pytest.mark.serial
 @pytest.mark.xdist_group("concurrency")
 def test_recovery_of_interrupted_second_real_writer_preserves_first_commit(tmp_path: Path) -> None:

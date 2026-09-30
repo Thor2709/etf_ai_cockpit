@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
+import time
 import uuid
 import json
 from collections.abc import Iterator
@@ -28,6 +30,187 @@ os.environ["TEMP"] = str(PYTEST_TEMP)
 os.environ["TMP"] = str(PYTEST_TEMP)
 os.environ["TMPDIR"] = str(PYTEST_TEMP)
 tempfile.tempdir = str(PYTEST_TEMP)
+
+_XDIST_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "")
+if _XDIST_WORKER:
+    # Each worker is one of many CPU-bound processes: nested BLAS/OpenMP pools only oversubscribe.
+    for _thread_variable in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        os.environ.setdefault(_thread_variable, "1")
+
+# --- Per-process project root ---------------------------------------------------------------
+# Product code resolves every mutable path (data/, logs/, exports/, backups/, artifacts/) from the
+# project root.  Tests used to share the checkout's real root, so parallel workers raced on the same
+# SQLite store, parquet files and file guards, and serial runs mutated local developer data.  Every
+# pytest process now gets a private root before etf_cockpit is imported: mutable directories hold
+# fresh copies of their tracked files only (the state of a clean CI checkout) and every other
+# top-level entry is linked to the checkout.  Writes through those links are rejected by
+# _repo_write_guard below.
+ISOLATED_ROOTS = PYTEST_TEMP / "project_roots"
+_PRIVATE_DIRECTORIES = ("configs", "data", "artifacts", "logs", "exports", "backups")
+_UNLINKED_ENTRIES = {".hypothesis", ".pytest_cache", "__pycache__", ".mypy_cache", ".ruff_cache"}
+_STALE_ROOT_SECONDS = 12 * 3600
+
+
+def _is_link(path: Path) -> bool:
+    return path.is_symlink() or os.path.isjunction(path)
+
+
+def _remove_isolated_root(root: Path) -> None:
+    """Delete an isolated root without ever following a link into the checkout."""
+
+    root = Path(os.path.abspath(root))
+    if root.parent != Path(os.path.abspath(ISOLATED_ROOTS)):
+        raise RuntimeError(f"refusing to remove a path outside {ISOLATED_ROOTS}: {root}")
+    if _is_link(root) or not root.is_dir():
+        return
+    for entry in root.iterdir():
+        if _is_link(entry):
+            # Removes the link itself: rmdir for a junction, unlink for a symlink.
+            if os.path.isjunction(entry):
+                os.rmdir(entry)
+            else:
+                os.unlink(entry)
+    shutil.rmtree(root)
+
+
+def _prune_stale_isolated_roots() -> None:
+    if not ISOLATED_ROOTS.is_dir():
+        return
+    cutoff = time.time() - _STALE_ROOT_SECONDS
+    for candidate in ISOLATED_ROOTS.iterdir():
+        try:
+            if candidate.stat().st_mtime < cutoff:
+                _remove_isolated_root(candidate)
+        except OSError:
+            continue  # still in use, or removed by a concurrent session
+
+
+def _tracked_files(directories: tuple[str, ...]) -> list[str] | None:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "-z", "--", *directories],
+            capture_output=True,
+            check=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return [item for item in completed.stdout.decode("utf-8").split("\0") if item]
+
+
+def _link(source: Path, destination: Path) -> None:
+    if source.is_dir():
+        if os.name == "nt":
+            import _winapi
+
+            _winapi.CreateJunction(str(source), str(destination))
+        else:
+            destination.symlink_to(source, target_is_directory=True)
+    else:
+        # A copy, not a hard link: a write through a hard link would silently reach the checkout.
+        shutil.copy2(source, destination)
+
+
+def _create_isolated_root() -> Path:
+    ISOLATED_ROOTS.mkdir(parents=True, exist_ok=True)
+    root = ISOLATED_ROOTS / f"{_XDIST_WORKER or 'main'}-{uuid.uuid4().hex[:8]}"
+    root.mkdir()
+    for entry in ROOT.iterdir():
+        if entry.name not in _PRIVATE_DIRECTORIES and entry.name not in _UNLINKED_ENTRIES:
+            _link(entry, root / entry.name)
+    tracked = _tracked_files(_PRIVATE_DIRECTORIES)
+    if tracked is None:
+        # No git metadata (e.g. an extracted source distribution): copy configuration only.
+        tracked = [path.relative_to(ROOT).as_posix() for path in (ROOT / "configs").rglob("*") if path.is_file()]
+    for relative in tracked:
+        source = ROOT / relative
+        if source.is_file():
+            destination = root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+    for name in _PRIVATE_DIRECTORIES:
+        (root / name).mkdir(exist_ok=True)
+    return root
+
+
+_prune_stale_isolated_roots()
+ISOLATED_ROOT = _create_isolated_root()
+os.environ["ETF_COCKPIT_ROOT"] = str(ISOLATED_ROOT)
+
+
+# --- Checkout write guard -------------------------------------------------------------------
+# Any write that resolves into the real checkout (outside pytest's own temp tree and caches)
+# fails the test that made it.  This keeps the isolation above from regressing silently.
+_REAL_ROOT = os.path.normcase(os.path.realpath(ROOT))
+_GUARD_EXEMPT = tuple(
+    os.path.normcase(os.path.realpath(path)) + os.sep
+    for path in (PYTEST_TEMP, ROOT / ".hypothesis", ROOT / "logs" / "runtime_tmp")
+)
+_WRITE_EVENTS = {"os.remove", "os.rename", "os.replace", "os.rmdir", "shutil.rmtree", "shutil.move", "shutil.copyfile", "os.truncate"}
+_guard_state: dict[str, object] = {"active": False, "violations": []}
+
+
+def _checkout_write(path: object) -> str | None:
+    if isinstance(path, int) or path is None:
+        return None
+    try:
+        resolved = os.path.normcase(os.path.realpath(os.fsdecode(path)))
+    except (TypeError, ValueError, OSError):
+        return None
+    if resolved != _REAL_ROOT and not resolved.startswith(_REAL_ROOT + os.sep):
+        return None
+    if resolved.startswith(_GUARD_EXEMPT) or f"{os.sep}__pycache__" in resolved:
+        return None
+    return resolved
+
+
+def _write_guard_hook(event: str, args: tuple[object, ...]) -> None:
+    if not _guard_state["active"]:
+        return
+    if event == "open":
+        mode, flags = args[1], args[2]
+        writing = (isinstance(mode, str) and any(flag in mode for flag in "wax+")) or (
+            mode is None and isinstance(flags, int) and flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC)
+        )
+        paths = (args[0],) if writing else ()
+    elif event == "os.mkdir":
+        paths = () if os.path.isdir(os.fsdecode(args[0])) else (args[0],)
+    elif event == "sqlite3.connect":
+        database = args[0]
+        paths = () if database in (":memory:", "", b":memory:") else (database,)
+    elif event in _WRITE_EVENTS:
+        paths = args[:2] if event in ("os.rename", "os.replace", "shutil.move", "shutil.copyfile") else args[:1]
+    else:
+        return
+    for path in paths:
+        resolved = _checkout_write(path)
+        if resolved is not None:
+            _guard_state["violations"].append(f"{event}: {resolved}")  # type: ignore[union-attr]
+
+
+sys.addaudithook(_write_guard_hook)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_protocol(item: pytest.Item, nextitem: pytest.Item | None):
+    _guard_state["violations"] = []
+    _guard_state["active"] = True
+    try:
+        yield
+    finally:
+        _guard_state["active"] = False
+
+
+@pytest.fixture(autouse=True)
+def _repo_write_guard() -> Iterator[None]:
+    yield
+    violations = sorted(set(_guard_state["violations"]))  # type: ignore[arg-type]
+    if violations:
+        pytest.fail(
+            "test wrote into the real checkout instead of its isolated project root or tmp_path:\n  "
+            + "\n  ".join(violations[:20]),
+            pytrace=False,
+        )
 
 
 @pytest.fixture
@@ -63,25 +246,78 @@ def reserved_tcp_port() -> Iterator[socket.socket]:
         yield reservation
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    groups = {
-        "environment": ("environment", "dependency", "lock"),
-        "sqlite": ("sqlite", "database", "db_"),
-        "flet": ("flet", "ui_", "smoke_app"),
-        "ports": ("port", "socket"),
-        "package": ("package", "wheel", "release_gate"),
-        "concurrency": ("concurrency", "thread", "atomic"),
-    }
-    for item in items:
-        nodeid = item.nodeid.lower()
-        matched = next((name for name, tokens in groups.items() if any(token in nodeid for token in tokens)), None)
-        if matched is not None:
-            item.add_marker(pytest.mark.serial)
-            item.add_marker(pytest.mark.xdist_group(matched))
+# --- Parallel scheduling ----------------------------------------------------------------------
+# Files that must share one xdist worker because they use one resource outside their isolated
+# project root.  Every entry needs a reason; tests/test_parallel_scheduling.py rejects stale
+# entries.  Tests that must not run concurrently with anything use @pytest.mark.serial in the file.
+SHARED_RESOURCE_GROUPS: dict[str, tuple[str, tuple[str, ...]]] = {}
+_DURATIONS_PATH = Path(__file__).with_name("file_durations.json")
 
-    # The parallel pilot opts into this exact selected-nodeid evidence.  Do
-    # not emit it for ordinary test runs.  Manifest emission happens from
-    # pytest_collection_finish after marker deselection below.
+
+def _scheduling_scope(nodeid: str) -> str:
+    path = nodeid.split("::", 1)[0].replace("\\", "/")
+    for group, (_reason, files) in SHARED_RESOURCE_GROUPS.items():
+        if path in files:
+            return f"group:{group}"
+    return path
+
+
+def _file_weights() -> dict[str, float]:
+    try:
+        payload = json.loads(_DURATIONS_PATH.read_text(encoding="utf-8"))
+        return {str(key): float(value) for key, value in payload["files"].items()}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return {}
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if not getattr(config.option, "numprocesses", None) and not _XDIST_WORKER:
+        return  # serial runs keep pytest's natural order
+    # Longest scheduling scopes first (LPT): the heaviest files cannot end up as the tail.  The sort
+    # is deterministic, so every worker collects the identical order that xdist requires.
+    weights = _file_weights()
+    default = sorted(weights.values())[len(weights) // 2] if weights else 1.0  # unknown file: median
+    scopes = {item.nodeid: _scheduling_scope(item.nodeid) for item in items}
+    paths_by_scope: dict[str, set[str]] = {}
+    first_seen: dict[str, int] = {}
+    for index, item in enumerate(items):
+        paths_by_scope.setdefault(scopes[item.nodeid], set()).add(item.nodeid.split("::", 1)[0].replace("\\", "/"))
+        first_seen.setdefault(scopes[item.nodeid], index)
+    scope_weight = {scope: sum(weights.get(path, default) for path in paths) for scope, paths in paths_by_scope.items()}
+    items.sort(key=lambda item: (-scope_weight[scopes[item.nodeid]], first_seen[scopes[item.nodeid]]))
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_xdist_make_scheduler(config: pytest.Config, log: object) -> object | None:
+    """With ``--dist loadfile``: keep each file (or shared-resource group) on one worker.
+
+    Module fixtures such as the build_snapshot() templates are then built once per file instead of
+    once per worker, and nodeids stay unchanged (unlike ``loadgroup``'s ``@group`` suffix).
+    """
+
+    if config.getoption("dist") != "loadfile":
+        return None
+    from xdist.scheduler import LoadScopeScheduling
+
+    class _FileScopeScheduling(LoadScopeScheduling):
+        def _split_scope(self, nodeid: str) -> str:
+            return _scheduling_scope(nodeid)
+
+    return _FileScopeScheduling(config, log)
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    # Passing runs leave nothing behind; a failing run keeps its root for inspection until the
+    # stale-root pruning of a later session removes it.
+    if exitstatus == 0:
+        try:
+            _remove_isolated_root(ISOLATED_ROOT)
+        except OSError as exc:
+            print(f"warning: could not remove isolated project root {ISOLATED_ROOT}: {exc}", file=sys.stderr)
+
+
+# The parallel pilot opts into this exact selected-nodeid evidence.  Do not emit it for ordinary
+# test runs.  Manifest emission happens from pytest_collection_finish after marker deselection.
 
 
 def pytest_collection_finish(session: pytest.Session) -> None:

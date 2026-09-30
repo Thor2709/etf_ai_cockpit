@@ -27,8 +27,11 @@ def test_reserved_tcp_port_rejects_competing_bind(reserved_tcp_port: socket.sock
             competitor.bind((host, port))
 
 
-def test_environment_isolation_tests_are_explicitly_serial(request: pytest.FixtureRequest) -> None:
-    assert request.node.get_closest_marker("serial") is not None
-    group = request.node.get_closest_marker("xdist_group")
-    assert group is not None
-    assert group.args == ("environment",)
+def test_environment_isolation_tests_run_in_parallel_on_a_private_project_root(
+    request: pytest.FixtureRequest,
+) -> None:
+    # These fixtures are process-local, so the tests run in the parallel lane; the shared checkout
+    # is protected by the per-process project root instead of serial execution.
+    assert request.node.get_closest_marker("serial") is None
+    checkout = Path(__file__).resolve().parents[1]
+    assert Path(os.environ["ETF_COCKPIT_ROOT"]).resolve() != checkout

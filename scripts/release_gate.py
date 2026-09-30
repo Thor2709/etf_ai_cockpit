@@ -10,6 +10,7 @@ causes a non-zero exit code.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import hmac
 import importlib.metadata
@@ -38,6 +39,7 @@ DEFAULT_OUTPUT = Path("artifacts/release/latest")
 SIGNING_KEY_ENV = "ETF_COCKPIT_RELEASE_SIGNING_KEY"
 SIGNING_KEY_ID_ENV = "ETF_COCKPIT_RELEASE_SIGNING_KEY_ID"
 XDIST_WORKERS_ENV = "ETF_COCKPIT_XDIST_WORKERS"
+XDIST_MAX_ENV = "ETF_COCKPIT_XDIST_MAX"
 _FULL_TEST_EVIDENCE_PREFIX = "Two-phase xdist evidence: "
 TEXT_SUFFIXES = frozenset(
     {
@@ -325,7 +327,7 @@ def parallel_pilot_evidence() -> dict[str, object]:
             "serial_collection": "python -m pytest --collect-only -q",
             "candidate_safe_collection": "python -m pytest -m \"not serial\" --collect-only -q",
             "candidate_unsafe_collection": "python -m pytest -m serial --collect-only -q",
-            "candidate_safe_execution": "python -m pytest -m \"not serial\" -n 4 --dist loadgroup -q",
+            "candidate_safe_execution": "python -m pytest -m \"not serial\" -n 4 --dist loadfile -q",
             "candidate_unsafe_execution": "python -m pytest -m serial -q",
         },
         "collection_parity": {
@@ -491,7 +493,7 @@ def _full_test_commands(
             "-n",
             str(xdist_workers),
             "--dist",
-            "loadgroup",
+            "loadfile",
             *common,
             f"--junitxml={_junit_path(output_dir, 'junit-parallel.xml')}",
         ),
@@ -540,6 +542,33 @@ def _collect_test_nodeids(root: Path, command: tuple[str, ...]) -> tuple[set[str
     return nodeids, elapsed, ""
 
 
+def _junit_key(nodeid: str) -> tuple[str, str]:
+    """Map a collected nodeid to pytest's JUnit (classname, name) identity."""
+
+    parts = nodeid.replace("\\", "/").split("::")
+    module = parts[0][:-3] if parts[0].endswith(".py") else parts[0]
+    return ".".join([module.replace("/", "."), *parts[1:-1]]), parts[-1]
+
+
+def _junit_execution_problems(reports: tuple[Path, ...], expected_nodeids: set[str]) -> list[str]:
+    """Every collected test must appear exactly once across the phase reports."""
+
+    executed: dict[tuple[str, str], int] = {}
+    for report in reports:
+        for case in ET.parse(report).getroot().iter("testcase"):
+            key = (case.get("classname", ""), case.get("name", ""))
+            executed[key] = executed.get(key, 0) + 1
+    expected = {_junit_key(nodeid) for nodeid in expected_nodeids}
+    missing = sorted(expected - executed.keys())
+    unexpected = sorted(executed.keys() - expected)
+    duplicated = sorted(key for key, count in executed.items() if count > 1)
+    problems = []
+    for label, keys in (("not executed", missing), ("not collected", unexpected), ("executed more than once", duplicated)):
+        if keys:
+            problems.append(f"{len(keys)} test(s) {label}: " + ", ".join("::".join(key) for key in keys[:3]))
+    return problems
+
+
 def _merge_junit_reports(reports: tuple[Path, Path], destination: Path) -> dict[str, int]:
     suites: list[ET.Element] = []
     for report in reports:
@@ -582,7 +611,9 @@ def full_tests(root: Path, output_dir: Path, xdist_workers: int = 0) -> CheckRes
         _python_command(root, "-m", "pytest", "-m", "not serial", "--collect-only", "--verbosity=-1"),
         _python_command(root, "-m", "pytest", "-m", "serial", "--collect-only", "--verbosity=-1"),
     )
-    collected = [_collect_test_nodeids(root, command) for command in collection_commands]
+    # The three collections are independent read-only subprocesses; run them concurrently.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(collection_commands)) as pool:
+        collected = list(pool.map(lambda command: _collect_test_nodeids(root, command), collection_commands))
     full_nodes, phase_a_nodes, phase_b_nodes = (row[0] for row in collected)
     phase_union = phase_a_nodes | phase_b_nodes
     missing = full_nodes - phase_union
@@ -651,6 +682,12 @@ def full_tests(root: Path, output_dir: Path, xdist_workers: int = 0) -> CheckRes
             (output_dir / "junit-parallel.xml", output_dir / "junit-serial.xml"),
             output_dir / "junit-full.xml",
         )
+        execution_problems = _junit_execution_problems(
+            (output_dir / "junit-parallel.xml", output_dir / "junit-serial.xml"),
+            full_nodes,
+        )
+        evidence["execution_parity"] = execution_problems or "every collected test executed exactly once"
+        failures.extend(f"execution parity failed: {problem}" for problem in execution_problems)
     except (OSError, ET.ParseError, ValueError) as exc:
         failures.append(f"JUnit merge failed: {exc}")
     if failures:
@@ -669,7 +706,23 @@ def full_tests(root: Path, output_dir: Path, xdist_workers: int = 0) -> CheckRes
     )
 
 
+def _usable_cpu_count() -> int:
+    if hasattr(os, "sched_getaffinity"):
+        return max(1, len(os.sched_getaffinity(0)))
+    return max(1, os.cpu_count() or 1)
+
+
+def _auto_xdist_workers() -> int:
+    """One worker per usable CPU, capped by ETF_COCKPIT_XDIST_MAX (default 16); 0 (serial) on one CPU."""
+
+    cap = _nonnegative_int(os.environ.get(XDIST_MAX_ENV, "16"))
+    workers = min(_usable_cpu_count(), cap)
+    return workers if workers > 1 else 0
+
+
 def _nonnegative_int(value: str) -> int:
+    if value.strip().lower() == "auto":
+        return _auto_xdist_workers()
     try:
         workers = int(value)
     except ValueError as exc:

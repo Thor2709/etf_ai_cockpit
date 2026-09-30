@@ -435,9 +435,13 @@ def test_real_pytest_manifest_is_post_deselection_and_disjoint(tmp_path: Path, m
     assert workflow_node not in selected["safe"]
     assert workflow_node in selected["unsafe"]
     assert workflow_node in selected["full"]
+    # Only explicit serial markers select the unsafe lane; process-local lock tests stay parallel.
     assert {
         "tests/test_screen_store.py::test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner[malformed-owner]",
         "tests/test_screen_store.py::test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner[live-owner]",
+    } <= selected["safe"]
+    assert {
+        "tests/operations/test_transactions.py::test_group_reader_cannot_observe_mixed_generation_during_activation",
         "tests/operations/test_transactions.py::test_recovery_of_interrupted_second_real_writer_preserves_first_commit",
     } <= selected["unsafe"]
 

@@ -16,6 +16,7 @@ from tests.issue0014._support import (
 )
 
 
+# Renders every route in a real app subprocess with a 300 s budget; needs uncontended CPU.
 @pytest.mark.serial
 @pytest.mark.xdist_group("flet")
 def test_registered_routes_render_without_route_error_controls_or_events(tmp_path: Path) -> None:
