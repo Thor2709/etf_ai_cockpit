@@ -162,6 +162,7 @@ from etf_cockpit.core.job_scheduler import *  # noqa: F401,F403
 from etf_cockpit.core.resource_profiles import *  # noqa: F401,F403
 from etf_cockpit.core.resource_profiles import HardwareSnapshot, resource_profile_report
 from etf_cockpit.models.forecast_scores import *  # noqa: F401,F403
+from etf_cockpit.models.forecast_scores import forecast_return_distributions as load_forecast_return_distributions  # noqa: F401
 from etf_cockpit.models.model_zoo import *  # noqa: F401,F403
 from etf_cockpit.models.coverage_audit import *  # noqa: F401,F403
 from etf_cockpit.models.local_weights import *  # noqa: F401,F403
