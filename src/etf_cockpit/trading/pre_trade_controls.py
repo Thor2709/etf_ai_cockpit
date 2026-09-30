@@ -62,7 +62,7 @@ class PreTradeDecision:
 class _PaperOrderLedger(Protocol):
     def orders(self) -> tuple[dict[str, object], ...]: ...
 
-    def cancel_order(
+    def _cancel_order_locked(
         self, order_id: str, *, reason: str, occurred_at: datetime | None = None
     ) -> dict[str, object]: ...
 

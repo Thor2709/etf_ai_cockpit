@@ -12,6 +12,7 @@ from pathlib import Path
 import sqlite3
 from typing import Mapping
 
+from etf_cockpit.data.local_storage import connect_local_database
 from etf_cockpit.core.config import SettlementConfig, load_settlement_config
 from etf_cockpit.trading.cash_reservation import (
     CashReservation,
@@ -213,10 +214,7 @@ class OrderLifecycle:
 
     @staticmethod
     def _connect_path(db_path: Path) -> sqlite3.Connection:
-        connection = sqlite3.connect(db_path, timeout=30, isolation_level=None)
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 30000")
-        return connection
+        return connect_local_database(db_path, timeout=30.0)
 
     def _connect(self) -> sqlite3.Connection:
         return self._connect_path(self.db_path)

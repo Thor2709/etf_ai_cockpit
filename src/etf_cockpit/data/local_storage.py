@@ -99,6 +99,18 @@ def connect_storage(root: Path) -> sqlite3.Connection:
     return connection
 
 
+def connect_local_database(db_path: Path, *, timeout: float = 30.0) -> sqlite3.Connection:
+    """Open a local SQLite file in autocommit mode with foreign keys and a busy timeout.
+
+    Local persistence only; used by paper/order bookkeeping so no module in a broker or
+    order context opens connections itself (static execution-boundary rule).
+    """
+    connection = sqlite3.connect(db_path, timeout=timeout, isolation_level=None)
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute(f"PRAGMA busy_timeout = {int(timeout * 1000)}")
+    return connection
+
+
 def connect_storage_read_only(root: Path) -> sqlite3.Connection:
     """Open one verified in-memory snapshot without touching source storage."""
 
