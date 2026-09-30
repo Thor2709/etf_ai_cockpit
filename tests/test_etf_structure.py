@@ -352,6 +352,8 @@ def test_factsheet_prospectus_and_holdings_conflicts_remain_visible() -> None:
     projection = project_etf_structure(
         "ETF-1", document_registry=registry, report_records=report,
         supplemental_rows=factsheet, holdings=holdings,
+        # Pinned: holdings freshness is judged against decision_time (wall clock when omitted).
+        decision_time="2026-07-02T00:00:00Z",
     )
 
     assert projection["fields"]["replication_method"]["status"] == "conflict"

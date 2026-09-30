@@ -159,6 +159,8 @@ def test_instrument_detail_standard_loading_reaches_local_factsheet_and_holdings
         "ETF-1",
         document_registry=registry,
         report_records=pd.DataFrame(),
+        # Pinned: holdings freshness is judged against decision_time (wall clock when omitted).
+        decision_time="2026-07-02T00:00:00Z",
     )
 
     assert projection["fields"]["replication_method"]["status"] == "conflict"
