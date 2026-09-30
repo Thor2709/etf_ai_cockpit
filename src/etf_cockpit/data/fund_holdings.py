@@ -68,7 +68,7 @@ class HoldingsNormalisationResult:
 
 def _authority_for_source(source: str) -> str:
     value = str(source or "").strip().lower()
-    if value in {"issuer", "official_issuer", "issuer_csv", "issuer_xlsx", "issuer_json", "official"}:
+    if value in {"issuer", "official_issuer", "issuer_csv", "issuer_xlsx", "issuer_json", "official", "sec_nport", "sec_nport_official"}:
         return "issuer"
     if value in {"yfinance", "yahoo", "vendor", "vendor_top_holdings"} or "yfinance" in value or "yahoo" in value:
         return "vendor"
