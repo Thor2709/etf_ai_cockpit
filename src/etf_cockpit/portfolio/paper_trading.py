@@ -28,6 +28,7 @@ from etf_cockpit.trading.order_lifecycle import (
     OrderLifecycleError,
     OrderState,
 )
+from etf_cockpit.trading.pre_trade_controls import PreTradeControlError, PreTradeControls
 
 
 PAPER_SCHEMA_VERSION = "paper_ledger.v1"
@@ -241,6 +242,23 @@ class PaperLedger:
             venue, instrument_type = self._order_market_terms(proposal, instrument_id)
             currency = _clean_id(proposal.get("currency", state["base_currency"]), "currency").upper()
             lifecycle_key = f"paper:{self.account_id}:{proposal_id}"
+            try:
+                control_decision = PreTradeControls(self.root, account_id=self.account_id).evaluate_order(
+                    proposal,
+                    execution_price=price,
+                    quantity_delta=quantity_delta,
+                    fx_rate=fx,
+                    positions=state["positions"],
+                    open_orders=state["orders"],
+                    paper_events=events,
+                    path="paper",
+                    who=self.account_id,
+                    occurred_at=occurred_at,
+                )
+            except PreTradeControlError as exc:
+                raise PaperLedgerError("Independent pre-trade control state is unavailable.") from exc
+            if not control_decision.allowed:
+                raise PaperLedgerError(control_decision.reason)
             try:
                 intent = self._order_lifecycle().reserve_order(
                     account_id=self.account_id,
