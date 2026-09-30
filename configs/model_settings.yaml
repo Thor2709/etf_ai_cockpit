@@ -1,14 +1,4 @@
 forecast_horizons_trading_days: [5, 20, 60, 120, 180]
-# Conservative defaults: flag a five percentage-point model spread, halve
-# confidence when flagged, and reject forecasts older than one trading week.
-forecast_uncertainty:
-  high_disagreement_threshold: 0.05
-  confidence_haircut: 0.50
-  minimum_confidence: 0.35
-  maximum_forecast_age_days: 5
-  clone_return_tolerance: 0.000001
-  scenario_seed: 109
-  scenario_count: 256
 models:
   baseline:
     enabled: true

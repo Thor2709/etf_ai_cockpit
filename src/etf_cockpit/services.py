@@ -110,6 +110,7 @@ from etf_cockpit.models.forecast_scores import (
     forecast_return_distributions,
     load_latest_forecasts,
 )
+from etf_cockpit.models.calibration import load_forecast_history
 from etf_cockpit.models.local_weights import LocalModelStatus
 from etf_cockpit.models.registry import model_availability, model_diagnostics
 from etf_cockpit.portfolio.risk import target_policy_issues
@@ -1831,8 +1832,11 @@ class SignalService:
             toto_available=status["toto"],
             timesfm_available=status["timesfm"],
             forecast_scores=forecast_component_maps(forecasts),
-            forecast_distributions=forecast_return_distributions(forecasts),
+            forecast_distributions=forecast_return_distributions(forecasts, decision_time=effective_date),
             structure_confidence_caps=structure_caps,
+            historical_forecasts=load_forecast_history(),
+            calibration_prices=prices,
+            decision_time=pd.Timestamp(effective_date, tz="UTC"),
         )
 
 

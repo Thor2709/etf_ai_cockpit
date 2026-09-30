@@ -184,26 +184,39 @@ class ModelRuntimeConfig(BaseModel):
     torch_compile: bool = False
 
 
+class ForecastUncertaintySettings(BaseModel):
+    """Conservative defaults retained when a saved model settings file omits them."""
+
+    high_disagreement_threshold: float = Field(default=0.05, gt=0)
+    confidence_haircut: float = Field(default=0.50, ge=0, le=1)
+    minimum_confidence: float = Field(default=0.35, ge=0, le=1)
+    maximum_forecast_age_days: int = Field(default=5, gt=0)
+    clone_return_tolerance: float = Field(default=0.000001, ge=0)
+    scenario_seed: int = Field(default=109, ge=0)
+    scenario_count: int = Field(default=256, gt=0)
+
+
+class ForecastCalibrationSettings(BaseModel):
+    """Use 30 matured rows and a five-point tolerance for an 80% band.
+
+    The sample floor limits small-sample authority; the tolerance is applied
+    to a 95% Wilson interval around empirical q10–q90 coverage.
+    """
+
+    minimum_matured_samples: int = Field(default=30, ge=2)
+    coverage_tolerance: float = Field(default=0.05, ge=0, le=0.2)
+
+
 class ModelSettings(BaseModel):
     forecast_horizons_trading_days: list[int] = Field(default_factory=lambda: [5, 20, 60, 120, 180])
     models: dict[str, Any] = Field(default_factory=dict)
     ensemble: dict[str, Any] = Field(default_factory=dict)
+    forecast_uncertainty: ForecastUncertaintySettings = Field(default_factory=ForecastUncertaintySettings)
+    calibration: ForecastCalibrationSettings = Field(default_factory=ForecastCalibrationSettings)
 
     def runtime(self, name: str) -> ModelRuntimeConfig:
         raw = self.models.get(name, {})
         return ModelRuntimeConfig(**raw)
-
-
-class ForecastUncertaintySettings(BaseModel):
-    """Explicit fail-closed thresholds for forecast uncertainty and replay."""
-
-    high_disagreement_threshold: float = Field(gt=0)
-    confidence_haircut: float = Field(ge=0, le=1)
-    minimum_confidence: float = Field(ge=0, le=1)
-    maximum_forecast_age_days: int = Field(gt=0)
-    clone_return_tolerance: float = Field(ge=0)
-    scenario_seed: int = Field(ge=0)
-    scenario_count: int = Field(gt=0)
 
 
 class UISettings(BaseModel):
@@ -249,10 +262,15 @@ class AppConfig(BaseModel):
     risks: RiskLimits
     costs: CostConfig
     models: ModelSettings
-    forecast_uncertainty: ForecastUncertaintySettings | None = None
     ui: UISettings
     chatgpt_schema: dict[str, Any]
     data_providers: DataProvidersConfig = Field(default_factory=DataProvidersConfig)
+
+    @property
+    def forecast_uncertainty(self) -> ForecastUncertaintySettings:
+        """Compatibility accessor for callers of the prior top-level setting."""
+
+        return self.models.forecast_uncertainty
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -273,7 +291,6 @@ def load_config(config_dir: Path = CONFIG_DIR) -> AppConfig:
     try:
         provider_path = config_dir / "data_providers.yaml"
         model_settings = _read_yaml(config_dir / "model_settings.yaml") if (config_dir / "model_settings.yaml").exists() else {}
-        uncertainty_settings = model_settings.get("forecast_uncertainty")
         data_providers = DataProvidersConfig(**(_read_yaml(provider_path) if provider_path.exists() else {}))
         data_providers = _apply_provider_env(data_providers, config_dir)
         return AppConfig(
@@ -282,11 +299,6 @@ def load_config(config_dir: Path = CONFIG_DIR) -> AppConfig:
             risks=RiskLimits(**(_read_yaml(config_dir / "risk_limits.yaml") if (config_dir / "risk_limits.yaml").exists() else {})),
             costs=CostConfig(**(_read_yaml(config_dir / "costs.yaml") if (config_dir / "costs.yaml").exists() else {})),
             models=ModelSettings(**model_settings),
-            forecast_uncertainty=(
-                ForecastUncertaintySettings(**uncertainty_settings)
-                if isinstance(uncertainty_settings, dict)
-                else None
-            ),
             ui=UISettings(**(_read_yaml(config_dir / "ui_settings.yaml") if (config_dir / "ui_settings.yaml").exists() else {})),
             chatgpt_schema=_read_json(config_dir / "chatgpt_schema.json") if (config_dir / "chatgpt_schema.json").exists() else {},
             data_providers=data_providers,

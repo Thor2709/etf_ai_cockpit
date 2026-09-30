@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from math import ceil, isfinite, sqrt
+from numbers import Real
 from pathlib import Path
 
 import numpy as np
@@ -21,6 +24,8 @@ CALIBRATION_COLUMNS = [
     "calibration_status",
     "calibration_label",
 ]
+_CONFORMAL_NOMINAL_COVERAGE = 0.80
+_CONFORMAL_QUANTILES = (5, 10, 25, 50, 75, 90, 95)
 
 
 @dataclass(frozen=True)
@@ -35,6 +40,293 @@ class CalibrationSummary:
     calibration_score_10: float | None
     calibration_status: str
     calibration_label: str
+
+
+def conformal_quantile_adjustment(
+    nonconformity_scores: Iterable[object],
+    *,
+    minimum_matured_samples: int,
+    target_coverage: float = _CONFORMAL_NOMINAL_COVERAGE,
+) -> dict[str, object]:
+    """Return the finite-sample split-conformal upper order statistic.
+
+    The rank is ``ceil((n + 1) * target_coverage)`` (one based), capped at
+    ``n``. The caller supplies only scores from predictions whose outcomes
+    matured strictly before its decision time.
+    """
+
+    minimum_value = _finite_number(minimum_matured_samples)
+    coverage_value = _finite_number(target_coverage)
+    if minimum_value is None or not minimum_value.is_integer() or coverage_value is None:
+        return {"status": "unavailable", "reason": "Conformal thresholds are invalid.", "adjustment": None, "sample_count": 0}
+    minimum = int(minimum_value)
+    coverage = coverage_value
+    if minimum < 1 or not 0 < coverage < 1:
+        return {"status": "unavailable", "reason": "Conformal thresholds are invalid.", "adjustment": None, "sample_count": 0}
+    scores = np.asarray(
+        [float(value) for value in nonconformity_scores if _finite_number(value) is not None],
+        dtype=float,
+    )
+    scores = scores[np.isfinite(scores) & (scores >= 0)]
+    count = int(scores.size)
+    if count < minimum:
+        return {
+            "status": "unavailable",
+            "reason": f"Only {count} matured calibration samples are available; {minimum} are required.",
+            "adjustment": None,
+            "sample_count": count,
+        }
+    rank = min(count, ceil((count + 1) * coverage))
+    adjustment = float(np.partition(scores, rank - 1)[rank - 1])
+    return {"status": "available", "reason": None, "adjustment": adjustment, "sample_count": count}
+
+
+def coverage_confidence_interval(hits: Iterable[object]) -> tuple[float, float] | None:
+    """Return the two-sided 95% Wilson interval for Bernoulli coverage hits."""
+
+    values = [float(value) for value in hits if _finite_number(value) in (0.0, 1.0)]
+    count = len(values)
+    if not count:
+        return None
+    successes = sum(values)
+    z = 1.96  # Standard normal 95% confidence level, conservative at small n.
+    proportion = successes / count
+    denominator = 1 + z * z / count
+    centre = (proportion + z * z / (2 * count)) / denominator
+    radius = z * sqrt((proportion * (1 - proportion) / count) + z * z / (4 * count * count)) / denominator
+    return max(0.0, centre - radius), min(1.0, centre + radius)
+
+
+def calibrate_forecast_distribution(
+    forecasts: pd.DataFrame,
+    prices: pd.DataFrame,
+    distribution: Mapping[str, object] | None,
+    *,
+    instrument_id: str,
+    decision_time: object,
+    settings: object | None,
+) -> dict[str, object]:
+    """Apply a point-in-time split-conformal adjustment to one forecast band.
+
+    Rows are matched on instrument and exact horizon, require successful,
+    score-eligible predictions with explicit 10th and 90th quantiles, and use
+    adjusted-close outcomes at the corresponding trading-session horizon.
+    Outcomes on the decision date are excluded because date-only prices do
+    not establish whether they were known before an intraday decision.
+    """
+
+    output = dict(distribution) if isinstance(distribution, Mapping) else {}
+    metadata: dict[str, object] = {
+        "status": "unavailable",
+        "reason": "Forecast calibration inputs are unavailable.",
+        "sample_count": 0,
+        "empirical_coverage": None,
+        "coverage_confidence_interval": None,
+        "confidence_interval_method": "wilson_95",
+        "nominal_coverage": _CONFORMAL_NOMINAL_COVERAGE,
+        "coverage_tolerance": None,
+        "adjustment": None,
+        "poor_calibration": False,
+    }
+    output["conformal_calibration"] = metadata
+
+    minimum = _setting_number(settings, "minimum_matured_samples", integer=True)
+    tolerance = _setting_number(settings, "coverage_tolerance")
+    if minimum is None or minimum < 2 or tolerance is None or not 0 <= tolerance <= 0.2:
+        metadata["reason"] = "Forecast calibration configuration is missing or invalid."
+        return output
+    metadata["coverage_tolerance"] = tolerance
+    cutoff = _decision_cutoff(decision_time)
+    if cutoff is None:
+        metadata["reason"] = "A valid decision time is required for point-in-time calibration."
+        return output
+    horizon = _finite_number(output.get("horizon_days"))
+    q10 = _finite_number(output.get("q10_return"))
+    q50 = _finite_number(output.get("q50_return"))
+    q90 = _finite_number(output.get("q90_return"))
+    if horizon is None or horizon <= 0 or not horizon.is_integer() or q10 is None or q50 is None or q90 is None:
+        metadata["reason"] = "A valid horizon and complete q10/q50/q90 forecast band are required."
+        return output
+    output = _repair_distribution_quantiles(output)
+    output["conformal_calibration"] = metadata
+    if not isinstance(forecasts, pd.DataFrame) or forecasts.empty:
+        metadata["reason"] = "Historical forecast rows are unavailable."
+        return output
+    forecast_columns = {
+        "etf_id", "model_name", "forecast_date", "horizon_days", "expected_return",
+        "q10_return", "q90_return", "status", "model_allowed_in_score",
+    }
+    if not forecast_columns.issubset(forecasts.columns):
+        metadata["reason"] = "Historical forecasts are missing required calibration fields."
+        return output
+    price_columns = {"etf_id", "date", "adjusted_close"}
+    if not isinstance(prices, pd.DataFrame) or prices.empty or not price_columns.issubset(prices.columns):
+        metadata["reason"] = "A dated adjusted-close price snapshot is unavailable."
+        return output
+
+    decision_day = cutoff.normalize()
+    price_columns = ["date", "adjusted_close", *(column for column in ("is_stale", "stale", "staleness_status", "freshness_status") if column in prices)]
+    price_frame = prices.loc[prices["etf_id"].astype(str).eq(str(instrument_id)), price_columns].copy()
+    price_frame["date"] = pd.to_datetime(price_frame["date"], errors="coerce", utc=True, format="mixed").dt.normalize()
+    price_frame["adjusted_close"] = pd.to_numeric(price_frame["adjusted_close"], errors="coerce")
+    price_frame = price_frame.loc[
+        price_frame["date"].notna()
+        & price_frame["date"].lt(decision_day)
+    ].sort_values("date", kind="stable")
+    if price_frame["date"].duplicated().any():
+        metadata["reason"] = "Conflicting price rows prevent point-in-time calibration."
+        return output
+    price_dates = pd.DatetimeIndex(price_frame["date"])
+    closes = price_frame["adjusted_close"].to_numpy(dtype=float)
+    stale_prices = price_frame.apply(_price_is_stale, axis=1).to_numpy(dtype=bool)
+    if len(price_dates) <= int(horizon):
+        metadata["reason"] = "The price snapshot does not contain matured target sessions."
+        return output
+
+    history = forecasts.loc[
+        forecasts["etf_id"].astype(str).eq(str(instrument_id))
+        & pd.to_numeric(forecasts["horizon_days"], errors="coerce").eq(int(horizon))
+        & forecasts["status"].astype(str).str.lower().eq("ok")
+        & forecasts["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})
+    ].copy()
+    history["forecast_date"] = pd.to_datetime(history["forecast_date"], errors="coerce", utc=True, format="mixed").dt.normalize()
+    history["expected_return"] = pd.to_numeric(history["expected_return"], errors="coerce")
+    history["q10_return"] = pd.to_numeric(history["q10_return"], errors="coerce")
+    history["q90_return"] = pd.to_numeric(history["q90_return"], errors="coerce")
+    history = history.loc[history["forecast_date"].notna() & history["forecast_date"].lt(decision_day)]
+
+    scores: list[float] = []
+    hits: list[float] = []
+    for row in history.itertuples(index=False):
+        origin = price_dates.get_indexer([row.forecast_date])[0]
+        if origin < 0 or origin + int(horizon) >= len(price_dates):
+            continue
+        target_day = price_dates[origin + int(horizon)]
+        if not target_day < decision_day:
+            continue
+        if stale_prices[origin] or stale_prices[origin + int(horizon)]:
+            continue
+        expected = _finite_number(row.expected_return)
+        lower = _finite_number(row.q10_return)
+        upper = _finite_number(row.q90_return)
+        origin_close = closes[origin]
+        target_close = closes[origin + int(horizon)]
+        if (
+            expected is None
+            or lower is None
+            or upper is None
+            or lower > upper
+            or not isfinite(origin_close)
+            or not isfinite(target_close)
+            or origin_close <= 0
+            or target_close <= 0
+        ):
+            continue
+        actual = target_close / origin_close - 1.0
+        if not isfinite(actual):
+            continue
+        # Interval nonconformity is zero inside the historical q10–q90 band.
+        scores.append(max(lower - actual, actual - upper, 0.0))
+        hits.append(float(lower <= actual <= upper))
+
+    metadata["sample_count"] = len(scores)
+    coverage_interval = coverage_confidence_interval(hits)
+    metadata["empirical_coverage"] = None if not hits else round(float(np.mean(hits)), 6)
+    metadata["coverage_confidence_interval"] = (
+        None if coverage_interval is None else [round(coverage_interval[0], 6), round(coverage_interval[1], 6)]
+    )
+    adjustment = conformal_quantile_adjustment(scores, minimum_matured_samples=minimum)
+    if adjustment["status"] != "available":
+        metadata["reason"] = adjustment["reason"] or "Matured calibration evidence is unavailable."
+        return output
+
+    metadata["adjustment"] = adjustment["adjustment"]
+    if coverage_interval is None:
+        metadata["reason"] = "Empirical coverage could not be calculated from matured outcomes."
+        return output
+    acceptable_low = _CONFORMAL_NOMINAL_COVERAGE - tolerance
+    acceptable_high = _CONFORMAL_NOMINAL_COVERAGE + tolerance
+    poor_calibration = coverage_interval[1] < acceptable_low or coverage_interval[0] > acceptable_high
+    metadata["poor_calibration"] = poor_calibration
+    metadata["status"] = "poor_calibration" if poor_calibration else "calibrated"
+    metadata["reason"] = (
+        "Matured interval coverage is outside the configured tolerance; confidence is reduced."
+        if poor_calibration
+        else "Matured interval coverage is within the configured tolerance."
+    )
+
+    conformal_adjustment = float(adjustment["adjustment"])
+    output = _widen_distribution_quantiles(output, conformal_adjustment)
+    output["conformal_calibration"] = metadata
+    return output
+
+
+def _repair_distribution_quantiles(distribution: Mapping[str, object]) -> dict[str, object]:
+    """Repair present quantiles with a cumulative maximum in probability order."""
+
+    output = dict(distribution)
+    for prefix in ("", "net_"):
+        fields = [f"{prefix}q{level:02d}_return" for level in _CONFORMAL_QUANTILES]
+        present = [(field, _finite_number(output.get(field))) for field in fields]
+        valid = [(field, value) for field, value in present if value is not None]
+        if valid:
+            repaired = np.maximum.accumulate([value for _, value in valid])
+            for (field, _), value in zip(valid, repaired, strict=True):
+                output[field] = float(value)
+    return output
+
+
+def _widen_distribution_quantiles(distribution: Mapping[str, object], adjustment: float) -> dict[str, object]:
+    output = dict(distribution)
+    fields = [f"q{level:02d}_return" for level in _CONFORMAL_QUANTILES]
+    for field in fields:
+        value = _finite_number(output.get(field))
+        if value is not None:
+            level = int(field[1:3])
+            output[field] = value - adjustment if level < 50 else value + adjustment if level > 50 else value
+    for field in [f"net_{name}" for name in fields]:
+        value = _finite_number(output.get(field))
+        if value is not None:
+            level = int(field[5:7])
+            output[field] = value - adjustment if level < 50 else value + adjustment if level > 50 else value
+    return _repair_distribution_quantiles(output)
+
+
+def _setting_number(settings: object | None, name: str, *, integer: bool = False) -> int | float | None:
+    if isinstance(settings, Mapping):
+        value = settings.get(name)
+    else:
+        value = getattr(settings, name, None)
+    number = _finite_number(value)
+    if number is None or (integer and not number.is_integer()):
+        return None
+    return int(number) if integer else number
+
+
+def _finite_number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        return None
+    number = float(value)
+    return number if isfinite(number) else None
+
+
+def _decision_cutoff(value: object) -> pd.Timestamp | None:
+    if value is None:
+        return None
+    parsed = pd.to_datetime(value, errors="coerce", utc=True, format="mixed")
+    return None if pd.isna(parsed) else pd.Timestamp(parsed)
+
+
+def _price_is_stale(row: pd.Series) -> bool:
+    for column in ("is_stale", "stale"):
+        value = row.get(column)
+        if value is not None and not pd.isna(value) and str(value).strip().lower() in {"true", "1", "yes"}:
+            return True
+    for column in ("staleness_status", "freshness_status"):
+        value = row.get(column)
+        if value is not None and not pd.isna(value) and str(value).strip().casefold() in {"stale", "warning", "block", "unknown"}:
+            return True
+    return False
 
 
 def calibration_status() -> str:

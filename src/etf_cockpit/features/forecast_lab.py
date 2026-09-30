@@ -15,6 +15,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from etf_cockpit.models.calibration import coverage_confidence_interval, conformal_quantile_adjustment
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.resource_profiles import ResourcePolicy, estimate_workflow_resources
 from etf_cockpit.core.timing import timing_summary
@@ -52,6 +53,8 @@ LAB_MODEL_COLUMNS = [
     "net_value_status",
     "interval_coverage",
     "conformal_coverage",
+    "conformal_coverage_ci_lower",
+    "conformal_coverage_ci_upper",
     "calibration_status",
     "drift_status",
     "drift_score",
@@ -569,6 +572,8 @@ def _model_summaries(
                 "net_value_status": net_status,
                 "interval_coverage": _rounded(interval.mean() if not interval.empty else None),
                 "conformal_coverage": conformal["coverage"],
+                "conformal_coverage_ci_lower": conformal["coverage_ci_lower"],
+                "conformal_coverage_ci_upper": conformal["coverage_ci_upper"],
                 "calibration_status": conformal["status"],
                 "drift_status": drift_status,
                 "drift_score": drift_score,
@@ -613,22 +618,39 @@ def _net_value(evaluated: pd.DataFrame) -> tuple[float | None, str]:
 
 def _conformal_diagnostics(evaluated: pd.DataFrame, minimum_samples: int) -> dict[str, object]:
     if evaluated.empty:
-        return {"coverage": None, "status": "conformal_pending"}
+        return {"coverage": None, "coverage_ci_lower": None, "coverage_ci_upper": None, "status": "conformal_pending"}
     calibrated_hits = []
     for _, group in evaluated.groupby(["etf_id", "horizon_days"], sort=True):
         group = group.sort_values("forecast_date")
         earlier: list[tuple[pd.Timestamp, float]] = []
         for _, row in group.iterrows():
-            # A residual is known only once its own target session has passed;
-            # overlapping multi-day horizons must not calibrate earlier views.
-            prior_errors = [error for target, error in earlier if target <= row["forecast_date"]]
-            if len(prior_errors) >= minimum_samples:
-                radius = float(np.quantile(prior_errors, 0.90, method="higher"))
+            # The strict comparison excludes an outcome maturing at the view time.
+            forecast_time = pd.to_datetime(row.get("forecast_date"), errors="coerce", utc=True)
+            prior_errors = [
+                error for target, error in earlier
+                if pd.notna(forecast_time) and target < forecast_time and np.isfinite(error)
+            ]
+            conformal = conformal_quantile_adjustment(
+                prior_errors,
+                minimum_matured_samples=minimum_samples,
+                target_coverage=0.90,
+            )
+            if conformal["status"] == "available":
+                radius = float(conformal["adjustment"])
                 calibrated_hits.append(float(abs(float(row["actual_return"]) - float(row["expected_return"])) <= radius))
-            earlier.append((row["target_date"], float(row["absolute_error"])))
+            target_time = pd.to_datetime(row.get("target_date"), errors="coerce", utc=True)
+            error = pd.to_numeric(pd.Series([row.get("absolute_error")]), errors="coerce").iloc[0]
+            if pd.notna(target_time) and pd.notna(error):
+                earlier.append((target_time, float(error)))
     if not calibrated_hits:
-        return {"coverage": None, "status": "conformal_pending"}
-    return {"coverage": _rounded(float(np.mean(calibrated_hits))), "status": "conformal_diagnostic"}
+        return {"coverage": None, "coverage_ci_lower": None, "coverage_ci_upper": None, "status": "conformal_pending"}
+    interval = coverage_confidence_interval(calibrated_hits)
+    return {
+        "coverage": _rounded(float(np.mean(calibrated_hits))),
+        "coverage_ci_lower": _rounded(interval[0]) if interval is not None else None,
+        "coverage_ci_upper": _rounded(interval[1]) if interval is not None else None,
+        "status": "conformal_diagnostic",
+    }
 
 
 def _actual_return(
