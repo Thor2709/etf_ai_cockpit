@@ -324,10 +324,22 @@ def replay_rank_panel(
         latest_keys = available_evidence.groupby("instrument_id", sort=False).tail(1)[
             ["instrument_id", "_effective_date", "_known_at"]
         ]
-        if latest_keys.duplicated(["instrument_id", "_effective_date", "_known_at"]).any():
+        latest_key_columns = ["instrument_id", "_effective_date", "_known_at"]
+        latest_candidates = available_evidence.merge(
+            latest_keys,
+            on=latest_key_columns,
+            how="inner",
+            validate="many_to_one",
+        )
+        conflict_columns = [column for column in latest_candidates.columns if column not in latest_key_columns]
+        conflicting_latest = any(
+            len(group[conflict_columns].drop_duplicates()) > 1
+            for _, group in latest_candidates.groupby(latest_key_columns, sort=False, dropna=False)
+        )
+        if conflicting_latest:
             insufficient[cutoff_text] = "point_in_time_evidence_has_ambiguous_latest_rows"
             continue
-        latest = available_evidence.groupby("instrument_id", sort=False).tail(1)
+        latest = latest_candidates.drop_duplicates(subset=latest_key_columns, keep="last")
         if latest["instrument_id"].duplicated().any() or set(latest["instrument_id"]) != set(active["instrument_id"]):
             insufficient[cutoff_text] = "point_in_time_evidence_incomplete_for_membership"
             continue
@@ -348,7 +360,7 @@ def replay_rank_panel(
         for item in latest.to_dict("records"):
             for ranker, spec in active_policy.rankers.items():
                 score = (
-                    _finite(item.get(spec.score_column))
+                    _float_or_none(item.get(spec.score_column))
                     if spec.score_column
                     else math.fsum(float(item[_FEATURE_COLUMNS[feature]]) * weight for feature, weight in spec.weights.items())
                 )
@@ -403,17 +415,24 @@ def replay_rank_panel(
             reason="no decision date has a complete point-in-time universe and evidence panel",
         )
 
+    all_sessions = sorted(price_frame["_date"].dropna().unique())
     outcomes: list[dict[str, object]] = []
     for item in frozen.to_dict("records"):
         cutoff = pd.Timestamp(item["decision_time"])
         instrument = str(item["instrument_id"])
+        future_sessions = [session for session in all_sessions if session > cutoff.date()]
+        window_end = (
+            future_sessions[active_policy.holding_period_sessions - 1].isoformat()
+            if len(future_sessions) >= active_policy.holding_period_sessions
+            else None
+        )
         gross, outcome_status = _forward_return(
             price_frame, instrument, cutoff, active_policy.holding_period_sessions
         )
         cost = _point_in_time_cost(cost_frame, instrument, cutoff)
         if outcome_status == "available" and cost is None:
             outcome_status = "round_trip_cost_unavailable"
-        net = gross - float(cost) / 10_000.0 if gross is not None and cost is not None else None
+        net = max(-1.0, gross - float(cost) / 10_000.0) if gross is not None and cost is not None else None
         benchmark = _outcome_for_date(benchmark_returns, item["decision_date"])
         cash = _outcome_for_date(cash_returns, item["decision_date"])
         row = dict(item)
@@ -424,6 +443,7 @@ def replay_rank_panel(
             benchmark_net_return=benchmark,
             cash_net_return=cash,
             forward_status=outcome_status,
+            forward_window_end=window_end,
         )
         outcomes.append(row)
     outcome_frame = pd.DataFrame(outcomes)
@@ -489,8 +509,33 @@ def evaluate_rank_validation(
     if rows.empty or not {"decision_time", "ranker", "score", "net_return"}.issubset(rows.columns):
         return _empty_validation(replay, holdout_keys, "rank replay panel is unavailable")
     all_times = tuple(sorted(rows["decision_time"].dropna().astype(str).unique()))
-    available_holdout = set(holdout_keys) & set(all_times)
-    development_times = tuple(item for item in all_times if item not in set(holdout_keys))
+    holdout_set = set(holdout_keys)
+    available_holdout = holdout_set & set(all_times)
+    if (
+        not holdout_set
+        or available_holdout != holdout_set
+        or any(item >= min(holdout_set) and item not in holdout_set for item in all_times)
+    ):
+        return _empty_validation(replay, holdout_keys, "holdout must be a chronological terminal window")
+    holdout_start_date = min(_date_value(item) for item in holdout_set)
+    if "forward_window_end" not in rows.columns:
+        return _empty_validation(replay, holdout_keys, "replay outcome windows are unavailable for holdout isolation")
+    window_end_by_time: dict[str, str | None] = {}
+    for decision_time, group in rows.groupby("decision_time", sort=False):
+        values = group["forward_window_end"]
+        unique_values = values.dropna().astype(str).unique()
+        window_end_by_time[str(decision_time)] = (
+            str(unique_values[0])
+            if values.notna().all() and len(unique_values) == 1
+            else None
+        )
+    development_times = tuple(
+        item
+        for item in all_times
+        if item not in holdout_set
+        and window_end_by_time.get(item) is not None
+        and _date_value(window_end_by_time[item]) < holdout_start_date
+    )
     splits = build_walk_forward_splits(
         [pd.Timestamp(item).date() for item in development_times],
         minimum_train_dates=3,
@@ -623,6 +668,8 @@ def promotion_decision(
     qvm = report.holdout.get("QVM", {})
     v3 = report.holdout.get("v3", {})
     candidate = report.holdout.get(str(challenger), {}) if challenger else {}
+    development_selection = select_challenger(report)
+    challenger_was_selected = bool(challenger and challenger == development_selection)
     selected = "v3"
     status = "insufficient_evidence"
     reason = "holdout validation is incomplete"
@@ -635,7 +682,7 @@ def promotion_decision(
             selected = "QV"
             status = "baseline_champion"
             reason = "no challenger passed every frozen holdout promotion gate"
-            if challenger and _metric_available(candidate_stats) and _metric_available(qvm):
+            if challenger and challenger_was_selected and _metric_available(candidate_stats) and _metric_available(qvm):
                 beats_baselines = (
                     float(candidate_stats["net_return_mean"]) > float(qv["net_return_mean"])
                     and float(candidate_stats["net_return_mean"]) > float(qvm["net_return_mean"])
@@ -660,6 +707,8 @@ def promotion_decision(
                     reason = "challenger failed the configured multiple-testing t haircut"
                 else:
                     reason = "challenger subperiods were not stable"
+            elif challenger and not challenger_was_selected:
+                reason = "challenger was not selected using development-only evidence"
     selected_metrics = report.holdout.get(selected, {})
     qv_ic = _finite_or(qv.get("rank_ic_mean"), math.nan)
     selected_ic = _finite_or(selected_metrics.get("rank_ic_mean"), math.nan)
@@ -1005,11 +1054,16 @@ def _neutral_metrics(rows: pd.DataFrame, group_column: str, policy: RankValidati
         ic = valid["neutral_score"].corr(valid["net_return"], method="spearman")
         if not _finite(ic):
             continue
-        valid = valid.sort_values(["neutral_score", "instrument_id"], ascending=[False, True], kind="stable")
-        top = valid.head(min(policy.top_n, len(valid)))
-        bottom = valid.tail(min(policy.bottom_n, len(valid)))
+        group_spreads = []
+        for _, neutral_group in valid.groupby(group_column, sort=True):
+            ordered = neutral_group.sort_values(
+                ["neutral_score", "instrument_id"], ascending=[False, True], kind="stable"
+            )
+            top = ordered.head(min(policy.top_n, len(ordered)))
+            bottom = ordered.tail(min(policy.bottom_n, len(ordered)))
+            group_spreads.append(float(top["net_return"].mean() - bottom["net_return"].mean()))
         daily_ics.append(float(ic))
-        daily_spreads.append(float(top["net_return"].mean() - bottom["net_return"].mean()))
+        daily_spreads.append(fmean(group_spreads))
     if not daily_ics:
         return {"status": "unavailable", "reason": f"{group_column} neutral sample is too small"}
     return {
@@ -1142,12 +1196,13 @@ def _forward_return(
     frame["_known"] = frame["known_at"].map(_aware_timestamp)
     frame["_date"] = frame.get("_date", frame["date"].map(_date_value))
     frame["_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
-    frame = frame.loc[frame["_date"].notna() & frame["_close"].map(_finite)]
+    frame = frame.loc[frame["_date"].notna()]
     frame = frame.sort_values(["_date", "_known"], kind="stable")
     entry_rows = frame.loc[
         frame["_date"].map(lambda value: value <= cutoff.date())
         & frame["_known"].notna()
         & frame["_known"].le(cutoff)
+        & frame["_close"].map(_finite)
         & frame["_close"].gt(0)
     ]
     if entry_rows.empty:
@@ -1168,13 +1223,13 @@ def _forward_return(
     if not delisted.empty:
         terminal_date = delisted["_date"].min()
         terminal_rows = delisted.loc[delisted["_date"].eq(terminal_date)]
-        terminal_price = terminal_rows.iloc[-1]["_close"] if len(terminal_rows) else None
-        if _finite(terminal_price) and float(terminal_price) > 0:
-            return float(terminal_price) / entry - 1.0, "available_delisted_terminal_price"
         if "delisting_return" in terminal_rows and len(terminal_rows):
             terminal_return = _finite_or(terminal_rows.iloc[-1]["delisting_return"], math.nan)
             if math.isfinite(terminal_return):
                 return terminal_return, "available_delisting_return"
+        terminal_price = terminal_rows.iloc[-1]["_close"] if len(terminal_rows) else None
+        if _finite(terminal_price) and float(terminal_price) >= 0:
+            return float(terminal_price) / entry - 1.0, "available_delisted_terminal_price"
         return None, "delisting_terminal_value_unavailable"
     target = frame.loc[frame["_date"].eq(target_date)]
     if len(target) != 1 or not _finite(target.iloc[0]["_close"]) or float(target.iloc[0]["_close"]) <= 0:

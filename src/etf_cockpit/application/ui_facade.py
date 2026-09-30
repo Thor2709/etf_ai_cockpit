@@ -2800,13 +2800,43 @@ def load_score_metric_history_projection(
                 return unavailable("malformed_metric_history")
         record["execution_allowed"] = False
         records.append(record)
+    rank_evidence_reason = None
+    if rank_scores is None:
+        stored_assessment = load_opportunity_assessment(
+            instrument_id,
+            promotion_record=promotion_record,
+            cutover_enabled=cutover_enabled,
+        )
+        ranker_rows = stored_assessment.get("benchmark_rankers", ())
+        if isinstance(ranker_rows, (list, tuple)):
+            rank_scores = {
+                str(item.get("ranker")): item.get("score")
+                for item in ranker_rows
+                if isinstance(item, Mapping) and item.get("ranker")
+            }
+        else:
+            rank_scores = {}
+        if not rank_scores:
+            rank_evidence_reason = str(
+                stored_assessment.get("reason_code", "stored_rank_scores_unavailable")
+            )
+    elif not rank_scores:
+        rank_evidence_reason = "caller_rank_scores_empty"
     route = _ui_decision_rank_route(
-        "score_history", rank_scores or {}, promotion_record=promotion_record,
+        "score_history", rank_scores, promotion_record=promotion_record,
         cutover_enabled=cutover_enabled,
     )
+    if route["rank_score"] is None:
+        if route["cutover_enabled"]:
+            return unavailable("rank_evidence_unavailable") | {
+                "rank_evidence_reason": rank_evidence_reason or "active_rank_score_unavailable",
+                "rank_route_reason": route.get("reason"),
+            }
+        rank_evidence_reason = rank_evidence_reason or "active_rank_score_unavailable"
     return {"status": "available", "instrument_id": instrument_id, "rows": records,
             "rank_cutover": route, "active_ranker": route["ranker"],
             "active_rank_score": route["rank_score"], "v3_replay_score": route["v3_replay_score"],
+            "active_rank_score_reason": rank_evidence_reason,
             "message": "Persisted score-component snapshots across local runs. As-of dates and stored provenance do not establish knowledge-time availability or replay guarantees.",
             "execution_allowed": False}
 
