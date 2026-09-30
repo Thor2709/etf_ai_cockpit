@@ -516,7 +516,12 @@ def _nodeids_from_collection(output: str) -> set[str]:
     return nodeids
 
 
-def _collect_test_nodeids(root: Path, command: tuple[str, ...]) -> tuple[set[str], float, str]:
+_PYTEST_NO_TESTS_COLLECTED = 5
+
+
+def _collect_test_nodeids(
+    root: Path, command: tuple[str, ...], *, allow_empty: bool = False
+) -> tuple[set[str], float, str]:
     started = time.perf_counter()
     try:
         completed = subprocess.run(
@@ -533,6 +538,9 @@ def _collect_test_nodeids(root: Path, command: tuple[str, ...]) -> tuple[set[str
         return set(), round((time.perf_counter() - started) * 1000, 3), str(exc)
     elapsed = round((time.perf_counter() - started) * 1000, 3)
     output = completed.stdout + completed.stderr
+    if allow_empty and completed.returncode == _PYTEST_NO_TESTS_COLLECTED:
+        # A CI shard may hold no tests of one phase (e.g. no serial tests); parity still checks the union.
+        return set(), elapsed, ""
     if completed.returncode != 0:
         detail = output.strip()[-1000:]
         return set(), elapsed, f"exit code {completed.returncode}" + (f": {detail}" if detail else "")
@@ -575,6 +583,17 @@ def _junit_execution_problems(reports: tuple[Path, ...], expected_nodeids: set[s
         if keys:
             problems.append(f"{len(keys)} test(s) {label}: " + ", ".join("::".join(key) for key in keys[:3]))
     return problems
+
+
+def _empty_phase(output_dir: Path, name: str, command: tuple[str, ...], junit_name: str) -> CheckResult:
+    """A phase with no collected tests (possible in a CI shard): recorded, not executed."""
+
+    (output_dir / junit_name).write_text(
+        '<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" tests="0" failures="0" '
+        'errors="0" skipped="0" /></testsuites>\n',
+        encoding="utf-8",
+    )
+    return CheckResult(name, "passed", True, command=_command_text(command), exit_code=0, output="no tests collected in this shard")
 
 
 def _merge_junit_reports(reports: tuple[Path, Path], destination: Path) -> dict[str, int]:
@@ -621,7 +640,12 @@ def full_tests(root: Path, output_dir: Path, xdist_workers: int = 0) -> CheckRes
     )
     # The three collections are independent read-only subprocesses; run them concurrently.
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(collection_commands)) as pool:
-        collected = list(pool.map(lambda command: _collect_test_nodeids(root, command), collection_commands))
+        collected = list(
+            pool.map(
+                lambda indexed: _collect_test_nodeids(root, indexed[1], allow_empty=indexed[0] > 0),
+                enumerate(collection_commands),
+            )
+        )
     full_nodes, phase_a_nodes, phase_b_nodes = (row[0] for row in collected)
     phase_union = phase_a_nodes | phase_b_nodes
     missing = full_nodes - phase_union
@@ -677,7 +701,11 @@ def full_tests(root: Path, output_dir: Path, xdist_workers: int = 0) -> CheckRes
     phase_names = ("full_tests_parallel", "full_tests_serial")
     phases = tuple(
         run_command(root, output_dir, name, command)
-        for name, command in zip(phase_names, commands, strict=True)
+        if nodes
+        else _empty_phase(output_dir, name, command, junit)
+        for name, command, nodes, junit in zip(
+            phase_names, commands, (phase_a_nodes, phase_b_nodes), ("junit-parallel.xml", "junit-serial.xml"), strict=True
+        )
     )
     evidence["phase_duration_ms"] = {"phase_a": phases[0].duration_ms, "phase_b": phases[1].duration_ms}
     evidence["phase_status"] = {"phase_a": phases[0].status, "phase_b": phases[1].status}

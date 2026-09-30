@@ -97,7 +97,7 @@ def test_merge_junit_reports_sums_counts_and_keeps_anchor_style_suite_counts(tmp
 def test_full_tests_fails_with_readable_collection_mismatch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mismatch: str
 ) -> None:
-    def collect(_root: Path, command: tuple[str, ...]) -> tuple[set[str], float, str]:
+    def collect(_root: Path, command: tuple[str, ...], **_kwargs) -> tuple[set[str], float, str]:
         if command.count("-m") < 2:
             return {"tests/test_sample.py::test_a", "tests/test_sample.py::test_b"}, 2.0, ""
         marker_index = command.index("-m", command.index("-m") + 1)
@@ -128,7 +128,7 @@ def test_full_tests_fails_with_readable_collection_mismatch(
 def test_full_tests_fails_when_either_xdist_phase_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failed_phase: str
 ) -> None:
-    def collect(_root: Path, command: tuple[str, ...]) -> tuple[set[str], float, str]:
+    def collect(_root: Path, command: tuple[str, ...], **_kwargs) -> tuple[set[str], float, str]:
         if command.count("-m") < 2:
             return {"tests/test_sample.py::test_a", "tests/test_sample.py::test_b"}, 3.0, ""
         marker_index = command.index("-m", command.index("-m") + 1)
@@ -688,3 +688,20 @@ def test_failure_digest_reports_failed_gate_checks_and_passes_cleanly(tmp_path: 
     assert "CHECK FAILED pinned_environment: missing locked packages: pdfplumber" in digest
     assert "Schema" not in digest
     assert failure_digest.render([tmp_path / "junit-parallel.xml"], tmp_path).endswith("OK: no failing tests or checks")
+
+
+def test_shard_phase_without_tests_is_recorded_empty_but_an_empty_full_collection_fails(tmp_path: Path, monkeypatch) -> None:
+    def no_tests(*_args, **_kwargs):
+        return subprocess.CompletedProcess([], 5, stdout="no tests collected (12 deselected)\n", stderr="")
+
+    monkeypatch.setattr(release_gate.subprocess, "run", no_tests)
+    assert release_gate._collect_test_nodeids(tmp_path, ("pytest",), allow_empty=True)[::2] == (set(), "")
+    assert release_gate._collect_test_nodeids(tmp_path, ("pytest",))[2].startswith("exit code 5")
+
+    result = release_gate._empty_phase(tmp_path, "full_tests_serial", ("pytest", "-m", "serial"), "junit-serial.xml")
+    assert result.status == "passed" and result.output == "no tests collected in this shard"
+    _junit_report(tmp_path / "junit-parallel.xml", [("tests.test_c", "test_three")])
+    release_gate._merge_junit_reports((tmp_path / "junit-parallel.xml", tmp_path / "junit-serial.xml"), tmp_path / "full.xml")
+    assert release_gate._junit_execution_problems(
+        (tmp_path / "junit-parallel.xml", tmp_path / "junit-serial.xml"), {"tests/test_c.py::test_three"}
+    ) == []
