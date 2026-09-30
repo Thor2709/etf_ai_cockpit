@@ -18,11 +18,13 @@ import pandas as pd
 from etf_cockpit.core.paths import LOG_DIR, STATEMENT_FACTS_PATH
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data.etf_structure import project_etf_structure
-from etf_cockpit.data.event_calendar import normalise_event_decision_time
+from etf_cockpit.data.event_calendar import load_calendar_events, normalise_event_decision_time
 from etf_cockpit.data.capital_allocation import capital_allocation_analysis
 from etf_cockpit.data.market_adjustments import CorporateActionCoverage
 from etf_cockpit.data.duckdb_store import PRICE_PARQUET, load_prices
 from etf_cockpit.data.fx_data import FX_CLEAN_PATH, load_fx_rates
+from etf_cockpit.data.local_storage import storage_layout
+from etf_cockpit.data.market_adjustments import CorporateActionStore
 from etf_cockpit.data.macro_warehouse import MacroWarehouse, load_risk_free_proxy_mappings
 from etf_cockpit.data.provenance import price_staleness_status
 from etf_cockpit.data.stock_research import valuation_analysis
@@ -60,6 +62,7 @@ from etf_cockpit.portfolio.performance_series import (
     performance_series_frame,  # noqa: F401
 )
 from etf_cockpit.portfolio.holdings_table import build_portfolio_holdings_table
+from etf_cockpit.portfolio.calendar import build_portfolio_calendar
 
 from etf_cockpit.chatgpt_bridge.audit_packet import *  # noqa: F401,F403
 from etf_cockpit.data.backup_restore import *  # noqa: F401,F403
@@ -236,6 +239,84 @@ def load_portfolio_performance_series(
         currency=currency,
         custom_start=custom_start,  # type: ignore[arg-type]
         custom_end=custom_end,  # type: ignore[arg-type]
+        fx_rates=fx_rates,
+    )
+
+
+def load_portfolio_calendar_projection(
+    snapshot: object,
+    analysis: PortfolioAnalysis,
+    *,
+    output_currency: str = "EUR",
+) -> dict[str, object]:
+    """Load saved calendar, corporate-action, bond-term and FX evidence."""
+
+    binding = analysis.snapshot_binding
+    decision_time = getattr(binding, "as_of", None) if binding is not None else None
+    decision = normalise_event_decision_time(decision_time)
+    if decision is None:
+        return build_portfolio_calendar(
+            None,
+            decision_time=None,
+            output_currency=output_currency,
+        )
+
+    holdings = getattr(snapshot, "holdings", None)
+    if isinstance(holdings, pd.DataFrame) and binding is not None:
+        try:
+            holdings = select_holdings_view(holdings, str(getattr(binding, "holdings_view", "combined")))
+        except (TypeError, ValueError):
+            holdings = pd.DataFrame()
+    if not isinstance(holdings, pd.DataFrame):
+        holdings = pd.DataFrame()
+
+    event_rows = load_calendar_events()
+    instrument_column = "instrument_id" if "instrument_id" in holdings.columns else "etf_id" if "etf_id" in holdings.columns else None
+    instruments = sorted(
+        {
+            str(value).strip()
+            for value in holdings[instrument_column].tolist()
+            if str(value).strip()
+        }
+    ) if instrument_column else []
+    corporate_actions = []
+    storage_path = storage_layout(ROOT).transactional_path
+    if storage_path.is_file():
+        with CorporateActionStore(ROOT) as store:
+            for instrument_id in instruments:
+                corporate_actions.extend(store.query(instrument_id))
+
+    terms: dict[str, Mapping[str, object]] = {}
+    if "asset_type" in holdings.columns:
+        bond_ids = sorted(
+            {
+                str(row[instrument_column]).strip()
+                for _, row in holdings.iterrows()
+                if instrument_column
+                and str(row.get("asset_type", "")).strip().casefold()
+                in {"bond", "fixed_income", "fixed income", "government_bond", "corporate_bond"}
+            }
+        )
+        cutoff = decision.isoformat()
+        for instrument_id in bond_ids:
+            terms[instrument_id] = load_fixed_income_terms_projection(
+                instrument_id,
+                storage_root=ROOT,
+                effective_at=cutoff,
+                decision_time=cutoff,
+            )
+    try:
+        fx_rates = load_fx_rates()
+    except (OSError, ValueError, TypeError, ImportError):
+        fx_rates = pd.DataFrame()
+
+    return build_portfolio_calendar(
+        holdings,
+        decision_time=decision.to_pydatetime(),
+        output_currency=output_currency,
+        event_rows=event_rows,
+        corporate_actions=tuple(corporate_actions),
+        fixed_income_terms=terms,
         fx_rates=fx_rates,
     )
 

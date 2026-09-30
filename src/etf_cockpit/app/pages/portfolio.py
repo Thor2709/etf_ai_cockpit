@@ -29,6 +29,7 @@ from etf_cockpit.application.ui_facade import (
     draft_portfolio_candidate,
     load_portfolio_candidate,
     load_portfolio_performance_series,
+    load_portfolio_calendar_projection,
     load_portfolio_holdings_projection,
     portfolio_snapshot_binding,
     performance_series_frame,
@@ -175,6 +176,150 @@ def _portfolio_performance_block(page: ft.Page | None) -> ft.Control:
                 status,
                 chart_host,
                 ft.Row([ft.OutlinedButton("Download CSV", key="portfolio.performance.download", icon=ft.Icons.DOWNLOAD, on_click=export_selected), export_status], wrap=True),
+            ],
+            spacing=8,
+        )
+    )
+
+
+def _portfolio_calendar_block(
+    page: ft.Page | None,
+    state: AppState,
+    analysis: PortfolioAnalysis,
+) -> ft.Control:
+    projection = load_portfolio_calendar_projection(state.snapshot, analysis, output_currency="EUR")
+    available = projection.get("available_output_currencies", ("EUR",))
+    currencies = sorted({str(item).upper() for item in available if str(item).isalpha() and len(str(item)) == 3}) if isinstance(available, (list, tuple, set)) else ["EUR"]
+    if "EUR" not in currencies:
+        currencies.insert(0, "EUR")
+    calendar_host = ft.Column(spacing=8)
+
+    def refresh(_event: ft.ControlEvent | None = None) -> None:
+        nonlocal projection
+        projection = load_portfolio_calendar_projection(
+            state.snapshot,
+            analysis,
+            output_currency=str(currency.value or "EUR"),
+        )
+        calendar_host.controls = [render(projection)]
+        if page is not None:
+            _safe_update(page)
+
+    currency = ft.Dropdown(
+        key="portfolio.calendar.currency",
+        label="Output currency",
+        value="EUR",
+        options=[ft.dropdown.Option(item) for item in currencies],
+        width=150,
+        dense=True,
+        on_select=refresh,
+    )
+
+    def render(current: Mapping[str, object]) -> ft.Control:
+        warnings = current.get("warnings", ())
+        warning_text = "; ".join(str(item) for item in warnings[:4]) if isinstance(warnings, (list, tuple)) else ""
+        status = ft.Text(
+            f"Calendar status: {current.get('status', 'unavailable')}; output currency: {current.get('currency') or 'unavailable'}; execution_allowed=false."
+            + (f" Coverage: {warning_text}" if warning_text else ""),
+            color=theme.AMBER if warning_text or current.get("status") != "available" else theme.GREEN,
+            selectable=True,
+        )
+        event_records = current.get("events", ())
+        event_rows: list[ft.DataRow] = []
+        if isinstance(event_records, (list, tuple)):
+            for item in event_records:
+                if not isinstance(item, Mapping):
+                    continue
+                exposure = item.get("affected_exposure", {})
+                exposure = exposure if isinstance(exposure, Mapping) else {}
+                market_value = exposure.get("market_value")
+                exposure_text = (
+                    format_currency(market_value, currency=str(exposure.get("currency") or "EUR"))
+                    if market_value is not None
+                    else f"Qty {format_number(exposure.get('quantity'))}"
+                )
+                event_date = str(item.get("event_date") or "Unavailable")
+                timezone_name = item.get("timezone_name")
+                if timezone_name:
+                    event_date = f"{event_date} {timezone_name}"
+                payment_date = item.get("payment_date")
+                if payment_date and str(payment_date)[:10] != event_date[:10]:
+                    event_date = f"{event_date} / pay {payment_date}"
+                authority = str(item.get("source_authority") or "Unavailable")
+                confidence = str(item.get("confidence") or "Unavailable")
+                event_rows.append(
+                    ft.DataRow(
+                        cells=[
+                            ft.DataCell(ft.Text(event_date, selectable=True)),
+                            ft.DataCell(ft.Text(str(item.get("title") or item.get("event_type") or "Unavailable"), selectable=True)),
+                            ft.DataCell(ft.Text(str(item.get("instrument_id") or "Unavailable"), selectable=True)),
+                            ft.DataCell(ft.Text(str(item.get("status") or "Unavailable"), selectable=True)),
+                            ft.DataCell(ft.Text(f"{item.get('source_rank', 'other')}: {authority}; {confidence}", selectable=True)),
+                            ft.DataCell(ft.Text(exposure_text, selectable=True)),
+                            ft.DataCell(ft.Text("Candidate" if item.get("blackout_candidate") else "No", selectable=True)),
+                        ]
+                    )
+                )
+        event_table: ft.Control = (
+            ft.DataTable(
+                columns=[
+                    ft.DataColumn(ft.Text(label))
+                    for label in ("Event date / payable", "Event", "Holding", "Status", "Source / confidence", "Exposure", "Blackout")
+                ],
+                rows=event_rows,
+            )
+            if event_rows
+            else ft.Text(str(current.get("reason") or "No saved events are available."), color=theme.MUTED, selectable=True)
+        )
+        summary_records = current.get("cash_flow_summaries", ())
+        summary_rows: list[ft.DataRow] = []
+        if isinstance(summary_records, (list, tuple)):
+            for item in summary_records:
+                if not isinstance(item, Mapping):
+                    continue
+                summary_rows.append(
+                    ft.DataRow(
+                        cells=[
+                            ft.DataCell(ft.Text(f"{item.get('period_type', '')}: {item.get('period', '')}", selectable=True)),
+                            ft.DataCell(ft.Text(str(item.get("flow_type") or "Unavailable"), selectable=True)),
+                            ft.DataCell(
+                                ft.Text(
+                                    format_currency(item.get("amount"), currency=str(item.get("currency") or "EUR")),
+                                    selectable=True,
+                                )
+                            ),
+                            ft.DataCell(ft.Text(str(item.get("status") or "unavailable"), selectable=True)),
+                        ]
+                    )
+                )
+        summary_table: ft.Control = (
+            ft.DataTable(
+                columns=[ft.DataColumn(ft.Text(label)) for label in ("Period", "Cash flow", "Projected amount", "Status")],
+                rows=summary_rows,
+            )
+            if summary_rows
+            else ft.Text("Monthly and quarterly amounts are unavailable until saved event amounts, terms, quantities, and FX are covered.", color=theme.MUTED, selectable=True)
+        )
+        return ft.Column(
+            [
+                status,
+                event_table,
+                section_header("Projected monthly and quarterly cash flows"),
+                summary_table,
+            ],
+            spacing=8,
+        )
+
+    calendar_host.controls = [render(projection)]
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Income, events, maturity and liquidity calendar",
+                    "Saved point-in-time events and contractual cash flows. Estimated dates stay distinct; missing amounts and FX remain unavailable. Blackout candidates are advisory.",
+                ),
+                currency,
+                calendar_host,
             ],
             spacing=8,
         )
@@ -1001,6 +1146,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 )
             ),
             _portfolio_performance_block(page),
+            _portfolio_calendar_block(page, state, current_analysis[0]),
             _portfolio_holdings_block(page, state, current_analysis, draft_holdings_proposal, holdings_refresh_callbacks),
             result_host,
             rebalance_host,
