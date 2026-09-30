@@ -237,6 +237,15 @@ def test_junit_execution_parity_requires_every_collected_test_exactly_once(tmp_p
     backslash = _junit_report(tmp_path / "b.xml", [("tests.test_c", "test_three"), ("tests.test_e", r"test_zip[C:\x.xhtml]")])
     # Collection output is normalised backslash -> "/"; JUnit keeps the raw parameter id.
     assert release_gate._junit_execution_problems((parallel, backslash), collected | {"tests/test_e.py::test_zip[C:/x.xhtml]"}) == []
+    teardown = tmp_path / "t.xml"
+    teardown.write_text(
+        '<testsuites><testsuite name="pytest"><testcase classname="tests.test_c" name="test_three"><failure message="x" /></testcase>'
+        '<testcase classname="tests.test_c" name="test_three"><error message="failed on teardown with &quot;x&quot;" /></testcase>'
+        "</testsuite></testsuites>",
+        encoding="utf-8",
+    )
+    # A call failure plus a teardown error is one execution reported as two JUnit entries.
+    assert release_gate._junit_execution_problems((parallel, teardown), collected) == []
     nested = _junit_report(tmp_path / "n.xml", [("tests.test_c", "test_three"), ("tests.test_f", "test_lane[tests/x.py::test_y-1]")])
     assert release_gate._junit_execution_problems((parallel, nested), collected | {"tests/test_f.py::test_lane[tests/x.py::test_y-1]"}) == []
 
@@ -630,3 +639,44 @@ def test_xdist_collection_lists_node_ids_despite_quiet_addopts() -> None:
     nodeids, _elapsed, failure = release_gate._collect_test_nodeids(root, command)
     assert failure == ""
     assert nodeids and all(nodeid.startswith("tests/test_atomic_io.py::") for nodeid in nodeids)
+
+
+def test_failure_digest_groups_causes_and_names_product_and_test_frames(tmp_path: Path) -> None:
+    from scripts import failure_digest
+
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_x.py").write_text("", encoding="utf-8")
+    trace = (
+        "def test_a():\n>       run()\ntests/test_x.py:7: in test_a\nsrc/etf_cockpit/core/io.py:42: in run\n"
+        "E   PermissionError: [WinError 5] Access is denied: 'data/x.parquet'\n"
+    )
+    cases = "".join(
+        f'<testcase classname="tests.test_x" name="{name}" time="1.5"><failure message="PermissionError">{trace}</failure></testcase>'
+        for name in ("test_a", "test_b[1]")
+    )
+    junit = tmp_path / "junit.xml"
+    junit.write_text(
+        f'<testsuites><testsuite name="pytest">{cases}<testcase classname="tests.test_x" name="test_ok" time="0.1" />'
+        "</testsuite></testsuites>",
+        encoding="utf-8",
+    )
+    digest = failure_digest.render([junit], tmp_path)
+
+    assert digest.splitlines()[0] == "TESTS 3 | failed 2 | errors 0 | skipped 0 | slowest test 2s"
+    assert "[1] 2x PermissionError: [WinError 5] Access is denied: 'data/x.parquet'" in digest
+    assert "at: product src/etf_cockpit/core/io.py:42 | test tests/test_x.py:7" in digest
+    assert "- tests/test_x.py::test_b[1]" in digest
+
+
+def test_failure_digest_reports_failed_gate_checks_and_passes_cleanly(tmp_path: Path) -> None:
+    from scripts import failure_digest
+
+    (tmp_path / "release-report.md").write_text(
+        "- Schema: `1.0`\n\n## Failures\n- pinned_environment: missing locked packages: pdfplumber\n", encoding="utf-8"
+    )
+    _junit_report(tmp_path / "junit-parallel.xml", [("tests.test_c", "test_three")])
+    digest = failure_digest.render([tmp_path], tmp_path)
+
+    assert "CHECK FAILED pinned_environment: missing locked packages: pdfplumber" in digest
+    assert "Schema" not in digest
+    assert failure_digest.render([tmp_path / "junit-parallel.xml"], tmp_path).endswith("OK: no failing tests or checks")

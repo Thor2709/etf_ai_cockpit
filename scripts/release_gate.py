@@ -560,6 +560,9 @@ def _junit_execution_problems(reports: tuple[Path, ...], expected_nodeids: set[s
     executed: dict[tuple[str, str], int] = {}
     for report in reports:
         for case in ET.parse(report).getroot().iter("testcase"):
+            error = case.find("error")
+            if error is not None and (error.get("message") or "").startswith("failed on teardown"):
+                continue  # pytest adds a second entry for a teardown error of an executed test
             # Same normalisation as _nodeids_from_collection, which maps every backslash to "/".
             key = (case.get("classname", "").replace("\\", "/"), case.get("name", "").replace("\\", "/"))
             executed[key] = executed.get(key, 0) + 1
@@ -1360,7 +1363,24 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     print(json.dumps({"exit_code": result.exit_code, "output_dir": str(result.output_dir), "manifest": str(result.manifest_path), "report": str(result.report_path)}, indent=2))
+    _print_failure_digest(root, result.output_dir)
     return result.exit_code
+
+
+def _print_failure_digest(root: Path, output_dir: Path) -> None:
+    """Print the compact failure digest (scripts/failure_digest.py); presentation only, never the verdict."""
+
+    try:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("failure_digest", Path(__file__).with_name("failure_digest.py"))
+        if spec is None or spec.loader is None:
+            return
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        print("\n--- failure digest ---\n" + module.render([output_dir], root))
+    except Exception as exc:  # noqa: BLE001 - the digest must never change the gate outcome
+        print(f"failure digest unavailable: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":

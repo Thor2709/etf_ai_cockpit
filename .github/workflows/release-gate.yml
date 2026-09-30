@@ -506,8 +506,8 @@ jobs:
       - name: Run lint and typing gates
         shell: bash
         run: |
-          python -m ruff check scripts/release_gate.py scripts/profile_parallel_pytest.py scripts/aggregate_parallel_pilot.py scripts/validate_app.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py scripts/github_mutation_gateway.py scripts/apply_reviewed_status_completion.py scripts/sync_github_issues.py scripts/prepare_github_mutation_authority.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_issue_0177_observability.py tests/test_issue_0178_validation_classifier.py tests/test_issue_0179_atomic_generation.py tests/test_issue_0179_validation_summary.py tests/test_issue_0180_parallel_pilot.py tests/test_data_health.py
-          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/release_gate.py scripts/profile_parallel_pytest.py scripts/aggregate_parallel_pilot.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py scripts/github_mutation_gateway.py scripts/apply_reviewed_status_completion.py scripts/sync_github_issues.py scripts/prepare_github_mutation_authority.py src/etf_cockpit/data/health.py
+          python -m ruff check scripts/release_gate.py scripts/failure_digest.py scripts/profile_parallel_pytest.py scripts/aggregate_parallel_pilot.py scripts/validate_app.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py scripts/github_mutation_gateway.py scripts/apply_reviewed_status_completion.py scripts/sync_github_issues.py scripts/prepare_github_mutation_authority.py src/etf_cockpit/data/health.py tests/test_release_gate.py tests/test_issue_0177_observability.py tests/test_issue_0178_validation_classifier.py tests/test_issue_0179_atomic_generation.py tests/test_issue_0179_validation_summary.py tests/test_issue_0180_parallel_pilot.py tests/test_data_health.py
+          python -m mypy --ignore-missing-imports --disable-error-code=import-untyped --follow-imports=skip scripts/release_gate.py scripts/failure_digest.py scripts/profile_parallel_pytest.py scripts/aggregate_parallel_pilot.py scripts/classify_validation.py scripts/generate_programme.py scripts/validation_summary.py scripts/github_mutation_gateway.py scripts/apply_reviewed_status_completion.py scripts/sync_github_issues.py scripts/prepare_github_mutation_authority.py src/etf_cockpit/data/health.py
           python -m compileall -q scripts/github_mutation_gateway.py scripts/apply_reviewed_status_completion.py scripts/sync_github_issues.py scripts/prepare_github_mutation_authority.py
 
       - name: Run protected release gate
@@ -522,6 +522,16 @@ jobs:
           # Collection parity and node-level execution parity keep the two-phase run exhaustive.
           arguments=(--root . --output "$output" --allow-unsigned --xdist-workers auto)
           python scripts/release_gate.py "${arguments[@]}"
+
+      - name: Publish failure digest
+        # Presentation only: a compact grouped digest (cause, evidence, product/test frame, test ids)
+        # in the job summary, so reviewers and agents need not read the full log.
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          output="artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}"
+          { echo '```text'; python scripts/failure_digest.py "$output" --root .; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload release evidence
         if: always()

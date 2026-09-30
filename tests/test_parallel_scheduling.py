@@ -110,3 +110,20 @@ def test_file_durations_are_well_formed() -> None:
 def test_data_seed_key_is_deterministic_and_seeded_data_is_private() -> None:
     assert conftest._seed_key() == conftest._seed_key()
     assert not conftest._is_link(Path(os.environ["ETF_COCKPIT_ROOT"]) / "data")
+
+
+@pytest.mark.skipif(not Path("/proc/self/fd").is_dir(), reason="fd-relative removal is resolved via /proc")
+def test_write_guard_resolves_fd_relative_removal_against_its_directory(tmp_path: Path, monkeypatch) -> None:
+    # shutil.rmtree on Linux removes relative names against a directory fd, not the cwd.
+    violations: list[str] = []
+    monkeypatch.setitem(conftest._guard_state, "violations", violations)
+    monkeypatch.setitem(conftest._guard_state, "active", True)
+    directory = os.open(tmp_path, os.O_RDONLY)
+    try:
+        conftest._write_guard_hook("os.remove", ("journal.json", directory))
+        conftest._write_guard_hook("os.rmdir", ("data", directory))
+    finally:
+        os.close(directory)
+    assert violations == []
+    conftest._write_guard_hook("os.remove", (str(CHECKOUT / "journal.json"), None))
+    assert len(violations) == 1

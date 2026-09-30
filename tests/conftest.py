@@ -241,11 +241,18 @@ _WRITE_EVENTS = {"os.remove", "os.rename", "os.replace", "os.rmdir", "shutil.rmt
 _guard_state: dict[str, object] = {"active": False, "violations": []}
 
 
-def _checkout_write(path: object) -> str | None:
+def _checkout_write(path: object, dir_fd: object = None) -> str | None:
     if isinstance(path, int) or path is None:
         return None
     try:
-        resolved = os.path.normcase(os.path.realpath(os.fsdecode(path)))
+        name = os.fsdecode(path)
+        if isinstance(dir_fd, int) and dir_fd >= 0 and not os.path.isabs(name):
+            # fd-relative call (e.g. Linux shutil.rmtree): resolve against that directory, not cwd.
+            try:
+                name = os.path.join(os.readlink(f"/proc/self/fd/{dir_fd}"), name)
+            except OSError:
+                return None  # directory unknown on this platform: cannot attribute the write
+        resolved = os.path.normcase(os.path.realpath(name))
     except (TypeError, ValueError, OSError):
         return None
     if resolved != _REAL_ROOT and not resolved.startswith(_REAL_ROOT + os.sep):
@@ -265,7 +272,9 @@ def _write_guard_hook(event: str, args: tuple[object, ...]) -> None:
         )
         paths = (args[0],) if writing else ()
     elif event == "os.mkdir":
-        paths = () if os.path.isdir(os.fsdecode(args[0])) else (args[0],)
+        directory_fd = args[2] if len(args) > 2 else None
+        exists = isinstance(directory_fd, int) and directory_fd >= 0 or os.path.isdir(os.fsdecode(args[0]))
+        paths = () if exists else ((args[0], directory_fd),)
     elif event == "sqlite3.connect":
         database = os.fsdecode(args[0]) if isinstance(args[0], (str, bytes, os.PathLike)) else ""
         if database.startswith("file:"):
@@ -276,15 +285,19 @@ def _write_guard_hook(event: str, args: tuple[object, ...]) -> None:
             paths = () if database in ("", ":memory:") else (database,)
     elif event in _WRITE_EVENTS:
         if event == "shutil.copyfile":
-            paths = args[1:2]  # the source is only read
-        elif event in ("os.rename", "os.replace", "shutil.move"):
-            paths = args[:2]  # the source disappears, the destination is written
+            paths = (args[1],)  # the source is only read
+        elif event in ("os.rename", "os.replace"):
+            # (src, dst, src_dir_fd, dst_dir_fd): the source disappears, the destination is written
+            paths = ((args[0], args[2] if len(args) > 2 else None), (args[1], args[3] if len(args) > 3 else None))
+        elif event == "shutil.move":
+            paths = args[:2]
         else:
-            paths = args[:1]
+            paths = ((args[0], args[1] if len(args) > 1 else None),)  # (path, dir_fd)
     else:
         return
-    for path in paths:
-        resolved = _checkout_write(path)
+    for entry in paths:
+        path, directory_fd = entry if isinstance(entry, tuple) else (entry, None)
+        resolved = _checkout_write(path, directory_fd)
         if resolved is not None:
             _guard_state["violations"].append(f"{event}: {resolved}")  # type: ignore[union-attr]
 
