@@ -273,3 +273,11 @@ controls:
   - {key: filings.fetch-sec-bulk, route: /filings, control_label: Fetch official SEC bulk, callback: fetch_sec_bulk, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_sec_bulk_ui.py, control_type: button}
   - {key: filings.cache-sec-bulk, route: /filings, control_label: Use session cache, callback: cached_sec_bulk, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_sec_bulk_ui.py, control_type: button}
   - {key: filings.bulk.file-picker, route: /filings, control_label: SEC bulk native file picker, callback: pick_files, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_sec_bulk_ui.py, control_type: file_picker}
+
+  # Provider credentials stay in the Windows-protected vault and outside settings exports.
+  - {key: settings.credential-provider, route: /settings, control_label: Provider, callback: select_credential_provider, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_credentials.py, control_type: input}
+  - {key: settings.credential-value, route: /settings, control_label: Provider credential, callback: edit_credential, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_credentials.py, control_type: input}
+  - {key: settings.credential-save, route: /settings, control_label: Save credential, callback: save_provider_credential, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_credentials.py, control_type: button}
+  - {key: settings.credential-delete, route: /settings, control_label: Delete credential, callback: delete_provider_credential, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_credentials.py, control_type: button}
+  - {key: settings.credential-status, route: /settings, control_label: Credential status, callback: save_provider_credential, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_credentials.py, control_type: evidence}
+  - {key: settings.credential-recovery, route: /settings, control_label: DPAPI recovery limitation, callback: select_credential_provider, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_credentials.py, control_type: evidence}

@@ -10,7 +10,7 @@ from typing import Callable, Iterable, Mapping
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
-from etf_cockpit.core.config import DataProvidersConfig, ProviderSection
+from etf_cockpit.core.config import DataProvidersConfig, ProviderSection, resolve_provider_api_key
 from etf_cockpit.core.paths import CLEAN_DIR
 from etf_cockpit.data.alphavantage_provider import AlphaVantageProvider
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority, redact_mapping, redact_text
@@ -66,6 +66,41 @@ _AUTHORITY_BY_PROVIDER = {
     "manual_local": SourceAuthority.COMMUNITY,
 }
 _VALID_STATUSES = frozenset({"ok", "unavailable", "rate_limited", "timeout", "malformed", "error", "forbidden"})
+
+
+def invalidate_cached_probe_results(provider_id: str, path: Path | None = None) -> None:
+    """Remove persisted probe rows tied to a changed provider credential."""
+
+    destination = Path(path or DEFAULT_PROBE_PATH)
+    csv_destination = destination.with_suffix(".csv")
+    existing = [candidate for candidate in (destination, csv_destination) if candidate.is_file()]
+    if not existing:
+        return
+    try:
+        frame = pd.read_parquet(destination) if destination.is_file() else pd.read_csv(csv_destination)
+        if "provider_id" not in frame.columns:
+            raise ValueError("provider probe cache has no provider_id column")
+        selected = str(provider_id).strip().casefold()
+        frame = frame.loc[frame["provider_id"].astype(str).str.casefold() != selected].copy()
+        parquet_payload: bytes | None = None
+        if destination.is_file():
+            frame.attrs["schema_version"] = PROBE_SCHEMA_VERSION
+            parquet_payload = BytesIO()
+            frame.to_parquet(parquet_payload, index=False)
+        csv_payload = frame.to_csv(index=False).encode("utf-8")
+        requests = []
+        if parquet_payload is not None:
+            requests.append(AtomicWriteRequest(destination, parquet_payload.getvalue(), _validate_parquet))
+        requests.append(AtomicWriteRequest(csv_destination, csv_payload, _validate_csv))
+        atomic_write_group(tuple(requests))
+    except Exception:
+        for candidate in (destination, csv_destination):
+            try:
+                candidate.unlink(missing_ok=True)
+            except OSError:
+                pass
+        if destination.exists() or csv_destination.exists():
+            raise OSError("provider probe cache could not be invalidated") from None
 
 
 class ProviderRegistry:
@@ -202,17 +237,30 @@ class ProviderRegistry:
             rate_limit_note="probe not run",
             last_success_at=None,
             error_fingerprint=None,
-            secret_present=bool(section.api_key),
+            secret_present=False,
         )
         if not configured:
             return (replace(base, entitlement="disabled", message="Provider disabled by configuration."),)
-        if self._requires_api_key(provider_id, active) and not section.api_key.strip():
-            return (replace(
-                base,
-                configured=False,
-                entitlement="api_key_required",
-                message="Provider unavailable: required API key is not configured.",
-            ),)
+        if self._requires_api_key(provider_id, active):
+            try:
+                credential = resolve_provider_api_key(dataset_type)
+            except Exception:
+                return (replace(
+                    base,
+                    status="error",
+                    configured=False,
+                    entitlement="credential_unavailable",
+                    message="Provider credential could not be resolved safely.",
+                ),)
+            credential_present = bool(credential and credential.strip())
+            base = replace(base, secret_present=credential_present)
+            if not credential_present:
+                return (replace(
+                    base,
+                    configured=False,
+                    entitlement="api_key_required",
+                    message="Provider unavailable: required API key is not configured.",
+                ),)
         probe = self._probes.get(provider_id) or self._probes.get(active)
         if probe is None:
             return (replace(base, entitlement="configured", message="No capability probe registered; no network call was made."),)
@@ -311,4 +359,10 @@ def _validate_csv(path: Path) -> None:
     pd.read_csv(path)
 
 
-__all__ = ["DEFAULT_PROBE_PATH", "PROBE_SCHEMA_VERSION", "REQUIRED_PROVIDER_IDS", "ProviderRegistry"]
+__all__ = [
+    "DEFAULT_PROBE_PATH",
+    "PROBE_SCHEMA_VERSION",
+    "REQUIRED_PROVIDER_IDS",
+    "ProviderRegistry",
+    "invalidate_cached_probe_results",
+]
