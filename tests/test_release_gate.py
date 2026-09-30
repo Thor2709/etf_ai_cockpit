@@ -175,7 +175,7 @@ def test_full_tests_fails_when_either_xdist_phase_fails(
     assert "phase_duration_ms" in report
 
 
-def test_workflow_enables_xdist_only_on_linux_and_excludes_pull_request_pilot() -> None:
+def test_workflow_runs_xdist_auto_on_both_platforms_and_excludes_pull_request_pilot() -> None:
     root = Path(__file__).resolve().parents[1]
     workflow = yaml.safe_load((root / ".github" / "workflows" / "release-gate.yml").read_text(encoding="utf-8"))
     jobs = workflow["jobs"]
@@ -183,12 +183,9 @@ def test_workflow_enables_xdist_only_on_linux_and_excludes_pull_request_pilot() 
     assert "github.event_name != 'pull_request'" in pilot_condition
 
     gate_step = next(step for step in jobs["release-gate"]["steps"] if step["name"] == "Run protected release gate")
-    linux_only = re.search(
-        r'if \[\[ "\$\{\{ matrix\.platform \}\}" == "linux" \]\]; then\s+'
-        r"arguments\+=\(--xdist-workers 4\)",
-        gate_step["run"],
-    )
-    assert linux_only is not None
+    assert re.search(r"arguments=\(--root \. --output \"\$output\" --allow-unsigned --xdist-workers auto\)", gate_step["run"])
+    assert '== "linux"' not in gate_step["run"]
+    assert gate_step["env"]["ETF_COCKPIT_XDIST_MAX"] == "4"
 
 
 def test_main_reads_xdist_workers_from_environment_and_cli(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -608,7 +605,7 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "ETF_COCKPIT_RELEASE_BUILD: \"1\"" in workflow
     assert "secrets.RELEASE_SIGNING_KEY" not in workflow
     assert "github.event_name == 'pull_request' && needs.classifier.outputs.package_gate_required == 'true'" in workflow
-    assert "arguments=(--root . --output \"$output\" --allow-unsigned)" in workflow
+    assert "arguments=(--root . --output \"$output\" --allow-unsigned --xdist-workers auto)" in workflow
     assert "repository_dispatch:" in trigger
     assert "workflow_dispatch:" not in trigger
     assert "parallel-pilot-drift" in trigger

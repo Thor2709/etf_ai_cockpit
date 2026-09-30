@@ -146,6 +146,8 @@ _GUARD_EXEMPT = tuple(
     os.path.normcase(os.path.realpath(path)) + os.sep
     for path in (PYTEST_TEMP, ROOT / ".hypothesis", ROOT / "logs" / "runtime_tmp")
 )
+# flet_app._startup_log appends to <cwd>/logs/startup.log by design (launcher diagnostics).
+_GUARD_EXEMPT_FILES = {os.path.normcase(os.path.realpath(ROOT / "logs" / "startup.log"))}
 _WRITE_EVENTS = {"os.remove", "os.rename", "os.replace", "os.rmdir", "shutil.rmtree", "shutil.move", "shutil.copyfile", "os.truncate"}
 _guard_state: dict[str, object] = {"active": False, "violations": []}
 
@@ -159,7 +161,7 @@ def _checkout_write(path: object) -> str | None:
         return None
     if resolved != _REAL_ROOT and not resolved.startswith(_REAL_ROOT + os.sep):
         return None
-    if resolved.startswith(_GUARD_EXEMPT) or f"{os.sep}__pycache__" in resolved:
+    if resolved.startswith(_GUARD_EXEMPT) or resolved in _GUARD_EXEMPT_FILES or f"{os.sep}__pycache__" in resolved:
         return None
     return resolved
 
@@ -176,8 +178,13 @@ def _write_guard_hook(event: str, args: tuple[object, ...]) -> None:
     elif event == "os.mkdir":
         paths = () if os.path.isdir(os.fsdecode(args[0])) else (args[0],)
     elif event == "sqlite3.connect":
-        database = args[0]
-        paths = () if database in (":memory:", "", b":memory:") else (database,)
+        database = os.fsdecode(args[0]) if isinstance(args[0], (str, bytes, os.PathLike)) else ""
+        if database.startswith("file:"):
+            location, _, query = database[len("file:") :].partition("?")
+            read_only = "mode=ro" in query.split("&") or "immutable=1" in query.split("&")
+            paths = () if read_only or location in ("", ":memory:") else (location,)
+        else:
+            paths = () if database in ("", ":memory:") else (database,)
     elif event in _WRITE_EVENTS:
         paths = args[:2] if event in ("os.rename", "os.replace", "shutil.move", "shutil.copyfile") else args[:1]
     else:

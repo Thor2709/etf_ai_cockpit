@@ -639,6 +639,9 @@ def test_forecast_service_runs_optional_model_rows_when_enabled(tmp_path) -> Non
     config = load_config()
     config.models.models["timesfm"] = {"enabled": True, "mode": "mock"}
     config.models.models["toto"] = {"enabled": True, "mode": "mock", "context_length": 128}
+    # The run manifest requires the canonical prices dataset; materialise it explicitly instead of
+    # relying on an earlier test having written it into shared project data.
+    DataService(config).update_prices(force_sample=True)
     prices = generate_sample_prices(config, periods=260, end_date=pd.Timestamp("2026-06-26").date())
     etf_id = config.universe.enabled_ids[0]
 

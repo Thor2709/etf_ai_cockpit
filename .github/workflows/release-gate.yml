@@ -515,12 +515,12 @@ jobs:
         env:
           ETF_COCKPIT_RELEASE_BUILD: "1"
           ETF_COCKPIT_SETUP_PYTHON_CACHE_HIT: ${{ steps.setup-python.outputs.cache-hit }}
+          ETF_COCKPIT_XDIST_MAX: "4"
         run: |
           output="artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}"
-          arguments=(--root . --output "$output" --allow-unsigned)
-          if [[ "${{ matrix.platform }}" == "linux" ]]; then
-            arguments+=(--xdist-workers 4)
-          fi
+          # Both platforms: one xdist worker per usable runner CPU (capped at 4); serial on one CPU.
+          # Collection parity and node-level execution parity keep the two-phase run exhaustive.
+          arguments=(--root . --output "$output" --allow-unsigned --xdist-workers auto)
           python scripts/release_gate.py "${arguments[@]}"
 
       - name: Upload release evidence
