@@ -592,7 +592,8 @@ class DurableJobScheduler:
         *,
         workflow_id: str | None = None,
     ) -> JobRecord | None:
-        job = self.claim_next(workflow_id=workflow_id)
+        # Unscoped callers keep the original claim_next() call shape.
+        job = self.claim_next() if workflow_id is None else self.claim_next(workflow_id=workflow_id)
         if job is None:
             return None
         context = JobContext(
