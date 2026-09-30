@@ -38,6 +38,19 @@ def test_write_guard_flags_checkout_paths_including_writes_through_links() -> No
     assert conftest._checkout_write(CHECKOUT / "src" / "__pycache__" / "x.pyc") is None
 
 
+def test_write_guard_treats_copy_sources_and_read_only_sqlite_as_reads(monkeypatch) -> None:
+    violations: list[str] = []
+    monkeypatch.setitem(conftest._guard_state, "violations", violations)
+    monkeypatch.setitem(conftest._guard_state, "active", True)
+    outside = conftest.PYTEST_TEMP / "copy-target"
+    conftest._write_guard_hook("shutil.copyfile", (CHECKOUT / "configs" / "universe.yaml", outside))
+    conftest._write_guard_hook("sqlite3.connect", (f"file:{CHECKOUT / 'data' / 'x.sqlite3'}?mode=ro",))
+    assert violations == []
+    conftest._write_guard_hook("shutil.copyfile", (outside, CHECKOUT / "configs" / "universe.yaml"))
+    conftest._write_guard_hook("sqlite3.connect", (str(CHECKOUT / "data" / "x.sqlite3"),))
+    assert len(violations) == 2
+
+
 def test_isolated_root_removal_never_follows_links(tmp_path: Path) -> None:
     target = tmp_path / "checkout-content"
     target.mkdir()
@@ -92,3 +105,8 @@ def test_file_durations_are_well_formed() -> None:
     assert payload["files"]
     assert all(key.startswith("tests/") and key.endswith(".py") for key in payload["files"])
     assert all(value >= 0 for value in payload["files"].values())
+
+
+def test_data_seed_key_is_deterministic_and_seeded_data_is_private() -> None:
+    assert conftest._seed_key() == conftest._seed_key()
+    assert not conftest._is_link(Path(os.environ["ETF_COCKPIT_ROOT"]) / "data")

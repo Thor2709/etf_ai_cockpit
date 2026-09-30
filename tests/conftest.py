@@ -137,6 +137,95 @@ _prune_stale_isolated_roots()
 ISOLATED_ROOT = _create_isolated_root()
 os.environ["ETF_COCKPIT_ROOT"] = str(ISOLATED_ROOT)
 
+# --- Seeded project data ----------------------------------------------------------------------
+# The first build_snapshot() in an empty data/ generates the sample dataset (~45 s).  Serially that
+# cost is paid once and every later test sees the populated data; with one root per worker it
+# would be paid by every worker.  So the dataset is built once per source state (keyed by a hash of
+# src/, configs/ and tracked data) and copied into each root before collection: the same state a
+# serial run reaches after its first snapshot.  If the seed cannot be built, data/ stays empty.
+DATA_SEEDS = PYTEST_TEMP / "data_seeds"
+_SEED_BUILD_TIMEOUT_SECONDS = 900
+_SEED_KEEP = 2
+
+
+def _seed_key() -> str:
+    import hashlib
+
+    digest = hashlib.sha256(sys.version.encode("utf-8"))
+    tracked_data = _tracked_files(("data",)) or []
+    sources = sorted(
+        [*(ROOT / "src").rglob("*.py"), *(path for path in (ROOT / "configs").rglob("*") if path.is_file())]
+        + [ROOT / relative for relative in tracked_data]
+    )
+    for path in sources:
+        if path.is_file():
+            digest.update(path.relative_to(ROOT).as_posix().encode("utf-8"))
+            digest.update(path.read_bytes())
+    return digest.hexdigest()[:16]
+
+
+def _build_data_seed(seed: Path) -> None:
+    lock = DATA_SEEDS / f"{seed.name}.lock"
+    try:
+        descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        if time.time() - lock.stat().st_mtime > _SEED_BUILD_TIMEOUT_SECONDS:
+            lock.unlink(missing_ok=True)  # abandoned by a killed session
+        return
+    os.close(descriptor)
+    builder = _create_isolated_root()
+    try:
+        environment = {**os.environ, "ETF_COCKPIT_ROOT": str(builder), "ETF_COCKPIT_OFFLINE": "1"}
+        environment["PYTHONPATH"] = os.pathsep.join(filter(None, [str(ROOT / "src"), environment.get("PYTHONPATH")]))
+        completed = subprocess.run(
+            [sys.executable, "-c", "from etf_cockpit.services import build_snapshot; build_snapshot()"],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=_SEED_BUILD_TIMEOUT_SECONDS,
+        )
+        if completed.returncode != 0:
+            print(f"warning: data seed build failed; tests start from empty data/\n{completed.stderr[-2000:]}", file=sys.stderr)
+            return
+        staging = DATA_SEEDS / f"{seed.name}.staging-{uuid.uuid4().hex[:8]}"
+        shutil.copytree(builder / "data", staging / "data")
+        os.replace(staging, seed)
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"warning: data seed build failed ({exc}); tests start from empty data/", file=sys.stderr)
+    finally:
+        lock.unlink(missing_ok=True)
+        _remove_isolated_root(builder)
+
+
+def _seed_isolated_data() -> None:
+    DATA_SEEDS.mkdir(parents=True, exist_ok=True)
+    seed = DATA_SEEDS / _seed_key()
+    deadline = time.monotonic() + _SEED_BUILD_TIMEOUT_SECONDS
+    while not seed.is_dir() and time.monotonic() < deadline:
+        _build_data_seed(seed)
+        if not seed.is_dir():
+            if not (DATA_SEEDS / f"{seed.name}.lock").exists():
+                break  # the build failed; do not retry in every process
+            time.sleep(0.5)  # another process is building it
+    if seed.is_dir():
+        shutil.copytree(seed / "data", ISOLATED_ROOT / "data", dirs_exist_ok=True)
+    for stale in sorted(
+        (path for path in DATA_SEEDS.iterdir() if path.is_dir() and "." not in path.name),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )[_SEED_KEEP:]:
+        shutil.rmtree(stale, ignore_errors=True)
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    if config.option.collectonly:
+        return  # collection never reads project data
+    try:
+        _seed_isolated_data()
+    except OSError as exc:
+        print(f"warning: could not seed isolated data ({exc}); tests start from empty data/", file=sys.stderr)
+
 
 # --- Checkout write guard -------------------------------------------------------------------
 # Any write that resolves into the real checkout (outside pytest's own temp tree and caches)
@@ -186,7 +275,12 @@ def _write_guard_hook(event: str, args: tuple[object, ...]) -> None:
         else:
             paths = () if database in ("", ":memory:") else (database,)
     elif event in _WRITE_EVENTS:
-        paths = args[:2] if event in ("os.rename", "os.replace", "shutil.move", "shutil.copyfile") else args[:1]
+        if event == "shutil.copyfile":
+            paths = args[1:2]  # the source is only read
+        elif event in ("os.rename", "os.replace", "shutil.move"):
+            paths = args[:2]  # the source disappears, the destination is written
+        else:
+            paths = args[:1]
     else:
         return
     for path in paths:
