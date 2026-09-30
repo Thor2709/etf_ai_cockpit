@@ -479,6 +479,12 @@ class OrderLifecycle:
         event_key: str,
         reason: str,
         remaining_quantity: object | None = None,
+        fill_id: str | None = None,
+        fill_quantity: object | None = None,
+        fill_price: object | None = None,
+        fill_fee: object | None = None,
+        fill_fx_rate: object | None = None,
+        fill_cash_change: object | None = None,
         occurred_at: datetime | None = None,
     ) -> OrderLifecycleEvent:
         target = self._state(state)
@@ -495,34 +501,57 @@ class OrderLifecycle:
             if target not in RECONCILIATION_ALLOWED_TARGETS:
                 raise OrderTransitionError(f"Cannot reconcile an order to {target.value}.")
             event_payload: dict[str, object] = {"reason": detail, "execution_allowed": False}
-            if target is OrderState.PARTIALLY_FILLED:
-                if remaining_quantity is None:
-                    raise OrderLifecycleError("A partially filled reconciliation requires remaining_quantity.")
-                remaining = decimal_value(remaining_quantity, "remaining_quantity", non_negative=True)
-                original = decimal_value(row[5], "quantity", positive=True)
-                if remaining >= original:
-                    raise OrderLifecycleError("A partially filled reconciliation must leave less than the original quantity.")
-                reservation = self.reservations.get(connection, order_id)
-                if reservation is not None:
-                    amount = remaining * reservation.limit_price + reservation.fee_estimate
-                    connection.execute(
-                        """
-                        UPDATE order_reservations
-                        SET remaining_quantity = ?, reserved_amount = ?, status = 'active'
-                        WHERE order_id = ?
-                        """,
-                        (str(remaining), str(amount if row[4] == "buy" else Decimal("0")), order_id),
-                    )
+            if target in {OrderState.PARTIALLY_FILLED, OrderState.FILLED}:
+                prior_remaining = decimal_value(row[6], "remaining_quantity", positive=True)
+                if target is OrderState.PARTIALLY_FILLED:
+                    if remaining_quantity is None:
+                        raise OrderLifecycleError("A partially filled reconciliation requires remaining_quantity.")
+                    remaining = decimal_value(remaining_quantity, "remaining_quantity", non_negative=True)
+                    if remaining >= prior_remaining:
+                        raise OrderLifecycleError("A partially filled reconciliation must reduce the remaining quantity.")
+                else:
+                    remaining = Decimal("0")
+                expected_fill_quantity = prior_remaining - remaining
+                if any(value is None for value in (fill_id, fill_quantity, fill_price, fill_fee, fill_fx_rate, fill_cash_change)):
+                    raise OrderLifecycleError("A reconciled fill requires complete fill and cash evidence.")
+                identifier = self._required_text(fill_id, "fill_id")
+                filled = decimal_value(fill_quantity, "fill_quantity", positive=True)
+                price = decimal_value(fill_price, "fill_price", positive=True)
+                fee = decimal_value(fill_fee, "fill_fee", non_negative=True)
+                fx = decimal_value(fill_fx_rate, "fill_fx_rate", positive=True)
+                cash_change = decimal_value(fill_cash_change, "fill_cash_change")
+                if filled != expected_fill_quantity:
+                    raise OrderLifecycleError("Reconciled fill quantity does not match the remaining order quantity.")
+                side = str(row[4])
+                gross = filled * price * fx
+                expected_cash_change = -(gross + fee) if side == "buy" else gross - fee
+                if cash_change != expected_cash_change:
+                    raise OrderLifecycleError("Reconciled cash evidence does not match the fill terms.")
+                settlement = self.settlement.settlement_date(row[10], row[11], instant.date())
+                self.reservations.record_fill(
+                    connection,
+                    order_id=order_id,
+                    fill_id=identifier,
+                    remaining_quantity=remaining,
+                    fill_cash_change=cash_change,
+                    side=side,
+                    account_id=str(row[2]),
+                    currency=str(row[3]),
+                    settlement_date=settlement,
+                )
                 connection.execute(
                     "UPDATE order_intents SET remaining_quantity = ? WHERE order_id = ?",
                     (str(remaining), order_id),
                 )
-                event_payload["remaining_quantity"] = str(remaining)
-            elif target is OrderState.FILLED:
-                connection.execute(
-                    "UPDATE order_intents SET remaining_quantity = '0' WHERE order_id = ?", (order_id,)
-                )
-                self.reservations.release(connection, order_id)
+                event_payload.update({
+                    "fill_id": identifier,
+                    "fill_quantity": str(filled),
+                    "fill_price": str(price),
+                    "fill_fee": str(fee),
+                    "fill_fx_rate": str(fx),
+                    "fill_cash_change": str(cash_change),
+                    "remaining_quantity": str(remaining),
+                })
             elif target in {OrderState.CANCELLED, OrderState.REJECTED}:
                 self.reservations.release(connection, order_id)
             event = self._append_event(
@@ -693,6 +722,32 @@ class OrderLifecycle:
                     "SELECT COUNT(*) FROM order_lifecycle_events WHERE order_id = ?", (order_id,)
                 ).fetchone()
             return int(row[0])
+        finally:
+            connection.close()
+
+    def fill_events(self) -> tuple[OrderLifecycleEvent, ...]:
+        """Return persisted fill evidence for recovery of interrupted local projections."""
+
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                """
+                SELECT event_id, order_id, prior_state, state, event_type, occurred_at, payload_json
+                FROM order_lifecycle_events
+                WHERE event_type = 'fill' OR event_type = 'reconciled'
+                ORDER BY sequence
+                """
+            ).fetchall()
+            result = []
+            for row in rows:
+                payload = json.loads(row[6])
+                if not isinstance(payload, dict) or "fill_id" not in payload:
+                    continue
+                result.append(OrderLifecycleEvent(
+                    row[0], row[1], OrderState(row[2]), OrderState(row[3]), row[4],
+                    datetime.fromisoformat(row[5]), payload,
+                ))
+            return tuple(result)
         finally:
             connection.close()
 

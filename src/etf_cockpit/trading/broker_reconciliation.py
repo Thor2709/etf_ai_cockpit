@@ -366,8 +366,8 @@ def _reconcile_orders(
                 BrokerBreakKind.OPEN_ORDER_MISMATCH,
                 BrokerSection.ORDERS,
                 key,
-                local_value,
-                broker_value,
+                _order_value_text(local),
+                _order_value_text(broker),
                 "local order lifecycle differs from broker open order state",
             ))
     return BrokerSectionStatus.BREAK if mismatch_count else BrokerSectionStatus.RECONCILED
@@ -412,19 +412,31 @@ def _unique_orders(rows: object) -> dict[str, BrokerOpenOrder]:
     return result
 
 
-def _local_order_value(order: LocalOpenOrder | None) -> str | None:
+def _local_order_value(order: LocalOpenOrder | None) -> tuple[str, str, Decimal, Decimal, str] | None:
     if order is None:
         return None
-    return "|".join((
+    return (
         order.instrument_id,
         order.side,
-        str(order.quantity),
-        str(order.remaining_quantity),
+        order.quantity,
+        order.remaining_quantity,
         order.status,
-    ))
+    )
 
 
-def _broker_order_value(order: BrokerOpenOrder | None) -> str | None:
+def _broker_order_value(order: BrokerOpenOrder | None) -> tuple[str, str, Decimal, Decimal, str] | None:
+    if order is None:
+        return None
+    return (
+        order.instrument_id,
+        order.side,
+        order.quantity,
+        order.remaining_quantity,
+        order.status,
+    )
+
+
+def _order_value_text(order: LocalOpenOrder | BrokerOpenOrder | None) -> str | None:
     if order is None:
         return None
     return "|".join((

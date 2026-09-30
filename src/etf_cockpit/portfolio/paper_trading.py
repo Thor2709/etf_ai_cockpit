@@ -15,8 +15,9 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import sqlite3
 import threading
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Literal, Mapping
 
 from etf_cockpit.core.config import load_config, load_settlement_config
@@ -122,8 +123,6 @@ class PaperLedger:
     """Replayable local paper account with no external execution path."""
 
     ORDER_TRANSITIONS = ALLOWED_TRANSITIONS
-    cash_includes_unsettled_trades = True
-
     def __init__(self, root: Path, *, account_id: str = "local-paper") -> None:
         self.root = root
         self.account_id = _clean_id(account_id, "account_id")
@@ -145,19 +144,18 @@ class PaperLedger:
         base_currency: str = "EUR",
         occurred_at: datetime | None = None,
     ) -> PaperAccountSnapshot:
-        if initial_cash < 0:
-            raise PaperLedgerError("Initial paper cash must not be negative.")
+        cash = _decimal_number(initial_cash, "initial_cash", non_negative=True)
         currency = _clean_id(base_currency, "base_currency").upper()
         with self._lock, self._file_lock():
             events = self._read_events()
             state = self._replay(events)
             if state["opened"]:
-                if state["base_currency"] != currency or abs(state["initial_cash"] - initial_cash) > 1e-8:
+                if state["base_currency"] != currency or state["initial_cash"] != cash:
                     raise PaperLedgerError("The paper account already exists with different opening terms.")
                 return self._snapshot(events, state)
             self._append(
                 "account_opened",
-                {"initial_cash": round(float(initial_cash), 8), "base_currency": currency},
+                {"initial_cash": str(cash), "base_currency": currency},
                 occurred_at=occurred_at,
             )
             events = self._read_events()
@@ -176,7 +174,28 @@ class PaperLedger:
             self._require_open(state)
             if str(state["base_currency"]).upper() != currency.upper():
                 raise PaperLedgerError("Paper cash is available only in the account base currency.")
-            return Decimal(str(state["cash"]))
+            cash = state["cash"]
+            if not isinstance(cash, Decimal):
+                raise PaperLedgerIntegrityError("Paper cash projection is not an exact decimal.")
+            return cash
+
+    @property
+    def cash_includes_unsettled_trades(self) -> bool:
+        """Report whether every committed lifecycle fill is present in the cash projection."""
+
+        try:
+            events = self._read_events()
+            projected = {
+                str(event["payload"].get("fill_id"))
+                for event in events
+                if event.get("event_type") == "fill_recorded" and isinstance(event.get("payload"), Mapping)
+            }
+            return all(
+                str(event.payload.get("fill_id")) in projected
+                for event in self._order_lifecycle().fill_events()
+            )
+        except (OSError, PaperLedgerError, sqlite3.Error):
+            return False
 
     def accept_proposal(
         self,
@@ -187,6 +206,7 @@ class PaperLedger:
         fx_rate: float = 1.0,
         decision_mode: Literal["manual_accept", "auto_paper"] = "manual_accept",
         occurred_at: datetime | None = None,
+        control_binding: object | None = None,
     ) -> dict[str, object]:
         """Accept one policy-approved proposal as a simulated open order.
 
@@ -198,11 +218,15 @@ class PaperLedger:
         self._validate_proposal(proposal)
         if decision_mode not in {"manual_accept", "auto_paper"}:
             raise PaperLedgerError("Unsupported paper decision mode.")
-        price = _positive(execution_price, "execution_price")
-        fee_value = _non_negative(fee, "fee")
-        fx = _positive(fx_rate, "fx_rate")
+        price_decimal = _decimal_number(execution_price, "execution_price", positive=True)
+        fee_decimal = _decimal_number(fee, "fee", non_negative=True)
+        fx_decimal = _decimal_number(fx_rate, "fx_rate", positive=True)
+        price = float(price_decimal)
+        fee_value = float(fee_decimal)
+        fx = float(fx_decimal)
         proposal_id = _clean_id(proposal.get("proposal_id"), "proposal_id")
-        quantity_delta = _number(proposal.get("quantity_delta"), "quantity_delta")
+        quantity_decimal = _decimal_number(proposal.get("quantity_delta"), "quantity_delta")
+        quantity_delta = float(quantity_decimal)
         quantity = abs(quantity_delta)
         if quantity <= 0:
             raise PaperLedgerError("A zero-quantity proposal cannot be accepted.")
@@ -211,6 +235,7 @@ class PaperLedger:
             {"account_id": self.account_id, "proposal_id": proposal_id, "quantity": quantity}
         )[:20]
         with self._lock, self._file_lock():
+            self._recover_interrupted_fills()
             events = self._read_events()
             state = self._replay(events)
             self._require_open(state)
@@ -229,13 +254,15 @@ class PaperLedger:
                 if existing.get("decision_mode", "manual_accept") != decision_mode:
                     raise PaperLedgerError("The paper proposal was already accepted with a different decision mode.")
                 if existing.get("lifecycle_idempotency_key"):
-                    self._order_lifecycle().transition(
-                        order_id,
-                        OrderState.ACKNOWLEDGED,
-                        event_key=f"paper-ack:{order_id}",
-                        event_type="paper_acknowledged",
-                        occurred_at=occurred_at,
-                    )
+                    lifecycle = self._order_lifecycle()
+                    if lifecycle.get_state(order_id) in {OrderState.RESERVED, OrderState.SUBMITTING}:
+                        lifecycle.transition(
+                            order_id,
+                            OrderState.ACKNOWLEDGED,
+                            event_key=f"paper-ack:{order_id}",
+                            event_type="paper_acknowledged",
+                            occurred_at=occurred_at,
+                        )
                 return dict(existing)
             if quantity_delta < 0 and state["positions"].get(instrument_id, {}).get("quantity", 0.0) + 1e-8 < quantity:
                 raise PaperLedgerError("A paper sell cannot exceed the current simulated position.")
@@ -243,22 +270,25 @@ class PaperLedger:
             currency = _clean_id(proposal.get("currency", state["base_currency"]), "currency").upper()
             lifecycle_key = f"paper:{self.account_id}:{proposal_id}"
             try:
-                control_decision = PreTradeControls(self.root, account_id=self.account_id).evaluate_order(
-                    proposal,
-                    execution_price=price,
-                    quantity_delta=quantity_delta,
-                    fx_rate=fx,
-                    positions=state["positions"],
-                    open_orders=state["orders"],
-                    paper_events=events,
-                    path="paper",
-                    who=self.account_id,
+                control_decision = self._evaluate_pre_trade_controls(
+                    proposal, state=state, events=events,
+                    execution_price=price_decimal, quantity_delta=quantity_decimal, fx_rate=fx_decimal,
                     occurred_at=occurred_at,
                 )
             except PreTradeControlError as exc:
                 raise PaperLedgerError("Independent pre-trade control state is unavailable.") from exc
             if not control_decision.allowed:
                 raise PaperLedgerError(control_decision.reason)
+            control_binding_hash = None
+            if control_binding is not None:
+                control_binding_hash = self._verify_control_binding(
+                    control_binding,
+                    proposal_id=proposal_id,
+                    decision=control_decision,
+                    execution_terms=self._execution_terms(proposal, price_decimal, fee_decimal, fx_decimal),
+                )
+            if PreTradeControls(self.root, account_id=self.account_id).kill_switch_active():
+                raise PaperLedgerError("The independent pre-trade kill switch is active.")
             try:
                 intent = self._order_lifecycle().reserve_order(
                     account_id=self.account_id,
@@ -266,9 +296,9 @@ class PaperLedger:
                     idempotency_key=lifecycle_key,
                     currency=str(state["base_currency"]).upper(),
                     side="buy" if quantity_delta > 0 else "sell",
-                    quantity=Decimal(str(quantity)),
-                    limit_price=Decimal(str(price)) * Decimal(str(fx)),
-                    fee_estimate=Decimal(str(fee_value)),
+                    quantity=abs(quantity_decimal),
+                    limit_price=price_decimal * fx_decimal,
+                    fee_estimate=fee_decimal,
                     venue=venue,
                     instrument_type=instrument_type,
                     occurred_at=occurred_at,
@@ -285,11 +315,13 @@ class PaperLedger:
                 "filled_quantity": 0.0,
                 "remaining_quantity": round(quantity, 8),
                 "execution_price": price,
+                "monetary_terms": self._execution_terms(proposal, price_decimal, fee_decimal, fx_decimal),
                 "currency": currency,
                 "status": "accepted",
                 "fee": fee_value,
                 "fx_rate": fx,
                 "lifecycle_idempotency_key": lifecycle_key,
+                "control_binding_hash": control_binding_hash,
                 "lifecycle_state": OrderState.RESERVED.value,
                 "settlement_date": None if intent.settlement_date is None else intent.settlement_date.isoformat(),
                 "settlement_warning": intent.settlement_warning,
@@ -308,6 +340,116 @@ class PaperLedger:
                 occurred_at=occurred_at,
             )
             return order
+
+    def evaluate_pre_trade_controls(
+        self,
+        proposal: Mapping[str, object],
+        *,
+        execution_price: object,
+        fee: object = 0,
+        fx_rate: object = 1,
+        occurred_at: datetime | None = None,
+    ):
+        """Return the independent paper-ledger control result for a sealed canary binding."""
+
+        self._validate_proposal(proposal)
+        price = _decimal_number(execution_price, "execution_price", positive=True)
+        _decimal_number(fee, "fee", non_negative=True)
+        fx = _decimal_number(fx_rate, "fx_rate", positive=True)
+        quantity = _decimal_number(proposal.get("quantity_delta"), "quantity_delta")
+        with self._lock, self._file_lock():
+            self._recover_interrupted_fills()
+            events = self._read_events()
+            state = self._replay(events)
+            self._require_open(state)
+            self._require_order_pipeline_open()
+            return self._evaluate_pre_trade_controls(
+                proposal,
+                state=state,
+                events=events,
+                execution_price=price,
+                quantity_delta=quantity,
+                fx_rate=fx,
+                occurred_at=occurred_at,
+            )
+
+    @staticmethod
+    def _execution_terms(
+        proposal: Mapping[str, object],
+        execution_price: Decimal,
+        fee: Decimal,
+        fx_rate: Decimal,
+    ) -> dict[str, str]:
+        return {
+            "execution_price": str(execution_price),
+            "quantity_delta": str(_decimal_number(proposal.get("quantity_delta"), "quantity_delta")),
+            "fee": str(fee),
+            "fx_rate": str(fx_rate),
+        }
+
+    @staticmethod
+    def _control_result_payload(decision: object) -> dict[str, object]:
+        return {
+            "allowed": bool(decision.allowed),
+            "control": decision.control,
+            "reason": decision.reason,
+            "order_value": None if decision.order_value is None else str(decision.order_value),
+            "position_exposure": None if decision.position_exposure is None else str(decision.position_exposure),
+            "daily_turnover": None if decision.daily_turnover is None else str(decision.daily_turnover),
+            "override_id": decision.override_id,
+            "execution_allowed": False,
+        }
+
+    @staticmethod
+    def _verify_control_binding(
+        evidence: object,
+        *,
+        proposal_id: str,
+        decision: object,
+        execution_terms: Mapping[str, str],
+    ) -> str:
+        from etf_cockpit.trading.canary import _verified_payload
+
+        payload = _verified_payload(evidence)
+        if (
+            payload is None
+            or payload.get("proposal_id") != proposal_id
+            or payload.get("paper_control_result") != PaperLedger._control_result_payload(decision)
+            or payload.get("execution_terms") != dict(execution_terms)
+            or payload.get("execution_allowed") is not False
+        ):
+            raise PaperLedgerError("The sealed independent control result or execution terms changed before acceptance.")
+        seal = getattr(evidence, "sha256", None)
+        if not isinstance(seal, str) or len(seal) != 64:
+            raise PaperLedgerError("The sealed independent control binding is invalid.")
+        return seal
+
+    def _evaluate_pre_trade_controls(
+        self,
+        proposal: Mapping[str, object],
+        *,
+        state: Mapping[str, object],
+        events: list[dict[str, object]],
+        execution_price: Decimal,
+        quantity_delta: Decimal,
+        fx_rate: Decimal,
+        occurred_at: datetime | None,
+    ):
+        try:
+            return PreTradeControls(self.root, account_id=self.account_id).evaluate_order(
+                proposal,
+                execution_price=execution_price,
+                quantity_delta=quantity_delta,
+                fx_rate=fx_rate,
+                positions=state["positions"],
+                open_orders=state["orders"],
+                paper_events=events,
+                path="paper",
+                who=self.account_id,
+                occurred_at=occurred_at,
+            )
+        except PreTradeControlError as exc:
+            raise PaperLedgerError("Independent pre-trade control state is unavailable.") from exc
 
     def reject_proposal(
         self,
@@ -415,11 +557,14 @@ class PaperLedger:
         fx_rate: float = 1.0,
         occurred_at: datetime | None = None,
     ) -> dict[str, object]:
-        fill_quantity = _positive(quantity, "quantity")
-        fill_price = _positive(price, "price")
-        fill_fee = None if fee is None else _non_negative(fee, "fee")
-        fill_fx = _positive(fx_rate, "fx_rate")
+        fill_quantity_decimal = _decimal_number(quantity, "quantity", positive=True)
+        fill_price_decimal = _decimal_number(price, "price", positive=True)
+        fill_fee_decimal = None if fee is None else _decimal_number(fee, "fee", non_negative=True)
+        fill_fx_decimal = _decimal_number(fx_rate, "fx_rate", positive=True)
+        fill_quantity = float(fill_quantity_decimal)
+        fill_fee = None if fill_fee_decimal is None else float(fill_fee_decimal)
         with self._lock, self._file_lock():
+            self._recover_interrupted_fills()
             events = self._read_events()
             state = self._replay(events)
             self._require_open(state)
@@ -429,30 +574,51 @@ class PaperLedger:
                 raise PaperLedgerError("The paper order does not exist.")
             supplied_fee = fill_fee
             if fill_id is None and fill_fee is None:
-                fill_fee = float(order.get("fee", 0.0)) * fill_quantity / float(order["quantity"])
+                fill_fee_decimal = (
+                    _decimal_number(order.get("fee", 0.0), "fee", non_negative=True)
+                    * fill_quantity_decimal
+                    / _decimal_number(order["quantity"], "quantity", positive=True)
+                )
+                fill_fee = float(fill_fee_decimal)
             requested_fill_id = _clean_id(fill_id, "fill_id") if fill_id is not None else "fill_" + _digest(
-                {"order_id": order["order_id"], "quantity": fill_quantity, "price": fill_price, "fee": fill_fee, "fx_rate": fill_fx}
+                {
+                    "order_id": order["order_id"], "quantity": str(fill_quantity_decimal),
+                    "price": str(fill_price_decimal), "fee": None if fill_fee_decimal is None else str(fill_fee_decimal),
+                    "fx_rate": str(fill_fx_decimal),
+                }
             )[:20]
             for event in events:
                 if event.get("event_type") == "fill_recorded" and isinstance(event.get("payload"), Mapping) and event["payload"].get("fill_id") == requested_fill_id:
                     previous_fill = event["payload"]
                     if previous_fill.get("order_id") != order["order_id"]:
                         raise PaperLedgerError("The fill ID was already used for another paper order.")
-                    if any(previous_fill.get(key) != value for key, value in (("quantity", fill_quantity), ("price", fill_price), ("fx_rate", fill_fx))):
+                    if any(
+                        _decimal_number(previous_fill.get(key), key) != value
+                        for key, value in (
+                            ("quantity", fill_quantity_decimal),
+                            ("price", fill_price_decimal),
+                            ("fx_rate", fill_fx_decimal),
+                        )
+                    ):
                         raise PaperLedgerError("The fill ID was already used with different terms.")
-                    if supplied_fee is not None and previous_fill.get("fee") != fill_fee:
+                    if supplied_fee is not None and _decimal_number(previous_fill.get("fee"), "fee") != fill_fee_decimal:
                         raise PaperLedgerError("The fill ID was already used with different terms.")
                     return dict(state["orders"][order["order_id"]])
             if fill_fee is None:
-                fill_fee = float(order.get("fee", 0.0)) * fill_quantity / float(order["quantity"])
+                fill_fee_decimal = (
+                    _decimal_number(order.get("fee", 0.0), "fee", non_negative=True)
+                    * fill_quantity_decimal
+                    / _decimal_number(order["quantity"], "quantity", positive=True)
+                )
+                fill_fee = float(fill_fee_decimal)
             if order["status"] in {"filled", "cancelled"}:
                 raise PaperLedgerError(f"The paper order is already {order['status']}.")
             if fill_quantity > float(order["remaining_quantity"]) + 1e-8:
                 raise PaperLedgerError("A fill cannot exceed the remaining paper order quantity.")
-            value = fill_quantity * fill_price * fill_fx
+            value_decimal = fill_quantity_decimal * fill_price_decimal * fill_fx_decimal
             instrument_id = str(order["instrument_id"])
             position = state["positions"].get(instrument_id, {"quantity": 0.0, "average_cost": 0.0})
-            if order["side"] == "buy" and state["cash"] + 1e-8 < value + fill_fee:
+            if order["side"] == "buy" and state["cash"] < value_decimal + (fill_fee_decimal or Decimal("0")):
                 raise PaperLedgerError("Insufficient paper cash for this fill.")
             if order["side"] == "sell" and position["quantity"] + 1e-8 < fill_quantity:
                 raise PaperLedgerError("A paper sell fill exceeds the current simulated position.")
@@ -460,10 +626,10 @@ class PaperLedger:
                 self._record_lifecycle_fill(
                     order,
                     fill_id=requested_fill_id,
-                    quantity=fill_quantity,
-                    price=fill_price,
-                    fee=fill_fee,
-                    fx_rate=fill_fx,
+                    quantity=fill_quantity_decimal,
+                    price=fill_price_decimal,
+                    fee=fill_fee_decimal or Decimal("0"),
+                    fx_rate=fill_fx_decimal,
                     occurred_at=occurred_at,
                 )
             fill = {
@@ -471,10 +637,10 @@ class PaperLedger:
                 "order_id": order["order_id"],
                 "instrument_id": instrument_id,
                 "side": order["side"],
-                "quantity": fill_quantity,
-                "price": fill_price,
-                "fee": fill_fee,
-                "fx_rate": fill_fx,
+                "quantity": str(fill_quantity_decimal),
+                "price": str(fill_price_decimal),
+                "fee": str(fill_fee_decimal or Decimal("0")),
+                "fx_rate": str(fill_fx_decimal),
                 "currency": order["currency"],
                 "price_basis": "execution_quote",
                 "execution_allowed": False,
@@ -488,43 +654,48 @@ class PaperLedger:
         if not text:
             raise PaperLedgerError("A cancellation reason is required.")
         with self._lock, self._file_lock():
-            events = self._read_events()
-            state = self._replay(events)
-            self._require_open(state)
-            self._require_order_pipeline_open()
-            key = _clean_id(order_id, "order_id")
-            order = state["orders"].get(key)
-            if order is None:
-                raise PaperLedgerError("The paper order does not exist.")
-            if order["status"] in {"filled", "cancelled"}:
-                if order["status"] == "cancelled" and order.get("lifecycle_idempotency_key"):
-                    try:
-                        self._order_lifecycle().transition(
-                            key,
-                            OrderState.CANCELLED,
-                            event_key=f"paper-cancel:{key}",
-                            event_type="paper_cancelled",
-                            payload={"reason": text},
-                            occurred_at=occurred_at,
-                        )
-                    except OrderLifecycleError as exc:
-                        raise PaperLedgerError(str(exc)) from exc
-                return dict(order)
-            if order.get("lifecycle_idempotency_key"):
+            return self._cancel_order_locked(order_id, reason=text, occurred_at=occurred_at)
+
+    def _cancel_order_locked(
+        self, order_id: str, *, reason: str, occurred_at: datetime | None = None
+    ) -> dict[str, object]:
+        events = self._read_events()
+        state = self._replay(events)
+        self._require_open(state)
+        self._require_order_pipeline_open()
+        key = _clean_id(order_id, "order_id")
+        order = state["orders"].get(key)
+        if order is None:
+            raise PaperLedgerError("The paper order does not exist.")
+        if order["status"] in {"filled", "cancelled"}:
+            if order["status"] == "cancelled" and order.get("lifecycle_idempotency_key"):
                 try:
                     self._order_lifecycle().transition(
                         key,
                         OrderState.CANCELLED,
                         event_key=f"paper-cancel:{key}",
                         event_type="paper_cancelled",
-                        payload={"reason": text},
+                        payload={"reason": reason},
                         occurred_at=occurred_at,
                     )
                 except OrderLifecycleError as exc:
                     raise PaperLedgerError(str(exc)) from exc
-            self._append("order_cancelled", {"order_id": key, "reason": text}, occurred_at=occurred_at)
-            events = self._read_events()
-            return dict(self._replay(events)["orders"][key])
+            return dict(order)
+        if order.get("lifecycle_idempotency_key"):
+            try:
+                self._order_lifecycle().transition(
+                    key,
+                    OrderState.CANCELLED,
+                    event_key=f"paper-cancel:{key}",
+                    event_type="paper_cancelled",
+                    payload={"reason": reason},
+                    occurred_at=occurred_at,
+                )
+            except OrderLifecycleError as exc:
+                raise PaperLedgerError(str(exc)) from exc
+        self._append("order_cancelled", {"order_id": key, "reason": reason}, occurred_at=occurred_at)
+        events = self._read_events()
+        return dict(self._replay(events)["orders"][key])
 
     def mature_outcome(
         self,
@@ -764,28 +935,30 @@ class PaperLedger:
         occurred_at: datetime | None = None,
     ) -> PaperAccountSnapshot:
         ratio = _positive(split_ratio, "split_ratio")
-        dividend = _non_negative(cash_dividend_per_unit, "cash_dividend_per_unit")
-        dividend_fx = _positive(fx_rate, "fx_rate")
+        dividend_decimal = _decimal_number(cash_dividend_per_unit, "cash_dividend_per_unit", non_negative=True)
+        dividend_fx_decimal = _decimal_number(fx_rate, "fx_rate", positive=True)
         provenance = _provenance(source_authority, source_checksum)
         with self._lock, self._file_lock():
             events = self._read_events()
             state = self._replay(events)
             self._require_open(state)
             action_key = _clean_id(action_id, "action_id") if action_id is not None else "action_" + _digest(
-                {"instrument_id": instrument_id, "split_ratio": ratio, "cash_dividend_per_unit": dividend, "source_checksum": provenance["source_checksum"]}
+                {
+                    "instrument_id": instrument_id, "split_ratio": ratio,
+                    "cash_dividend_per_unit": float(dividend_decimal),
+                    "source_checksum": provenance["source_checksum"],
+                }
             )[:20]
             if action_key in state["corporate_actions"]:
                 existing = state["corporate_actions"][action_key]
-                if any(
-                    existing.get(key) != value
-                    for key, value in (
-                        ("split_ratio", ratio),
-                        ("cash_dividend_per_unit", dividend),
-                        ("fx_rate", dividend_fx),
-                        ("instrument_id", _clean_id(instrument_id, "instrument_id").upper()),
-                        ("source_checksum", provenance["source_checksum"]),
-                    )
-                ):
+                same_terms = (
+                    _decimal_number(existing.get("split_ratio"), "split_ratio") == _decimal_number(ratio, "split_ratio")
+                    and _decimal_number(existing.get("cash_dividend_per_unit"), "cash_dividend_per_unit") == dividend_decimal
+                    and _decimal_number(existing.get("fx_rate", 1.0), "fx_rate") == dividend_fx_decimal
+                    and existing.get("instrument_id") == _clean_id(instrument_id, "instrument_id").upper()
+                    and existing.get("source_checksum") == provenance["source_checksum"]
+                )
+                if not same_terms:
                     raise PaperLedgerError("The corporate action ID was already used with different terms.")
                 return self._snapshot(events, state)
             self._append(
@@ -794,8 +967,8 @@ class PaperLedger:
                     "action_id": action_key,
                     "instrument_id": _clean_id(instrument_id, "instrument_id").upper(),
                     "split_ratio": ratio,
-                    "cash_dividend_per_unit": dividend,
-                    "fx_rate": dividend_fx,
+                    "cash_dividend_per_unit": str(dividend_decimal),
+                    "fx_rate": str(dividend_fx_decimal),
                     **provenance,
                 },
                 occurred_at=occurred_at,
@@ -1083,6 +1256,53 @@ class PaperLedger:
             )
         return self._lifecycle
 
+    def _recover_interrupted_fills(self) -> None:
+        """Project every committed lifecycle fill absent from the paper ledger exactly once."""
+
+        lifecycle = self._order_lifecycle()
+        events = self._read_events()
+        state = self._replay(events)
+        recorded = {
+            str(event["payload"].get("fill_id"))
+            for event in events
+            if event.get("event_type") == "fill_recorded" and isinstance(event.get("payload"), Mapping)
+        }
+        for lifecycle_event in lifecycle.fill_events():
+            evidence = lifecycle_event.payload
+            fill_id = str(evidence.get("fill_id", ""))
+            if not fill_id or fill_id in recorded:
+                continue
+            order = state["orders"].get(lifecycle_event.order_id)
+            if not isinstance(order, Mapping) or not order.get("lifecycle_idempotency_key"):
+                raise PaperLedgerIntegrityError("A committed lifecycle fill has no matching paper order.")
+            if lifecycle_event.event_type == "fill":
+                quantity = evidence.get("quantity")
+                price = evidence.get("price")
+                fee = evidence.get("fee")
+                fx_rate = evidence.get("fx_rate")
+            else:
+                quantity = evidence.get("fill_quantity")
+                price = evidence.get("fill_price")
+                fee = evidence.get("fill_fee")
+                fx_rate = evidence.get("fill_fx_rate")
+            fill = {
+                "fill_id": fill_id,
+                "order_id": lifecycle_event.order_id,
+                "instrument_id": str(order["instrument_id"]),
+                "side": str(order["side"]),
+                "quantity": str(_decimal_number(quantity, "fill quantity", positive=True)),
+                "price": str(_decimal_number(price, "fill price", positive=True)),
+                "fee": str(_decimal_number(fee, "fill fee", non_negative=True)),
+                "fx_rate": str(_decimal_number(fx_rate, "fill FX rate", positive=True)),
+                "currency": str(order["currency"]),
+                "price_basis": "execution_quote",
+                "execution_allowed": False,
+            }
+            self._append("fill_recorded", fill, occurred_at=lifecycle_event.occurred_at)
+            recorded.add(fill_id)
+            events = self._read_events()
+            state = self._replay(events)
+
     def _order_market_terms(self, proposal: Mapping[str, object], instrument_id: str) -> tuple[str | None, str | None]:
         venue_value = proposal.get("venue", proposal.get("exchange"))
         type_value = proposal.get("instrument_type")
@@ -1198,8 +1418,8 @@ class PaperLedger:
         state: dict[str, object] = {
             "opened": False,
             "base_currency": "EUR",
-            "initial_cash": 0.0,
-            "cash": 0.0,
+            "initial_cash": Decimal("0"),
+            "cash": Decimal("0"),
             "equity_peak": 0.0,
             "orders": {},
             "rejections": {},
@@ -1223,8 +1443,8 @@ class PaperLedger:
                 state.update(
                     opened=True,
                     base_currency=str(payload["base_currency"]),
-                    initial_cash=float(payload["initial_cash"]),
-                    cash=float(payload["initial_cash"]),
+                    initial_cash=_decimal_number(payload["initial_cash"], "initial_cash", non_negative=True),
+                    cash=_decimal_number(payload["initial_cash"], "initial_cash", non_negative=True),
                     equity_peak=float(payload["initial_cash"]),
                 )
             elif not state["opened"]:
@@ -1331,17 +1551,20 @@ class PaperLedger:
         order = orders.get(str(payload["order_id"]))
         if order is None or order["status"] in {"filled", "cancelled"}:
             raise PaperLedgerIntegrityError("A paper fill references an invalid order.")
-        quantity = float(payload["quantity"])
-        price = float(payload["price"])
-        fee = float(payload["fee"])
-        fx_rate = float(payload["fx_rate"])
-        value = quantity * price * fx_rate
+        quantity_decimal = _decimal_number(payload["quantity"], "quantity", positive=True)
+        quantity = float(quantity_decimal)
+        price_decimal = _decimal_number(payload["price"], "price", positive=True)
+        fee_decimal = _decimal_number(payload["fee"], "fee", non_negative=True)
+        fx_decimal = _decimal_number(payload["fx_rate"], "fx_rate", positive=True)
+        value_decimal = quantity_decimal * price_decimal * fx_decimal
+        value = float(value_decimal)
+        fee = float(fee_decimal)
         instrument_id = str(order["instrument_id"])
         position = positions.setdefault(instrument_id, {"quantity": 0.0, "average_cost": 0.0, "realised_pnl": 0.0, "currency": order["currency"]})
         if quantity <= 0 or quantity > float(order["remaining_quantity"]) + 1e-8:
             raise PaperLedgerIntegrityError("A paper fill quantity is invalid.")
         if order["side"] == "buy":
-            state["cash"] = float(state["cash"]) - value - fee
+            state["cash"] = state["cash"] - value_decimal - fee_decimal
             old_quantity = float(position["quantity"])
             total_cost = old_quantity * float(position["average_cost"]) + value + fee
             position["quantity"] = old_quantity + quantity
@@ -1349,7 +1572,7 @@ class PaperLedger:
         else:
             if float(position["quantity"]) + 1e-8 < quantity:
                 raise PaperLedgerIntegrityError("A paper sell fill exceeds the position.")
-            state["cash"] = float(state["cash"]) + value - fee
+            state["cash"] = state["cash"] + value_decimal - fee_decimal
             realised = value - fee - quantity * float(position["average_cost"])
             position["quantity"] = float(position["quantity"]) - quantity
             position["realised_pnl"] = float(position.get("realised_pnl", 0.0)) + realised
@@ -1376,12 +1599,16 @@ class PaperLedger:
         if position is None:
             return
         ratio = float(payload["split_ratio"])
-        dividend = float(payload["cash_dividend_per_unit"])
+        dividend = _decimal_number(payload["cash_dividend_per_unit"], "cash_dividend_per_unit", non_negative=True)
         position["quantity"] = float(position["quantity"]) * ratio
         position["average_cost"] = float(position["average_cost"]) / ratio
         if position.get("mark_price") is not None:
             position["mark_price"] = float(position["mark_price"]) / ratio
-        state["cash"] = float(state["cash"]) + float(position["quantity"]) / ratio * dividend * float(payload.get("fx_rate", 1.0))
+        state["cash"] = state["cash"] + (
+            Decimal(str(float(position["quantity"]) / ratio))
+            * dividend
+            * _decimal_number(payload.get("fx_rate", 1.0), "fx_rate", positive=True)
+        )
 
     @staticmethod
     def _require_open(state: Mapping[str, object]) -> None:
@@ -1592,6 +1819,28 @@ def _number(value: object, label: str) -> float:
         raise PaperLedgerError(f"{label} must be numeric.") from exc
     if number != number or number in {float("inf"), float("-inf")}:
         raise PaperLedgerError(f"{label} must be finite.")
+    return number
+
+
+def _decimal_number(
+    value: object,
+    label: str,
+    *,
+    positive: bool = False,
+    non_negative: bool = False,
+) -> Decimal:
+    if isinstance(value, bool):
+        raise PaperLedgerError(f"{label} must be numeric.")
+    try:
+        number = value if isinstance(value, Decimal) else Decimal(str(value))
+    except (TypeError, ValueError, InvalidOperation) as exc:
+        raise PaperLedgerError(f"{label} must be numeric.") from exc
+    if not number.is_finite():
+        raise PaperLedgerError(f"{label} must be finite.")
+    if positive and number <= 0:
+        raise PaperLedgerError(f"{label} must be greater than zero.")
+    if non_negative and number < 0:
+        raise PaperLedgerError(f"{label} must not be negative.")
     return number
 
 

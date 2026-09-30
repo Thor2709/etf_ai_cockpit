@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
@@ -53,6 +56,7 @@ def _known_broker_state() -> SimpleNamespace:
         orders_status="reconciled",
         connected=True,
         breaks=(),
+        as_of="2026-09-30T00:00:00Z",
     )
 
 
@@ -153,6 +157,8 @@ def test_override_expires_is_audited_and_self_approval_is_rejected(tmp_path: Pat
     assert rejected["event_type"] == "override_rejected"
     events = controls.audit_events()
     assert any(event["event_type"] == "override_used" and event["expiry"] == grant["expiry"] for event in events)
+    used = next(event for event in events if event["event_type"] == "override_used")
+    assert used["details"]["control"] == "max_order_value"
     assert any(event["event_type"] == "override_expired" and event["expiry"] == grant["expiry"] for event in events)
     self_rejection = next(event for event in events if event["event_type"] == "override_rejected")
     assert self_rejection["who"] == "same-person"
@@ -168,6 +174,7 @@ def test_unknown_broker_state_blocks_read_only_order(tmp_path: Path) -> None:
         orders_status="reconciled",
         connected=True,
         breaks=(),
+        as_of="2026-09-30T00:00:00Z",
     )
 
     decision = _evaluate_read_only(controls, _proposal(source="unknown-broker-state"), broker_state=unknown)
@@ -178,6 +185,135 @@ def test_unknown_broker_state_blocks_read_only_order(tmp_path: Path) -> None:
     assert blocked["event_type"] == "order_blocked"
     assert blocked["details"]["control"] == "broker_state_unknown"
     assert blocked["expiry"] is None
+
+
+def test_yesterdays_reconciliation_blocks_and_audits_read_only_order(tmp_path: Path) -> None:
+    controls = PreTradeControls(tmp_path)
+    stale = SimpleNamespace(
+        account_status="reconciled",
+        positions_status="reconciled",
+        cash_status="reconciled",
+        orders_status="reconciled",
+        connected=True,
+        breaks=(),
+        as_of="2026-09-29T00:00:00Z",
+    )
+
+    decision = _evaluate_read_only(controls, _proposal(source="stale-broker-state"), broker_state=stale)
+
+    assert decision.allowed is False
+    assert decision.control == "broker_state_stale"
+    assert controls.audit_events()[-1]["details"]["control"] == "broker_state_stale"
+
+
+def test_decimal_order_value_above_limit_is_rejected_without_float_rounding(tmp_path: Path) -> None:
+    controls = PreTradeControls(tmp_path)
+    decision = controls.evaluate_order(
+        _proposal(quantity_delta=1),
+        execution_price=Decimal("10000.0000000000001"),
+        quantity_delta=Decimal("1"),
+        fx_rate=Decimal("1"),
+        positions={},
+        open_orders={},
+        paper_events=[],
+        path="paper",
+        occurred_at=datetime(2026, 9, 30, tzinfo=timezone.utc),
+    )
+
+    assert decision.allowed is False
+    assert decision.control == "max_order_value"
+    assert decision.order_value == Decimal("10000.0000000000001")
+
+
+def test_kill_switch_serializes_with_paper_acceptance_and_cancels_accepted_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger = PaperLedger(tmp_path)
+    ledger.open_account(initial_cash=1_000)
+    controls = PreTradeControls(tmp_path)
+    evaluated = Event()
+    continue_acceptance = Event()
+    activation_started = Event()
+    original_evaluate = PreTradeControls.evaluate_order
+
+    def paused_evaluate(self, *args, **kwargs):
+        decision = original_evaluate(self, *args, **kwargs)
+        if kwargs.get("path") == "paper":
+            evaluated.set()
+            if not continue_acceptance.wait(timeout=5):
+                raise AssertionError("acceptance did not leave its control check")
+        return decision
+
+    def activate():
+        activation_started.set()
+        return controls.activate_kill_switch(
+            who="operator-a",
+            reason="Concurrent test halt",
+            paper_ledger=ledger,
+            occurred_at=datetime(2026, 9, 30, tzinfo=timezone.utc),
+        )
+
+    monkeypatch.setattr(PreTradeControls, "evaluate_order", paused_evaluate)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        acceptance = executor.submit(
+            ledger.accept_proposal, _proposal(source="accept-during-kill"), execution_price=10
+        )
+        assert evaluated.wait(timeout=5)
+        activation = executor.submit(activate)
+        assert activation_started.wait(timeout=5)
+        continue_acceptance.set()
+        accepted_order = acceptance.result(timeout=5)
+        activation.result(timeout=5)
+
+    assert accepted_order["status"] == "accepted"
+    assert ledger.orders()[0]["status"] == "cancelled"
+    assert controls.kill_switch_active() is True
+
+
+def test_failed_paper_fill_append_keeps_cash_committed_and_recovers_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger = PaperLedger(tmp_path)
+    ledger.open_account(initial_cash=1_000)
+    order = ledger.accept_proposal(_proposal(quantity_delta=20, source="interrupted-fill"), execution_price=10)
+    original_append = ledger._append
+
+    def fail_fill(event_type, payload, *, occurred_at):
+        if event_type == "fill_recorded":
+            raise OSError("simulated paper projection failure")
+        return original_append(event_type, payload, occurred_at=occurred_at)
+
+    monkeypatch.setattr(ledger, "_append", fail_fill)
+    with pytest.raises(OSError, match="projection failure"):
+        ledger.record_fill(
+            str(order["order_id"]),
+            fill_id="interrupted-fill-1",
+            quantity=10,
+            price=10,
+            fee=0,
+        )
+
+    lifecycle = ledger._order_lifecycle()
+    assert ledger.cash_includes_unsettled_trades is False
+    assert lifecycle.available_buying_power(account_id="local-paper", currency="EUR") == Decimal("800")
+    monkeypatch.setattr(ledger, "_append", original_append)
+    with pytest.raises(PaperLedgerError, match="buying power"):
+        ledger.accept_proposal(_proposal(quantity_delta=81, source="after-interrupted-fill"), execution_price=10)
+
+    recovered = ledger.record_fill(
+        str(order["order_id"]),
+        fill_id="interrupted-fill-1",
+        quantity=10,
+        price=10,
+        fee=0,
+    )
+    assert recovered["status"] == "partially_filled"
+    assert ledger.cash_balance(
+        account_id="local-paper", currency="EUR", as_of=datetime(2026, 9, 30, tzinfo=timezone.utc)
+    ) == Decimal("900")
+    assert len(lifecycle.fill_events()) == 1
+    paper_fills = [event for event in ledger._read_events() if event["event_type"] == "fill_recorded"]
+    assert len(paper_fills) == 1
 
 
 def test_missing_limits_configuration_blocks_and_is_audited(tmp_path: Path) -> None:

@@ -12,6 +12,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 import os
@@ -38,9 +39,9 @@ class PreTradeControlError(ValueError):
 
 @dataclass(frozen=True)
 class PreTradeLimits:
-    max_order_value: float
-    max_position_exposure: float
-    max_daily_turnover: float
+    max_order_value: Decimal
+    max_position_exposure: Decimal
+    max_daily_turnover: Decimal
     allowed_instruments: frozenset[str]
     cancel_open_paper_orders_on_kill_switch: bool
     max_override_ttl_seconds: int
@@ -51,9 +52,9 @@ class PreTradeDecision:
     allowed: bool
     control: str | None
     reason: str
-    order_value: float | None = None
-    position_exposure: float | None = None
-    daily_turnover: float | None = None
+    order_value: Decimal | None = None
+    position_exposure: Decimal | None = None
+    daily_turnover: Decimal | None = None
     override_id: str | None = None
     execution_allowed: bool = False
 
@@ -148,11 +149,17 @@ class PreTradeControls:
             )
         if path not in {"paper", "read_only"}:
             return self._block("path_unknown", "The order path is unknown.", actor, at, proposal_id=proposal_id)
-        if broker_state is not None and not _broker_state_is_known(broker_state):
-            return self._block(
-                "broker_state_unknown", "Broker or account reconciliation is not fully known.", actor, at,
-                proposal_id=proposal_id, instrument_id=instrument_id,
-            )
+        if broker_state is not None:
+            if not _broker_state_is_current(broker_state, at):
+                return self._block(
+                    "broker_state_stale", "Broker reconciliation is not current at the evaluation instant.", actor, at,
+                    proposal_id=proposal_id, instrument_id=instrument_id,
+                )
+            if not _broker_state_is_known(broker_state, at):
+                return self._block(
+                    "broker_state_unknown", "Broker or account reconciliation is not fully known.", actor, at,
+                    proposal_id=proposal_id, instrument_id=instrument_id,
+                )
         if path == "read_only" and broker_state is None:
             return self._block(
                 "broker_state_unknown", "A reconciled broker state is required for the read-only path.", actor, at,
@@ -176,7 +183,7 @@ class PreTradeControls:
             )
 
         current_exposure = positions_value + open_orders_value
-        proposed_exposure = max(0.0, current_exposure + (order_value if quantity > 0 else -order_value))
+        proposed_exposure = max(Decimal("0"), current_exposure + (order_value if quantity > 0 else -order_value))
         checks = (
             ("allowed_instruments", instrument_id in limits.allowed_instruments,
              f"Instrument {instrument_id} is not in the independently configured allowlist."),
@@ -205,7 +212,7 @@ class PreTradeControls:
                 "override_used", who=actor, when=at, why=str(grant_payload["why"]),
                 expiry=str(grant_payload["expiry"]), details={
                     "override_id": str(grant_payload["override_id"]),
-                    "control": control,
+                    "control": str(grant_payload["control"]),
                     "proposal_id": proposal_id,
                     "maker": str(grant_payload["maker"]),
                     "checker": str(grant_payload["checker"]),
@@ -298,17 +305,24 @@ class PreTradeControls:
             limits = self.load_limits()
         except PreTradeControlError as exc:
             return self._block("limits_config", str(exc), actor, at)
-        activated = self._append_event(
-            "kill_switch_activated", who=actor, when=at, why=why, expiry=None,
-            details={"cancel_open_paper_orders": limits.cancel_open_paper_orders_on_kill_switch},
-        )
-        if limits.cancel_open_paper_orders_on_kill_switch:
-            for order in paper_ledger.orders():
-                status = str(order.get("status", "unknown"))
-                if status not in {"filled", "cancelled"}:
-                    paper_ledger.cancel_order(
-                        str(order["order_id"]), reason=f"Kill switch: {why}", occurred_at=at
-                    )
+        with paper_ledger._lock, paper_ledger._file_lock():
+            activated = self._append_event(
+                "kill_switch_activated", who=actor, when=at, why=why, expiry=None,
+                details={"cancel_open_paper_orders": limits.cancel_open_paper_orders_on_kill_switch},
+            )
+            if limits.cancel_open_paper_orders_on_kill_switch:
+                events = paper_ledger._read_events()
+                state = paper_ledger._replay(events)
+                orders = state["orders"]
+                if isinstance(orders, Mapping):
+                    for order in orders.values():
+                        if not isinstance(order, Mapping):
+                            raise PreTradeControlError("Paper order state is invalid during kill-switch cancellation.")
+                        status = str(order.get("status", "unknown"))
+                        if status not in {"filled", "cancelled"}:
+                            paper_ledger._cancel_order_locked(
+                                str(order["order_id"]), reason=f"Kill switch: {why}", occurred_at=at
+                            )
         return activated
 
     def clear_kill_switch(
@@ -319,6 +333,11 @@ class PreTradeControls:
             "kill_switch_cleared", who=_clean_text(who, "who", 120),
             when=at, why=_clean_text(reason, "reason", 500), expiry=None, details={},
         )
+
+    def kill_switch_active(self) -> bool:
+        """Return the current persisted switch state for a caller already in its order lock."""
+
+        return self._kill_switch_active(self._read_events())
 
     def load_limits(self) -> PreTradeLimits:
         """Load a complete separate config; missing or malformed data is fatal."""
@@ -553,7 +572,21 @@ class PreTradeControls:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def _broker_state_is_known(state: object) -> bool:
+def _broker_state_is_current(state: object, at: datetime) -> bool:
+    value = getattr(state, "as_of", None)
+    try:
+        if isinstance(value, datetime):
+            observed = _aware_utc(value, "broker reconciliation as_of")
+        elif isinstance(value, str):
+            observed = _aware_utc(datetime.fromisoformat(value.replace("Z", "+00:00")), "broker reconciliation as_of")
+        else:
+            return False
+    except (TypeError, ValueError, PreTradeControlError):
+        return False
+    return observed == at
+
+
+def _broker_state_is_known(state: object, at: datetime) -> bool:
     statuses = (
         getattr(state, "account_status", None),
         getattr(state, "positions_status", None),
@@ -562,6 +595,7 @@ def _broker_state_is_known(state: object) -> bool:
     )
     return (
         getattr(state, "connected", None) is True
+        and _broker_state_is_current(state, at)
         and all(str(status).lower() == "reconciled" for status in statuses)
         and not getattr(state, "breaks", (None,))
     )
@@ -571,7 +605,7 @@ def _current_exposure(
     instrument_id: str,
     positions: Mapping[str, object] | None,
     open_orders: Mapping[str, object] | None,
-) -> tuple[float, float]:
+) -> tuple[Decimal, Decimal]:
     if not isinstance(positions, Mapping) or not isinstance(open_orders, Mapping):
         raise PreTradeControlError("Current positions or open orders are unavailable.")
     position = positions.get(instrument_id, {})
@@ -581,14 +615,14 @@ def _current_exposure(
     if quantity < 0:
         raise PreTradeControlError("Short position state is unsupported and blocks orders.")
     if quantity == 0:
-        position_value = 0.0
+        position_value = Decimal("0")
     else:
         mark = position.get("mark_price")
         price = _positive_number(position.get("average_cost") if mark is None else mark, "position price")
         fx = _positive_number(position.get("mark_fx_rate", 1), "position FX rate")
         position_value = quantity * price * fx
 
-    pending_value = 0.0
+    pending_value = Decimal("0")
     for order in open_orders.values():
         if not isinstance(order, Mapping):
             raise PreTradeControlError("An open order has invalid state.")
@@ -599,8 +633,11 @@ def _current_exposure(
         if str(order.get("side")) != "buy":
             continue
         remaining = _finite_number(order.get("remaining_quantity"), "open order remaining quantity")
-        order_price = _positive_number(order.get("execution_price"), "open order price")
-        order_fx = _positive_number(order.get("fx_rate", 1), "open order FX rate")
+        terms = order.get("monetary_terms")
+        if not isinstance(terms, Mapping):
+            terms = order
+        order_price = _positive_number(terms.get("execution_price"), "open order price")
+        order_fx = _positive_number(terms.get("fx_rate", 1), "open order FX rate")
         if remaining < 0:
             raise PreTradeControlError("An open order has invalid remaining quantity.")
         pending_value += remaining * order_price * order_fx
@@ -610,14 +647,14 @@ def _current_exposure(
 def _daily_turnover(
     at: datetime,
     paper_events: Sequence[Mapping[str, object]] | None,
-    supplied_turnover: float | None,
+    supplied_turnover: object | None,
     path: str,
-) -> float:
+) -> Decimal:
     if path == "paper":
         if not isinstance(paper_events, Sequence):
             raise PreTradeControlError("Paper order history is unavailable.")
         today = at.date()
-        turnover = 0.0
+        turnover = Decimal("0")
         for event in paper_events:
             if not isinstance(event, Mapping):
                 raise PreTradeControlError("Paper order history is invalid.")
@@ -628,11 +665,16 @@ def _daily_turnover(
                 payload = event["payload"]
                 if not isinstance(payload, Mapping):
                     raise PreTradeControlError("Paper order history is invalid.")
-                value = (
-                    _positive_number(payload.get("quantity"), "accepted order quantity")
-                    * _positive_number(payload.get("execution_price"), "accepted order price")
-                    * _positive_number(payload.get("fx_rate", 1), "accepted order FX rate")
-                )
+                terms = payload.get("monetary_terms")
+                if isinstance(terms, Mapping):
+                    accepted_quantity = abs(_finite_number(terms.get("quantity_delta"), "accepted order quantity"))
+                    accepted_price = _positive_number(terms.get("execution_price"), "accepted order price")
+                    accepted_fx = _positive_number(terms.get("fx_rate", 1), "accepted order FX rate")
+                else:
+                    accepted_quantity = _positive_number(payload.get("quantity"), "accepted order quantity")
+                    accepted_price = _positive_number(payload.get("execution_price"), "accepted order price")
+                    accepted_fx = _positive_number(payload.get("fx_rate", 1), "accepted order FX rate")
+                value = accepted_quantity * accepted_price * accepted_fx
             except (KeyError, ValueError) as exc:
                 raise PreTradeControlError("Paper order history is invalid.") from exc
             if event_time.date() == today:
@@ -655,19 +697,19 @@ def _clean_text(value: object, label: str, maximum: int) -> str:
     return text
 
 
-def _finite_number(value: object, label: str) -> float:
+def _finite_number(value: object, label: str) -> Decimal:
     if isinstance(value, bool):
         raise PreTradeControlError(f"{label} must be numeric.")
     try:
-        number = float(value)  # Decimal values are accepted without string rounding.
-    except (TypeError, ValueError, OverflowError) as exc:
+        number = value if isinstance(value, Decimal) else Decimal(str(value))
+    except (TypeError, ValueError, InvalidOperation) as exc:
         raise PreTradeControlError(f"{label} must be numeric.") from exc
-    if not (number == number and abs(number) != float("inf")):
+    if not number.is_finite():
         raise PreTradeControlError(f"{label} must be finite.")
     return number
 
 
-def _positive_number(value: object, label: str) -> float:
+def _positive_number(value: object, label: str) -> Decimal:
     number = _finite_number(value, label)
     if number <= 0:
         raise PreTradeControlError(f"{label} must be positive.")

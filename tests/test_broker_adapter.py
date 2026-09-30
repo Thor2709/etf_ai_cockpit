@@ -119,6 +119,35 @@ def test_cash_and_open_order_mismatches_have_distinct_break_types() -> None:
     assert result.orders_status is BrokerSectionStatus.BREAK
 
 
+def test_decimal_scale_does_not_create_a_false_open_order_mismatch() -> None:
+    local_order = LocalOpenOrder(
+        "local-order-scale",
+        "TEST-FUND",
+        "buy",
+        Decimal("2.0"),
+        Decimal("1.0"),
+        OrderState.ACKNOWLEDGED.value,
+    )
+    broker_order = BrokerOpenOrder(
+        "local-order-scale",
+        "TEST-FUND",
+        "buy",
+        Decimal("2"),
+        Decimal("1"),
+        OrderState.ACKNOWLEDGED.value,
+    )
+
+    result = reconcile_broker_state(
+        _adapter(orders=(broker_order,)),
+        _local_replay(),
+        (local_order,),
+        as_of=AS_OF,
+    )
+
+    assert result.orders_status is BrokerSectionStatus.RECONCILED
+    assert all(item.kind is not BrokerBreakKind.OPEN_ORDER_MISMATCH for item in result.breaks)
+
+
 def test_disconnect_keeps_paper_usable_and_blocks_order_authority() -> None:
     result = reconcile_broker_state(_adapter(connected=False), _local_replay(), (), as_of=AS_OF)
 

@@ -394,31 +394,68 @@ class CanaryController:
             self._block_order("sealed_control_evidence_does_not_match_proposal", (), occurred_at)
             raise CanaryError("Sealed control evidence does not approve this paper proposal.")
 
+        price = _positive_decimal(execution_price, "execution_price")
+        fee_value = _non_negative_decimal(fee, "fee")
+        fx = _positive_decimal(fx_rate, "fx_rate")
+        try:
+            quantity = Decimal(str(proposal_payload.get("quantity_delta")))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise CanaryError("The proposal quantity is invalid for a canary paper order.") from exc
+        if not quantity.is_finite() or quantity == 0:
+            raise CanaryError("The proposal quantity is invalid for a canary paper order.")
         stage = gate.stage
-        self._append_event(
-            "paper_order_acceptance_intent",
-            {
-                "proposal_id": proposal_id,
-                "proposal_hash": proposal_hash,
-                "control_hash": control_hash,
-                "proposal": proposal_payload,
-                "control_evidence": control_payload,
-                "stage": stage,
-                "execution_allowed": False,
-            },
-            occurred_at,
-        )
         try:
             from etf_cockpit.portfolio.paper_trading import PaperLedger
 
-            order = PaperLedger(self.root, account_id=self.account_id).accept_proposal(
+            ledger = PaperLedger(self.root, account_id=self.account_id)
+            control_decision = ledger.evaluate_pre_trade_controls(
                 proposal_payload,
-                execution_price=float(execution_price),
-                fee=float(fee),
-                fx_rate=float(fx_rate),
-                decision_mode="auto_paper" if stage == "capped_automatic" else "manual_accept",
+                execution_price=price,
+                fee=fee_value,
+                fx_rate=fx,
                 occurred_at=occurred_at,
             )
+            if not control_decision.allowed:
+                self._block_order("paper_ledger_control_rejected_order", (control_decision.reason,), occurred_at)
+                raise CanaryError("The independent PaperLedger control result rejected the canary order.")
+            binding_payload = {
+                "proposal_id": proposal_id,
+                "proposal_hash": proposal_hash,
+                "control_hash": control_hash,
+                "paper_control_result": ledger._control_result_payload(control_decision),
+                "execution_terms": ledger._execution_terms(proposal_payload, price, fee_value, fx),
+                "execution_allowed": False,
+            }
+            control_binding = seal_evidence(binding_payload)
+            if _verified_payload(control_binding) != binding_payload:
+                self._block_order("paper_control_binding_invalid", (), occurred_at)
+                raise CanaryError("The independent control and execution-term seal is invalid.")
+            self._append_event(
+                "paper_order_acceptance_intent",
+                {
+                    "proposal_id": proposal_id,
+                    "proposal_hash": proposal_hash,
+                    "control_hash": control_hash,
+                    "control_binding_hash": control_binding.sha256,
+                    "proposal": proposal_payload,
+                    "control_evidence": control_payload,
+                    "execution_terms": binding_payload["execution_terms"],
+                    "stage": stage,
+                    "execution_allowed": False,
+                },
+                occurred_at,
+            )
+            order = ledger.accept_proposal(
+                proposal_payload,
+                execution_price=price,
+                fee=fee_value,
+                fx_rate=fx,
+                decision_mode="auto_paper" if stage == "capped_automatic" else "manual_accept",
+                occurred_at=occurred_at,
+                control_binding=control_binding,
+            )
+        except CanaryError:
+            raise
         except (ImportError, OSError, ValueError, TypeError) as exc:
             self._block_order("paper_ledger_rejected_order", (str(exc),), occurred_at)
             raise CanaryError("The local paper ledger rejected the canary order.") from exc
@@ -429,6 +466,7 @@ class CanaryController:
                 "proposal_id": proposal_id,
                 "proposal_hash": proposal_hash,
                 "control_hash": control_hash,
+                "control_binding_hash": str(order.get("control_binding_hash", "")),
                 "execution_allowed": False,
             },
             occurred_at,
@@ -599,6 +637,13 @@ def _non_negative_decimal(value: object, label: str) -> Decimal:
         raise CanaryError(f"{label} must be a finite non-negative number.") from exc
     if not result.is_finite() or result < 0:
         raise CanaryError(f"{label} must be a finite non-negative number.")
+    return result
+
+
+def _positive_decimal(value: object, label: str) -> Decimal:
+    result = _non_negative_decimal(value, label)
+    if result == 0:
+        raise CanaryError(f"{label} must be a finite positive number.")
     return result
 
 

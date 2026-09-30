@@ -142,6 +142,50 @@ def test_fill_cannot_consume_cash_reserved_for_another_order(tmp_path: Path) -> 
     assert lifecycle.get_reservation("order-a").reserved_amount == Decimal("80")
 
 
+def test_reconciled_fills_commit_cash_before_reservation_is_released(tmp_path: Path) -> None:
+    at = datetime(2026, 9, 30, 10, tzinfo=timezone.utc)
+    full = _lifecycle(tmp_path / "full.sqlite3", Decimal("1000"))
+    _reserve(full, quantity=Decimal("10"))
+    full.mark_unknown("order-1", event_key="full-unknown", reason="Submission result was lost", occurred_at=at)
+    full.reconcile(
+        "order-1",
+        OrderState.FILLED,
+        event_key="full-reconciled",
+        reason="Broker fill evidence matched",
+        fill_id="fill-full",
+        fill_quantity=Decimal("10"),
+        fill_price=Decimal("10"),
+        fill_fee=Decimal("0"),
+        fill_fx_rate=Decimal("1"),
+        fill_cash_change=Decimal("-100"),
+        occurred_at=at,
+    )
+    assert full.available_buying_power(account_id="account-1", currency="EUR", as_of=at) == Decimal("900")
+    with pytest.raises(OrderLifecycleError, match="available buying power"):
+        _reserve(full, order_id="full-second", idempotency_key="full-second", quantity=Decimal("91"))
+
+    partial = _lifecycle(tmp_path / "partial.sqlite3", Decimal("1000"))
+    _reserve(partial, quantity=Decimal("10"))
+    partial.mark_unknown("order-1", event_key="partial-unknown", reason="Submission result was lost", occurred_at=at)
+    partial.reconcile(
+        "order-1",
+        OrderState.PARTIALLY_FILLED,
+        event_key="partial-reconciled",
+        reason="Broker partial fill evidence matched",
+        remaining_quantity=Decimal("6"),
+        fill_id="fill-partial",
+        fill_quantity=Decimal("4"),
+        fill_price=Decimal("10"),
+        fill_fee=Decimal("0"),
+        fill_fx_rate=Decimal("1"),
+        fill_cash_change=Decimal("-40"),
+        occurred_at=at,
+    )
+    assert partial.get_reservation("order-1").reserved_amount == Decimal("60")
+    assert partial.available_buying_power(account_id="account-1", currency="EUR", as_of=at) == Decimal("900")
+    with pytest.raises(OrderLifecycleError, match="available buying power"):
+        _reserve(partial, order_id="partial-second", idempotency_key="partial-second", quantity=Decimal("91"))
+
 def test_unknown_state_requires_reconciliation_and_blocks_transitions(tmp_path: Path) -> None:
     lifecycle = _lifecycle(tmp_path / "orders.sqlite3")
     _reserve(lifecycle)

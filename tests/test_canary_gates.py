@@ -213,7 +213,38 @@ def test_accepted_paper_order_records_verified_proposal_and_control_hashes(tmp_p
     assert event["details"]["order_id"] == order["order_id"]
     assert event["details"]["proposal_hash"] == sealed_proposal.sha256
     assert event["details"]["control_hash"] == sealed_controls.sha256
+    assert order["control_binding_hash"] == event["details"]["control_binding_hash"]
     assert controller.status()["stage"] == "paper"
+
+
+@pytest.mark.parametrize("changed_term", ["execution_price", "fee", "fx_rate"])
+def test_canary_rejects_execution_terms_changed_after_control_sealing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changed_term: str
+) -> None:
+    proposal = _proposal()
+    sealed_proposal, sealed_controls = _sealed_order_evidence(proposal)
+    PaperLedger(tmp_path).open_account(initial_cash=1_000)
+    controller = CanaryController(
+        tmp_path,
+        config=CanaryConfig(enabled=True, stage_flags={"paper": True}),
+    )
+    original_accept = PaperLedger.accept_proposal
+
+    def change_term(self, proposal_payload, *args, **kwargs):
+        kwargs[changed_term] = Decimal(str(kwargs[changed_term])) + Decimal("1")
+        return original_accept(self, proposal_payload, *args, **kwargs)
+
+    monkeypatch.setattr(PaperLedger, "accept_proposal", change_term)
+
+    with pytest.raises(CanaryError, match="ledger rejected"):
+        controller.accept_paper_order(
+            proposal=sealed_proposal,
+            control_evidence=sealed_controls,
+            execution_price=10,
+            occurred_at=datetime(2026, 9, 30, tzinfo=timezone.utc),
+        )
+
+    assert controller.audit_events()[-1]["event_type"] == "paper_order_blocked"
 
 
 def test_facade_exposes_a_fresh_install_as_distinct_disabled_state(tmp_path: Path) -> None:
