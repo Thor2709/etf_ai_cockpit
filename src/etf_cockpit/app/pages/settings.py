@@ -253,6 +253,9 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
             CredentialVault().set(provider_name, secret)
             credential_status.value = "Credential saved in the Windows-protected vault; cached provider probes were invalidated."
             credential_status.color = theme.GREEN
+        except CredentialVaultError as exc:
+            credential_status.value = f"Credential could not be saved safely: {exc}"
+            credential_status.color = theme.RED
         except Exception:
             credential_status.value = "Credential could not be saved safely. Check the Windows vault status and try again."
             credential_status.color = theme.RED
@@ -268,6 +271,9 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
             CredentialVault().delete(provider_name)
             credential_status.value = "Credential removed from the Windows-protected vault; cached provider probes were invalidated."
             credential_status.color = theme.GREEN
+        except CredentialVaultError as exc:
+            credential_status.value = f"Credential could not be removed safely: {exc}"
+            credential_status.color = theme.RED
         except Exception:
             credential_status.value = "Credential could not be removed safely. Check the Windows vault status and try again."
             credential_status.color = theme.RED
@@ -294,8 +300,14 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
         width=360,
         on_change=edit_credential,
     )
+    vault_status = CredentialVault().status()
+    initial_credential_status = (
+        f"Credential vault unavailable: {vault_status['reason']} Existing .env values remain usable."
+        if vault_status["status"] == "unavailable"
+        else "No credential action has run in this session."
+    )
     credential_status = ft.Text(
-        "No credential action has run in this session.",
+        initial_credential_status,
         key="settings.credential-status",
         color=theme.MUTED,
         selectable=True,

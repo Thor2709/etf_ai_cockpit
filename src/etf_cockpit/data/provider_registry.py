@@ -49,6 +49,7 @@ _KEYLESS_PROVIDERS = frozenset(
     {
         "yfinance",
         "sec_edgar",
+        "ecb",
         "filings_xbrl_org",
         "stooq",
         "rss",
@@ -57,6 +58,9 @@ _KEYLESS_PROVIDERS = frozenset(
         "index_provider",
     }
 )
+_OPTIONAL_CREDENTIAL_CAPABILITIES = {
+    "finnhub": frozenset({"prices", "fx", "etf_metadata", "etf_holdings"}),
+}
 _AUTHORITY_BY_PROVIDER = {
     "sec_edgar": SourceAuthority.OFFICIAL,
     "filings_xbrl_org": SourceAuthority.OFFICIAL,
@@ -241,9 +245,16 @@ class ProviderRegistry:
         )
         if not configured:
             return (replace(base, entitlement="disabled", message="Provider disabled by configuration."),)
-        if self._requires_api_key(provider_id, active):
+        optional_capabilities = _OPTIONAL_CREDENTIAL_CAPABILITIES.get(provider_id) or _OPTIONAL_CREDENTIAL_CAPABILITIES.get(active)
+        requires_api_key = self._requires_api_key(provider_id, active)
+        credential: str | None = None
+        if requires_api_key or optional_capabilities:
             try:
-                credential = resolve_provider_api_key(dataset_type)
+                credential_name = active if active in _OPTIONAL_CREDENTIAL_CAPABILITIES else provider_id
+                credential = resolve_provider_api_key(
+                    credential_name,
+                    configured_value=section.api_key,
+                )
             except Exception:
                 return (replace(
                     base,
@@ -254,7 +265,7 @@ class ProviderRegistry:
                 ),)
             credential_present = bool(credential and credential.strip())
             base = replace(base, secret_present=credential_present)
-            if not credential_present:
+            if requires_api_key and not credential_present:
                 return (replace(
                     base,
                     configured=False,
@@ -264,9 +275,22 @@ class ProviderRegistry:
         probe = self._probes.get(provider_id) or self._probes.get(active)
         if probe is None:
             return (replace(base, entitlement="configured", message="No capability probe registered; no network call was made."),)
+        adapter = getattr(probe, "__self__", None)
+        if adapter is not None and (requires_api_key or optional_capabilities):
+            if isinstance(getattr(adapter, "section", None), ProviderSection):
+                adapter.section = section.model_copy(update={"api_key": credential or ""})
+            adapter_values = getattr(adapter, "__dict__", {})
+            for attribute in ("api_key", "_api_key"):
+                if attribute in adapter_values:
+                    setattr(adapter, attribute, credential or "")
         try:
             result = probe()
-            return self._normalise_result(base, result)
+            capabilities = self._normalise_result(base, result)
+            if optional_capabilities:
+                capabilities = tuple(
+                    item for item in capabilities if item.dataset_type in optional_capabilities
+                )
+            return capabilities
         except Exception as exc:
             status = _exception_status(exc)
             fingerprint = hashlib.sha256(f"{type(exc).__name__}:{redact_text(exc)}".encode()).hexdigest()[:16]
@@ -289,7 +313,12 @@ class ProviderRegistry:
 
     @staticmethod
     def _requires_api_key(provider_id: str, active: str) -> bool:
-        return provider_id == "fred" or active not in _KEYLESS_PROVIDERS
+        return (
+            provider_id not in _KEYLESS_PROVIDERS
+            and active not in _KEYLESS_PROVIDERS
+            and provider_id not in _OPTIONAL_CREDENTIAL_CAPABILITIES
+            and active not in _OPTIONAL_CREDENTIAL_CAPABILITIES
+        )
 
     @staticmethod
     def _normalise_result(base: ProviderCapability, result: object) -> tuple[ProviderCapability, ...]:

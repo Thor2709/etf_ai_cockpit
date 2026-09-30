@@ -282,6 +282,7 @@ def resolve_provider_api_key(
     *,
     config_dir: Path = CONFIG_DIR,
     vault: Any | None = None,
+    configured_value: str | None = None,
 ) -> str | None:
     """Resolve a provider credential from the Windows vault, then the existing environment overlay."""
 
@@ -306,7 +307,8 @@ def resolve_provider_api_key(
         }
     except Exception:
         raise ConfigError("Provider credential fallback could not be read safely.") from None
-    return _env_value(_provider_env_key(provider_key, "API_KEY"), env_file_values)
+    environment_value = _env_value(_provider_env_key(provider_key, "API_KEY"), env_file_values)
+    return environment_value if environment_value is not None else configured_value
 
 
 def _universe_config_from_records(records: Any, *, allow_cross_tier_duplicates: bool = False) -> UniverseConfig:

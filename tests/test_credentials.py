@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 import pandas as pd
 import pytest
@@ -24,10 +23,11 @@ def _stub_dpapi(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(credentials, "_protect", transform)
     monkeypatch.setattr(credentials, "_unprotect", transform)
+    monkeypatch.setattr(credentials, "_dpapi_available", lambda: True)
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows DPAPI is available only on Windows")
 def test_dpapi_secret_roundtrip(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_dpapi(monkeypatch)
     monkeypatch.setattr(provider_registry, "DEFAULT_PROBE_PATH", tmp_path / "probes.parquet")
     vault_path = tmp_path / "vault.dpapi"
     vault = CredentialVault(vault_path)
@@ -70,7 +70,7 @@ def test_no_key_provider_operates_without_vault(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_provider_registry_uses_resolved_credential_without_disclosing_it(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(provider_registry, "resolve_provider_api_key", lambda _provider: _SECRET)
+    monkeypatch.setattr(provider_registry, "resolve_provider_api_key", lambda _provider, **_kwargs: _SECRET)
     registry = ProviderRegistry(
         DataProvidersConfig(providers={"fred": ProviderSection(active_provider="fred")})
     )
@@ -157,6 +157,7 @@ def test_deleting_vault_credential_invalidates_dependent_probe_cache(tmp_path, m
 
 
 def test_vault_errors_never_echo_the_credential(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_dpapi(monkeypatch)
     monkeypatch.setattr(provider_registry, "DEFAULT_PROBE_PATH", tmp_path / "probes.parquet")
 
     def fail_protect(_payload: bytes) -> bytes:
@@ -167,3 +168,181 @@ def test_vault_errors_never_echo_the_credential(tmp_path, monkeypatch: pytest.Mo
         CredentialVault(tmp_path / "vault.dpapi").set("fred", _SECRET)
 
     assert _SECRET not in str(error.value)
+
+
+@pytest.mark.parametrize("operation", ["set", "delete"])
+def test_credential_mutations_leave_vault_unchanged_when_probe_invalidation_fails(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    _stub_dpapi(monkeypatch)
+    monkeypatch.setattr(provider_registry, "DEFAULT_PROBE_PATH", tmp_path / "probes.parquet")
+    vault_path = tmp_path / "vault.dpapi"
+    vault = CredentialVault(vault_path)
+    vault.set("fred", "before")
+    original_bytes = vault_path.read_bytes()
+
+    def fail_invalidation(_provider: str) -> None:
+        raise CredentialVaultError("cached probes could not be invalidated")
+
+    monkeypatch.setattr(credentials, "_invalidate_probe_cache", fail_invalidation)
+    with pytest.raises(CredentialVaultError):
+        if operation == "set":
+            vault.set("fred", "after")
+        else:
+            vault.delete("fred")
+
+    assert vault_path.read_bytes() == original_bytes
+    assert vault.get("fred") == "before"
+
+
+def test_optional_finnhub_credential_resolves_and_limits_capabilities_to_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolved: list[str] = []
+    calls: list[bool] = []
+
+    def resolve(provider: str, **_kwargs: object) -> str:
+        assert provider == "finnhub"
+        resolved.append(provider)
+        return _SECRET
+
+    def probe() -> tuple[provider_registry.ProviderCapability, ...]:
+        calls.append(True)
+        return tuple(
+            provider_registry.ProviderCapability(
+                provider_id="finnhub",
+                dataset_type=dataset,
+                status="ok",
+                authority=provider_registry.SourceAuthority.VENDOR,
+                configured=True,
+                entitlement="configured",
+                rate_limit_note="credential-enhanced limit",
+                last_success_at=None,
+                error_fingerprint=None,
+                secret_present=True,
+                message="Capability available.",
+            )
+            for dataset in ("prices", "fx", "etf_metadata", "etf_holdings", "undeclared")
+        )
+
+    monkeypatch.setattr(provider_registry, "resolve_provider_api_key", resolve)
+    registry = ProviderRegistry(
+        DataProvidersConfig(providers={"finnhub": ProviderSection(active_provider="finnhub")})
+    )
+    registry.register_probe("finnhub", probe)
+
+    capabilities = [item for item in registry.probe_all() if item.provider_id == "finnhub"]
+
+    assert resolved == ["finnhub"]
+    assert calls == [True]
+    assert {item.dataset_type for item in capabilities} == {"prices", "fx", "etf_metadata", "etf_holdings"}
+    assert all(item.rate_limit_note == "credential-enhanced limit" for item in capabilities)
+    assert all(item.secret_present for item in capabilities)
+    assert _SECRET not in str([item.to_dict() for item in capabilities])
+
+
+def test_registered_finnhub_adapter_preserves_all_dataset_capabilities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        provider_registry,
+        "resolve_provider_api_key",
+        lambda provider, **_kwargs: _SECRET if provider == "finnhub" else None,
+    )
+    registry = ProviderRegistry(
+        DataProvidersConfig(providers={"finnhub": ProviderSection(active_provider="finnhub")})
+    )
+
+    capabilities = [item for item in registry.probe_all() if item.provider_id == "finnhub"]
+
+    assert {item.dataset_type for item in capabilities} == {
+        "prices",
+        "fx",
+        "etf_metadata",
+        "etf_holdings",
+    }
+    assert all(item.status == "unavailable" for item in capabilities)
+    assert all(item.secret_present for item in capabilities)
+    assert all(not item.score_eligible for item in capabilities)
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "providers"),
+    [
+        ("sec_edgar", {"sec_edgar": ProviderSection(active_provider="sec_edgar")}),
+        ("ecb", {"fx": ProviderSection(active_provider="ecb")}),
+    ],
+)
+def test_sec_and_ecb_probes_run_without_vault_access(
+    monkeypatch: pytest.MonkeyPatch,
+    provider_id: str,
+    providers: dict[str, ProviderSection],
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(
+        provider_registry,
+        "resolve_provider_api_key",
+        lambda *_args, **_kwargs: pytest.fail("keyless provider must not consult the vault"),
+    )
+    registry = ProviderRegistry(DataProvidersConfig(providers=providers))
+    registry.register_probe(provider_id, lambda: calls.append(provider_id) or {"status": "ok"})
+
+    capabilities = [item for item in registry.probe_all() if item.provider_id == provider_id]
+
+    assert provider_id in calls
+    assert len(capabilities) == 1
+    assert capabilities[0].status == "ok"
+    assert not capabilities[0].secret_present
+
+
+def test_valid_rejected_and_missing_credentials_have_distinct_statuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current: dict[str, str | None] = {"credential": None}
+
+    def resolve(_provider: str, **_kwargs: object) -> str | None:
+        return current["credential"]
+
+    def probe() -> dict[str, str]:
+        if current["credential"] == "valid-key":
+            return {"status": "ok", "entitlement": "configured"}
+        raise PermissionError("HTTP 403")
+
+    monkeypatch.setattr(provider_registry, "resolve_provider_api_key", resolve)
+    registry = ProviderRegistry(
+        DataProvidersConfig(providers={"fred": ProviderSection(active_provider="fred")})
+    )
+    registry.register_probe("fred", probe)
+
+    current["credential"] = "valid-key"
+    valid = next(item for item in registry.probe_all() if item.provider_id == "fred")
+    current["credential"] = "wrong-key"
+    rejected = next(item for item in registry.probe_all() if item.provider_id == "fred")
+    current["credential"] = None
+    missing = next(item for item in registry.probe_all() if item.provider_id == "fred")
+
+    assert (valid.status, valid.entitlement, valid.secret_present) == ("ok", "configured", True)
+    assert (rejected.status, rejected.secret_present) == ("forbidden", True)
+    assert (missing.status, missing.entitlement, missing.secret_present) == ("unavailable", "api_key_required", False)
+    assert "valid-key" not in str([valid.to_dict(), rejected.to_dict(), missing.to_dict()])
+    assert "wrong-key" not in str([valid.to_dict(), rejected.to_dict(), missing.to_dict()])
+
+
+def test_non_windows_vault_reports_unavailable_and_keeps_env_fallback(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    (tmp_path / ".env").write_text('ETF_COCKPIT_FRED_API_KEY="env-secret"\n', encoding="utf-8")
+    monkeypatch.delenv("ETF_COCKPIT_FRED_API_KEY", raising=False)
+    monkeypatch.setattr(credentials, "_dpapi_available", lambda: False)
+    vault = CredentialVault(tmp_path / "vault.dpapi")
+
+    assert vault.status() == {
+        "status": "unavailable",
+        "reason": "Windows DPAPI is unavailable; credentials remain disabled.",
+    }
+    assert resolve_provider_api_key("fred", config_dir=config_dir, vault=vault) == "env-secret"

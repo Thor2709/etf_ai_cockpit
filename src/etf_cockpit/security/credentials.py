@@ -28,6 +28,8 @@ class CredentialVault:
 
     def get(self, account: str) -> str | None:
         name = _account_name(account)
+        if not _dpapi_available():
+            return None
         path = self._path()
         if path is None or not path.exists():
             return None
@@ -48,6 +50,7 @@ class CredentialVault:
             raise CredentialVaultError("A non-empty provider credential is required.")
         path = self._path(required=True)
         assert path is not None
+        _invalidate_probe_cache(name)
         try:
             entries = self._read_entries(path) if path.exists() else {}
             entries[name] = secret
@@ -56,11 +59,13 @@ class CredentialVault:
             raise
         except Exception:
             raise CredentialVaultError("The provider credential could not be protected and saved.") from None
-        _invalidate_probe_cache(name)
 
     def delete(self, account: str) -> None:
         name = _account_name(account)
+        if not _dpapi_available():
+            raise CredentialVaultError("Windows DPAPI is unavailable; credentials remain disabled.")
         path = self._path()
+        _invalidate_probe_cache(name)
         if path is not None and path.exists():
             try:
                 entries = self._read_entries(path)
@@ -73,9 +78,19 @@ class CredentialVault:
                 raise
             except Exception:
                 raise CredentialVaultError("The provider credential could not be deleted safely.") from None
-        _invalidate_probe_cache(name)
+
+    def status(self) -> dict[str, str]:
+        """Report whether credentials can be safely stored for this user."""
+
+        if not _dpapi_available():
+            return {"status": "unavailable", "reason": "Windows DPAPI is unavailable; credentials remain disabled."}
+        if self._path() is None:
+            return {"status": "unavailable", "reason": "The Windows user credential location is unavailable."}
+        return {"status": "available", "reason": "Credentials are protected for the current Windows user."}
 
     def _path(self, *, required: bool = False) -> Path | None:
+        if required and not _dpapi_available():
+            raise CredentialVaultError("Windows DPAPI is unavailable; credentials remain disabled.")
         if self.path is not None:
             return self.path
         local_app_data = os.environ.get("LOCALAPPDATA")
@@ -136,7 +151,7 @@ def _account_name(account: str) -> str:
 
 
 def _protect(payload: bytes) -> bytes:
-    if os.name != "nt":
+    if not _dpapi_available():
         raise CredentialVaultError("Windows DPAPI is unavailable; credentials remain disabled.")
     try:
         crypt32 = ctypes.windll.crypt32  # type: ignore[attr-defined]
@@ -156,7 +171,7 @@ def _protect(payload: bytes) -> bytes:
 
 
 def _unprotect(payload: bytes) -> bytes:
-    if os.name != "nt":
+    if not _dpapi_available():
         raise CredentialVaultError("Windows DPAPI is unavailable; the stored credential cannot be recovered.")
     try:
         crypt32 = ctypes.windll.crypt32  # type: ignore[attr-defined]
@@ -182,6 +197,10 @@ def _unprotect(payload: bytes) -> bytes:
 def _blob(payload: bytes) -> tuple[_DataBlob, Any]:
     buffer = ctypes.create_string_buffer(payload, max(len(payload), 1))
     return _DataBlob(len(payload), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_byte))), buffer
+
+
+def _dpapi_available() -> bool:
+    return os.name == "nt"
 
 
 def _invalidate_probe_cache(provider_name: str) -> None:
