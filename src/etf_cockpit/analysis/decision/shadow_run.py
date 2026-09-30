@@ -60,6 +60,7 @@ def run_decision_shadow(
     *,
     decision_time: str | date,
     latest_features: pd.DataFrame | None = None,
+    liquidity_reports: Mapping[str, object] | None = None,
     output_directory: Path = LOG_DIR,
     candidates: Sequence[Mapping[str, object]] | None = None,
     failures: Sequence[Mapping[str, str]] = (),
@@ -88,6 +89,7 @@ def run_decision_shadow(
                 signal_rows,
                 cutoff,
                 latest_features=latest_features,
+                liquidity_reports=liquidity_reports or {},
             )
         except Exception as exc:
             candidate_rows = ()
@@ -162,6 +164,7 @@ def _compose_universe(
     decision: datetime,
     *,
     latest_features: pd.DataFrame | None,
+    liquidity_reports: Mapping[str, object] | None = None,
 ) -> tuple[Mapping[str, object], ...]:
     """Compose all enabled instruments against one point-in-time peer snapshot.
 
@@ -171,12 +174,23 @@ def _compose_universe(
     at least the configured 35% exposure share.
     """
 
+    if decision.date() != datetime.now(timezone.utc).date():
+        return (
+            {
+                "instrument": "universe",
+                "asset_type": "unavailable",
+                "peer_id": "unavailable",
+                "failure_reason": "UNIVERSE_MEMBERSHIP_UNKNOWN_AT_CUTOFF",
+            },
+        )
+
     universe = _member(config, "universe")
     identities = _member(universe, "etfs", ()) or ()
     enabled = set(_member(universe, "enabled_ids", ()) or ())
     if not identities or not enabled:
         return ()
     policy = load_opportunity_policy()
+    liquidity_reports = liquidity_reports or {}
     signal_by_id = {str(_member(item, "etf_id", "")): item for item in signals}
     economics_records = load_etf_economics_records()
     prepared: list[dict[str, object]] = []
@@ -194,7 +208,7 @@ def _compose_universe(
             )
             configured_type = str(_member(identity, "instrument_type", "ETF"))
             instrument_type = str(context.instrument_type or configured_type)
-            if instrument_type.casefold() in {"stock", "equity"}:
+            if instrument_type.casefold() in {"stock", "equity", "equity_certificate"}:
                 prepared.append(
                     _prepare_stock_candidate(instrument, context, decision, signal_by_id.get(instrument))
                 )
@@ -206,6 +220,9 @@ def _compose_universe(
                         decision,
                         economics_records,
                         signal_by_id.get(instrument),
+                        liquidity_report=liquidity_reports.get(instrument),
+                        liquidity_known_at=_time_text(decision),
+                        latest_features=_latest_feature_row(latest_features, instrument),
                     )
                 )
         except Exception as exc:
@@ -327,6 +344,9 @@ def _compose_stock_candidate(
         "valuation_domain": composed.get("valuation_domain"),
         "valuation_z_score": composed.get("valuation_z_score"),
         "critical_domains": composed.get("critical_underwriting_domains", ()),
+        "drivers": tuple(
+            _member(composed.get("assessment"), "drivers", ()) or ()
+        ) + tuple(composed.get("valuation_drivers", ()) or ()),
         "signal": prepared.get("signal"),
         "peer_id": prepared.get("peer_id", "unavailable"),
     }
@@ -338,6 +358,10 @@ def _prepare_etf_candidate(
     decision: datetime,
     economics_records: Sequence[object],
     signal: object,
+    *,
+    liquidity_report: object | None = None,
+    liquidity_known_at: str | None = None,
+    latest_features: object | None = None,
 ) -> dict[str, object]:
     records = tuple(
         item
@@ -348,14 +372,32 @@ def _prepare_etf_candidate(
     )
     economics = calculate_etf_economics(instrument, records, as_of=decision)
     look_through = _look_through(instrument, decision)
+    feature_as_of = pd.to_datetime(
+        _member(latest_features, "date", _member(latest_features, "as_of")),
+        errors="coerce",
+        utc=True,
+    )
+    liquidity_as_of = pd.to_datetime(
+        _member(liquidity_report, "as_of"), errors="coerce", utc=True
+    )
+    if liquidity_report is not None and (
+        not _time_is_at_or_before(_member(liquidity_report, "as_of"), decision)
+        or (
+            not pd.isna(feature_as_of)
+            and not pd.isna(liquidity_as_of)
+            and liquidity_as_of > feature_as_of
+        )
+    ):
+        liquidity_report = None
+        liquidity_known_at = None
     vehicle_registry, exposure_registry, _ = _load_etf_registries(
         _DECISION_REGISTRY_PATH
     )
     vehicle_metrics = _vehicle_scored_metrics(
         vehicle_registry,
         economics,
-        None,
-        None,
+        liquidity_report,
+        liquidity_known_at,
         look_through,
         {},
         {},
@@ -372,6 +414,9 @@ def _prepare_etf_candidate(
         "context": context,
         "economics": economics,
         "look_through": look_through,
+        "liquidity_report": liquidity_report,
+        "liquidity_known_at": liquidity_known_at,
+        "latest_features": latest_features,
         "signal": signal,
         "vehicle_metrics": tuple(vehicle_metrics),
         "exposure_metrics": tuple(exposure_metrics),
@@ -394,11 +439,14 @@ def _compose_etf_candidate(
         _time_text(decision),
         etf_economics=prepared["economics"],
         look_through=prepared["look_through"],
+        liquidity_report=prepared.get("liquidity_report"),
+        liquidity_known_at=prepared.get("liquidity_known_at"),
         peer_observations=peer_observations,
         exposure_peer_observations=exposure_peer_observations,
         comparison_groups=comparison_groups,
         registry_path=_DECISION_REGISTRY_PATH,
         minimum_support=minimum_support,
+        strict_exposure_peers=True,
     )
     vehicle_score = _opportunity_slot_score(assessment, "Vehicle Rank")
     exposure_score = _opportunity_slot_score(assessment, "Exposure Opportunity Rank")
@@ -554,6 +602,17 @@ def _member(value: object, key: str, default: object = None) -> object:
     if isinstance(value, Mapping):
         return value.get(key, default)
     return getattr(value, key, default)
+
+
+def _latest_feature_row(
+    features: pd.DataFrame | None, instrument: str
+) -> object | None:
+    if features is None or features.empty or "etf_id" not in features.columns:
+        return None
+    rows = features.loc[features["etf_id"].astype(str).eq(instrument)]
+    if rows.empty:
+        return None
+    return rows.iloc[-1].to_dict()
 
 
 def _jsonable(value: object) -> object:

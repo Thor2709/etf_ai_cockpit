@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import copy
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 from etf_cockpit.analysis.decision.contracts import DecisionDriver, DomainSlot
-from etf_cockpit.analysis.decision.opportunity import build_opportunity_results
-from etf_cockpit.analysis.decision.shadow_run import run_decision_shadow
+from etf_cockpit.analysis.decision.opportunity import (
+    _benchmark_scores,
+    build_opportunity_results,
+)
+from etf_cockpit.analysis.decision.shadow_run import (
+    _compose_universe,
+    run_decision_shadow,
+)
 from etf_cockpit.application.ui_facade import load_opportunity_assessment
 from etf_cockpit.app.pages.instrument_detail import _render_opportunity_card
 
@@ -168,6 +175,70 @@ def test_benchmark_rankers_are_reproducible() -> None:
     rankers = {item.ranker: item for item in first["ACME"].benchmark_rankers}
     assert rankers["QV"].score == 1.0
     assert rankers["five_factor"].status == "AVAILABLE"
+
+
+def test_replay_membership_is_unavailable_and_later_additions_do_not_change_hash() -> None:
+    cutoff = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    earlier = SimpleNamespace(
+        universe=SimpleNamespace(
+            etfs=(SimpleNamespace(id="ETF_OLD", instrument_type="ETF"),),
+            enabled_ids=("ETF_OLD",),
+        )
+    )
+    later = SimpleNamespace(
+        universe=SimpleNamespace(
+            etfs=(
+                SimpleNamespace(id="ETF_OLD", instrument_type="ETF"),
+                SimpleNamespace(id="ETF_ADDED_LATER", instrument_type="ETF"),
+            ),
+            enabled_ids=("ETF_OLD", "ETF_ADDED_LATER"),
+        )
+    )
+
+    first = _compose_universe(earlier, (), cutoff, latest_features=None)
+    second = _compose_universe(later, (), cutoff, latest_features=None)
+    first_result = build_opportunity_results(first, decision_time=cutoff.isoformat())
+    second_result = build_opportunity_results(second, decision_time=cutoff.isoformat())
+
+    assert first == second
+    assert first[0]["failure_reason"] == "UNIVERSE_MEMBERSHIP_UNKNOWN_AT_CUTOFF"
+    assert "ETF_ADDED_LATER" not in {item["instrument"] for item in first}
+    assert first_result["universe"].universe_hash == second_result["universe"].universe_hash
+
+
+def test_benchmark_rankers_use_scored_components_and_preserve_missing_scores() -> None:
+    signal = SimpleNamespace(
+        components=SimpleNamespace(momentum=0.3, risk=-0.4),
+        canonical_score=SimpleNamespace(
+            legacy_composite_raw=0.2,
+            components=(
+                SimpleNamespace(key="momentum", raw_metric=0.9, eligible=True),
+                SimpleNamespace(key="risk", raw_metric=0.8, eligible=True),
+                SimpleNamespace(key="growth", raw_metric=0.5, eligible=True),
+            ),
+        ),
+    )
+    state = {
+        "asset_type": "stock",
+        "candidate": {
+            "asset_type": "stock",
+            "underwriting_z_score": 2.0,
+            "valuation_z_score": 1.0,
+            "signal": signal,
+        },
+        "assessment": None,
+    }
+
+    scores = _benchmark_scores(state)
+    assert scores["M"] == 0.3
+    assert scores["R"] == -0.4
+    assert scores["QVM"] == (2.0 + 1.0 + 0.3) / 3
+    assert scores["five_factor"] == (1.0 + 0.5 + 2.0 + 0.3 - 0.4) / 5
+
+    signal.components.momentum = None
+    missing = _benchmark_scores(state)
+    assert missing["M"] is None
+    assert missing["QVM"] is None
 
 
 def test_shadow_artifact_keeps_hashes_and_does_not_mutate_v3(tmp_path: Path) -> None:

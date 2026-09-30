@@ -218,6 +218,7 @@ def compose_stock_decision(
     valuation_output = _valuation_components(stock_research)
     expectations_output = _copy_path(stock_research, "expectations")
     tactical_output = _tactical_components(tactical_evidence)
+    valuation_assessment = None
     if ec_route.applies:
         native_valid = _is_native_spbk_result(native_spbk_result)
         assessment = native_spbk_result if native_valid else None
@@ -391,6 +392,11 @@ def compose_stock_decision(
             valuation_domain.z_score
             if generic_assessment is not None and valuation_domain.status == "AVAILABLE"
             else None
+        ),
+        "valuation_drivers": (
+            tuple(valuation_assessment.drivers)
+            if valuation_assessment is not None
+            else ()
         ),
         "valuation": valuation_output,
         "expectations": expectations_output,

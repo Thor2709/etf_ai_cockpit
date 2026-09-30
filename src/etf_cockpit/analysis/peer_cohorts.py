@@ -189,6 +189,7 @@ def construct_cohort(
     minimum_support: int = 3,
     comparison_scope: str | None = None,
     comparison_groups: Mapping[str, Mapping[str, str]] | Mapping[str, str] | None = None,
+    strict_mode: bool = False,
 ) -> CohortMembership:
     """Select the first sufficiently supported leaf-to-parent cohort."""
 
@@ -263,7 +264,7 @@ def construct_cohort(
         raise PeerCohortError(
             f"{scope} comparison requires a target comparison group"
         )
-    levels = _cohort_levels(target, scope)
+    levels = _cohort_levels(target, scope, strict_mode=strict_mode)
     selected: list[PeerObservation] = []
     selected_exclusions: dict[str, str] = {}
     parent: list[PeerObservation] = []
@@ -289,7 +290,11 @@ def construct_cohort(
         selected_index = index
         if len(subset) >= minimum_support:
             break
-    if scope == "ETF_EXPOSURE_PEERS" and len(selected) < minimum_support:
+    if (
+        strict_mode
+        and scope == "ETF_EXPOSURE_PEERS"
+        and len(selected) < minimum_support
+    ):
         raise PeerCohortError(
             "ETF_EXPOSURE_PEERS cohort lacks minimum support"
         )
@@ -784,6 +789,8 @@ def peer_result_hash(projection: PeerProjection | Mapping[str, object]) -> str:
 def _cohort_levels(
     context: InstrumentContextV2,
     comparison_scope: str | None = None,
+    *,
+    strict_mode: bool = False,
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
     if comparison_scope is not None:
         scope_levels = {
@@ -807,6 +814,7 @@ def _cohort_levels(
                     "ETF_EXPOSURE_PEERS",
                     ("__comparison_group:ETF_EXPOSURE_PEERS",),
                 ),
+                ("UNIVERSE", ()),
             ),
         }
         if comparison_scope not in scope_levels:
@@ -821,7 +829,10 @@ def _cohort_levels(
             raise PeerCohortError("INDUSTRY comparison requires sector and industry")
         if comparison_scope == "BUSINESS_MODEL" and not context.business_model_tags:
             raise PeerCohortError("BUSINESS_MODEL comparison requires a business model")
-        return scope_levels[comparison_scope]
+        levels = scope_levels[comparison_scope]
+        if comparison_scope == "ETF_EXPOSURE_PEERS" and strict_mode:
+            return levels[:1]
+        return levels
 
     dimensions: list[tuple[str, str]] = []
     if context.industry:

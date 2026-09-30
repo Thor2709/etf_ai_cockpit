@@ -545,6 +545,12 @@ def _benchmark_reason(name: str, scores: Mapping[str, object]) -> str:
 
 
 def _canonical_factor(signal: object, key: str) -> float | None:
+    # SignalResult.components is the public v3 score-column contract. Momentum
+    # and risk in CanonicalScore.components are raw evidence fields, so prefer
+    # the already-scored v3 values and keep an explicitly missing score absent.
+    score_components = _member(signal, "components")
+    if key in {"momentum", "risk"} and score_components is not None:
+        return _finite(_member(score_components, key))
     canonical = _member(signal, "canonical_score")
     for component in _member(canonical, "components", ()) or ():
         if str(_member(component, "key", "")) == key:

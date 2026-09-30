@@ -26,7 +26,11 @@ from etf_cockpit.analysis.decision.domains import (
 )
 from etf_cockpit.analysis.etf_tax_context import build_currency_context
 from etf_cockpit.analysis.look_through import LookThroughSummary
-from etf_cockpit.analysis.peer_cohorts import PeerObservation
+from etf_cockpit.analysis.peer_cohorts import (
+    PeerCohortError,
+    PeerObservation,
+    construct_cohort,
+)
 from etf_cockpit.data.classification import InstrumentContextV2
 
 
@@ -60,6 +64,7 @@ def compose_etf_decision(
     comparison_groups: Mapping[str, Mapping[str, str]] | Mapping[str, str] | None = None,
     registry_path: str | Path = _DEFAULT_REGISTRY_PATH,
     minimum_support: int = 3,
+    strict_exposure_peers: bool = False,
 ) -> InstrumentDecisionAssessment:
     """Compose an ETF assessment from canonical local evidence.
 
@@ -89,6 +94,29 @@ def compose_etf_decision(
         target_context,
         decision,
     )
+    if strict_exposure_peers and vehicle_evidence:
+        definitions = {item.metric_id: item for item in vehicle_registry.metrics}
+        unsupported: set[str] = set()
+        for item in vehicle_evidence:
+            definition = definitions.get(item.metric_id)
+            if definition is not None and definition.comparison_scope == "ETF_EXPOSURE_PEERS":
+                try:
+                    construct_cohort(
+                        target_context,
+                        peer_observations,
+                        metric=item.metric_id,
+                        effective_at=decision_time,
+                        decision_time=decision_time,
+                        minimum_support=minimum_support,
+                        comparison_scope="ETF_EXPOSURE_PEERS",
+                        comparison_groups=comparison_groups,
+                        strict_mode=True,
+                    )
+                except PeerCohortError:
+                    unsupported.add(item.metric_id)
+        vehicle_evidence = [
+            item for item in vehicle_evidence if item.metric_id not in unsupported
+        ]
     expected_record, selected_method = _expected_return_record(
         exposure_registry,
         etf_economics,
@@ -102,6 +130,29 @@ def compose_etf_decision(
     exposure_evidence = _exposure_scored_metrics(
         exposure_registry, look_through, decision
     )
+    if strict_exposure_peers and exposure_evidence:
+        definitions = {item.metric_id: item for item in exposure_registry.metrics}
+        unsupported = set()
+        for item in exposure_evidence:
+            definition = definitions.get(item.metric_id)
+            if definition is not None and definition.comparison_scope == "ETF_EXPOSURE_PEERS":
+                try:
+                    construct_cohort(
+                        target_context,
+                        exposure_peer_observations,
+                        metric=item.metric_id,
+                        effective_at=decision_time,
+                        decision_time=decision_time,
+                        minimum_support=minimum_support,
+                        comparison_scope="ETF_EXPOSURE_PEERS",
+                        comparison_groups=comparison_groups,
+                        strict_mode=True,
+                    )
+                except PeerCohortError:
+                    unsupported.add(item.metric_id)
+        exposure_evidence = [
+            item for item in exposure_evidence if item.metric_id not in unsupported
+        ]
     if expected_record is not None:
         exposure_evidence.append(expected_record)
 

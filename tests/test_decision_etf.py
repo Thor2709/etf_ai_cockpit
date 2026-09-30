@@ -2,13 +2,19 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
 from etf_cockpit.analysis.decision.etf import compose_etf_decision
+from etf_cockpit.analysis.decision import shadow_run
 from etf_cockpit.analysis.look_through import calculate_look_through
-from etf_cockpit.analysis.peer_cohorts import PeerObservation
+from etf_cockpit.analysis.peer_cohorts import (
+    PeerCohortError,
+    PeerObservation,
+    construct_cohort,
+)
 from etf_cockpit.data.classification import (
     ClassificationEvidence,
     resolve_instrument_context,
@@ -383,6 +389,7 @@ def test_vehicle_cohort_excludes_non_exposure_peers(tmp_path: Path) -> None:
         etf_economics=economics,
         peer_observations=[*small_group, *outside_group],
         comparison_groups=insufficient_groups,
+        strict_exposure_peers=True,
     )
     insufficient_driver = next(
         item
@@ -501,3 +508,112 @@ def test_etf_composer_exposes_per_domain_exposure_scores() -> None:
 
     assert assessment.exposure_domain_slots
     assert all(slot.domain for slot in assessment.exposure_domain_slots)
+
+
+def test_exposure_cohort_falls_back_by_default_and_can_be_strict() -> None:
+    peers = _observations("look_through_roic", (0.1, 0.2))
+    groups = _comparison_groups(peers)
+    arguments = {
+        "metric": "look_through_roic",
+        "effective_at": EFFECTIVE,
+        "decision_time": DECISION,
+        "minimum_support": 3,
+        "comparison_scope": "ETF_EXPOSURE_PEERS",
+        "comparison_groups": groups,
+    }
+
+    fallback = construct_cohort(_context("target"), peers, **arguments)
+
+    assert fallback.cohort_key == "UNIVERSE"
+    assert len(fallback.members) == 2
+    with pytest.raises(PeerCohortError):
+        construct_cohort(
+            _context("target"), peers, **arguments, strict_mode=True
+        )
+
+
+def test_shadow_etf_liquidity_reaches_composer_and_missing_value_has_reason(
+    monkeypatch,
+) -> None:
+    liquidity = {
+        "as_of": EFFECTIVE,
+        "source_id": "liquidity:target",
+        "model_id": "local-test",
+        "estimated_cost_bps": 10.0,
+    }
+    prepared_inputs: dict[str, object] = {}
+    composed_inputs: dict[str, object] = {}
+    monkeypatch.setattr(
+        shadow_run, "calculate_etf_economics", lambda *args, **kwargs: object()
+    )
+    monkeypatch.setattr(
+        shadow_run, "_look_through", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        shadow_run, "_load_etf_registries", lambda *args, **kwargs: (object(), object(), "hash")
+    )
+
+    def prepare_vehicle(
+        registry,
+        economics,
+        liquidity_report,
+        liquidity_known_at,
+        look_through,
+        structural,
+        supplied,
+        context,
+        decision,
+    ):
+        prepared_inputs["liquidity_report"] = liquidity_report
+        prepared_inputs["liquidity_known_at"] = liquidity_known_at
+        return []
+
+    monkeypatch.setattr(shadow_run, "_vehicle_scored_metrics", prepare_vehicle)
+    monkeypatch.setattr(shadow_run, "_exposure_scored_metrics", lambda *args: [])
+    monkeypatch.setattr(shadow_run, "_exposure_peer_id", lambda *args: "unavailable")
+    prepared = shadow_run._prepare_etf_candidate(
+        "target",
+        _context("target"),
+        pd.Timestamp(DECISION),
+        (),
+        None,
+        liquidity_report=liquidity,
+        liquidity_known_at=DECISION,
+        latest_features={"date": EFFECTIVE},
+    )
+    assessment = SimpleNamespace(
+        domain_slots=(),
+        exposure_domain_slots=(),
+        opportunity_slots=(),
+        critical_domains=(),
+        source_vintage_hash="source:test",
+    )
+
+    def compose(*args, **kwargs):
+        composed_inputs.update(kwargs)
+        return assessment
+
+    monkeypatch.setattr(shadow_run, "compose_etf_decision", compose)
+    shadow_run._compose_etf_candidate(
+        prepared,
+        pd.Timestamp(DECISION),
+        (),
+        (),
+        {},
+        minimum_support=3,
+    )
+
+    assert prepared_inputs["liquidity_report"] == liquidity
+    assert prepared_inputs["liquidity_known_at"] == DECISION
+    assert composed_inputs["liquidity_report"] == liquidity
+    assert composed_inputs["liquidity_known_at"] == DECISION
+    assert composed_inputs["strict_exposure_peers"] is True
+
+    missing_assessment = compose_etf_decision("target", _context("target"), DECISION)
+    missing_liquidity = next(
+        item
+        for item in missing_assessment.drivers
+        if item.metric_id == "estimated_trading_cost"
+    )
+    assert missing_liquidity.status == "UNAVAILABLE"
+    assert missing_liquidity.reason_code
