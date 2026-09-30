@@ -254,7 +254,7 @@ def test_multiprocess_create_append_read_and_export_are_serialized(tmp_path: Pat
     for process in creators:
         process.start()
     for process in creators:
-        process.join(timeout=90)
+        process.join(timeout=20)
         assert process.exitcode == 0
 
     store = ThesisDiaryStore(tmp_path)
@@ -264,14 +264,14 @@ def test_multiprocess_create_append_read_and_export_are_serialized(tmp_path: Pat
     for process in appenders:
         process.start()
     for process in appenders:
-        process.join(timeout=90)
+        process.join(timeout=20)
         assert process.exitcode == 0
 
     readers = [context.Process(target=_read_export_worker, args=(str(tmp_path),)) for _ in range(3)]
     for process in readers:
         process.start()
     for process in readers:
-        process.join(timeout=90)
+        process.join(timeout=20)
         assert process.exitcode == 0
 
     packet = store.export_packet()
