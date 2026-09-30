@@ -1,6 +1,6 @@
 """Canonical validation and cost reconciliation for forecast distributions."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import math
 from numbers import Real
 
@@ -87,8 +87,14 @@ def build_distribution_record(
     probability_beat_cash: object = None,
     probability_beat_benchmark: object = None,
     cost_deductions: Mapping[str, object] | None = None,
+    per_model_distributions: Sequence[Mapping[str, object]] | None = None,
 ) -> dict[str, object]:
-    """Build the contract record without filling missing return or cost inputs."""
+    """Build the contract record without filling missing return or cost inputs.
+
+    The optional model records retain each input distribution for downstream
+    disagreement and clone-breadth analysis; the aggregate quantiles remain
+    the existing median contract.
+    """
 
     horizon = _positive_integer(horizon_days)
     widened = widen_for_coverage(quantiles, coverage_ratio)
@@ -131,6 +137,11 @@ def build_distribution_record(
         "net_reason": None if net is not None else "A complete explicit cost deduction breakdown is required.",
         "net_quantiles": net,
         "probabilities": probabilities,
+        "per_model_distributions": (
+            [dict(record) for record in per_model_distributions]
+            if isinstance(per_model_distributions, Sequence)
+            else None
+        ),
         "execution_allowed": False,
     }
 

@@ -24,6 +24,12 @@ from etf_cockpit.signals.explanations import explain_signal
 from etf_cockpit.signals.gates import evaluate_risk_gates
 from etf_cockpit.signals.scoring import component_scores, row_components
 from etf_cockpit.signals.research_states import GateResult, research_state_for_legacy_action
+from etf_cockpit.models.uncertainty import (
+    decompose_forecast_uncertainty,
+    generate_scenarios,
+    uncertainty_gate_reasons,
+    unavailable_decomposition,
+)
 
 
 def generate_signals(
@@ -91,11 +97,38 @@ def generate_signals(
         current_weight = float(row.get("current_weight") or 0.0)
         target_weight = float(row.get("target_weight") or 0.0)
         hard_band = float(row.get("hard_band") or 0.05)
+        raw_distribution = (
+            forecast_distributions.get(str(row["etf_id"]))
+            if forecast_distributions is not None
+            else None
+        )
+        distribution = dict(raw_distribution) if isinstance(raw_distribution, Mapping) else None
+        base_confidence = float(row["confidence"])
+        if forecast_distributions is not None:
+            uncertainty = decompose_forecast_uncertainty(
+                distribution,
+                config.forecast_uncertainty,
+                base_confidence=base_confidence,
+            )
+            scenario_record = generate_scenarios(distribution, config.forecast_uncertainty)
+            if distribution is not None:
+                distribution["uncertainty_decomposition"] = uncertainty
+        else:
+            uncertainty = unavailable_decomposition(
+                "No return distribution was requested; the deterministic baseline path is active."
+            )
+            scenario_record = {"status": "unavailable", "reason": "No return distribution was requested."}
+        adjusted_confidence = uncertainty.get("adjusted_confidence")
+        action_confidence = (
+            float(adjusted_confidence)
+            if isinstance(adjusted_confidence, (int, float)) and isfinite(float(adjusted_confidence))
+            else base_confidence
+        )
         candidate = preliminary_action(
             config,
             total_score=total_score,
             score_distribution=canonical_score.decision_distribution,
-            confidence=float(row["confidence"]),
+            confidence=action_confidence,
             current_weight=current_weight,
             drift=float(row.get("drift") or 0.0),
             hard_band=hard_band,
@@ -118,6 +151,13 @@ def generate_signals(
             cash_weight=cash_weight,
             model_disagreement=0.0,
         )
+        if forecast_distributions is not None:
+            uncertainty_reasons = uncertainty_gate_reasons(
+                uncertainty,
+                config.forecast_uncertainty,
+                effective_confidence=action_confidence * structure_cap,
+            )
+            blocked_by = sorted(set([*blocked_by, *uncertainty_reasons]))
         preliminary_trade_value = suggested_trade_value(total_value, current_weight, projected_weight)
         if candidate in {"buy", "add", "trim", "sell"} and preliminary_trade_value is not None:
             if abs(preliminary_trade_value) < config.risks.portfolio_limits.min_trade_value_eur:
@@ -148,7 +188,6 @@ def generate_signals(
             base_cost_bps=estimated_cost,
             trade_value_eur=trade_value,
         )
-        distribution = forecast_distributions.get(str(row["etf_id"])) if forecast_distributions is not None else None
         distribution_status = _distribution_value(distribution, "status")
         distribution_reason = _distribution_value(distribution, "reason")
         classification_state = classification_score_state(ROOT, str(row["etf_id"]))
@@ -157,7 +196,7 @@ def generate_signals(
             signal_date=signal_date,
             etf_id=str(row["etf_id"]),
             action=final_action,
-            confidence=round(float(row["confidence"]) * structure_cap, 4),
+            confidence=round(action_confidence * structure_cap, 4),
             total_score=round(total_score, 4),
             components=row_components(row),
             blocked_by=blocked_by,
@@ -208,6 +247,10 @@ def generate_signals(
                 "expected_return_horizon_days": _distribution_value(distribution, "horizon_days"),
                 "expected_return_distribution_status": distribution_status or ("legacy_compatibility" if forecast_distributions is None else "unavailable"),
                 "expected_return_distribution_reason": distribution_reason or ("Legacy diagnostic path without a loaded return distribution." if forecast_distributions is None else "No valid forecast return distribution is available."),
+                "return_uncertainty_decomposition": uncertainty,
+                "scenario_status": scenario_record.get("status"),
+                "scenario_seed": scenario_record.get("scenario_seed"),
+                "scenario_inputs": scenario_record.get("scenario_inputs"),
                 "estimated_cost_bps": estimated_cost,
                 "cost_model_id": cost_estimate.model_id,
                 "cost_data_quality": cost_estimate.data_quality,

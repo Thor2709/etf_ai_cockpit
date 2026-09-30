@@ -144,6 +144,7 @@ def build_forecast_lab_workspace(
     *,
     as_of_date: date | str | None = None,
     timing_records: Iterable[Mapping[str, object]] | None = None,
+    scenario_records: Mapping[str, Mapping[str, object]] | None = None,
     profile_id: str = "auto",
 ) -> dict[str, object]:
     """Build the Forecast Lab report with canonical costs and measured runtimes."""
@@ -160,6 +161,7 @@ def build_forecast_lab_workspace(
         round_trip_cost_bps=forecast_round_trip_cost_bps(config, instrument_ids),
         model_runtime_ms=latest_forecast_runtimes(records),
         configured_horizons=config.models.forecast_horizons_trading_days,
+        scenario_records=scenario_records,
         profile_id=profile_id,
     )
 
@@ -173,6 +175,7 @@ def build_forecast_lab_report(
     round_trip_cost_bps: Mapping[str, float] | None = None,
     model_runtime_ms: Mapping[tuple[str, str], float] | None = None,
     configured_horizons: Iterable[int] | None = None,
+    scenario_records: Mapping[str, Mapping[str, object]] | None = None,
     profile_id: str = "auto",
 ) -> dict[str, object]:
     """Build a read-only report from local forecast and adjusted-price rows.
@@ -199,6 +202,7 @@ def build_forecast_lab_report(
     empty_evaluation = pd.DataFrame(columns=WALK_FORWARD_EVALUATION_COLUMNS)
     empty_outcomes = pd.DataFrame(columns=FORECAST_OUTCOME_COLUMNS)
     model_catalogue = model_zoo_frame()
+    scenario_replay_inputs = _scenario_replay_inputs(scenario_records)
     missing_forecasts = sorted(FORECAST_REQUIRED_COLUMNS - set(forecasts.columns))
     missing_prices = sorted(PRICE_REQUIRED_COLUMNS - set(prices.columns))
     if missing_forecasts or missing_prices:
@@ -211,6 +215,7 @@ def build_forecast_lab_report(
             "walk_forward_splits": empty_splits,
             "walk_forward_evaluation": empty_evaluation,
             "forecast_outcomes": empty_outcomes,
+            "scenario_replay_inputs": scenario_replay_inputs,
             "notes": tuple(
                 [f"Forecast columns missing: {', '.join(missing_forecasts)}."] if missing_forecasts else []
             )
@@ -230,6 +235,7 @@ def build_forecast_lab_report(
             "walk_forward_splits": empty_splits,
             "walk_forward_evaluation": empty_evaluation,
             "forecast_outcomes": empty_outcomes,
+            "scenario_replay_inputs": scenario_replay_inputs,
             "notes": ("Unadjusted price rows were rejected; forecast diagnostics require adjusted_close.",),
             "resource_profile": resource_estimate,
             "execution_allowed": False,
@@ -263,6 +269,7 @@ def build_forecast_lab_report(
             "walk_forward_splits": empty_splits,
             "walk_forward_evaluation": empty_evaluation,
             "forecast_outcomes": empty_outcomes,
+            "scenario_replay_inputs": scenario_replay_inputs,
             "notes": ("No dated forecast rows are available in the local cache.",),
             "resource_profile": resource_estimate,
             "execution_allowed": False,
@@ -283,6 +290,7 @@ def build_forecast_lab_report(
             "walk_forward_splits": empty_splits,
             "walk_forward_evaluation": empty_evaluation,
             "forecast_outcomes": empty_outcomes,
+            "scenario_replay_inputs": scenario_replay_inputs,
             "notes": ("No forecast rows are available at the selected as-of date.",),
             "resource_profile": resource_estimate,
             "execution_allowed": False,
@@ -337,10 +345,32 @@ def build_forecast_lab_report(
         "runs": run_rows,
         "walk_forward_splits": split_rows,
         "walk_forward_evaluation": evaluate_walk_forward(split_rows, matured),
+        "scenario_replay_inputs": scenario_replay_inputs,
         "notes": tuple(notes),
         "resource_profile": resource_estimate,
         "execution_allowed": False,
     }
+
+
+def _scenario_replay_inputs(
+    records: Mapping[str, Mapping[str, object]] | None,
+) -> dict[str, dict[str, object]]:
+    """Persist replay seeds and inputs while leaving generated paths untouched."""
+
+    if not isinstance(records, Mapping):
+        return {}
+    output: dict[str, dict[str, object]] = {}
+    for instrument_id, record in sorted(records.items(), key=lambda item: str(item[0])):
+        if not isinstance(record, Mapping):
+            continue
+        seed = record.get("scenario_seed")
+        inputs = record.get("scenario_inputs")
+        if isinstance(seed, int) and not isinstance(seed, bool) and seed >= 0 and isinstance(inputs, Mapping):
+            output[str(instrument_id)] = {
+                "scenario_seed": seed,
+                "scenario_inputs": dict(inputs),
+            }
+    return output
 
 
 def build_walk_forward_splits(

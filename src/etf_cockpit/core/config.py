@@ -194,6 +194,18 @@ class ModelSettings(BaseModel):
         return ModelRuntimeConfig(**raw)
 
 
+class ForecastUncertaintySettings(BaseModel):
+    """Explicit fail-closed thresholds for forecast uncertainty and replay."""
+
+    high_disagreement_threshold: float = Field(gt=0)
+    confidence_haircut: float = Field(ge=0, le=1)
+    minimum_confidence: float = Field(ge=0, le=1)
+    maximum_forecast_age_days: int = Field(gt=0)
+    clone_return_tolerance: float = Field(ge=0)
+    scenario_seed: int = Field(ge=0)
+    scenario_count: int = Field(gt=0)
+
+
 class UISettings(BaseModel):
     theme_mode: str = "dark"
     window_width: int = 1400
@@ -237,6 +249,7 @@ class AppConfig(BaseModel):
     risks: RiskLimits
     costs: CostConfig
     models: ModelSettings
+    forecast_uncertainty: ForecastUncertaintySettings | None = None
     ui: UISettings
     chatgpt_schema: dict[str, Any]
     data_providers: DataProvidersConfig = Field(default_factory=DataProvidersConfig)
@@ -259,6 +272,8 @@ def _read_json(path: Path) -> dict[str, Any]:
 def load_config(config_dir: Path = CONFIG_DIR) -> AppConfig:
     try:
         provider_path = config_dir / "data_providers.yaml"
+        model_settings = _read_yaml(config_dir / "model_settings.yaml") if (config_dir / "model_settings.yaml").exists() else {}
+        uncertainty_settings = model_settings.get("forecast_uncertainty")
         data_providers = DataProvidersConfig(**(_read_yaml(provider_path) if provider_path.exists() else {}))
         data_providers = _apply_provider_env(data_providers, config_dir)
         return AppConfig(
@@ -266,7 +281,12 @@ def load_config(config_dir: Path = CONFIG_DIR) -> AppConfig:
             targets=PortfolioTargets(**(_read_yaml(config_dir / "portfolio_targets.yaml") if (config_dir / "portfolio_targets.yaml").exists() else {})),
             risks=RiskLimits(**(_read_yaml(config_dir / "risk_limits.yaml") if (config_dir / "risk_limits.yaml").exists() else {})),
             costs=CostConfig(**(_read_yaml(config_dir / "costs.yaml") if (config_dir / "costs.yaml").exists() else {})),
-            models=ModelSettings(**(_read_yaml(config_dir / "model_settings.yaml") if (config_dir / "model_settings.yaml").exists() else {})),
+            models=ModelSettings(**model_settings),
+            forecast_uncertainty=(
+                ForecastUncertaintySettings(**uncertainty_settings)
+                if isinstance(uncertainty_settings, dict)
+                else None
+            ),
             ui=UISettings(**(_read_yaml(config_dir / "ui_settings.yaml") if (config_dir / "ui_settings.yaml").exists() else {})),
             chatgpt_schema=_read_json(config_dir / "chatgpt_schema.json") if (config_dir / "chatgpt_schema.json").exists() else {},
             data_providers=data_providers,

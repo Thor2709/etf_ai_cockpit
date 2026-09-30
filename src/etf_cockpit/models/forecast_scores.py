@@ -18,6 +18,7 @@ from etf_cockpit.models.distribution_store import (
     QUANTILE_FIELDS,
     build_distribution_record,
 )
+from etf_cockpit.models.uncertainty import unavailable_decomposition
 
 PRIMARY_MODEL_HORIZON_DAYS = 60
 FALLBACK_MODEL_HORIZONS_DAYS = (120, 20, 5, 180)
@@ -487,6 +488,7 @@ def forecast_return_distributions(
 
     for instrument_id, instrument_frame in frame.groupby(frame["etf_id"].astype(str), sort=True):
         selected_rows: list[dict[str, float | int]] = []
+        per_model_distributions: list[dict[str, object]] = []
         canonical_quantiles: list[dict[str, float]] = []
         canonical_coverages: list[float] = []
         canonical_components: list[dict[str, float]] = []
@@ -514,6 +516,21 @@ def forecast_return_distributions(
             if q10 is None or q90 is None or not q10 <= q50 <= q90:
                 continue
             selected_rows.append({"q10": q10, "q50": q50, "q90": q90, "horizon": int(selected["horizon_days"])})
+            model_distribution: dict[str, object] = {
+                "model_name": str(selected.get("model_name") or ""),
+                "model_id": _text_or_none(selected.get("model_id")),
+                "target_id": _text_or_none(selected.get("target_id")),
+                "horizon_days": int(selected["horizon_days"]),
+                "q10_return": q10,
+                "q50_return": q50,
+                "q90_return": q90,
+                "coverage_ratio": _finite_or_none(selected.get("coverage_ratio")),
+                "forecast_date": _timestamp_iso_or_none(selected.get("forecast_date")),
+            }
+            for field in QUANTILE_FIELDS:
+                if field not in {"q10_return", "q50_return", "q90_return"}:
+                    model_distribution[field] = _finite_or_none(selected.get(field))
+            per_model_distributions.append(model_distribution)
             quantiles = {field: _finite_or_none(selected.get(field)) for field in QUANTILE_FIELDS}
             if all(value is not None for value in quantiles.values()):
                 canonical_quantiles.append({field: float(value) for field, value in quantiles.items() if value is not None})
@@ -626,6 +643,7 @@ def forecast_return_distributions(
             probability_beat_cash=calibrated_probabilities["probability_beat_cash"],
             probability_beat_benchmark=calibrated_probabilities["probability_beat_benchmark"],
             cost_deductions=costs,
+            per_model_distributions=per_model_distributions,
         )
         targets_complete = len(targets_by_model) == len(selected_rows) and all(targets_by_model.values())
         models_complete = len(model_identities_valid_by_model) == len(selected_rows) and all(model_identities_valid_by_model.values())
@@ -743,6 +761,7 @@ def _attach_distribution_contract(
         "return_components": canonical["return_components"],
         "components_status": canonical["components_status"],
         "cost_deductions": canonical["cost_deductions"],
+        "per_model_distributions": canonical.get("per_model_distributions"),
         "net_status": canonical["net_status"],
         "net_reason": canonical["net_reason"],
         "probability_loss": probabilities.get("probability_loss") if canonical["status"] == "available" else None,
@@ -761,6 +780,10 @@ def _attach_distribution_contract(
         for field in QUANTILE_FIELDS:
             distribution[field] = None
             distribution[f"net_{field}"] = None
+    distribution.setdefault(
+        "uncertainty_decomposition",
+        unavailable_decomposition("Uncertainty thresholds are applied by the signal pipeline."),
+    )
     return distribution
 
 
@@ -849,6 +872,20 @@ def _finite_or_none(value: object) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if np.isfinite(number) else None
+
+
+def _text_or_none(value: object) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _timestamp_iso_or_none(value: object) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    parsed = pd.to_datetime(value, errors="coerce", utc=True)
+    return None if pd.isna(parsed) else parsed.isoformat()
 
 
 def _unavailable_distribution(reason: str) -> dict[str, float | int | str | None]:
