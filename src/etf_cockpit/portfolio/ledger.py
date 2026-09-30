@@ -124,6 +124,56 @@ class Ledger:
             created_at=row[6],
         )
 
+    def cash_balance(
+        self,
+        *,
+        account_id: str,
+        currency: str,
+        as_of: datetime,
+        authority: str = "broker",
+    ) -> Decimal:
+        """Read settled cash for one broker cash account using Decimal postings.
+
+        Entries without an explicit settlement date use their effective date;
+        this preserves opening cash while later settlement-dated trades stay out
+        of buying power until their configured date.
+        """
+
+        _required_text(account_id, "account_id")
+        if not isinstance(currency, str) or not _CURRENCY_PATTERN.fullmatch(currency):
+            raise LedgerInvariantError("cash-balance currency must be a three-letter uppercase code")
+        _validate_authority(authority)
+        if not isinstance(as_of, datetime) or as_of.tzinfo is None:
+            raise LedgerInvariantError("cash-balance as_of must be a timezone-aware datetime")
+        cutoff = as_of.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+        account = self.connection.execute(
+            """
+            SELECT account_role FROM ledger_accounts
+            WHERE account_id = ? AND authority = ?
+            """,
+            (account_id, authority),
+        ).fetchone()
+        if account is None or account[0] != "cash":
+            raise LedgerInvariantError("cash balance requires an existing cash-role account")
+        rows = self.connection.execute(
+            """
+            SELECT posting.debit_amount, posting.credit_amount
+            FROM ledger_postings AS posting
+            JOIN ledger_entries AS entry
+              ON entry.entry_id = posting.entry_id AND entry.authority = posting.authority
+            WHERE posting.account_id = ?
+              AND posting.authority = ?
+              AND posting.currency = ?
+              AND entry.status = 'posted'
+              AND COALESCE(entry.settlement_at, entry.effective_at) <= ?
+            """,
+            (account_id, authority, currency, cutoff),
+        ).fetchall()
+        try:
+            return sum((Decimal(row[0]) - Decimal(row[1]) for row in rows), Decimal("0"))
+        except InvalidOperation as exc:
+            raise LedgerInvariantError("cash account contains an invalid stored Decimal posting") from exc
+
     def post(
         self,
         entry_id: str,

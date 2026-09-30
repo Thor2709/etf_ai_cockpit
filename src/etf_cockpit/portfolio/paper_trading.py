@@ -16,7 +16,18 @@ import json
 import os
 from pathlib import Path
 import threading
+from decimal import Decimal
 from typing import Literal, Mapping
+
+from etf_cockpit.core.config import load_config, load_settlement_config
+from etf_cockpit.core.paths import CONFIG_DIR
+from etf_cockpit.trading.cash_reservation import CashReservationError
+from etf_cockpit.trading.order_lifecycle import (
+    ALLOWED_TRANSITIONS,
+    OrderLifecycle,
+    OrderLifecycleError,
+    OrderState,
+)
 
 
 PAPER_SCHEMA_VERSION = "paper_ledger.v1"
@@ -109,6 +120,9 @@ class PaperAccountSnapshot:
 class PaperLedger:
     """Replayable local paper account with no external execution path."""
 
+    ORDER_TRANSITIONS = ALLOWED_TRANSITIONS
+    cash_includes_unsettled_trades = True
+
     def __init__(self, root: Path, *, account_id: str = "local-paper") -> None:
         self.root = root
         self.account_id = _clean_id(account_id, "account_id")
@@ -121,6 +135,7 @@ class PaperLedger:
             else paper_root / "accounts" / self.account_id / "ledger.jsonl"
         )
         self._lock = threading.RLock()
+        self._lifecycle: OrderLifecycle | None = None
 
     def open_account(
         self,
@@ -146,6 +161,21 @@ class PaperLedger:
             )
             events = self._read_events()
             return self._snapshot(events, self._replay(events))
+
+    def cash_balance(self, *, account_id: str, currency: str, as_of: datetime) -> Decimal:
+        """Expose the simulated account cash projection to the reservation service."""
+
+        if account_id != self.account_id:
+            raise PaperLedgerError("Cash balance requested for a different paper account.")
+        if not isinstance(as_of, datetime) or as_of.tzinfo is None:
+            raise PaperLedgerError("A timezone-aware cash-balance time is required.")
+        with self._lock:
+            events = self._read_events()
+            state = self._replay(events)
+            self._require_open(state)
+            if str(state["base_currency"]).upper() != currency.upper():
+                raise PaperLedgerError("Paper cash is available only in the account base currency.")
+            return Decimal(str(state["cash"]))
 
     def accept_proposal(
         self,
@@ -197,11 +227,36 @@ class PaperLedger:
                     raise PaperLedgerError("The paper proposal was already accepted with different terms.")
                 if existing.get("decision_mode", "manual_accept") != decision_mode:
                     raise PaperLedgerError("The paper proposal was already accepted with a different decision mode.")
+                if existing.get("lifecycle_idempotency_key"):
+                    self._order_lifecycle().transition(
+                        order_id,
+                        OrderState.ACKNOWLEDGED,
+                        event_key=f"paper-ack:{order_id}",
+                        event_type="paper_acknowledged",
+                        occurred_at=occurred_at,
+                    )
                 return dict(existing)
             if quantity_delta < 0 and state["positions"].get(instrument_id, {}).get("quantity", 0.0) + 1e-8 < quantity:
                 raise PaperLedgerError("A paper sell cannot exceed the current simulated position.")
-            if quantity_delta > 0 and state["cash"] + 1e-8 < quantity * price * fx + fee_value:
-                raise PaperLedgerError("Insufficient paper cash for the accepted proposal.")
+            venue, instrument_type = self._order_market_terms(proposal, instrument_id)
+            currency = _clean_id(proposal.get("currency", state["base_currency"]), "currency").upper()
+            lifecycle_key = f"paper:{self.account_id}:{proposal_id}"
+            try:
+                intent = self._order_lifecycle().reserve_order(
+                    account_id=self.account_id,
+                    order_id=order_id,
+                    idempotency_key=lifecycle_key,
+                    currency=str(state["base_currency"]).upper(),
+                    side="buy" if quantity_delta > 0 else "sell",
+                    quantity=Decimal(str(quantity)),
+                    limit_price=Decimal(str(price)) * Decimal(str(fx)),
+                    fee_estimate=Decimal(str(fee_value)),
+                    venue=venue,
+                    instrument_type=instrument_type,
+                    occurred_at=occurred_at,
+                )
+            except (OrderLifecycleError, CashReservationError) as exc:
+                raise PaperLedgerError(str(exc)) from exc
             order = {
                 "account_id": self.account_id,
                 "order_id": order_id,
@@ -212,10 +267,14 @@ class PaperLedger:
                 "filled_quantity": 0.0,
                 "remaining_quantity": round(quantity, 8),
                 "execution_price": price,
-                "currency": _clean_id(proposal.get("currency", state["base_currency"]), "currency").upper(),
+                "currency": currency,
                 "status": "accepted",
                 "fee": fee_value,
                 "fx_rate": fx,
+                "lifecycle_idempotency_key": lifecycle_key,
+                "lifecycle_state": OrderState.RESERVED.value,
+                "settlement_date": None if intent.settlement_date is None else intent.settlement_date.isoformat(),
+                "settlement_warning": intent.settlement_warning,
                 "price_basis": "execution_quote",
                 "proposal_snapshot": _json_copy(proposal),
                 "proposal_evidence_hashes": _freeze_proposal_evidence(proposal),
@@ -223,6 +282,13 @@ class PaperLedger:
                 "execution_allowed": False,
             }
             self._append("order_accepted", order, occurred_at=occurred_at)
+            self._order_lifecycle().transition(
+                order_id,
+                OrderState.ACKNOWLEDGED,
+                event_key=f"paper-ack:{order_id}",
+                event_type="paper_acknowledged",
+                occurred_at=occurred_at,
+            )
             return order
 
     def reject_proposal(
@@ -372,6 +438,16 @@ class PaperLedger:
                 raise PaperLedgerError("Insufficient paper cash for this fill.")
             if order["side"] == "sell" and position["quantity"] + 1e-8 < fill_quantity:
                 raise PaperLedgerError("A paper sell fill exceeds the current simulated position.")
+            if order.get("lifecycle_idempotency_key"):
+                self._record_lifecycle_fill(
+                    order,
+                    fill_id=requested_fill_id,
+                    quantity=fill_quantity,
+                    price=fill_price,
+                    fee=fill_fee,
+                    fx_rate=fill_fx,
+                    occurred_at=occurred_at,
+                )
             fill = {
                 "fill_id": requested_fill_id,
                 "order_id": order["order_id"],
@@ -403,7 +479,31 @@ class PaperLedger:
             if order is None:
                 raise PaperLedgerError("The paper order does not exist.")
             if order["status"] in {"filled", "cancelled"}:
+                if order["status"] == "cancelled" and order.get("lifecycle_idempotency_key"):
+                    try:
+                        self._order_lifecycle().transition(
+                            key,
+                            OrderState.CANCELLED,
+                            event_key=f"paper-cancel:{key}",
+                            event_type="paper_cancelled",
+                            payload={"reason": text},
+                            occurred_at=occurred_at,
+                        )
+                    except OrderLifecycleError as exc:
+                        raise PaperLedgerError(str(exc)) from exc
                 return dict(order)
+            if order.get("lifecycle_idempotency_key"):
+                try:
+                    self._order_lifecycle().transition(
+                        key,
+                        OrderState.CANCELLED,
+                        event_key=f"paper-cancel:{key}",
+                        event_type="paper_cancelled",
+                        payload={"reason": text},
+                        occurred_at=occurred_at,
+                    )
+                except OrderLifecycleError as exc:
+                    raise PaperLedgerError(str(exc)) from exc
             self._append("order_cancelled", {"order_id": key, "reason": text}, occurred_at=occurred_at)
             events = self._read_events()
             return dict(self._replay(events)["orders"][key])
@@ -951,6 +1051,62 @@ class PaperLedger:
             handle.write(json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
+
+    def _order_lifecycle(self) -> OrderLifecycle:
+        if self._lifecycle is None:
+            lifecycle_path = self.path.with_name("order_lifecycle.sqlite3")
+            config_dir = self.root / "configs"
+            if not (config_dir / "settlement_v1.yaml").exists():
+                config_dir = CONFIG_DIR
+            self._lifecycle = OrderLifecycle(
+                lifecycle_path,
+                self,
+                settlement=load_settlement_config(config_dir),
+            )
+        return self._lifecycle
+
+    def _order_market_terms(self, proposal: Mapping[str, object], instrument_id: str) -> tuple[str | None, str | None]:
+        venue_value = proposal.get("venue", proposal.get("exchange"))
+        type_value = proposal.get("instrument_type")
+        venue = str(venue_value).strip() if isinstance(venue_value, str) and venue_value.strip() else None
+        instrument_type = str(type_value).strip() if isinstance(type_value, str) and type_value.strip() else None
+        if venue is not None and instrument_type is not None:
+            return venue, instrument_type
+        try:
+            config_dir = self.root / "configs"
+            if not (config_dir / "universe.yaml").exists():
+                config_dir = CONFIG_DIR
+            configured = load_config(config_dir).universe.by_id().get(instrument_id)
+        except Exception:
+            configured = None
+        if configured is not None:
+            venue = venue or configured.exchange
+            instrument_type = instrument_type or configured.instrument_type
+        return venue, instrument_type
+
+    def _record_lifecycle_fill(
+        self,
+        order: Mapping[str, object],
+        *,
+        fill_id: str,
+        quantity: float,
+        price: float,
+        fee: float,
+        fx_rate: float,
+        occurred_at: datetime | None,
+    ) -> None:
+        try:
+            self._order_lifecycle().record_fill(
+                str(order["order_id"]),
+                fill_id=fill_id,
+                quantity=Decimal(str(quantity)),
+                price=Decimal(str(price)),
+                fee=Decimal(str(fee)),
+                fx_rate=Decimal(str(fx_rate)),
+                occurred_at=occurred_at,
+            )
+        except (OrderLifecycleError, CashReservationError) as exc:
+            raise PaperLedgerError(str(exc)) from exc
 
     @contextmanager
     def _file_lock(self):
