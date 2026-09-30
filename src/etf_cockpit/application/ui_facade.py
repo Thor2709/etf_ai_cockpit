@@ -2008,6 +2008,38 @@ def load_paper_trade_rows(root: Path) -> tuple[dict[str, object], ...]:
         return ()
 
 
+def load_canary_status(
+    root: Path | None = None,
+    *,
+    account_id: str = "local-paper",
+    config: object | None = None,
+) -> dict[str, object]:
+    """Expose the local paper-canary state and its permanently blocked live gate."""
+
+    from etf_cockpit.trading.canary import CanaryConfig, CanaryController, CanaryError
+
+    if config is not None and not isinstance(config, CanaryConfig):
+        return {
+            "state": "invalid",
+            "stage": "disabled",
+            "opted_in": False,
+            "live_submission": "blocked",
+            "live_unmet_dependencies": ["canary_config_invalid"],
+            "execution_allowed": False,
+        }
+    try:
+        return CanaryController(root or ROOT, account_id=account_id, config=config).status()
+    except (CanaryError, OSError, TypeError, ValueError):
+        return {
+            "state": "invalid",
+            "stage": "disabled",
+            "opted_in": False,
+            "live_submission": "blocked",
+            "live_unmet_dependencies": ["canary_state_unavailable"],
+            "execution_allowed": False,
+        }
+
+
 def load_paper_incidents(root: Path, *, account_id: str = "local-paper") -> dict[str, object]:
     """Expose the verified local incident journal to presentation selectors."""
 
