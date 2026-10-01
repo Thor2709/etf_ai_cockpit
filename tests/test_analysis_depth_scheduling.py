@@ -11,7 +11,11 @@ from etf_cockpit.application.analysis_depth import (
     ANALYSIS_TIMINGS_RELATIVE_PATH,
     MANDATORY_STAGE_IDS,
     AnalysisDepthError,
+    create_resource_plan,
+    execute_profiled_stages,
     load_analysis_depth_profiles,
+    stage_cache_key,
+    stage_output_hash,
 )
 from etf_cockpit.application.bulk_run import BulkAnalysisService
 from etf_cockpit.core import resource_profiles
@@ -256,6 +260,70 @@ def test_concurrent_cache_and_timing_writes_match_sequential_outputs(monkeypatch
         counts = Counter(zip(records["timing_kind"], records["stage_id"]))
         assert len(records) == profile_stage_count
         assert all(count == 1 for count in counts.values())
+
+
+def test_concurrent_cache_publication_rejects_different_valid_results():
+    profile = load_analysis_depth_profiles()["quick"]
+    stage = profile.stages[0]
+    profile = replace(profile, stages=(stage,))
+    instrument_id = "ETF.CACHE"
+    analysis_input = {"value": 3}
+    analyzer_id = "tests.depth.concurrent-determinism.v1"
+    resource_plan = create_resource_plan(profile)
+    cache = {}
+    cache_lock = Lock()
+    runner_lock = Lock()
+    barrier = Barrier(2, timeout=5)
+    runner_results = []
+
+    def runner(instrument, stage_input, current_stage, _resource_plan):
+        with runner_lock:
+            result = {
+                "stage_id": current_stage.stage_id,
+                "instrument_id": instrument,
+                "value": stage_input["value"] + len(runner_results) + 1,
+                "passed": True,
+            }
+            runner_results.append(result)
+        barrier.wait()
+        return result
+
+    def execute(run_id):
+        return execute_profiled_stages(
+            profile,
+            instrument_id,
+            analysis_input,
+            analyzer_id,
+            runner,
+            cache,
+            run_id=run_id,
+            resource_plan=resource_plan,
+            cache_lock=cache_lock,
+        )[0]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(execute, f"concurrent-determinism-{index}") for index in range(2)]
+        outcomes = []
+        for future in futures:
+            try:
+                outcomes.append(("result", future.result()))
+            except AnalysisDepthError as error:
+                outcomes.append(("error", error))
+
+    successful_outputs = [value for outcome, value in outcomes if outcome == "result"]
+    errors = [value for outcome, value in outcomes if outcome == "error"]
+    cache_key = stage_cache_key(instrument_id, analysis_input, analyzer_id, stage)
+    assert len(successful_outputs) == 1
+    assert len(errors) == 1
+    assert stage.stage_id in str(errors[0])
+    assert cache_key in str(errors[0])
+    assert "determinism violation" in str(errors[0])
+    assert len(runner_results) == 2
+    assert runner_results[0] != runner_results[1]
+    assert cache[cache_key] == {
+        "content_hash": stage_output_hash(successful_outputs[0]["stages"][stage.stage_id]),
+        "result": successful_outputs[0]["stages"][stage.stage_id],
+    }
 
 
 def test_cancelled_stage_is_timed_and_new_run_reuses_prior_cache(monkeypatch, tmp_path):

@@ -994,11 +994,21 @@ def execute_profiled_stages(
         if not reused and stage_result is not None:
             with cache_lock if cache_lock is not None else nullcontext():
                 existing = cache.get(key)
-                if (
-                    isinstance(existing, Mapping)
-                    and "result" in existing
-                    and stage_output_hash(existing["result"]) == existing.get("content_hash") == content_hash
-                ):
+                existing_hash = None
+                existing_valid = False
+                if isinstance(existing, Mapping) and "result" in existing:
+                    try:
+                        existing_hash = stage_output_hash(existing["result"])
+                    except AnalysisDepthError:
+                        pass
+                    else:
+                        existing_valid = existing_hash == existing.get("content_hash")
+                if existing_valid:
+                    if existing_hash != content_hash:
+                        raise AnalysisDepthError(
+                            f"determinism violation for stage {stage.stage_id} and cache key {key}: "
+                            f"existing hash {existing_hash} differs from recomputed hash {content_hash}"
+                        )
                     stage_result = existing["result"]
                     stage_outputs[stage.stage_id] = stage_result
                 else:
