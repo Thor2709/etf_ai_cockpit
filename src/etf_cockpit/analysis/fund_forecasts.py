@@ -442,8 +442,12 @@ def _eligible_calibration_evidence(
             or row.known_at.astimezone(timezone.utc) > decision
             or (
                 row.active_from is not None
-                and row.known_at.astimezone(timezone.utc)
-                < row.active_from.astimezone(timezone.utc)
+                and (
+                    row.known_at.astimezone(timezone.utc)
+                    < row.active_from.astimezone(timezone.utc)
+                    or row.matured_at.astimezone(timezone.utc)
+                    < row.active_from.astimezone(timezone.utc)
+                )
             )
             or (
                 row.active_to is not None

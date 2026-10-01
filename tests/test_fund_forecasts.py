@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 import yaml
 
@@ -21,9 +22,15 @@ from etf_cockpit.analysis.fund_forecasts import (
     forecast_fund_return,
     project_fund_recommendation,
 )
+from etf_cockpit.core.config import load_config
 from etf_cockpit.analysis.fund_peers import FundPeerCohort
 from etf_cockpit.analysis.peer_cohorts import CohortMembership, PeerMetricResult
 from etf_cockpit.portfolio import risk_profiles
+from etf_cockpit.portfolio.sandbox import (
+    PortfolioSnapshotBinding,
+    analyse_candidate,
+    create_candidate,
+)
 
 
 DECISION = datetime(2026, 6, 1, 12, tzinfo=timezone.utc)
@@ -341,6 +348,19 @@ def test_conformal_calibration_is_point_in_time_and_falls_back_to_parent() -> No
     assert active_window.sample_count == 30
     assert len([ref for ref in active_window.evidence_references if ":cal:" in ref]) == 20
 
+    matured_before_active_from = forecast_fund_return(
+        _input(
+            cohort=_cohort(),
+            calibration=_calibration(
+                20,
+                matured_at=DECISION - timedelta(days=366),
+                active_from=DECISION - timedelta(days=365),
+            ),
+        )
+    )
+    assert matured_before_active_from.status == "research_only"
+    assert matured_before_active_from.loss_probability is None
+
     parent_fallback = forecast_fund_return(
         _input(
             cohort=_cohort(),
@@ -413,41 +433,52 @@ def test_profile_projection_requires_after_trade_context_and_calls_once_per_pres
         for profile in no_context.profile_results
     )
 
-    analysis = SimpleNamespace(
-        candidate=SimpleNamespace(
-            candidate_id="candidate-fixture",
-            name="Candidate fixture",
-            targets={"ETF-A": 0.25, "ETF-B": 0.75},
-            cash_weight=0.0,
-        ),
-        allocations=(),
-        snapshot_binding=SimpleNamespace(
-            account_id="account-fixture",
-            portfolio_id="portfolio-fixture",
-            snapshot_id="snapshot-fixture",
-            source_revision="1",
-            source_checksum="source-fixture",
-            price_source_revision="1",
-            price_source_checksum="price-fixture",
-            as_of="2025-02-01",
-            holdings_view="combined",
-            holdings_sources=(),
-        ),
-        service_evidence={},
-        constraints=(),
-        source_stale=False,
-        sector_exposure=(),
-        region_exposure=(),
-        currency_exposure=(),
-        cost=None,
+    config = load_config()
+    holdings = pd.DataFrame(
+        [
+            {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0},
+            {"etf_id": "LYP6", "current_weight": 0.2, "market_value_eur": 20_000.0},
+        ]
     )
-    snapshot = object()
+    candidate = create_candidate(
+        config,
+        holdings,
+        name="Goal test candidate",
+        analysis_notional_eur=100_000.0,
+        target_weights={"VWCE": 0.6, "LYP6": 0.4},
+        cash_weight=0.0,
+        source_revision="universe-test",
+        source_as_of="2026-07-18",
+    )
+    analysis = analyse_candidate(config, holdings, candidate, current_revision="universe-test")
+    binding = PortfolioSnapshotBinding(
+        account_id="default",
+        portfolio_id="default",
+        snapshot_id="snapshot-1",
+        source_revision="universe-test",
+        source_checksum=candidate.source_checksum,
+        price_source_revision="prices-test",
+        price_source_checksum="a" * 64,
+        as_of="2026-07-18",
+    )
+    analysis = replace(analysis, snapshot_binding=binding)
+    snapshot = SimpleNamespace(
+        config=config,
+        holdings=holdings,
+        account_id="default",
+        portfolio_id="default",
+        snapshot_id="snapshot-1",
+    )
     real_project = risk_profiles.project_risk_profile
     calls: list[str] = []
+    projected_results: list[risk_profiles.ProfileProjection] = []
 
     def spy_project(profile, after_trade_analysis, after_trade_snapshot):
         calls.append(profile.profile_id)
-        return real_project(profile, after_trade_analysis, after_trade_snapshot)
+        projected = real_project(profile, after_trade_analysis, after_trade_snapshot)
+        assert isinstance(projected, risk_profiles.ProfileProjection)
+        projected_results.append(projected)
+        return projected
 
     monkeypatch.setattr(risk_profiles, "project_risk_profile", spy_project)
     with_context = project_fund_recommendation(
@@ -465,8 +496,10 @@ def test_profile_projection_requires_after_trade_context_and_calls_once_per_pres
     assert tuple(
         (profile.profile_id, profile.status)
         for profile in with_context.profile_results
-    ) == tuple((profile_id, "blocked") for profile_id in expected_profile_ids)
-    assert all(profile.eligible is False for profile in with_context.profile_results)
+    ) == tuple(
+        (projected.eligibility.profile_id, projected.eligibility.status)
+        for projected in projected_results
+    )
 
     def contract_error(profile, after_trade_analysis, after_trade_snapshot):
         raise ValueError("unsupported after-trade context")

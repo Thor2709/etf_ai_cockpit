@@ -19,10 +19,11 @@ calibration evidence. Calibration entries carry a cohort key, exact horizon and
 currency, a nonconformity score, `known_at`, and `matured_at`. The existing
 `conformal_quantile_adjustment` helper selects the finite-sample adjustment;
 quantiles expand by that amount on both tails. Entries matured at or after the
-decision time, or not known by it, are excluded. When active-window bounds are
-provided, evidence outside those bounds is excluded. The evaluator does not
-exclude a fund because it is currently closed or merged, so matured evidence
-inside its active window remains available.
+decision time, or not known by it, are excluded. When an `active_from` bound is
+provided, both the known and matured dates must be on or after it; `active_to`
+continues to bound the matured date. The evaluator does not exclude a fund
+because it is currently closed or merged, so matured evidence inside its active
+window remains available.
 
 Calibration first checks the leaf key and then each parent key available in the
 `FundPeerCohort` fallback hierarchy. It selects the first key with the required
