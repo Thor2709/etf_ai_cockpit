@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import math
+import json
 
 import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, section_header
+from etf_cockpit.app.formatting import format_number, format_percent
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
     FUNDAMENTAL_CLEAN_PATH,
@@ -18,10 +20,12 @@ from etf_cockpit.application.ui_facade import (
     export_screen_csv,
     latest_fundamental_rows,
     load_fundamental_evidence,
+    load_fixed_income_screener,
     load_screen,
     query_for_snapshot,
     run_screen,
     save_screen,
+    export_table,
 )
 from etf_cockpit.core.paths import EXPORTS_DIR
 
@@ -46,6 +50,9 @@ def screener_page(_page: ft.Page, _state: AppState) -> ft.Control:
         frame = latest_fundamental_rows(frame)
 
     screen_frame = build_screen_rows(_state.snapshot, frame)
+    as_of_date = _state.snapshot.data_report.as_of_date
+    decision_time = f"{as_of_date}T23:59:59+00:00" if as_of_date is not None else ""
+    fixed_income_result = load_fixed_income_screener(decision_time=decision_time)
     filters: list[ScreenFilter] = []
     current_query = [query_for_snapshot(_state.snapshot, screen_frame)]
     current_result = [run_screen(screen_frame, current_query[0])]
@@ -233,6 +240,7 @@ def screener_page(_page: ft.Page, _state: AppState) -> ft.Control:
             status,
             status_colour,
         ),
+        _fixed_income_returns_block(_page, fixed_income_result),
         panel(
             ft.Column(
                 [
@@ -450,6 +458,199 @@ def _display(value: object, *, fallback: str = "N/A") -> str:
     if isinstance(value, (list, tuple, set)):
         return " | ".join(str(item) for item in value) or fallback
     return str(value)
+
+
+def _fixed_income_returns_block(
+    page: ft.Page | None, result: object
+) -> ft.Control:
+    projection = result if isinstance(result, dict) else {}
+    rows = projection.get("rows")
+    rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    status = ft.Text(
+        f"Status: {projection.get('status', 'unavailable')}; "
+        f"as of {projection.get('decision_time', 'unavailable')}; "
+        f"horizon={projection.get('horizon_days', 'unavailable')} days; "
+        f"persistence={projection.get('persistence_status', 'unavailable')}; execution_allowed=false.",
+        key="screener.fixed-income.status",
+        color=theme.MUTED,
+        selectable=True,
+    )
+    if projection.get("reason_codes"):
+        status.value = f"{status.value} Reasons: {', '.join(map(str, projection['reason_codes']))}."
+    table_rows = []
+    for row in rows:
+        q05, q95 = row.get("q05"), row.get("q95")
+        distribution = (
+            f"q05 {format_percent(q05)}–q95 {format_percent(q95)}"
+            if q05 is not None and q95 is not None
+            else f"{row.get('forecast_status', 'unavailable')}; q05–q95 unavailable"
+        )
+        peer_ci = (
+            f"peer score {format_percent(row.get('peer_score_ci_q05'))}–"
+            f"{format_percent(row.get('peer_score_ci_q95'))}"
+            if row.get("peer_score_ci_q05") is not None
+            and row.get("peer_score_ci_q95") is not None
+            else "unavailable"
+        )
+        peer_support = (
+            f"{row.get('peer_support', 0)}/{row.get('peer_minimum_support', 0)}"
+            f" ({row.get('peer_level') or 'no cohort'})"
+        )
+        table_rows.append(
+            ft.DataRow(
+                cells=[
+                    ft.DataCell(ft.Text(str(row.get("instrument_id", "")), selectable=True)),
+                    ft.DataCell(ft.Text(format_percent(row.get("yield_to_worst")))),
+                    ft.DataCell(ft.Text(format_number(row.get("duration_years"), decimals=2))),
+                    ft.DataCell(ft.Text(format_percent(row.get("baseline_total_return")))),
+                    ft.DataCell(ft.Text(format_percent(row.get("risk_adjusted_score")))),
+                    ft.DataCell(ft.Text(distribution)),
+                    ft.DataCell(ft.Text(str(row.get("liquidity_status", "unavailable")))),
+                    ft.DataCell(ft.Text(peer_support)),
+                    ft.DataCell(ft.Text(peer_ci)),
+                    ft.DataCell(ft.Text(str(row.get("rank") or "N/A"))),
+                    ft.DataCell(
+                        ft.Text(
+                            ", ".join(map(str, row.get("reason_codes", ()))) or "—",
+                            selectable=True,
+                        )
+                    ),
+                ]
+            )
+        )
+
+    export_status = ft.Text(
+        "Export includes decomposition, peer, distribution and gate evidence.",
+        key="screener.fixed-income.export-status",
+        color=theme.MUTED,
+        selectable=True,
+    )
+
+    def export_fixed_income(_event: ft.ControlEvent) -> None:
+        if not rows:
+            export_status.value = "Fixed-income audit export unavailable: no rows are available."
+            export_status.color = theme.AMBER
+            _safe_update(page)
+            return
+        audit_rows = []
+        for row in rows:
+            audit = {
+                key: row.get(key)
+                for key in (
+                    "instrument_id",
+                    "status",
+                    "recommendation",
+                    "yield_to_worst",
+                    "duration_years",
+                    "baseline_total_return",
+                    "net_total_return",
+                    "risk_penalty",
+                    "risk_adjusted_score",
+                    "forecast_status",
+                    "q05",
+                    "q50",
+                    "q95",
+                    "loss_probability",
+                    "beat_cash_probability",
+                    "beat_benchmark_probability",
+                    "liquidity_status",
+                    "peer_support",
+                    "peer_minimum_support",
+                    "peer_level",
+                    "peer_status",
+                    "robust_percentile",
+                    "peer_score_ci_q05",
+                    "peer_score_ci_q95",
+                    "rank_stability",
+                    "rank_stability_seed",
+                    "rank",
+                    "top_n",
+                    "portfolio_fit",
+                    "persisted",
+                )
+            }
+            audit["reason_codes"] = ";".join(map(str, row.get("reason_codes", ())))
+            audit["decomposition_json"] = json.dumps(row.get("decomposition"), sort_keys=True)
+            audit["peer_cohort_json"] = json.dumps(row.get("peer_cohort"), sort_keys=True)
+            audit["distribution_json"] = json.dumps(row.get("distribution"), sort_keys=True)
+            audit["source_lineage"] = ";".join(map(str, row.get("source_lineage", ())))
+            audit["analysis_snapshot_id"] = projection.get("analysis_snapshot_id")
+            audit["decision_time"] = projection.get("decision_time")
+            audit["horizon_days"] = projection.get("horizon_days")
+            audit["execution_allowed"] = False
+            audit_rows.append(audit)
+        exported = export_table(
+            "fixed_income_screener",
+            pd.DataFrame(audit_rows),
+            EXPORTS_DIR / "fixed_income_screener.csv",
+        )
+        if exported.ok:
+            export_status.value = f"Fixed-income audit CSV ready: {exported.destination} ({exported.rows} rows)."
+            export_status.color = theme.GREEN
+        else:
+            export_status.value = f"Fixed-income audit export unavailable: {exported.error}; previous output preserved."
+            export_status.color = theme.RED
+        _safe_update(page)
+
+    columns = (
+        "Instrument",
+        "YTW",
+        "Duration",
+        "Baseline",
+        "Risk-adjusted",
+        "Distribution",
+        "Liquidity",
+        "Peer support",
+        "CI",
+        "Rank",
+        "Blockers",
+    )
+    table: ft.Control = (
+        ft.DataTable(
+            columns=[ft.DataColumn(ft.Text(label)) for label in columns],
+            rows=table_rows,
+            column_spacing=14,
+            data_row_min_height=42,
+        )
+        if table_rows
+        else ft.Text(
+            "No saved fixed-income terms are available at this decision time. "
+            f"{', '.join(map(str, projection.get('reason_codes', ())))}",
+            color=theme.MUTED,
+            selectable=True,
+        )
+    )
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Fixed-income expected returns",
+                    "Deterministic carry, roll and risk scenarios use saved bond evidence. Forecast distributions remain research-only until horizon outcomes are calibrated.",
+                ),
+                ft.Text(
+                    "Advisory only | missing data stays unavailable | no trading authority",
+                    color=theme.MUTED,
+                    size=11,
+                    selectable=True,
+                ),
+                status,
+                ft.Row([table], scroll=ft.ScrollMode.AUTO),
+                ft.Row(
+                    [
+                        ft.OutlinedButton(
+                            "Export debt audit",
+                            key="screener.fixed-income.export",
+                            icon=ft.Icons.DOWNLOAD,
+                            on_click=export_fixed_income,
+                        ),
+                        export_status,
+                    ],
+                    wrap=True,
+                ),
+            ],
+            spacing=8,
+        )
+    )
 
 
 __all__ = ["screener_page"]

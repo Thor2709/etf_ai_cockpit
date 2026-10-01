@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import json
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
@@ -12,6 +13,7 @@ import pandas as pd
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
 from etf_cockpit.app.components.charts import portfolio_performance_chart
+from etf_cockpit.app.components.fixed_income_views import portfolio_maturity_ladder_panel
 from etf_cockpit.app.components.overlap import overlap_evidence_panel
 from etf_cockpit.app.formatting import format_currency, format_number, format_percent
 from etf_cockpit.app.state import AppState
@@ -28,8 +30,14 @@ from etf_cockpit.application.ui_facade import (
     candidate_id,
     draft_portfolio_candidate,
     load_portfolio_candidate,
+    load_portfolio_forecast_aggregation,
     load_portfolio_performance_series,
+    load_portfolio_risk_profile_projection,
+    load_portfolio_calendar_projection,
+    load_portfolio_maturity_ladder_projection,
     load_portfolio_holdings_projection,
+    load_portfolio_goals_projection,
+    load_fixed_income_screener,
     portfolio_snapshot_binding,
     performance_series_frame,
     CANONICAL_DISTRIBUTION_HORIZONS_DAYS,
@@ -175,6 +183,614 @@ def _portfolio_performance_block(page: ft.Page | None) -> ft.Control:
                 status,
                 chart_host,
                 ft.Row([ft.OutlinedButton("Download CSV", key="portfolio.performance.download", icon=ft.Icons.DOWNLOAD, on_click=export_selected), export_status], wrap=True),
+            ],
+            spacing=8,
+        )
+    )
+
+
+def _portfolio_fixed_income_returns_block(state: AppState) -> ft.Control:
+    held_ids = tuple(sorted(_holding_ids(state.snapshot.holdings)))
+    as_of_date = state.snapshot.data_report.as_of_date
+    decision_time = f"{as_of_date}T23:59:59+00:00" if as_of_date is not None else ""
+    result = load_fixed_income_screener(decision_time=decision_time, instrument_ids=held_ids)
+    rows = result.get("rows") if isinstance(result, Mapping) else None
+    rows = [row for row in rows if isinstance(row, Mapping)] if isinstance(rows, list) else []
+    table: ft.Control = (
+        ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text(label))
+                for label in ("Instrument", "Baseline", "Net", "Risk-adjusted", "Portfolio fit", "Blockers")
+            ],
+            rows=[
+                ft.DataRow(
+                    cells=[
+                        ft.DataCell(ft.Text(str(row.get("instrument_id", "")), selectable=True)),
+                        ft.DataCell(ft.Text(format_percent(row.get("baseline_total_return")))),
+                        ft.DataCell(ft.Text(format_percent(row.get("net_total_return")))),
+                        ft.DataCell(ft.Text(format_percent(row.get("risk_adjusted_score")))),
+                        ft.DataCell(ft.Text(str(row.get("portfolio_fit", "unavailable")))),
+                        ft.DataCell(
+                            ft.Text(", ".join(map(str, row.get("reason_codes", ()))) or "—", selectable=True)
+                        ),
+                    ]
+                )
+                for row in rows
+            ],
+            column_spacing=16,
+        )
+        if rows
+        else ft.Text(
+            "No fixed-income holdings have saved terms and return inputs in this snapshot. "
+            f"{', '.join(map(str, result.get('reason_codes', ())))}",
+            color=theme.MUTED,
+            selectable=True,
+        )
+    )
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Fixed-income portfolio fit",
+                    "Current holding membership, deterministic return components and evidence gates for the selected portfolio snapshot.",
+                ),
+                ft.Text(
+                    f"Status: {result.get('status', 'unavailable')}; "
+                    f"persistence={result.get('persistence_status', 'unavailable')}; "
+                    f"execution_allowed=false.",
+                    color=theme.MUTED,
+                    selectable=True,
+                ),
+                table,
+            ],
+            spacing=8,
+        )
+    )
+
+
+def _portfolio_risk_profiles_block(
+    page: ft.Page | None,
+    state: AppState,
+    current_analysis: list[PortfolioAnalysis],
+) -> ft.Control:
+    selected_id = ["medium"]
+    saved_versions: dict[str, Mapping[str, object]] = {}
+    saved_history: dict[str, list[Mapping[str, object]]] = {}
+    projection = [
+        load_portfolio_risk_profile_projection(
+            state.snapshot,
+            current_analysis[0],
+            profile_id=selected_id[0],
+        )
+    ]
+    comparison_rows = projection[0].get("comparison", ())
+    comparison_rows = comparison_rows if isinstance(comparison_rows, (list, tuple)) else ()
+    options = [
+        ft.dropdown.Option(
+            key=str(item.get("profile_id")),
+            text=str(item.get("label", item.get("profile_id", ""))),
+        )
+        for item in comparison_rows
+        if isinstance(item, Mapping)
+    ]
+    selector = ft.Dropdown(
+        key="portfolio.risk-profile.select",
+        label="Risk profile",
+        value=selected_id[0] if options else None,
+        options=options,
+        width=240,
+        dense=True,
+        disabled=not options,
+    )
+    policy_editor = ft.TextField(
+        key="portfolio.risk-profile.policy",
+        label="Editable profile parameters (JSON)",
+        value="{}",
+        multiline=True,
+        min_lines=4,
+        max_lines=7,
+        expand=True,
+    )
+    status = ft.Text(color=theme.MUTED, selectable=True)
+    intent = ft.Text(color=theme.MUTED, selectable=True)
+    version_label = ft.Text(color=theme.MUTED, selectable=True)
+    anchor = ft.Text(color=theme.MUTED, selectable=True)
+    guardrails_view = ft.Text(color=theme.MUTED, selectable=True)
+    binding_reasons = ft.Text(color=theme.AMBER, selectable=True)
+    comparison = ft.Column(spacing=2)
+    history = ft.Text(color=theme.MUTED, selectable=True, font_family="Consolas", size=11)
+
+    def render_projection(value: Mapping[str, object]) -> None:
+        profile = value.get("profile")
+        profile = profile if isinstance(profile, Mapping) else {}
+        parameters = profile.get("parameters")
+        parameters = parameters if isinstance(parameters, Mapping) else {}
+        guardrails = profile.get("guardrails")
+        anchor_value = value.get("vwce_anchor")
+        anchor_value = anchor_value if isinstance(anchor_value, Mapping) else {}
+        eligibility = value.get("eligibility")
+        eligibility = eligibility if isinstance(eligibility, Mapping) else {}
+        status_value = str(value.get("status", "unavailable"))
+        reason = value.get("reason")
+        status.value = (
+            f"Profile projection {status_value}; risk-relative rank/recommendation unavailable: {reason}."
+            if reason
+            else f"Profile projection {status_value}; execution remains disabled."
+        )
+        status.color = theme.GREEN if status_value == "partial" else theme.AMBER
+        intent.value = f"{profile.get('label', 'Risk profile')} · {profile.get('intent', '')}"
+        version_label.value = (
+            f"Policy version {profile.get('version', 'unavailable')} · "
+            f"origin={profile.get('origin', 'unavailable')} · "
+            f"hash={profile.get('policy_hash', 'unavailable')}"
+        )
+        guardrails_view.value = "Editable guardrails: " + json.dumps(
+            guardrails if isinstance(guardrails, Mapping) else {},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        if anchor_value.get("status") == "available":
+            anchor.value = (
+                "VWCE anchor resolved: "
+                f"share class={anchor_value.get('canonical_share_class_id')}; "
+                f"listing={anchor_value.get('listing_id')}; date={anchor_value.get('effective_date')}; "
+                f"currency={anchor_value.get('output_currency')}; horizon={anchor_value.get('horizon_years')} years; "
+                f"known={anchor_value.get('knowledge_cutoff')}; "
+                f"source_digest={anchor_value.get('anchor_digest')}; "
+                f"resolution_digest={anchor_value.get('resolution_digest')}; "
+                f"risk distribution={anchor_value.get('risk_envelope_status')}."
+            )
+        else:
+            anchor.value = f"VWCE anchor unavailable: {anchor_value.get('reason', 'saved anchor resolution unavailable')}."
+        reasons = eligibility.get("binding_reasons", ())
+        binding_reasons.value = "Binding reasons: " + (", ".join(map(str, reasons)) if reasons else "none")
+        policy_editor.value = json.dumps(parameters, ensure_ascii=False, indent=2, sort_keys=True)
+        history_rows = value.get("version_history", ())
+        history.value = "Version history (this page session; persistent store unavailable): " + json.dumps(
+            history_rows if isinstance(history_rows, (list, tuple)) else [],
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+        rows = value.get("comparison", ())
+        rows = rows if isinstance(rows, (list, tuple)) else ()
+        comparison.controls = []
+        for item in rows:
+            if not isinstance(item, Mapping):
+                continue
+            result = item.get("eligibility")
+            result = result if isinstance(result, Mapping) else {}
+            comparison.controls.append(
+                ft.Text(
+                    f"{item.get('label', item.get('profile_id'))}: eligibility={result.get('status')}; "
+                    f"rank={result.get('rank', 'unavailable')}; recommendation={result.get('recommendation', 'unavailable')}",
+                    selectable=True,
+                )
+            )
+        if isinstance(profile, Mapping) and profile.get("profile_id"):
+            saved_versions[str(profile["profile_id"])] = dict(profile)
+            saved_history[str(profile["profile_id"])] = [
+                dict(item) for item in history_rows if isinstance(item, Mapping)
+            ] if isinstance(history_rows, (list, tuple)) else []
+
+    def refresh(
+        _event: ft.ControlEvent | None = None,
+        *,
+        profile_edits: Mapping[str, object] | None = None,
+        reset_to_preset: bool = False,
+    ) -> Mapping[str, object]:
+        profile_id = selected_id[0]
+        result = load_portfolio_risk_profile_projection(
+            state.snapshot,
+            current_analysis[0],
+            profile_id=profile_id,
+            profile_version=saved_versions.get(profile_id),
+            version_history=saved_history.get(profile_id, ()),
+            profile_edits=profile_edits,
+            reset_to_preset=reset_to_preset,
+        )
+        projection[0] = result
+        render_projection(result)
+        _safe_update(page)
+        return result
+
+    def select_profile(_event: ft.ControlEvent | None) -> None:
+        value = str(selector.value or "").strip()
+        if value:
+            selected_id[0] = value
+            refresh()
+
+    def save_profile(_event: ft.ControlEvent | None) -> None:
+        try:
+            values = json.loads(str(policy_editor.value or "{}"))
+            if not isinstance(values, Mapping):
+                raise ValueError("profile parameters must be a JSON object")
+            result = refresh(profile_edits=values)
+            active = result.get("profile")
+            version = active.get("version") if isinstance(active, Mapping) else "unavailable"
+            status.value = f"Created risk-profile version {version}; the preset and earlier versions were retained."
+            status.color = theme.GREEN
+            _safe_update(page)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            status.value = f"Profile version was not saved: {exc}"
+            status.color = theme.AMBER
+            _safe_update(page)
+
+    def reset_profile(_event: ft.ControlEvent | None) -> None:
+        result = refresh(reset_to_preset=True)
+        active = result.get("profile")
+        version = active.get("version") if isinstance(active, Mapping) else "unavailable"
+        status.value = f"Created reset version {version}; the preset and earlier versions were retained."
+        status.color = theme.GREEN
+        _safe_update(page)
+
+    selector.on_change = select_profile
+    render_projection(projection[0])
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Risk profiles",
+                    "Five advisory policies share the same saved analysis. VWCE-relative scoring abstains when a sealed, horizon and currency matched risk distribution is unavailable.",
+                ),
+                ft.Row([selector], wrap=True),
+                intent,
+                version_label,
+                anchor,
+                ft.Row([policy_editor], expand=True),
+                guardrails_view,
+                ft.Row(
+                    [
+                        ft.OutlinedButton(
+                            "Save as new version",
+                            key="portfolio.risk-profile.save",
+                            on_click=save_profile,
+                            disabled=not options,
+                        ),
+                        ft.TextButton(
+                            "Reset to preset",
+                            key="portfolio.risk-profile.reset",
+                            on_click=reset_profile,
+                            disabled=not options,
+                        ),
+                    ],
+                    wrap=True,
+                ),
+                status,
+                binding_reasons,
+                section_header("Profile comparison", "Unavailable ranks stay explicit; binding after-trade constraints are shown per selected profile."),
+                comparison,
+                history,
+                ft.Text(
+                    f"Raw portfolio analysis remains unchanged. Snapshot binding: {projection[0].get('source_snapshot_hash') or 'unavailable'}.",
+                    color=theme.MUTED,
+                    selectable=True,
+                ),
+            ],
+            spacing=8,
+        )
+    )
+
+
+def _portfolio_maturity_ladder_block(
+    state: AppState, analysis: PortfolioAnalysis
+) -> ft.Control:
+    projection = load_portfolio_maturity_ladder_projection(state.snapshot, analysis)
+    return portfolio_maturity_ladder_panel(projection)
+
+
+def _portfolio_forecast_block(
+    page: ft.Page | None,
+    state: AppState,
+    current_analysis: list[PortfolioAnalysis],
+) -> ft.Control:
+    status = ft.Text("Loading saved portfolio forecast…", key="portfolio.forecast.status", color=theme.MUTED, selectable=True)
+    result_host = ft.Column(key="portfolio.forecast.results", spacing=8)
+
+    def cell_text(value: object, *, as_currency: bool = False, as_percent: bool = False) -> str:
+        if not isinstance(value, Mapping) or value.get("status") not in {"available", "partial"}:
+            reason = value.get("reason") if isinstance(value, Mapping) else None
+            return f"Unavailable: {reason or 'saved input unavailable'}"
+        raw = value.get("value")
+        if as_currency:
+            return format_currency(raw, currency=str(currency.value or "EUR").upper())
+        if as_percent:
+            return format_percent(raw)
+        return str(raw) if raw is not None else "N/A"
+
+    def render_view(label: str, view: Mapping[str, object]) -> ft.Control:
+        net = view.get("net")
+        gross = view.get("gross")
+        selected = net if isinstance(net, Mapping) and net.get("status") != "unavailable" else gross
+        selected = selected if isinstance(selected, Mapping) else {}
+        quantiles = selected.get("quantiles")
+        gain_quantiles = selected.get("gain_loss_quantiles")
+        probabilities = selected.get("probabilities")
+        coverage = view.get("coverage")
+        coverage = coverage if isinstance(coverage, Mapping) else {}
+        components = view.get("components")
+        components = components if isinstance(components, Mapping) else {}
+        costs = view.get("cost_contributions")
+        costs = costs if isinstance(costs, Mapping) else {}
+        tail = selected.get("tail_dependence")
+        tail = tail if isinstance(tail, Mapping) else {}
+        rows = []
+        if isinstance(quantiles, Mapping):
+            for percentile in ("q05", "q25", "q50", "q75", "q95"):
+                gain = gain_quantiles.get(percentile) if isinstance(gain_quantiles, Mapping) else None
+                rows.append(
+                    ft.DataRow(
+                        cells=[
+                            ft.DataCell(ft.Text(percentile.upper(), size=11)),
+                            ft.DataCell(ft.Text(format_percent(quantiles.get(percentile)), size=11)),
+                            ft.DataCell(ft.Text(format_currency(gain, currency=str(currency.value or "EUR").upper()), size=11)),
+                        ]
+                    )
+                )
+        fan = ft.DataTable(
+            columns=[ft.DataColumn(ft.Text("Fan percentile")), ft.DataColumn(ft.Text("Return")), ft.DataColumn(ft.Text("Gain / loss"))],
+            rows=rows,
+            column_spacing=16,
+            horizontal_margin=6,
+        ) if rows else ft.Text(str(selected.get("reason") or "Forecast quantiles unavailable."), color=theme.MUTED, selectable=True)
+        probability_lines = []
+        if isinstance(probabilities, Mapping):
+            for key, title in (("loss", "Loss"), ("beat_cash", "Beat cash"), ("beat_benchmark", "Beat benchmark")):
+                probability_lines.append(ft.Text(f"{title}: {cell_text(probabilities.get(key), as_percent=True)}", size=11, selectable=True))
+        contribution_lines = [
+            ft.Text(
+                f"{title}: {cell_text(components.get(key), as_currency=True)}",
+                size=11,
+                selectable=True,
+            )
+            for key, title in (("price", "Price"), ("income", "Income"), ("fx", "FX"))
+        ]
+        contribution_lines.extend(
+            ft.Text(f"Cost {key}: {cell_text(value, as_currency=True)}", size=11, selectable=True)
+            for key, value in costs.items()
+        )
+        status_value = str(view.get("status", "unavailable"))
+        return panel(
+            ft.Column(
+                [
+                    section_header(label, f"Status: {status_value}; exposure confidence: {format_percent(coverage.get('confidence'))}; unsupported weight: {format_percent(coverage.get('unsupported_exposure_weight'))}."),
+                    ft.Text(f"Expected gain / loss: {cell_text(selected.get('expected_gain_loss'), as_currency=True)}", selectable=True),
+                    ft.Text(f"Expected return: {cell_text(selected.get('expected_return'), as_percent=True)}", selectable=True),
+                    fan,
+                    ft.Row(probability_lines, wrap=True, spacing=12),
+                    ft.Text(
+                        "Contributions and costs use saved holding records; missing inputs remain unavailable.",
+                        color=theme.MUTED,
+                        selectable=True,
+                        size=11,
+                    ),
+                    ft.Column(contribution_lines, spacing=2),
+                    ft.Text(
+                        f"Scenario volatility: {cell_text(selected.get('volatility'), as_percent=True)} | "
+                        f"Tail dependence: {tail.get('status', 'unavailable')} | "
+                        f"Cost sensitivity: {cell_text(view.get('cost_sensitivity'), as_currency=True)}",
+                        color=theme.MUTED,
+                        selectable=True,
+                        size=11,
+                    ),
+                    ft.Text(str(view.get("reason") or ""), color=theme.AMBER if status_value == "partial" else theme.MUTED, selectable=True, size=11),
+                ],
+                spacing=6,
+            )
+        )
+
+    def refresh(_event: ft.ControlEvent | None = None) -> None:
+        forecast = load_portfolio_forecast_aggregation(
+            state.snapshot,
+            current_analysis[0],
+            horizon_days=int(horizon.value or PRIMARY_MODEL_HORIZON_DAYS),
+            output_currency=str(currency.value or "EUR").upper(),
+        )
+        status.value = f"Portfolio forecast status: {forecast.status}; horizon={forecast.horizon_days or 'unavailable'} days; execution_allowed=false."
+        if forecast.reason:
+            status.value = f"{status.value} {forecast.reason}"
+        status.color = theme.GREEN if forecast.status == "available" else theme.AMBER if forecast.status == "partial" else theme.RED
+        result_host.controls = [
+            ft.Row(
+                [render_view("Current holdings", forecast.current), render_view("What-if target", forecast.target)],
+                wrap=True,
+                spacing=10,
+            ),
+            ft.Text(
+                f"Target minus current expected return: {format_percent(forecast.comparison.get('expected_return_difference') if isinstance(forecast.comparison, Mapping) else None)} | "
+                f"q05: {format_percent(forecast.comparison.get('q05_return_difference') if isinstance(forecast.comparison, Mapping) else None)}",
+                color=theme.MUTED,
+                selectable=True,
+            ),
+            ft.Text(
+                "Assumptions: seeded saved-distribution scenarios; q05–q95 tails clamp to saved endpoints; perfect positive correlation is the stress case. "
+                f"Seed={forecast.provenance.get('scenario_seed', 'unavailable')}; count={forecast.provenance.get('scenario_count', 'unavailable')}; "
+                f"risk model={forecast.provenance.get('risk_model_version', 'unavailable')}; input hashes are retained in forecast evidence.",
+                color=theme.MUTED,
+                selectable=True,
+                size=11,
+            ),
+        ]
+        if _event is not None:
+            _safe_update(page)
+
+    horizon = ft.Dropdown(
+        key="portfolio.forecast.horizon",
+        label="Forecast horizon (days)",
+        value=str(PRIMARY_MODEL_HORIZON_DAYS),
+        options=[ft.dropdown.Option(str(value)) for value in sorted(CANONICAL_DISTRIBUTION_HORIZONS_DAYS)],
+        width=210,
+        dense=True,
+        on_select=refresh,
+    )
+    currency = ft.TextField(
+        key="portfolio.forecast.currency",
+        label="Output currency",
+        value="EUR",
+        width=150,
+        dense=True,
+        on_submit=refresh,
+    )
+    refresh_button = ft.OutlinedButton(
+        "Refresh forecast",
+        key="portfolio.forecast.refresh",
+        on_click=refresh,
+    )
+    refresh()
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Portfolio forecast fan chart",
+                    "Exact-horizon seeded scenarios combine saved holding distributions with the bound covariance model. Unknown exposure and assumptions remain visible.",
+                ),
+                ft.Row([horizon, currency, refresh_button], wrap=True, spacing=8),
+                status,
+                result_host,
+            ],
+            spacing=8,
+        )
+    )
+
+
+def _portfolio_calendar_block(
+    page: ft.Page | None,
+    state: AppState,
+    analysis: PortfolioAnalysis,
+) -> ft.Control:
+    projection = load_portfolio_calendar_projection(state.snapshot, analysis, output_currency="EUR")
+    available = projection.get("available_output_currencies", ("EUR",))
+    currencies = sorted({str(item).upper() for item in available if str(item).isalpha() and len(str(item)) == 3}) if isinstance(available, (list, tuple, set)) else ["EUR"]
+    if "EUR" not in currencies:
+        currencies.insert(0, "EUR")
+    calendar_host = ft.Column(spacing=8)
+
+    def refresh(_event: ft.ControlEvent | None = None) -> None:
+        nonlocal projection
+        projection = load_portfolio_calendar_projection(
+            state.snapshot,
+            analysis,
+            output_currency=str(currency.value or "EUR"),
+        )
+        calendar_host.controls = [render(projection)]
+        if page is not None:
+            _safe_update(page)
+
+    currency = ft.Dropdown(
+        key="portfolio.calendar.currency",
+        label="Output currency",
+        value="EUR",
+        options=[ft.dropdown.Option(item) for item in currencies],
+        width=150,
+        dense=True,
+        on_select=refresh,
+    )
+
+    def render(current: Mapping[str, object]) -> ft.Control:
+        warnings = current.get("warnings", ())
+        warning_text = "; ".join(str(item) for item in warnings[:4]) if isinstance(warnings, (list, tuple)) else ""
+        status = ft.Text(
+            f"Calendar status: {current.get('status', 'unavailable')}; output currency: {current.get('currency') or 'unavailable'}; execution_allowed=false."
+            + (f" Coverage: {warning_text}" if warning_text else ""),
+            color=theme.AMBER if warning_text or current.get("status") != "available" else theme.GREEN,
+            selectable=True,
+        )
+        event_records = current.get("events", ())
+        event_rows: list[ft.DataRow] = []
+        if isinstance(event_records, (list, tuple)):
+            for item in event_records:
+                if not isinstance(item, Mapping):
+                    continue
+                exposure = item.get("affected_exposure", {})
+                exposure = exposure if isinstance(exposure, Mapping) else {}
+                market_value = exposure.get("market_value")
+                exposure_text = (
+                    format_currency(market_value, currency=str(exposure.get("currency") or "EUR"))
+                    if market_value is not None
+                    else f"Qty {format_number(exposure.get('quantity'))}"
+                )
+                event_date = str(item.get("event_date") or "Unavailable")
+                timezone_name = item.get("timezone_name")
+                if timezone_name:
+                    event_date = f"{event_date} {timezone_name}"
+                payment_date = item.get("payment_date")
+                if payment_date and str(payment_date)[:10] != event_date[:10]:
+                    event_date = f"{event_date} / pay {payment_date}"
+                authority = str(item.get("source_authority") or "Unavailable")
+                confidence = str(item.get("confidence") or "Unavailable")
+                event_rows.append(
+                    ft.DataRow(
+                        cells=[
+                            ft.DataCell(ft.Text(event_date, selectable=True)),
+                            ft.DataCell(ft.Text(str(item.get("title") or item.get("event_type") or "Unavailable"), selectable=True)),
+                            ft.DataCell(ft.Text(str(item.get("instrument_id") or "Unavailable"), selectable=True)),
+                            ft.DataCell(ft.Text(str(item.get("status") or "Unavailable"), selectable=True)),
+                            ft.DataCell(ft.Text(f"{item.get('source_rank', 'other')}: {authority}; {confidence}", selectable=True)),
+                            ft.DataCell(ft.Text(exposure_text, selectable=True)),
+                            ft.DataCell(ft.Text("Candidate" if item.get("blackout_candidate") else "No", selectable=True)),
+                        ]
+                    )
+                )
+        event_table: ft.Control = (
+            ft.DataTable(
+                columns=[
+                    ft.DataColumn(ft.Text(label))
+                    for label in ("Event date / payable", "Event", "Holding", "Status", "Source / confidence", "Exposure", "Blackout")
+                ],
+                rows=event_rows,
+            )
+            if event_rows
+            else ft.Text(str(current.get("reason") or "No saved events are available."), color=theme.MUTED, selectable=True)
+        )
+        summary_records = current.get("cash_flow_summaries", ())
+        summary_rows: list[ft.DataRow] = []
+        if isinstance(summary_records, (list, tuple)):
+            for item in summary_records:
+                if not isinstance(item, Mapping):
+                    continue
+                summary_rows.append(
+                    ft.DataRow(
+                        cells=[
+                            ft.DataCell(ft.Text(f"{item.get('period_type', '')}: {item.get('period', '')}", selectable=True)),
+                            ft.DataCell(ft.Text(str(item.get("flow_type") or "Unavailable"), selectable=True)),
+                            ft.DataCell(
+                                ft.Text(
+                                    format_currency(item.get("amount"), currency=str(item.get("currency") or "EUR")),
+                                    selectable=True,
+                                )
+                            ),
+                            ft.DataCell(ft.Text(str(item.get("status") or "unavailable"), selectable=True)),
+                        ]
+                    )
+                )
+        summary_table: ft.Control = (
+            ft.DataTable(
+                columns=[ft.DataColumn(ft.Text(label)) for label in ("Period", "Cash flow", "Projected amount", "Status")],
+                rows=summary_rows,
+            )
+            if summary_rows
+            else ft.Text("Monthly and quarterly amounts are unavailable until saved event amounts, terms, quantities, and FX are covered.", color=theme.MUTED, selectable=True)
+        )
+        return ft.Column(
+            [
+                status,
+                event_table,
+                section_header("Projected monthly and quarterly cash flows"),
+                summary_table,
+            ],
+            spacing=8,
+        )
+
+    calendar_host.controls = [render(projection)]
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Income, events, maturity and liquidity calendar",
+                    "Saved point-in-time events and contractual cash flows. Estimated dates stay distinct; missing amounts and FX remain unavailable. Blackout candidates are advisory.",
+                ),
+                currency,
+                calendar_host,
             ],
             spacing=8,
         )
@@ -562,6 +1178,183 @@ def _holding_display(
     if isinstance(value, (tuple, list)):
         return ", ".join(str(item) for item in value) or "none"
     return format_number(value) if isinstance(value, (int, float)) else str(value)
+
+
+def _portfolio_goals_block(
+    page: ft.Page | None,
+    state: AppState,
+    current_analysis: list[PortfolioAnalysis],
+) -> ft.Control:
+    projection = [load_portfolio_goals_projection(state.snapshot, current_analysis[0])]
+    policy_editor = ft.TextField(
+        key="portfolio-goals.policy",
+        label="Versioned portfolio policy (JSON)",
+        value=json.dumps(projection[0].get("policy_editor", {}), ensure_ascii=False, indent=2),
+        multiline=True,
+        min_lines=7,
+        max_lines=12,
+        expand=True,
+    )
+    snooze_until = ft.TextField(
+        key="portfolio-goals.snooze-until",
+        label="Snooze until (ISO 8601 with timezone)",
+        hint_text="For example, 2026-10-02T12:00:00+02:00",
+        width=330,
+        dense=True,
+    )
+    status = ft.Text("Policy limits are optional; unavailable evidence stays unavailable.", color=theme.MUTED, selectable=True)
+    results = ft.Text(key="portfolio-goals.results", selectable=True, font_family="Consolas", size=12)
+
+    def render_result(value: Mapping[str, object]) -> None:
+        summary = {
+            "status": value.get("status"),
+            "source_snapshot_hash": value.get("source_snapshot_hash"),
+            "policy": value.get("policy"),
+            "policy_as_of": value.get("policy_as_of"),
+            "policy_history": value.get("policy_history"),
+            "alerts": value.get("alerts"),
+            "unavailable_alerts": value.get("unavailable_alerts"),
+            "scenario": value.get("scenario"),
+            "acknowledgement_history": value.get("acknowledgement_history"),
+            "execution_allowed": value.get("execution_allowed", False),
+        }
+        results.value = json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True, default=str)
+        editor_value = value.get("policy_editor")
+        if isinstance(editor_value, Mapping) and value.get("policy") is not None:
+            policy_editor.value = json.dumps(editor_value, ensure_ascii=False, indent=2, sort_keys=True, default=str)
+
+    render_result(projection[0])
+
+    def apply_action(action: Mapping[str, object], message: str) -> None:
+        result = load_portfolio_goals_projection(state.snapshot, current_analysis[0], action=action)
+        if result.get("status") in {"available", "partial"}:
+            projection[0] = result
+            status.value = message
+            status.color = theme.GREEN
+        else:
+            status.value = f"Portfolio goals unavailable: {result.get('reason', result.get('status', 'unknown'))}"
+            status.color = theme.AMBER
+        render_result(result)
+        _safe_update(page)
+
+    def save_policy(_event: ft.ControlEvent | None) -> None:
+        try:
+            values = json.loads(str(policy_editor.value or "{}"))
+            if not isinstance(values, Mapping):
+                raise ValueError("policy must be a JSON object")
+            apply_action({"type": "save_policy", "policy": values}, "Validated policy saved as a new version.")
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            status.value = f"Policy was not saved: {exc}"
+            status.color = theme.AMBER
+            _safe_update(page)
+
+    def run_what_if(_event: ft.ControlEvent | None) -> None:
+        apply_action({"type": "simulate"}, "What-if recorded from the selected snapshot; the portfolio ledger was not changed.")
+
+    def active_alert_ids() -> tuple[str, ...]:
+        alerts = projection[0].get("alerts", ())
+        if not isinstance(alerts, (list, tuple)):
+            return ()
+        return tuple(
+            str(item.get("alert_id"))
+            for item in alerts
+            if isinstance(item, Mapping) and item.get("alert_id")
+        )
+
+    def acknowledge_alerts(_event: ft.ControlEvent | None) -> None:
+        identifiers = active_alert_ids()
+        if not identifiers:
+            status.value = "There are no active alert conditions to acknowledge."
+            status.color = theme.MUTED
+            _safe_update(page)
+            return
+        apply_action({"type": "acknowledge", "alert_ids": identifiers}, "Acknowledgement saved; active conditions remain visible.")
+
+    def snooze_alerts(_event: ft.ControlEvent | None) -> None:
+        identifiers = active_alert_ids()
+        if not identifiers:
+            status.value = "There are no active alert conditions to snooze."
+            status.color = theme.MUTED
+            _safe_update(page)
+            return
+        apply_action(
+            {"type": "snooze", "alert_ids": identifiers, "until": str(snooze_until.value or "")},
+            "Snooze saved; active conditions remain visible.",
+        )
+
+    def draft_what_if(_event: ft.ControlEvent | None) -> None:
+        scenario = projection[0].get("scenario")
+        scenario_policy_binding = scenario.get("policy_binding") if isinstance(scenario, Mapping) else None
+        effective_policy_binding = projection[0].get("effective_policy_binding")
+        candidate = current_analysis[0].candidate
+        if (
+            not isinstance(scenario, Mapping)
+            or scenario.get("status") != "ready"
+            or scenario.get("source_snapshot_hash") != projection[0].get("source_snapshot_hash")
+            or scenario.get("candidate_id") != candidate.candidate_id
+            or not isinstance(scenario_policy_binding, Mapping)
+            or not isinstance(effective_policy_binding, Mapping)
+            or scenario_policy_binding != effective_policy_binding
+        ):
+            status.value = "Draft proposal blocked: run a ready what-if for the current candidate, snapshot, and effective policy first."
+            status.color = theme.AMBER
+            _safe_update(page)
+            return
+        try:
+            handoff = draft_portfolio_proposal(state.snapshot, current_analysis[0])
+            status.value = f"Draft proposal hand-off prepared ({len(handoff.get('changes', ())) } changes); execution remains disabled."
+            status.color = theme.GREEN
+            _safe_update(page)
+        except (TypeError, ValueError) as exc:
+            status.value = f"Draft proposal unavailable: {exc}"
+            status.color = theme.AMBER
+            _safe_update(page)
+
+    def export_audit(_event: ft.ControlEvent | None) -> None:
+        try:
+            audit = projection[0].get("audit_export")
+            source_hash = str(projection[0].get("source_snapshot_hash") or "").strip()
+            if not isinstance(audit, Mapping) or not source_hash:
+                raise ValueError("snapshot-bound portfolio goals audit is unavailable")
+            path = EXPORTS_DIR / f"portfolio_goals_{current_analysis[0].candidate.candidate_id}_{source_hash[:12]}.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(audit, ensure_ascii=False, indent=2, sort_keys=True, default=str), encoding="utf-8")
+            state.last_export_path = path
+            status.value = f"Portfolio goals audit exported to {path.name}; execution remains disabled."
+            status.color = theme.GREEN
+            _safe_update(page)
+        except (OSError, TypeError, ValueError) as exc:
+            status.value = f"Portfolio goals audit unavailable: {exc}"
+            status.color = theme.AMBER
+            _safe_update(page)
+
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Portfolio goals, alerts and what-if",
+                    "Edit optional non-advisory limits, inspect after-trade evidence, and create a draft hand-off only after an explicit what-if action. Execution is disabled.",
+                ),
+                ft.Text("Enter target_weights and target_bands by existing instrument id; percentage fields use fractions from 0 to 1. Omitted limits remain unconfigured, and unsupported evidence is shown as unavailable.", color=theme.MUTED, selectable=True),
+                policy_editor,
+                ft.Row([snooze_until], wrap=True),
+                ft.Row(
+                    [
+                        ft.Button("Save policy version", key="portfolio-goals.policy.save", on_click=save_policy),
+                        ft.OutlinedButton("Run what-if", key="portfolio-goals.what-if", on_click=run_what_if),
+                        ft.OutlinedButton("Acknowledge active alerts", key="portfolio-goals.alert.acknowledge", on_click=acknowledge_alerts),
+                        ft.OutlinedButton("Snooze active alerts", key="portfolio-goals.alert.snooze", on_click=snooze_alerts),
+                        ft.OutlinedButton("Prepare draft proposal", key="portfolio-goals.draft-proposal", on_click=draft_what_if),
+                        ft.TextButton("Export goals audit", key="portfolio-goals.audit-export", on_click=export_audit),
+                    ],
+                    wrap=True,
+                ),
+                status,
+                results,
+            ],
+            spacing=10,
+        )
+    )
 
 
 def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
@@ -1001,9 +1794,15 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 )
             ),
             _portfolio_performance_block(page),
+            _portfolio_fixed_income_returns_block(state),
+            _portfolio_maturity_ladder_block(state, current_analysis[0]),
+            _portfolio_risk_profiles_block(page, state, current_analysis),
+            _portfolio_forecast_block(page, state, current_analysis),
+            _portfolio_calendar_block(page, state, current_analysis[0]),
             _portfolio_holdings_block(page, state, current_analysis, draft_holdings_proposal, holdings_refresh_callbacks),
             result_host,
             rebalance_host,
+            _portfolio_goals_block(page, state, current_analysis),
         ],
         expand=True,
         spacing=14,
