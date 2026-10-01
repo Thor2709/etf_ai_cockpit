@@ -48,6 +48,8 @@ CANDIDATE_PATH = ".github/issue-transitions/post-merge-control-candidate.json"
 CANDIDATE_EVIDENCE_SCHEMA = "etf-ai-cockpit.status-completion-evidence/1.0"
 CANDIDATE_REPLAY_SCHEMA = "etf-ai-cockpit.status-replay-candidate/3.0"
 CANDIDATE_UPDATE_KEYS = {"stable_id", "from_status", "to_status"}
+CANDIDATE_BATCH_SCHEMA = "etf-ai-cockpit.status-batch-candidate/1.0"
+BATCH_ROW_KEYS = {"authority_id", "authority_type", "stable_id", "from_status", "to_status"}
 CANDIDATE_ARTIFACT_PREFIX = "validation-status-completion-candidate-"
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 HASH_RE = re.compile(r"[0-9a-f]{64}")
@@ -233,6 +235,11 @@ def _validate_candidate_evidence(
     if evidence.get("schema_version") != CANDIDATE_EVIDENCE_SCHEMA:
         raise ValueError("status-completion candidate evidence schema mismatch")
     candidate = _load_committed_candidate(root, head)
+    if candidate.get("schema_version") == CANDIDATE_BATCH_SCHEMA:
+        _validate_batch_candidate_evidence(
+            evidence, candidate, root=root, base=base, head=head
+        )
+        return
     if candidate.get("schema_version") == CANDIDATE_REPLAY_SCHEMA:
         _validate_replay_candidate_evidence(
             evidence, candidate, root=root, base=base, head=head
@@ -344,6 +351,48 @@ def _validate_replay_candidate_evidence(
         if evidence.get(key) != candidate.get(key):
             raise ValueError(f"status replay candidate {key} identity mismatch")
     replay = candidate.get("expected_replay")
+    _validate_replay_contract(replay, root=root, base=base, head=head)
+    candidate_blob_sha256 = str(evidence.get("candidate_blob_sha256", ""))
+    if (
+        not HASH_RE.fullmatch(candidate_blob_sha256)
+        or candidate_blob_sha256 != _committed_candidate_blob_sha256(root, head)
+    ):
+        raise ValueError("status replay candidate canonical blob identity is invalid")
+    action_scope = evidence.get("action_scope")
+    if (
+        not isinstance(action_scope, list)
+        or len(action_scope) != 1
+        or not isinstance(action_scope[0], dict)
+        or action_scope[0].get("kind") != "update"
+        or action_scope[0].get("stable_id") != replay["stable_id"]
+        or action_scope[0].get("managed_field_deltas") != ["Programme status"]
+        or action_scope[0].get("remote_number") != replay["issue_number"]
+    ):
+        raise ValueError("status replay candidate action scope identity is invalid")
+    mutation = evidence.get("mutation")
+    if (
+        not isinstance(mutation, dict)
+        or mutation.get("transport") != "github_issue_comment_append"
+        or mutation.get("transport_contract") != "one_aggregate_proposal_one_receipt"
+        or mutation.get("replay_hops") != replay["transition_history_append"]
+        or mutation.get("reviewed_product_commit") != replay["reviewed_product_commit"]
+        or mutation.get("candidate_blob_sha256") != evidence.get("candidate_blob_sha256")
+        or mutation.get("plan_sha256") != evidence.get("plan_semantic_sha256")
+        or not HASH_RE.fullmatch(str(mutation.get("authority_id", "")))
+        or not re.fullmatch(r"[0-9a-f]{40,64}", str(mutation.get("candidate_blob_oid", "")))
+    ):
+        raise ValueError("status replay candidate mutation identity is invalid")
+
+
+def _validate_replay_contract(
+    replay: Any,
+    *,
+    root: Path,
+    base: str,
+    head: str,
+) -> None:
+    """Check one replay contract against the control state at base and head."""
+
     if (
         not isinstance(replay, dict)
         or set(replay)
@@ -462,36 +511,113 @@ def _validate_replay_candidate_evidence(
         stable_id=str(replay["stable_id"]),
     ) != current_record:
         raise ValueError("status replay candidate complete canonical projection is invalid")
+
+
+def _validate_batch_candidate_evidence(
+    evidence: dict[str, Any],
+    candidate: dict[str, Any],
+    *,
+    root: Path,
+    base: str,
+    head: str,
+) -> None:
+    """Check validated status-batch evidence: one exact single candidate per issue."""
+
+    if (
+        evidence.get("mode") != "validate"
+        or evidence.get("execution_allowed") is not False
+        or evidence.get("recovery") is not False
+        or evidence.get("terminal_status") != "validated"
+        or evidence.get("zero_action_readback") is not None
+        or evidence.get("expected_parent_sha") != base
+        or evidence.get("expected_head_sha") != head
+    ):
+        raise ValueError("status batch candidate evidence is not terminally validated")
+    if (
+        candidate.get("execution_allowed") is not False
+        or candidate.get("expected_parent_sha") != base
+    ):
+        raise ValueError("status batch candidate envelope identity is invalid")
+    for key in ("remote_inventory_sha256", "plan_semantic_sha256"):
+        if (
+            not HASH_RE.fullmatch(str(evidence.get(key, "")))
+            or evidence.get(key) != candidate.get(key)
+        ):
+            raise ValueError(f"status batch candidate {key} identity mismatch")
     candidate_blob_sha256 = str(evidence.get("candidate_blob_sha256", ""))
     if (
         not HASH_RE.fullmatch(candidate_blob_sha256)
         or candidate_blob_sha256 != _committed_candidate_blob_sha256(root, head)
     ):
-        raise ValueError("status replay candidate canonical blob identity is invalid")
-    action_scope = evidence.get("action_scope")
+        raise ValueError("status batch candidate canonical blob identity is invalid")
+    entries = candidate.get("entries")
+    rows = evidence.get("status_batch")
+    scope = evidence.get("action_scope")
     if (
-        not isinstance(action_scope, list)
-        or len(action_scope) != 1
-        or not isinstance(action_scope[0], dict)
-        or action_scope[0].get("kind") != "update"
-        or action_scope[0].get("stable_id") != replay["stable_id"]
-        or action_scope[0].get("managed_field_deltas") != ["Programme status"]
-        or action_scope[0].get("remote_number") != replay["issue_number"]
+        not isinstance(entries, list)
+        or len(entries) < 2
+        or not isinstance(rows, list)
+        or not isinstance(scope, list)
+        or not len(entries) == len(rows) == len(scope)
+        or any(not isinstance(item, dict) for item in (*entries, *rows, *scope))
     ):
-        raise ValueError("status replay candidate action scope identity is invalid")
-    mutation = evidence.get("mutation")
-    if (
-        not isinstance(mutation, dict)
-        or mutation.get("transport") != "github_issue_comment_append"
-        or mutation.get("transport_contract") != "one_aggregate_proposal_one_receipt"
-        or mutation.get("replay_hops") != replay["transition_history_append"]
-        or mutation.get("reviewed_product_commit") != replay["reviewed_product_commit"]
-        or mutation.get("candidate_blob_sha256") != evidence.get("candidate_blob_sha256")
-        or mutation.get("plan_sha256") != evidence.get("plan_semantic_sha256")
-        or not HASH_RE.fullmatch(str(mutation.get("authority_id", "")))
-        or not re.fullmatch(r"[0-9a-f]{40,64}", str(mutation.get("candidate_blob_oid", "")))
+        raise ValueError("status batch candidate entries, rows and action scope do not match")
+    try:
+        from scripts.apply_reviewed_status_completion import status_batch_entry_stable_id
+    except ModuleNotFoundError:
+        from apply_reviewed_status_completion import (  # type: ignore[no-redef]
+            status_batch_entry_stable_id,
+        )
+    stable_ids = [status_batch_entry_stable_id(entry) for entry in entries]
+    if stable_ids != sorted(set(stable_ids)) or any(
+        not STABLE_ID_RE.fullmatch(stable_id) for stable_id in stable_ids
     ):
-        raise ValueError("status replay candidate mutation identity is invalid")
+        raise ValueError("status batch candidate stable IDs are not unique and sorted")
+    scope_by_id = {str(action.get("stable_id", "")): action for action in scope}
+    authority_ids = [str(row.get("authority_id", "")) for row in rows]
+    if set(scope_by_id) != set(stable_ids) or len(set(authority_ids)) != len(authority_ids):
+        raise ValueError("status batch candidate action scope or authorities are not one-to-one")
+    for entry, row, stable_id in zip(entries, rows, stable_ids, strict=True):
+        replay_entry = entry.get("schema_version") == CANDIDATE_REPLAY_SCHEMA
+        action = scope_by_id[stable_id]
+        if (
+            set(row) != BATCH_ROW_KEYS
+            or row.get("stable_id") != stable_id
+            or not HASH_RE.fullmatch(str(row.get("authority_id", "")))
+            or row.get("authority_type") != ("status_replay" if replay_entry else "status")
+            or entry.get("execution_allowed") is not False
+            or entry.get("expected_parent_sha") != base
+            or entry.get("remote_inventory_sha256") != candidate.get("remote_inventory_sha256")
+            or entry.get("plan_semantic_sha256") != candidate.get("plan_semantic_sha256")
+            or not HASH_RE.fullmatch(str(entry.get("authority_ref", "")))
+            or action.get("kind") != "update"
+            or action.get("managed_field_deltas") != ["Programme status"]
+            or not isinstance(action.get("remote_number"), int)
+            or action.get("remote_state") != "open"
+        ):
+            raise ValueError("status batch candidate entry identity is invalid")
+        if replay_entry:
+            replay = entry.get("expected_replay")
+            _validate_replay_contract(replay, root=root, base=base, head=head)
+            if (
+                row.get("from_status") != replay["from_status"]
+                or row.get("to_status") != replay["to_status"]
+                or action.get("remote_number") != replay["issue_number"]
+            ):
+                raise ValueError("status batch candidate replay row does not match its entry")
+            continue
+        update = entry.get("expected_update")
+        if (
+            not isinstance(update, dict)
+            or set(update) != CANDIDATE_UPDATE_KEYS
+            or update.get("stable_id") != stable_id
+            or row.get("from_status") != update.get("from_status")
+            or row.get("to_status") != update.get("to_status")
+            or update.get("to_status") not in {"ready", "in_progress", "integrated"}
+            or update.get("to_status")
+            not in CONTROL_ALLOWED_TRANSITIONS.get(str(update.get("from_status")), frozenset())
+        ):
+            raise ValueError("status batch candidate expected update identity is invalid")
 
 
 def collect_summary(
