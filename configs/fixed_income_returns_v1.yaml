@@ -1,0 +1,16 @@
+schema_version: 1
+# Decision-rule defaults: a 90-calendar-day research horizon, no assumed market
+# move in the deterministic baseline, a five-peer minimum, and a duration-only
+# 50 bp/year risk haircut. These are screening defaults, not calibrated forecasts.
+horizon_days: 90
+rate_shock_bps: 0
+spread_shock_bps: 0
+base_currency: EUR
+maximum_observation_age_days: 30
+minimum_peer_support: 5
+top_n: 10
+bootstrap_samples: 500
+ranking_seed: 157
+risk_penalty_bps_per_duration_year: "50"
+maturity_buckets_years: ["2", "5", "10"]
+duration_buckets_years: ["2", "5", "10"]

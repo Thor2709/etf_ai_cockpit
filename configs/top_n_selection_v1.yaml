@@ -1,0 +1,17 @@
+schema_version: top_n_selection.v1
+version: top_n_selection_v1
+top_n: 10
+maximum_top_n: 25
+minimum_raw_support: 5
+minimum_effective_support: 5
+bootstrap_count: 200
+bootstrap_seed: 0
+utility_name: common_metrics_midrank_weighted_v1
+tie_break: utility_descending_instrument_id_ascending
+weights:
+  net_expected_return: 0.35
+  downside_risk: 0.20
+  marginal_impact: 0.20
+  liquidity: 0.10
+  cost: 0.10
+  evidence: 0.05

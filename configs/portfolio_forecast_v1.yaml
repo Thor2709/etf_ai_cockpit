@@ -1,0 +1,4 @@
+schema_version: portfolio_forecast.v1
+scenario_seed: 42
+scenario_count: 10000
+stress_correlation: 1.0

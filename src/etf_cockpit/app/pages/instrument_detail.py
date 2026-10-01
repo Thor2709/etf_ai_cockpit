@@ -8,6 +8,10 @@ import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
+from etf_cockpit.app.components.fixed_income_views import (
+    build_fixed_income_bond_view_model,
+    fixed_income_bond_panel,
+)
 from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel, _valuation_panel, build_etf_disclosure_panel, build_etf_structure_panel, build_etf_liquidity_panel, build_instrument_detail
 from etf_cockpit.app.state import AppState
@@ -928,7 +932,24 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         disabled=not export_available,
         on_click=export_instrument_evidence,
     )
-    rows = [
+    fixed_income_terms = model.sections.get("fixed_income_terms")
+    fixed_income_terms = fixed_income_terms if isinstance(fixed_income_terms, Mapping) else {}
+    asset_type = str(model.identity.get("asset_type") or model.identity.get("asset_class") or "").casefold()
+    is_bond = asset_type in {"bond", "fixed_income", "fixed income", "government_bond", "corporate_bond"} or fixed_income_terms.get("status") in {"available", "quarantined"}
+    rows: list[ft.Control] = []
+    if is_bond:
+        rows.append(
+            fixed_income_bond_panel(
+                build_fixed_income_bond_view_model(
+                    selected,
+                    terms_projection=fixed_income_terms,
+                    market_data_projection=model.sections.get("fixed_income_market_data"),
+                    analytics_projection=model.sections.get("fixed_income_analytics"),
+                    risk_projection=model.sections.get("fixed_income_risk"),
+                )
+            )
+        )
+    rows.extend([
         _render_evidence_section(
             "Fixed-income risk",
             model.sections.get("fixed_income_risk"),
@@ -1082,7 +1103,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         ),
         _render_evidence_section("What changed since the last run", model.sections.get("run_changes")),
         _render_evidence_section("Point-in-time vintage history", vintage_history, subtitle="Append-only effective and availability timestamps, revisions, corrections and source-vintage metadata."),
-    ]
+    ])
     return ft.Column(
         [
             panel(ft.Column([
