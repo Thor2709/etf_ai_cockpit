@@ -645,6 +645,11 @@ def test_chatgpt_audit_control_is_cancellable_and_retry_revalidates_archive(tmp_
 
     monkeypatch.setattr(state, "export_audit_packet", export)
     monkeypatch.setattr(chatgpt_audit_module, "extract_and_validate_audit_archive", validate)
+    monkeypatch.setattr(
+        chatgpt_audit_module,
+        "TemporaryDirectory",
+        lambda **_kwargs: nullcontext(tmp_path),
+    )
     page = SimpleNamespace(route="/chatgpt", update=update)
     control = chatgpt_audit_module.chatgpt_audit_page(page, state)
     button = next(item for item in _walk(control) if getattr(item, "key", None) == "chatgpt.export-audit")

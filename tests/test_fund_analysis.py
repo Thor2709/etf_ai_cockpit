@@ -5,9 +5,13 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pandas as pd
+import pytest
+import yaml
 
 from etf_cockpit.analysis import fund_analysis
 from etf_cockpit.analysis.fund_analysis import (
+    FUND_ANALYSIS_CONFIG,
+    FundAnalysisError,
     FundAnalysisInput,
     FundDistributionObservation,
     FundNAVObservation,
@@ -15,6 +19,7 @@ from etf_cockpit.analysis.fund_analysis import (
     FundTermChangeKind,
     FundUnderlyingLink,
     analyze_fund,
+    load_fund_analysis_config,
 )
 from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.fund_identity import (
@@ -27,6 +32,31 @@ from etf_cockpit.data.fund_identity import (
 
 
 DECISION = datetime(2026, 2, 5, 12, tzinfo=timezone.utc)
+
+
+def test_peer_window_end_tolerance_config_is_a_strict_non_negative_integer(
+    tmp_path,
+) -> None:
+    config = load_fund_analysis_config()
+    assert config.peer_window_end_tolerance_days == 5
+
+    raw = yaml.safe_load(FUND_ANALYSIS_CONFIG.read_text(encoding="utf-8"))
+    for index, value in enumerate((True, -1, 5.0)):
+        invalid = dict(raw)
+        invalid["peers"] = dict(raw["peers"])
+        invalid["peers"]["window_end_tolerance_days"] = value
+        path = tmp_path / f"invalid_peer_window_tolerance_{index}.yaml"
+        path.write_text(yaml.safe_dump(invalid), encoding="utf-8")
+        with pytest.raises(FundAnalysisError):
+            load_fund_analysis_config(path)
+
+    extra_key = dict(raw)
+    extra_key["peers"] = dict(raw["peers"])
+    extra_key["peers"]["unknown"] = 1
+    extra_path = tmp_path / "unknown_peer_config_key.yaml"
+    extra_path.write_text(yaml.safe_dump(extra_key), encoding="utf-8")
+    with pytest.raises(FundAnalysisError):
+        load_fund_analysis_config(extra_path)
 
 
 def test_accumulating_return_matches_hand_calculated_values() -> None:

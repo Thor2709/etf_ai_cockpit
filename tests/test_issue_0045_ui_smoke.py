@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import time
 
 import flet as ft
 
 from etf_cockpit.app.pages.data_health import data_health_page
 from etf_cockpit.app.router import PAGES, build_shell
 from etf_cockpit.app.state import AppState
+from etf_cockpit.app import state as state_module
 from etf_cockpit.core.ui_acceptance import build_main_ui_action_inventory
 from etf_cockpit.services import build_snapshot
 
@@ -15,6 +17,9 @@ from etf_cockpit.services import build_snapshot
 class _TestPage:
     width = 1400
     route = "/"
+
+    def __init__(self) -> None:
+        self.views: list[object] = []
 
     def update(self) -> None:
         return None
@@ -130,6 +135,33 @@ def test_export_controls_are_present_and_non_authoritative() -> None:
     }
     assert set(inventory) == {"dashboard.export-audit", "data-health.export"}
     assert all(item.execution_allowed is False for item in inventory.values())
+
+
+def test_dashboard_algorithm_and_audit_export_buttons_show_activity_results(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(state_module, "ACTIVITY_LOG_PATH", tmp_path / "activity.jsonl")
+    page, state = _render_state()
+    view = build_shell(page, state, "/")
+    controls = _controls_by_key(view)
+    output_path = tmp_path / "audit-packet.zip"
+    monkeypatch.setattr(state, "run_algorithm_scores", lambda: "Algorithms refreshed from the smoke test.")
+    monkeypatch.setattr(state, "export_audit_packet", lambda: output_path)
+
+    controls["dashboard.run-algorithms"][0].on_click(SimpleNamespace(page=page))
+    deadline = time.monotonic() + 10
+    while state.current_activity is not None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert state.current_activity is None
+    assert state.recent_activity[-1].status == "success"
+    assert state.recent_activity[-1].message == "Algorithms refreshed from the smoke test."
+
+    controls["dashboard.export-audit"][0].on_click(SimpleNamespace(page=page))
+    deadline = time.monotonic() + 10
+    while state.current_activity is not None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert state.current_activity is None
+    assert state.recent_activity[-1].status == "success"
+    assert state.recent_activity[-1].message == f"Audit packet exported: {output_path}"
+    assert state.recent_activity[-1].output_path == str(output_path)
 
 
 def test_flet_canvas_locator_limitation_remains_recorded() -> None:

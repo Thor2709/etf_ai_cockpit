@@ -11879,7 +11879,28 @@
       "write_conflict_group": "platform-and-operations"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product: merged PR #860; merge fd1f17672f94c57bb56be94ff8db4343e503d59f.",
+            "Full release gate run 36910320034 on head 93d351ab99a680b33110d568f50c7c3a6821ff45 passed validation-summary."
+          ],
+          "review_reference": "Exact head 93d351ab99a680b33110d568f50c7c3a6821ff45: Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #860; merge fd1f17672f94c57bb56be94ff8db4343e503d59f.",
+            "Full release gate run 36910320034 on head 93d351ab99a680b33110d568f50c7c3a6821ff45 passed validation-summary."
+          ],
+          "review_reference": "Exact head 93d351ab99a680b33110d568f50c7c3a6821ff45: Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0045",
@@ -11902,7 +11923,7 @@
       "package_status": "Open, partial",
       "phase": "phase-08-frontend-api",
       "priority": "P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -11926,8 +11947,8 @@
       "source_record_id": "ISSUE-0045",
       "source_title": "UI semantic locators and visual smoke tests",
       "title": "UI semantic locators and visual smoke tests",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "fd1f17672f94c57bb56be94ff8db4343e503d59f",
+      "verified_date": "2026-10-01",
       "why": "UI claims require repeatable user-point-of-view proof, especially for order and recovery actions.",
       "write_conflict_group": "frontend-and-api"
     },
@@ -29349,7 +29370,28 @@
       "write_conflict_group": "analysis-and-validation"
     },
     {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product: merged PR #860; merge fd1f17672f94c57bb56be94ff8db4343e503d59f.",
+            "Full release gate run 36910320034 on head 93d351ab99a680b33110d568f50c7c3a6821ff45 passed validation-summary."
+          ],
+          "review_reference": "Exact head 93d351ab99a680b33110d568f50c7c3a6821ff45: Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #860; merge fd1f17672f94c57bb56be94ff8db4343e503d59f.",
+            "Full release gate run 36910320034 on head 93d351ab99a680b33110d568f50c7c3a6821ff45 passed validation-summary."
+          ],
+          "review_reference": "Exact head 93d351ab99a680b33110d568f50c7c3a6821ff45: Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "UPDATEV2-0027",
@@ -29374,7 +29416,7 @@
       "package_status": "Open, partial",
       "phase": "phase-08-frontend-api",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -29400,8 +29442,8 @@
       "source_record_id": "UPDATEV2-0027",
       "source_title": "UI workflow/button reliability and progress indicators",
       "title": "UI workflow/button reliability and progress indicators (original update ISSUE-0027)",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "fd1f17672f94c57bb56be94ff8db4343e503d59f",
+      "verified_date": "2026-10-01",
       "why": "Reliability must come from command contracts and persisted state, not page-specific callbacks.",
       "write_conflict_group": "frontend-and-api"
     },
@@ -30177,7 +30219,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "bcc26d8ab1fbb12ba2a7d22055e6e648acd869f1d98c03a23a3e7ea4915d5c2d",
+    "programme_control_state_sha256": "7af4820bb5f95806d5c456eef78b5a9855c1075d4f6e1dec5f400caf9929ae0e",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

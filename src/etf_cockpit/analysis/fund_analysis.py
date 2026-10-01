@@ -164,6 +164,14 @@ class FundAnalysisConfig:
     dealing_cutoff_timezone: str
     horizon_days: tuple[tuple[str, int], ...]
     frequency_minimum_horizon_days: tuple[tuple[str, int], ...]
+    peer_minimum_support: int
+    tracking_minimum_periods: int
+    peer_window_end_tolerance_days: int
+    fee_tier_bands_bps: tuple[Decimal, ...]
+    forecast_minimum_baseline_samples: int
+    forecast_minimum_matured_calibration_samples: int
+    forecast_target_coverage: Decimal
+    forecast_quantile_levels: tuple[tuple[str, Decimal], ...]
 
 
 @dataclass(frozen=True)
@@ -252,6 +260,8 @@ def load_fund_analysis_config(path: Path = FUND_ANALYSIS_CONFIG) -> FundAnalysis
         "dealing_cutoff_timezone",
         "horizon_days",
         "frequency_minimum_horizon_days",
+        "peers",
+        "forecast",
     }
     if not isinstance(raw, dict) or set(raw) != expected or raw.get("schema_version") != 1:
         raise FundAnalysisError("fund analysis configuration keys or schema are invalid")
@@ -267,6 +277,66 @@ def load_fund_analysis_config(path: Path = FUND_ANALYSIS_CONFIG) -> FundAnalysis
     frequencies = _config_integer_map(
         raw["frequency_minimum_horizon_days"], {"daily", "weekly", "biweekly", "monthly", "quarterly"}
     )
+    peers = raw["peers"]
+    if not isinstance(peers, dict) or set(peers) != {
+        "minimum_support",
+        "tracking_minimum_periods",
+        "window_end_tolerance_days",
+        "fee_tier_bands_bps",
+    }:
+        raise FundAnalysisError("fund peer configuration keys are invalid")
+    peer_minimum_support = _config_integer(peers["minimum_support"], "peer minimum_support", 1)
+    tracking_minimum_periods = _config_integer(
+        peers["tracking_minimum_periods"], "tracking minimum_periods", 2
+    )
+    peer_window_end_tolerance_days = _config_integer(
+        peers["window_end_tolerance_days"], "peer window_end_tolerance_days", 0
+    )
+    fee_tier_bands = peers["fee_tier_bands_bps"]
+    if not isinstance(fee_tier_bands, list) or not fee_tier_bands:
+        raise FundAnalysisError("fee_tier_bands_bps must be a non-empty list")
+    fee_tier_bands_bps = tuple(
+        _config_decimal(value, "fee_tier_bands_bps") for value in fee_tier_bands
+    )
+    if any(value < 0 for value in fee_tier_bands_bps) or any(
+        left >= right
+        for left, right in zip(fee_tier_bands_bps, fee_tier_bands_bps[1:])
+    ):
+        raise FundAnalysisError("fee_tier_bands_bps must be non-negative and ascending")
+    forecast = raw["forecast"]
+    if not isinstance(forecast, dict) or set(forecast) != {
+        "minimum_baseline_samples",
+        "minimum_matured_calibration_samples",
+        "target_coverage",
+        "quantile_levels",
+    }:
+        raise FundAnalysisError("fund forecast configuration keys are invalid")
+    forecast_minimum_baseline_samples = _config_integer(
+        forecast["minimum_baseline_samples"], "forecast minimum_baseline_samples", 1
+    )
+    forecast_minimum_matured_calibration_samples = _config_integer(
+        forecast["minimum_matured_calibration_samples"],
+        "forecast minimum_matured_calibration_samples",
+        1,
+    )
+    forecast_target_coverage = _config_decimal(
+        forecast["target_coverage"], "forecast target_coverage"
+    )
+    if not Decimal("0") < forecast_target_coverage < Decimal("1"):
+        raise FundAnalysisError("forecast target_coverage must be in (0, 1)")
+    quantile_levels = forecast["quantile_levels"]
+    if not isinstance(quantile_levels, dict) or set(quantile_levels) != {
+        "q05", "q50", "q95"
+    }:
+        raise FundAnalysisError("fund forecast quantile level keys are invalid")
+    forecast_quantile_levels = tuple(
+        (name, _config_decimal(quantile_levels[name], f"forecast {name}"))
+        for name in ("q05", "q50", "q95")
+    )
+    if tuple(value for _, value in forecast_quantile_levels) != (
+        Decimal("0.05"), Decimal("0.50"), Decimal("0.95")
+    ):
+        raise FundAnalysisError("fund forecast quantile levels must be 0.05, 0.50, and 0.95")
     return FundAnalysisConfig(
         1,
         tolerance,
@@ -276,6 +346,14 @@ def load_fund_analysis_config(path: Path = FUND_ANALYSIS_CONFIG) -> FundAnalysis
         "UTC",
         tuple(sorted(horizons.items())),
         tuple(sorted(frequencies.items())),
+        peer_minimum_support,
+        tracking_minimum_periods,
+        peer_window_end_tolerance_days,
+        fee_tier_bands_bps,
+        forecast_minimum_baseline_samples,
+        forecast_minimum_matured_calibration_samples,
+        forecast_target_coverage,
+        forecast_quantile_levels,
     )
 
 

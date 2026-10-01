@@ -4,27 +4,27 @@
   "allowed_status_transitions": [
     {
       "from": "in_progress",
-      "issue_id": "ISSUE-0039",
+      "issue_id": "ISSUE-0045",
       "to": "integrated"
     },
     {
       "from": "in_progress",
-      "issue_id": "ISSUE-0040",
+      "issue_id": "UPDATEV2-0027",
       "to": "integrated"
     }
   ],
-  "base_commit": "f31d56bb334c266bababc74396fda22d11720859",
-  "branch": "claude/lifecycle-batch3e-20261001",
+  "base_commit": "f7893c6631070bf206e0f18fbf841bf4ca12e60d",
+  "branch": "claude/lifecycle-batch4c-20261001",
   "issue_ids": [
-    "ISSUE-0039",
-    "ISSUE-0040"
+    "ISSUE-0045",
+    "UPDATEV2-0027"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "23a42701ff8d0fb5111415cc1b215ae727ec152fe881b0efd390247a631143c7",
+    "base_registry_sha256": "964dd5675f799413ab4adc9914559e5f0c7f7058158f8da8ff2e165eb96daf86",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "964dd5675f799413ab4adc9914559e5f0c7f7058158f8da8ff2e165eb96daf86",
+    "proposed_registry_sha256": "2e595aaab4185681842c8e538155b052db688ad20d64cfbb6c364c7fb5f3a414",
     "reason": "Status-only batch of 2 reviewed lifecycle transitions; each issue moves exactly one canonical step (or one bounded replay); preserve dependencies, GitHub issue open state, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
