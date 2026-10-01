@@ -47,8 +47,8 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 
 | ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
 |---|---|---|---|---|---|---|---|
-| `ISSUE-0147` | `P0` | `planned` | `audit-and-reproducibility` | `ISSUE-0075`, `UPDATEV2-0028` | - | - | - |
+| `ISSUE-0147` | `P0` | `integrated` | `audit-and-reproducibility` | `ISSUE-0075`, `UPDATEV2-0028` | - | - | - |
 | `ISSUE-0148` | `P0/P1` | `planned` | `documentation` | `ISSUE-0043` | - | - | - |
-| `ISSUE-0149` | `P0` | `hardening_required` | `programme-governance` | `ISSUE-0080` | - | `ISSUE-0079`, `ISSUE-0155`, `ISSUE-0170`, `ISSUE-0171`, `ISSUE-0173`, `ISSUE-0176`, `ISSUE-0181` | `ISSUE-0079` |
-| `ISSUE-0150` | `P0/P1` | `implemented_initially` | `model-governance` | `ISSUE-0090`, `ISSUE-0120` | - | - | - |
-| `ISSUE-0151` | `P1` | `hardening_required` | `quality-and-release` | `ISSUE-0078` | - | `ISSUE-0175` | - |
+| `ISSUE-0149` | `P0` | `integrated` | `programme-governance` | `ISSUE-0080` | - | `ISSUE-0079`, `ISSUE-0155`, `ISSUE-0170`, `ISSUE-0171`, `ISSUE-0173`, `ISSUE-0176`, `ISSUE-0181` | `ISSUE-0079` |
+| `ISSUE-0150` | `P0/P1` | `integrated` | `model-governance` | `ISSUE-0090`, `ISSUE-0120` | - | - | - |
+| `ISSUE-0151` | `P1` | `integrated` | `quality-and-release` | `ISSUE-0078` | - | `ISSUE-0175` | - |
