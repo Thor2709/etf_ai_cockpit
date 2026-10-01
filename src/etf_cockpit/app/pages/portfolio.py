@@ -9,6 +9,7 @@ import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
+from etf_cockpit.app.components.charts import portfolio_performance_chart
 from etf_cockpit.app.components.overlap import overlap_evidence_panel
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
@@ -24,10 +25,13 @@ from etf_cockpit.application.ui_facade import (
     candidate_id,
     draft_portfolio_candidate,
     load_portfolio_candidate,
+    load_portfolio_performance_series,
     portfolio_snapshot_binding,
+    performance_series_frame,
     rebalance_inapplicable_instruments,
     save_portfolio_candidate,
     select_holdings_view,
+    export_table,
 )
 from etf_cockpit.application.portfolio_sandbox import (
     draft_portfolio_proposal,
@@ -38,7 +42,137 @@ from etf_cockpit.application.monthly_decision_template import (
     monthly_decision_template_lines,
     unavailable_monthly_evidence,
 )
-from etf_cockpit.core.paths import ROOT
+from etf_cockpit.core.paths import EXPORTS_DIR, ROOT
+
+
+def _portfolio_performance_block(page: ft.Page | None) -> ft.Control:
+    metric = ft.Dropdown(
+        key="portfolio.performance.metric",
+        label="Metric",
+        value="twr_index",
+        options=[
+            ft.dropdown.Option(value)
+            for value in (
+                "portfolio_value",
+                "net_invested_capital",
+                "investment_pnl",
+                "twr_index",
+                "twr_return",
+                "mwr_return",
+                "drawdown",
+                "cash_value",
+                "net_contributions",
+                "income",
+                "fees_tax",
+                "fx",
+                "benchmark",
+            )
+        ],
+        width=220,
+        dense=True,
+    )
+    date_range = ft.Dropdown(
+        key="portfolio.performance.range",
+        label="Range",
+        value="inception",
+        options=[ft.dropdown.Option(value) for value in ("inception", "YTD", "1M", "3M", "6M", "1Y", "3Y", "5Y", "custom")],
+        width=140,
+        dense=True,
+    )
+    aggregation = ft.Dropdown(
+        key="portfolio.performance.aggregation",
+        label="Aggregation",
+        value="day",
+        options=[ft.dropdown.Option(value) for value in ("day", "week", "month", "quarter", "year")],
+        width=150,
+        dense=True,
+    )
+    currency = ft.TextField(
+        key="portfolio.performance.currency",
+        label="Output currency",
+        value="EUR",
+        width=150,
+        dense=True,
+    )
+    custom_start = ft.TextField(
+        key="portfolio.performance.custom-start",
+        label="Custom start (YYYY-MM-DD)",
+        width=205,
+        dense=True,
+    )
+    custom_end = ft.TextField(
+        key="portfolio.performance.custom-end",
+        label="Custom end (YYYY-MM-DD)",
+        width=205,
+        dense=True,
+    )
+    chart_host = ft.Column(key="portfolio.performance.chart", spacing=6)
+    status = ft.Text("Loading saved portfolio performance…", key="portfolio.performance.status", color=theme.MUTED, selectable=True)
+    export_status = ft.Text("CSV export writes the selected series to the local exports folder.", key="portfolio.performance.export-status", color=theme.MUTED, selectable=True)
+    current_series: list[object] = []
+
+    def refresh(_event: ft.ControlEvent | None = None) -> None:
+        series = load_portfolio_performance_series(
+            metric=str(metric.value or "twr_index"),
+            date_range=str(date_range.value or "inception"),
+            aggregation=str(aggregation.value or "day"),
+            currency=str(currency.value or "EUR"),
+            custom_start=str(custom_start.value or "") or None,
+            custom_end=str(custom_end.value or "") or None,
+        )
+        current_series[:] = [series]
+        descriptor = portfolio_performance_chart(
+            performance_series_frame(series),
+            metric=series.metric,
+            unit=series.unit,
+            currency=series.currency,
+            status=series.status,
+            reason=series.reason,
+            aggregation=series.aggregation,
+        )
+        chart_host.controls = [descriptor.control]
+        status.value = f"Performance series status: {series.status}; quality={series.quality}."
+        if series.reason:
+            status.value = f"{status.value} {series.reason}"
+        status.color = theme.GREEN if series.status == "available" else theme.AMBER if series.status == "partial" else theme.RED
+        if _event is not None:
+            _safe_update(page)
+
+    def export_selected(_event: ft.ControlEvent) -> None:
+        if not current_series:
+            refresh()
+        series = current_series[0]
+        result = export_table(
+            "portfolio_performance_series",
+            performance_series_frame(series),
+            EXPORTS_DIR / "portfolio_performance_series.csv",
+        )
+        if result.ok:
+            export_status.value = f"CSV ready: {result.destination} ({result.rows} rows)."
+            export_status.color = theme.GREEN
+        else:
+            export_status.value = f"CSV export unavailable: {result.error}; previous output preserved."
+            export_status.color = theme.RED
+        _safe_update(page)
+
+    for control in (metric, date_range, aggregation, currency, custom_start, custom_end):
+        control.on_change = refresh
+    refresh()
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Portfolio performance",
+                    "Saved daily valuations only. Contributions remain separate from investment P&L; unavailable or partial periods are labeled.",
+                ),
+                ft.Row([metric, date_range, aggregation, currency, custom_start, custom_end], wrap=True, spacing=8),
+                status,
+                chart_host,
+                ft.Row([ft.OutlinedButton("Download CSV", key="portfolio.performance.download", icon=ft.Icons.DOWNLOAD, on_click=export_selected), export_status], wrap=True),
+            ],
+            spacing=8,
+        )
+    )
 
 
 def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
@@ -449,6 +583,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                     spacing=10,
                 )
             ),
+            _portfolio_performance_block(page),
             result_host,
             rebalance_host,
         ],
