@@ -65,6 +65,9 @@ _TERMINAL_LIFECYCLE_STATUSES = frozenset(
 )
 _YEAR_DAYS = Decimal("365.2425")
 _FUND_SHARE_CLASS_REPRESENTATIVE_RULE = "earliest_inception_then_share_class_id"
+_FUND_SHARE_CLASS_REPRESENTATIVE_NO_INCEPTION_RULE = (
+    "share_class_id_no_inception_evidence"
+)
 
 
 class FundPeerError(ValueError):
@@ -154,7 +157,7 @@ def build_fund_peer_cohort(
         )
         for peer in peers
     )
-    representatives = _share_class_representatives(
+    representatives, representative_rule = _share_class_representatives(
         peers, raw_observations, decision, effective_at
     )
     observations = tuple(
@@ -241,6 +244,7 @@ def build_fund_peer_cohort(
         collapsed,
         lifecycle_risks,
         abstention_reason,
+        share_class_representative_rule=representative_rule,
     )
 
 
@@ -735,13 +739,14 @@ def _share_class_representatives(
     observations: Sequence[PeerObservation],
     decision: datetime,
     effective_at: str,
-) -> dict[str, str]:
+) -> tuple[dict[str, str], str]:
     by_strategy: dict[str, list[tuple[FundPeerFund, PeerObservation]]] = {}
     effective = _timestamp(effective_at, "effective_at")
     for peer, observation in zip(peers, observations, strict=True):
         strategy = _economic_strategy_id(peer)
         by_strategy.setdefault(strategy, []).append((peer, observation))
     representatives: dict[str, str] = {}
+    no_inception_evidence_used = False
     for strategy, group in by_strategy.items():
         known = [
             pair for pair in group if not _record_known_after(pair[0].analysis_record, decision)
@@ -760,22 +765,42 @@ def _share_class_representatives(
             )
         ]
         candidates = eligible or known or group
-        representative, _ = min(
-            candidates,
-            key=lambda pair: _share_class_representative_rank(pair[0], decision),
-        )
+        ranks = {
+            pair[0].context.instrument_id: _share_class_representative_rank(
+                pair[0], decision
+            )
+            for pair in candidates
+        }
+        if len(candidates) > 1 and all(rank[0] is not None for rank in ranks.values()):
+            representative, _ = min(
+                candidates,
+                key=lambda pair: ranks[pair[0].context.instrument_id],
+            )
+        elif len(candidates) > 1:
+            representative, _ = min(
+                candidates,
+                key=lambda pair: pair[0].share_class.share_class_id,
+            )
+            no_inception_evidence_used = True
+        else:
+            representative, _ = candidates[0]
         representatives[strategy] = representative.context.instrument_id
-    return representatives
+    representative_rule = (
+        _FUND_SHARE_CLASS_REPRESENTATIVE_NO_INCEPTION_RULE
+        if no_inception_evidence_used
+        else _FUND_SHARE_CLASS_REPRESENTATIVE_RULE
+    )
+    return representatives, representative_rule
 
 
 def _share_class_representative_rank(
     item: FundPeerFund, decision: datetime
-) -> tuple[date, str]:
+) -> tuple[date | None, str]:
     active_from, _ = _lifecycle_window(item, decision.isoformat())
     inception = (
         _timestamp(active_from, "active_from").date()
         if active_from is not None
-        else item.analysis_record.return_decomposition.start_nav_date or date.max
+        else None
     )
     return inception, item.share_class.share_class_id
 

@@ -232,6 +232,88 @@ def test_share_class_representative_does_not_change_when_returns_are_swapped() -
     )
 
 
+def test_fund_peer_engine_keeps_caller_representative_when_returns_are_swapped() -> None:
+    target = _fund("TARGET", "TARGET-CLASS")
+    representative = _fund("PEER-REPRESENTATIVE", "PEER-CLASS-Z")
+    alternate = _fund("PEER-ALTERNATE", "PEER-CLASS-A")
+    dimensions = {
+        "TARGET-CLASS": {"mandate": "index"},
+        "PEER-CLASS-Z": {"mandate": "index"},
+        "PEER-CLASS-A": {"mandate": "index"},
+    }
+
+    def members(representative_return: float, alternate_return: float) -> tuple[str, ...]:
+        return construct_cohort(
+            target.context,
+            (
+                PeerObservation(
+                    representative.context.instrument_id,
+                    representative.context,
+                    "total_return",
+                    representative_return,
+                    1.0,
+                    EFFECTIVE,
+                    "2024-12-31T00:00:00Z",
+                    economic_strategy_id="PEER-MANDATE",
+                ),
+                PeerObservation(
+                    alternate.context.instrument_id,
+                    alternate.context,
+                    "total_return",
+                    alternate_return,
+                    1.0,
+                    EFFECTIVE,
+                    "2024-12-31T00:00:00Z",
+                    economic_strategy_id="PEER-MANDATE",
+                ),
+            ),
+            metric="total_return",
+            effective_at=EFFECTIVE,
+            decision_time=DECISION,
+            minimum_support=1,
+            comparison_scope="FUND_PEERS",
+            comparison_dimension_order=("mandate",),
+            comparison_dimension_groups=dimensions,
+        ).members
+
+    assert members(0.01, 0.99) == ("PEER-CLASS-Z",)
+    assert members(0.99, 0.01) == ("PEER-CLASS-Z",)
+
+
+def test_share_class_representative_without_inception_uses_id_not_window_start() -> None:
+    config = replace(load_fund_analysis_config(), peer_minimum_support=1)
+    target = _fund("TARGET", "TARGET-CLASS")
+    class_z = _fund(
+        "PEER-Z",
+        "PEER-CLASS-Z",
+        sub_fund_id="PEER-MANDATE",
+        start=date(2023, 12, 27),
+        end=date(2024, 12, 27),
+    )
+    class_a = _fund(
+        "PEER-A",
+        "PEER-CLASS-A",
+        sub_fund_id="PEER-MANDATE",
+        start=date(2024, 1, 1),
+        end=date(2025, 1, 1),
+    )
+
+    result = build_fund_peer_cohort(
+        target,
+        (class_z, class_a),
+        effective_at=EFFECTIVE,
+        decision_time=DECISION,
+        config=config,
+    )
+
+    assert result.collapsed_share_classes[0].retained_share_class_id == (
+        "PEER-CLASS-A"
+    )
+    assert result.share_class_representative_rule == (
+        "share_class_id_no_inception_evidence"
+    )
+
+
 def test_lifecycle_window_and_future_known_observations_are_point_in_time() -> None:
     config = replace(load_fund_analysis_config(), peer_minimum_support=1)
     target = _fund(

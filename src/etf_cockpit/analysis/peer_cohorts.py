@@ -226,7 +226,12 @@ def construct_cohort(
             exclusions[item.instrument_id] = "target_instrument"
             continue
         eligible_by_instrument.setdefault(item.instrument_id, []).append(item)
-    for instrument_id, revisions in sorted(eligible_by_instrument.items()):
+    eligible_items = (
+        eligible_by_instrument.items()
+        if scope == "FUND_PEERS"
+        else sorted(eligible_by_instrument.items())
+    )
+    for instrument_id, revisions in eligible_items:
         selected_revision = max(
             revisions,
             key=lambda row: (
@@ -961,8 +966,6 @@ def _deduplicate(
             observations,
             key=lambda row: (
                 row.economic_strategy_id or row.context.entity_id or row.instrument_id,
-                float(row.value) if row.value is not None else math.inf,
-                row.instrument_id,
             ),
         )
     else:

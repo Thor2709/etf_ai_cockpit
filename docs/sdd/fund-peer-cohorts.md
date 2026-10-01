@@ -23,11 +23,12 @@ Distribution policy and returns come from the fund share-class and slice-A
 contracts. Fee tiers use configured upper-bound bands over slice-A total fees.
 Each share class uses its linked `sub_fund_id`, or the record's `fund_id` when
 that relationship is absent, as its economic strategy ID. The current
-`FundShareClass` contract has no primary or representative flag, so a strategy
-uses the class with the earliest known launch date; where launch evidence is
-absent, the earliest available return-history start is used. Ties are broken by
-`share_class_id`. This selection is independent of return values, and the rule
-and collapsed class IDs are recorded on the cohort.
+`FundShareClass` contract has no primary or representative flag. When every
+collapsed class has a known launch event, the strategy uses the earliest launch
+date, with ties broken by `share_class_id`. If any collapsed class lacks known
+launch evidence, the strategy uses `share_class_id` alone; return-window dates
+do not select representatives. The rule used and collapsed class IDs are
+recorded on the cohort.
 
 Peer values are the slice-A `return_decomposition.total_return` values. A
 peer from a different requested horizon is inapplicable. Its return window
