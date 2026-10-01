@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -28,6 +29,7 @@ UNKNOWN_ISIN_STATUSES = {"needs_verification", "unknown", "unresolved"}
 VALID_ISIN_STATUSES = {"verified", "needs_verification"}
 ISIN_PATTERN = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
 TICKER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._=-]{0,31}$")
+_LOG = logging.getLogger(__name__)
 CURRENT_INVESTABILITY_POLICY_VERSION = "investability-v1"
 POLICY_AUTHORITIES = {"official", "user_reviewed", "manual_review"}
 SPAREBANKEN_ROWS: tuple[tuple[str, str, str, str], ...] = (
@@ -751,13 +753,28 @@ def save_universe(
 ) -> UniverseSaveResult:
     """Save only the canonical schema-v3 universe."""
 
-    return _save_universe(
+    result = _save_universe(
         records,
         expected_revision,
         root=root,
         allow_cross_tier_duplicates=allow_cross_tier_duplicates,
         policy_profiles=policy_profiles,
     )
+    try:
+        from etf_cockpit.data import universe_membership
+
+        universe_membership.record_configured_capture(root=root)
+    except Exception as exc:
+        _LOG.exception("configured membership capture status=failed")
+        try:
+            universe_membership.set_configured_capture_status(
+                universe_membership.CaptureStatus(
+                    "failed", "configured", reason=f"{type(exc).__name__}: {exc}"
+                )
+            )
+        except (NameError, AttributeError):
+            pass
+    return result
 
 
 def _save_universe(

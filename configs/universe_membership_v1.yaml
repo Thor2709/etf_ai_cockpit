@@ -1,0 +1,6 @@
+version: universe_membership_v1
+configured_scope: configured
+configured_complete: true
+configured_source_id: universe_store
+listing_scope_template: "listing:{venue}:{asset_type}"
+listing_complete: true

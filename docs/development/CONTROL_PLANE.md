@@ -51,6 +51,18 @@ Keep grouped atomic publication and byte-clean verification. The historical
 `generation_base_commit` identifies imported reconciliation evidence; it is not
 current main and should not be churned after every merge.
 
+## Point-in-time universe membership
+
+Universe membership is captured in two local layers: exact received payloads are
+SHA-256 addressed and gzip-compressed under `data/raw/universe_membership`, while
+an append-only SQLite ledger under `data/derived/universe_membership` stores
+membership interval revisions and capture dates. The `configured` scope records
+the saved watchlist; `listing:<venue>:<asset_type>` records a declared complete
+listing. Reads expose only captured dates known by the requested cutoff. Licensed
+history is imported only with its licence reference and per-row knowledge time.
+Byte payloads are preserved byte-for-byte; text payloads are UTF-8 encoded as
+given, and structured rows are encoded as compact UTF-8 JSON in received order.
+
 ## NOW, NEXT and future work
 
 The selector intersects canonical dependency readiness with unfinished/open
