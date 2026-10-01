@@ -307,7 +307,8 @@ def analyze_fund(item: FundAnalysisInput) -> FundAnalysisRecord:
         "currency_hedge",
         "hedge_currency",
     ):
-        term, conflict = _term_at(item.terms, name, effective_date, decision)
+        # Select by the full decision timestamp; truncating to a date would apply a later term early.
+        term, conflict = _term_at(item.terms, name, decision, decision)
         terms[name] = term
         if term is not None:
             evidence.append(_term_reference(term))
@@ -346,6 +347,8 @@ def analyze_fund(item: FundAnalysisInput) -> FundAnalysisRecord:
         blockers.append("missing_fee_treatment")
     elif fee_treatment_term.value.casefold() not in {"true", "false"}:
         blockers.append("invalid_fee_treatment")
+    if any(term is not None and _has_intraday_boundary(term) for term in (fee_term, fee_treatment_term)):
+        blockers.append(_FEE_TERM_INTRADAY_BOUNDARY_UNSUPPORTED)
 
     cutoff_term = terms["dealing_cutoff"]
     cutoff: time | None = None
@@ -920,15 +923,11 @@ def _fx_rate_on_date(
 def _term_at(
     terms: tuple[FundTerm, ...],
     name: str,
-    effective_date: date | datetime,
+    effective_at: datetime,
     decision: datetime,
 ) -> tuple[FundTerm | None, bool]:
     matching: list[FundTerm] = []
-    effective_at = (
-        effective_date.astimezone(timezone.utc)
-        if isinstance(effective_date, datetime)
-        else None
-    )
+    effective_at = effective_at.astimezone(timezone.utc)
     for term in terms:
         if term.name != name or _timestamp(term.available_at, "term available_at") > decision:
             continue
@@ -938,12 +937,7 @@ def _term_at(
             if term.valid_to is not None
             else None
         )
-        if effective_at is not None:
-            applies = valid_from <= effective_at and (valid_to is None or valid_to > effective_at)
-        else:
-            applies = valid_from.date() <= effective_date and (
-                valid_to is None or valid_to.date() > effective_date
-            )
+        applies = valid_from <= effective_at and (valid_to is None or valid_to > effective_at)
         if applies:
             matching.append(term)
     if not matching:
@@ -954,6 +948,13 @@ def _term_at(
     if len(values) != 1 or any(term.conflicted for term in latest_terms):
         return None, True
     return latest_terms[0], False
+
+
+def _has_intraday_boundary(term: FundTerm) -> bool:
+    return any(
+        raw is not None and _timestamp(raw, "term validity").astimezone(timezone.utc).time() != time.min
+        for raw in (term.valid_from, term.valid_to)
+    )
 
 
 def _not_applicable(metric: str) -> FundMetricApplicability:

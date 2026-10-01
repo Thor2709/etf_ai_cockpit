@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import pandas as pd
 
+from etf_cockpit.analysis import fund_analysis
 from etf_cockpit.analysis.fund_analysis import (
     FundAnalysisInput,
     FundDistributionObservation,
@@ -172,6 +173,23 @@ def test_intraday_fee_start_before_window_abstains() -> None:
     assert record.status == "insufficient_evidence"
     assert "fee_term_intraday_boundary_unsupported" in record.blockers
     assert record.return_decomposition.class_fee_return is None
+
+
+def test_current_fee_selected_by_timestamp_and_intraday_term_abstains() -> None:
+    # Decision 10:00 on Feb 5, NAV window ends Feb 4; the old fee runs until noon on Feb 5.
+    source = _input(decision_time=datetime(2026, 2, 5, 10, tzinfo=timezone.utc))
+    fee_term = next(term for term in source.terms if term.name == "ongoing_fee_bps")
+    boundary = "2026-02-05T12:00:00Z"
+    old_fee = replace(fee_term, valid_to=boundary)
+    new_fee = replace(fee_term, value="100", valid_from=boundary, source_id="term:fee-noon-feb5")
+    terms = tuple(term for term in source.terms if term.name != "ongoing_fee_bps") + (old_fee, new_fee)
+
+    selected, conflict = fund_analysis._term_at(terms, "ongoing_fee_bps", source.decision_time, source.decision_time)
+    record = analyze_fund(replace(source, terms=terms))
+
+    assert (selected, conflict) == (old_fee, False)
+    assert record.status == "insufficient_evidence"
+    assert "fee_term_intraday_boundary_unsupported" in record.blockers
 
 
 def test_date_aligned_fee_change_still_accrues_by_day() -> None:
