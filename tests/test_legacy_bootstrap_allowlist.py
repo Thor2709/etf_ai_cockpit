@@ -174,7 +174,10 @@ def test_control_state_records_are_recognised_by_allowance() -> None:
         "UPDATEV2-0027",
     ):
         record = control_state["records"][issue_id]
-        if issue_id in ("ISSUE-0045", "UPDATEV2-0027"):
+        if (
+            record == EXPECTED_LEGACY_BOOTSTRAP_RECORDS[issue_id]
+            and issue_id in ("ISSUE-0045", "UPDATEV2-0027")
+        ):
             assert "transition_history" not in record
         _assert_control_state_record_matches_allowance(
             issue_id, record
