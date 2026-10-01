@@ -1,5 +1,6 @@
 schema_version: "analysis-depth-profiles.v1"
 reference_fixture_id: reference_3000_supported_instruments
+reference_fixture_digest: null  # No reference content digest is registered, so benchmark certification stays disabled.
 reference_machine:
   cpu_cores: 20
   memory_mb: 32768

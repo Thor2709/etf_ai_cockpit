@@ -9,6 +9,7 @@ import uuid
 from etf_cockpit.application.analysis_depth import (
     AnalysisDepthError,
     AnalysisDepthProfile,
+    MandatoryEvidenceError,
     AnalysisUpgradeLink,
     StageRunner,
     analysis_run_identity,
@@ -376,19 +377,23 @@ class BulkAnalysisService:
         profile = profile_from_dict(depth_payload.get("profile"))
         if depth_payload.get("manifest_hash") != profile.manifest_hash:
             raise AnalysisDepthError("stored analysis-depth manifest hash does not match its frozen profile")
-        output, records = execute_profiled_stages(
-            profile,
-            instrument_id,
-            job.inputs["analysis_input"],
-            self._stored_analyzer_id(workflow),
-            stage_runner,
-            self._stage_cache,
-            run_id=context.workflow_id,
-            cache_state=str(depth_payload.get("cache_state", "cold")),
-            resource_plan=resource_plan_from_dict(depth_payload.get("resource_plan")),
-            horizons=tuple(str(item) for item in depth_payload.get("horizons", profile.horizons)),
-            seeds=tuple(int(item) for item in depth_payload.get("seeds", profile.seeds)),
-        )
+        try:
+            output, records = execute_profiled_stages(
+                profile,
+                instrument_id,
+                job.inputs["analysis_input"],
+                self._stored_analyzer_id(workflow),
+                stage_runner,
+                self._stage_cache,
+                run_id=context.workflow_id,
+                cache_state=str(depth_payload.get("cache_state", "cold")),
+                resource_plan=resource_plan_from_dict(depth_payload.get("resource_plan")),
+                horizons=tuple(str(item) for item in depth_payload.get("horizons", profile.horizons)),
+                seeds=tuple(int(item) for item in depth_payload.get("seeds", profile.seeds)),
+            )
+        except MandatoryEvidenceError as exc:
+            append_timing_records(self.scheduler.root, exc.timing_records)
+            raise
         append_timing_records(self.scheduler.root, records)
         return output
 

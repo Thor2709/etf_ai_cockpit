@@ -25,10 +25,13 @@ from etf_cockpit.application.analysis_depth import (
 from etf_cockpit.core.resource_profiles import detect_hardware
 
 
+SYNTHETIC_FIXTURE_ID = "synthetic_test_fixture"
+
+
 def run_benchmark(
     instruments_per_profile: int,
     *,
-    fixture_id: str = "synthetic_test_fixture",
+    fixture_id: str = SYNTHETIC_FIXTURE_ID,
     low_resource: bool = False,
 ) -> dict[str, object]:
     """Run N deterministic local fixtures per profile and report measured SLOs."""
@@ -36,8 +39,14 @@ def run_benchmark(
     if isinstance(instruments_per_profile, bool) or not isinstance(instruments_per_profile, int) or instruments_per_profile <= 0:
         raise ValueError("instruments_per_profile must be a positive integer")
     profiles = load_analysis_depth_profiles()
-    cache: dict[str, dict[str, object]] = {}
     profile_results: dict[str, object] = {}
+    fixture_inputs = [
+        [f"SYNTHETIC-{index + 1:06d}", {"fixture_index": index + 1}]
+        for index in range(instruments_per_profile)
+    ]
+    fixture_content_digest = hashlib.sha256(
+        json.dumps(fixture_inputs, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     hardware = detect_hardware()
     machine = {
         "cpu_cores": hardware.cpu_cores,
@@ -46,9 +55,11 @@ def run_benchmark(
     }
 
     for profile_id, profile in profiles.items():
+        cache: dict[str, dict[str, object]] = {}
         plan = create_resource_plan(profile, hardware_profile="auto", low_resource=low_resource)
         measurements: list[AnalysisTimingRecord] = []
         stage_records: list[AnalysisTimingRecord] = []
+        cache_hits = 0
         omitted_stages: set[str] = set()
         model_omissions: set[str] = set()
 
@@ -74,12 +85,19 @@ def run_benchmark(
                     stage_runner,
                     cache,
                     run_id=f"benchmark-{profile_id}",
-                    cache_state="warm",
+                    cache_state="cold",
                     resource_plan=plan,
                     horizons=profile.horizons,
                     seeds=profile.seeds,
                 )
                 stage_records.extend(instrument_records)
+                instrument_cache_hits = sum(
+                    1
+                    for record in instrument_records
+                    if record.timing_kind == "stage" and record.cache_state == "warm"
+                )
+                cache_hits += instrument_cache_hits
+                measured_cache_state = "warm" if instrument_cache_hits > 0 else "cold"
                 omitted_stages.update(output["omitted_optional_stages"])
                 model_omissions.update(output["model_omissions"])
                 elapsed = time.perf_counter() - started
@@ -89,7 +107,7 @@ def run_benchmark(
                     timing_kind="stage",
                     stage_id="benchmark_instrument",
                     wall_time_seconds=elapsed,
-                    cache_state="warm",
+                    cache_state=measured_cache_state,
                 ))
 
         percentiles = timing_percentiles(measurements, profile_id=profile_id)
@@ -99,16 +117,20 @@ def run_benchmark(
                 peak_resources[resource_name] = max(peak_resources.get(resource_name, 0.0), peak)
         certification = certify_benchmark(
             profile,
-            fixture_id=fixture_id,
+            fixture_id=SYNTHETIC_FIXTURE_ID,
+            fixture_content_digest=fixture_content_digest,
             instrument_count=instruments_per_profile,
-            cache_state="warm",
+            cache_state="warm" if cache_hits > 0 else "cold",
+            cache_hits=cache_hits,
             p95_seconds=float(percentiles["p95_seconds"]),
             machine=machine,
         )
         profile_results[profile_id] = {
             "measured_instruments": len(measurements),
             "fixture_id": fixture_id,
-            "cache_state": "warm",
+            "fixture_content_digest": fixture_content_digest,
+            "cache_state": "warm" if cache_hits > 0 else "cold",
+            "cache_hits": cache_hits,
             "p50_seconds": percentiles["p50_seconds"],
             "p95_seconds": percentiles["p95_seconds"],
             "slo_seconds": profile.slo_seconds,

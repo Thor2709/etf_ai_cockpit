@@ -1,4 +1,8 @@
-"""Versioned analysis-depth workload manifests and measured run evidence."""
+"""Versioned analysis-depth workload manifests and measured run evidence.
+
+Stage wall time is exclusive of runner-reported acquisition and Training Centre
+time; those durations are stored as separate timing records.
+"""
 
 from __future__ import annotations
 
@@ -73,6 +77,15 @@ class AnalysisDepthError(ValueError):
 
 class MandatoryEvidenceError(AnalysisDepthError):
     """Raised when a required stage does not produce complete evidence."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        timing_records: Sequence[AnalysisTimingRecord] = (),
+    ) -> None:
+        super().__init__(message)
+        self.timing_records = tuple(timing_records)
 
 
 def _canonical_json(value: object) -> str:
@@ -181,6 +194,7 @@ class AnalysisDepthProfile:
     slo_seconds: int
     shard_size: int
     reference_fixture_id: str
+    reference_fixture_digest: str | None
     reference_cpu_cores: int
     reference_memory_mb: int
     reference_gpu_label: str
@@ -218,6 +232,7 @@ class AnalysisDepthProfile:
             "slo_seconds": self.slo_seconds,
             "shard_size": self.shard_size,
             "reference_fixture_id": self.reference_fixture_id,
+            "reference_fixture_digest": self.reference_fixture_digest,
             "reference_machine": {
                 "cpu_cores": self.reference_cpu_cores,
                 "memory_mb": self.reference_memory_mb,
@@ -354,7 +369,12 @@ def _finite_nonnegative(value: object, label: str) -> float:
     return converted
 
 
-def _profile_from_mapping(profile_id: str, raw: object, reference: object) -> AnalysisDepthProfile:
+def _profile_from_mapping(
+    profile_id: str,
+    raw: object,
+    reference: object,
+    reference_fixture_digest: object,
+) -> AnalysisDepthProfile:
     if not isinstance(raw, Mapping) or not isinstance(reference, Mapping):
         raise AnalysisDepthError(f"profile {profile_id} must be a mapping")
     _require_keys(
@@ -416,6 +436,16 @@ def _profile_from_mapping(profile_id: str, raw: object, reference: object) -> An
         or not isinstance(reference_gpu, str) or not reference_gpu.strip()
     ):
         raise AnalysisDepthError("reference_machine needs positive cpu_cores/memory_mb and gpu_label")
+    if reference_fixture_digest is None:
+        normalized_reference_digest = None
+    elif (
+        not isinstance(reference_fixture_digest, str)
+        or len(reference_fixture_digest) != 64
+        or any(character not in "0123456789abcdefABCDEF" for character in reference_fixture_digest)
+    ):
+        raise AnalysisDepthError("reference_fixture_digest must be a SHA-256 hex digest or null")
+    else:
+        normalized_reference_digest = reference_fixture_digest.casefold()
     return AnalysisDepthProfile(
         profile_id=profile_id,
         profile_version=profile_version,
@@ -428,6 +458,7 @@ def _profile_from_mapping(profile_id: str, raw: object, reference: object) -> An
         slo_seconds=slo_seconds,
         shard_size=shard_size,
         reference_fixture_id=REFERENCE_FIXTURE_ID,
+        reference_fixture_digest=normalized_reference_digest,
         reference_cpu_cores=reference_cpu,
         reference_memory_mb=reference_memory,
         reference_gpu_label=reference_gpu,
@@ -446,7 +477,13 @@ def load_analysis_depth_profiles(path: Path | None = None) -> dict[str, Analysis
         raise AnalysisDepthError("analysis-depth registry schema_version is unsupported")
     _require_keys(
         raw,
-        {"schema_version", "reference_fixture_id", "reference_machine", "profiles"},
+        {
+            "schema_version",
+            "reference_fixture_id",
+            "reference_fixture_digest",
+            "reference_machine",
+            "profiles",
+        },
         "analysis-depth registry",
     )
     if raw.get("reference_fixture_id") != REFERENCE_FIXTURE_ID:
@@ -456,7 +493,12 @@ def load_analysis_depth_profiles(path: Path | None = None) -> dict[str, Analysis
     if not isinstance(profiles_raw, Mapping) or set(profiles_raw) != set(PROFILE_IDS):
         raise AnalysisDepthError("analysis-depth registry must declare Quick, Medium, High and Full")
     profiles = {
-        profile_id: _profile_from_mapping(profile_id, profiles_raw[profile_id], reference)
+        profile_id: _profile_from_mapping(
+            profile_id,
+            profiles_raw[profile_id],
+            reference,
+            raw.get("reference_fixture_digest"),
+        )
         for profile_id in PROFILE_IDS
     }
     mandatory_sets = {profile.mandatory_stages for profile in profiles.values()}
@@ -494,7 +536,12 @@ def profile_from_dict(payload: object) -> AnalysisDepthProfile:
         "slo_seconds": payload.get("slo_seconds"),
         "shard_size": payload.get("shard_size"),
     }
-    profile = _profile_from_mapping(str(profile_id), raw, raw_reference)
+    profile = _profile_from_mapping(
+        str(profile_id),
+        raw,
+        raw_reference,
+        payload.get("reference_fixture_digest"),
+    )
     expected_stages = payload.get("stages")
     if [stage.to_dict() for stage in profile.stages] != expected_stages:
         raise AnalysisDepthError("frozen profile stage details do not match the declared profile settings")
@@ -785,34 +832,34 @@ def execute_profiled_stages(
                 tracemalloc.stop()
             stage_result, timing_raw = _stage_return_parts(raw_result)
             provider_wait, model_omissions, reported_peaks, separate_timings = _timing_metadata(timing_raw, profile)
+            reported_separate_seconds = sum(seconds for _kind, seconds in separate_timings)
+            if reported_separate_seconds > elapsed:
+                raise AnalysisDepthError(
+                    "runner-reported acquisition and Training Centre time exceeds stage runner wall time"
+                )
+            elapsed -= reported_separate_seconds
             peak_resources = tuple(sorted((*reported_peaks, ("python_heap_peak_mb", peak_bytes / 1_048_576))))
             stage_result = _json_safe(stage_result)
             reused = False
-            stage_cache_state = cache_state
-            error = _mandatory_result_error(stage, stage_result)
-            if error is not None:
-                raise MandatoryEvidenceError(error)
+            stage_cache_state = "cold"
             content_hash = _content_hash(stage_result)
-            if stage_result is not None:
-                cache[key] = {"content_hash": content_hash, "result": stage_result}
         error = _mandatory_result_error(stage, stage_result)
-        if error is not None:
-            raise MandatoryEvidenceError(error)
-        if isinstance(stage_result, Mapping):
+        if error is None and isinstance(stage_result, Mapping):
             declared_omissions = stage_result.get("model_omissions", ())
             if isinstance(declared_omissions, (list, tuple)):
                 model_omissions = tuple(str(item) for item in declared_omissions)
                 if not set(model_omissions).issubset(profile.model_families):
                     raise AnalysisDepthError("model omission references a family outside the frozen profile")
-        omissions.update(model_omissions)
-        if stage_result is None and not stage.mandatory:
-            omitted_stages.append(stage.stage_id)
-        stage_outputs[stage.stage_id] = stage_result
-        stage_hashes[stage.stage_id] = {
-            "cache_key": key,
-            "content_hash": content_hash,
-            "reused": reused,
-        }
+        if error is None:
+            omissions.update(model_omissions)
+            if stage_result is None and not stage.mandatory:
+                omitted_stages.append(stage.stage_id)
+            stage_outputs[stage.stage_id] = stage_result
+            stage_hashes[stage.stage_id] = {
+                "cache_key": key,
+                "content_hash": content_hash,
+                "reused": reused,
+            }
         timing_records.append(AnalysisTimingRecord(
             run_id=run_id,
             profile_id=profile.profile_id,
@@ -836,6 +883,10 @@ def execute_profiled_stages(
                 model_omissions=model_omissions,
                 peak_resources=peak_resources,
             ))
+        if error is not None:
+            raise MandatoryEvidenceError(error, timing_records=timing_records)
+        if not reused and stage_result is not None:
+            cache[key] = {"content_hash": content_hash, "result": stage_result}
 
     deterministic_fields = {stage_id: stage_outputs[stage_id] for stage_id in profile.mandatory_stages}
     output = {
@@ -905,20 +956,37 @@ def certify_benchmark(
     profile: AnalysisDepthProfile,
     *,
     fixture_id: str,
+    fixture_content_digest: str | None,
     instrument_count: int,
     cache_state: str,
+    cache_hits: int,
     p95_seconds: float,
     machine: Mapping[str, object] | None,
 ) -> dict[str, object]:
-    """Certify only the declared reference fixture on its declared machine."""
+    """Certify only matching reference content measured with observed cache hits."""
 
     reasons: list[str] = []
     if fixture_id != profile.reference_fixture_id:
         reasons.append("measurement did not use the declared reference fixture")
     if instrument_count != REFERENCE_INSTRUMENT_COUNT:
         reasons.append("measurement did not cover 3000 supported instruments")
-    if cache_state != "warm":
+    if isinstance(cache_hits, bool) or not isinstance(cache_hits, int) or cache_hits < 0:
+        raise AnalysisDepthError("cache_hits must be a non-negative integer")
+    measured_cache_state = "warm" if cache_hits > 0 else "cold"
+    if cache_state != measured_cache_state:
+        reasons.append("reported cache state does not match measured cache hits")
+    if cache_hits == 0:
         reasons.append("measurement was not warm-cache")
+    if profile.reference_fixture_digest is None:
+        reasons.append("declared reference fixture content digest is unavailable")
+    elif (
+        not isinstance(fixture_content_digest, str)
+        or len(fixture_content_digest) != 64
+        or any(character not in "0123456789abcdefABCDEF" for character in fixture_content_digest)
+    ):
+        reasons.append("fixture content digest is not a SHA-256 hex digest")
+    elif fixture_content_digest.casefold() != profile.reference_fixture_digest:
+        reasons.append("fixture content digest does not match the declared reference digest")
     machine = machine or {}
     try:
         cpu = int(machine.get("cpu_cores", 0))
