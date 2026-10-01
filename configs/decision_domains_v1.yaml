@@ -532,3 +532,9 @@ etf_decision_graph:
       metric_shape: higher_is_better
       requirement_class: OPTIONAL
       rank_authority: true
+
+# Decision-rank cutover is owner-controlled. Typed thresholds and the
+# promotion-record contract live in decision_cutover_v1.yaml.
+rank_cutover:
+  enabled: false
+  promotion_record: null
