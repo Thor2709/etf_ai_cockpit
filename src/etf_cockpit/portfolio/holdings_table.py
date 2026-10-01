@@ -72,12 +72,21 @@ def build_portfolio_holdings_table(
 
     portfolio_id = _text(_member(portfolio_snapshot, "portfolio_id"))
     snapshot_id = _text(_member(portfolio_snapshot, "snapshot_id"))
-    portfolio_date = _date_key(_member(portfolio_snapshot, "as_of"))
+    portfolio_decision_time = _member(portfolio_snapshot, "as_of")
+    analysis_decision_time = _member(analysis_snapshot, "decision_time")
+    portfolio_cutoff = _decision_timestamp(portfolio_decision_time)
+    analysis_cutoff = _decision_timestamp(analysis_decision_time)
+    analysis_postdates_snapshot = bool(
+        portfolio_cutoff is not None
+        and analysis_cutoff is not None
+        and analysis_cutoff > portfolio_cutoff
+    )
+    portfolio_date = _date_key(portfolio_decision_time)
     performance_date = _date_key(_member(performance_snapshot, "date"))
     performance_snapshot_id = _text(_member(performance_snapshot, "snapshot_id"))
     run_id = _text(_member(analysis_snapshot, "analysis_run_id"))
     artifact_run_id = _text(_member(analysis_snapshot, "run_id"))
-    analysis_date = _date_key(_member(analysis_snapshot, "decision_time"))
+    analysis_date = _date_key(analysis_decision_time)
     portfolio_policy = _text(_member(portfolio_snapshot, "policy_id"))
     performance_policy = _text(_member(performance_snapshot, "policy_id"))
     analysis_policy = _text(_member(analysis_snapshot, "policy_id"))
@@ -100,6 +109,10 @@ def build_portfolio_holdings_table(
         reasons.append("analysis_date_unavailable")
     elif portfolio_date and analysis_date != portfolio_date:
         conflicts.append("portfolio_analysis_date_mismatch")
+    if portfolio_cutoff is not None and analysis_cutoff is None:
+        reasons.append("analysis_decision_timestamp_unavailable")
+    elif analysis_postdates_snapshot:
+        conflicts.append("portfolio_analysis_postdates_snapshot")
     if not analysis_policy:
         reasons.append("analysis_policy_unavailable")
     if analysis_policy and portfolio_policy and analysis_policy != portfolio_policy:
@@ -121,11 +134,14 @@ def build_portfolio_holdings_table(
         and projection_rate > 0
         and (not portfolio_date or not projection_date or projection_date == portfolio_date)
     )
+    currency_reason = (
+        None
+        if projection_available
+        else _text(_member(currency_projection, "reason"))
+        or "canonical_output_currency_projection_unavailable"
+    )
     if not projection_available:
-        reasons.append(
-            _text(_member(currency_projection, "reason"))
-            or "canonical_output_currency_projection_unavailable"
-        )
+        reasons.append(currency_reason or "canonical_output_currency_projection_unavailable")
 
     frame = holdings if isinstance(holdings, pd.DataFrame) else pd.DataFrame()
     identity_column = next((name for name in ("instrument_id", "etf_id") if name in frame.columns), None)
@@ -147,6 +163,8 @@ def build_portfolio_holdings_table(
         conflicts.append("duplicate_canonical_holding_identity")
 
     performance_value = _finite(_member(performance_snapshot, "securities_value"))
+    performance_cash_value = _finite(_member(performance_snapshot, "cash_value"))
+    performance_total_value = _finite(_member(performance_snapshot, "total_value"))
     holding_values = [_finite(_first_present(row, "market_value_eur", "value_eur")) for row in raw_rows]
     if not raw_rows or performance_value is None or any(value is None for value in holding_values):
         reconciliation = _cell(None, "selected_snapshot_value_reconciliation_unavailable")
@@ -157,6 +175,13 @@ def build_portfolio_holdings_table(
         else:
             reconciliation = _cell(None, "holding_values_do_not_reconcile_to_performance_snapshot")
             conflicts.append("holding_values_do_not_reconcile_to_performance_snapshot")
+    if performance_value is None or performance_cash_value is None or performance_total_value is None:
+        portfolio_value_reconciliation = _cell(None, "canonical_security_cash_total_values_unavailable")
+    elif performance_value + performance_cash_value != performance_total_value:
+        portfolio_value_reconciliation = _cell(None, "canonical_security_cash_total_values_do_not_reconcile")
+        conflicts.append("canonical_security_cash_total_values_do_not_reconcile")
+    else:
+        portfolio_value_reconciliation = _cell(True)
 
     analysis_rows, analysis_identity_conflicts = _index_analysis_rows(analysis_snapshot)
     if analysis_identity_conflicts:
@@ -190,18 +215,26 @@ def build_portfolio_holdings_table(
                 distributions=distributions,
                 horizon_days=selected_horizon,
                 portfolio_date=portfolio_date,
+                portfolio_cutoff=portfolio_cutoff,
                 output_currency=target_currency,
                 currency_rate=projection_rate if projection_available else None,
-                currency_reason=(
-                    None
-                    if projection_available
-                    else "canonical_output_currency_projection_unavailable"
-                ),
+                currency_reason=currency_reason,
                 duplicate=identity in duplicates,
             )
         selected_distribution = _distribution_for(distributions, identity, selected_horizon)
-        model_date = _date_key(_member(selected_distribution, "decision_time"))
-        if model_date and portfolio_date and model_date > portfolio_date:
+        model_decision_time = _member(selected_distribution, "decision_time")
+        model_cutoff = _decision_timestamp(model_decision_time)
+        model_postdates_snapshot = bool(
+            portfolio_cutoff is not None
+            and model_cutoff is not None
+            and model_cutoff > portfolio_cutoff
+        )
+        model_date = _date_key(model_decision_time)
+        if portfolio_cutoff is not None and model_cutoff is None:
+            conflicts.append("forecast_distribution_decision_timestamp_unavailable")
+        elif model_postdates_snapshot:
+            conflicts.append("forecast_distribution_postdates_portfolio_snapshot")
+        elif model_date and portfolio_date and model_date > portfolio_date:
             conflicts.append("forecast_distribution_postdates_portfolio_snapshot")
         projected_row.update(
             {
@@ -242,6 +275,7 @@ def build_portfolio_holdings_table(
         and run_id
         and run_id == artifact_run_id
         and analysis_date == portfolio_date
+        and (portfolio_cutoff is None or (analysis_cutoff is not None and analysis_cutoff <= portfolio_cutoff))
         and analysis_policy is not None
         and str(_member(analysis_snapshot, "status", "unavailable")) == "complete"
         and _member(analysis_snapshot, "policy_status", "unavailable") == "available"
@@ -273,6 +307,30 @@ def build_portfolio_holdings_table(
             "date": performance_date,
             "snapshot_id": performance_snapshot_id,
             "securities_value": performance_value,
+            "cash_value": performance_cash_value,
+            "total_value": performance_total_value,
+            "securities_value_output_currency": _converted_cell(
+                performance_value,
+                projection_rate if projection_available else None,
+                target_currency,
+                currency_reason,
+                "performance_securities_value_unavailable",
+            ),
+            "cash_value_output_currency": _converted_cell(
+                performance_cash_value,
+                projection_rate if projection_available else None,
+                target_currency,
+                currency_reason,
+                "performance_cash_value_unavailable",
+            ),
+            "total_value_output_currency": _converted_cell(
+                performance_total_value,
+                projection_rate if projection_available else None,
+                target_currency,
+                currency_reason,
+                "performance_total_value_unavailable",
+            ),
+            "portfolio_value_reconciliation": portfolio_value_reconciliation,
             "reconciliation": reconciliation,
         },
         "analysis_run_id": run_id,
@@ -303,6 +361,7 @@ def _holding_row(
     distributions: object,
     horizon_days: int | None,
     portfolio_date: str | None,
+    portfolio_cutoff: pd.Timestamp | None,
     output_currency: str,
     currency_rate: float | None,
     currency_reason: str | None,
@@ -370,8 +429,20 @@ def _holding_row(
     row["coverage"] = _cell(_member(analysis_row, "coverage"), "analysis_coverage_unavailable")
 
     distribution = _distribution_for(distributions, identity, horizon_days)
-    model_date = _date_key(_member(distribution, "decision_time"))
-    if distribution is not None and (model_date is None or (portfolio_date and model_date > portfolio_date)):
+    model_decision_time = _member(distribution, "decision_time")
+    model_cutoff = _decision_timestamp(model_decision_time)
+    model_postdates_snapshot = bool(
+        portfolio_cutoff is not None
+        and model_cutoff is not None
+        and model_cutoff > portfolio_cutoff
+    )
+    model_date = _date_key(model_decision_time)
+    if distribution is not None and (
+        model_date is None
+        or (portfolio_cutoff is not None and model_cutoff is None)
+        or model_postdates_snapshot
+        or (portfolio_cutoff is None and portfolio_date and model_date > portfolio_date)
+    ):
         distribution = None
     forecast_quantiles: dict[str, object] = {}
     expected_gain_loss: dict[str, object] = {}
@@ -411,10 +482,12 @@ def _holding_row(
 
 
 def _impact_cell(quantile: object, value: Mapping[str, object], currency_reason: str | None) -> dict[str, object]:
+    if currency_reason:
+        return _cell(None, currency_reason)
     amount = _finite(_member(value, "value"))
     return_value = _finite(quantile)
     if amount is None or return_value is None:
-        reason = _text(_member(value, "reason")) or currency_reason or "stored_return_quantile_or_output_value_unavailable"
+        reason = _text(_member(value, "reason")) or "stored_return_quantile_or_output_value_unavailable"
         return _cell(None, reason)
     return _cell(amount * return_value)
 
@@ -602,3 +675,17 @@ def _date_key(value: object) -> str | None:
     if parsed.tzinfo is not None:
         parsed = parsed.tz_convert("UTC")
     return parsed.date().isoformat()
+
+
+def _decision_timestamp(value: object) -> pd.Timestamp | None:
+    """Keep precise timezone-aware evidence times for point-in-time checks."""
+
+    if value is None:
+        return None
+    try:
+        parsed = pd.Timestamp(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if pd.isna(parsed) or parsed.tzinfo is None:
+        return None
+    return parsed.tz_convert("UTC")

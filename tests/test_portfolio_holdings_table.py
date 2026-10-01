@@ -221,3 +221,37 @@ def test_mixed_asset_sorting_filtering_keeps_asset_columns_and_unavailable_cells
     assert filtered[0]["quantity"]["status"] == "unavailable"
     assert filtered[0]["cost_basis"]["value"] is None
     assert filtered[0]["cost_basis"]["value"] != 0
+
+
+def test_same_day_future_analysis_and_distribution_are_rejected_before_date_display() -> None:
+    analysis_future = _inputs()
+    analysis_future["portfolio_snapshot"]["as_of"] = "2026-09-30T09:00:00+00:00"  # type: ignore[index]
+    analysis_future["analysis_snapshot"]["decision_time"] = "2026-09-30T17:00:00+00:00"  # type: ignore[index]
+    analysis_future["analysis_snapshot"]["distributions"]["AAA"][30]["decision_time"] = "2026-09-30T08:00:00+00:00"  # type: ignore[index]
+    future_analysis_projection = _build(analysis_future)
+
+    distribution_future = _inputs()
+    distribution_future["portfolio_snapshot"]["as_of"] = "2026-09-30T09:00:00+00:00"  # type: ignore[index]
+    distribution_future["analysis_snapshot"]["decision_time"] = "2026-09-30T08:00:00+00:00"  # type: ignore[index]
+    distribution_future["analysis_snapshot"]["distributions"]["AAA"][30]["decision_time"] = "2026-09-30T17:00:00+00:00"  # type: ignore[index]
+    future_distribution_projection = _build(distribution_future)
+
+    assert future_analysis_projection["analysis_date"] == _DATE
+    assert future_analysis_projection["proposal_handoff_allowed"] is False
+    assert "portfolio_analysis_postdates_snapshot" in future_analysis_projection["conflicts"]
+    assert future_distribution_projection["proposal_handoff_allowed"] is False
+    assert "forecast_distribution_postdates_portfolio_snapshot" in future_distribution_projection["conflicts"]
+    assert future_distribution_projection["rows"][0]["expected_gain_loss"]["net_q50_return"]["value"] is None
+
+
+def test_missing_fx_scenario_blocks_numeric_gain_loss_amounts() -> None:
+    inputs = _inputs()
+    del inputs["analysis_snapshot"]["distributions"]["AAA"][30]["return_components"]["fx_return"]  # type: ignore[index]
+
+    row = _build(inputs)["rows"][0]
+
+    amount = row["expected_gain_loss"]["net_q50_return"]
+    assert row["distribution_return_components"]["status"] == "unavailable"
+    assert amount["status"] == "unavailable"
+    assert amount["value"] is None
+    assert amount["reason"] == "stored_fx_scenario_unavailable"

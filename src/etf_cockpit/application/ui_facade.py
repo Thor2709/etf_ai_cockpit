@@ -286,9 +286,10 @@ def load_portfolio_forecast_aggregation(
     )
     portfolio_meta = projection.get("portfolio_snapshot")
     portfolio_meta = portfolio_meta if isinstance(portfolio_meta, Mapping) else {}
+    performance_meta = projection.get("performance_snapshot")
+    performance_meta = performance_meta if isinstance(performance_meta, Mapping) else {}
     holding_rows = projection.get("rows", ())
     positions: dict[str, dict[str, object]] = {}
-    position_values: list[float] = []
     if isinstance(holding_rows, Sequence) and not isinstance(holding_rows, (str, bytes)):
         for row in holding_rows:
             if not isinstance(row, Mapping):
@@ -300,8 +301,36 @@ def load_portfolio_forecast_aggregation(
             market_value = value_cell.get("value") if isinstance(value_cell, Mapping) and value_cell.get("status") == "available" else None
             if instrument_id:
                 positions[instrument_id] = {"weight": weight, "market_value": market_value}
-                if isinstance(market_value, Real) and not isinstance(market_value, bool) and math.isfinite(float(market_value)):
-                    position_values.append(float(market_value))
+
+    def _available_amount(field: str) -> float | None:
+        cell = performance_meta.get(field)
+        value = cell.get("value") if isinstance(cell, Mapping) and cell.get("status") == "available" else None
+        return float(value) if isinstance(value, Real) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+
+    securities_value = _available_amount("securities_value_output_currency")
+    cash_value = _available_amount("cash_value_output_currency")
+    portfolio_value = _available_amount("total_value_output_currency")
+    security_reconciliation = performance_meta.get("reconciliation")
+    total_reconciliation = performance_meta.get("portfolio_value_reconciliation")
+    position_values = [
+        position.get("market_value")
+        for position in positions.values()
+    ]
+    value_components_reconciled = bool(
+        isinstance(security_reconciliation, Mapping)
+        and security_reconciliation.get("status") == "available"
+        and security_reconciliation.get("value") is True
+        and isinstance(total_reconciliation, Mapping)
+        and total_reconciliation.get("status") == "available"
+        and total_reconciliation.get("value") is True
+        and securities_value is not None
+        and cash_value is not None
+        and portfolio_value is not None
+        and position_values
+        and all(isinstance(value, Real) and not isinstance(value, bool) and math.isfinite(float(value)) for value in position_values)
+        and math.isclose(math.fsum(float(value) for value in position_values), securities_value, rel_tol=1e-12, abs_tol=1e-9)
+        and math.isclose(securities_value + cash_value, portfolio_value, rel_tol=1e-12, abs_tol=1e-9)
+    )
 
     binding = analysis.snapshot_binding
     risk_projection = analysis.service_evidence.get("risk")
@@ -334,11 +363,14 @@ def load_portfolio_forecast_aggregation(
             )
         except (TypeError, ValueError, KeyError):
             distribution_rows = {}
-        distributions = {
-            instrument_id: distribution
-            for instrument_id, distribution in distribution_rows.items()
-            if instrument_id in positions
-        }
+        distributions = {}
+        for instrument_id, distribution in distribution_rows.items():
+            if instrument_id not in positions or not isinstance(distribution, Mapping):
+                continue
+            bound_distribution = dict(distribution)
+            if not bound_distribution.get("analysis_run_id"):
+                bound_distribution["analysis_run_id"] = selected_run_id
+            distributions[instrument_id] = bound_distribution
 
     analysis_snapshot = {
         "portfolio_id": portfolio_meta.get("portfolio_id"),
@@ -359,7 +391,10 @@ def load_portfolio_forecast_aggregation(
         **portfolio_meta,
         "sealed": projection.get("proposal_handoff_allowed") is True,
         "positions": positions,
-        "total_value": math.fsum(position_values) if len(position_values) == len(positions) and position_values else None,
+        "securities_value": securities_value,
+        "cash_value": cash_value,
+        "total_value": portfolio_value,
+        "value_components_reconciled": value_components_reconciled,
         "cash_weight": analysis.current_cash_weight,
     }
     return build_portfolio_forecast_snapshot(
@@ -3363,6 +3398,10 @@ def load_portfolio_goals_projection(
                     elif command_type == "simulate":
                         if analysis is None:
                             return _portfolio_goals_unavailable("what_if_analysis_unavailable")
+                        scenario_policy = latest_policy or PortfolioPolicy(policy_id=policy_id, version=0)
+                        scenario_evidence = _portfolio_goals_evidence(
+                            snapshot, analysis, scenario_policy, command_type
+                        )
                         forecast = None
                         try:
                             forecast = load_portfolio_forecast_aggregation(
@@ -3375,17 +3414,12 @@ def load_portfolio_goals_projection(
                         scenario = build_what_if_scenario(
                             analysis,
                             snapshot,
-                            active_policy,
-                            evidence=evidence,
+                            scenario_policy,
+                            evidence=scenario_evidence,
                             forecast=forecast,
                         )
                         scenario_value = what_if_record(scenario)
-                        if versions and _portfolio_goals_policy_as_of(versions, analysis) is None:
-                            scenario_value["status"] = "blocked"
-                            scenario_value["rejected_candidates"] = [
-                                *scenario_value.get("rejected_candidates", []),
-                                "portfolio_policy: no saved policy version was available at the source decision time",
-                            ]
+                        scenario_value["policy_binding"] = _portfolio_goals_policy_binding(scenario_policy)
                         scenario_value["saved_at"] = saved_at
                         scenarios.append(scenario_value)
                     elif command_type in {"acknowledge", "snooze"}:
@@ -3437,6 +3471,9 @@ def load_portfolio_goals_projection(
     editor_value = policy_editor_value(latest_policy)
     current_hash = source_snapshot_hash(analysis) if analysis is not None else None
     alert_policy = effective_policy or PortfolioPolicy(policy_id=policy_id, version=0)
+    effective_policy_binding = _portfolio_goals_policy_binding(
+        latest_policy or PortfolioPolicy(policy_id=policy_id, version=0)
+    )
     evidence = _portfolio_goals_evidence(snapshot, analysis, alert_policy, command_type) if analysis is not None else {}
     if analysis is not None:
         alerts, unavailable_alerts = build_alerts(
@@ -3479,6 +3516,7 @@ def load_portfolio_goals_projection(
             if effective_policy is not None
             else {"status": "unavailable", "reason": "no_policy_version_available_at_source_decision_time" if versions else "no_saved_policy"}
         ),
+        "effective_policy_binding": effective_policy_binding,
         "policy_editor": editor_value,
         "policy_history": versions,
         "alerts": decorated_alerts,
@@ -3572,6 +3610,16 @@ def _portfolio_goals_policy_as_of(versions: Sequence[object], analysis: object |
         if policy is not None:
             return policy
     return None
+
+
+def _portfolio_goals_policy_binding(policy: PortfolioPolicy) -> dict[str, object]:
+    record = policy_record(policy)
+    encoded = json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    return {
+        "policy_id": policy.policy_id,
+        "version": policy.version,
+        "policy_hash": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
+    }
 
 
 def _validate_portfolio_goal_identifiers(policy: PortfolioPolicy, snapshot: object) -> None:

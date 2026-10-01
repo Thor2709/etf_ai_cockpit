@@ -316,9 +316,20 @@ def build_alerts(
     bound_hash = snapshot_hash or source_snapshot_hash(analysis)
     if not bound_hash:
         return (), ({"kind": "all", "status": "unavailable", "reason": "source_snapshot_binding_unavailable"},)
+    allocation_rows = tuple(getattr(analysis, "allocations", ()) or ())
+    candidate = getattr(analysis, "candidate", None)
+    candidate_inputs = {
+        "candidate": asdict(candidate) if hasattr(candidate, "__dataclass_fields__") else candidate,
+        "allocations": [asdict(row) if hasattr(row, "__dataclass_fields__") else row for row in allocation_rows],
+    }
+    input_hashes = {
+        "candidate": _stable_input_hash(candidate_inputs),
+        "policy": _stable_input_hash(policy_record(policy)),
+        "evidence": _stable_input_hash(evidence),
+    }
     alerts: list[Alert] = []
     unavailable: list[dict[str, object]] = []
-    for row in tuple(getattr(analysis, "allocations", ()) or ()):
+    for row in allocation_rows:
         drift_status = str(getattr(row, "drift_status", ""))
         if drift_status in {"above_soft_band", "above_hard_band"}:
             identifier = str(getattr(row, "instrument_id", ""))
@@ -328,6 +339,7 @@ def build_alerts(
                 f"{identifier} drift is {drift_status.replace('_', ' ')}.",
                 {"instrument_id": identifier, "current_weight": getattr(row, "current_weight", None),
                  "target_weight": getattr(row, "target_weight", None)},
+                input_hashes,
             ))
     if snapshot is not None:
         constraints = evaluate_constraints(policy, analysis, snapshot, evidence=evidence)
@@ -338,6 +350,7 @@ def build_alerts(
             alerts.append(_alert(
                 bound_hash, "concentration", result.constraint_id, "high", result.explanation,
                 {"observed": result.observed, "limit": result.limit},
+                input_hashes,
             ))
     for result in tuple(getattr(analysis, "constraints", ()) or ()):
         if str(getattr(result, "status", "")) == "violated":
@@ -346,12 +359,14 @@ def build_alerts(
                 bound_hash, "concentration", constraint_id, "high",
                 str(getattr(result, "reason", "Existing portfolio constraint is violated.")),
                 {"observed": getattr(result, "target_value", None), "limit": getattr(result, "limit", None)},
+                input_hashes,
             ))
     if bool(getattr(analysis, "source_stale", False)):
         alerts.append(_alert(
             bound_hash, "stale_data", "source_binding_stale", "high",
             "The candidate source binding differs from the selected portfolio snapshot.",
             {"source_stale": True},
+            input_hashes,
         ))
     else:
         freshness, reason = _canonical_metric(evidence.get("data_staleness"))
@@ -362,18 +377,21 @@ def build_alerts(
                 bound_hash, "stale_data", "source_freshness_breached", "high",
                 "The canonical source freshness check reports stale portfolio inputs.",
                 {"staleness": freshness},
+                input_hashes,
             ))
     _threshold_alert(
         alerts, unavailable, bound_hash, policy.max_drawdown, _absolute_drawdown_evidence(evidence.get("max_drawdown")),
         "drawdown", "max_drawdown", "Drawdown exceeds the configured maximum.", compare="maximum",
+        input_hashes=input_hashes,
     )
     _threshold_alert(
         alerts, unavailable, bound_hash, policy.forecast_deterioration_pct,
         evidence.get("forecast_deterioration"), "forecast_deterioration", "forecast_deterioration_pct",
         "Saved point-in-time forecast deterioration exceeds the configured threshold.", compare="maximum",
+        input_hashes=input_hashes,
     )
     calendar = evidence.get("calendar")
-    _calendar_alerts(alerts, unavailable, bound_hash, policy, analysis, calendar)
+    _calendar_alerts(alerts, unavailable, bound_hash, policy, analysis, calendar, input_hashes)
     return tuple(sorted(alerts, key=lambda item: (item.kind, item.condition, item.alert_id))), tuple(unavailable)
 
 
@@ -777,6 +795,7 @@ def _calendar_alerts(
     policy: PortfolioPolicy,
     analysis: object,
     calendar: object,
+    input_hashes: Mapping[str, str],
 ) -> None:
     binding = getattr(analysis, "snapshot_binding", None)
     decision = _iso_date(getattr(binding, "as_of", None))
@@ -810,6 +829,7 @@ def _calendar_alerts(
                     bound_hash, kind, condition, "medium",
                     f"{kind.title()} is scheduled in {days} days.",
                     {"instrument_id": instrument_id, "event_date": event_date.isoformat(), "days": days},
+                    input_hashes,
                 ))
         # An empty, available calendar is a valid no-alert result.
         if not seen and isinstance(calendar, Mapping) and calendar.get("status") != "available":
@@ -827,6 +847,7 @@ def _threshold_alert(
     explanation: str,
     *,
     compare: Literal["maximum", "minimum"],
+    input_hashes: Mapping[str, str],
 ) -> None:
     if threshold is None:
         unavailable.append({"kind": kind, "status": "unavailable", "reason": f"{condition}_not_configured"})
@@ -837,7 +858,15 @@ def _threshold_alert(
         return
     breached = value > threshold if compare == "maximum" else value < threshold
     if breached:
-        alerts.append(_alert(bound_hash, kind, condition, "high", explanation, {"observed": value, "limit": threshold}))
+        alerts.append(_alert(
+            bound_hash,
+            kind,
+            condition,
+            "high",
+            explanation,
+            {"observed": value, "limit": threshold},
+            input_hashes,
+        ))
 
 
 def _canonical_metric(raw: object) -> tuple[float | None, str | None]:
@@ -855,10 +884,33 @@ def _absolute_drawdown_evidence(raw: object) -> dict[str, object]:
     return {"status": "available", "value": abs(value), "reason": "canonical_signed_peak_to_trough_magnitude"}
 
 
-def _alert(bound_hash: str, kind: str, condition: str, severity: str, explanation: str, evidence: Mapping[str, object]) -> Alert:
-    canonical = json.dumps({"snapshot": bound_hash, "kind": kind, "condition": condition}, sort_keys=True, separators=(",", ":"))
+def _alert(
+    bound_hash: str,
+    kind: str,
+    condition: str,
+    severity: str,
+    explanation: str,
+    evidence: Mapping[str, object],
+    input_hashes: Mapping[str, str],
+) -> Alert:
+    canonical = json.dumps(
+        {"snapshot": bound_hash, "kind": kind, "condition": condition, "input_hashes": dict(input_hashes)},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     alert_id = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return Alert(alert_id, kind, condition, severity, bound_hash, explanation, dict(evidence))
+
+
+def _stable_input_hash(value: object) -> str:
+    encoded = json.dumps(
+        _json_value(value),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _forecast_projection(value: object) -> dict[str, object]:

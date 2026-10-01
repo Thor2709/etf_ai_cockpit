@@ -203,6 +203,34 @@ def build_portfolio_calendar(
     for action_id, candidates in _active_action_groups(visible_actions).items():
         if not candidates:
             continue
+        statuses = {item.status for item in candidates}
+        instrument_ids = {item.instrument_id for item in candidates}
+        if len(statuses) != 1:
+            warnings.append(f"corporate_action_status_conflict:{action_id}")
+            conflict_action = next(
+                (
+                    item
+                    for item in candidates
+                    if item.action_type in _INCOME_ACTIONS | _PRINCIPAL_ACTIONS
+                    and _payment_not_before(item.payable_at, cutoff)
+                ),
+                None,
+            )
+            if len(instrument_ids) == 1 and conflict_action is not None:
+                instrument_id = next(iter(instrument_ids))
+                holding = holding_index.get(instrument_id)
+                if holding is not None:
+                    cash_flows.append(
+                        _unavailable_action_cash_flow(
+                            conflict_action,
+                            holding,
+                            currency,
+                            "corporate_action_status_conflict",
+                        )
+                    )
+            continue
+        if next(iter(statuses)) != "active":
+            continue
         instrument_id = candidates[0].instrument_id
         holding = holding_index.get(instrument_id)
         if holding is None:
@@ -210,6 +238,21 @@ def build_portfolio_calendar(
         selected = _select_action(candidates)
         if selected is None:
             warnings.append(f"corporate_action_conflict:{action_id}")
+            conflict_action = next(
+                (
+                    item
+                    for item in candidates
+                    if item.action_type in _INCOME_ACTIONS | _PRINCIPAL_ACTIONS
+                    and _payment_not_before(item.payable_at, cutoff)
+                ),
+                None,
+            )
+            if conflict_action is not None:
+                cash_flows.append(
+                    _unavailable_action_cash_flow(
+                        conflict_action, holding, currency, "corporate_action_conflict"
+                    )
+                )
             continue
         if _is_bond(holding.get("asset_type")):
             terms = terms_by_instrument.get(instrument_id, {})
@@ -456,12 +499,11 @@ def _active_action_groups(actions: Sequence[CorporateAction]) -> dict[str, list[
     by_lineage: dict[tuple[str, str, str], list[CorporateAction]] = defaultdict(list)
     for item in actions:
         by_lineage[(item.action_id, item.source_id, item.instrument_id)].append(item)
-    active: dict[str, list[CorporateAction]] = defaultdict(list)
-    for (action_id, _source_id, _instrument_id), versions in by_lineage.items():
+    latest_by_action: dict[str, list[CorporateAction]] = defaultdict(list)
+    for (action_id, _source_id, _instrument_id), versions in sorted(by_lineage.items()):
         latest = max(versions, key=lambda item: (item.revision, item.known_at, item.source_checksum))
-        if latest.status == "active":
-            active[action_id].append(latest)
-    return active
+        latest_by_action[action_id].append(latest)
+    return latest_by_action
 
 
 def _select_action(candidates: Sequence[CorporateAction]) -> CorporateAction | None:
@@ -473,6 +515,31 @@ def _select_action(candidates: Sequence[CorporateAction]) -> CorporateAction | N
     if not report.available or report.selected_source_id is None:
         return None
     return next((item for item in candidates if item.source_id == report.selected_source_id), None)
+
+
+def _unavailable_action_cash_flow(
+    action: CorporateAction,
+    holding: Mapping[str, object],
+    output_currency: str,
+    reason: str,
+) -> ProjectedCashFlow:
+    """Preserve unresolved action evidence without projecting payable cash."""
+
+    return ProjectedCashFlow(
+        event_id=action.action_id,
+        instrument_id=action.instrument_id,
+        flow_type="income" if action.action_type in _INCOME_ACTIONS else "maturity_proceeds",
+        payment_date=_text(action.payable_at),
+        status="estimated",
+        quantity=_decimal(holding.get("quantity")),
+        local_amount=None,
+        local_currency=action.currency,
+        amount=None,
+        currency=output_currency,
+        source_id=action.source_id,
+        source_version_id=action.source_checksum,
+        reason=reason,
+    )
 
 
 def _action_cash_flow(

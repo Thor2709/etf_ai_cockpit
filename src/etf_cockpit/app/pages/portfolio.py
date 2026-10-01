@@ -1215,14 +1215,19 @@ def _portfolio_goals_block(
 
     def draft_what_if(_event: ft.ControlEvent | None) -> None:
         scenario = projection[0].get("scenario")
+        scenario_policy_binding = scenario.get("policy_binding") if isinstance(scenario, Mapping) else None
+        effective_policy_binding = projection[0].get("effective_policy_binding")
         candidate = current_analysis[0].candidate
         if (
             not isinstance(scenario, Mapping)
             or scenario.get("status") != "ready"
             or scenario.get("source_snapshot_hash") != projection[0].get("source_snapshot_hash")
             or scenario.get("candidate_id") != candidate.candidate_id
+            or not isinstance(scenario_policy_binding, Mapping)
+            or not isinstance(effective_policy_binding, Mapping)
+            or scenario_policy_binding != effective_policy_binding
         ):
-            status.value = "Draft proposal blocked: run a ready what-if for the current candidate and snapshot first."
+            status.value = "Draft proposal blocked: run a ready what-if for the current candidate, snapshot, and effective policy first."
             status.color = theme.AMBER
             _safe_update(page)
             return

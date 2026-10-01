@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 
 import pandas as pd
 from decimal import Decimal
@@ -233,6 +234,36 @@ def test_missing_fx_or_bond_terms_warn_and_never_project_zero() -> None:
     assert result["coverage"]["fixed_income_terms"]["status"] == "partial"
     assert "fx_coverage_unavailable" in result["warnings"]
     assert "fixed_income_terms_unavailable:BOND" in result["warnings"]
+
+
+def test_conflicting_active_and_retracted_provider_statuses_have_no_payable_amount() -> None:
+    active = _action("shared-dividend", "STOCK", "dividend", amount=2, currency="EUR")
+    retracted = replace(
+        _action(
+            "shared-dividend",
+            "STOCK",
+            "dividend",
+            amount=2,
+            currency="EUR",
+            status="retracted",
+            known_at="2026-07-02T10:00:00+00:00",
+        ),
+        source_id="exchange-actions",
+    )
+
+    result = build_portfolio_calendar(
+        pd.DataFrame([{"instrument_id": "STOCK", "quantity": "10", "asset_type": "stock"}]),
+        decision_time=DECISION,
+        event_rows=pd.DataFrame(columns=EVENT_COLUMNS),
+        corporate_actions=(active, retracted),
+        fx_rates=pd.DataFrame(),
+    )
+
+    assert len(result["cash_flows"]) == 1
+    flow = result["cash_flows"][0]
+    assert flow["amount"] is None
+    assert flow["reason"] == "corporate_action_status_conflict"
+    assert "corporate_action_status_conflict:shared-dividend" in result["warnings"]
 
 
 def test_calendar_ui_currency_selection_reloads_projection(monkeypatch) -> None:
