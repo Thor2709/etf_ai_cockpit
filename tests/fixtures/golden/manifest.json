@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "source": "Analytic par-bond identity using tests/test_fixed_income_analytics.py::_bond; quarter-boundary performance case from tests/test_portfolio_performance_series.py::test_quarter_and_year_bars_reconcile_to_canonical_twr_and_pnl.",
+  "reviewer": "pending-owner-review",
+  "approval_note": "",
+  "fixtures": {
+    "bond_pricing": "bond_pricing_v1.json",
+    "portfolio_performance": "portfolio_performance_v1.json"
+  }
+}
