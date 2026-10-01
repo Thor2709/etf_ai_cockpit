@@ -17,7 +17,7 @@ from etf_cockpit.data.catalogue import DataCatalogue
 from etf_cockpit.portfolio.costs import COST_MODEL_ID
 
 
-_SCOPE = "listing:fixture:asset"
+_SCOPE = "listing:euronext_oslo:all"
 
 
 def _known(day: int, hour: int = 12) -> datetime:
@@ -208,6 +208,38 @@ def test_delisted_membership_is_retained_as_a_closure_event(tmp_path: Path) -> N
     assert "DELISTED" in set(events["instrument_id"])
 
 
+def test_closure_events_defaults_to_current_cutoff_and_supplied_root(tmp_path: Path) -> None:
+    universe_membership.record_listing_capture(
+        [{"instrument_id": "DELISTED"}, {"instrument_id": "SURVIVOR"}],
+        "fixture",
+        _SCOPE,
+        _known(1),
+        root=tmp_path,
+    )
+    universe_membership.record_listing_capture(
+        [{"instrument_id": "SURVIVOR"}], "fixture", _SCOPE, _known(3), root=tmp_path
+    )
+
+    events = universe_membership.closure_events(_SCOPE, root=tmp_path)
+
+    assert "DELISTED" in set(events["instrument_id"])
+
+
+def test_only_declared_listing_scope_can_be_recorded(tmp_path: Path) -> None:
+    with pytest.raises(universe_membership.MembershipCaptureError, match="scope is not declared"):
+        universe_membership.record_listing_capture(
+            [{"instrument_id": "A"}], "fixture", "listing:undeclared:stock", _known(1), root=tmp_path
+        )
+    assert not tuple(tmp_path.iterdir())
+
+    status = universe_membership.record_listing_capture(
+        [{"instrument_id": "A"}], "fixture", "listing:euronext_oslo:all", _known(1), root=tmp_path
+    )
+
+    assert status.status == "recorded"
+    assert len(universe_membership.capture_log("listing:euronext_oslo:all", root=tmp_path)) == 1
+
+
 def test_save_hook_records_capture_and_surfaces_recorder_failure(tmp_path: Path, monkeypatch, caplog) -> None:
     first = save_universe((_record("FIRST", "01"),), expected_revision="", root=tmp_path)
     assert universe_membership.get_configured_capture_status().status == "recorded"
@@ -278,3 +310,33 @@ def test_licensed_import_requires_provenance_and_preserves_self_captures(tmp_pat
         assert connection.execute("SELECT COUNT(*) FROM capture_log WHERE snapshot_date='2024-01-02'").fetchone()[0] == 1
     finally:
         connection.close()
+
+
+def test_licensed_import_rejects_snapshot_outside_half_open_interval_before_writing(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        {
+            "scope": _SCOPE,
+            "instrument_id": "VALID",
+            "valid_from": "2024-01-01",
+            "valid_to": "2024-01-04",
+            "snapshot_date": "2024-01-03",
+            "snapshot_complete": True,
+            "known_at": datetime(2024, 1, 3, 12, tzinfo=timezone.utc),
+        },
+        {
+            "scope": _SCOPE,
+            "instrument_id": "INVALID",
+            "valid_from": "2024-01-01",
+            "valid_to": "2024-01-04",
+            "snapshot_date": "2024-01-04",
+            "snapshot_complete": True,
+            "known_at": datetime(2024, 1, 4, 12, tzinfo=timezone.utc),
+        },
+    ]
+
+    with pytest.raises(universe_membership.MembershipCaptureError, match="snapshot_date.*valid interval"):
+        universe_membership.import_licensed_history(rows, "fixture", "licence-1", root=tmp_path)
+
+    assert not tuple(tmp_path.iterdir())

@@ -1,6 +1,8 @@
 version: universe_membership_v1
+allowed_scopes:
+  - configured
+  - listing:euronext_oslo:all
 configured_scope: configured
 configured_complete: true
 configured_source_id: universe_store
-listing_scope_template: "listing:{venue}:{asset_type}"
 listing_complete: true

@@ -295,9 +295,11 @@ def closure_events(
     """Return closed self-captured membership intervals known by the cutoff."""
 
     _validate_scope(scope)
-    cutoff = _utc_timestamp(as_known_at, "as_known_at") if as_known_at is not None else None
+    cutoff = _utc_timestamp(
+        as_known_at if as_known_at is not None else datetime.now(timezone.utc), "as_known_at"
+    )
     columns = _INTERVAL_COLUMNS
-    path = _DB_RELATIVE_PATH if root is None else Path(root) / _DB_RELATIVE_PATH
+    path = _database_path(root)
     if not path.is_file():
         return pd.DataFrame(columns=columns)
     connection = _connect(path, create=False)
@@ -353,6 +355,10 @@ def import_licensed_history(
         if valid_to is not None and valid_to <= valid_from:
             raise MembershipCaptureError("valid_to must be after valid_from for half-open intervals")
         snapshot_date = _date_text(row.get("snapshot_date"), "snapshot_date")
+        if not _covers(valid_from, valid_to, snapshot_date):
+            raise MembershipCaptureError(
+                "snapshot_date must lie within the half-open valid interval [valid_from, valid_to)"
+            )
         complete_value = row.get("snapshot_complete")
         if not isinstance(complete_value, bool):
             raise MembershipCaptureError("snapshot_complete must be a boolean")
@@ -682,13 +688,12 @@ def _validate_scope(scope: str, *, allow_configured: bool = True) -> tuple[str, 
     config = _load_scope_config()
     if not isinstance(scope, str) or not scope:
         raise MembershipCaptureError("scope must be a non-empty configured scope")
+    if scope not in config["allowed_scopes"]:
+        raise MembershipCaptureError(f"scope is not declared in universe_membership_v1.yaml: {scope!r}")
     if scope == config["configured_scope"]:
         if not allow_configured:
             raise MembershipCaptureError("configured scope is recorded only by save_universe")
         return "configured", bool(config["configured_complete"]), str(config["configured_source_id"])
-    template = str(config["listing_scope_template"])
-    if template != "listing:{venue}:{asset_type}":
-        raise MembershipCaptureError("configured listing scope template is unsupported")
     parts = scope.split(":")
     if len(parts) == 3 and parts[0] == "listing" and all(_SCOPE_PART.fullmatch(item) for item in parts[1:]):
         return "listing", bool(config["listing_complete"]), ""
@@ -702,18 +707,33 @@ def _load_scope_config() -> dict[str, object]:
         raise MembershipCaptureError("universe membership scope configuration is unavailable") from exc
     required = {
         "version",
+        "allowed_scopes",
         "configured_scope",
         "configured_complete",
         "configured_source_id",
-        "listing_scope_template",
         "listing_complete",
     }
     if not isinstance(payload, Mapping) or set(payload) != required:
         raise MembershipCaptureError("universe membership scope configuration is malformed")
     if payload.get("version") != "universe_membership_v1":
         raise MembershipCaptureError("unsupported universe membership scope configuration")
-    if payload.get("configured_scope") != "configured" or payload.get("listing_scope_template") != "listing:{venue}:{asset_type}":
+    allowed_scopes = payload.get("allowed_scopes")
+    if (
+        payload.get("configured_scope") != "configured"
+        or not isinstance(allowed_scopes, list)
+        or any(not isinstance(item, str) for item in allowed_scopes)
+        or payload["configured_scope"] not in allowed_scopes
+        or len(set(allowed_scopes)) != len(allowed_scopes)
+    ):
         raise MembershipCaptureError("universe membership scope declarations are unsupported")
+    for scope in allowed_scopes:
+        if scope == payload["configured_scope"]:
+            continue
+        parts = scope.split(":")
+        if len(parts) != 3 or parts[0] != "listing" or not all(
+            _SCOPE_PART.fullmatch(item) for item in parts[1:]
+        ):
+            raise MembershipCaptureError("universe membership scope declarations are unsupported")
     if not isinstance(payload.get("configured_complete"), bool) or not isinstance(payload.get("listing_complete"), bool):
         raise MembershipCaptureError("scope completeness declarations must be booleans")
     if not payload["configured_complete"] or not payload["listing_complete"]:
