@@ -114,17 +114,59 @@ def test_constraints_evaluate_position_sector_duration_and_rating_after_trade() 
 
 def test_alerts_reproduce_exactly_from_their_source_snapshot_hash() -> None:
     snapshot, analysis = _portfolio()
-    policy = PortfolioPolicy(policy_id="portfolio-goals:test", version=0)
+    policy = validate_portfolio_policy(
+        {"max_position_weight": 0.5, "max_drawdown": 0.1},
+        policy_id="portfolio-goals:test",
+        version=1,
+    )
     snapshot_hash = "b" * 64
+    evidence = {"max_drawdown": {"status": "available", "value": 0.2}}
 
-    first, unavailable = build_alerts(analysis, policy, snapshot=snapshot, snapshot_hash=snapshot_hash)
-    replay, replay_unavailable = build_alerts(analysis, policy, snapshot=snapshot, snapshot_hash=snapshot_hash)
+    first, unavailable = build_alerts(analysis, policy, snapshot=snapshot, evidence=evidence, snapshot_hash=snapshot_hash)
+    replay, replay_unavailable = build_alerts(analysis, policy, snapshot=snapshot, evidence=evidence, snapshot_hash=snapshot_hash)
 
     assert first == replay
     assert unavailable == replay_unavailable
     assert first
     assert all(item.source_snapshot_hash == snapshot_hash for item in first)
     assert all(item.alert_id for item in first)
+
+    changed_allocations = tuple(
+        replace(row, target_weight=0.9 if row.instrument_id == "VWCE" else 0.1)
+        for row in analysis.allocations
+    )
+    changed_candidate = replace(analysis.candidate, target_weights=(("LYP6", 0.1), ("VWCE", 0.9)))
+    changed_analysis = replace(analysis, candidate=changed_candidate, allocations=changed_allocations)
+    changed_candidate_alerts, _ = build_alerts(
+        changed_analysis, policy, snapshot=snapshot, evidence=evidence, snapshot_hash=snapshot_hash
+    )
+    first_concentration = next(item for item in first if item.condition == "max_position_weight:VWCE")
+    changed_concentration = next(item for item in changed_candidate_alerts if item.condition == first_concentration.condition)
+    assert changed_concentration.evidence["observed"] == 0.9
+    assert changed_concentration.alert_id != first_concentration.alert_id
+
+    changed_policy = validate_portfolio_policy(
+        {"max_position_weight": 0.75, "max_drawdown": 0.1},
+        policy_id="portfolio-goals:test",
+        version=2,
+    )
+    changed_policy_alerts, _ = build_alerts(
+        changed_analysis, changed_policy, snapshot=snapshot, evidence=evidence, snapshot_hash=snapshot_hash
+    )
+    changed_policy_concentration = next(item for item in changed_policy_alerts if item.condition == first_concentration.condition)
+    assert changed_policy_concentration.alert_id != changed_concentration.alert_id
+
+    changed_evidence_alerts, _ = build_alerts(
+        changed_analysis,
+        changed_policy,
+        snapshot=snapshot,
+        evidence={"max_drawdown": {"status": "available", "value": 0.3}},
+        snapshot_hash=snapshot_hash,
+    )
+    policy_drawdown = next(item for item in changed_policy_alerts if item.kind == "drawdown")
+    changed_evidence_drawdown = next(item for item in changed_evidence_alerts if item.kind == "drawdown")
+    assert changed_evidence_drawdown.evidence["observed"] == 0.3
+    assert changed_evidence_drawdown.alert_id != policy_drawdown.alert_id
 
 
 def test_infeasible_constraint_remains_blocked_with_explanation() -> None:
@@ -180,6 +222,43 @@ def test_policy_versions_are_appended_and_invalid_versions_are_rejected(tmp_path
         root=tmp_path,
     )
     assert invalid["status"] == "invalid"
+
+
+def test_what_if_policy_binding_blocks_a_draft_after_policy_tightening(tmp_path) -> None:
+    snapshot, analysis = _portfolio()
+    analysis = replace(analysis, constraints=())
+    saved = load_portfolio_goals_projection(
+        snapshot,
+        analysis,
+        action={
+            "type": "save_policy",
+            "policy": {"max_position_weight": 0.8},
+            "at": "2026-10-01T10:00:00+00:00",
+        },
+        root=tmp_path,
+    )
+    simulated = load_portfolio_goals_projection(
+        snapshot,
+        analysis,
+        action={"type": "simulate", "at": "2026-10-01T10:30:00+00:00"},
+        root=tmp_path,
+    )
+    tightened = load_portfolio_goals_projection(
+        snapshot,
+        analysis,
+        action={
+            "type": "save_policy",
+            "policy": {"max_position_weight": 0.5},
+            "at": "2026-10-01T11:00:00+00:00",
+        },
+        root=tmp_path,
+    )
+    old_scenario = tightened["scenario"]
+
+    assert simulated["scenario"]["status"] == "ready", simulated["scenario"].get("rejected_candidates")
+    assert simulated["scenario"]["policy_binding"] == saved["effective_policy_binding"]
+    assert old_scenario["status"] == "ready"
+    assert old_scenario["policy_binding"] != tightened["effective_policy_binding"]
 
 
 def test_alert_acknowledgement_and_snooze_persist_without_removing_conditions(tmp_path) -> None:

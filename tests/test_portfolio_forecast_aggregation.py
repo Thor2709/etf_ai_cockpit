@@ -30,6 +30,7 @@ def _distribution(offset: float = 0.0, *, coverage: float | None = 1.0) -> dict[
         "status": "available",
         "horizon_days": 30,
         "decision_time": "2026-09-29T12:00:00+00:00",
+        "analysis_run_id": "analysis-run-1",
         "coverage_ratio": coverage,
         "gross_quantiles": gross,
         "net_quantiles": net,
@@ -169,6 +170,29 @@ def test_saved_components_costs_and_reference_probabilities_stay_explicit() -> N
     assert current["net"]["probabilities"]["beat_benchmark"]["status"] == "unavailable"
 
 
+def test_components_and_costs_without_supported_inputs_are_unavailable_not_zero() -> None:
+    inputs = _inputs()
+    for distribution in inputs[1]["distributions"].values():
+        distribution["return_components"] = {}
+        distribution["cost_deductions"] = {}
+
+    current = _build(inputs).current
+
+    for contribution in (*current["components"].values(), *current["cost_contributions"].values()):
+        assert contribution["status"] == "unavailable"
+        assert contribution["value"] is None
+
+
+def test_distribution_from_another_analysis_run_is_excluded() -> None:
+    inputs = _inputs()
+    inputs[1]["distributions"]["BBB"]["analysis_run_id"] = "analysis-run-2"
+
+    current = _build(inputs).current
+
+    assert current["coverage"]["status"] == "partial"
+    assert current["coverage"]["confidence"] == 0.5
+
+
 def test_facade_loader_binds_saved_holdings_analysis_and_risk(monkeypatch) -> None:
     portfolio, analysis_input, _ = _inputs()
     projection = {
@@ -189,6 +213,13 @@ def test_facade_loader_binds_saved_holdings_analysis_and_risk(monkeypatch) -> No
         "analysis_date": "2026-09-30",
         "analysis_current": True,
         "proposal_handoff_allowed": True,
+        "performance_snapshot": {
+            "securities_value_output_currency": {"status": "available", "value": 1000.0},
+            "cash_value_output_currency": {"status": "available", "value": 0.0},
+            "total_value_output_currency": {"status": "available", "value": 1000.0},
+            "reconciliation": {"status": "available", "value": True},
+            "portfolio_value_reconciliation": {"status": "available", "value": True},
+        },
     }
     risk_projection = {
         "status": "available",
@@ -226,3 +257,66 @@ def test_facade_loader_binds_saved_holdings_analysis_and_risk(monkeypatch) -> No
     assert result.status == "available"
     assert result.current["coverage"]["confidence"] == 1.0
     assert result.provenance["risk_candidate_id"] == "candidate-1"
+
+
+def test_facade_uses_reconciled_snapshot_total_including_cash_for_target_notional(monkeypatch) -> None:
+    portfolio, analysis_input, _ = _inputs()
+    distribution = deepcopy(analysis_input["distributions"]["AAA"])
+    distribution["gross_quantiles"] = {key: 0.10 for key in distribution["gross_quantiles"]}
+    distribution["net_quantiles"] = dict(distribution["gross_quantiles"])
+    distribution["cost_deductions"] = {"fee": 0.0, "spread": 0.0, "impact": 0.0, "fx": 0.0}
+    projection = {
+        "portfolio_snapshot": {
+            "portfolio_id": portfolio["portfolio_id"],
+            "snapshot_id": portfolio["snapshot_id"],
+            "as_of": portfolio["as_of"],
+            "source_checksum": portfolio["source_checksum"],
+        },
+        "performance_snapshot": {
+            "securities_value_output_currency": {"status": "available", "value": 800.0},
+            "cash_value_output_currency": {"status": "available", "value": 200.0},
+            "total_value_output_currency": {"status": "available", "value": 1000.0},
+            "reconciliation": {"status": "available", "value": True},
+            "portfolio_value_reconciliation": {"status": "available", "value": True},
+        },
+        "rows": [
+            {
+                "instrument_id": "AAA",
+                "weight": {"status": "available", "value": 0.8},
+                "value": {"status": "available", "value": 800.0},
+            }
+        ],
+        "analysis_run_id": "analysis-run-1",
+        "analysis_date": "2026-09-30",
+        "analysis_current": True,
+        "proposal_handoff_allowed": True,
+    }
+    risk_projection = {
+        "status": "available",
+        "model_version": "robust_risk.v1",
+        "selected_estimator": "sample",
+        "covariances": {"sample": {"columns": ["AAA"], "index": ["AAA"], "data": [[0.04]]}},
+        "execution_allowed": False,
+    }
+    monkeypatch.setattr(ui_facade, "load_portfolio_holdings_projection", lambda *_args, **_kwargs: projection)
+    monkeypatch.setattr(ui_facade, "load_forecast_return_distributions", lambda *_args, **_kwargs: {"AAA": distribution})
+    analysis = SimpleNamespace(
+        snapshot_binding=SimpleNamespace(
+            portfolio_id=portfolio["portfolio_id"],
+            snapshot_id=portfolio["snapshot_id"],
+            as_of=portfolio["as_of"],
+        ),
+        service_evidence={"risk": risk_projection},
+        candidate=SimpleNamespace(candidate_id="candidate-1", targets={"AAA": 1.0}, cash_weight=0.0),
+        current_cash_weight=0.2,
+    )
+
+    result = ui_facade.load_portfolio_forecast_aggregation(
+        SimpleNamespace(forecasts=None),
+        analysis,
+        horizon_days=30,
+        output_currency="EUR",
+    )
+
+    assert result.target["reconciliation"]["portfolio_value"] == 1000.0
+    assert result.target["net"]["expected_gain_loss"]["value"] == 100.0

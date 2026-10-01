@@ -192,10 +192,6 @@ def build_portfolio_forecast_snapshot(
     current_positions = _current_positions(_get(portfolio_snapshot, "positions"))
     target_positions = _target_positions(_get(analysis_snapshot, "target_weights"))
     portfolio_value = _finite(_get(portfolio_snapshot, "total_value"))
-    if portfolio_value is None:
-        values = [row["market_value"] for row in current_positions.values()]
-        if values and all(value is not None for value in values):
-            portfolio_value = math.fsum(float(value) for value in values)
     if portfolio_value is not None:
         target_positions = {
             instrument_id: {
@@ -214,6 +210,7 @@ def build_portfolio_forecast_snapshot(
         positions=current_positions,
         cash_weight=current_cash_weight,
         distributions=distributions,
+        analysis_run_id=analysis_run_id,
         portfolio_as_of=portfolio_as_of,
         covariance_ids=covariance_ids,
         covariance=covariance_matrix,
@@ -234,6 +231,7 @@ def build_portfolio_forecast_snapshot(
         positions=target_positions,
         cash_weight=target_cash_weight,
         distributions=distributions,
+        analysis_run_id=analysis_run_id,
         portfolio_as_of=portfolio_as_of,
         covariance_ids=covariance_ids,
         covariance=covariance_matrix,
@@ -274,6 +272,7 @@ def _aggregate_view(
     positions: Mapping[str, Mapping[str, object]],
     cash_weight: float | None,
     distributions: object,
+    analysis_run_id: str | None,
     portfolio_as_of: str | None,
     covariance_ids: Sequence[str],
     covariance: np.ndarray,
@@ -298,7 +297,13 @@ def _aggregate_view(
     prepared: dict[str, dict[str, object]] = {}
     for instrument_id, position in sorted(positions.items()):
         weight = _finite(position.get("weight"))
-        distribution = _distribution_for(distributions, instrument_id, horizon_days, portfolio_as_of)
+        distribution = _distribution_for(
+            distributions,
+            instrument_id,
+            horizon_days,
+            portfolio_as_of,
+            analysis_run_id,
+        )
         if weight is None or weight <= 0:
             continue
         quantiles = _quantiles_for(distribution, "gross_quantiles")
@@ -666,11 +671,18 @@ def _component_contributions(positions: Mapping[str, Mapping[str, object]], tota
                 continue
             amount += value * contribution
             covered_weight += float(row["weight"])
-        result[field.removesuffix("_return")] = (
-            _available(amount, currency)
-            if total_weight > 0 and covered_weight >= total_weight
-            else {**_partial(amount, currency), "covered_exposure_weight": covered_weight, "reason": "Saved return component or currency value is incomplete."}
-        )
+        if covered_weight <= 0:
+            result[field.removesuffix("_return")] = _unavailable(
+                "No saved return component and selected-currency value support this contribution."
+            )
+        elif total_weight > 0 and covered_weight >= total_weight:
+            result[field.removesuffix("_return")] = _available(amount, currency)
+        else:
+            result[field.removesuffix("_return")] = {
+                **_partial(amount, currency),
+                "covered_exposure_weight": covered_weight,
+                "reason": "Saved return component or currency value is incomplete.",
+            }
     return result
 
 
@@ -687,11 +699,16 @@ def _cost_contributions(positions: Mapping[str, Mapping[str, object]], total_wei
                 continue
             amount += value * deduction
             covered_weight += float(row["weight"])
-        result[field] = (
-            _available(amount, currency)
-            if total_weight > 0 and covered_weight >= total_weight
-            else {**_partial(amount, currency), "covered_exposure_weight": covered_weight, "reason": "Saved cost or selected-currency value is incomplete."}
-        )
+        if covered_weight <= 0:
+            result[field] = _unavailable("No saved cost and selected-currency value support this contribution.")
+        elif total_weight > 0 and covered_weight >= total_weight:
+            result[field] = _available(amount, currency)
+        else:
+            result[field] = {
+                **_partial(amount, currency),
+                "covered_exposure_weight": covered_weight,
+                "reason": "Saved cost or selected-currency value is incomplete.",
+            }
     return result
 
 
@@ -762,6 +779,7 @@ def _distribution_for(
     instrument_id: str,
     horizon_days: int,
     portfolio_as_of: str | None,
+    analysis_run_id: str | None,
 ) -> Mapping[str, object] | None:
     if not isinstance(distributions, Mapping):
         return None
@@ -773,6 +791,9 @@ def _distribution_for(
     if _integer(_get(value, "horizon_days"), minimum=1) != horizon_days:
         return None
     if _text(_get(value, "status")) != "available":
+        return None
+    distribution_run_id = _text(_get(value, "analysis_run_id"))
+    if analysis_run_id is None or distribution_run_id != analysis_run_id:
         return None
     decision_time = _text(_get(value, "decision_time"))
     if decision_time is None or portfolio_as_of is None or not _same_or_before(decision_time, portfolio_as_of):
@@ -872,6 +893,29 @@ def _snapshot_error(
         return "sealed_portfolio_snapshot_identity_or_checksum_unavailable"
     if _get(portfolio, "sealed") is not True:
         return "portfolio_snapshot_not_sealed_or_reconciled"
+    components_reconciled = _get(portfolio, "value_components_reconciled")
+    if components_reconciled is False:
+        return "portfolio_security_cash_value_reconciliation_unavailable"
+    component_fields = tuple(_get(portfolio, field) for field in ("securities_value", "cash_value", "total_value"))
+    if components_reconciled is True:
+        securities_value, cash_value, total_value = (_finite(value) for value in component_fields)
+        if securities_value is None or cash_value is None or total_value is None:
+            return "portfolio_security_cash_value_reconciliation_unavailable"
+        if not math.isclose(securities_value + cash_value, total_value, rel_tol=1e-12, abs_tol=1e-9):
+            return "portfolio_security_cash_value_reconciliation_failed"
+        positions = _current_positions(_get(portfolio, "positions"))
+        position_values = [row.get("market_value") for row in positions.values()]
+        if (
+            not position_values
+            or any(_finite(value) is None for value in position_values)
+            or not math.isclose(
+                math.fsum(float(value) for value in position_values if _finite(value) is not None),
+                securities_value,
+                rel_tol=1e-12,
+                abs_tol=1e-9,
+            )
+        ):
+            return "portfolio_security_cash_value_reconciliation_failed"
     identity = tuple(_text(_get(portfolio, key)) for key in ("portfolio_id", "snapshot_id", "as_of"))
     analysis_identity = tuple(_text(_get(analysis, key)) for key in ("portfolio_id", "snapshot_id", "as_of"))
     if identity != analysis_identity:
