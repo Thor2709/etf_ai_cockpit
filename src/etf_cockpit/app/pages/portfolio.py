@@ -31,6 +31,7 @@ from etf_cockpit.application.ui_facade import (
     load_portfolio_candidate,
     load_portfolio_forecast_aggregation,
     load_portfolio_performance_series,
+    load_portfolio_risk_profile_projection,
     load_portfolio_calendar_projection,
     load_portfolio_holdings_projection,
     load_portfolio_goals_projection,
@@ -179,6 +180,230 @@ def _portfolio_performance_block(page: ft.Page | None) -> ft.Control:
                 status,
                 chart_host,
                 ft.Row([ft.OutlinedButton("Download CSV", key="portfolio.performance.download", icon=ft.Icons.DOWNLOAD, on_click=export_selected), export_status], wrap=True),
+            ],
+            spacing=8,
+        )
+    )
+
+
+def _portfolio_risk_profiles_block(
+    page: ft.Page | None,
+    state: AppState,
+    current_analysis: list[PortfolioAnalysis],
+) -> ft.Control:
+    selected_id = ["medium"]
+    saved_versions: dict[str, Mapping[str, object]] = {}
+    saved_history: dict[str, list[Mapping[str, object]]] = {}
+    projection = [
+        load_portfolio_risk_profile_projection(
+            state.snapshot,
+            current_analysis[0],
+            profile_id=selected_id[0],
+        )
+    ]
+    comparison_rows = projection[0].get("comparison", ())
+    comparison_rows = comparison_rows if isinstance(comparison_rows, (list, tuple)) else ()
+    options = [
+        ft.dropdown.Option(
+            key=str(item.get("profile_id")),
+            text=str(item.get("label", item.get("profile_id", ""))),
+        )
+        for item in comparison_rows
+        if isinstance(item, Mapping)
+    ]
+    selector = ft.Dropdown(
+        key="portfolio.risk-profile.select",
+        label="Risk profile",
+        value=selected_id[0] if options else None,
+        options=options,
+        width=240,
+        dense=True,
+        disabled=not options,
+    )
+    policy_editor = ft.TextField(
+        key="portfolio.risk-profile.policy",
+        label="Editable profile parameters (JSON)",
+        value="{}",
+        multiline=True,
+        min_lines=4,
+        max_lines=7,
+        expand=True,
+    )
+    status = ft.Text(color=theme.MUTED, selectable=True)
+    intent = ft.Text(color=theme.MUTED, selectable=True)
+    version_label = ft.Text(color=theme.MUTED, selectable=True)
+    anchor = ft.Text(color=theme.MUTED, selectable=True)
+    guardrails_view = ft.Text(color=theme.MUTED, selectable=True)
+    binding_reasons = ft.Text(color=theme.AMBER, selectable=True)
+    comparison = ft.Column(spacing=2)
+    history = ft.Text(color=theme.MUTED, selectable=True, font_family="Consolas", size=11)
+
+    def render_projection(value: Mapping[str, object]) -> None:
+        profile = value.get("profile")
+        profile = profile if isinstance(profile, Mapping) else {}
+        parameters = profile.get("parameters")
+        parameters = parameters if isinstance(parameters, Mapping) else {}
+        guardrails = profile.get("guardrails")
+        anchor_value = value.get("vwce_anchor")
+        anchor_value = anchor_value if isinstance(anchor_value, Mapping) else {}
+        eligibility = value.get("eligibility")
+        eligibility = eligibility if isinstance(eligibility, Mapping) else {}
+        status_value = str(value.get("status", "unavailable"))
+        reason = value.get("reason")
+        status.value = (
+            f"Profile projection {status_value}; risk-relative rank/recommendation unavailable: {reason}."
+            if reason
+            else f"Profile projection {status_value}; execution remains disabled."
+        )
+        status.color = theme.GREEN if status_value == "partial" else theme.AMBER
+        intent.value = f"{profile.get('label', 'Risk profile')} · {profile.get('intent', '')}"
+        version_label.value = (
+            f"Policy version {profile.get('version', 'unavailable')} · "
+            f"origin={profile.get('origin', 'unavailable')} · "
+            f"hash={profile.get('policy_hash', 'unavailable')}"
+        )
+        guardrails_view.value = "Editable guardrails: " + json.dumps(
+            guardrails if isinstance(guardrails, Mapping) else {},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        if anchor_value.get("status") == "available":
+            anchor.value = (
+                "VWCE anchor resolved: "
+                f"share class={anchor_value.get('canonical_share_class_id')}; "
+                f"listing={anchor_value.get('listing_id')}; date={anchor_value.get('effective_date')}; "
+                f"currency={anchor_value.get('output_currency')}; horizon={anchor_value.get('horizon_years')} years; "
+                f"known={anchor_value.get('knowledge_cutoff')}; "
+                f"source_digest={anchor_value.get('anchor_digest')}; "
+                f"resolution_digest={anchor_value.get('resolution_digest')}; "
+                f"risk distribution={anchor_value.get('risk_envelope_status')}."
+            )
+        else:
+            anchor.value = f"VWCE anchor unavailable: {anchor_value.get('reason', 'saved anchor resolution unavailable')}."
+        reasons = eligibility.get("binding_reasons", ())
+        binding_reasons.value = "Binding reasons: " + (", ".join(map(str, reasons)) if reasons else "none")
+        policy_editor.value = json.dumps(parameters, ensure_ascii=False, indent=2, sort_keys=True)
+        history_rows = value.get("version_history", ())
+        history.value = "Version history (this page session; persistent store unavailable): " + json.dumps(
+            history_rows if isinstance(history_rows, (list, tuple)) else [],
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+        rows = value.get("comparison", ())
+        rows = rows if isinstance(rows, (list, tuple)) else ()
+        comparison.controls = []
+        for item in rows:
+            if not isinstance(item, Mapping):
+                continue
+            result = item.get("eligibility")
+            result = result if isinstance(result, Mapping) else {}
+            comparison.controls.append(
+                ft.Text(
+                    f"{item.get('label', item.get('profile_id'))}: eligibility={result.get('status')}; "
+                    f"rank={result.get('rank', 'unavailable')}; recommendation={result.get('recommendation', 'unavailable')}",
+                    selectable=True,
+                )
+            )
+        if isinstance(profile, Mapping) and profile.get("profile_id"):
+            saved_versions[str(profile["profile_id"])] = dict(profile)
+            saved_history[str(profile["profile_id"])] = [
+                dict(item) for item in history_rows if isinstance(item, Mapping)
+            ] if isinstance(history_rows, (list, tuple)) else []
+
+    def refresh(
+        _event: ft.ControlEvent | None = None,
+        *,
+        profile_edits: Mapping[str, object] | None = None,
+        reset_to_preset: bool = False,
+    ) -> Mapping[str, object]:
+        profile_id = selected_id[0]
+        result = load_portfolio_risk_profile_projection(
+            state.snapshot,
+            current_analysis[0],
+            profile_id=profile_id,
+            profile_version=saved_versions.get(profile_id),
+            version_history=saved_history.get(profile_id, ()),
+            profile_edits=profile_edits,
+            reset_to_preset=reset_to_preset,
+        )
+        projection[0] = result
+        render_projection(result)
+        _safe_update(page)
+        return result
+
+    def select_profile(_event: ft.ControlEvent | None) -> None:
+        value = str(selector.value or "").strip()
+        if value:
+            selected_id[0] = value
+            refresh()
+
+    def save_profile(_event: ft.ControlEvent | None) -> None:
+        try:
+            values = json.loads(str(policy_editor.value or "{}"))
+            if not isinstance(values, Mapping):
+                raise ValueError("profile parameters must be a JSON object")
+            result = refresh(profile_edits=values)
+            active = result.get("profile")
+            version = active.get("version") if isinstance(active, Mapping) else "unavailable"
+            status.value = f"Created risk-profile version {version}; the preset and earlier versions were retained."
+            status.color = theme.GREEN
+            _safe_update(page)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            status.value = f"Profile version was not saved: {exc}"
+            status.color = theme.AMBER
+            _safe_update(page)
+
+    def reset_profile(_event: ft.ControlEvent | None) -> None:
+        result = refresh(reset_to_preset=True)
+        active = result.get("profile")
+        version = active.get("version") if isinstance(active, Mapping) else "unavailable"
+        status.value = f"Created reset version {version}; the preset and earlier versions were retained."
+        status.color = theme.GREEN
+        _safe_update(page)
+
+    selector.on_change = select_profile
+    render_projection(projection[0])
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Risk profiles",
+                    "Five advisory policies share the same saved analysis. VWCE-relative scoring abstains when a sealed, horizon and currency matched risk distribution is unavailable.",
+                ),
+                ft.Row([selector], wrap=True),
+                intent,
+                version_label,
+                anchor,
+                ft.Row([policy_editor], expand=True),
+                guardrails_view,
+                ft.Row(
+                    [
+                        ft.OutlinedButton(
+                            "Save as new version",
+                            key="portfolio.risk-profile.save",
+                            on_click=save_profile,
+                            disabled=not options,
+                        ),
+                        ft.TextButton(
+                            "Reset to preset",
+                            key="portfolio.risk-profile.reset",
+                            on_click=reset_profile,
+                            disabled=not options,
+                        ),
+                    ],
+                    wrap=True,
+                ),
+                status,
+                binding_reasons,
+                section_header("Profile comparison", "Unavailable ranks stay explicit; binding after-trade constraints are shown per selected profile."),
+                comparison,
+                history,
+                ft.Text(
+                    f"Raw portfolio analysis remains unchanged. Snapshot binding: {projection[0].get('source_snapshot_hash') or 'unavailable'}.",
+                    color=theme.MUTED,
+                    selectable=True,
+                ),
             ],
             spacing=8,
         )
@@ -1495,6 +1720,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 )
             ),
             _portfolio_performance_block(page),
+            _portfolio_risk_profiles_block(page, state, current_analysis),
             _portfolio_forecast_block(page, state, current_analysis),
             _portfolio_calendar_block(page, state, current_analysis[0]),
             _portfolio_holdings_block(page, state, current_analysis, draft_holdings_proposal, holdings_refresh_callbacks),

@@ -214,6 +214,11 @@ from etf_cockpit.portfolio.goals_constraints import (
     validate_portfolio_policy,
     what_if_record,
 )
+from etf_cockpit.portfolio.risk_profiles import (
+    RiskProfileError,
+    build_risk_profile_workspace,
+    unavailable_risk_profile_workspace,
+)
 from etf_cockpit.application.overlap import *  # noqa: F401,F403
 from etf_cockpit.application.overlap import load_direct_holdings
 from etf_cockpit.signals.simple_scores import *  # noqa: F401,F403
@@ -780,6 +785,32 @@ def load_portfolio_exposure_projection(
         reporting_currency=reporting_currency,
     )
     return cube.to_projection()
+
+
+def load_portfolio_risk_profile_projection(
+    snapshot: object,
+    analysis: object,
+    *,
+    profile_id: str = "medium",
+    profile_version: object = None,
+    version_history: Sequence[object] = (),
+    profile_edits: Mapping[str, object] | None = None,
+    reset_to_preset: bool = False,
+) -> dict[str, object]:
+    """Load the local, advisory profile projection for one bound candidate."""
+
+    try:
+        return build_risk_profile_workspace(
+            snapshot,
+            analysis,
+            selected_profile_id=profile_id,
+            selected_version=profile_version,
+            version_history=version_history,
+            profile_edits=profile_edits,
+            reset_to_preset=reset_to_preset,
+        )
+    except (RiskProfileError, OSError, TypeError, ValueError) as exc:
+        return unavailable_risk_profile_workspace(str(exc) or "risk_profile_projection_unavailable")
 
 
 def _normalise_valuation_assumptions(value: object) -> dict[str, object]:
