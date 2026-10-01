@@ -19,12 +19,17 @@ from etf_cockpit.portfolio.maturity_ladder import build_portfolio_maturity_ladde
 DECISION_TIME = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
 
 
-def _terms_projection(*, status: str = "available", reason_codes: list[str] | None = None) -> dict[str, object]:
+def _terms_projection(
+    *,
+    instrument_id: str = "BOND-1",
+    status: str = "available",
+    reason_codes: list[str] | None = None,
+) -> dict[str, object]:
     return {
         "status": status,
         "reason_codes": reason_codes or [],
         "terms": {
-            "instrument_id": "BOND-1",
+            "instrument_id": instrument_id,
             "issuer_id": "ISSUER-1",
             "security_type": "corporate_bond",
             "currency": "EUR",
@@ -66,7 +71,16 @@ def _terms_projection(*, status: str = "available", reason_codes: list[str] | No
 def test_bond_detail_ui_projection_values_match_api_export_projection() -> None:
     terms = _terms_projection()
     market = {"status": "available", "observations": [{"as_of": "2026-09-30"}]}
-    analytics = {"status": "available", "clean_price": "99.5", "dirty_price": "100.0"}
+    analytics = {
+        "status": "available",
+        "clean_price": "99.5",
+        "dirty_price": "100.0",
+        "accrued_interest": "0.5",
+        "current_yield": "0.05",
+        "yield_to_maturity": "0.045",
+        "yield_to_worst": "0.04",
+        "dv01": "0.04",
+    }
     risk = {"status": "available", "dv01": "0.04"}
 
     view = build_fixed_income_bond_view_model(
@@ -83,8 +97,20 @@ def test_bond_detail_ui_projection_values_match_api_export_projection() -> None:
         "analytics": analytics,
         "risk": risk,
     }
-    assert view.projections["analytics"]["clean_price"] == "99.5"
-    assert view.projections["terms"]["redemption_schedule"] == terms["redemption_schedule"]
+    displayed = _control_text(fixed_income_bond_panel(view))
+    assert "Canonical valuation and risk metrics:" in displayed
+    for expected in (
+        "clean_price=99.50",
+        "dirty_price=100.00",
+        "accrued_interest=0.50",
+        "current_yield=5.0%",
+        "yield_to_maturity=4.5%",
+        "yield_to_worst=4.0%",
+        "dv01=0.04",
+        "status=available",
+    ):
+        assert expected in displayed
+    assert "Principal/redemption schedule: date=2027-01-01; amount=100 EUR" in displayed
 
 
 def test_bond_view_model_includes_coverage_and_source_as_of_dates() -> None:
@@ -147,6 +173,24 @@ def test_maturity_ladder_reconciles_cash_flows_to_position_quantity_and_terms() 
     assert amounts[("income", "EUR")] == Decimal("15")
     assert amounts[("maturity_proceeds", "EUR")] == Decimal("300")
     assert amounts[("maturity_proceeds", "EUR")] == Decimal(terms["redemption_schedule"][0]["amount"]) * Decimal("3")
+
+    second_terms = _terms_projection(instrument_id="BOND-2")
+    incomplete = build_portfolio_maturity_ladder(
+        calendar,
+        holdings=[
+            *holdings,
+            {"instrument_id": "BOND-2", "asset_type": "bond", "quantity": "2", "market_value_eur": "200"},
+        ],
+        terms_projections={"BOND-1": terms, "BOND-2": second_terms},
+    )
+    second_position = next(row for row in incomplete["positions"] if row["instrument_id"] == "BOND-2")
+    assert "contractual_cash_flows_unavailable" in second_position["reason_codes"]
+    assert incomplete["coverage"]["missing_flow_instrument_ids"] == ["BOND-2"]
+    assert incomplete["status"] == "partial"
+    assert incomplete["totals"]
+    assert all(row["amount"] is None for row in incomplete["totals"])
+    assert all(row["status"] == "unavailable" for row in incomplete["totals"])
+    assert all("contractual_cash_flows_unavailable" in row["reason_codes"] for row in incomplete["totals"])
 
 
 def test_facade_ladder_loader_uses_the_snapshot_decision_cutoff(monkeypatch) -> None:

@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
+import pandas as pd
+
+from etf_cockpit.application import ui_facade
 from etf_cockpit.analysis.fixed_income_analytics import (
     ContractualCashFlow,
     CurveNode,
     DiscountCurveEvidence,
     FixedIncomeValuationInput,
+    calculate_fixed_income_analytics,
 )
 from etf_cockpit.analysis.fixed_income_returns import (
     FixedIncomeReturnInput,
@@ -23,6 +28,8 @@ from etf_cockpit.analysis.fixed_income_screener import (
     load_fixed_income_screener_config,
 )
 from etf_cockpit.application.ui_facade import _persist_fixed_income_screener_snapshot
+from etf_cockpit.app.pages import portfolio as portfolio_page
+from etf_cockpit.app.pages import screener as screener_page
 from etf_cockpit.data.local_storage import TransactionalStore
 from etf_cockpit.data.market_calendar import DayCountConvention
 
@@ -33,12 +40,35 @@ _SHA = "a" * 64
 
 def test_carry_roll_rate_and_spread_reconcile_to_complete_baseline() -> None:
     valuation = _valuation("BOND-COMPLETE", years=5, coupon="0.05", ytm="0.045")
+    starting_valuation = calculate_fixed_income_analytics(valuation)
+    horizon_days = 400
+    horizon = valuation.settlement_date + timedelta(days=horizon_days)
+    horizon_valuation = replace(
+        valuation,
+        settlement_date=horizon,
+        clean_price=None,
+        yield_to_maturity=starting_valuation.yield_to_maturity,
+    )
+    horizon_result = calculate_fixed_income_analytics(horizon_valuation)
+    contractual_receipts = sum(
+        (
+            flow.amount / valuation.face_value * Decimal("100")
+            for flow in valuation.cashflows
+            if flow.kind == "coupon" and valuation.settlement_date < flow.payment_date <= horizon
+        ),
+        Decimal("0"),
+    )
+    expected_baseline = (
+        horizon_result.dirty_price - starting_valuation.dirty_price + contractual_receipts
+    ) / starting_valuation.dirty_price
+    assert contractual_receipts == Decimal("5")
+
     result = calculate_fixed_income_return_decomposition(
         FixedIncomeReturnInput(
             valuation,
-            horizon_days=90,
-            rate_shock_bps=Decimal("25"),
-            spread_shock_bps=Decimal("10"),
+            horizon_days=horizon_days,
+            rate_shock_bps=Decimal("0"),
+            spread_shock_bps=Decimal("0"),
             default_probability=Decimal("0"),
             recovery_rate=Decimal("0.4"),
             fx_return=Decimal("0"),
@@ -55,6 +85,7 @@ def test_carry_roll_rate_and_spread_reconcile_to_complete_baseline() -> None:
     )
     assert all(value is not None for value in parts)
     assert abs(sum(parts, Decimal("0")) - result.baseline_total_return) < Decimal("0.00000001")
+    assert abs(expected_baseline - result.baseline_total_return) < Decimal("0.00000001")
     assert result.net_total_return is not None
     assert result.execution_allowed is False
 
@@ -93,7 +124,9 @@ def test_uncalibrated_forecast_is_research_only_with_unavailable_distribution_va
     assert distribution.reason_codes == ("fixed_income_return_calibration_unavailable",)
 
 
-def test_rejected_and_unavailable_rows_are_persisted_with_reason_codes(tmp_path: Path) -> None:
+def test_rejected_and_unavailable_rows_are_persisted_with_reason_codes(
+    tmp_path: Path, monkeypatch
+) -> None:
     config = replace(_config(), minimum_peer_support=1, bootstrap_samples=10)
     candidate = FixedIncomeScreenerSecurity(
         instrument_id="UNAVAILABLE-BOND",
@@ -112,19 +145,48 @@ def test_rejected_and_unavailable_rows_are_persisted_with_reason_codes(tmp_path:
         return_input=None,
         reason_codes=("saved_price_missing",),
     )
-    snapshot = build_fixed_income_screener((candidate,), decision_time=NOW, config=config)
+    rejected = replace(
+        _security("REJECTED-BOND", years=5, coupon="0.05", ytm="0.05"),
+        liquidity_status="unavailable",
+    )
+    snapshot = build_fixed_income_screener((candidate, rejected), decision_time=NOW, config=config)
 
     assert _persist_fixed_income_screener_snapshot(tmp_path, snapshot)
     with TransactionalStore(tmp_path) as store:
         persisted = store.list("fixed_income_screener_row_v1")
-    assert len(persisted) == len(snapshot.rows) == 1
-    row = persisted[0].payload
-    assert row["instrument_id"] == "UNAVAILABLE-BOND"
-    assert row["status"] in {"rejected", "unavailable"}
-    assert "saved_price_missing" in row["reason_codes"]
-    assert "fixed_income_return_inputs_unavailable" in row["reason_codes"]
-    assert json.loads(row["row_json"])["reason_codes"] == row["reason_codes"]
-    assert row["execution_allowed"] is False
+    assert len(persisted) == len(snapshot.rows) == 2
+    rows = {item.payload["instrument_id"]: item.payload for item in persisted}
+    unavailable = rows["UNAVAILABLE-BOND"]
+    assert unavailable["status"] == "unavailable"
+    assert "saved_price_missing" in unavailable["reason_codes"]
+    assert "fixed_income_return_inputs_unavailable" in unavailable["reason_codes"]
+    assert json.loads(unavailable["row_json"])["reason_codes"] == unavailable["reason_codes"]
+    rejected_row = rows["REJECTED-BOND"]
+    assert rejected_row["status"] == "rejected"
+    assert "precise_liquidity_evidence_unavailable" in rejected_row["reason_codes"]
+    assert json.loads(rejected_row["row_json"])["reason_codes"] == rejected_row["reason_codes"]
+    assert all(row["execution_allowed"] is False for row in rows.values())
+
+    missing_root = tmp_path / "missing-terms"
+    monkeypatch.setattr(ui_facade, "load_fixed_income_screener_config", lambda _path: config)
+    monkeypatch.setattr(ui_facade, "fixed_income_terms_exists", lambda _root: False)
+    monkeypatch.setattr(ui_facade, "_fixed_income_saved_valuation_inputs", lambda *_args: {})
+    monkeypatch.setattr(ui_facade, "_fixed_income_saved_risk_inputs", lambda *_args: {})
+    result = ui_facade.load_fixed_income_screener(
+        storage_root=missing_root,
+        decision_time=NOW,
+        instrument_ids=("MISSING-TERMS-BOND",),
+    )
+    assert result["persistence_status"] == "available"
+    assert len(result["rows"]) == 1
+    assert result["rows"][0]["instrument_id"] == "MISSING-TERMS-BOND"
+    assert result["rows"][0]["status"] == "unavailable"
+    assert "fixed_income_terms_unavailable_at_decision_time" in result["rows"][0]["reason_codes"]
+    with TransactionalStore(missing_root) as store:
+        missing_rows = store.list("fixed_income_screener_row_v1")
+    assert len(missing_rows) == 1
+    assert missing_rows[0].payload["instrument_id"] == "MISSING-TERMS-BOND"
+    assert missing_rows[0].payload["status"] == "unavailable"
 
 
 def test_frozen_input_ranking_and_bootstrap_are_reproducible_from_seed() -> None:
@@ -145,6 +207,50 @@ def test_frozen_input_ranking_and_bootstrap_are_reproducible_from_seed() -> None
     assert all(row.rank_stability_seed == 19 for row in first.rows)
     assert all(row.peer_status == "supported" for row in first.rows)
     assert all(row.peer_level == "currency_type_parent" for row in first.rows)
+
+
+def test_screener_and_portfolio_views_bind_the_snapshot_decision_cutoff(monkeypatch) -> None:
+    as_of_date = date(2026, 1, 1)
+    state = SimpleNamespace(
+        snapshot=SimpleNamespace(
+            holdings=pd.DataFrame(columns=["instrument_id"]),
+            data_report=SimpleNamespace(as_of_date=as_of_date),
+        )
+    )
+    screener_calls: list[dict[str, object]] = []
+    portfolio_calls: list[dict[str, object]] = []
+    empty_screen = SimpleNamespace(total_matched=0, total_input=0, warnings=(), rows=())
+    monkeypatch.setattr(
+        screener_page,
+        "load_fundamental_evidence",
+        lambda _path: pd.DataFrame(columns=["instrument_id"]),
+    )
+    monkeypatch.setattr(screener_page, "latest_fundamental_rows", lambda frame: frame)
+    monkeypatch.setattr(
+        screener_page,
+        "build_screen_rows",
+        lambda _snapshot, _frame: pd.DataFrame(columns=["instrument_id"]),
+    )
+    monkeypatch.setattr(screener_page, "query_for_snapshot", lambda *_args, **_kwargs: SimpleNamespace())
+    monkeypatch.setattr(screener_page, "run_screen", lambda *_args, **_kwargs: empty_screen)
+    monkeypatch.setattr(
+        screener_page,
+        "load_fixed_income_screener",
+        lambda **kwargs: screener_calls.append(kwargs) or {"status": "unavailable", "rows": []},
+    )
+    screener_page.screener_page(None, state)
+
+    monkeypatch.setattr(
+        portfolio_page,
+        "load_fixed_income_screener",
+        lambda **kwargs: portfolio_calls.append(kwargs)
+        or {"status": "unavailable", "rows": [], "reason_codes": []},
+    )
+    portfolio_page._portfolio_fixed_income_returns_block(state)
+
+    expected_cutoff = "2026-01-01T23:59:59+00:00"
+    assert screener_calls == [{"decision_time": expected_cutoff}]
+    assert portfolio_calls == [{"decision_time": expected_cutoff, "instrument_ids": ()}]
 
 
 def _security(instrument_id: str, *, years: int, coupon: str, ytm: str) -> FixedIncomeScreenerSecurity:

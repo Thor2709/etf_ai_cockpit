@@ -190,7 +190,9 @@ def _portfolio_performance_block(page: ft.Page | None) -> ft.Control:
 
 def _portfolio_fixed_income_returns_block(state: AppState) -> ft.Control:
     held_ids = tuple(sorted(_holding_ids(state.snapshot.holdings)))
-    result = load_fixed_income_screener(instrument_ids=held_ids)
+    as_of_date = state.snapshot.data_report.as_of_date
+    decision_time = f"{as_of_date}T23:59:59+00:00" if as_of_date is not None else ""
+    result = load_fixed_income_screener(decision_time=decision_time, instrument_ids=held_ids)
     rows = result.get("rows") if isinstance(result, Mapping) else None
     rows = [row for row in rows if isinstance(row, Mapping)] if isinstance(rows, list) else []
     table: ft.Control = (

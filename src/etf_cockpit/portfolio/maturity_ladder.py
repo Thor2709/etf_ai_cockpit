@@ -58,6 +58,16 @@ def build_portfolio_maturity_ladder(
     instrument_flows: dict[tuple[str, str, str], list[Mapping[str, object]]] = {}
     raw_flows = projection.get("cash_flows")
     flows = raw_flows if isinstance(raw_flows, Sequence) and not isinstance(raw_flows, (str, bytes)) else ()
+    missing_flow_instruments = {
+        instrument_id
+        for instrument_id in bond_positions
+        if not any(
+            isinstance(item, Mapping)
+            and str(item.get("instrument_id") or "") == instrument_id
+            and str(item.get("flow_type") or "") in _FLOW_TYPES
+            for item in flows
+        )
+    }
     for raw in flows:
         if not isinstance(raw, Mapping):
             continue
@@ -151,6 +161,14 @@ def build_portfolio_maturity_ladder(
             }
         )
 
+    if missing_flow_instruments:
+        for total in totals:
+            total["amount"] = None
+            total["status"] = "unavailable"
+            total["reason_codes"] = sorted(
+                set(total["reason_codes"]) | {"contractual_cash_flows_unavailable"}
+            )
+
     position_rows: list[dict[str, object]] = []
     for instrument_id, holding in sorted(bond_positions.items()):
         term_projection = terms_by_id.get(instrument_id, {})
@@ -159,8 +177,7 @@ def build_portfolio_maturity_ladder(
         reasons = [str(code) for code in term_projection.get("reason_codes", ())] if isinstance(term_projection.get("reason_codes", ()), Sequence) else []
         if str(term_projection.get("status") or "unavailable") != "available":
             reasons.extend(["fixed_income_terms_unavailable"] if not reasons else [])
-        matching_flows = [item for item in flows if isinstance(item, Mapping) and str(item.get("instrument_id") or "") == instrument_id and str(item.get("flow_type") or "") in _FLOW_TYPES]
-        if not matching_flows:
+        if instrument_id in missing_flow_instruments:
             reasons.append("contractual_cash_flows_unavailable")
         position_rows.append(
             {
@@ -199,6 +216,8 @@ def build_portfolio_maturity_ladder(
             int(row.get("flow_count") or 0) - int(row.get("known_flow_count") or 0)
             for row in ladder_rows
         ),
+        "missing_flow_instrument_count": len(missing_flow_instruments),
+        "missing_flow_instrument_ids": sorted(missing_flow_instruments),
     }
     warnings = [str(item) for item in projection.get("warnings", ())] if isinstance(projection.get("warnings", ()), Sequence) else []
     unavailable_terms = [row["instrument_id"] for row in position_rows if row["terms_status"] != "available"]
@@ -206,7 +225,9 @@ def build_portfolio_maturity_ladder(
         warnings.append("fixed_income_terms_unavailable:" + ",".join(map(str, unavailable_terms)))
     if coverage["unavailable_flow_count"]:
         warnings.append("fixed_income_cash_flow_amounts_incomplete")
-    partial = bool(unavailable_terms or coverage["unavailable_flow_count"])
+    if missing_flow_instruments:
+        warnings.append("contractual_cash_flows_unavailable:" + ",".join(sorted(missing_flow_instruments)))
+    partial = bool(unavailable_terms or coverage["unavailable_flow_count"] or missing_flow_instruments)
     partial = partial or str(term_coverage.get("status") or "unavailable") in {"partial", "unavailable"}
     status = "unavailable" if not bond_positions or not ladder_rows else "partial" if partial else "available"
     reason = None

@@ -50,7 +50,9 @@ def screener_page(_page: ft.Page, _state: AppState) -> ft.Control:
         frame = latest_fundamental_rows(frame)
 
     screen_frame = build_screen_rows(_state.snapshot, frame)
-    fixed_income_result = load_fixed_income_screener()
+    as_of_date = _state.snapshot.data_report.as_of_date
+    decision_time = f"{as_of_date}T23:59:59+00:00" if as_of_date is not None else ""
+    fixed_income_result = load_fixed_income_screener(decision_time=decision_time)
     filters: list[ScreenFilter] = []
     current_query = [query_for_snapshot(_state.snapshot, screen_frame)]
     current_result = [run_screen(screen_frame, current_query[0])]

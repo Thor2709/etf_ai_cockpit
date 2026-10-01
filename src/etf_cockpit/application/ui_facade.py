@@ -1452,7 +1452,7 @@ def load_fixed_income_screener(
             if instrument_id:
                 term_ids.add(instrument_id)
 
-    selected_ids = sorted(term_ids if requested is None else term_ids & requested)
+    selected_ids = sorted(term_ids if requested is None else term_ids | requested)
     try:
         analytics_inputs = _fixed_income_saved_valuation_inputs(root, decision)
     except (FixedIncomeAnalyticsError, StorageSchemaError, sqlite3.DatabaseError, OSError, ValueError):
@@ -1585,6 +1585,19 @@ def load_fixed_income_screener(
                             portfolio_fit=_portfolio_fit(instrument_id, requested),
                         )
                     )
+        else:
+            for instrument_id in selected_ids:
+                securities.append(
+                    _fixed_income_security(
+                        instrument_id,
+                        terms=None,
+                        return_input=None,
+                        liquidity_bucket=None,
+                        liquidity_status="unavailable",
+                        reason_codes=("fixed_income_terms_unavailable_at_decision_time",),
+                        portfolio_fit=_portfolio_fit(instrument_id, requested),
+                    )
+                )
     except (FixedIncomeTermsSchemaError, StorageSchemaError, sqlite3.DatabaseError, OSError, ValueError) as exc:
         return {
             "contract": FIXED_INCOME_SCREENER_CONTRACT,
