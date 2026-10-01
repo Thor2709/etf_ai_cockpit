@@ -62,6 +62,7 @@ class PeerObservation:
     active_from: str | None = None
     active_to: str | None = None
     revision: int = 1
+    inapplicable_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -190,6 +191,8 @@ def construct_cohort(
     comparison_scope: str | None = None,
     comparison_groups: Mapping[str, Mapping[str, str]] | Mapping[str, str] | None = None,
     strict_mode: bool = False,
+    comparison_dimension_order: Sequence[str] | None = None,
+    comparison_dimension_groups: Mapping[str, Mapping[str, str]] | None = None,
 ) -> CohortMembership:
     """Select the first sufficiently supported leaf-to-parent cohort."""
 
@@ -223,7 +226,12 @@ def construct_cohort(
             exclusions[item.instrument_id] = "target_instrument"
             continue
         eligible_by_instrument.setdefault(item.instrument_id, []).append(item)
-    for instrument_id, revisions in sorted(eligible_by_instrument.items()):
+    eligible_items = (
+        eligible_by_instrument.items()
+        if scope == "FUND_PEERS"
+        else sorted(eligible_by_instrument.items())
+    )
+    for instrument_id, revisions in eligible_items:
         selected_revision = max(
             revisions,
             key=lambda row: (
@@ -248,6 +256,7 @@ def construct_cohort(
         "BUSINESS_MODEL",
         "ETF_CATEGORY",
         "ETF_EXPOSURE_PEERS",
+        "FUND_PEERS",
     }:
         raise PeerCohortError(f"unsupported comparison scope: {comparison_scope!r}")
     comparison_groups_for_scope: Mapping[str, str] | None = None
@@ -264,7 +273,20 @@ def construct_cohort(
         raise PeerCohortError(
             f"{scope} comparison requires a target comparison group"
         )
-    levels = _cohort_levels(target, scope, strict_mode=strict_mode)
+    if scope == "FUND_PEERS":
+        if comparison_dimension_order is None or comparison_dimension_groups is None:
+            raise PeerCohortError(
+                "FUND_PEERS comparison requires ordered dimensions and values"
+            )
+        if not comparison_dimension_groups.get(target.instrument_id):
+            raise PeerCohortError("FUND_PEERS comparison requires target dimensions")
+    levels = _cohort_levels(
+        target,
+        scope,
+        strict_mode=strict_mode,
+        comparison_dimension_order=comparison_dimension_order,
+        comparison_dimension_groups=comparison_dimension_groups,
+    )
     selected: list[PeerObservation] = []
     selected_exclusions: dict[str, str] = {}
     parent: list[PeerObservation] = []
@@ -281,9 +303,12 @@ def construct_cohort(
                 item.context,
                 fields,
                 comparison_groups_for_scope,
+                comparison_dimension_groups,
             )
         ]
-        subset, duplicate_exclusions = _deduplicate(matching)
+        subset, duplicate_exclusions = _deduplicate(
+            matching, comparison_scope=scope
+        )
         fallback_path.append(label)
         selected, selected_key = subset, label
         selected_exclusions = duplicate_exclusions
@@ -309,8 +334,10 @@ def construct_cohort(
                     item.context,
                     parent_fields,
                     comparison_groups_for_scope,
+                    comparison_dimension_groups,
                 )
-            ]
+            ],
+            comparison_scope=scope,
         )
     exclusions.update(selected_exclusions)
     members = tuple(item.instrument_id for item in selected)
@@ -338,6 +365,16 @@ def construct_cohort(
             payload["comparison_groups"] = {
                 instrument_id: comparison_groups_for_scope.get(instrument_id)
                 for instrument_id in sorted(comparison_groups_for_scope or {})
+            }
+        elif scope == "FUND_PEERS":
+            payload["comparison_dimension_order"] = list(
+                comparison_dimension_order or ()
+            )
+            payload["comparison_dimension_groups"] = {
+                instrument_id: dict(sorted(dimensions.items()))
+                for instrument_id, dimensions in sorted(
+                    (comparison_dimension_groups or {}).items()
+                )
             }
     return CohortMembership(
         selected_key,
@@ -791,6 +828,8 @@ def _cohort_levels(
     comparison_scope: str | None = None,
     *,
     strict_mode: bool = False,
+    comparison_dimension_order: Sequence[str] | None = None,
+    comparison_dimension_groups: Mapping[str, Mapping[str, str]] | None = None,
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
     if comparison_scope is not None:
         scope_levels = {
@@ -817,6 +856,32 @@ def _cohort_levels(
                 ("UNIVERSE", ()),
             ),
         }
+        if comparison_scope == "FUND_PEERS":
+            target_dimensions = (comparison_dimension_groups or {}).get(
+                context.instrument_id, {}
+            )
+            order = tuple(comparison_dimension_order or ())
+            if not order or len(set(order)) != len(order):
+                raise PeerCohortError(
+                    "FUND_PEERS dimensions must be a non-empty ordered list"
+                )
+            prefix_length = 0
+            for dimension in order:
+                value = target_dimensions.get(dimension)
+                if not isinstance(value, str) or not value.strip():
+                    break
+                prefix_length += 1
+            if prefix_length == 0:
+                raise PeerCohortError(
+                    "FUND_PEERS requires a known first cohort dimension"
+                )
+            return tuple(
+                (
+                    "FUND_PEERS:" + "+".join(order[:length]),
+                    tuple(f"__fund_dimension:{name}" for name in order[:length]),
+                )
+                for length in range(prefix_length, 0, -1)
+            )
         if comparison_scope not in scope_levels:
             raise PeerCohortError(
                 f"unsupported comparison scope: {comparison_scope!r}"
@@ -869,21 +934,43 @@ def _matches_comparison_scope(
     candidate: InstrumentContextV2,
     fields: Sequence[str],
     comparison_groups: Mapping[str, str] | None,
+    comparison_dimension_groups: Mapping[str, Mapping[str, str]] | None = None,
 ) -> bool:
     if fields and fields[0].startswith("__comparison_group:"):
         groups = comparison_groups or {}
         target_group = groups.get(target.instrument_id)
         return bool(target_group) and target_group == groups.get(candidate.instrument_id)
+    if fields and fields[0].startswith("__fund_dimension:"):
+        dimensions = comparison_dimension_groups or {}
+        target_dimensions = dimensions.get(target.instrument_id, {})
+        candidate_dimensions = dimensions.get(candidate.instrument_id, {})
+        for field in fields:
+            dimension = field.removeprefix("__fund_dimension:")
+            value = target_dimensions.get(dimension)
+            if not value or value != candidate_dimensions.get(dimension):
+                return False
+        return True
     return _matches(target, candidate, fields)
 
 
 def _deduplicate(
     observations: Sequence[PeerObservation],
+    *,
+    comparison_scope: str | None = None,
 ) -> tuple[list[PeerObservation], dict[str, str]]:
     retained: list[PeerObservation] = []
     exclusions: dict[str, str] = {}
     claimed: dict[str, str] = {}
-    for item in sorted(observations, key=lambda row: row.instrument_id):
+    if comparison_scope == "FUND_PEERS":
+        ordered = sorted(
+            observations,
+            key=lambda row: (
+                row.economic_strategy_id or row.context.entity_id or row.instrument_id,
+            ),
+        )
+    else:
+        ordered = sorted(observations, key=lambda row: row.instrument_id)
+    for item in ordered:
         strategy = (
             item.economic_strategy_id or item.context.entity_id or item.instrument_id
         )
@@ -927,18 +1014,19 @@ def _parent_percentile(
 
 
 def _observation_hash(item: PeerObservation) -> str:
-    return _hash(
-        {
-            "instrument_id": item.instrument_id,
-            "metric": item.metric,
-            "value": item.value,
-            "weight": item.weight,
-            "effective_at": _iso(_time(item.effective_at)),
-            "known_at": _iso(_time(item.known_at)),
-            "revision": item.revision,
-            "context_version": item.context.version_id,
-        }
-    )
+    payload = {
+        "instrument_id": item.instrument_id,
+        "metric": item.metric,
+        "value": item.value,
+        "weight": item.weight,
+        "effective_at": _iso(_time(item.effective_at)),
+        "known_at": _iso(_time(item.known_at)),
+        "revision": item.revision,
+        "context_version": item.context.version_id,
+    }
+    if item.inapplicable_reason is not None:
+        payload["inapplicable_reason"] = item.inapplicable_reason
+    return _hash(payload)
 
 
 def _exclusion_reason(
@@ -966,7 +1054,7 @@ def _exclusion_reason(
     except PeerCohortError:
         return "invalid_timestamp"
     if not item.applicable:
-        return "metric_inapplicable"
+        return item.inapplicable_reason or "metric_inapplicable"
     if item.value is None or not _finite(item.value):
         return "invalid_value"
     if not _finite(item.weight) or item.weight <= 0:
@@ -989,6 +1077,16 @@ def _context_is_valid(
             and "etf" in (context.instrument_type or "").casefold()
             and bool(context.asset_class)
         )
+        fund_context = (
+            comparison_scope == "FUND_PEERS"
+            and context.instrument_type == "ordinary_fund"
+            and bool(context.asset_class)
+        )
+        context_type_is_valid = (
+            fund_context
+            if comparison_scope == "FUND_PEERS"
+            else stock_context or etf_context
+        )
         context_effective = _time(context.effective_at)
         effective_cutoff_matches = (
             context_effective == effective
@@ -996,7 +1094,7 @@ def _context_is_valid(
             else context_effective <= effective
         )
         return (
-            (stock_context or etf_context)
+            context_type_is_valid
             and context.classification_status not in {"unresolved", "manual_review"}
             and context.execution_allowed is False
             and effective_cutoff_matches
