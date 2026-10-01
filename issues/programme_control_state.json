@@ -2008,17 +2008,66 @@
       "verified_date": "2026-09-27"
     },
     "ISSUE-0045": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product: merged PR #860; merge fd1f17672f94c57bb56be94ff8db4343e503d59f.",
+            "Full release gate run 36910320034 on head 93d351ab99a680b33110d568f50c7c3a6821ff45 passed validation-summary."
+          ],
+          "review_reference": "Exact head 93d351ab99a680b33110d568f50c7c3a6821ff45: Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #860; merge fd1f17672f94c57bb56be94ff8db4343e503d59f.",
+            "Full release gate run 36910320034 on head 93d351ab99a680b33110d568f50c7c3a6821ff45 passed validation-summary."
+          ],
+          "review_reference": "Exact head 93d351ab99a680b33110d568f50c7c3a6821ff45: Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-08-frontend-api",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "in_progress"
+        "from": "implemented_initially",
+        "review_reference": "Exact head 93d351ab99a680b33110d568f50c7c3a6821ff45: Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product: merged PR #860; merge fd1f17672f94c57bb56be94ff8db4343e503d59f.",
+            "Full release gate run 36910320034 on head 93d351ab99a680b33110d568f50c7c3a6821ff45 passed validation-summary."
+          ],
+          "from": "in_progress",
+          "review_reference": "Exact head 93d351ab99a680b33110d568f50c7c3a6821ff45: Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "to": "implemented_initially",
+          "verified_commit": "fd1f17672f94c57bb56be94ff8db4343e503d59f"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product: merged PR #860; merge fd1f17672f94c57bb56be94ff8db4343e503d59f.",
+            "Full release gate run 36910320034 on head 93d351ab99a680b33110d568f50c7c3a6821ff45 passed validation-summary."
+          ],
+          "from": "implemented_initially",
+          "review_reference": "Exact head 93d351ab99a680b33110d568f50c7c3a6821ff45: Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "to": "integrated",
+          "verified_commit": "fd1f17672f94c57bb56be94ff8db4343e503d59f"
+        }
+      ],
+      "verified_commit": "fd1f17672f94c57bb56be94ff8db4343e503d59f",
+      "verified_date": "2026-10-01"
     },
     "ISSUE-0046": {
       "acceptance_evidence": [
@@ -15225,17 +15274,66 @@
       "verified_date": "2026-10-01"
     },
     "UPDATEV2-0027": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product: merged PR #860; merge fd1f17672f94c57bb56be94ff8db4343e503d59f.",
+            "Full release gate run 36910320034 on head 93d351ab99a680b33110d568f50c7c3a6821ff45 passed validation-summary."
+          ],
+          "review_reference": "Exact head 93d351ab99a680b33110d568f50c7c3a6821ff45: Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #860; merge fd1f17672f94c57bb56be94ff8db4343e503d59f.",
+            "Full release gate run 36910320034 on head 93d351ab99a680b33110d568f50c7c3a6821ff45 passed validation-summary."
+          ],
+          "review_reference": "Exact head 93d351ab99a680b33110d568f50c7c3a6821ff45: Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-08-frontend-api",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "in_progress",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "in_progress"
+        "from": "implemented_initially",
+        "review_reference": "Exact head 93d351ab99a680b33110d568f50c7c3a6821ff45: Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+        "to": "integrated"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product: merged PR #860; merge fd1f17672f94c57bb56be94ff8db4343e503d59f.",
+            "Full release gate run 36910320034 on head 93d351ab99a680b33110d568f50c7c3a6821ff45 passed validation-summary."
+          ],
+          "from": "in_progress",
+          "review_reference": "Exact head 93d351ab99a680b33110d568f50c7c3a6821ff45: Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "to": "implemented_initially",
+          "verified_commit": "fd1f17672f94c57bb56be94ff8db4343e503d59f"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product: merged PR #860; merge fd1f17672f94c57bb56be94ff8db4343e503d59f.",
+            "Full release gate run 36910320034 on head 93d351ab99a680b33110d568f50c7c3a6821ff45 passed validation-summary."
+          ],
+          "from": "implemented_initially",
+          "review_reference": "Exact head 93d351ab99a680b33110d568f50c7c3a6821ff45: Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "to": "integrated",
+          "verified_commit": "fd1f17672f94c57bb56be94ff8db4343e503d59f"
+        }
+      ],
+      "verified_commit": "fd1f17672f94c57bb56be94ff8db4343e503d59f",
+      "verified_date": "2026-10-01"
     },
     "UPDATEV2-0028": {
       "acceptance_evidence": [],
