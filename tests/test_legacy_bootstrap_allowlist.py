@@ -76,6 +76,32 @@ EXPECTED_LEGACY_BOOTSTRAP_RECORDS = {
         "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
         "verified_date": "2026-07-21",
     },
+    "ISSUE-0045": {
+        "acceptance_evidence": [],
+        "dependency_edge_evidence": {},
+        "phase": "phase-08-frontend-api",
+        "programme_status": "in_progress",
+        "status_transition": {
+            "from": "in_progress",
+            "review_reference": "B00 canonical import from audited programme state",
+            "to": "in_progress",
+        },
+        "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+        "verified_date": "2026-07-21",
+    },
+    "UPDATEV2-0027": {
+        "acceptance_evidence": [],
+        "dependency_edge_evidence": {},
+        "phase": "phase-08-frontend-api",
+        "programme_status": "in_progress",
+        "status_transition": {
+            "from": "in_progress",
+            "review_reference": "B00 canonical import from audited programme state",
+            "to": "in_progress",
+        },
+        "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+        "verified_date": "2026-07-21",
+    },
 }
 
 
@@ -108,6 +134,15 @@ def test_b1_records_are_recognised_and_prefix_validates() -> None:
         _validate_prefix(issue_id, record, history=[])
 
 
+def test_b2_records_are_recognised_and_prefix_validates() -> None:
+    for issue_id in ("ISSUE-0045", "UPDATEV2-0027"):
+        record = deepcopy(EXPECTED_LEGACY_BOOTSTRAP_RECORDS[issue_id])
+
+        assert core.is_issue0011_legacy_replay_source(issue_id, record)
+        _validate_prefix(issue_id, record)
+        _validate_prefix(issue_id, record, history=[])
+
+
 def _assert_control_state_record_matches_allowance(
     issue_id: str, record: dict[str, object]
 ) -> None:
@@ -132,9 +167,17 @@ def test_control_state_records_are_recognised_by_allowance() -> None:
     control_state = json.loads(
         Path("issues/programme_control_state.json").read_text(encoding="utf-8")
     )
-    for issue_id in ("ISSUE-0039", "ISSUE-0040"):
+    for issue_id in (
+        "ISSUE-0039",
+        "ISSUE-0040",
+        "ISSUE-0045",
+        "UPDATEV2-0027",
+    ):
+        record = control_state["records"][issue_id]
+        if issue_id in ("ISSUE-0045", "UPDATEV2-0027"):
+            assert "transition_history" not in record
         _assert_control_state_record_matches_allowance(
-            issue_id, control_state["records"][issue_id]
+            issue_id, record
         )
 
 
