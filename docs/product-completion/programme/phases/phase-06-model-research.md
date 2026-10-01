@@ -53,5 +53,5 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0120` | `P0` | `integrated` | `model-governance` | `ISSUE-0119` | - | `ISSUE-0121`, `ISSUE-0122`, `ISSUE-0123`, `ISSUE-0150`, `ISSUE-0157`, `ISSUE-0172` | - |
 | `ISSUE-0121` | `P0/P1` | `integrated` | `model-governance` | `ISSUE-0117`, `ISSUE-0120` | - | `ISSUE-0175` | - |
 | `ISSUE-0122` | `P1` | `integrated` | `model-governance` | `ISSUE-0120` | - | - | - |
-| `ISSUE-0123` | `P0/P1` | `in_progress` | `model-governance` | `ISSUE-0108`, `ISSUE-0120` | - | `ISSUE-0124`, `ISSUE-0157`, `ISSUE-0172`, `ISSUE-0174` | - |
-| `ISSUE-0124` | `P0/P1` | `in_progress` | `model-governance` | `ISSUE-0117`, `ISSUE-0123` | - | - | - |
+| `ISSUE-0123` | `P0/P1` | `integrated` | `model-governance` | `ISSUE-0108`, `ISSUE-0120` | - | `ISSUE-0124`, `ISSUE-0157`, `ISSUE-0172`, `ISSUE-0174` | - |
+| `ISSUE-0124` | `P0/P1` | `integrated` | `model-governance` | `ISSUE-0117`, `ISSUE-0123` | - | - | - |

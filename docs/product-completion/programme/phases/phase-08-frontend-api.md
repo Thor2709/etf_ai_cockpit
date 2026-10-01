@@ -55,17 +55,17 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0037` | `P1/P2` | `integrated` | `frontend-and-api` | - | - | `ISSUE-0176` | `ISSUE-0075`, `ISSUE-0076`, `ISSUE-0144` |
 | `ISSUE-0041` | `P1/P2` | `integrated` | `frontend-and-api` | - | - | - | `ISSUE-0137`, `ISSUE-0140`, `ISSUE-0143` |
 | `ISSUE-0042` | `P1/P2` | `integrated` | `frontend-and-api` | - | - | - | `ISSUE-0090`, `ISSUE-0138`, `ISSUE-0147` |
-| `ISSUE-0043` | `P2` | `in_progress` | `frontend-and-api` | - | - | `ISSUE-0148` | `ISSUE-0148`, `ISSUE-0149` |
+| `ISSUE-0043` | `P2` | `integrated` | `frontend-and-api` | - | - | `ISSUE-0148` | `ISSUE-0148`, `ISSUE-0149` |
 | `ISSUE-0045` | `P1` | `in_progress` | `frontend-and-api` | - | - | - | `ISSUE-0136`, `ISSUE-0143` |
 | `ISSUE-0136` | `P0` | `integrated` | `frontend-and-api` | `ISSUE-0071` | - | `ISSUE-0137`, `ISSUE-0139`, `ISSUE-0158`, `ISSUE-0169` | - |
 | `ISSUE-0137` | `P0/P1` | `implemented_initially` | `frontend-and-api` | `ISSUE-0136` | - | `ISSUE-0138`, `ISSUE-0139`, `ISSUE-0140`, `ISSUE-0158` | - |
 | `ISSUE-0138` | `P0/P1` | `implemented_initially` | `frontend-and-api` | `ISSUE-0137` | - | `ISSUE-0158`, `ISSUE-0161` | - |
 | `ISSUE-0139` | `P0/P1` | `implemented_initially` | `frontend-and-api` | `ISSUE-0136`, `ISSUE-0137` | - | `ISSUE-0158`, `ISSUE-0160`, `ISSUE-0161` | - |
 | `ISSUE-0140` | `P1` | `implemented_initially` | `frontend-and-api` | `ISSUE-0137` | - | `ISSUE-0158` | - |
-| `ISSUE-0158` | `P1` | `in_progress` | `frontend-and-api` | `ISSUE-0136`, `ISSUE-0137`, `ISSUE-0138`, `ISSUE-0139`, `ISSUE-0140`, `ISSUE-0153`, `ISSUE-0154`, `ISSUE-0155`, `ISSUE-0156`, `ISSUE-0157`, `ISSUE-0161`, `ISSUE-0162` | - | `ISSUE-0163` | - |
-| `ISSUE-0160` | `P0/P1` | `in_progress` | `frontend-and-api` | `ISSUE-0139`, `ISSUE-0159` | - | - | - |
-| `ISSUE-0161` | `P0/P1` | `in_progress` | `frontend-and-api` | `ISSUE-0074`, `ISSUE-0127`, `ISSUE-0138`, `ISSUE-0139`, `ISSUE-0159` | - | `ISSUE-0158`, `ISSUE-0163`, `ISSUE-0164`, `ISSUE-0168`, `ISSUE-0169` | - |
-| `ISSUE-0163` | `P1` | `in_progress` | `frontend-and-api` | `ISSUE-0024`, `ISSUE-0084`, `ISSUE-0127`, `ISSUE-0153`, `ISSUE-0158`, `ISSUE-0161` | - | `ISSUE-0164` | - |
-| `ISSUE-0165` | `P0` | `in_progress` | `application-platform` | `ISSUE-0018`, `ISSUE-0020`, `ISSUE-0074`, `ISSUE-0077`, `ISSUE-0081`, `ISSUE-0126` | - | `ISSUE-0166`, `ISSUE-0169`, `ISSUE-0175` | - |
+| `ISSUE-0158` | `P1` | `integrated` | `frontend-and-api` | `ISSUE-0136`, `ISSUE-0137`, `ISSUE-0138`, `ISSUE-0139`, `ISSUE-0140`, `ISSUE-0153`, `ISSUE-0154`, `ISSUE-0155`, `ISSUE-0156`, `ISSUE-0157`, `ISSUE-0161`, `ISSUE-0162` | - | `ISSUE-0163` | - |
+| `ISSUE-0160` | `P0/P1` | `integrated` | `frontend-and-api` | `ISSUE-0139`, `ISSUE-0159` | - | - | - |
+| `ISSUE-0161` | `P0/P1` | `integrated` | `frontend-and-api` | `ISSUE-0074`, `ISSUE-0127`, `ISSUE-0138`, `ISSUE-0139`, `ISSUE-0159` | - | `ISSUE-0158`, `ISSUE-0163`, `ISSUE-0164`, `ISSUE-0168`, `ISSUE-0169` | - |
+| `ISSUE-0163` | `P1` | `integrated` | `frontend-and-api` | `ISSUE-0024`, `ISSUE-0084`, `ISSUE-0127`, `ISSUE-0153`, `ISSUE-0158`, `ISSUE-0161` | - | `ISSUE-0164` | - |
+| `ISSUE-0165` | `P0` | `integrated` | `application-platform` | `ISSUE-0018`, `ISSUE-0020`, `ISSUE-0074`, `ISSUE-0077`, `ISSUE-0081`, `ISSUE-0126` | - | `ISSUE-0166`, `ISSUE-0169`, `ISSUE-0175` | - |
 | `ISSUE-0175` | `P0` | `planned` | `application-platform` | `ISSUE-0039`, `ISSUE-0077`, `ISSUE-0078`, `ISSUE-0121`, `ISSUE-0151`, `ISSUE-0165` | - | `ISSUE-0172` | - |
 | `UPDATEV2-0027` | `P0` | `in_progress` | `frontend-and-api` | - | - | - | `ISSUE-0011`, `ISSUE-0012`, `ISSUE-0077`, `ISSUE-0136` |

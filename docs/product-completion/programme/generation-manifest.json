@@ -15,7 +15,7 @@
     },
     {
       "path": "docs/product-completion/CURRENT_STATUS.json",
-      "sha256": "966f9e7890859d8a37ee0689fdcc61928ac03eeff005aa7e1bb098a527aeb8cd"
+      "sha256": "3589de0eedb5663d6e4ed05b408a874b8a386ffa320ce75c0d78143e605762ef"
     },
     {
       "path": "docs/product-completion/DELIVERY_WORKFLOW.md",
@@ -23,7 +23,7 @@
     },
     {
       "path": "docs/product-completion/PROGRESS.md",
-      "sha256": "40cccd120d045a0fad847993801a3c59b9eef6632b6a8a296d6713436032f53e"
+      "sha256": "6e0aab00927db2eb50e73316cfd0bca49b47702cf269048f934f21f55cf5aa9c"
     },
     {
       "path": "docs/product-completion/programme/git-workflow.md",
@@ -35,43 +35,43 @@
     },
     {
       "path": "docs/product-completion/programme/phases/phase-01-governance-scope.md",
-      "sha256": "d09eab89bfa21a2f79f5576cb84097a797e7f936edda368417b76056575fdfef"
+      "sha256": "cfbfbe42a1a38aa6fe79a58f893fa1b821ecce5775e7dfd0fd07074aa4da52ac"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-02-data-policy-identity.md",
-      "sha256": "1024995b8dd00906f6a361de89a4d5ad9ec2b1d7c61928675a9b48dd488fb7d0"
+      "sha256": "faee55555fb3ebcbc4f7282c9a9991748617ddfc68ba6eeb606aa0409a8828b0"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-03-stock-research.md",
-      "sha256": "e116a01a67708af668ca798d35dec882acab2a944769bfe7aa11592345f57034"
+      "sha256": "3117fe1e413574cc6718f617303cc655120e7657e129f13261aa684c3df501d4"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-04-etf-research.md",
-      "sha256": "6ff69274625317f0ee7476704b0e6628cbb72e830a0fa6e66af79d9c8f04c98a"
+      "sha256": "bf6d34dce58e60a612af9383f8dc1f0db3b9d02fac2752cfe72d6dfcaf80747e"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-05-returns-risk-portfolio.md",
-      "sha256": "4dee41f4a8d2f52ef71474e10bc3f269ee43102d918210b2dbb80b4184ce4e4b"
+      "sha256": "d19d96ba21574709a7b9d5f9019c044f6010f682afc2451d43d6219b5d5d21a3"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-06-model-research.md",
-      "sha256": "d0e2ce93c1a17289a1be61d7c5fd3b08723492b4cf74f871edca17ddd944b41a"
+      "sha256": "b209a069b3c043e09e64a7dd41bc40f923070ec186f1696c773773f2751c668c"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-07-backtest-paper-execution.md",
-      "sha256": "283f7062e23646fcff0e219b5c23f9001f171d7d9800a1b9244abef10f4e763f"
+      "sha256": "d9af50b7e8ac1e26abf3f1e47f4cea5e3d4153391717254f32fbe569196d2864"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-08-frontend-api.md",
-      "sha256": "c3b2065450d000c0f61015339c0a3470de3a9f7ea8a11f1f7ea752e97d02499b"
+      "sha256": "6191f9b3222f8ad93930ff87dc21718d1fc1c985ecdc95e039c6a3be9c3c06e4"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-09-quality-release-security.md",
-      "sha256": "661dac63493cd7864e15a6fffcdc5f6923a3b471686e4d8b4b2982d97f24d96f"
+      "sha256": "f11e43b032e699ececdbc64031aa79a13e61792d26d1a77d0b62cd9c3ab8718e"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-10-audit-documentation-governance.md",
-      "sha256": "0d74f60c0e75241d3e1d3c5a236d121ba96fd3812d8430e657d4f4e76896d3c2"
+      "sha256": "524d4377d8ab26b06e0f45312a3ea108a72168c3a9d2537d6d52ba5b0cc9c593"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-11-certification.md",
@@ -83,11 +83,11 @@
     },
     {
       "path": "docs/product-completion/programme/readiness.json",
-      "sha256": "e9a8960105416895ff74eb020bb5ed940be7a6b01cdb5faf69a706bfab62390f"
+      "sha256": "c299d743d4a7f77c7486e5c8943356426f8470e3318e32fc0f1944f3047d2430"
     },
     {
       "path": "docs/product-completion/programme/roadmap.md",
-      "sha256": "c9f95112ceffb351b1ff57415f4ea049f71b11c564c34497249338eb1fcc64b8"
+      "sha256": "d92555f58427828d4991603f24fb3da8fd22bd023f8b1a1bfbf6ef93292ccb53"
     },
     {
       "path": "docs/product-completion/programme/test-and-performance-strategy.md",
@@ -147,11 +147,11 @@
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/source-to-canonical.csv",
-      "sha256": "9a3ec5cf1fa4ebc90d2f45d9281b37385009daba6c52ac0bf2a4ef8c53d55e13"
+      "sha256": "58937039ac2ec3d04245d2c7cd0ec5cf3565e9195025c1785bddf281162d622d"
     },
     {
       "path": "issues/issue_registry.json",
-      "sha256": "b2d90a807ed7258ac22c89feab5cd7d113a0bf3005fd0b835863d3b55770f972"
+      "sha256": "23a42701ff8d0fb5111415cc1b215ae727ec152fe881b0efd390247a631143c7"
     },
     {
       "path": "issues/open.md",
@@ -159,7 +159,7 @@
     },
     {
       "path": "issues/programme_control_state.json",
-      "sha256": "08c8df4b01faf676279178be43844ac0e7df8ab8112a3b93bed2f51c608d77c2"
+      "sha256": "88b8963fff9f0d380ec1466d50fc45495b38f5302be6e262b9e380fb2db23af6"
     }
   ],
   "schema_version": "programme-generation.v1"
