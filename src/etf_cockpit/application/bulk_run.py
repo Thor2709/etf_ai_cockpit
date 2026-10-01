@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import threading
 import uuid
 
 from etf_cockpit.application.analysis_depth import (
     AnalysisDepthError,
     AnalysisDepthProfile,
     MandatoryEvidenceError,
+    MAX_PROFILE_DEPTH_WORKERS,
     AnalysisUpgradeLink,
     StageRunner,
     analysis_run_identity,
@@ -32,6 +35,7 @@ from etf_cockpit.core.job_scheduler import (
     JobStatus,
     _safe_outputs,
 )
+from etf_cockpit.core.resource_profiles import ResourcePolicy
 
 
 AnalysisFunction = Callable[[str, object], object]
@@ -42,9 +46,27 @@ class BulkAnalysisService:
 
     workflow_type = "bulk_analysis"
 
-    def __init__(self, root: Path) -> None:
-        self.scheduler = DurableJobScheduler(Path(root))
+    def __init__(
+        self,
+        root: Path,
+        *,
+        max_concurrency: int | None = None,
+        resource_profile: str = "auto",
+    ) -> None:
+        resource_policy = ResourcePolicy(Path(root), requested_profile=resource_profile)
+        hardware_limit = min(
+            MAX_PROFILE_DEPTH_WORKERS,
+            resource_policy.profile.job_cpu_limit,
+            resource_policy.snapshot.cpu_cores,
+        )
+        scheduler_concurrency = hardware_limit if max_concurrency is None else max_concurrency
+        self.scheduler = DurableJobScheduler(
+            Path(root),
+            max_concurrency=scheduler_concurrency,
+            resource_policy=resource_policy,
+        )
         self._stage_cache: dict[str, dict[str, object]] = {}
+        self._stage_cache_lock = threading.Lock()
 
     def start(
         self,
@@ -102,6 +124,11 @@ class BulkAnalysisService:
                 hardware_profile=hardware_profile,
                 low_resource=low_resource,
             )
+            if resource_plan.compatibility_status == "blocked":
+                reason = "; ".join(resource_plan.reasons) or "mandatory analysis stages exceed the selected hardware profile"
+                raise AnalysisDepthError(
+                    f"mandatory analysis stages do not fit hardware profile {resource_plan.hardware_profile_id}: {reason}"
+                )
             run_identity = analysis_run_identity(
                 inputs,
                 analyzer_id,
@@ -136,9 +163,9 @@ class BulkAnalysisService:
                 resources=(
                     {
                         "profile": resource_plan.hardware_profile_id,
-                        "cpu": resource_plan.estimated_cpu,
-                        "memory_mb": resource_plan.estimated_memory_mb,
-                        "disk_mb": resource_plan.estimated_disk_mb,
+                        "cpu": resource_plan.estimated_cpu / resource_plan.concurrency_limit,
+                        "memory_mb": max(1, resource_plan.estimated_memory_mb // resource_plan.concurrency_limit),
+                        "disk_mb": max(1, resource_plan.estimated_disk_mb // resource_plan.concurrency_limit),
                     }
                     if resource_plan is not None
                     else {}
@@ -343,6 +370,47 @@ class BulkAnalysisService:
         max_jobs: int | None,
         stage_runner: StageRunner | None,
     ) -> BulkAnalysisRun:
+        workflow = self._require_run(run_id)
+        depth_payload = self._stored_depth_payload(workflow)
+        if depth_payload is not None:
+            plan = resource_plan_from_dict(depth_payload.get("resource_plan"))
+            requested_workers = self.scheduler.max_concurrency if max_jobs is None else max_jobs
+            worker_count = min(requested_workers, self.scheduler.max_concurrency, plan.concurrency_limit)
+            if worker_count == 0:
+                return self.get_run(run_id)
+            dispatch_lock = threading.Lock()
+            dispatched = 0
+
+            def run_worker() -> None:
+                nonlocal dispatched
+                while True:
+                    with dispatch_lock:
+                        if max_jobs is not None and dispatched >= max_jobs:
+                            return
+                        dispatched += 1
+                    try:
+                        job = self.scheduler.run_once(
+                            lambda context: self._analyze_job(context, analyze, stage_runner),
+                            workflow_id=run_id,
+                        )
+                    except Exception:
+                        with dispatch_lock:
+                            dispatched -= 1
+                        raise
+                    if job is None:
+                        with dispatch_lock:
+                            dispatched -= 1
+                        return
+
+            if worker_count == 1:
+                run_worker()
+            else:
+                with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                    futures = [executor.submit(run_worker) for _ in range(worker_count)]
+                    for future in futures:
+                        future.result()
+            return self.get_run(run_id)
+
         executed = 0
         while max_jobs is None or executed < max_jobs:
             job = self.scheduler.run_once(
@@ -390,6 +458,8 @@ class BulkAnalysisService:
                 resource_plan=resource_plan_from_dict(depth_payload.get("resource_plan")),
                 horizons=tuple(str(item) for item in depth_payload.get("horizons", profile.horizons)),
                 seeds=tuple(int(item) for item in depth_payload.get("seeds", profile.seeds)),
+                is_cancel_requested=context.is_cancel_requested,
+                cache_lock=self._stage_cache_lock,
             )
         except MandatoryEvidenceError as exc:
             append_timing_records(self.scheduler.root, exc.timing_records)

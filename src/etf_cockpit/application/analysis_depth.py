@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import replace
+from contextlib import nullcontext
 import hashlib
 import json
 import math
 from pathlib import Path
+import threading
 import time
 import tracemalloc
 from collections.abc import Callable, Mapping, Sequence
@@ -32,6 +34,34 @@ ANALYSIS_DEPTH_PROFILES_PATH = (
 ANALYSIS_TIMINGS_RELATIVE_PATH = Path("data") / "analysis_timings.parquet"
 REFERENCE_FIXTURE_ID = "reference_3000_supported_instruments"
 REFERENCE_INSTRUMENT_COUNT = 3_000
+MAX_PROFILE_DEPTH_WORKERS = 3
+_TIMING_STORE_LOCK = threading.Lock()
+_TRACE_LOCK = threading.Lock()
+_TRACE_USERS = 0
+_TRACE_OWNED = False
+
+
+def _begin_resource_trace() -> None:
+    global _TRACE_OWNED, _TRACE_USERS
+    with _TRACE_LOCK:
+        if _TRACE_USERS == 0:
+            _TRACE_OWNED = not tracemalloc.is_tracing()
+            if _TRACE_OWNED:
+                tracemalloc.start()
+        _TRACE_USERS += 1
+        tracemalloc.reset_peak()
+
+
+def _end_resource_trace() -> tuple[int, int]:
+    global _TRACE_OWNED, _TRACE_USERS
+    with _TRACE_LOCK:
+        current, peak = tracemalloc.get_traced_memory()
+        _TRACE_USERS -= 1
+        if _TRACE_USERS == 0:
+            if _TRACE_OWNED:
+                tracemalloc.stop()
+            _TRACE_OWNED = False
+        return current, peak
 
 MANDATORY_STAGE_IDS = (
     "identity_gate",
@@ -260,6 +290,7 @@ class AnalysisResourcePlan:
     estimated_memory_mb: int
     estimated_disk_mb: int
     compatibility_status: str
+    concurrency_limit: int = 1
     reasons: tuple[str, ...] = ()
     schema_version: str = ANALYSIS_RESOURCE_PLAN_SCHEMA_VERSION
 
@@ -275,6 +306,7 @@ class AnalysisResourcePlan:
             "estimated_memory_mb": self.estimated_memory_mb,
             "estimated_disk_mb": self.estimated_disk_mb,
             "compatibility_status": self.compatibility_status,
+            "concurrency_limit": self.concurrency_limit,
             "reasons": list(self.reasons),
         }
 
@@ -299,8 +331,8 @@ class AnalysisTimingRecord:
     outcome: str = "succeeded"
 
     def __post_init__(self) -> None:
-        if self.outcome not in {"succeeded", "failed", "unknown"}:
-            raise AnalysisDepthError("outcome must be succeeded, failed or unknown")
+        if self.outcome not in {"succeeded", "failed", "cancelled", "unknown"}:
+            raise AnalysisDepthError("outcome must be succeeded, failed, cancelled or unknown")
         if self.timing_kind not in {"stage", "cold_acquisition", "training_centre"}:
             raise AnalysisDepthError("timing_kind must be stage, cold_acquisition or training_centre")
         if self.cache_state not in {"cold", "warm"}:
@@ -565,19 +597,31 @@ def create_resource_plan(
 
     estimate = estimate_workflow_resources("bulk_analysis", requested_profile=hardware_profile)
     effective_profile = str(estimate["profile"])
-    shard_size = max(1, profile.shard_size // 4) if low_resource else profile.shard_size
+    shard_size = 1 if low_resource else profile.shard_size
     reasons_raw = estimate.get("reasons", ())
     reasons = tuple(str(item) for item in reasons_raw) if isinstance(reasons_raw, (list, tuple)) else ()
+    estimated_cpu = float(estimate["cpu"])
+    estimated_memory_mb = int(estimate["memory_mb"])
+    estimated_disk_mb = int(estimate["disk_mb"])
+    concurrency_limit = (
+        1
+        if low_resource
+        else max(
+            1,
+            min(MAX_PROFILE_DEPTH_WORKERS, int(estimated_cpu), estimated_memory_mb, estimated_disk_mb),
+        )
+    )
     return AnalysisResourcePlan(
         profile_id=profile.profile_id,
         hardware_profile_id=effective_profile,
         shard_size=shard_size,
         cpu_fallback=True,
         low_resource=bool(low_resource),
-        estimated_cpu=float(estimate["cpu"]),
-        estimated_memory_mb=int(estimate["memory_mb"]),
-        estimated_disk_mb=int(estimate["disk_mb"]),
+        estimated_cpu=estimated_cpu,
+        estimated_memory_mb=estimated_memory_mb,
+        estimated_disk_mb=estimated_disk_mb,
         compatibility_status=str(estimate["status"]),
+        concurrency_limit=concurrency_limit,
         reasons=reasons,
     )
 
@@ -587,12 +631,14 @@ def resource_plan_from_dict(payload: object) -> AnalysisResourcePlan:
 
     if not isinstance(payload, Mapping) or payload.get("schema_version") != ANALYSIS_RESOURCE_PLAN_SCHEMA_VERSION:
         raise AnalysisDepthError("stored analysis resource plan is malformed")
+    if "concurrency_limit" not in payload:
+        payload = {**payload, "concurrency_limit": 1}
     _require_keys(
         payload,
         {
             "schema_version", "profile_id", "hardware_profile_id", "shard_size",
             "cpu_fallback", "low_resource", "estimated_cpu", "estimated_memory_mb",
-            "estimated_disk_mb", "compatibility_status", "reasons",
+            "estimated_disk_mb", "compatibility_status", "concurrency_limit", "reasons",
         },
         "stored analysis resource plan",
     )
@@ -607,8 +653,15 @@ def resource_plan_from_dict(payload: object) -> AnalysisResourcePlan:
         shard_size = payload["shard_size"]
         memory_mb = payload["estimated_memory_mb"]
         disk_mb = payload["estimated_disk_mb"]
+        concurrency_limit = payload["concurrency_limit"]
         if any(isinstance(item, bool) or not isinstance(item, int) or item <= 0 for item in (shard_size, memory_mb, disk_mb)):
             raise ValueError("integer resource fields must be positive")
+        if (
+            isinstance(concurrency_limit, bool)
+            or not isinstance(concurrency_limit, int)
+            or not 0 < concurrency_limit <= MAX_PROFILE_DEPTH_WORKERS
+        ):
+            raise ValueError("concurrency_limit must be a positive integer")
         cpu = _finite_nonnegative(payload["estimated_cpu"], "estimated_cpu")
         return AnalysisResourcePlan(
             profile_id=str(payload["profile_id"]),
@@ -620,6 +673,7 @@ def resource_plan_from_dict(payload: object) -> AnalysisResourcePlan:
             estimated_memory_mb=memory_mb,
             estimated_disk_mb=disk_mb,
             compatibility_status=str(payload["compatibility_status"]),
+            concurrency_limit=concurrency_limit,
             reasons=tuple(reasons),
         )
     except (KeyError, TypeError, ValueError) as exc:
@@ -761,6 +815,8 @@ def execute_profiled_stages(
     resource_plan: AnalysisResourcePlan | None = None,
     horizons: Sequence[str] | None = None,
     seeds: Sequence[int] | None = None,
+    is_cancel_requested: Callable[[], bool] | None = None,
+    cache_lock: threading.Lock | None = None,
 ) -> tuple[dict[str, object], tuple[AnalysisTimingRecord, ...]]:
     """Run each frozen stage or reuse a content-identical durable stage result."""
 
@@ -775,6 +831,17 @@ def execute_profiled_stages(
     omitted_stages: list[str] = []
 
     for stage in profile.stages:
+        if is_cancel_requested is not None and is_cancel_requested():
+            timing_records.append(AnalysisTimingRecord(
+                run_id=run_id,
+                profile_id=profile.profile_id,
+                timing_kind="stage",
+                stage_id=stage.stage_id,
+                wall_time_seconds=0.0,
+                cache_state=cache_state,
+                outcome="cancelled",
+            ))
+            break
         stage_horizons = tuple(horizons if horizons is not None else stage.horizons)
         stage_seeds = tuple(seeds if seeds is not None else stage.seeds)
         key = stage_cache_key(
@@ -786,7 +853,8 @@ def execute_profiled_stages(
             seeds=stage_seeds,
         )
         lookup_started = time.perf_counter()
-        cached = cache.get(key)
+        with cache_lock if cache_lock is not None else nullcontext():
+            cached = cache.get(key)
         cache_hit = (
             isinstance(cached, Mapping)
             and "result" in cached
@@ -797,25 +865,16 @@ def execute_profiled_stages(
         peak_resources: tuple[tuple[str, float], ...] = ()
         separate_timings: tuple[tuple[str, float], ...] = ()
         if cache_hit:
-            tracing_started = not tracemalloc.is_tracing()
-            if tracing_started:
-                tracemalloc.start()
-            else:
-                tracemalloc.reset_peak()
-            tracemalloc.reset_peak()
+            _begin_resource_trace()
             stage_result = cached["result"]
             content_hash = str(cached["content_hash"])
             reused = True
             elapsed = time.perf_counter() - lookup_started
             stage_cache_state = "warm"
-            _current_bytes, peak_bytes = tracemalloc.get_traced_memory()
+            _current_bytes, peak_bytes = _end_resource_trace()
             peak_resources = (("python_heap_peak_mb", peak_bytes / 1_048_576),)
-            if tracing_started:
-                tracemalloc.stop()
         else:
-            tracing_started = not tracemalloc.is_tracing()
-            if tracing_started:
-                tracemalloc.start()
+            _begin_resource_trace()
             started = time.perf_counter()
             runner_called = False
             try:
@@ -830,9 +889,20 @@ def execute_profiled_stages(
                 raw_result = stage_runner(instrument_id, analysis_input, runner_stage, resource_plan)
             except Exception as exc:
                 elapsed = time.perf_counter() - started
-                _current_bytes, peak_bytes = tracemalloc.get_traced_memory()
-                if tracing_started:
-                    tracemalloc.stop()
+                _current_bytes, peak_bytes = _end_resource_trace()
+                cancelled = is_cancel_requested is not None and is_cancel_requested()
+                if cancelled:
+                    timing_records.append(AnalysisTimingRecord(
+                        run_id=run_id,
+                        profile_id=profile.profile_id,
+                        timing_kind="stage",
+                        stage_id=stage.stage_id,
+                        wall_time_seconds=elapsed,
+                        cache_state="cold",
+                        peak_resources=(("python_heap_peak_mb", peak_bytes / 1_048_576),),
+                        outcome="cancelled",
+                    ))
+                    break
                 if stage.mandatory and runner_called:
                     peak_resources = (("python_heap_peak_mb", peak_bytes / 1_048_576),)
                     timing_records.append(AnalysisTimingRecord(
@@ -851,9 +921,19 @@ def execute_profiled_stages(
                     ) from exc
                 raise
             elapsed = time.perf_counter() - started
-            _current_bytes, peak_bytes = tracemalloc.get_traced_memory()
-            if tracing_started:
-                tracemalloc.stop()
+            _current_bytes, peak_bytes = _end_resource_trace()
+            if is_cancel_requested is not None and is_cancel_requested():
+                timing_records.append(AnalysisTimingRecord(
+                    run_id=run_id,
+                    profile_id=profile.profile_id,
+                    timing_kind="stage",
+                    stage_id=stage.stage_id,
+                    wall_time_seconds=elapsed,
+                    cache_state="cold",
+                    peak_resources=(("python_heap_peak_mb", peak_bytes / 1_048_576),),
+                    outcome="cancelled",
+                ))
+                break
             stage_result, timing_raw = _stage_return_parts(raw_result)
             provider_wait, model_omissions, reported_peaks, separate_timings = _timing_metadata(timing_raw, profile)
             reported_separate_seconds = sum(seconds for _kind, seconds in separate_timings)
@@ -912,9 +992,21 @@ def execute_profiled_stages(
         if error is not None:
             raise MandatoryEvidenceError(error, timing_records=timing_records)
         if not reused and stage_result is not None:
-            cache[key] = {"content_hash": content_hash, "result": stage_result}
+            with cache_lock if cache_lock is not None else nullcontext():
+                existing = cache.get(key)
+                if isinstance(existing, Mapping) and existing.get("content_hash") != content_hash:
+                    raise AnalysisDepthError("identical stage-cache keys produced different outputs")
+                if isinstance(existing, Mapping) and "result" in existing:
+                    stage_result = existing["result"]
+                    stage_outputs[stage.stage_id] = stage_result
+                else:
+                    cache[key] = {"content_hash": content_hash, "result": stage_result}
 
-    deterministic_fields = {stage_id: stage_outputs[stage_id] for stage_id in profile.mandatory_stages}
+    deterministic_fields = {
+        stage_id: stage_outputs[stage_id]
+        for stage_id in profile.mandatory_stages
+        if stage_id in stage_outputs
+    }
     output = {
         "profile_id": profile.profile_id,
         "manifest_hash": profile.manifest_hash,
@@ -932,6 +1024,11 @@ def append_timing_records(root: Path, records: Sequence[AnalysisTimingRecord]) -
 
     if not records:
         return None
+    with _TIMING_STORE_LOCK:
+        return _append_timing_records(root, records)
+
+
+def _append_timing_records(root: Path, records: Sequence[AnalysisTimingRecord]) -> Path:
     import pandas as pd
 
     path = Path(root) / ANALYSIS_TIMINGS_RELATIVE_PATH

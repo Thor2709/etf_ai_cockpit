@@ -1,0 +1,9 @@
+# Analysis depth scheduling
+
+Profile depth runs reserve each job's CPU, memory, and disk share before the scheduler claims it. The resource plan caps a run at three workers, further limited by the selected hardware profile and the caller's `max_jobs` request. The plan derives its worker limit from estimated CPU capacity; low-resource runs use one worker and a shard size of one. The durable scheduler remains the authority for aggregate reservations and leases. Legacy bulk runs continue to execute one job at a time with scheduler default resources.
+
+The shared stage cache is guarded while entries are read and published. Concurrent results for the same content key must have the same content hash. Timing-store writes are serialized within the process so concurrent jobs do not overwrite one another's records.
+
+Cancellation is checked at stage boundaries. The active stage is recorded with outcome `cancelled`, later stage runners do not run, and the scheduler keeps the job terminal in its cancelled state. Outputs from earlier completed stages remain cached. A later `start()` creates a new run over the same inputs and can reuse those outputs; cancelling a run does not make it claimable again. Crash and lease-expiry resume retain the scheduler's existing behavior.
+
+Mandatory results are expected to match across serial and concurrent execution and when low-resource sharding is used. A plan marked `blocked` fails before job submission with its compatibility reason.
