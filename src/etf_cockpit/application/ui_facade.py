@@ -7,6 +7,7 @@ ports and application commands.
 """
 
 from collections.abc import Mapping
+from datetime import date, datetime
 import math
 from numbers import Real
 from pathlib import Path
@@ -52,6 +53,11 @@ from etf_cockpit.analysis.etf_tax_context import (
 )
 from etf_cockpit.data.fixed_income_risk_store import read_fixed_income_risk
 from etf_cockpit.application.portfolio_valuation import load_portfolio_valuation_history  # noqa: F401
+from etf_cockpit.portfolio.performance_series import (
+    PerformanceSeries,
+    build_portfolio_performance_series,
+    performance_series_frame,  # noqa: F401
+)
 
 from etf_cockpit.chatgpt_bridge.audit_packet import *  # noqa: F401,F403
 from etf_cockpit.data.backup_restore import *  # noqa: F401,F403
@@ -176,9 +182,11 @@ from etf_cockpit.portfolio.robust_risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk import *  # noqa: F401,F403
 from etf_cockpit.portfolio.risk_analytics import *  # noqa: F401,F403
 from etf_cockpit.portfolio.currency import CurrencyProjection, project_portfolio_currency as _project_portfolio_currency
+from etf_cockpit.portfolio.exposure_cube import build_portfolio_exposure_cube
 from etf_cockpit.application.portfolio_sandbox import *  # noqa: F401,F403
 from etf_cockpit.portfolio.sandbox import PortfolioAnalysis, select_holdings_view  # noqa: F401
 from etf_cockpit.application.overlap import *  # noqa: F401,F403
+from etf_cockpit.application.overlap import load_direct_holdings
 from etf_cockpit.signals.simple_scores import *  # noqa: F401,F403
 from etf_cockpit.signals.feature_drivers import (  # noqa: F401
     _canonical_cohort_time,
@@ -195,6 +203,34 @@ from etf_cockpit.signals.feature_drivers import (  # noqa: F401
     _source_vintage_hash,
     normalise_bound_claim,
 )
+
+
+def load_portfolio_performance_series(
+    *,
+    metric: str = "twr_index",
+    date_range: str = "inception",
+    aggregation: str = "day",
+    currency: str = "EUR",
+    custom_start: object = None,
+    custom_end: object = None,
+) -> PerformanceSeries:
+    """Load saved valuation and local FX evidence for one portfolio view."""
+    report = load_portfolio_valuation_history()
+    snapshots = report.get("snapshots")
+    try:
+        fx_rates = load_fx_rates()
+    except (OSError, ValueError, TypeError, ImportError):
+        fx_rates = pd.DataFrame()
+    return build_portfolio_performance_series(
+        snapshots if isinstance(snapshots, pd.DataFrame) else None,
+        metric=metric,
+        date_range=date_range,
+        aggregation=aggregation,
+        currency=currency,
+        custom_start=custom_start,  # type: ignore[arg-type]
+        custom_end=custom_end,  # type: ignore[arg-type]
+        fx_rates=fx_rates,
+    )
 
 
 def build_profiled_forecast_lab_workspace(
@@ -239,6 +275,35 @@ def project_portfolio_currency(
 ) -> CurrencyProjection:
     """Return the canonical informational currency projection for presentation."""
     return _project_portfolio_currency(analysis, target_currency, fx_rates)
+
+
+def load_portfolio_exposure_projection(
+    position_weights: Mapping[str, float],
+    *,
+    decision_time: str | datetime,
+    analysis_date: str | date | datetime | None = None,
+    portfolio_id: str | None = None,
+    snapshot_id: str | None = None,
+    position_metadata: Mapping[str, Mapping[str, object]] | None = None,
+    holding_metadata: Mapping[str, Mapping[str, object]] | None = None,
+    reporting_currency: str | None = None,
+    holdings: pd.DataFrame | None = None,
+    root: Path = ROOT,
+) -> dict[str, object]:
+    """Load the read-only exposure chart projection for a ledger-weight snapshot."""
+    evidence = holdings if isinstance(holdings, pd.DataFrame) else load_direct_holdings(root=root)
+    cube = build_portfolio_exposure_cube(
+        evidence,
+        position_weights,
+        decision_time=decision_time,
+        analysis_date=analysis_date,
+        portfolio_id=portfolio_id,
+        snapshot_id=snapshot_id,
+        position_metadata=position_metadata,
+        holding_metadata=holding_metadata,
+        reporting_currency=reporting_currency,
+    )
+    return cube.to_projection()
 
 
 def _normalise_valuation_assumptions(value: object) -> dict[str, object]:

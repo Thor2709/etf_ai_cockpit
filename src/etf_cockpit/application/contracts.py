@@ -434,10 +434,36 @@ class CommandResult(ContractModel):
     error_message: str | None = None
 
 
+class BulkAnalysisRun(ContractModel):
+    """Transport-safe snapshot of one durable instrument-analysis run."""
+
+    schema_version: str = APPLICATION_API_SCHEMA_VERSION
+    run_id: str
+    analyzer_id: str
+    status: Literal["queued", "running", "succeeded", "failed", "cancelled", "blocked"]
+    hashes: dict[str, str]
+    states: dict[str, str]
+    results: dict[str, object] = Field(default_factory=dict)
+    failures: dict[str, str] = Field(default_factory=dict)
+    coverage_completed: int = Field(ge=0)
+    coverage_total: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_manifest_coverage(self):
+        if self.coverage_completed > self.coverage_total:
+            raise ValueError("coverage_completed cannot exceed coverage_total")
+        if len(self.hashes) != self.coverage_total or set(self.hashes) != set(self.states):
+            raise ValueError("hashes and states must cover every instrument")
+        if set(self.results) - set(self.states) or set(self.failures) - set(self.states):
+            raise ValueError("results and failures must refer to manifest instruments")
+        return self
+
+
 __all__ = [
     "APPLICATION_API_SCHEMA_VERSION",
     "ApiStatus",
     "ApplicationCommand",
+    "BulkAnalysisRun",
     "CancelWorkflowCommand",
     "CommandResult",
     "EventBlockPolicy",

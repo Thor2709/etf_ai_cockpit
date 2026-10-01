@@ -54,6 +54,10 @@ from etf_cockpit.operations.event_store import load_events_with_tail_recovery
 from etf_cockpit.services import ForecastService
 from etf_cockpit.services import build_snapshot
 
+# Generous upper bound for background-thread handshakes: loops exit as soon as their condition holds,
+# so this only matters on a loaded machine (2 s flaked under parallel gate load, 2026-09-30).
+_WAIT_S = 30
+
 
 def _texts(control: object) -> list[str]:
     values: list[str] = []
@@ -405,13 +409,13 @@ def test_update_activity_cancellation_race_leaves_cancelled_terminal_unchanged(t
 
     def blocking_cancel(*args, **kwargs):
         cancel_entered.set()
-        assert release_cancel.wait(2)
+        assert release_cancel.wait(_WAIT_S)
         return real_cancel(*args, **kwargs)
 
     monkeypatch.setattr(state.workflow_controller, "cancel", blocking_cancel)
     canceller = threading.Thread(target=lambda: state.cancel_activity(expected_action_id=action_id))
     canceller.start()
-    assert cancel_entered.wait(2)
+    assert cancel_entered.wait(_WAIT_S)
 
     def late_update() -> None:
         try:
@@ -473,7 +477,7 @@ def test_cancelled_dashboard_action_cannot_publish_or_create_orphan(tmp_path, mo
 
     def action() -> str:
         started.set()
-        release.wait(2)
+        release.wait(_WAIT_S)
         state.assert_activity_publishable()
         destination.write_text("should not publish", encoding="utf-8")
         return "published"
@@ -486,11 +490,11 @@ def test_cancelled_dashboard_action_cannot_publish_or_create_orphan(tmp_path, mo
 
     monkeypatch.setattr("etf_cockpit.app.pages.dashboard._rebuild", record_rebuild)
     _run_action(page, state, "Cancellable action", action)
-    assert started.wait(2)
+    assert started.wait(_WAIT_S)
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
-    assert worker_rebuilt.wait(2)
+    assert worker_rebuilt.wait(_WAIT_S)
 
     assert not destination.exists()
     assert state.current_activity is None
@@ -511,17 +515,17 @@ def test_dashboard_action_restores_cancelled_message_after_late_success(monkeypa
 
     def action() -> str:
         started.set()
-        assert release.wait(2)
+        assert release.wait(_WAIT_S)
         state.last_message = "late dashboard success"
         return "late dashboard success"
 
     _run_action(SimpleNamespace(update=lambda: None), state, "Late dashboard action", action)
-    assert running_refresh.wait(2)
-    assert started.wait(2)
+    assert running_refresh.wait(_WAIT_S)
+    assert started.wait(_WAIT_S)
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
-    assert finalized.wait(2)
+    assert finalized.wait(_WAIT_S)
 
     assert state.last_message == "Cancelled by user"
     assert state.recent_activity[-1].message == "Cancelled by user"
@@ -542,7 +546,7 @@ def test_dialog_action_restores_cancelled_message_after_late_success(monkeypatch
 
     def action() -> str:
         started.set()
-        assert release.wait(2)
+        assert release.wait(_WAIT_S)
         state.last_message = "late dialog success"
         return "late dialog success"
 
@@ -554,12 +558,12 @@ def test_dialog_action_restores_cancelled_message_after_late_success(monkeypatch
         "Working",
         action,
     )
-    assert running_refresh.wait(2)
-    assert started.wait(2)
+    assert running_refresh.wait(_WAIT_S)
+    assert started.wait(_WAIT_S)
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
-    assert finalized.wait(2)
+    assert finalized.wait(_WAIT_S)
 
     assert state.last_message == "Cancelled by user"
     assert result.value == "Cancelled by user"
@@ -580,18 +584,18 @@ def test_export_pack_restores_cancelled_message_after_late_success(monkeypatch, 
 
     def export() -> Path:
         started.set()
-        assert release.wait(2)
+        assert release.wait(_WAIT_S)
         state.last_message = "late export success"
         return destination
 
     state.export_audit_packet = export
     _export_pack(SimpleNamespace(update=lambda: None), state)
-    assert running_refresh.wait(2)
-    assert started.wait(2)
+    assert running_refresh.wait(_WAIT_S)
+    assert started.wait(_WAIT_S)
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
-    assert finalized.wait(2)
+    assert finalized.wait(_WAIT_S)
 
     assert state.last_message == "Cancelled by user"
     assert state.recent_activity[-1].message == "Cancelled by user"
@@ -622,7 +626,7 @@ def test_chatgpt_audit_control_is_cancellable_and_retry_revalidates_archive(tmp_
         calls += 1
         if calls == 1:
             entered.set()
-            assert release.wait(2)
+            assert release.wait(_WAIT_S)
             state.last_message = "late chatgpt export success"
             return destination
         if calls == 2:
@@ -646,26 +650,26 @@ def test_chatgpt_audit_control_is_cancellable_and_retry_revalidates_archive(tmp_
     button = next(item for item in _walk(control) if getattr(item, "key", None) == "chatgpt.export-audit")
 
     button.on_click(SimpleNamespace())
-    assert entered.wait(2)
+    assert entered.wait(_WAIT_S)
     assert running_refreshes >= 1
     assert state.current_activity is not None
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while terminal_refreshes < 1 and time.time() < deadline:
         time.sleep(0.01)
     assert state.last_message == "Cancelled by user"
     assert "Cancelled by user" in " ".join(_texts(control))
 
     button.on_click(SimpleNamespace())
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while terminal_refreshes < 2 and time.time() < deadline:
         time.sleep(0.01)
     assert state.recent_activity[-1].status == "failed"
     error = state.error_store.recent()[0]
     errors_recovery_module._retry(SimpleNamespace(), state, error.error_id)
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while (
         state.current_activity is not None
         or state.recent_activity[-1].status != "success"
@@ -703,7 +707,7 @@ def test_import_export_audit_control_is_cancellable_and_retryable(tmp_path, monk
         calls += 1
         if calls == 1:
             entered.set()
-            assert release.wait(2)
+            assert release.wait(_WAIT_S)
             state.last_message = "late import-export success"
             return destination
         if calls == 2:
@@ -720,25 +724,25 @@ def test_import_export_audit_control_is_cancellable_and_retryable(tmp_path, monk
     )
 
     button.on_click(SimpleNamespace())
-    assert entered.wait(2)
+    assert entered.wait(_WAIT_S)
     assert running_refreshes >= 1
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while terminal_refreshes < 1 and time.time() < deadline:
         time.sleep(0.01)
     assert state.last_message == "Cancelled by user"
     assert "Cancelled by user" in " ".join(_texts(control))
 
     button.on_click(SimpleNamespace())
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while terminal_refreshes < 2 and time.time() < deadline:
         time.sleep(0.01)
     assert state.recent_activity[-1].status == "failed"
     error = state.error_store.recent()[0]
     errors_recovery_module._retry(SimpleNamespace(), state, error.error_id)
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while (
         state.current_activity is not None
         or state.recent_activity[-1].status != "success"
@@ -837,10 +841,10 @@ def test_normal_return_unavailable_results_are_failed_activities(action_kind, tm
             "Unavailable callback",
             lambda: SimpleNamespace(status="unavailable", message="Forecast unavailable."),
         )
-        deadline = time.time() + 2
+        deadline = time.time() + _WAIT_S
         while not state.recent_activity and time.time() < deadline:
             time.sleep(0.02)
-        assert worker_rebuilt.wait(2)
+        assert worker_rebuilt.wait(_WAIT_S)
 
     assert state.current_activity is None
     assert state.recent_activity[-1].status == "failed"
@@ -873,13 +877,13 @@ def test_cache_cleanup_unavailable_is_failed_and_ui_uses_redacted_error(tmp_path
     button = next(item for item in _walk(control) if getattr(item, "key", None) == "jobs.resource-cache-cleanup")
 
     button.on_click(SimpleNamespace())
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while state.current_activity is not None and time.time() < deadline:
         time.sleep(0.01)
 
     # Activity completion precedes the worker's final UI callback. Do not let
     # that callback escape into the next test's monkeypatched module globals.
-    assert terminal_refresh.wait(2)
+    assert terminal_refresh.wait(_WAIT_S)
     assert state.recent_activity[-1].status == "failed"
     assert "raw-cache-secret" not in " ".join(_texts(control))
     assert "***redacted***" in " ".join(_texts(control))
@@ -899,7 +903,7 @@ def test_cache_rebuild_cancellation_and_retry_use_background_lifecycle(tmp_path,
         calls += 1
         if calls == 1:
             entered.set()
-            assert release.wait(2)
+            assert release.wait(_WAIT_S)
             with publish_guard():
                 pass
             return {"status": "ok", "removed": [], "cache_path": tmp_path / "cache"}
@@ -920,14 +924,14 @@ def test_cache_rebuild_cancellation_and_retry_use_background_lifecycle(tmp_path,
 
     button.on_click(SimpleNamespace())
     assert refreshes == ["running"]
-    assert entered.wait(2)
+    assert entered.wait(_WAIT_S)
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while state.current_activity is not None and time.time() < deadline:
         time.sleep(0.01)
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while refreshes.count("terminal") < 1 and time.time() < deadline:
         time.sleep(0.01)
     assert state.recent_activity[-1].status == "cancelled"
@@ -936,19 +940,19 @@ def test_cache_rebuild_cancellation_and_retry_use_background_lifecycle(tmp_path,
     # The first call was cancelled; a later explicit failure exposes a retry
     # callback that starts a fresh background activity.
     button.on_click(SimpleNamespace())
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while state.current_activity is not None and time.time() < deadline:
         time.sleep(0.01)
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while refreshes.count("terminal") < 2 and time.time() < deadline:
         time.sleep(0.01)
     assert state.recent_activity[-1].status == "failed"
     error = state.error_store.recent()[0]
     errors_recovery_module._retry(SimpleNamespace(), state, error.error_id)
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while (state.current_activity is not None or state.recent_activity[-1].status != "success") and time.time() < deadline:
         time.sleep(0.01)
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while refreshes.count("terminal") < 3 and time.time() < deadline:
         time.sleep(0.01)
     assert calls == 3
@@ -974,7 +978,7 @@ def test_notes_native_import_cancellation_restores_result_after_late_success(tmp
         assert path == str(source)
         assert dataset_type == "manual_news"
         started.set()
-        assert release.wait(2)
+        assert release.wait(_WAIT_S)
         state.last_message = "late notes success"
         return "late notes success"
 
@@ -989,12 +993,12 @@ def test_notes_native_import_cancellation_restores_result_after_late_success(tmp
     )
     button = next(item for item in _walk(page.dialog) if getattr(item, "key", None) == "dashboard.import-manual-notes")
     asyncio.run(button.on_click(SimpleNamespace()))
-    assert running_refresh.wait(2)
-    assert started.wait(2)
+    assert running_refresh.wait(_WAIT_S)
+    assert started.wait(_WAIT_S)
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
-    assert finalized.wait(2)
+    assert finalized.wait(_WAIT_S)
 
     assert state.last_message == "Cancelled by user"
     assert state.recent_activity[-1].status == "cancelled"
@@ -1038,19 +1042,19 @@ def test_notes_browser_import_retry_reenters_background_lifecycle(tmp_path, monk
     )
     button = next(item for item in _walk(page.dialog) if getattr(item, "key", None) == "dashboard.import-manual-notes")
     asyncio.run(button.on_click(SimpleNamespace()))
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while state.current_activity is not None and time.time() < deadline:
         time.sleep(0.01)
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while terminal_refreshes < 1 and time.time() < deadline:
         time.sleep(0.01)
     assert state.recent_activity[-1].status == "failed"
     error = state.error_store.recent()[0]
     errors_recovery_module._retry(SimpleNamespace(), state, error.error_id)
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while (state.current_activity is not None or state.recent_activity[-1].status != "success") and time.time() < deadline:
         time.sleep(0.01)
-    deadline = time.time() + 2
+    deadline = time.time() + _WAIT_S
     while terminal_refreshes < 2 and time.time() < deadline:
         time.sleep(0.01)
 
@@ -1261,7 +1265,7 @@ def test_holdings_publication_scope_serialises_cancellation_and_rejects_later_wr
     def blocking_atomic_write(_requests) -> None:
         writes.append(1)
         write_entered.set()
-        assert release_write.wait(2)
+        assert release_write.wait(_WAIT_S)
 
     monkeypatch.setattr(fund_holdings_module, "atomic_write_group", blocking_atomic_write)
 
@@ -1283,7 +1287,7 @@ def test_holdings_publication_scope_serialises_cancellation_and_rejects_later_wr
 
     worker = threading.Thread(target=publish_holdings)
     worker.start()
-    assert write_entered.wait(2)
+    assert write_entered.wait(_WAIT_S)
 
     def cancel() -> None:
         state.cancel_activity(expected_action_id=action_id)
@@ -1294,7 +1298,7 @@ def test_holdings_publication_scope_serialises_cancellation_and_rejects_later_wr
     assert not cancellation_returned.wait(0.1)
     release_write.set()
     worker.join(timeout=2)
-    assert cancellation_returned.wait(2)
+    assert cancellation_returned.wait(_WAIT_S)
     canceller.join(timeout=2)
     assert not worker_errors
     assert writes == [1]
@@ -1505,11 +1509,11 @@ def test_sample_publication_scope_serialises_cancel_and_rejects_clean_store_writ
         writes.append(Path(path).name)
         if len(writes) == 1:
             entered.set()
-            assert release.wait(2)
+            assert release.wait(_WAIT_S)
         return original_to_csv(frame, path, *args, **kwargs)
 
     def initialise_after_cancel(*args, **kwargs):
-        assert cancelled.wait(2)
+        assert cancelled.wait(_WAIT_S)
         return original_initialise(*args, **kwargs)
 
     monkeypatch.setattr(services_module.pd.DataFrame, "to_csv", blocking_to_csv)
@@ -1526,14 +1530,14 @@ def test_sample_publication_scope_serialises_cancel_and_rejects_clean_store_writ
 
     worker = threading.Thread(target=run_update)
     worker.start()
-    assert entered.wait(2)
+    assert entered.wait(_WAIT_S)
     canceller = threading.Thread(
         target=lambda: (state.cancel_activity(expected_action_id=action_id), cancelled.set())
     )
     canceller.start()
     assert not cancelled.wait(0.1)
     release.set()
-    assert cancelled.wait(2)
+    assert cancelled.wait(_WAIT_S)
     worker.join(timeout=2)
     canceller.join(timeout=2)
 
@@ -1561,7 +1565,7 @@ def test_rollback_publication_scope_serialises_cancel_and_rejects_later_restore(
         nonlocal writes
         writes += 1
         entered.set()
-        assert release.wait(2)
+        assert release.wait(_WAIT_S)
         return original_write(*args, **kwargs)
 
     monkeypatch.setattr(import_pipeline_module, "_write_price_stores_atomically", blocking_write)
@@ -1576,7 +1580,7 @@ def test_rollback_publication_scope_serialises_cancel_and_rejects_later_restore(
 
     worker = threading.Thread(target=restore)
     worker.start()
-    assert entered.wait(2)
+    assert entered.wait(_WAIT_S)
     canceller = threading.Thread(
         target=lambda: (state.cancel_activity(expected_action_id=action_id), cancelled.set())
     )
@@ -1584,7 +1588,7 @@ def test_rollback_publication_scope_serialises_cancel_and_rejects_later_restore(
     assert not cancelled.wait(0.1)
     release.set()
     worker.join(timeout=2)
-    assert cancelled.wait(2)
+    assert cancelled.wait(_WAIT_S)
     canceller.join(timeout=2)
     assert writes == 1
     with pytest.raises(WorkflowTransitionError):
@@ -1606,7 +1610,7 @@ def test_api_status_publication_scope_serialises_cancel_and_redacts_unavailable(
     worker_errors: list[Exception] = []
 
     def fetch_reference_after_cancel(*_args):
-        assert cancelled.wait(2)
+        assert cancelled.wait(_WAIT_S)
         return unavailable
 
     provider = SimpleNamespace(
@@ -1625,7 +1629,7 @@ def test_api_status_publication_scope_serialises_cancel_and_redacts_unavailable(
 
     def blocking_commit(_result):
         entered.set()
-        assert release.wait(2)
+        assert release.wait(_WAIT_S)
         return SimpleNamespace(rows=1, clean_path="prices", previous_snapshot_path=None)
 
     monkeypatch.setattr(services_module, "commit_price_import", blocking_commit)
@@ -1638,7 +1642,7 @@ def test_api_status_publication_scope_serialises_cancel_and_redacts_unavailable(
 
     worker = threading.Thread(target=run_status)
     worker.start()
-    assert entered.wait(2)
+    assert entered.wait(_WAIT_S)
     action_id = state.current_activity.action_id
     canceller = threading.Thread(
         target=lambda: (state.cancel_activity(expected_action_id=action_id), cancelled.set())
@@ -1646,7 +1650,7 @@ def test_api_status_publication_scope_serialises_cancel_and_redacts_unavailable(
     canceller.start()
     assert not cancelled.wait(0.1)
     release.set()
-    assert cancelled.wait(2)
+    assert cancelled.wait(_WAIT_S)
     worker.join(timeout=2)
     canceller.join(timeout=2)
     assert any(isinstance(exc, WorkflowTransitionError) for exc in worker_errors)
@@ -1751,7 +1755,7 @@ def test_official_filing_visible_cancel_stops_late_publication(tmp_path, monkeyp
 
     def blocking_action(action_id: str) -> str:
         fetched.set()
-        assert release.wait(2)
+        assert release.wait(_WAIT_S)
         with state.activity_publication(action_id):
             writes.append("published")
         return "Published."
@@ -1764,7 +1768,7 @@ def test_official_filing_visible_cancel_stops_late_publication(tmp_path, monkeyp
         "Fetching filing",
         blocking_action,
     )
-    assert worker is not None and fetched.wait(2)
+    assert worker is not None and fetched.wait(_WAIT_S)
     shell = router_module.build_shell(page, state, "/missing")
     cancel = next(control for control in _walk(shell) if getattr(control, "key", None) == "activity.cancel")
     cancel.on_click(SimpleNamespace(control=cancel))
@@ -1801,7 +1805,7 @@ def test_official_picker_bytes_survive_delayed_background_worker(
 
     def delayed_import(path, **_kwargs):
         entered.set()
-        assert release.wait(2)
+        assert release.wait(_WAIT_S)
         assert path.read_bytes() == payload
         return "Web upload imported."
 
@@ -1811,7 +1815,7 @@ def test_official_picker_bytes_survive_delayed_background_worker(
     button = next(control for control in _walk(controls) if getattr(control, "key", None) == control_key)
 
     asyncio.run(button.on_click(SimpleNamespace(control=button)))
-    assert entered.wait(2)
+    assert entered.wait(_WAIT_S)
     release.set()
     for _ in range(100):
         if state.current_activity is None:
@@ -1947,7 +1951,7 @@ def test_disclosure_picker_cancel_before_publication_is_terminal(category, monke
     if category == "holdings":
         def import_holdings(_path, *_args, **kwargs):
             entered.set()
-            assert release.wait(2)
+            assert release.wait(_WAIT_S)
             with kwargs["publish_guard"]():
                 writes.append("holdings")
             return SimpleNamespace(completeness="complete", freshness="current", confidence=1.0)
@@ -1957,7 +1961,7 @@ def test_disclosure_picker_cancel_before_publication_is_terminal(category, monke
     else:
         def retain(_path, _subdirectory, *, publish_guard):
             entered.set()
-            assert release.wait(2)
+            assert release.wait(_WAIT_S)
             with publish_guard():
                 writes.append("kid")
             return _path
@@ -1968,7 +1972,7 @@ def test_disclosure_picker_cancel_before_publication_is_terminal(category, monke
     controls = trust_evidence_module._disclosure_import_controls(page, state)
     button = next(control for control in _walk(controls) if getattr(control, "key", None) == control_key)
     asyncio.run(button.on_click(SimpleNamespace(control=button)))
-    assert entered.wait(2)
+    assert entered.wait(_WAIT_S)
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
@@ -1993,14 +1997,14 @@ def test_cancel_after_final_publication_restores_canonical_message(monkeypatch) 
     def action(action_id):
         with state.activity_publication(action_id):
             published.set()
-        assert release.wait(2)
+        assert release.wait(_WAIT_S)
         state.last_message = "late success must not remain visible"
         return "late success must not remain visible"
 
     worker = trust_evidence_module._run_official_filing_action(
         page, state, result, "Fetch SEC companyfacts", "Publishing", action
     )
-    assert worker is not None and published.wait(2)
+    assert worker is not None and published.wait(_WAIT_S)
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
@@ -2057,7 +2061,7 @@ def test_esef_discovery_cancel_does_not_publish_in_memory_success(tmp_path, monk
 
         def list_filings(self, _country, _limit):
             entered.set()
-            assert release.wait(2)
+            assert release.wait(_WAIT_S)
             return SimpleNamespace(status="ok", message="ok", data=("new-filing",))
 
     monkeypatch.setattr(app_state_module, "FilingsXbrlOrgProvider", Provider)
@@ -2076,7 +2080,7 @@ def test_esef_discovery_cancel_does_not_publish_in_memory_success(tmp_path, monk
 
     worker = threading.Thread(target=discover)
     worker.start()
-    assert entered.wait(2)
+    assert entered.wait(_WAIT_S)
     state.cancel_activity(expected_action_id=action_id)
     release.set()
     worker.join(timeout=2)
@@ -2248,13 +2252,13 @@ def test_sec_companyfacts_publication_scope_serialises_cancellation(tmp_path, mo
         nonlocal writes
         writes += 1
         entered.set()
-        assert release.wait(2)
+        assert release.wait(_WAIT_S)
 
     monkeypatch.setattr(app_state_module, "write_statement_evidence", blocking_write)
     original_record_output = state._record_activity_output
 
     def record_after_cancel(step, path):
-        assert cancelled.wait(2)
+        assert cancelled.wait(_WAIT_S)
         return original_record_output(step, path)
 
     monkeypatch.setattr(state, "_record_activity_output", record_after_cancel)
@@ -2271,7 +2275,7 @@ def test_sec_companyfacts_publication_scope_serialises_cancellation(tmp_path, mo
 
     worker = threading.Thread(target=import_facts)
     worker.start()
-    assert entered.wait(2)
+    assert entered.wait(_WAIT_S)
     canceller = threading.Thread(
         target=lambda: (state.cancel_activity(expected_action_id=action_id), cancelled.set())
     )
@@ -2279,7 +2283,7 @@ def test_sec_companyfacts_publication_scope_serialises_cancellation(tmp_path, mo
     assert not cancelled.wait(0.1)
     release.set()
     worker.join(timeout=2)
-    assert cancelled.wait(2)
+    assert cancelled.wait(_WAIT_S)
     canceller.join(timeout=2)
 
     assert writes == 1
