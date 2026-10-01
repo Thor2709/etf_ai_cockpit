@@ -149,6 +149,33 @@ LEGACY_BOOTSTRAP_RECORDS: dict[str, dict[str, Any]] = {
         "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
         "verified_date": "2026-07-21",
     },
+    # B2 owner-delegated decision 2026-10-01.
+    "ISSUE-0045": {
+        "acceptance_evidence": [],
+        "dependency_edge_evidence": {},
+        "phase": "phase-08-frontend-api",
+        "programme_status": "in_progress",
+        "status_transition": {
+            "from": "in_progress",
+            "review_reference": "B00 canonical import from audited programme state",
+            "to": "in_progress",
+        },
+        "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+        "verified_date": "2026-07-21",
+    },
+    "UPDATEV2-0027": {
+        "acceptance_evidence": [],
+        "dependency_edge_evidence": {},
+        "phase": "phase-08-frontend-api",
+        "programme_status": "in_progress",
+        "status_transition": {
+            "from": "in_progress",
+            "review_reference": "B00 canonical import from audited programme state",
+            "to": "in_progress",
+        },
+        "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+        "verified_date": "2026-07-21",
+    },
 }
 DECLARATION_CORRECTION_EVENT = "dependency_edge_declaration_correction"
 DECLARATION_CORRECTION_PAIRS = frozenset({
