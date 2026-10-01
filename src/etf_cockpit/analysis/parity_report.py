@@ -1,10 +1,10 @@
 """Read-only parity comparisons for saved analysis and workflow evidence.
 
-The numeric tolerances are deliberately tight (absolute and relative 1e-9) to
-allow serialization noise without hiding a meaningful financial difference.
-Identity, version, source, action, blocker, and date fields remain exact. This
-module compares supplied outputs only; it never recalculates analysis,
-valuation, returns, FX, or distributions and never writes a store.
+Numeric tolerances are deliberately tight (absolute and relative 1e-9) and
+apply only to analysis fields listed in ``analysis_parity_v1.yaml``. Identity,
+version, source, action, blocker, and date fields remain exact. This module
+compares supplied outputs only; it never recalculates analysis, valuation,
+returns, FX, or distributions.
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ import yaml
 
 from etf_cockpit.analysis.decision.contracts import OpportunityResult
 from etf_cockpit.analysis.decision.opportunity import opportunity_result_payload
+from etf_cockpit.core.atomic_io import atomic_write_json
+from etf_cockpit.core.paths import project_root
 
 
 _CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "analysis_parity_v1.yaml"
@@ -29,6 +31,9 @@ _CORE_SURFACES = ("detail", "bulk", "holdings")
 _PORTFOLIO_ARTIFACTS = ("ledger", "performance_series", "csv_export")
 _SENSITIVE_FIELD = re.compile(r"(?:api[_-]?key|authorization|password|secret|bearer)", re.I)
 _SECRET_VALUE = re.compile(r"\b(?:sk|rk|pk)-[A-Za-z0-9_-]{12,}\b|\bBearer\s+\S+", re.I)
+_CREDENTIAL_ASSIGNMENT = re.compile(
+    r"\b(api[_-]?key|authorization|password|secret)\s*[:=]\s*[^,\s;]+", re.I
+)
 
 
 def load_analysis_parity_config(path: str | Path = _CONFIG_PATH) -> dict[str, object]:
@@ -47,10 +52,16 @@ def load_analysis_parity_config(path: str | Path = _CONFIG_PATH) -> dict[str, ob
     tolerances = parsed.get("numeric_tolerances")
     core_surfaces = parsed.get("required_core_surfaces")
     portfolio_artifacts = parsed.get("portfolio_artifacts")
+    numeric_fields = parsed.get("numeric_analysis_fields")
     if (
         not isinstance(tolerances, Mapping)
         or tuple(core_surfaces or ()) != _CORE_SURFACES
         or tuple(portfolio_artifacts or ()) != _PORTFOLIO_ARTIFACTS
+        or not isinstance(numeric_fields, Sequence)
+        or isinstance(numeric_fields, (str, bytes))
+        or not numeric_fields
+        or any(not isinstance(field, str) or not field.strip() for field in numeric_fields)
+        or len(set(numeric_fields)) != len(numeric_fields)
     ):
         raise ValueError("analysis parity policy has an unsupported contract")
     absolute = _finite_number(tolerances.get("absolute"))
@@ -61,9 +72,34 @@ def load_analysis_parity_config(path: str | Path = _CONFIG_PATH) -> dict[str, ob
         "version": str(parsed["version"]),
         "absolute_tolerance": absolute,
         "relative_tolerance": relative,
+        "numeric_analysis_fields": tuple(numeric_fields),
         "required_core_surfaces": _CORE_SURFACES,
         "portfolio_artifacts": _PORTFOLIO_ARTIFACTS,
     }
+
+
+def analysis_parity_report_path(root: Path | None = None) -> Path:
+    """Return the approved release report path under the discovered project root."""
+
+    project = project_root() if root is None else project_root(start=root, cwd=root, env_root="")
+    return project / "artifacts" / "release" / "latest" / "analysis-parity-report.json"
+
+
+def write_parity_report(report: Mapping[str, object], path: str | Path) -> None:
+    """Write a credential-sanitized parity report with the repository atomic writer."""
+
+    sanitized = _redact_sensitive(report)
+    if not isinstance(sanitized, Mapping):
+        raise TypeError("parity report must be a mapping")
+    if validate_parity_report(report):
+        sanitized = dict(sanitized)
+        sanitized["status"] = "failed"
+        sanitized["release_status"] = "failed"
+        sanitized["security"] = {
+            "status": "failed",
+            "field_paths": _redact_sensitive(validate_parity_report(report)),
+        }
+    atomic_write_json(Path(path), sanitized)
 
 
 def canonical_snapshot_hash(payload: object) -> str:
@@ -147,20 +183,19 @@ def build_parity_report(
     config = load_analysis_parity_config(config_path)
     absolute = float(config["absolute_tolerance"])
     relative = float(config["relative_tolerance"])
+    numeric_fields = tuple(config["numeric_analysis_fields"])
     tolerance_uses: list[dict[str, object]] = []
     core = _compare_core_surfaces(
         evidence,
         absolute=absolute,
         relative=relative,
+        numeric_fields=numeric_fields,
         tolerance_uses=tolerance_uses,
     )
-    portfolio_lane = _compare_portfolio(
-        portfolio,
-        absolute=absolute,
-        relative=relative,
-        tolerance_uses=tolerance_uses,
+    portfolio_lane = _compare_portfolio(portfolio)
+    proposal_lane = _compare_proposal_order(
+        proposal_order, core, portfolio, portfolio_lane
     )
-    proposal_lane = _compare_proposal_order(proposal_order)
     package_lane = compare_source_package(source_runner, packaged_runner)
     secret_paths = _sensitive_input_paths(evidence, "evidence")
     secret_paths.extend(_sensitive_input_paths(portfolio, "portfolio"))
@@ -206,6 +241,7 @@ def build_parity_report(
         "tolerances": {
             "absolute": absolute,
             "relative": relative,
+            "numeric_analysis_fields": list(numeric_fields),
             "uses": tolerance_uses,
         },
         "mutation_catalogue": _mutation_catalogue(core, package_lane, secret_paths),
@@ -216,7 +252,9 @@ def build_parity_report(
         report["status"] = "failed"
         report["release_status"] = "failed"
         report["security"] = {"status": "failed", "field_paths": report_secrets}
-    return report
+    sanitized = _redact_sensitive(report)
+    assert isinstance(sanitized, dict)
+    return sanitized
 
 
 def validate_parity_report(report: Mapping[str, object]) -> list[str]:
@@ -238,6 +276,7 @@ def _compare_core_surfaces(
     *,
     absolute: float,
     relative: float,
+    numeric_fields: Sequence[str],
     tolerance_uses: list[dict[str, object]],
 ) -> dict[str, object]:
     if not isinstance(evidence, Mapping):
@@ -250,6 +289,21 @@ def _compare_core_surfaces(
             return _unavailable_lane(f"{surface} surface unavailable")
         try:
             surfaces[surface] = _surface_rows(raw)
+            for instrument, row in sorted(surfaces[surface].items()):
+                reason = _core_evidence_reason(instrument, row)
+                if reason is not None:
+                    return {
+                        "status": "failed",
+                        "reason": f"{surface} canonical evidence invalid: {reason}",
+                        "first_mismatch": {
+                            "stage": "canonical_evidence",
+                            "path": f"analysis.{surface}.{instrument}",
+                            "dependency_path": [
+                                "OpportunityResult",
+                                f"{surface}.identity_versions_sources_action_blockers",
+                            ],
+                        },
+                    }
             snapshot_hashes[surface] = {
                 key: canonical_snapshot_hash(_analysis_payload(row))
                 for key, row in sorted(surfaces[surface].items())
@@ -267,7 +321,7 @@ def _compare_core_surfaces(
         for instrument, row in sorted(surfaces[surface].items()):
             supplied_identity = row.get("snapshot_id")
             expected_identity = snapshot_hashes[surface][instrument]
-            if supplied_identity is not None and supplied_identity != expected_identity:
+            if supplied_identity != expected_identity:
                 return {
                     "status": "failed",
                     "snapshot_hashes": snapshot_hashes,
@@ -281,15 +335,25 @@ def _compare_core_surfaces(
                     },
                 }
     reference_name = _CORE_SURFACES[0]
-    reference = surfaces[reference_name]
+    # Each surface identity is first checked against its own canonical payload.
+    # Cross-surface numeric analysis fields then use the declared tolerance;
+    # including the payload hash again here would make that tolerance inert.
+    reference = {
+        instrument: {key: value for key, value in row.items() if key != "snapshot_id"}
+        for instrument, row in surfaces[reference_name].items()
+    }
     for surface in _CORE_SURFACES[1:]:
-        candidate = surfaces[surface]
+        candidate = {
+            instrument: {key: value for key, value in row.items() if key != "snapshot_id"}
+            for instrument, row in surfaces[surface].items()
+        }
         mismatch = _compare_values(
             reference,
             candidate,
             path=f"analysis.{surface}",
             absolute=absolute,
             relative=relative,
+            numeric_fields=numeric_fields,
             tolerances=tolerance_uses,
         )
         if mismatch is not None:
@@ -309,6 +373,54 @@ def _compare_core_surfaces(
         "snapshot_hashes": snapshot_hashes,
         "first_mismatch": None,
     }
+
+
+def _core_evidence_reason(instrument: str, row: Mapping[str, object]) -> str | None:
+    try:
+        payload = _analysis_payload(row)
+    except (TypeError, ValueError, KeyError):
+        return "canonical OpportunityResult payload is missing"
+    required_payload = (
+        "instrument",
+        "schema_version",
+        "formula_version",
+        "source_vintage_hash",
+        "status",
+        "reason_code",
+    )
+    missing_payload = [
+        name
+        for name in required_payload
+        if name not in payload or payload.get(name) in (None, "")
+    ]
+    if missing_payload:
+        return f"canonical payload field is missing: {missing_payload[0]}"
+    if payload.get("instrument") != instrument or row.get("instrument") != instrument:
+        return "canonical instrument identity is missing or mismatched"
+
+    versions = row.get("versions")
+    if not isinstance(versions, Mapping):
+        return "versions are missing"
+    for name in ("schema_version", "formula_version"):
+        if name not in versions:
+            return f"version field is missing: {name}"
+        if versions[name] != payload[name] or type(versions[name]) is not type(payload[name]):
+            return f"version field is mismatched: {name}"
+
+    for field, payload_field in (
+        ("sources", "source_vintage_hash"),
+        ("actions", "status"),
+        ("blockers", "reason_code"),
+    ):
+        values = row.get(field)
+        if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+            return f"{field} are missing"
+        expected = [payload[payload_field]]
+        if list(values) != expected:
+            return f"{field} do not bind to the canonical payload"
+    if not isinstance(row.get("snapshot_id"), str) or not row["snapshot_id"].strip():
+        return "snapshot identity is missing"
+    return None
 
 
 def _surface_rows(surface: object) -> dict[str, dict[str, object]]:
@@ -352,13 +464,7 @@ def _analysis_payload(row: Mapping[str, object]) -> Mapping[str, object]:
     return payload
 
 
-def _compare_portfolio(
-    evidence: Mapping[str, object] | None,
-    *,
-    absolute: float,
-    relative: float,
-    tolerance_uses: list[dict[str, object]],
-) -> dict[str, object]:
+def _compare_portfolio(evidence: Mapping[str, object] | None) -> dict[str, object]:
     if not isinstance(evidence, Mapping):
         return _unavailable_lane("portfolio replay evidence unavailable")
     missing = [name for name in _PORTFOLIO_ARTIFACTS if not isinstance(evidence.get(name), Mapping)]
@@ -376,22 +482,49 @@ def _compare_portfolio(
         csv_rows = _parse_csv_rows(export.get("content"))
     except (TypeError, ValueError, csv.Error):
         return _failed_lane("portfolio.csv_export", "CSV export could not be parsed")
+    ledger_totals = ledger.get("totals")
+    performance_totals = performance.get("totals")
+    ledger_dates = ledger.get("dates")
+    performance_dates = performance.get("dates")
+    performance_rows = performance.get("rows")
+    if not isinstance(ledger_totals, Mapping) or not isinstance(performance_totals, Mapping):
+        return _failed_lane("portfolio.totals", "ledger or performance totals are unavailable")
+    if not isinstance(ledger_dates, Sequence) or isinstance(ledger_dates, (str, bytes)):
+        return _failed_lane("portfolio.dates", "ledger dates are unavailable")
+    if not isinstance(performance_dates, Sequence) or isinstance(performance_dates, (str, bytes)):
+        return _failed_lane("portfolio.dates", "performance dates are unavailable")
+    if not isinstance(performance_rows, Sequence) or isinstance(performance_rows, (str, bytes)):
+        return _failed_lane("portfolio.performance_series", "performance rows are unavailable")
+    if not csv_rows:
+        return _failed_lane("portfolio.csv_export", "CSV export has no data rows")
+
+    # The export's declared totals are not evidence. Compare each supplied
+    # performance total with the corresponding value in the parsed final row.
+    csv_summary: dict[str, object] = {}
+    for field in performance_totals:
+        if field not in csv_rows[-1]:
+            return _failed_lane(
+                f"portfolio.csv_export.{field}",
+                "CSV export does not contain the performance summary field",
+            )
+        csv_summary[str(field)] = csv_rows[-1][field]
     comparison = {
         "totals": {
-            "ledger": ledger.get("totals"),
-            "performance_series": performance.get("totals"),
-            "csv_export": export.get("totals"),
+            "ledger": ledger_totals,
+            "performance_series": performance_totals,
+            "csv_export_content": csv_summary,
         },
         "dates": {
-            "ledger": ledger.get("dates"),
-            "performance_series": performance.get("dates"),
+            "ledger": list(ledger_dates),
+            "performance_series": list(performance_dates),
             "csv_export": [row.get("date", row.get("period_end")) for row in csv_rows],
         },
         "performance_rows": {
-            "performance_series": _normalise_empty_numbers(performance.get("rows")),
+            "performance_series": _normalise_empty_numbers(performance_rows),
             "csv_export": csv_rows,
         },
     }
+    tolerance_uses: list[dict[str, object]] = []
     for field in ("totals", "dates", "performance_rows"):
         group = comparison[field]
         assert isinstance(group, Mapping)
@@ -404,8 +537,9 @@ def _compare_portfolio(
                 reference,
                 value,
                 path=f"portfolio.{field}.{name}",
-                absolute=absolute,
-                relative=relative,
+                absolute=0,
+                relative=0,
+                numeric_fields=(),
                 tolerances=tolerance_uses,
             )
             if mismatch is not None:
@@ -416,10 +550,8 @@ def _compare_portfolio(
                     "portfolio.csv_export",
                 ]
                 return {"status": "failed", "first_mismatch": mismatch}
-    if not comparison["totals"]["ledger"] or not comparison["dates"]["ledger"]:
+    if not ledger_totals or not ledger_dates:
         return _failed_lane("portfolio.ledger", "ledger totals or dates are unavailable")
-    if not isinstance(performance.get("rows"), Sequence):
-        return _failed_lane("portfolio.performance_series", "performance rows are unavailable")
     return {"status": "passed", "first_mismatch": None}
 
 
@@ -469,29 +601,64 @@ def _normalise_empty_numbers(value: object) -> object:
     return value
 
 
-def _compare_proposal_order(evidence: Mapping[str, object] | None) -> dict[str, object]:
+def _compare_proposal_order(
+    evidence: Mapping[str, object] | None,
+    core: Mapping[str, object],
+    portfolio: Mapping[str, object] | None,
+    portfolio_lane: Mapping[str, object],
+) -> dict[str, object]:
     if not isinstance(evidence, Mapping):
         return _unavailable_lane("proposal and order lineage unavailable")
-    identities = evidence.get("identities")
     proposals = evidence.get("proposals")
-    if not isinstance(identities, Mapping) or not isinstance(proposals, Sequence):
-        return _unavailable_lane("proposal snapshot identities unavailable")
-    required = ("analysis_snapshot_id", "portfolio_snapshot_id", "policy_snapshot_id")
-    if any(not isinstance(identities.get(key), str) or not identities[key].strip() for key in required):
+    if not isinstance(proposals, Sequence) or isinstance(proposals, (str, bytes)):
+        return _failed_lane("proposal_order.proposals", "proposal lineage evidence is missing")
+    if not proposals:
+        return _unavailable_lane("no proposal or order lineage to replay")
+    if core.get("status") != "passed":
         return _failed_lane(
-            "proposal_order.identities",
-            "analysis, portfolio, and policy snapshot identities are required",
+            "proposal_order.analysis_snapshot_id",
+            "canonical analysis snapshot identity is unavailable because core parity did not pass",
         )
+    if portfolio_lane.get("status") != "passed":
+        return _failed_lane(
+            "proposal_order.portfolio_snapshot_id",
+            "portfolio snapshot identity is unavailable because portfolio reconciliation did not pass",
+        )
+    hashes = core.get("snapshot_hashes")
+    detail_hashes = hashes.get("detail") if isinstance(hashes, Mapping) else None
+    if not isinstance(detail_hashes, Mapping):
+        return _failed_lane("proposal_order.analysis_snapshot_id", "verified analysis identities are missing")
+    portfolio_id = portfolio.get("portfolio_snapshot_id") if isinstance(portfolio, Mapping) else None
+    policy_evidence = evidence.get("policy_evidence")
+    policy_id = policy_evidence.get("snapshot_id") if isinstance(policy_evidence, Mapping) else None
+    if not isinstance(portfolio_id, str) or not portfolio_id.strip():
+        return _failed_lane("proposal_order.portfolio_snapshot_id", "portfolio snapshot identity is missing")
+    if not isinstance(policy_id, str) or not policy_id.strip():
+        return _failed_lane("proposal_order.policy_snapshot_id", "policy snapshot evidence is missing")
+    required = ("analysis_snapshot_id", "portfolio_snapshot_id", "policy_snapshot_id")
     for index, proposal in enumerate(proposals):
         if not isinstance(proposal, Mapping):
             return _failed_lane(
                 "proposal_order.lineage",
                 f"proposal {index} has no snapshot lineage",
             )
+        instrument = proposal.get("instrument", proposal.get("instrument_id"))
+        analysis_id = detail_hashes.get(instrument) if isinstance(instrument, str) else None
+        if not isinstance(analysis_id, str):
+            return _failed_lane(
+                f"proposal_order.proposals[{index}].instrument",
+                f"proposal {index} does not identify a reviewed analysis snapshot",
+            )
+        expected = {
+            "analysis_snapshot_id": analysis_id,
+            "portfolio_snapshot_id": portfolio_id,
+            "policy_snapshot_id": policy_id,
+        }
         for identity in required:
-            if proposal.get(identity) != identities[identity]:
+            if not isinstance(proposal.get(identity), str) or proposal[identity] != expected[identity]:
                 return {
                     "status": "failed",
+                    "reason": "proposal snapshot binding is missing or mismatched",
                     "first_mismatch": {
                         "stage": "proposal_order_lineage",
                         "path": f"proposal_order.proposals[{index}].{identity}",
@@ -550,10 +717,18 @@ def _compare_values(
     absolute: float,
     relative: float,
     tolerances: list[dict[str, object]],
+    numeric_fields: Sequence[str] = (),
 ) -> dict[str, object] | None:
     if isinstance(expected, bool) or isinstance(actual, bool):
         return None if expected is actual else {"path": path}
     if isinstance(expected, Real) and isinstance(actual, Real):
+        path_fields = set(re.split(r"[.\[\]]+", path))
+        if not path_fields.intersection(numeric_fields):
+            return (
+                None
+                if type(expected) is type(actual) and expected == actual
+                else {"path": path}
+            )
         left, right = float(expected), float(actual)
         passed = math.isfinite(left) and math.isfinite(right) and abs(left - right) <= (
             absolute + relative * max(abs(left), abs(right))
@@ -580,6 +755,7 @@ def _compare_values(
                 absolute=absolute,
                 relative=relative,
                 tolerances=tolerances,
+                numeric_fields=numeric_fields,
             )
             if mismatch is not None:
                 return mismatch
@@ -597,6 +773,7 @@ def _compare_values(
                 absolute=absolute,
                 relative=relative,
                 tolerances=tolerances,
+                numeric_fields=numeric_fields,
             )
             if mismatch is not None:
                 return mismatch
@@ -664,15 +841,40 @@ def _sensitive_input_paths(value: object, path: str) -> list[str]:
     if isinstance(value, Mapping):
         for key, child in value.items():
             child_path = f"{path}.{key}"
-            if _SENSITIVE_FIELD.search(str(key)) and child not in (None, "", False):
+            key_text = str(key)
+            if (
+                _SENSITIVE_FIELD.search(key_text)
+                and child not in (None, "", False)
+            ) or _SECRET_VALUE.search(key_text) or _CREDENTIAL_ASSIGNMENT.search(key_text):
                 found.append(child_path)
             found.extend(_sensitive_input_paths(child, child_path))
     elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         for index, child in enumerate(value):
             found.extend(_sensitive_input_paths(child, f"{path}[{index}]"))
-    elif isinstance(value, str) and _SECRET_VALUE.search(value):
+    elif isinstance(value, str) and (_SECRET_VALUE.search(value) or _CREDENTIAL_ASSIGNMENT.search(value)):
         found.append(path)
     return found
+
+
+def _redact_sensitive(value: object, *, field_name: str = "") -> object:
+    if _SENSITIVE_FIELD.search(field_name) and value not in (None, "", False):
+        return "[REDACTED]"
+    if isinstance(value, Mapping):
+        redacted: dict[object, object] = {}
+        for key, child in value.items():
+            safe_key = _redact_text(str(key)) if isinstance(key, str) else key
+            redacted[safe_key] = _redact_sensitive(child, field_name=str(key))
+        return redacted
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return [_redact_sensitive(child) for child in value]
+    if isinstance(value, str):
+        return _redact_text(value)
+    return value
+
+
+def _redact_text(value: str) -> str:
+    value = _SECRET_VALUE.sub("[REDACTED]", value)
+    return _CREDENTIAL_ASSIGNMENT.sub(lambda match: f"{match.group(1)}=[REDACTED]", value)
 
 
 def _finite_number(value: object) -> float | None:
@@ -699,9 +901,11 @@ def _failed_lane(path: str, reason: str) -> dict[str, object]:
 
 
 __all__ = [
+    "analysis_parity_report_path",
     "build_parity_report",
     "canonical_snapshot_hash",
     "compare_source_package",
     "load_analysis_parity_config",
     "validate_parity_report",
+    "write_parity_report",
 ]

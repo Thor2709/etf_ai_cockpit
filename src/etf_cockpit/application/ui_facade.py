@@ -15,7 +15,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from etf_cockpit.analysis.parity_report import validate_parity_report
+from etf_cockpit.analysis.parity_report import (
+    analysis_parity_report_path,
+    validate_parity_report,
+)
 from etf_cockpit.core.paths import LOG_DIR, STATEMENT_FACTS_PATH
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data.etf_structure import project_etf_structure
@@ -1306,7 +1309,7 @@ def load_opportunity_assessment(
 def load_analysis_parity_report(
     *, report_path: Path | None = None
 ) -> dict[str, object]:
-    """Read a v2 parity report; the caller must supply its approved artifact path."""
+    """Read the latest approved v2 parity report for diagnostics."""
 
     unavailable = {
         "schema_version": 2,
@@ -1315,13 +1318,11 @@ def load_analysis_parity_report(
         "reason": "analysis parity report unavailable",
         "execution_allowed": False,
     }
-    if report_path is None:
-        return unavailable | {"reason": "analysis parity report path was not supplied"}
-    path = Path(report_path)
+    path = analysis_parity_report_path() if report_path is None else Path(report_path)
     try:
         report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
-        return unavailable
+        return unavailable | {"reason": "analysis parity report is missing or unreadable"}
     if not isinstance(report, Mapping) or report.get("schema_version") != 2:
         return unavailable | {"reason": "analysis parity report schema is invalid"}
     if validate_parity_report(report):
