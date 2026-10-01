@@ -28,6 +28,7 @@ from etf_cockpit.application.ui_facade import (
     candidate_id,
     draft_portfolio_candidate,
     load_portfolio_candidate,
+    load_portfolio_forecast_aggregation,
     load_portfolio_performance_series,
     load_portfolio_calendar_projection,
     load_portfolio_holdings_projection,
@@ -176,6 +177,180 @@ def _portfolio_performance_block(page: ft.Page | None) -> ft.Control:
                 status,
                 chart_host,
                 ft.Row([ft.OutlinedButton("Download CSV", key="portfolio.performance.download", icon=ft.Icons.DOWNLOAD, on_click=export_selected), export_status], wrap=True),
+            ],
+            spacing=8,
+        )
+    )
+
+
+def _portfolio_forecast_block(
+    page: ft.Page | None,
+    state: AppState,
+    current_analysis: list[PortfolioAnalysis],
+) -> ft.Control:
+    status = ft.Text("Loading saved portfolio forecast…", key="portfolio.forecast.status", color=theme.MUTED, selectable=True)
+    result_host = ft.Column(key="portfolio.forecast.results", spacing=8)
+
+    def cell_text(value: object, *, as_currency: bool = False, as_percent: bool = False) -> str:
+        if not isinstance(value, Mapping) or value.get("status") not in {"available", "partial"}:
+            reason = value.get("reason") if isinstance(value, Mapping) else None
+            return f"Unavailable: {reason or 'saved input unavailable'}"
+        raw = value.get("value")
+        if as_currency:
+            return format_currency(raw, currency=str(currency.value or "EUR").upper())
+        if as_percent:
+            return format_percent(raw)
+        return str(raw) if raw is not None else "N/A"
+
+    def render_view(label: str, view: Mapping[str, object]) -> ft.Control:
+        net = view.get("net")
+        gross = view.get("gross")
+        selected = net if isinstance(net, Mapping) and net.get("status") != "unavailable" else gross
+        selected = selected if isinstance(selected, Mapping) else {}
+        quantiles = selected.get("quantiles")
+        gain_quantiles = selected.get("gain_loss_quantiles")
+        probabilities = selected.get("probabilities")
+        coverage = view.get("coverage")
+        coverage = coverage if isinstance(coverage, Mapping) else {}
+        components = view.get("components")
+        components = components if isinstance(components, Mapping) else {}
+        costs = view.get("cost_contributions")
+        costs = costs if isinstance(costs, Mapping) else {}
+        tail = selected.get("tail_dependence")
+        tail = tail if isinstance(tail, Mapping) else {}
+        rows = []
+        if isinstance(quantiles, Mapping):
+            for percentile in ("q05", "q25", "q50", "q75", "q95"):
+                gain = gain_quantiles.get(percentile) if isinstance(gain_quantiles, Mapping) else None
+                rows.append(
+                    ft.DataRow(
+                        cells=[
+                            ft.DataCell(ft.Text(percentile.upper(), size=11)),
+                            ft.DataCell(ft.Text(format_percent(quantiles.get(percentile)), size=11)),
+                            ft.DataCell(ft.Text(format_currency(gain, currency=str(currency.value or "EUR").upper()), size=11)),
+                        ]
+                    )
+                )
+        fan = ft.DataTable(
+            columns=[ft.DataColumn(ft.Text("Fan percentile")), ft.DataColumn(ft.Text("Return")), ft.DataColumn(ft.Text("Gain / loss"))],
+            rows=rows,
+            column_spacing=16,
+            horizontal_margin=6,
+        ) if rows else ft.Text(str(selected.get("reason") or "Forecast quantiles unavailable."), color=theme.MUTED, selectable=True)
+        probability_lines = []
+        if isinstance(probabilities, Mapping):
+            for key, title in (("loss", "Loss"), ("beat_cash", "Beat cash"), ("beat_benchmark", "Beat benchmark")):
+                probability_lines.append(ft.Text(f"{title}: {cell_text(probabilities.get(key), as_percent=True)}", size=11, selectable=True))
+        contribution_lines = [
+            ft.Text(
+                f"{title}: {cell_text(components.get(key), as_currency=True)}",
+                size=11,
+                selectable=True,
+            )
+            for key, title in (("price", "Price"), ("income", "Income"), ("fx", "FX"))
+        ]
+        contribution_lines.extend(
+            ft.Text(f"Cost {key}: {cell_text(value, as_currency=True)}", size=11, selectable=True)
+            for key, value in costs.items()
+        )
+        status_value = str(view.get("status", "unavailable"))
+        return panel(
+            ft.Column(
+                [
+                    section_header(label, f"Status: {status_value}; exposure confidence: {format_percent(coverage.get('confidence'))}; unsupported weight: {format_percent(coverage.get('unsupported_exposure_weight'))}."),
+                    ft.Text(f"Expected gain / loss: {cell_text(selected.get('expected_gain_loss'), as_currency=True)}", selectable=True),
+                    ft.Text(f"Expected return: {cell_text(selected.get('expected_return'), as_percent=True)}", selectable=True),
+                    fan,
+                    ft.Row(probability_lines, wrap=True, spacing=12),
+                    ft.Text(
+                        "Contributions and costs use saved holding records; missing inputs remain unavailable.",
+                        color=theme.MUTED,
+                        selectable=True,
+                        size=11,
+                    ),
+                    ft.Column(contribution_lines, spacing=2),
+                    ft.Text(
+                        f"Scenario volatility: {cell_text(selected.get('volatility'), as_percent=True)} | "
+                        f"Tail dependence: {tail.get('status', 'unavailable')} | "
+                        f"Cost sensitivity: {cell_text(view.get('cost_sensitivity'), as_currency=True)}",
+                        color=theme.MUTED,
+                        selectable=True,
+                        size=11,
+                    ),
+                    ft.Text(str(view.get("reason") or ""), color=theme.AMBER if status_value == "partial" else theme.MUTED, selectable=True, size=11),
+                ],
+                spacing=6,
+            )
+        )
+
+    def refresh(_event: ft.ControlEvent | None = None) -> None:
+        forecast = load_portfolio_forecast_aggregation(
+            state.snapshot,
+            current_analysis[0],
+            horizon_days=int(horizon.value or PRIMARY_MODEL_HORIZON_DAYS),
+            output_currency=str(currency.value or "EUR").upper(),
+        )
+        status.value = f"Portfolio forecast status: {forecast.status}; horizon={forecast.horizon_days or 'unavailable'} days; execution_allowed=false."
+        if forecast.reason:
+            status.value = f"{status.value} {forecast.reason}"
+        status.color = theme.GREEN if forecast.status == "available" else theme.AMBER if forecast.status == "partial" else theme.RED
+        result_host.controls = [
+            ft.Row(
+                [render_view("Current holdings", forecast.current), render_view("What-if target", forecast.target)],
+                wrap=True,
+                spacing=10,
+            ),
+            ft.Text(
+                f"Target minus current expected return: {format_percent(forecast.comparison.get('expected_return_difference') if isinstance(forecast.comparison, Mapping) else None)} | "
+                f"q05: {format_percent(forecast.comparison.get('q05_return_difference') if isinstance(forecast.comparison, Mapping) else None)}",
+                color=theme.MUTED,
+                selectable=True,
+            ),
+            ft.Text(
+                "Assumptions: seeded saved-distribution scenarios; q05–q95 tails clamp to saved endpoints; perfect positive correlation is the stress case. "
+                f"Seed={forecast.provenance.get('scenario_seed', 'unavailable')}; count={forecast.provenance.get('scenario_count', 'unavailable')}; "
+                f"risk model={forecast.provenance.get('risk_model_version', 'unavailable')}; input hashes are retained in forecast evidence.",
+                color=theme.MUTED,
+                selectable=True,
+                size=11,
+            ),
+        ]
+        if _event is not None:
+            _safe_update(page)
+
+    horizon = ft.Dropdown(
+        key="portfolio.forecast.horizon",
+        label="Forecast horizon (days)",
+        value=str(PRIMARY_MODEL_HORIZON_DAYS),
+        options=[ft.dropdown.Option(str(value)) for value in sorted(CANONICAL_DISTRIBUTION_HORIZONS_DAYS)],
+        width=210,
+        dense=True,
+        on_change=refresh,
+    )
+    currency = ft.TextField(
+        key="portfolio.forecast.currency",
+        label="Output currency",
+        value="EUR",
+        width=150,
+        dense=True,
+        on_submit=refresh,
+    )
+    refresh_button = ft.OutlinedButton(
+        "Refresh forecast",
+        key="portfolio.forecast.refresh",
+        on_click=refresh,
+    )
+    refresh()
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Portfolio forecast fan chart",
+                    "Exact-horizon seeded scenarios combine saved holding distributions with the bound covariance model. Unknown exposure and assumptions remain visible.",
+                ),
+                ft.Row([horizon, currency, refresh_button], wrap=True, spacing=8),
+                status,
+                result_host,
             ],
             spacing=8,
         )
@@ -1146,6 +1321,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 )
             ),
             _portfolio_performance_block(page),
+            _portfolio_forecast_block(page, state, current_analysis),
             _portfolio_calendar_block(page, state, current_analysis[0]),
             _portfolio_holdings_block(page, state, current_analysis, draft_holdings_proposal, holdings_refresh_callbacks),
             result_host,

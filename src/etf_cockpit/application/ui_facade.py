@@ -6,7 +6,7 @@ implementations remain compatible while later slices move them behind typed
 ports and application commands.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 import json
 import math
@@ -62,6 +62,10 @@ from etf_cockpit.portfolio.performance_series import (
     performance_series_frame,  # noqa: F401
 )
 from etf_cockpit.portfolio.holdings_table import build_portfolio_holdings_table
+from etf_cockpit.portfolio.forecast_aggregation import (
+    PortfolioForecastSnapshot,
+    build_portfolio_forecast_snapshot,
+)
 from etf_cockpit.portfolio.calendar import build_portfolio_calendar
 
 from etf_cockpit.chatgpt_bridge.audit_packet import *  # noqa: F401,F403
@@ -240,6 +244,110 @@ def load_portfolio_performance_series(
         custom_start=custom_start,  # type: ignore[arg-type]
         custom_end=custom_end,  # type: ignore[arg-type]
         fx_rates=fx_rates,
+    )
+
+
+def load_portfolio_forecast_aggregation(
+    snapshot: object,
+    analysis: PortfolioAnalysis,
+    *,
+    horizon_days: int,
+    output_currency: str = "EUR",
+    analysis_run_id: str | None = None,
+) -> PortfolioForecastSnapshot:
+    """Load an exact-horizon portfolio forecast from bound saved inputs."""
+
+    projection = load_portfolio_holdings_projection(
+        snapshot,
+        analysis,
+        horizon_days=horizon_days,
+        output_currency=output_currency,
+        analysis_run_id=analysis_run_id,
+    )
+    portfolio_meta = projection.get("portfolio_snapshot")
+    portfolio_meta = portfolio_meta if isinstance(portfolio_meta, Mapping) else {}
+    holding_rows = projection.get("rows", ())
+    positions: dict[str, dict[str, object]] = {}
+    position_values: list[float] = []
+    if isinstance(holding_rows, Sequence) and not isinstance(holding_rows, (str, bytes)):
+        for row in holding_rows:
+            if not isinstance(row, Mapping):
+                continue
+            instrument_id = str(row.get("instrument_id", "")).strip()
+            weight_cell = row.get("weight")
+            value_cell = row.get("value")
+            weight = weight_cell.get("value") if isinstance(weight_cell, Mapping) and weight_cell.get("status") == "available" else None
+            market_value = value_cell.get("value") if isinstance(value_cell, Mapping) and value_cell.get("status") == "available" else None
+            if instrument_id:
+                positions[instrument_id] = {"weight": weight, "market_value": market_value}
+                if isinstance(market_value, Real) and not isinstance(market_value, bool) and math.isfinite(float(market_value)):
+                    position_values.append(float(market_value))
+
+    binding = analysis.snapshot_binding
+    risk_projection = analysis.service_evidence.get("risk")
+    risk_projection = risk_projection if isinstance(risk_projection, Mapping) else {}
+    selected_run_id = str(projection.get("analysis_run_id", "")).strip()
+    risk_snapshot = None
+    if binding is not None:
+        risk_snapshot = {
+            "portfolio_id": getattr(binding, "portfolio_id", None),
+            "snapshot_id": getattr(binding, "snapshot_id", None),
+            "as_of": getattr(binding, "as_of", None),
+            "candidate_id": analysis.candidate.candidate_id,
+            "status": risk_projection.get("status", "unavailable"),
+            "model_version": risk_projection.get("model_version"),
+            "selected_estimator": risk_projection.get("selected_estimator"),
+            "covariances": risk_projection.get("covariances"),
+            "warnings": risk_projection.get("warnings", ()),
+            "coverage": risk_projection.get("coverage"),
+            "execution_allowed": risk_projection.get("execution_allowed", False),
+        }
+
+    decision_time = projection.get("analysis_date")
+    distributions: dict[str, dict[str, object]] = {}
+    if projection.get("proposal_handoff_allowed") is True and decision_time:
+        try:
+            distribution_rows = load_forecast_return_distributions(
+                getattr(snapshot, "forecasts", pd.DataFrame()),
+                horizon_days=horizon_days,
+                decision_time=decision_time,
+            )
+        except (TypeError, ValueError, KeyError):
+            distribution_rows = {}
+        distributions = {
+            instrument_id: distribution
+            for instrument_id, distribution in distribution_rows.items()
+            if instrument_id in positions
+        }
+
+    analysis_snapshot = {
+        "portfolio_id": portfolio_meta.get("portfolio_id"),
+        "snapshot_id": portfolio_meta.get("snapshot_id"),
+        "as_of": portfolio_meta.get("as_of"),
+        "analysis_run_id": selected_run_id or None,
+        "candidate_id": analysis.candidate.candidate_id,
+        "decision_time": decision_time,
+        "status": "complete" if projection.get("proposal_handoff_allowed") is True else "unavailable",
+        "policy_status": "available" if projection.get("proposal_handoff_allowed") is True else "unavailable",
+        "distributions": distributions,
+        "target_weights": analysis.candidate.targets,
+        "cash_weight": analysis.candidate.cash_weight,
+        "cash_return": None,
+        "benchmark_return": None,
+    }
+    portfolio_snapshot = {
+        **portfolio_meta,
+        "sealed": projection.get("proposal_handoff_allowed") is True,
+        "positions": positions,
+        "total_value": math.fsum(position_values) if len(position_values) == len(positions) and position_values else None,
+        "cash_weight": analysis.current_cash_weight,
+    }
+    return build_portfolio_forecast_snapshot(
+        portfolio_snapshot,
+        analysis_snapshot,
+        risk_snapshot,
+        horizon_days=horizon_days,
+        output_currency=output_currency,
     )
 
 
