@@ -151,6 +151,8 @@ def record_listing_capture(
     known_at: str | datetime,
     *,
     root: Path | None = None,
+    raw_payload: bytes | None = None,
+    snapshot_date: str | None = None,
 ) -> CaptureStatus:
     """Record one full listing capture for a config-declared listing scope."""
 
@@ -165,6 +167,8 @@ def record_listing_capture(
         scope=scope,
         known_at=known_at,
         root=Path(root or ROOT),
+        raw_payload=raw_payload,
+        snapshot_date=snapshot_date,
     )
 
 
@@ -464,6 +468,7 @@ def _record_capture(
     root: Path,
     raw_payload: bytes | None = None,
     raw_row_count: int | None = None,
+    snapshot_date: str | None = None,
 ) -> CaptureStatus:
     _scope_kind, complete, _configured_source = _validate_scope(scope)
     payload, materialised = _materialise_rows(rows, raw_payload=raw_payload)
@@ -474,13 +479,25 @@ def _record_capture(
     if len(set(folded)) != len(folded):
         raise MembershipCaptureError("membership payload contains duplicate instruments")
     timestamp = _utc_timestamp(known_at, "known_at")
-    snapshot_date = timestamp[:10]
+    deduplicate_snapshot = snapshot_date is not None
+    snapshot_date = _date_text(snapshot_date, "snapshot_date") if snapshot_date is not None else timestamp[:10]
+    if snapshot_date > timestamp[:10]:
+        raise MembershipCaptureError("snapshot_date must not be after known_at")
     digest = hashlib.sha256(payload).hexdigest()
     active_root = Path(root).resolve()
     database_path = active_root / _DB_RELATIVE_PATH
     connection = _connect(database_path, create=True)
     try:
         connection.execute("BEGIN IMMEDIATE")
+        if deduplicate_snapshot:
+            duplicate = connection.execute(
+                "SELECT 1 FROM capture_log WHERE scope=? AND snapshot_date=? AND checksum=? "
+                "AND source_kind='self' LIMIT 1",
+                (scope, snapshot_date, digest),
+            ).fetchone()
+            if duplicate is not None:
+                connection.commit()
+                return CaptureStatus("duplicate", scope, digest)
         previous_known_at = connection.execute(
             "SELECT MAX(known_at) FROM capture_log WHERE scope=? AND source_kind='self'",
             (scope,),

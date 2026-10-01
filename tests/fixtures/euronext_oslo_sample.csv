@@ -1,0 +1,7 @@
+﻿European Equities
+01 Oct 2026
+Public data sample for parser tests.
+Name;ISIN;Symbol;Market;Currency;Sector
+SPAREBANKEN VEST;NO0000000005;SVEG;Oslo Børs;NOK;Financials
+Invalid identifier;NO0000000000;BAD;Oslo Børs;NOK;Financials
+Unknown market;NO0000000005;UNKNOWN;Oslo OTC;NOK;Financials
