@@ -100,6 +100,18 @@ reduced but cannot be eliminated by the documented GitHub APIs. The created
 issue's actor is not treated as provenance; only canonical managed comments
 and receipts pinned to the GitHub Actions bot and app are accepted.
 
+Status batches (owner-approved expansion, 2026-10-01): one reviewed main push
+may append N >= 2 ordinary `status`/`status_replay` records, one per distinct
+issue, sharing one source SHA, reviewed plan and
+`status-batch-candidate/1.0` blob. Each batch entry is exactly the single
+status or replay candidate for a one-action view of that plan and is checked
+by the unchanged single-entry validator; each GitHub write still goes through
+the unchanged per-issue append with its own authority ID and sequence. A batch
+never mixes in create or managed-refresh records or two records for one issue,
+recovery cannot batch, the first rejected append stops further writes, and the
+zero-action readback still decides acceptance. A partial batch is treated like
+any other partial write: it stays unresolved and is never retried.
+
 The ledger is not a general GitHub database, issue tracker or event-sourcing
 framework. It must not grow speculative support for pull requests, labels,
 releases, tags, deployments or unrelated resources. After the bounded H-tier
