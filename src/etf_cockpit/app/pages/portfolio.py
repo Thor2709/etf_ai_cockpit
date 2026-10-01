@@ -34,6 +34,7 @@ from etf_cockpit.application.ui_facade import (
     load_portfolio_calendar_projection,
     load_portfolio_holdings_projection,
     load_portfolio_goals_projection,
+    load_fixed_income_screener,
     portfolio_snapshot_binding,
     performance_series_frame,
     CANONICAL_DISTRIBUTION_HORIZONS_DAYS,
@@ -179,6 +180,63 @@ def _portfolio_performance_block(page: ft.Page | None) -> ft.Control:
                 status,
                 chart_host,
                 ft.Row([ft.OutlinedButton("Download CSV", key="portfolio.performance.download", icon=ft.Icons.DOWNLOAD, on_click=export_selected), export_status], wrap=True),
+            ],
+            spacing=8,
+        )
+    )
+
+
+def _portfolio_fixed_income_returns_block(state: AppState) -> ft.Control:
+    held_ids = tuple(sorted(_holding_ids(state.snapshot.holdings)))
+    result = load_fixed_income_screener(instrument_ids=held_ids)
+    rows = result.get("rows") if isinstance(result, Mapping) else None
+    rows = [row for row in rows if isinstance(row, Mapping)] if isinstance(rows, list) else []
+    table: ft.Control = (
+        ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text(label))
+                for label in ("Instrument", "Baseline", "Net", "Risk-adjusted", "Portfolio fit", "Blockers")
+            ],
+            rows=[
+                ft.DataRow(
+                    cells=[
+                        ft.DataCell(ft.Text(str(row.get("instrument_id", "")), selectable=True)),
+                        ft.DataCell(ft.Text(format_percent(row.get("baseline_total_return")))),
+                        ft.DataCell(ft.Text(format_percent(row.get("net_total_return")))),
+                        ft.DataCell(ft.Text(format_percent(row.get("risk_adjusted_score")))),
+                        ft.DataCell(ft.Text(str(row.get("portfolio_fit", "unavailable")))),
+                        ft.DataCell(
+                            ft.Text(", ".join(map(str, row.get("reason_codes", ()))) or "—", selectable=True)
+                        ),
+                    ]
+                )
+                for row in rows
+            ],
+            column_spacing=16,
+        )
+        if rows
+        else ft.Text(
+            "No fixed-income holdings have saved terms and return inputs in this snapshot. "
+            f"{', '.join(map(str, result.get('reason_codes', ())))}",
+            color=theme.MUTED,
+            selectable=True,
+        )
+    )
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Fixed-income portfolio fit",
+                    "Current holding membership, deterministic return components and evidence gates for the selected portfolio snapshot.",
+                ),
+                ft.Text(
+                    f"Status: {result.get('status', 'unavailable')}; "
+                    f"persistence={result.get('persistence_status', 'unavailable')}; "
+                    f"execution_allowed=false.",
+                    color=theme.MUTED,
+                    selectable=True,
+                ),
+                table,
             ],
             spacing=8,
         )
@@ -1495,6 +1553,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 )
             ),
             _portfolio_performance_block(page),
+            _portfolio_fixed_income_returns_block(state),
             _portfolio_forecast_block(page, state, current_analysis),
             _portfolio_calendar_block(page, state, current_analysis[0]),
             _portfolio_holdings_block(page, state, current_analysis, draft_holdings_proposal, holdings_refresh_callbacks),
