@@ -413,12 +413,44 @@ class SubmitWorkflowCommand(CommandModel):
         return tuple(key.strip() for key in value)
 
 
+DashboardAction = Literal[
+    "refresh_yfinance_data",
+    "run_algorithm_scores",
+    "run_forecasting_models",
+    "renew_data_dry_run",
+    "renew_data_api_status",
+    "rollback_latest_prices",
+    "export_audit_packet",
+    "validate_local_import",
+    "import_local_upload",
+]
+
+
+class DashboardActionCommand(CommandModel):
+    """Execute one existing dashboard action through the application boundary."""
+
+    kind: Literal["dashboard_action"] = "dashboard_action"
+    action: DashboardAction
+    dataset_type: str | None = Field(default=None, min_length=1, max_length=80)
+    selected_path: str | None = Field(default=None, min_length=1, max_length=4096)
+    file_name: str | None = Field(default=None, min_length=1, max_length=512)
+    content: bytes | None = None
+
+    @model_validator(mode="after")
+    def validate_import_arguments(self):
+        if self.action == "validate_local_import" and self.selected_path is None:
+            raise ValueError("validate_local_import requires selected_path")
+        if self.action == "import_local_upload" and (self.file_name is None or self.content is None):
+            raise ValueError("import_local_upload requires file_name and content")
+        return self
+
+
 class CancelWorkflowCommand(CommandModel):
     kind: Literal["cancel_workflow"] = "cancel_workflow"
     workflow_id: str = Field(min_length=1, max_length=128)
 
 
-ApplicationCommand = RefreshDataCommand | SubmitWorkflowCommand | CancelWorkflowCommand
+ApplicationCommand = RefreshDataCommand | SubmitWorkflowCommand | DashboardActionCommand | CancelWorkflowCommand
 
 
 class CommandResult(ContractModel):
@@ -466,6 +498,8 @@ __all__ = [
     "BulkAnalysisRun",
     "CancelWorkflowCommand",
     "CommandResult",
+    "DashboardAction",
+    "DashboardActionCommand",
     "EventBlockPolicy",
     "ForecastViewModel",
     "InstrumentViewModel",

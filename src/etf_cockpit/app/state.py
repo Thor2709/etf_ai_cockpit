@@ -53,6 +53,7 @@ from etf_cockpit.portfolio.review_reports import create_portfolio_review_report
 from etf_cockpit.services import ChatGPTBridge, CockpitSnapshot, DataService, build_snapshot
 from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, build_simple_instrument_scores, load_latest_candidate_report, simple_scoreboard_frame, write_simple_scoreboard
 from etf_cockpit.app import theme
+from etf_cockpit.application.contracts import ApplicationCommand, DashboardActionCommand
 
 
 # Compatibility seam for existing callers and tests. This is the session trace,
@@ -380,6 +381,7 @@ class AppState:
             lambda: self.snapshot,
             root=ROOT,
             scheduler=scheduler,
+            command_handlers={"dashboard_action": self._handle_dashboard_action},
         )
         return scheduler.resource_policy.requested_profile
 
@@ -882,6 +884,40 @@ class AppState:
         with self.activity_publication():
             upload_path.write_bytes(content)
         return self._import_and_refresh(upload_path, dataset_type)
+
+    def _handle_dashboard_action(self, command: ApplicationCommand) -> dict[str, object]:
+        if not isinstance(command, DashboardActionCommand):
+            raise ValueError("Dashboard action handler received an unsupported command.")
+        dataset_type = command.dataset_type or "prices"
+        if command.action == "refresh_yfinance_data":
+            result = self.refresh_yfinance_data()
+        elif command.action == "run_algorithm_scores":
+            result = self.run_algorithm_scores()
+        elif command.action == "run_forecasting_models":
+            result = self.run_forecasting_models()
+        elif command.action == "renew_data_dry_run":
+            result = self.renew_data_dry_run()
+        elif command.action == "renew_data_api_status":
+            result = self.renew_data_api_status()
+        elif command.action == "rollback_latest_prices":
+            result = self.rollback_latest_prices()
+        elif command.action == "export_audit_packet":
+            output_path = self.export_audit_packet()
+            return {
+                "message": f"Audit packet exported: {output_path}",
+                "output_path": str(output_path),
+            }
+        elif command.action == "validate_local_import":
+            if command.selected_path is None:
+                raise ValueError("A local path is required to validate an import.")
+            result = self.validate_local_import(command.selected_path, dataset_type)
+        elif command.action == "import_local_upload":
+            if command.file_name is None or command.content is None:
+                raise ValueError("A file name and content are required to import an upload.")
+            result = self.import_local_upload(command.file_name, command.content, dataset_type)
+        else:
+            raise ValueError(f"Unsupported dashboard action: {command.action}")
+        return {"message": str(result)}
 
     def import_sec_companyfacts(
         self,

@@ -3,11 +3,13 @@ from __future__ import annotations
 import copy
 from dataclasses import replace
 import time
+from types import SimpleNamespace
 import pytest
 
 from etf_cockpit.app.pages.dashboard import _run_action
 from etf_cockpit.app.state import AppState
-from etf_cockpit.app.router import PAGES, navigate_to
+from etf_cockpit.app.router import PAGES, build_shell, navigate_to
+from etf_cockpit.application.contracts import DashboardActionCommand
 from etf_cockpit.services import build_snapshot
 
 
@@ -79,6 +81,15 @@ def _snapshot_copy():
     )
 
 
+def _walk(control):
+    yield control
+    for child in getattr(control, "controls", []) or []:
+        yield from _walk(child)
+    content = getattr(control, "content", None)
+    if content is not None:
+        yield from _walk(content)
+
+
 class _Page:
     route = "/"
     width = 1400
@@ -95,11 +106,28 @@ def test_source_workflow_success_and_failure_have_visible_terminal_states(tmp_pa
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     page = _Page()
 
-    _run_action(page, state, "Deterministic success", lambda: "done")
+    monkeypatch.setattr(state, "run_algorithm_scores", lambda: "Typed algorithm command completed.")
+    commands = []
+    execute = state.application_api.execute
+
+    def capture(command):
+        assert isinstance(command, DashboardActionCommand)
+        commands.append(command)
+        return execute(command)
+
+    monkeypatch.setattr(state.application_api, "execute", capture)
+    dashboard = build_shell(page, state, "/")
+    run_algorithms = next(
+        control for control in _walk(dashboard) if getattr(control, "key", None) == "dashboard.run-algorithms"
+    )
+    run_algorithms.on_click(SimpleNamespace(page=page))
     deadline = time.time() + 5
     while state.current_activity is not None and time.time() < deadline:
         time.sleep(0.02)
     assert state.recent_activity[-1].status == "success"
+    assert state.recent_activity[-1].message == "Typed algorithm command completed."
+    assert len(commands) == 1
+    assert commands[0].action == "run_algorithm_scores"
 
     _run_action(page, state, "Deterministic failure", lambda: (_ for _ in ()).throw(TimeoutError("provider timeout")))
     deadline = time.time() + 5
