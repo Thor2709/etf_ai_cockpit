@@ -163,9 +163,9 @@ class BulkAnalysisService:
                 resources=(
                     {
                         "profile": resource_plan.hardware_profile_id,
-                        "cpu": resource_plan.estimated_cpu / resource_plan.concurrency_limit,
-                        "memory_mb": max(1, resource_plan.estimated_memory_mb // resource_plan.concurrency_limit),
-                        "disk_mb": max(1, resource_plan.estimated_disk_mb // resource_plan.concurrency_limit),
+                        "cpu": resource_plan.estimated_cpu,
+                        "memory_mb": resource_plan.estimated_memory_mb,
+                        "disk_mb": resource_plan.estimated_disk_mb,
                     }
                     if resource_plan is not None
                     else {}

@@ -1,6 +1,6 @@
 # Analysis depth scheduling
 
-Profile depth runs reserve each job's CPU, memory, and disk share before the scheduler claims it. The resource plan caps a run at three workers, further limited by the selected hardware profile and the caller's `max_jobs` request. The plan derives its worker limit from estimated CPU capacity; low-resource runs use one worker and a shard size of one. The durable scheduler remains the authority for aggregate reservations and leases. Legacy bulk runs continue to execute one job at a time with scheduler default resources.
+Profile depth runs reserve each job's full plan estimates for CPU, memory, and disk before the scheduler claims it. The durable scheduler checks those aggregate reservations atomically, so the plan's worker limit and caller's `max_jobs` request set upper bounds while available resources and scheduler concurrency determine how many jobs can run together. Low-resource runs use one worker and a shard size of one. Legacy bulk runs continue to execute one job at a time with scheduler default resources.
 
 The shared stage cache is guarded while entries are read and published. Concurrent results for the same content key must have the same content hash. Timing-store writes are serialized within the process so concurrent jobs do not overwrite one another's records.
 

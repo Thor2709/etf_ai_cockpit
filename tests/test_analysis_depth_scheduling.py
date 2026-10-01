@@ -17,15 +17,15 @@ from etf_cockpit.application.bulk_run import BulkAnalysisService
 from etf_cockpit.core.resource_profiles import HardwareSnapshot, estimate_workflow_resources
 
 
-def _install_plan_estimate(monkeypatch):
+def _install_plan_estimate(monkeypatch, *, cpu=3.0, memory_mb=1_536, disk_mb=4_096):
     monkeypatch.setattr(
         analysis_depth,
         "estimate_workflow_resources",
         lambda _workflow_type, *, requested_profile="auto", snapshot=None: {
             "profile": "high",
-            "cpu": 3.0,
-            "memory_mb": 1_536,
-            "disk_mb": 4_096,
+            "cpu": cpu,
+            "memory_mb": memory_mb,
+            "disk_mb": disk_mb,
             "status": "allowed",
             "reasons": [],
         },
@@ -55,23 +55,33 @@ def test_profile_jobs_reserve_plan_resources_and_legacy_defaults(monkeypatch, tm
     _install_plan_estimate(monkeypatch)
     service = BulkAnalysisService(tmp_path)
     _set_test_hardware(service)
+    observed_plans = []
+
+    def stage_runner(instrument_id, analysis_input, stage, resource_plan):
+        observed_plans.append(resource_plan)
+        return _successful_stage_runner(instrument_id, analysis_input, stage, resource_plan)
 
     profiled = service.start(
         {"ETF.A": {"value": 1}},
         analyzer_id="tests.depth.resources.v1",
         depth_profile="quick",
-        stage_runner=_successful_stage_runner,
-        max_jobs=0,
+        stage_runner=stage_runner,
     )
     workflow = service.scheduler.get_workflow(profiled.run_id)
     plan = workflow.inputs["analysis_depth"]["resource_plan"]
     profiled_job = service.scheduler.list_jobs(profiled.run_id)[0]
     assert profiled_job.resources == {
         "profile": plan["hardware_profile_id"],
-        "cpu": plan["estimated_cpu"] / plan["concurrency_limit"],
-        "memory_mb": plan["estimated_memory_mb"] // plan["concurrency_limit"],
-        "disk_mb": plan["estimated_disk_mb"] // plan["concurrency_limit"],
+        "cpu": plan["estimated_cpu"],
+        "memory_mb": plan["estimated_memory_mb"],
+        "disk_mb": plan["estimated_disk_mb"],
     }
+    assert observed_plans
+    assert all(
+        (runner_plan.estimated_cpu, runner_plan.estimated_memory_mb, runner_plan.estimated_disk_mb)
+        == (plan["estimated_cpu"], plan["estimated_memory_mb"], plan["estimated_disk_mb"])
+        for runner_plan in observed_plans
+    )
 
     legacy = service.start(
         {"ETF.B": {"value": 2}},
@@ -94,7 +104,13 @@ def test_profile_jobs_reserve_plan_resources_and_legacy_defaults(monkeypatch, tm
 
 
 def test_profile_workers_obey_requested_and_scheduler_limits(monkeypatch, tmp_path):
-    _install_plan_estimate(monkeypatch)
+    _install_plan_estimate(monkeypatch, cpu=1.0)
+    original_create_plan = bulk_run.create_resource_plan
+
+    def three_worker_plan(*args, **kwargs):
+        return replace(original_create_plan(*args, **kwargs), concurrency_limit=3)
+
+    monkeypatch.setattr(bulk_run, "create_resource_plan", three_worker_plan)
     parallel = BulkAnalysisService(tmp_path / "parallel")
     _set_test_hardware(parallel)
     barrier = Barrier(3, timeout=5)
@@ -151,8 +167,56 @@ def test_profile_workers_obey_requested_and_scheduler_limits(monkeypatch, tmp_pa
     assert maximum_active == 1
 
 
+def test_profile_claims_respect_full_resource_reservations(monkeypatch, tmp_path):
+    _install_plan_estimate(monkeypatch, cpu=2.0)
+    original_create_plan = bulk_run.create_resource_plan
+
+    def three_worker_plan(*args, **kwargs):
+        return replace(original_create_plan(*args, **kwargs), concurrency_limit=3)
+
+    monkeypatch.setattr(bulk_run, "create_resource_plan", three_worker_plan)
+    service = BulkAnalysisService(tmp_path)
+    _set_test_hardware(service, max_concurrency=3)
+    barrier = Barrier(2, timeout=5)
+    active = 0
+    maximum_active = 0
+    first_stage_arrivals = 0
+    active_lock = Lock()
+
+    def barrier_runner(instrument_id, analysis_input, stage, resource_plan):
+        nonlocal active, first_stage_arrivals, maximum_active
+        with active_lock:
+            active += 1
+            maximum_active = max(maximum_active, active)
+            wait_for_pair = stage.stage_id == MANDATORY_STAGE_IDS[0] and first_stage_arrivals < 2
+            if wait_for_pair:
+                first_stage_arrivals += 1
+        try:
+            if wait_for_pair:
+                barrier.wait()
+            return _successful_stage_runner(instrument_id, analysis_input, stage, resource_plan)
+        finally:
+            with active_lock:
+                active -= 1
+
+    run = service.start(
+        {f"ETF.{index}": {"value": index} for index in range(3)},
+        analyzer_id="tests.depth.resource-admission.v1",
+        depth_profile="quick",
+        stage_runner=barrier_runner,
+    )
+
+    assert run.status == "succeeded", run.failures
+    assert maximum_active == 2
+    workflow = service.scheduler.get_workflow(run.run_id)
+    plan = workflow.inputs["analysis_depth"]["resource_plan"]
+    assert plan["concurrency_limit"] == 3
+    assert plan["estimated_cpu"] == 2.0
+    assert all(job.resources["cpu"] == 2.0 for job in service.scheduler.list_jobs(run.run_id))
+
+
 def test_concurrent_cache_and_timing_writes_match_sequential_outputs(monkeypatch, tmp_path):
-    _install_plan_estimate(monkeypatch)
+    _install_plan_estimate(monkeypatch, cpu=2.0)
     service = BulkAnalysisService(tmp_path)
     _set_test_hardware(service)
     barrier = Barrier(2, timeout=5)
@@ -270,7 +334,30 @@ def test_incompatible_mandatory_plan_fails_before_submission(monkeypatch, tmp_pa
 
 def test_mandatory_hashes_match_across_worker_and_low_resource_plans(monkeypatch, tmp_path):
     _install_plan_estimate(monkeypatch)
-    inputs = {f"ETF.{index}": {"value": index} for index in range(3)}
+    values = tuple(range(1, 131))
+    inputs = {f"ETF.{index}": {"values": values} for index in range(3)}
+    observed_plans = {"serial": [], "parallel": [], "low_resource": [], "perturbed": []}
+
+    def numerical_runner_for(plan_observations, *, numerical_adjustment=0):
+        def numerical_runner(instrument_id, analysis_input, stage, resource_plan):
+            plan_observations.append(resource_plan)
+            result = 0
+            values_to_process = analysis_input["values"]
+            for first in range(0, len(values_to_process), resource_plan.shard_size):
+                shard = values_to_process[first:first + resource_plan.shard_size]
+                if resource_plan.cpu_fallback:
+                    for value in shard:
+                        result += value
+                else:
+                    result += sum(shard)
+            return {
+                "stage_id": stage.stage_id,
+                "instrument_id": instrument_id,
+                "value": result + numerical_adjustment,
+                "passed": True,
+            }
+
+        return numerical_runner
 
     serial = BulkAnalysisService(tmp_path / "serial")
     _set_test_hardware(serial, max_concurrency=1)
@@ -278,7 +365,7 @@ def test_mandatory_hashes_match_across_worker_and_low_resource_plans(monkeypatch
         inputs,
         analyzer_id="tests.depth.parity.v1",
         depth_profile="quick",
-        stage_runner=_successful_stage_runner,
+        stage_runner=numerical_runner_for(observed_plans["serial"]),
     )
 
     parallel = BulkAnalysisService(tmp_path / "parallel")
@@ -287,7 +374,7 @@ def test_mandatory_hashes_match_across_worker_and_low_resource_plans(monkeypatch
         inputs,
         analyzer_id="tests.depth.parity.v1",
         depth_profile="quick",
-        stage_runner=_successful_stage_runner,
+        stage_runner=numerical_runner_for(observed_plans["parallel"]),
     )
 
     low_resource = BulkAnalysisService(tmp_path / "low-resource")
@@ -296,15 +383,34 @@ def test_mandatory_hashes_match_across_worker_and_low_resource_plans(monkeypatch
         inputs,
         analyzer_id="tests.depth.parity.v1",
         depth_profile="quick",
-        stage_runner=_successful_stage_runner,
+        stage_runner=numerical_runner_for(observed_plans["low_resource"]),
         low_resource=True,
     )
+
+    perturbed = BulkAnalysisService(tmp_path / "perturbed")
+    _set_test_hardware(perturbed, max_concurrency=3)
+    perturbed_run = perturbed.start(
+        inputs,
+        analyzer_id="tests.depth.parity.v1",
+        depth_profile="quick",
+        stage_runner=numerical_runner_for(observed_plans["perturbed"], numerical_adjustment=1),
+    )
+
     assert serial_run.status == "succeeded", serial_run.failures
     assert parallel_run.status == "succeeded", parallel_run.failures
     assert low_resource_run.status == "succeeded", low_resource_run.failures
+    assert perturbed_run.status == "succeeded", perturbed_run.failures
+    assert all(observed_plans.values())
     low_resource_workflow = low_resource.scheduler.get_workflow(low_resource_run.run_id)
     low_resource_plan = low_resource_workflow.inputs["analysis_depth"]["resource_plan"]
     assert low_resource_plan["shard_size"] == 1
+    serial_workflow = serial.scheduler.get_workflow(serial_run.run_id)
+    default_shard_size = serial_workflow.inputs["analysis_depth"]["resource_plan"]["shard_size"]
+    assert len(values) > default_shard_size
+    assert all(plan.shard_size == default_shard_size for plan in observed_plans["serial"])
+    assert all(plan.shard_size == default_shard_size for plan in observed_plans["parallel"])
+    assert all(plan.shard_size == 1 for plan in observed_plans["low_resource"])
+    assert all(plan.cpu_fallback for plans in observed_plans.values() for plan in plans)
 
     def mandatory_hashes(run, instrument_id):
         stage_hashes = run.results[instrument_id]["stage_hashes"]
@@ -314,3 +420,7 @@ def test_mandatory_hashes_match_across_worker_and_low_resource_plans(monkeypatch
         expected = mandatory_hashes(serial_run, instrument_id)
         assert mandatory_hashes(parallel_run, instrument_id) == expected
         assert mandatory_hashes(low_resource_run, instrument_id) == expected
+        assert all(
+            mandatory_hashes(perturbed_run, instrument_id)[stage_id] != expected[stage_id]
+            for stage_id in MANDATORY_STAGE_IDS
+        )
