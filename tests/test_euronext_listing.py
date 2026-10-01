@@ -35,6 +35,23 @@ def test_fixture_parses_euronext_format_and_rejection_reasons() -> None:
     assert [item.reason for item in parsed.rejected_rows] == ["invalid ISIN", "unknown market: Oslo OTC"]
 
 
+def test_missing_post_header_date_records_nothing(tmp_path: Path) -> None:
+    payload = (Path(__file__).parent / "fixtures" / "euronext_oslo_sample.csv").read_bytes()
+    payload = payload.replace(b"01 Oct 2026\n", b"")
+    config_path = _write_config(tmp_path, minimum_rows=1)
+
+    result = euronext_listing.capture_euronext_oslo_listing(
+        root=tmp_path / "store",
+        config_path=config_path,
+        transport=lambda *_args: (payload, 200),
+        clock=lambda: _at("2026-10-01T12:00:00+00:00"),
+    )
+
+    assert result.status == "error"
+    assert result.reason
+    assert capture_log(_SCOPE, root=tmp_path / "store").empty
+
+
 def test_capture_preserves_raw_response_and_deduplicates_same_snapshot(tmp_path: Path) -> None:
     payload = _csv_payload(
         "01 Oct 2026",
@@ -136,6 +153,9 @@ def test_next_snapshot_closes_delisted_instrument(tmp_path: Path) -> None:
 
 def test_savings_bank_view_applies_patterns_includes_and_exclusions(tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, minimum_rows=2)
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["savings_bank_include_names"].append("DNB BANK")
+    config_path.write_text(yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding="utf-8")
     rows = [
         ("SPAREBANKEN NORGE", _isin(1), "SPBN", "Oslo Børs"),
         ("VOSS VEKSEL OGLAND", _isin(2), "VOSS", "Oslo Børs"),
@@ -160,6 +180,7 @@ def test_savings_bank_view_applies_patterns_includes_and_exclusions(tmp_path: Pa
     assert set(view["symbol"]) == {"SPBN", "VOSS", "HOLAND"}
     assert set(view["yfinance_ticker"]) == {"SPBN.OL", "VOSS.OL", "HOLAND.OL"}
     assert set(view["market"]) == {"Oslo Børs", "Euronext Growth Oslo"}
+    assert _isin(4) not in set(view["isin"])
 
 
 def test_source_policy_registers_non_blocking_optional_listing_provider() -> None:
@@ -176,10 +197,10 @@ def test_source_policy_registers_non_blocking_optional_listing_provider() -> Non
 def _csv_payload(date_text: str, rows: list[tuple[str, str, str, str]]) -> bytes:
     stream = io.StringIO(newline="")
     writer = csv.writer(stream, delimiter=";", lineterminator="\n")
+    writer.writerow(["Name", "ISIN", "Symbol", "Market", "Currency", "Sector"])
     writer.writerow(["European Equities"])
     writer.writerow([date_text])
     writer.writerow(["Public synthetic listing sample."])
-    writer.writerow(["Name", "ISIN", "Symbol", "Market", "Currency", "Sector"])
     for name, isin, symbol, market in rows:
         writer.writerow([name, isin, symbol, market, "NOK", "Financials"])
     return b"\xef\xbb\xbf" + stream.getvalue().encode("utf-8")

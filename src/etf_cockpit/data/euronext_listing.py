@@ -230,13 +230,13 @@ def parse_euronext_listing(payload: bytes, config: EuronextListingConfig | None 
             break
     if header_index is None:
         raise EuronextListingError("Euronext listing CSV is missing the instrument header")
-    as_of_date = _preamble_date(records[:header_index])
+    as_of_date = _preamble_date(records[header_index + 1 : header_index + 4])
     positions = {name: header.index(name) for name in ("name", "isin", "symbol", "market", "currency")}
     accepted: list[dict[str, str]] = []
     rejected: list[ListingRejection] = []
     seen_isins: set[str] = set()
     allowed_markets = set(active_config.markets)
-    for row_number, record in enumerate(records[header_index + 1 :], start=header_index + 2):
+    for row_number, record in enumerate(records[header_index + 4 :], start=header_index + 5):
         if not record or not any(value.strip() for value in record):
             continue
         raw_isin = record[positions["isin"]].strip() if len(record) > positions["isin"] else ""
