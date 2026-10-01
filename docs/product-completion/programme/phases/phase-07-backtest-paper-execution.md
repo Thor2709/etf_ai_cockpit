@@ -50,16 +50,16 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0031` | `P1` | `integrated` | `trading-safety` | - | - | `ISSUE-0129` | `ISSUE-0125`, `ISSUE-0127`, `ISSUE-0130` |
 | `ISSUE-0032` | `P2` | `integrated` | `trading-safety` | - | - | `ISSUE-0070` | `ISSUE-0070`, `ISSUE-0131`, `ISSUE-0135` |
 | `ISSUE-0057` | `P1` | `integrated` | `trading-safety` | - | - | `ISSUE-0129` | `ISSUE-0075`, `ISSUE-0129`, `ISSUE-0147` |
-| `ISSUE-0066` | `P2` | `in_progress` | `trading-safety` | - | - | `ISSUE-0070`, `ISSUE-0131` | `ISSUE-0070`, `ISSUE-0127`, `ISSUE-0131`, `ISSUE-0135` |
+| `ISSUE-0066` | `P2` | `integrated` | `trading-safety` | - | - | `ISSUE-0070`, `ISSUE-0131` | `ISSUE-0070`, `ISSUE-0127`, `ISSUE-0131`, `ISSUE-0135` |
 | `ISSUE-0125` | `P0` | `integrated` | `backtest-and-paper` | `ISSUE-0028`, `ISSUE-0050` | - | - | - |
-| `ISSUE-0126` | `P0` | `in_progress` | `backtest-and-paper` | `ISSUE-0073`, `ISSUE-0082` | - | `ISSUE-0165` | - |
-| `ISSUE-0127` | `P0` | `in_progress` | `trading-safety` | `ISSUE-0072`, `ISSUE-0084` | - | `ISSUE-0131`, `ISSUE-0142`, `ISSUE-0159`, `ISSUE-0161`, `ISSUE-0162`, `ISSUE-0163`, `ISSUE-0164`, `ISSUE-0167`, `ISSUE-0168` | - |
+| `ISSUE-0126` | `P0` | `integrated` | `backtest-and-paper` | `ISSUE-0073`, `ISSUE-0082` | - | `ISSUE-0165` | - |
+| `ISSUE-0127` | `P0` | `integrated` | `trading-safety` | `ISSUE-0072`, `ISSUE-0084` | - | `ISSUE-0131`, `ISSUE-0142`, `ISSUE-0159`, `ISSUE-0161`, `ISSUE-0162`, `ISSUE-0163`, `ISSUE-0164`, `ISSUE-0167`, `ISSUE-0168` | - |
 | `ISSUE-0128` | `P0/P1` | `integrated` | `trading-safety` | `ISSUE-0064` | - | `ISSUE-0106`, `ISSUE-0166`, `ISSUE-0172`, `ISSUE-0174` | `ISSUE-0106` |
 | `ISSUE-0129` | `P0` | `integrated` | `backtest-and-paper` | `ISSUE-0031`, `ISSUE-0057` | - | - | - |
 | `ISSUE-0130` | `P0` | `integrated` | `trading-safety` | `ISSUE-0070`, `ISSUE-0114` | - | `ISSUE-0167` | - |
-| `ISSUE-0131` | `P0/P1` | `in_progress` | `trading-safety` | `ISSUE-0066`, `ISSUE-0127` | - | `ISSUE-0132`, `ISSUE-0134`, `ISSUE-0135`, `ISSUE-0167` | - |
-| `ISSUE-0132` | `P0` | `in_progress` | `trading-safety` | `ISSUE-0131` | - | `ISSUE-0133`, `ISSUE-0135`, `ISSUE-0142` | - |
-| `ISSUE-0133` | `P0` | `in_progress` | `trading-safety` | `ISSUE-0132` | - | - | - |
-| `ISSUE-0134` | `P1` | `in_progress` | `trading-safety` | `ISSUE-0116`, `ISSUE-0131` | - | - | - |
-| `ISSUE-0135` | `P0` | `in_progress` | `trading-safety` | `ISSUE-0131`, `ISSUE-0132` | - | - | - |
-| `ISSUE-0167` | `P0` | `in_progress` | `trading-safety` | `ISSUE-0085`, `ISSUE-0114`, `ISSUE-0127`, `ISSUE-0130`, `ISSUE-0131` | - | `ISSUE-0169` | - |
+| `ISSUE-0131` | `P0/P1` | `integrated` | `trading-safety` | `ISSUE-0066`, `ISSUE-0127` | - | `ISSUE-0132`, `ISSUE-0134`, `ISSUE-0135`, `ISSUE-0167` | - |
+| `ISSUE-0132` | `P0` | `integrated` | `trading-safety` | `ISSUE-0131` | - | `ISSUE-0133`, `ISSUE-0135`, `ISSUE-0142` | - |
+| `ISSUE-0133` | `P0` | `integrated` | `trading-safety` | `ISSUE-0132` | - | - | - |
+| `ISSUE-0134` | `P1` | `integrated` | `trading-safety` | `ISSUE-0116`, `ISSUE-0131` | - | - | - |
+| `ISSUE-0135` | `P0` | `integrated` | `trading-safety` | `ISSUE-0131`, `ISSUE-0132` | - | - | - |
+| `ISSUE-0167` | `P0` | `integrated` | `trading-safety` | `ISSUE-0085`, `ISSUE-0114`, `ISSUE-0127`, `ISSUE-0130`, `ISSUE-0131` | - | `ISSUE-0169` | - |

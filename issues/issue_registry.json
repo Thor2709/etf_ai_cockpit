@@ -10683,6 +10683,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #825; merge b646f21feb60d30022ff8c1364378497af4084d8.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge b646f21feb60d30022ff8c1364378497af4084d8) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge b646f21feb60d30022ff8c1364378497af4084d8; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #825; merge b646f21feb60d30022ff8c1364378497af4084d8.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge b646f21feb60d30022ff8c1364378497af4084d8) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge b646f21feb60d30022ff8c1364378497af4084d8; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -10708,7 +10730,7 @@
       "package_status": "Open",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P1/P2",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -10733,7 +10755,7 @@
       "source_record_id": "ISSUE-0029",
       "source_title": "Strategy template builder",
       "title": "Strategy template builder",
-      "verified_commit": "b646f21feb60d30022ff8c1364378497af4084d8",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "A user-configurable blend can otherwise bypass validation or hide an overfit strategy.",
       "write_conflict_group": "analysis-and-validation"
@@ -11666,6 +11688,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #830; merge bad6180ebf2c3c47627a440eed9ad39eee54fac8.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge bad6180ebf2c3c47627a440eed9ad39eee54fac8) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge bad6180ebf2c3c47627a440eed9ad39eee54fac8; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #830; merge bad6180ebf2c3c47627a440eed9ad39eee54fac8.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge bad6180ebf2c3c47627a440eed9ad39eee54fac8) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge bad6180ebf2c3c47627a440eed9ad39eee54fac8; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -11692,7 +11736,7 @@
       "package_status": "Open",
       "phase": "phase-08-frontend-api",
       "priority": "P2",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -11716,7 +11760,7 @@
       "source_record_id": "ISSUE-0043",
       "source_title": "User manual, glossary and in-app explanations",
       "title": "User manual, glossary and in-app explanations",
-      "verified_commit": "bad6180ebf2c3c47627a440eed9ad39eee54fac8",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Advanced calculations are unsafe if users cannot distinguish evidence, assumptions, uncertainty and authority.",
       "write_conflict_group": "frontend-and-api"
@@ -12746,6 +12790,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #825; merge b646f21feb60d30022ff8c1364378497af4084d8.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge b646f21feb60d30022ff8c1364378497af4084d8) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge b646f21feb60d30022ff8c1364378497af4084d8; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #825; merge b646f21feb60d30022ff8c1364378497af4084d8.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge b646f21feb60d30022ff8c1364378497af4084d8) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge b646f21feb60d30022ff8c1364378497af4084d8; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -12770,7 +12836,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P2",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -12794,7 +12860,7 @@
       "source_record_id": "ISSUE-0058",
       "source_title": "Closed-source/promotional-claim detector for imported notes",
       "title": "Closed-source/promotional-claim detector for imported notes",
-      "verified_commit": "b646f21feb60d30022ff8c1364378497af4084d8",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Marketing claims and screenshots are common but are not reproducible evidence.",
       "write_conflict_group": "programme-governance"
@@ -13238,6 +13304,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #836; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #836; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -13267,7 +13355,7 @@
       "package_status": "Open",
       "phase": "phase-07-backtest-paper-execution",
       "priority": "P2",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -13295,7 +13383,7 @@
       "source_record_id": "ISSUE-0066",
       "source_title": "Source-of-truth and reconciliation architecture for future execution",
       "title": "Source-of-truth and reconciliation architecture for future execution",
-      "verified_commit": "8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Paper, local and broker states inevitably diverge; the broker account must remain operational truth.",
       "write_conflict_group": "trading-safety"
@@ -16406,6 +16494,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #827; merge 3fac0abe440bc9867d226fa29e5bff369a0fb2cd.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 3fac0abe440bc9867d226fa29e5bff369a0fb2cd) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 3fac0abe440bc9867d226fa29e5bff369a0fb2cd; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #827; merge 3fac0abe440bc9867d226fa29e5bff369a0fb2cd.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 3fac0abe440bc9867d226fa29e5bff369a0fb2cd) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 3fac0abe440bc9867d226fa29e5bff369a0fb2cd; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -16459,7 +16569,7 @@
       "package_status": "",
       "phase": "phase-03-stock-research",
       "priority": "P0/P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -16487,7 +16597,7 @@
       ],
       "title": "Add cash-flow quality, capital allocation, shareholder yield and dilution analysis",
       "ui_requirement": "Cash Flow and Capital Allocation panels with waterfall and history.",
-      "verified_commit": "3fac0abe440bc9867d226fa29e5bff369a0fb2cd",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Long-term returns depend on how management converts earnings and deploys capital.",
       "write_conflict_group": "stock-research"
@@ -17807,6 +17917,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #829; merge ad0518cc5435b0a992d01b50b7c4f29ad4ba7769.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge ad0518cc5435b0a992d01b50b7c4f29ad4ba7769) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge ad0518cc5435b0a992d01b50b7c4f29ad4ba7769; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #829; merge ad0518cc5435b0a992d01b50b7c4f29ad4ba7769.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge ad0518cc5435b0a992d01b50b7c4f29ad4ba7769) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge ad0518cc5435b0a992d01b50b7c4f29ad4ba7769; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -17870,7 +18002,7 @@
       "package_status": "",
       "phase": "phase-04-etf-research",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#user-requirements-delta-issue-0082-issue-0083-issue-0105-and-issue-0098-fund-identity-and-peer-semantics"
@@ -17900,7 +18032,7 @@
       ],
       "title": "Build complete ETF look-through exposure, factor, valuation and quality analytics",
       "ui_requirement": "Interactive exposure tree, overlap, factor and valuation views.",
-      "verified_commit": "ad0518cc5435b0a992d01b50b7c4f29ad4ba7769",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "ETF selection and portfolio risk require coverage-adjusted look-through to issuers, sectors, countries, currencies and factors.",
       "write_conflict_group": "etf-research"
@@ -18020,6 +18152,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #829; merge ad0518cc5435b0a992d01b50b7c4f29ad4ba7769.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge ad0518cc5435b0a992d01b50b7c4f29ad4ba7769) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge ad0518cc5435b0a992d01b50b7c4f29ad4ba7769; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #829; merge ad0518cc5435b0a992d01b50b7c4f29ad4ba7769.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge ad0518cc5435b0a992d01b50b7c4f29ad4ba7769) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge ad0518cc5435b0a992d01b50b7c4f29ad4ba7769; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -18075,7 +18229,7 @@
       "package_status": "",
       "phase": "phase-04-etf-research",
       "priority": "P1/P2",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -18103,7 +18257,7 @@
       ],
       "title": "Add ETF domicile, tax, distribution, currency and hedging context",
       "ui_requirement": "ETF Tax & Currency context and portfolio exposure view.",
-      "verified_commit": "ad0518cc5435b0a992d01b50b7c4f29ad4ba7769",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Portfolio fit and net-return estimates need transparent jurisdiction and currency context without becoming personal tax advice.",
       "write_conflict_group": "etf-research"
@@ -18125,6 +18279,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #835; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #835; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -18207,7 +18383,7 @@
       "package_status": "",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0108-horizon-aware-probabilistic-total-return-distributions",
@@ -18238,7 +18414,7 @@
       ],
       "title": "Implement horizon-aware probabilistic total-return distributions",
       "ui_requirement": "Expected Return panel with horizon selector, fan chart, scenarios and decomposition.",
-      "verified_commit": "8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Both final product functions require expected net return, downside and uncertainty for selectable horizons.",
       "write_conflict_group": "returns-and-risk"
@@ -19857,6 +20033,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #835; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #835; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -19927,7 +20125,7 @@
       "package_status": "",
       "phase": "phase-06-model-research",
       "priority": "P0/P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0123-probabilistic-and-conformal-forecast-calibration",
@@ -19958,7 +20156,7 @@
       ],
       "title": "Implement probabilistic and conformal forecast calibration",
       "ui_requirement": "Forecast calibration dashboard and reliability diagrams.",
-      "verified_commit": "8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Return distributions need empirically checked coverage and adaptation to model misspecification.",
       "write_conflict_group": "model-governance"
@@ -19980,6 +20178,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #835; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #835; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -20044,7 +20264,7 @@
       "package_status": "",
       "phase": "phase-06-model-research",
       "priority": "P0/P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0124-model-monitoring-drift-champion-challenger-and-retirement",
@@ -20075,7 +20295,7 @@
       ],
       "title": "Implement model monitoring, drift, champion/challenger and retirement governance",
       "ui_requirement": "Model Operations page and What Matters digest.",
-      "verified_commit": "8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Paper and live authority require continuous performance, data and operational monitoring.",
       "write_conflict_group": "model-governance"
@@ -20208,6 +20428,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: evidence-only (implemented on main; PREP gap check); merge 3850f4771086bfd55c84330fc16ec2dd27ffd270.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 3850f4771086bfd55c84330fc16ec2dd27ffd270) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 3850f4771086bfd55c84330fc16ec2dd27ffd270; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: evidence-only (implemented on main; PREP gap check); merge 3850f4771086bfd55c84330fc16ec2dd27ffd270.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 3850f4771086bfd55c84330fc16ec2dd27ffd270) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 3850f4771086bfd55c84330fc16ec2dd27ffd270; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -20269,7 +20511,7 @@
       "package_status": "",
       "phase": "phase-07-backtest-paper-execution",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0126-point-in-time-universes-delistings-and-survivorship-bias-controls"
@@ -20299,7 +20541,7 @@
       ],
       "title": "Implement point-in-time universes, delistings and survivorship-bias controls",
       "ui_requirement": "Backtest Universe and Coverage panels.",
-      "verified_commit": "3850f4771086bfd55c84330fc16ec2dd27ffd270",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Survivorship and selection bias can materially overstate long-term strategy performance.",
       "write_conflict_group": "backtest-and-paper"
@@ -20321,6 +20563,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #831; merge 34e7e8ecb02004f67681d4380a61c72bb5d16554.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 34e7e8ecb02004f67681d4380a61c72bb5d16554) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 34e7e8ecb02004f67681d4380a61c72bb5d16554; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #831; merge 34e7e8ecb02004f67681d4380a61c72bb5d16554.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 34e7e8ecb02004f67681d4380a61c72bb5d16554) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 34e7e8ecb02004f67681d4380a61c72bb5d16554; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -20405,7 +20669,7 @@
       "package_status": "",
       "phase": "phase-07-backtest-paper-execution",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0127-double-entry-portfolio-cash-fx-fee-tax-and-corporate-action-ledger",
@@ -20439,7 +20703,7 @@
       ],
       "title": "Create the double-entry portfolio, cash, FX, fee, tax and corporate-action ledger",
       "ui_requirement": "Portfolio ledger, cash, lots and reconciliation views.",
-      "verified_commit": "34e7e8ecb02004f67681d4380a61c72bb5d16554",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Orders and fills must reconcile positions, cash, income, fees, FX and corporate actions across restarts.",
       "write_conflict_group": "trading-safety"
@@ -20795,6 +21059,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #836; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #836; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -20859,7 +21145,7 @@
       "package_status": "",
       "phase": "phase-07-backtest-paper-execution",
       "priority": "P0/P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0131-broker-adapter-contracts-read-only-synchronisation-and-reconciliation"
@@ -20891,7 +21177,7 @@
       ],
       "title": "Implement broker adapter contracts, read-only synchronisation and reconciliation",
       "ui_requirement": "Broker Status, Reconciliation and read-only account views.",
-      "verified_commit": "8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Read-only account reconciliation is the prerequisite for safe order submission.",
       "write_conflict_group": "trading-safety"
@@ -20913,6 +21199,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #836; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #836; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -20966,7 +21274,7 @@
       "package_status": "",
       "phase": "phase-07-backtest-paper-execution",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0132-independent-pre-trade-controls-kill-switches-and-operational-limits"
@@ -20998,7 +21306,7 @@
       ],
       "title": "Implement independent pre-trade controls, kill switches and operational limits",
       "ui_requirement": "Risk Controls console with current headroom and kill switch.",
-      "verified_commit": "8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Automatic or manual order submission requires independent hard controls.",
       "write_conflict_group": "trading-safety"
@@ -21020,6 +21328,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #836; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #836; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [
@@ -21072,7 +21402,7 @@
       "package_status": "",
       "phase": "phase-07-backtest-paper-execution",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0133-staged-canary-live-execution-with-explicit-promotion-gates"
@@ -21104,7 +21434,7 @@
       ],
       "title": "Implement staged canary live execution with explicit promotion gates",
       "ui_requirement": "Live Operations workspace with unmistakable stage, limits and confirmations.",
-      "verified_commit": "8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "A canary stage limits financial and operational harm while validating the complete system.",
       "write_conflict_group": "trading-safety"
@@ -21126,6 +21456,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #826; merge 3e511dae24e0b2e5289ab46f5ad39c7e7f106c3b.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 3e511dae24e0b2e5289ab46f5ad39c7e7f106c3b) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 3e511dae24e0b2e5289ab46f5ad39c7e7f106c3b; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #826; merge 3e511dae24e0b2e5289ab46f5ad39c7e7f106c3b.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 3e511dae24e0b2e5289ab46f5ad39c7e7f106c3b) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 3e511dae24e0b2e5289ab46f5ad39c7e7f106c3b; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -21185,7 +21537,7 @@
       "package_status": "",
       "phase": "phase-07-backtest-paper-execution",
       "priority": "P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0134-post-trade-performance-and-transaction-cost-attribution"
@@ -21217,7 +21569,7 @@
       ],
       "title": "Implement post-trade transaction-cost, execution-quality and decision attribution",
       "ui_requirement": "TCA dashboard and per-order drill-down.",
-      "verified_commit": "3e511dae24e0b2e5289ab46f5ad39c7e7f106c3b",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Execution improvement and strategy evaluation require separating alpha, timing, costs and operational slippage.",
       "write_conflict_group": "trading-safety"
@@ -21239,6 +21591,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #828; merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #828; merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -21298,7 +21672,7 @@
       "package_status": "",
       "phase": "phase-07-backtest-paper-execution",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0135-incident-recovery-reconciliation-and-operational-drills"
@@ -21330,7 +21704,7 @@
       ],
       "title": "Implement incident management, recovery, reconciliation and operational drills",
       "ui_requirement": "Incidents & Recovery operations centre.",
-      "verified_commit": "190ef7ed5b2a5e76cbad776ce632a9d279d813ac",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Safety depends on rehearsed recovery, not only code-path unit tests.",
       "write_conflict_group": "trading-safety"
@@ -21965,6 +22339,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #844; merge bbe087e78e92fd5284b017f725550e1afb29b0a0.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge bbe087e78e92fd5284b017f725550e1afb29b0a0) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge bbe087e78e92fd5284b017f725550e1afb29b0a0; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #844; merge bbe087e78e92fd5284b017f725550e1afb29b0a0.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge bbe087e78e92fd5284b017f725550e1afb29b0a0) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge bbe087e78e92fd5284b017f725550e1afb29b0a0; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -22042,7 +22438,7 @@
       "package_status": "",
       "phase": "phase-09-quality-release-security",
       "priority": "P0/P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0142-and-issue-0143-advanced-e2e-load-soak-fault-and-chaos-testing",
@@ -22072,7 +22468,7 @@
       ],
       "title": "Add property, metamorphic, golden, differential and mutation testing",
       "ui_requirement": "Quality dashboard shows invariant/domain coverage, not only line coverage.",
-      "verified_commit": "bbe087e78e92fd5284b017f725550e1afb29b0a0",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Small numerical or control-flow regressions can produce plausible but dangerous outputs.",
       "write_conflict_group": "quality-and-release"
@@ -22526,6 +22922,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: evidence-only (implemented on main; PREP gap check); merge 3850f4771086bfd55c84330fc16ec2dd27ffd270.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 3850f4771086bfd55c84330fc16ec2dd27ffd270) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 3850f4771086bfd55c84330fc16ec2dd27ffd270; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: evidence-only (implemented on main; PREP gap check); merge 3850f4771086bfd55c84330fc16ec2dd27ffd270.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 3850f4771086bfd55c84330fc16ec2dd27ffd270) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 3850f4771086bfd55c84330fc16ec2dd27ffd270; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -22585,7 +23003,7 @@
       "package_status": "",
       "phase": "phase-10-audit-documentation-governance",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0147-sealed-audit-packet-v3"
@@ -22615,7 +23033,7 @@
       ],
       "title": "Deliver audit packet v3 and one-command deterministic reproduction",
       "ui_requirement": "Audit workspace with packet scope, privacy and verification result.",
-      "verified_commit": "3850f4771086bfd55c84330fc16ec2dd27ffd270",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "A developer or reviewer must reproduce any analysis or decision without trusting screenshots.",
       "write_conflict_group": "audit-and-reproducibility"
@@ -23792,6 +24210,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #841; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #841; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -23908,7 +24348,7 @@
       "package_status": "planned",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P0/P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -23928,7 +24368,7 @@
       "source_record_id": "ISSUE-0157",
       "source_title": "Build fixed-income expected total-return distributions, peers and screener",
       "title": "Build fixed-income expected total-return distributions, peers and screener",
-      "verified_commit": "8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "returns-and-risk"
     },
@@ -23949,6 +24389,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #841; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #841; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -24094,7 +24556,7 @@
       "package_status": "planned",
       "phase": "phase-08-frontend-api",
       "priority": "P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -24114,7 +24576,7 @@
       "source_record_id": "ISSUE-0158",
       "source_title": "Create bond detail, portfolio maturity ladder and fixed-income income views",
       "title": "Create bond detail, portfolio maturity ladder and fixed-income income views",
-      "verified_commit": "8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "frontend-and-api"
     },
@@ -24138,6 +24600,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #826; merge 3e511dae24e0b2e5289ab46f5ad39c7e7f106c3b.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 3e511dae24e0b2e5289ab46f5ad39c7e7f106c3b) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 3e511dae24e0b2e5289ab46f5ad39c7e7f106c3b; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #826; merge 3e511dae24e0b2e5289ab46f5ad39c7e7f106c3b.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 3e511dae24e0b2e5289ab46f5ad39c7e7f106c3b) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 3e511dae24e0b2e5289ab46f5ad39c7e7f106c3b; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -24200,7 +24684,7 @@
       "package_status": "planned",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#user-requirements-delta-issue-0114-issue-0127-and-issue-0159-reduce-tax-scope-to-optional-bookkeeping"
@@ -24224,7 +24708,7 @@
       "source_record_id": "ISSUE-0159",
       "source_title": "Implement daily portfolio valuation history and standards-aligned performance measurement",
       "title": "Implement daily portfolio valuation history and standards-aligned performance measurement",
-      "verified_commit": "3e511dae24e0b2e5289ab46f5ad39c7e7f106c3b",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "returns-and-risk"
     },
@@ -24246,6 +24730,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #839; merge 18e52e495f341cafe059174ba4951b15fd0822be.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 18e52e495f341cafe059174ba4951b15fd0822be) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 18e52e495f341cafe059174ba4951b15fd0822be; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #839; merge 18e52e495f341cafe059174ba4951b15fd0822be.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 18e52e495f341cafe059174ba4951b15fd0822be) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 18e52e495f341cafe059174ba4951b15fd0822be; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -24289,7 +24795,7 @@
       "package_status": "planned",
       "phase": "phase-08-frontend-api",
       "priority": "P0/P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -24309,7 +24815,7 @@
       "source_record_id": "ISSUE-0160",
       "source_title": "Build selectable portfolio value, selected-currency P&L and percentage-performance charts",
       "title": "Build selectable portfolio value, selected-currency P&L and percentage-performance charts",
-      "verified_commit": "18e52e495f341cafe059174ba4951b15fd0822be",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "frontend-and-api"
     },
@@ -24330,6 +24836,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #842; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #842; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -24409,7 +24937,7 @@
       "package_status": "planned",
       "phase": "phase-08-frontend-api",
       "priority": "P0/P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -24429,7 +24957,7 @@
       "source_record_id": "ISSUE-0161",
       "source_title": "Build the portfolio holdings analysis table and cross-surface drill-down",
       "title": "Build the portfolio holdings analysis table and cross-surface drill-down",
-      "verified_commit": "8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "frontend-and-api"
     },
@@ -24450,6 +24978,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #837; merge a3b592e5f0fc5f4c16b1b6b842a51139815309ab.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge a3b592e5f0fc5f4c16b1b6b842a51139815309ab) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge a3b592e5f0fc5f4c16b1b6b842a51139815309ab; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #837; merge a3b592e5f0fc5f4c16b1b6b842a51139815309ab.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge a3b592e5f0fc5f4c16b1b6b842a51139815309ab) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge a3b592e5f0fc5f4c16b1b6b842a51139815309ab; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -24526,7 +25076,7 @@
       "package_status": "planned",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -24546,7 +25096,7 @@
       "source_record_id": "ISSUE-0162",
       "source_title": "Implement coverage-aware portfolio exposure, look-through and concentration charts",
       "title": "Implement coverage-aware portfolio exposure, look-through and concentration charts",
-      "verified_commit": "a3b592e5f0fc5f4c16b1b6b842a51139815309ab",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "returns-and-risk"
     },
@@ -24567,6 +25117,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #842; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #842; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -24652,7 +25224,7 @@
       "package_status": "planned",
       "phase": "phase-08-frontend-api",
       "priority": "P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -24672,7 +25244,7 @@
       "source_record_id": "ISSUE-0163",
       "source_title": "Implement portfolio income, event, maturity and liquidity calendar",
       "title": "Implement portfolio income, event, maturity and liquidity calendar",
-      "verified_commit": "8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "frontend-and-api"
     },
@@ -24693,6 +25265,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #842; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #842; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -24796,7 +25390,7 @@
       "package_status": "planned",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -24816,7 +25410,7 @@
       "source_record_id": "ISSUE-0164",
       "source_title": "Add portfolio goals, constraints, alerts and pre-trade what-if analysis",
       "title": "Add portfolio goals, constraints, alerts and pre-trade what-if analysis",
-      "verified_commit": "8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "programme-governance"
     },
@@ -24838,6 +25432,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #847; merge ed1998518919e577d5fb1acae2d32a02bba33342.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge ed1998518919e577d5fb1acae2d32a02bba33342) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge ed1998518919e577d5fb1acae2d32a02bba33342; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #847; merge ed1998518919e577d5fb1acae2d32a02bba33342.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge ed1998518919e577d5fb1acae2d32a02bba33342) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge ed1998518919e577d5fb1acae2d32a02bba33342; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -24936,7 +25552,7 @@
       "package_status": "planned",
       "phase": "phase-08-frontend-api",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#user-requirements-delta-issue-0018-issue-0020-issue-0165-and-issue-0166-multidimensional-top-n-contract",
@@ -24959,7 +25575,7 @@
       "source_record_id": "ISSUE-0165",
       "source_title": "Implement a canonical resumable bulk analysis-run orchestrator",
       "title": "Implement a canonical resumable bulk analysis-run orchestrator",
-      "verified_commit": "ed1998518919e577d5fb1acae2d32a02bba33342",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "application-platform"
     },
@@ -24981,6 +25597,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #845; merge 79e1df79a5bcae38a4ba6b0a07f4899589c1fd29.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 79e1df79a5bcae38a4ba6b0a07f4899589c1fd29) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 79e1df79a5bcae38a4ba6b0a07f4899589c1fd29; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #845; merge 79e1df79a5bcae38a4ba6b0a07f4899589c1fd29.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 79e1df79a5bcae38a4ba6b0a07f4899589c1fd29) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 79e1df79a5bcae38a4ba6b0a07f4899589c1fd29; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -25110,7 +25748,7 @@
       "package_status": "planned",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P0/P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#user-requirements-delta-issue-0018-issue-0020-issue-0165-and-issue-0166-multidimensional-top-n-contract"
@@ -25132,7 +25770,7 @@
       "source_record_id": "ISSUE-0166",
       "source_title": "Implement cross-asset top-*N* selection and portfolio-fit ranking",
       "title": "Implement cross-asset top-*N* selection and portfolio-fit ranking",
-      "verified_commit": "79e1df79a5bcae38a4ba6b0a07f4899589c1fd29",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "returns-and-risk"
     },
@@ -25154,6 +25792,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #836; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #836; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -25229,7 +25889,7 @@
       "package_status": "planned",
       "phase": "phase-07-backtest-paper-execution",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -25252,7 +25912,7 @@
       "source_record_id": "ISSUE-0167",
       "source_title": "Implement settlement, buying-power, cash reservation and deterministic order-state accounting",
       "title": "Implement settlement, buying-power, cash reservation and deterministic order-state accounting",
-      "verified_commit": "8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "trading-safety"
     },
@@ -25273,6 +25933,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #842; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #842; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -25366,7 +26048,7 @@
       "package_status": "planned",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -25386,7 +26068,7 @@
       "source_record_id": "ISSUE-0168",
       "source_title": "Add portfolio forecast aggregation and expected gain/loss scenario views",
       "title": "Add portfolio forecast aggregation and expected gain/loss scenario views",
-      "verified_commit": "8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "returns-and-risk"
     },
@@ -25408,6 +26090,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #845; merge 79e1df79a5bcae38a4ba6b0a07f4899589c1fd29.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 79e1df79a5bcae38a4ba6b0a07f4899589c1fd29) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 79e1df79a5bcae38a4ba6b0a07f4899589c1fd29; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #845; merge 79e1df79a5bcae38a4ba6b0a07f4899589c1fd29.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 79e1df79a5bcae38a4ba6b0a07f4899589c1fd29) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 79e1df79a5bcae38a4ba6b0a07f4899589c1fd29; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -25497,7 +26201,7 @@
       "package_status": "planned",
       "phase": "phase-09-quality-release-security",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#user-requirements-delta-issue-0169-issue-0142-and-issue-0152-user-contract-parity-release-gate"
@@ -25519,7 +26223,7 @@
       "source_record_id": "ISSUE-0169",
       "source_title": "Implement canonical analysis parity and deterministic replay tests across workflows",
       "title": "Implement canonical analysis parity and deterministic replay tests across workflows",
-      "verified_commit": "79e1df79a5bcae38a4ba6b0a07f4899589c1fd29",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "quality-and-release"
     },
@@ -25542,6 +26246,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #828; merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #828; merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -25618,7 +26344,7 @@
       "package_status": "planned",
       "phase": "phase-02-data-policy-identity",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -25638,7 +26364,7 @@
       "source_record_id": "ISSUE-0170",
       "source_title": "Create the ordinary-fund vehicle, sub-fund, share-class, dealing and lifecycle identity master",
       "title": "Create the ordinary-fund vehicle, sub-fund, share-class, dealing and lifecycle identity master",
-      "verified_commit": "190ef7ed5b2a5e76cbad776ce632a9d279d813ac",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "data-platform"
     },
@@ -25661,6 +26387,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #846; merge dcebfd899560b30c573eed6a3d4a08e03b19d367.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge dcebfd899560b30c573eed6a3d4a08e03b19d367) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge dcebfd899560b30c573eed6a3d4a08e03b19d367; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #846; merge dcebfd899560b30c573eed6a3d4a08e03b19d367.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge dcebfd899560b30c573eed6a3d4a08e03b19d367) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge dcebfd899560b30c573eed6a3d4a08e03b19d367; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -25746,7 +26494,7 @@
       "package_status": "planned",
       "phase": "phase-02-data-policy-identity",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -25766,7 +26514,7 @@
       "source_record_id": "ISSUE-0171",
       "source_title": "Implement lawful free global ordinary-fund NAV, disclosure, holdings and fee adapters",
       "title": "Implement lawful free global ordinary-fund NAV, disclosure, holdings and fee adapters",
-      "verified_commit": "dcebfd899560b30c573eed6a3d4a08e03b19d367",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "data-platform"
     },
@@ -25984,6 +26732,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #828; merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #828; merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 190ef7ed5b2a5e76cbad776ce632a9d279d813ac; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -26070,7 +26840,7 @@
       "package_status": "planned",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26090,7 +26860,7 @@
       "source_record_id": "ISSUE-0173",
       "source_title": "Implement user-selected output currency and point-in-time FX across every workflow",
       "title": "Implement user-selected output currency and point-in-time FX across every workflow",
-      "verified_commit": "190ef7ed5b2a5e76cbad776ce632a9d279d813ac",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "returns-and-risk"
     },
@@ -26112,6 +26882,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #842; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #842; merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -26238,7 +27030,7 @@
       "package_status": "planned",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#user-requirements-delta-issue-0112-and-issue-0174-dependency-dynamic-vwce-anchor-and-benchmark-hierarchy",
@@ -26261,7 +27053,7 @@
       "source_record_id": "ISSUE-0174",
       "source_title": "Implement five preset-but-editable risk profiles anchored to a dynamic VWCE envelope",
       "title": "Implement five preset-but-editable risk profiles anchored to a dynamic VWCE envelope",
-      "verified_commit": "8f4ac1ebfa598225c9ecc6850cafa37e66d8f32d",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "programme-governance"
     },
@@ -26410,6 +27202,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #846; merge dcebfd899560b30c573eed6a3d4a08e03b19d367.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge dcebfd899560b30c573eed6a3d4a08e03b19d367) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge dcebfd899560b30c573eed6a3d4a08e03b19d367; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #846; merge dcebfd899560b30c573eed6a3d4a08e03b19d367.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge dcebfd899560b30c573eed6a3d4a08e03b19d367) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge dcebfd899560b30c573eed6a3d4a08e03b19d367; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -26512,7 +27326,7 @@
       "package_status": "planned",
       "phase": "phase-09-quality-release-security",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#user-requirements-delta-issue-0144-issue-0145-issue-0146-and-issue-0176-secure-local-provider-credentials"
@@ -26536,7 +27350,7 @@
       "source_record_id": "ISSUE-0176",
       "source_title": "Build a secure Data Providers & API Keys settings centre",
       "title": "Build a secure Data Providers & API Keys settings centre",
-      "verified_commit": "dcebfd899560b30c573eed6a3d4a08e03b19d367",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "security-and-release"
     },
@@ -27177,6 +27991,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #824; merge 0e14597895317744a8ec55e6a75629f834abd060.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 0e14597895317744a8ec55e6a75629f834abd060) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 0e14597895317744a8ec55e6a75629f834abd060; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #824; merge 0e14597895317744a8ec55e6a75629f834abd060.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 0e14597895317744a8ec55e6a75629f834abd060) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 0e14597895317744a8ec55e6a75629f834abd060; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -27235,7 +28071,7 @@
       "package_status": "",
       "phase": "phase-02-data-policy-identity",
       "priority": "P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -27277,7 +28113,7 @@
         ],
         "tier": "O"
       },
-      "verified_commit": "0e14597895317744a8ec55e6a75629f834abd060",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "write_conflict_group": "data-platform"
     },
@@ -28131,6 +28967,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #824; merge 0e14597895317744a8ec55e6a75629f834abd060.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 0e14597895317744a8ec55e6a75629f834abd060) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 0e14597895317744a8ec55e6a75629f834abd060; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #824; merge 0e14597895317744a8ec55e6a75629f834abd060.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 0e14597895317744a8ec55e6a75629f834abd060) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 0e14597895317744a8ec55e6a75629f834abd060; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -28155,7 +29013,7 @@
       "package_status": "Open",
       "phase": "phase-02-data-policy-identity",
       "priority": "P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -28179,7 +29037,7 @@
       "source_record_id": "UPDATEV2-0023",
       "source_title": "FMP optional provider adapter",
       "title": "FMP optional provider adapter (original update ISSUE-0023)",
-      "verified_commit": "0e14597895317744a8ec55e6a75629f834abd060",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Vendor fundamentals can improve coverage but cannot be assumed free, unlimited or official.",
       "write_conflict_group": "data-and-evidence"
@@ -28195,6 +29053,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #824; merge 0e14597895317744a8ec55e6a75629f834abd060.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 0e14597895317744a8ec55e6a75629f834abd060) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 0e14597895317744a8ec55e6a75629f834abd060; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #824; merge 0e14597895317744a8ec55e6a75629f834abd060.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 0e14597895317744a8ec55e6a75629f834abd060) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 0e14597895317744a8ec55e6a75629f834abd060; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -28219,7 +29099,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P2",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -28243,7 +29123,7 @@
       "source_record_id": "UPDATEV2-0024",
       "source_title": "Alpha Vantage verification/fallback adapter",
       "title": "Alpha Vantage verification/fallback adapter (original update ISSUE-0024)",
-      "verified_commit": "0e14597895317744a8ec55e6a75629f834abd060",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "A limited vendor source may catch discrepancies but cannot provide an unrestricted universe backbone.",
       "write_conflict_group": "programme-governance"
@@ -28259,6 +29139,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #824; merge 0e14597895317744a8ec55e6a75629f834abd060.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 0e14597895317744a8ec55e6a75629f834abd060) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 0e14597895317744a8ec55e6a75629f834abd060; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #824; merge 0e14597895317744a8ec55e6a75629f834abd060.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 0e14597895317744a8ec55e6a75629f834abd060) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 0e14597895317744a8ec55e6a75629f834abd060; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -28283,7 +29185,7 @@
       "package_status": "Open",
       "phase": "phase-01-governance-scope",
       "priority": "P2",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -28307,7 +29209,7 @@
       "source_record_id": "UPDATEV2-0025",
       "source_title": "Finnhub experimental adapter with entitlement probes",
       "title": "Finnhub experimental adapter with entitlement probes (original update ISSUE-0025)",
-      "verified_commit": "0e14597895317744a8ec55e6a75629f834abd060",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Current-only or inaccessible vendor data can create historical leakage and brittle dependencies.",
       "write_conflict_group": "programme-governance"
@@ -28323,6 +29225,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #825; merge b646f21feb60d30022ff8c1364378497af4084d8.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge b646f21feb60d30022ff8c1364378497af4084d8) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge b646f21feb60d30022ff8c1364378497af4084d8; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #825; merge b646f21feb60d30022ff8c1364378497af4084d8.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge b646f21feb60d30022ff8c1364378497af4084d8) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge b646f21feb60d30022ff8c1364378497af4084d8; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -28348,7 +29272,7 @@
       "package_status": "Open",
       "phase": "phase-05-returns-risk-portfolio",
       "priority": "P1",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -28373,7 +29297,7 @@
       "source_record_id": "UPDATEV2-0026",
       "source_title": "Candle feature/context/backtest module",
       "title": "Candle feature/context/backtest module (original update ISSUE-0026)",
-      "verified_commit": "b646f21feb60d30022ff8c1364378497af4084d8",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "Candles can aid context and execution analysis but have weak standalone evidence for long-term decisions.",
       "write_conflict_group": "analysis-and-validation"
@@ -28546,6 +29470,28 @@
           "reviewed_date": "2026-10-01",
           "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #824; merge 0e14597895317744a8ec55e6a75629f834abd060.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 0e14597895317744a8ec55e6a75629f834abd060) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 0e14597895317744a8ec55e6a75629f834abd060; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "Product: merged PR #824; merge 0e14597895317744a8ec55e6a75629f834abd060.",
+            "Full release gate run 36838978642 on head 3850f4771086bfd55c84330fc16ec2dd27ffd270 passed validation-summary.",
+            "Integration: full release gate run 36862476970 on head 125791086f67d4327a9920ec5edf5463dd19611c (on main, contains product merge 0e14597895317744a8ec55e6a75629f834abd060) passed validation-summary."
+          ],
+          "review_reference": "Integration verified on main at exact head 125791086f67d4327a9920ec5edf5463dd19611c: full release gate run 36862476970 (all jobs and validation-summary green) on a head containing product merge 0e14597895317744a8ec55e6a75629f834abd060; Claude Code (claude-opus-5-5) root review with independent Sol review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-01",
+          "reviewer": "Claude Code root orchestrator with independent GPT Sol one-shot review (owner-authorised substitute)",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -28571,7 +29517,7 @@
       "package_status": "Open",
       "phase": "phase-02-data-policy-identity",
       "priority": "P2",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -28596,7 +29542,7 @@
       "source_record_id": "UPDATEV2-0030",
       "source_title": "Optional OHLCV fallback providers: Stooq, Twelve Data and Tiingo",
       "title": "Optional OHLCV fallback providers: Stooq, Twelve Data and Tiingo (original update ISSUE-0030)",
-      "verified_commit": "0e14597895317744a8ec55e6a75629f834abd060",
+      "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01",
       "why": "No remote market source can be guaranteed unlimited, and fallback disagreements must not overwrite authority.",
       "write_conflict_group": "data-and-evidence"
@@ -29185,7 +30131,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "08c8df4b01faf676279178be43844ac0e7df8ab8112a3b93bed2f51c608d77c2",
+    "programme_control_state_sha256": "88b8963fff9f0d380ec1466d50fc45495b38f5302be6e262b9e380fb2db23af6",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
