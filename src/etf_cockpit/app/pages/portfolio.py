@@ -13,6 +13,7 @@ import pandas as pd
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
 from etf_cockpit.app.components.charts import portfolio_performance_chart
+from etf_cockpit.app.components.fixed_income_views import portfolio_maturity_ladder_panel
 from etf_cockpit.app.components.overlap import overlap_evidence_panel
 from etf_cockpit.app.formatting import format_currency, format_number, format_percent
 from etf_cockpit.app.state import AppState
@@ -32,6 +33,7 @@ from etf_cockpit.application.ui_facade import (
     load_portfolio_forecast_aggregation,
     load_portfolio_performance_series,
     load_portfolio_calendar_projection,
+    load_portfolio_maturity_ladder_projection,
     load_portfolio_holdings_projection,
     load_portfolio_goals_projection,
     load_fixed_income_screener,
@@ -241,6 +243,13 @@ def _portfolio_fixed_income_returns_block(state: AppState) -> ft.Control:
             spacing=8,
         )
     )
+
+
+def _portfolio_maturity_ladder_block(
+    state: AppState, analysis: PortfolioAnalysis
+) -> ft.Control:
+    projection = load_portfolio_maturity_ladder_projection(state.snapshot, analysis)
+    return portfolio_maturity_ladder_panel(projection)
 
 
 def _portfolio_forecast_block(
@@ -1554,6 +1563,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
             ),
             _portfolio_performance_block(page),
             _portfolio_fixed_income_returns_block(state),
+            _portfolio_maturity_ladder_block(state, current_analysis[0]),
             _portfolio_forecast_block(page, state, current_analysis),
             _portfolio_calendar_block(page, state, current_analysis[0]),
             _portfolio_holdings_block(page, state, current_analysis, draft_holdings_proposal, holdings_refresh_callbacks),

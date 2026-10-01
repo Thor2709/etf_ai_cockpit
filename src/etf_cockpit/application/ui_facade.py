@@ -73,6 +73,7 @@ from etf_cockpit.portfolio.forecast_aggregation import (
     build_portfolio_forecast_snapshot,
 )
 from etf_cockpit.portfolio.calendar import build_portfolio_calendar
+from etf_cockpit.portfolio.maturity_ladder import build_portfolio_maturity_ladder
 
 from etf_cockpit.chatgpt_bridge.audit_packet import *  # noqa: F401,F403
 from etf_cockpit.data.backup_restore import *  # noqa: F401,F403
@@ -455,6 +456,55 @@ def load_portfolio_calendar_projection(
         corporate_actions=tuple(corporate_actions),
         fixed_income_terms=terms,
         fx_rates=fx_rates,
+    )
+
+
+def load_portfolio_maturity_ladder_projection(
+    snapshot: object,
+    analysis: PortfolioAnalysis,
+    *,
+    output_currency: str = "EUR",
+) -> dict[str, object]:
+    """Load a maturity ladder from the canonical saved calendar and terms."""
+
+    calendar_projection = load_portfolio_calendar_projection(
+        snapshot, analysis, output_currency=output_currency
+    )
+    holdings = getattr(snapshot, "holdings", None)
+    binding = analysis.snapshot_binding
+    if isinstance(holdings, pd.DataFrame) and binding is not None:
+        try:
+            holdings = select_holdings_view(
+                holdings, str(getattr(binding, "holdings_view", "combined"))
+            )
+        except (TypeError, ValueError):
+            holdings = pd.DataFrame()
+    if not isinstance(holdings, pd.DataFrame):
+        holdings = pd.DataFrame()
+    holding_rows = [dict(row) for row in holdings.to_dict("records")]
+    bond_ids = sorted(
+        {
+            str(row.get("instrument_id", row.get("etf_id", ""))).strip()
+            for row in holding_rows
+            if str(row.get("asset_type", "")).strip().casefold()
+            in {"bond", "fixed_income", "fixed income", "government_bond", "corporate_bond"}
+            and str(row.get("instrument_id", row.get("etf_id", ""))).strip()
+        }
+    )
+    cutoff = calendar_projection.get("decision_time")
+    terms = {
+        instrument_id: load_fixed_income_terms_projection(
+            instrument_id,
+            storage_root=ROOT,
+            effective_at=str(cutoff),
+            decision_time=str(cutoff),
+        )
+        for instrument_id in bond_ids
+    } if cutoff else {}
+    return build_portfolio_maturity_ladder(
+        calendar_projection,
+        holdings=holding_rows,
+        terms_projections=terms,
     )
 
 
