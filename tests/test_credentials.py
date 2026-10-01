@@ -19,7 +19,7 @@ from etf_cockpit.security.credentials import (
 from etf_cockpit.security.policy import redact_secrets
 
 
-_SECRET = "credential-sentinel-do-not-disclose"
+_CREDENTIAL_SENTINEL = "credential-sentinel-do-not-disclose"
 
 
 def _stub_dpapi(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -46,10 +46,10 @@ def test_dpapi_secret_roundtrip(tmp_path, monkeypatch: pytest.MonkeyPatch) -> No
     vault_path = tmp_path / "vault.dpapi"
     vault = CredentialVault(vault_path)
 
-    vault.set("fred", _SECRET)
+    vault.set("fred", _CREDENTIAL_SENTINEL)
 
-    assert vault.get("fred") == _SECRET
-    assert _SECRET.encode() not in vault_path.read_bytes()
+    assert vault.get("fred") == _CREDENTIAL_SENTINEL
+    assert _CREDENTIAL_SENTINEL.encode() not in vault_path.read_bytes()
 
 
 def test_secret_redacted_from_exports_and_logs(tmp_path, monkeypatch: pytest.MonkeyPatch, caplog) -> None:
@@ -58,11 +58,11 @@ def test_secret_redacted_from_exports_and_logs(tmp_path, monkeypatch: pytest.Mon
     vault = CredentialVault(tmp_path / "vault.dpapi")
 
     with caplog.at_level(logging.DEBUG):
-        vault.set("fred", _SECRET)
-        assert vault.get("fred") == _SECRET
+        vault.set("fred", _CREDENTIAL_SENTINEL)
+        assert vault.get("fred") == _CREDENTIAL_SENTINEL
 
-    assert _SECRET not in caplog.text
-    assert _SECRET not in str(redact_secrets({"provider": {"api_key": _SECRET}}))
+    assert _CREDENTIAL_SENTINEL not in caplog.text
+    assert _CREDENTIAL_SENTINEL not in str(redact_secrets({"provider": {"api_key": _CREDENTIAL_SENTINEL}}))
 
 
 def test_no_key_provider_operates_without_vault(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -84,7 +84,7 @@ def test_no_key_provider_operates_without_vault(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_provider_registry_uses_resolved_credential_without_disclosing_it(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(provider_registry, "resolve_provider_api_key", lambda _provider, **_kwargs: _SECRET)
+    monkeypatch.setattr(provider_registry, "resolve_provider_api_key", lambda _provider, **_kwargs: _CREDENTIAL_SENTINEL)
     registry = ProviderRegistry(
         DataProvidersConfig(providers={"fred": ProviderSection(active_provider="fred")})
     )
@@ -94,7 +94,7 @@ def test_provider_registry_uses_resolved_credential_without_disclosing_it(monkey
 
     assert capability.status == "ok"
     assert capability.secret_present is True
-    assert _SECRET not in str(capability.to_dict())
+    assert _CREDENTIAL_SENTINEL not in str(capability.to_dict())
 
 
 def test_provider_credential_resolution_prefers_vault_over_env(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,12 +127,12 @@ def test_provider_credential_resolution_falls_back_to_existing_env(tmp_path, mon
 def test_provider_credential_resolution_sanitizes_vault_errors(tmp_path) -> None:
     class BrokenVault:
         def get(self, _account: str) -> None:
-            raise RuntimeError(f"failed for {_SECRET}")
+            raise RuntimeError(f"failed for {_CREDENTIAL_SENTINEL}")
 
     with pytest.raises(ConfigError) as error:
         resolve_provider_api_key("fred", config_dir=tmp_path / "configs", vault=BrokenVault())
 
-    assert _SECRET not in str(error.value)
+    assert _CREDENTIAL_SENTINEL not in str(error.value)
 
 
 def _persist_fred_probe_cache(
@@ -195,13 +195,13 @@ def test_vault_errors_never_echo_the_credential(tmp_path, monkeypatch: pytest.Mo
     monkeypatch.setattr(provider_registry, "DEFAULT_PROBE_PATH", tmp_path / "probes.parquet")
 
     def fail_protect(_payload: bytes) -> bytes:
-        raise RuntimeError(f"crypto failure: {_SECRET}")
+        raise RuntimeError(f"crypto failure: {_CREDENTIAL_SENTINEL}")
 
     monkeypatch.setattr(credentials, "_protect", fail_protect)
     with pytest.raises(CredentialVaultError) as error:
-        CredentialVault(tmp_path / "vault.dpapi").set("fred", _SECRET)
+        CredentialVault(tmp_path / "vault.dpapi").set("fred", _CREDENTIAL_SENTINEL)
 
-    assert _SECRET not in str(error.value)
+    assert _CREDENTIAL_SENTINEL not in str(error.value)
 
 
 @pytest.mark.parametrize("operation", ["set", "delete"])
@@ -257,7 +257,7 @@ def test_finnhub_credential_resolves_and_limits_capabilities_to_mapping(
     without_credential = registry.probe_all()
     missing = [item for item in without_credential if item.provider_id == "finnhub"]
     unrelated_without = next(item for item in without_credential if item.provider_id == "sec_edgar")
-    current["credential"] = _SECRET
+    current["credential"] = _CREDENTIAL_SENTINEL
     with_credential = registry.probe_all()
     present = [item for item in with_credential if item.provider_id == "finnhub"]
     unrelated_with = next(item for item in with_credential if item.provider_id == "sec_edgar")
@@ -272,7 +272,7 @@ def test_finnhub_credential_resolves_and_limits_capabilities_to_mapping(
     assert (unrelated_with.status, unrelated_with.secret_present) == ("ok", False)
     assert unrelated_calls == [True, True]
     assert "finnhub" in resolved and "sec_edgar" not in resolved
-    assert _SECRET not in str([item.to_dict() for item in with_credential])
+    assert _CREDENTIAL_SENTINEL not in str([item.to_dict() for item in with_credential])
 
 
 def test_settings_saves_resolves_and_deletes_credentials_by_active_provider_id(
@@ -358,7 +358,7 @@ def test_registered_finnhub_adapter_preserves_all_dataset_capabilities(
     monkeypatch.setattr(
         provider_registry,
         "resolve_provider_api_key",
-        lambda provider, **_kwargs: _SECRET if provider == "finnhub" else None,
+        lambda provider, **_kwargs: _CREDENTIAL_SENTINEL if provider == "finnhub" else None,
     )
     registry = ProviderRegistry(
         DataProvidersConfig(providers={"finnhub": ProviderSection(active_provider="finnhub")})
