@@ -209,6 +209,34 @@ def test_optional_runner_exception_keeps_its_existing_type():
     assert caught.value is failure
 
 
+def test_analysis_depth_error_keeps_prior_and_failing_stage_timings():
+    profile = load_analysis_depth_profiles()["quick"]
+    failing_stage = profile.stages[1]
+    profile = replace(profile, stages=profile.stages[:2])
+
+    def runner(instrument_id, analysis_input, stage, resource_plan):
+        result = _runner(instrument_id, analysis_input, stage, resource_plan)
+        if stage.stage_id == failing_stage.stage_id:
+            return {**result, "model_omissions": ["undeclared-family"]}
+        return result
+
+    with pytest.raises(AnalysisDepthError, match="outside the frozen profile") as caught:
+        execute_profiled_stages(
+            profile,
+            "ETF.TEST",
+            {"value": 1},
+            "tests.depth.v1",
+            runner,
+            {},
+            run_id="analysis-depth-error-test",
+            resource_plan=create_resource_plan(profile),
+        )
+
+    records = caught.value.timing_records
+    assert [record.stage_id for record in records] == [profile.stages[0].stage_id, failing_stage.stage_id]
+    assert [record.outcome for record in records] == ["succeeded", "failed"]
+
+
 def test_stage_timing_excludes_acquisition_and_training_with_fake_clock(monkeypatch):
     profile = load_analysis_depth_profiles()["quick"]
     one_stage_profile = replace(profile, stages=(profile.stages[0],))

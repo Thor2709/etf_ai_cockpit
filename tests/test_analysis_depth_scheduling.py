@@ -326,6 +326,171 @@ def test_concurrent_cache_publication_rejects_different_valid_results():
     }
 
 
+def test_bulk_jobs_persist_concurrent_determinism_timings_once(monkeypatch, tmp_path):
+    _install_plan_estimate(monkeypatch, cpu=2.0)
+    service = BulkAnalysisService(tmp_path)
+    _set_test_hardware(service, max_concurrency=2)
+    profile = load_analysis_depth_profiles()["quick"]
+    conflict_stage = profile.stages[3]
+    instrument_id = "ETF.CACHE"
+    analysis_input = {"value": 3}
+    analyzer_id = "tests.depth.bulk-concurrent-determinism.v1"
+    run_ids = ("bulk-concurrent-determinism-a", "bulk-concurrent-determinism-b")
+    barrier = Barrier(2, timeout=5)
+    runner_lock = Lock()
+    runner_results = []
+
+    for stage in profile.stages[:3]:
+        cached_result = {"stage_id": stage.stage_id, "passed": True}
+        cache_key = stage_cache_key(
+            instrument_id,
+            analysis_input,
+            analyzer_id,
+            stage,
+            horizons=profile.horizons,
+            seeds=profile.seeds,
+        )
+        service._stage_cache[cache_key] = {
+            "content_hash": stage_output_hash(cached_result),
+            "result": cached_result,
+        }
+
+    def runner(instrument_id, analysis_input, stage, _resource_plan):
+        if stage.stage_id == conflict_stage.stage_id:
+            with runner_lock:
+                result = {
+                    "stage_id": stage.stage_id,
+                    "instrument_id": instrument_id,
+                    "value": len(runner_results) + 1,
+                    "passed": True,
+                }
+                runner_results.append(result)
+            barrier.wait()
+            return result
+        return _successful_stage_runner(instrument_id, analysis_input, stage, _resource_plan)
+
+    for run_id in run_ids:
+        service.start(
+            {instrument_id: analysis_input},
+            analyzer_id=analyzer_id,
+            depth_profile="quick",
+            stage_runner=runner,
+            max_jobs=0,
+            _run_id=run_id,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(service._execute, run_id, None, 1, runner) for run_id in run_ids]
+        runs = [future.result() for future in futures]
+
+    successful = [run for run in runs if run.status == "succeeded"]
+    failed = [run for run in runs if run.status == "failed"]
+    assert len(successful) == 1, [(run.status, run.failures) for run in runs]
+    assert len(failed) == 1
+    assert "determinism violation" in failed[0].failures["ETF.CACHE"]
+    assert len(runner_results) == 2
+    assert runner_results[0] != runner_results[1]
+
+    timing_frame = pd.read_parquet(service.scheduler.root / ANALYSIS_TIMINGS_RELATIVE_PATH)
+    success_records = timing_frame[timing_frame["run_id"] == successful[0].run_id]
+    failed_records = timing_frame[timing_frame["run_id"] == failed[0].run_id]
+    success_counts = Counter(zip(success_records["timing_kind"], success_records["stage_id"]))
+    failed_counts = Counter(zip(failed_records["timing_kind"], failed_records["stage_id"]))
+    assert len(success_records) == len(profile.stages)
+    assert all(count == 1 for count in success_counts.values())
+    assert success_records["stage_id"].tolist() == [stage.stage_id for stage in profile.stages]
+    assert success_records["outcome"].tolist() == ["succeeded"] * len(profile.stages)
+    assert len(failed_records) == 4
+    assert all(count == 1 for count in failed_counts.values())
+    assert failed_records["stage_id"].tolist() == [stage.stage_id for stage in profile.stages[:4]]
+    assert failed_records["outcome"].tolist() == ["succeeded"] * 3 + ["failed"]
+
+
+@pytest.mark.parametrize("failure_kind", ["mandatory", "determinism", "cancellation"])
+def test_profiled_failure_timings_are_persisted_once(monkeypatch, tmp_path, failure_kind):
+    _install_plan_estimate(monkeypatch)
+    service = BulkAnalysisService(tmp_path)
+    _set_test_hardware(service, max_concurrency=1)
+    run_id = f"bulk-{failure_kind}-timings"
+    instrument_id = "ETF.TIMED"
+    analysis_input = {"value": 3}
+    analyzer_id = "tests.depth.persisted-errors.v1"
+    profile = load_analysis_depth_profiles()["quick"]
+    failed_stage = profile.stages[3]
+
+    if failure_kind == "determinism":
+        for stage in profile.stages[:4]:
+            cached_result = {"stage_id": stage.stage_id, "passed": True}
+            if stage.stage_id == failed_stage.stage_id:
+                cached_result["value"] = "cached"
+            cache_key = stage_cache_key(
+                instrument_id,
+                analysis_input,
+                analyzer_id,
+                stage,
+                horizons=profile.horizons,
+                seeds=profile.seeds,
+            )
+            service._stage_cache[cache_key] = {
+                "content_hash": (
+                    "invalid" if stage.stage_id == failed_stage.stage_id else stage_output_hash(cached_result)
+                ),
+                "result": cached_result,
+            }
+
+    def runner(current_instrument, current_input, stage, resource_plan):
+        if failure_kind == "mandatory" and stage.stage_id == failed_stage.stage_id:
+            raise RuntimeError("evidence unavailable")
+        if failure_kind == "determinism" and stage.stage_id == failed_stage.stage_id:
+            cache_key = stage_cache_key(
+                instrument_id,
+                analysis_input,
+                analyzer_id,
+                stage,
+                horizons=profile.horizons,
+                seeds=profile.seeds,
+            )
+            cached_result = {"stage_id": stage.stage_id, "passed": True, "value": "cached"}
+            service._stage_cache[cache_key] = {
+                "content_hash": stage_output_hash(cached_result),
+                "result": cached_result,
+            }
+            return {"stage_id": stage.stage_id, "passed": True, "value": "recomputed"}
+        if failure_kind == "cancellation" and stage.stage_id == profile.stages[1].stage_id:
+            service.scheduler.cancel(run_id)
+        return _successful_stage_runner(current_instrument, current_input, stage, resource_plan)
+
+    service.start(
+        {instrument_id: analysis_input},
+        analyzer_id=analyzer_id,
+        depth_profile="quick",
+        stage_runner=runner,
+        max_jobs=0,
+        _run_id=run_id,
+    )
+    run = service._execute(run_id, None, 1, runner)
+    if failure_kind == "cancellation":
+        expected_stages = list(profile.stages[:2])
+        expected_outcomes = ["succeeded", "cancelled"]
+        assert run.status == "cancelled"
+    else:
+        expected_stages = list(profile.stages[:4])
+        expected_outcomes = ["succeeded", "succeeded", "succeeded", "failed"]
+        assert run.status == "failed"
+        if failure_kind == "determinism":
+            assert "determinism violation" in run.failures[instrument_id]
+        else:
+            assert "evidence unavailable" in run.failures[instrument_id]
+
+    timing_frame = pd.read_parquet(service.scheduler.root / ANALYSIS_TIMINGS_RELATIVE_PATH)
+    records = timing_frame[timing_frame["run_id"] == run_id]
+    counts = Counter(zip(records["timing_kind"], records["stage_id"]))
+    assert len(records) == len(expected_stages)
+    assert all(count == 1 for count in counts.values())
+    assert records["stage_id"].tolist() == [stage.stage_id for stage in expected_stages]
+    assert records["outcome"].tolist() == expected_outcomes
+
+
 def test_cancelled_stage_is_timed_and_new_run_reuses_prior_cache(monkeypatch, tmp_path):
     _install_plan_estimate(monkeypatch)
     service = BulkAnalysisService(tmp_path)

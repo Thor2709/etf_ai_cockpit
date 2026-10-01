@@ -104,6 +104,14 @@ _UniqueKeyLoader.add_constructor(
 class AnalysisDepthError(ValueError):
     """Raised when a depth profile or its stage evidence is invalid."""
 
+    def __init__(
+        self,
+        *args: object,
+        timing_records: Sequence[AnalysisTimingRecord] = (),
+    ) -> None:
+        super().__init__(*args)
+        self.timing_records = tuple(timing_records)
+
 
 class MandatoryEvidenceError(AnalysisDepthError):
     """Raised when a required stage does not produce complete evidence."""
@@ -114,8 +122,7 @@ class MandatoryEvidenceError(AnalysisDepthError):
         *,
         timing_records: Sequence[AnalysisTimingRecord] = (),
     ) -> None:
-        super().__init__(message)
-        self.timing_records = tuple(timing_records)
+        super().__init__(message, timing_records=timing_records)
 
 
 def _canonical_json(value: object) -> str:
@@ -830,68 +837,110 @@ def execute_profiled_stages(
     omissions: set[str] = set()
     omitted_stages: list[str] = []
 
-    for stage in profile.stages:
-        if is_cancel_requested is not None and is_cancel_requested():
-            timing_records.append(AnalysisTimingRecord(
-                run_id=run_id,
-                profile_id=profile.profile_id,
-                timing_kind="stage",
-                stage_id=stage.stage_id,
-                wall_time_seconds=0.0,
-                cache_state=cache_state,
-                outcome="cancelled",
-            ))
-            break
-        stage_horizons = tuple(horizons if horizons is not None else stage.horizons)
-        stage_seeds = tuple(seeds if seeds is not None else stage.seeds)
-        key = stage_cache_key(
-            instrument_id,
-            analysis_input,
-            analyzer_id,
-            stage,
-            horizons=stage_horizons,
-            seeds=stage_seeds,
-        )
-        lookup_started = time.perf_counter()
-        with cache_lock if cache_lock is not None else nullcontext():
-            cached = cache.get(key)
-        cache_hit = (
-            isinstance(cached, Mapping)
-            and "result" in cached
-            and cached.get("content_hash") == _content_hash(_json_safe(cached["result"]))
-        )
-        provider_wait: float | None = None
-        model_omissions: tuple[str, ...] = ()
-        peak_resources: tuple[tuple[str, float], ...] = ()
-        separate_timings: tuple[tuple[str, float], ...] = ()
-        if cache_hit:
-            _begin_resource_trace()
-            stage_result = cached["result"]
-            content_hash = str(cached["content_hash"])
-            reused = True
-            elapsed = time.perf_counter() - lookup_started
-            stage_cache_state = "warm"
-            _current_bytes, peak_bytes = _end_resource_trace()
-            peak_resources = (("python_heap_peak_mb", peak_bytes / 1_048_576),)
-        else:
-            _begin_resource_trace()
-            started = time.perf_counter()
-            runner_called = False
-            try:
-                if resource_plan is None:
-                    raise AnalysisDepthError("profile-depth stages require a frozen resource plan")
-                runner_stage = (
-                    replace(stage, horizons=stage_horizons, seeds=stage_seeds)
-                    if not stage.mandatory
-                    else stage
-                )
-                runner_called = True
-                raw_result = stage_runner(instrument_id, analysis_input, runner_stage, resource_plan)
-            except Exception as exc:
-                elapsed = time.perf_counter() - started
+    active_stage: AnalysisStageManifest | None = None
+    active_stage_elapsed = 0.0
+    active_stage_cache_state = cache_state
+    try:
+        for stage in profile.stages:
+            active_stage = stage
+            active_stage_elapsed = 0.0
+            active_stage_cache_state = cache_state
+            if is_cancel_requested is not None and is_cancel_requested():
+                timing_records.append(AnalysisTimingRecord(
+                    run_id=run_id,
+                    profile_id=profile.profile_id,
+                    timing_kind="stage",
+                    stage_id=stage.stage_id,
+                    wall_time_seconds=0.0,
+                    cache_state=cache_state,
+                    outcome="cancelled",
+                ))
+                break
+            stage_horizons = tuple(horizons if horizons is not None else stage.horizons)
+            stage_seeds = tuple(seeds if seeds is not None else stage.seeds)
+            key = stage_cache_key(
+                instrument_id,
+                analysis_input,
+                analyzer_id,
+                stage,
+                horizons=stage_horizons,
+                seeds=stage_seeds,
+            )
+            lookup_started = time.perf_counter()
+            with cache_lock if cache_lock is not None else nullcontext():
+                cached = cache.get(key)
+            cache_hit = (
+                isinstance(cached, Mapping)
+                and "result" in cached
+                and cached.get("content_hash") == _content_hash(_json_safe(cached["result"]))
+            )
+            active_stage_cache_state = "warm" if cache_hit else "cold"
+            provider_wait: float | None = None
+            model_omissions: tuple[str, ...] = ()
+            peak_resources: tuple[tuple[str, float], ...] = ()
+            separate_timings: tuple[tuple[str, float], ...] = ()
+            if cache_hit:
+                _begin_resource_trace()
+                stage_result = cached["result"]
+                content_hash = str(cached["content_hash"])
+                reused = True
+                elapsed = time.perf_counter() - lookup_started
+                active_stage_elapsed = elapsed
+                stage_cache_state = "warm"
                 _current_bytes, peak_bytes = _end_resource_trace()
-                cancelled = is_cancel_requested is not None and is_cancel_requested()
-                if cancelled:
+                peak_resources = (("python_heap_peak_mb", peak_bytes / 1_048_576),)
+            else:
+                _begin_resource_trace()
+                started = time.perf_counter()
+                runner_called = False
+                try:
+                    if resource_plan is None:
+                        raise AnalysisDepthError("profile-depth stages require a frozen resource plan")
+                    runner_stage = (
+                        replace(stage, horizons=stage_horizons, seeds=stage_seeds)
+                        if not stage.mandatory
+                        else stage
+                    )
+                    runner_called = True
+                    raw_result = stage_runner(instrument_id, analysis_input, runner_stage, resource_plan)
+                except Exception as exc:
+                    elapsed = time.perf_counter() - started
+                    active_stage_elapsed = elapsed
+                    _current_bytes, peak_bytes = _end_resource_trace()
+                    cancelled = is_cancel_requested is not None and is_cancel_requested()
+                    if cancelled:
+                        timing_records.append(AnalysisTimingRecord(
+                            run_id=run_id,
+                            profile_id=profile.profile_id,
+                            timing_kind="stage",
+                            stage_id=stage.stage_id,
+                            wall_time_seconds=elapsed,
+                            cache_state="cold",
+                            peak_resources=(("python_heap_peak_mb", peak_bytes / 1_048_576),),
+                            outcome="cancelled",
+                        ))
+                        break
+                    if stage.mandatory and runner_called:
+                        peak_resources = (("python_heap_peak_mb", peak_bytes / 1_048_576),)
+                        timing_records.append(AnalysisTimingRecord(
+                            run_id=run_id,
+                            profile_id=profile.profile_id,
+                            timing_kind="stage",
+                            stage_id=stage.stage_id,
+                            wall_time_seconds=elapsed,
+                            cache_state="cold",
+                            peak_resources=peak_resources,
+                            outcome="failed",
+                        ))
+                        raise MandatoryEvidenceError(
+                            f"mandatory stage {stage.stage_id} failed: {exc}",
+                            timing_records=timing_records,
+                        ) from exc
+                    raise
+                elapsed = time.perf_counter() - started
+                active_stage_elapsed = elapsed
+                _current_bytes, peak_bytes = _end_resource_trace()
+                if is_cancel_requested is not None and is_cancel_requested():
                     timing_records.append(AnalysisTimingRecord(
                         run_id=run_id,
                         profile_id=profile.profile_id,
@@ -903,116 +952,114 @@ def execute_profiled_stages(
                         outcome="cancelled",
                     ))
                     break
-                if stage.mandatory and runner_called:
-                    peak_resources = (("python_heap_peak_mb", peak_bytes / 1_048_576),)
-                    timing_records.append(AnalysisTimingRecord(
-                        run_id=run_id,
-                        profile_id=profile.profile_id,
-                        timing_kind="stage",
-                        stage_id=stage.stage_id,
-                        wall_time_seconds=elapsed,
-                        cache_state="cold",
-                        peak_resources=peak_resources,
-                        outcome="failed",
-                    ))
-                    raise MandatoryEvidenceError(
-                        f"mandatory stage {stage.stage_id} failed: {exc}",
-                        timing_records=timing_records,
-                    ) from exc
-                raise
-            elapsed = time.perf_counter() - started
-            _current_bytes, peak_bytes = _end_resource_trace()
-            if is_cancel_requested is not None and is_cancel_requested():
-                timing_records.append(AnalysisTimingRecord(
-                    run_id=run_id,
-                    profile_id=profile.profile_id,
-                    timing_kind="stage",
-                    stage_id=stage.stage_id,
-                    wall_time_seconds=elapsed,
-                    cache_state="cold",
-                    peak_resources=(("python_heap_peak_mb", peak_bytes / 1_048_576),),
-                    outcome="cancelled",
-                ))
-                break
-            stage_result, timing_raw = _stage_return_parts(raw_result)
-            provider_wait, model_omissions, reported_peaks, separate_timings = _timing_metadata(timing_raw, profile)
-            reported_separate_seconds = sum(seconds for _kind, seconds in separate_timings)
-            if reported_separate_seconds > elapsed:
-                raise AnalysisDepthError(
-                    "runner-reported acquisition and Training Centre time exceeds stage runner wall time"
-                )
-            elapsed -= reported_separate_seconds
-            peak_resources = tuple(sorted((*reported_peaks, ("python_heap_peak_mb", peak_bytes / 1_048_576))))
-            stage_result = _json_safe(stage_result)
-            reused = False
-            stage_cache_state = "cold"
-            content_hash = _content_hash(stage_result)
-        error = _mandatory_result_error(stage, stage_result)
-        if error is None and isinstance(stage_result, Mapping):
-            declared_omissions = stage_result.get("model_omissions", ())
-            if isinstance(declared_omissions, (list, tuple)):
-                model_omissions = tuple(str(item) for item in declared_omissions)
-                if not set(model_omissions).issubset(profile.model_families):
-                    raise AnalysisDepthError("model omission references a family outside the frozen profile")
-        if error is None:
-            omissions.update(model_omissions)
-            if stage_result is None and not stage.mandatory:
-                omitted_stages.append(stage.stage_id)
-            stage_outputs[stage.stage_id] = stage_result
-            stage_hashes[stage.stage_id] = {
-                "cache_key": key,
-                "content_hash": content_hash,
-                "reused": reused,
-            }
-        timing_records.append(AnalysisTimingRecord(
-            run_id=run_id,
-            profile_id=profile.profile_id,
-            timing_kind="stage",
-            stage_id=stage.stage_id,
-            wall_time_seconds=elapsed,
-            cache_state=stage_cache_state,
-            provider_wait_seconds=provider_wait,
-            model_omissions=model_omissions,
-            peak_resources=peak_resources,
-            outcome="failed" if error is not None else "succeeded",
-        ))
-        for timing_kind, seconds in separate_timings:
+                stage_result, timing_raw = _stage_return_parts(raw_result)
+                provider_wait, model_omissions, reported_peaks, separate_timings = _timing_metadata(timing_raw, profile)
+                reported_separate_seconds = sum(seconds for _kind, seconds in separate_timings)
+                if reported_separate_seconds > elapsed:
+                    raise AnalysisDepthError(
+                        "runner-reported acquisition and Training Centre time exceeds stage runner wall time"
+                    )
+                elapsed -= reported_separate_seconds
+                active_stage_elapsed = elapsed
+                peak_resources = tuple(sorted((*reported_peaks, ("python_heap_peak_mb", peak_bytes / 1_048_576))))
+                stage_result = _json_safe(stage_result)
+                reused = False
+                stage_cache_state = "cold"
+                content_hash = _content_hash(stage_result)
+            error = _mandatory_result_error(stage, stage_result)
+            if error is None and isinstance(stage_result, Mapping):
+                declared_omissions = stage_result.get("model_omissions", ())
+                if isinstance(declared_omissions, (list, tuple)):
+                    model_omissions = tuple(str(item) for item in declared_omissions)
+                    if not set(model_omissions).issubset(profile.model_families):
+                        raise AnalysisDepthError("model omission references a family outside the frozen profile")
+            if error is None:
+                omissions.update(model_omissions)
+                if stage_result is None and not stage.mandatory:
+                    omitted_stages.append(stage.stage_id)
+                stage_outputs[stage.stage_id] = stage_result
+                stage_hashes[stage.stage_id] = {
+                    "cache_key": key,
+                    "content_hash": content_hash,
+                    "reused": reused,
+                }
             timing_records.append(AnalysisTimingRecord(
                 run_id=run_id,
                 profile_id=profile.profile_id,
-                timing_kind=timing_kind,
+                timing_kind="stage",
                 stage_id=stage.stage_id,
-                wall_time_seconds=seconds,
+                wall_time_seconds=elapsed,
                 cache_state=stage_cache_state,
                 provider_wait_seconds=provider_wait,
                 model_omissions=model_omissions,
                 peak_resources=peak_resources,
                 outcome="failed" if error is not None else "succeeded",
             ))
-        if error is not None:
-            raise MandatoryEvidenceError(error, timing_records=timing_records)
-        if not reused and stage_result is not None:
-            with cache_lock if cache_lock is not None else nullcontext():
-                existing = cache.get(key)
-                existing_hash = None
-                existing_valid = False
-                if isinstance(existing, Mapping) and "result" in existing:
-                    try:
-                        existing_hash = stage_output_hash(existing["result"])
-                    except AnalysisDepthError:
-                        pass
+            for timing_kind, seconds in separate_timings:
+                timing_records.append(AnalysisTimingRecord(
+                    run_id=run_id,
+                    profile_id=profile.profile_id,
+                    timing_kind=timing_kind,
+                    stage_id=stage.stage_id,
+                    wall_time_seconds=seconds,
+                    cache_state=stage_cache_state,
+                    provider_wait_seconds=provider_wait,
+                    model_omissions=model_omissions,
+                    peak_resources=peak_resources,
+                    outcome="failed" if error is not None else "succeeded",
+                ))
+            if error is not None:
+                raise MandatoryEvidenceError(error, timing_records=timing_records)
+            if not reused and stage_result is not None:
+                with cache_lock if cache_lock is not None else nullcontext():
+                    existing = cache.get(key)
+                    existing_hash = None
+                    existing_valid = False
+                    if isinstance(existing, Mapping) and "result" in existing:
+                        try:
+                            existing_hash = stage_output_hash(existing["result"])
+                        except AnalysisDepthError:
+                            pass
+                        else:
+                            existing_valid = existing_hash == existing.get("content_hash")
+                    if existing_valid:
+                        if existing_hash != content_hash:
+                            raise AnalysisDepthError(
+                                f"determinism violation for stage {stage.stage_id} and cache key {key}: "
+                                f"existing hash {existing_hash} differs from recomputed hash {content_hash}"
+                            )
+                        stage_result = existing["result"]
+                        stage_outputs[stage.stage_id] = stage_result
                     else:
-                        existing_valid = existing_hash == existing.get("content_hash")
-                if existing_valid:
-                    if existing_hash != content_hash:
-                        raise AnalysisDepthError(
-                            f"determinism violation for stage {stage.stage_id} and cache key {key}: "
-                            f"existing hash {existing_hash} differs from recomputed hash {content_hash}"
-                        )
-                    stage_result = existing["result"]
-                    stage_outputs[stage.stage_id] = stage_result
-                else:
-                    cache[key] = {"content_hash": content_hash, "result": stage_result}
+                        cache[key] = {"content_hash": content_hash, "result": stage_result}
+
+    except AnalysisDepthError as exc:
+        if active_stage is not None:
+            has_stage_timing = any(
+                record.run_id == run_id
+                and record.stage_id == active_stage.stage_id
+                and record.timing_kind == "stage"
+                for record in timing_records
+            )
+            if has_stage_timing:
+                timing_records[:] = [
+                    replace(record, outcome="failed")
+                    if record.run_id == run_id and record.stage_id == active_stage.stage_id
+                    else record
+                    for record in timing_records
+                ]
+            else:
+                timing_records.append(AnalysisTimingRecord(
+                    run_id=run_id,
+                    profile_id=profile.profile_id,
+                    timing_kind="stage",
+                    stage_id=active_stage.stage_id,
+                    wall_time_seconds=max(0.0, active_stage_elapsed),
+                    cache_state=active_stage_cache_state,
+                    outcome="failed",
+                ))
+        exc.timing_records = tuple(timing_records)
+        raise
 
     deterministic_fields = {
         stage_id: stage_outputs[stage_id]

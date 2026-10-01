@@ -11,7 +11,6 @@ import uuid
 from etf_cockpit.application.analysis_depth import (
     AnalysisDepthError,
     AnalysisDepthProfile,
-    MandatoryEvidenceError,
     MAX_PROFILE_DEPTH_WORKERS,
     AnalysisUpgradeLink,
     StageRunner,
@@ -461,7 +460,7 @@ class BulkAnalysisService:
                 is_cancel_requested=context.is_cancel_requested,
                 cache_lock=self._stage_cache_lock,
             )
-        except MandatoryEvidenceError as exc:
+        except AnalysisDepthError as exc:
             append_timing_records(self.scheduler.root, exc.timing_records)
             raise
         append_timing_records(self.scheduler.root, records)
