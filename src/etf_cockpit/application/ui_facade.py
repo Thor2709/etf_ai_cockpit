@@ -77,7 +77,6 @@ from etf_cockpit.portfolio.forecast_aggregation import (
     build_portfolio_forecast_snapshot,
 )
 from etf_cockpit.portfolio.top_n_selection import (
-    SELECTION_RUN_ENTITY_TYPE,
     SelectionCandidate,
     SelectionPolicyError,
     build_selection_run,
@@ -1487,9 +1486,10 @@ def load_top_n_selection(
     reference_anchor: object | None = None,
     portfolio_policy: object | None = None,
     risk_profile: object | None = None,
+    snapshot: object | None = None,
     storage_root: Path | None = None,
 ) -> dict[str, object]:
-    """Load the latest immutable top-N run or persist a new frozen-input run."""
+    """Build from saved, point-in-time evidence and persist an immutable run."""
 
     root = Path(storage_root or ROOT).resolve()
     try:
@@ -1508,48 +1508,6 @@ def load_top_n_selection(
             "execution_allowed": False,
         }
 
-    if candidates is None:
-        requested_top_n = policy.top_n if top_n is None else top_n
-        try:
-            with TransactionalStore(root, read_only=True) as store:
-                records = store.list(SELECTION_RUN_ENTITY_TYPE)
-        except (OSError, StorageSchemaError, sqlite3.DatabaseError, ValueError):
-            records = ()
-        compatible = [
-            record
-            for record in records
-            if record.payload.get("mode") == mode
-            and record.payload.get("top_n") == requested_top_n
-            and (decision_time is None or record.payload.get("decision_time") == decision_time)
-            and record.payload.get("contract") == "selection-run.v1"
-        ]
-        if compatible:
-            latest = max(compatible, key=lambda record: (record.created_at, record.entity_id))
-            return {
-                **latest.payload,
-                "slices": materialise_selection_slices(latest.payload),
-                "persistence_status": "persisted",
-                "persistence_revision": latest.revision,
-                "history_count": len(compatible),
-            }
-        return {
-            "contract": "selection-run.v1",
-            "status": "unavailable",
-            "mode": mode if mode in {"asset_specific", "cross_asset"} else "unavailable",
-            "reason": "frozen_opportunity_candidates_unavailable",
-            "decision_time": decision_time,
-            "top_n": requested_top_n,
-            "seed": seed,
-            "policy": policy.to_record(),
-            "candidate_table": [],
-            "selected_ids": [],
-            "exclusion_funnel": [],
-            "source_snapshot_hashes": {},
-            "portfolio_reference": None,
-            "persistence_status": "not_attempted",
-            "execution_allowed": False,
-        }
-
     if not decision_time:
         return {
             "contract": "selection-run.v1",
@@ -1563,6 +1521,328 @@ def load_top_n_selection(
             "persistence_status": "not_attempted",
             "execution_allowed": False,
         }
+
+    if candidates is None:
+        from dataclasses import fields
+
+        from etf_cockpit.analysis.decision.contracts import OpportunityResult
+        from etf_cockpit.application.bulk_run import BulkAnalysisService
+        from etf_cockpit.portfolio.benchmark_reference_contract import resolve_vwce_anchor
+        from etf_cockpit.portfolio.goals_constraints import policy_from_record
+        from etf_cockpit.portfolio.risk_profiles import (
+            VWCEAnchorSnapshot,
+            RiskProfileVersion,
+            load_risk_profile_presets,
+            risk_profile_preset_version,
+            risk_profile_version_from_record,
+        )
+
+        try:
+            cutoff = pd.Timestamp(decision_time)
+        except (TypeError, ValueError, OverflowError):
+            return {
+                "contract": "selection-run.v1",
+                "status": "unavailable",
+                "mode": "unavailable",
+                "reason": "selection_decision_time_invalid",
+                "selected_ids": [],
+                "candidate_table": [],
+                "exclusion_funnel": [],
+                "policy": policy.to_record(),
+                "persistence_status": "not_attempted",
+                "execution_allowed": False,
+            }
+        if cutoff.tzinfo is None:
+            return {
+                "contract": "selection-run.v1",
+                "status": "unavailable",
+                "mode": "unavailable",
+                "reason": "selection_decision_time_invalid",
+                "selected_ids": [],
+                "candidate_table": [],
+                "exclusion_funnel": [],
+                "policy": policy.to_record(),
+                "persistence_status": "not_attempted",
+                "execution_allowed": False,
+            }
+        cutoff = cutoff.tz_convert("UTC")
+
+        def _known_by_cutoff(value: object) -> bool:
+            try:
+                timestamp = pd.Timestamp(value)
+                return bool(timestamp.tzinfo is not None and timestamp.tz_convert("UTC") <= cutoff)
+            except (TypeError, ValueError, OverflowError):
+                return False
+
+        def _record_time(value: Mapping[str, object]) -> object | None:
+            return next(
+                (value.get(name) for name in ("decision_time", "as_of", "known_at") if value.get(name)),
+                None,
+            )
+
+        bulk_outputs: dict[str, tuple[Mapping[str, object], str, str]] = {}
+        instrument_ids: set[str] = set()
+        try:
+            bulk_service = BulkAnalysisService(root)
+            workflows = bulk_service.scheduler.list_workflows(limit=200)
+            for workflow in workflows:
+                if workflow.workflow_type != BulkAnalysisService.workflow_type:
+                    continue
+                if not _known_by_cutoff(workflow.created_at):
+                    continue
+                bulk_run = bulk_service.get_run(workflow.workflow_id)
+                jobs = bulk_service.scheduler.list_jobs(workflow.workflow_id)
+                finished_by_id = {
+                    str(job.inputs.get("instrument_id")): str(job.finished_at)
+                    for job in jobs
+                    if isinstance(job.inputs, Mapping)
+                    and job.inputs.get("instrument_id")
+                    and job.finished_at
+                    and _known_by_cutoff(job.finished_at)
+                }
+                for instrument_id, output in bulk_run.results.items():
+                    clean_id = str(instrument_id).strip()
+                    if not clean_id:
+                        continue
+                    instrument_ids.add(clean_id)
+                    if not isinstance(output, Mapping):
+                        continue
+                    known_at = _record_time(output) or finished_by_id.get(clean_id)
+                    if known_at is None or not _known_by_cutoff(known_at):
+                        continue
+                    bulk_outputs.setdefault(
+                        clean_id,
+                        (dict(output), str(known_at), str(bulk_run.hashes.get(clean_id, ""))),
+                    )
+        except (AttributeError, KeyError, OSError, sqlite3.Error, TypeError, ValueError):
+            bulk_outputs = {}
+
+        universe = getattr(getattr(snapshot, "config", None), "universe", None)
+        by_id = getattr(universe, "by_id", None)
+        if callable(by_id):
+            try:
+                instrument_ids.update(str(value).strip() for value in by_id() if str(value).strip())
+            except (TypeError, ValueError):
+                pass
+
+        try:
+            fixed_screen = load_fixed_income_screener(
+                storage_root=root,
+                decision_time=decision_time,
+            )
+        except (OSError, TypeError, ValueError):
+            fixed_screen = {"status": "unavailable", "rows": [], "decision_time": decision_time}
+        fixed_rows_raw = fixed_screen.get("rows", ())
+        fixed_rows = {
+            str(row.get("instrument_id", "")).strip(): dict(row)
+            for row in fixed_rows_raw
+            if isinstance(row, Mapping) and str(row.get("instrument_id", "")).strip()
+        } if isinstance(fixed_rows_raw, Sequence) else {}
+        instrument_ids.update(fixed_rows)
+
+        artifact_directory = LOG_DIR
+        try:
+            artifact_directory = root / LOG_DIR.relative_to(ROOT)
+        except ValueError:
+            pass
+        opportunity_fields = {item.name for item in fields(OpportunityResult)}
+        tuple_fields = {"domain_scores", "positive_drivers", "negative_drivers", "benchmark_rankers"}
+        candidates_list: list[SelectionCandidate] = []
+        for instrument_id in sorted(instrument_ids):
+            try:
+                saved_opportunity = load_opportunity_assessment(
+                    instrument_id,
+                    decision_time=decision_time,
+                    artifact_directory=artifact_directory,
+                )
+                opportunity_values = {
+                    key: value for key, value in saved_opportunity.items()
+                    if key in opportunity_fields
+                }
+                for field_name in tuple_fields:
+                    if isinstance(opportunity_values.get(field_name), list):
+                        opportunity_values[field_name] = tuple(opportunity_values[field_name])
+                opportunity = OpportunityResult(**opportunity_values)
+            except (KeyError, TypeError, ValueError):
+                continue
+
+            output_entry = bulk_outputs.get(instrument_id)
+            output = output_entry[0] if output_entry is not None else {}
+            metric_values: dict[str, object] = {}
+            pending = [output]
+            while pending:
+                current = pending.pop()
+                if not isinstance(current, Mapping):
+                    continue
+                for key in ("net_expected_return", "downside_risk", "marginal_impact", "liquidity", "cost", "evidence"):
+                    if key not in metric_values and current.get(key) is not None:
+                        metric_values[key] = current[key]
+                pending.extend(value for value in current.values() if isinstance(value, Mapping))
+
+            fixed_row = fixed_rows.get(instrument_id, {})
+            if metric_values.get("net_expected_return") is None and fixed_row.get("net_total_return") is not None:
+                metric_values["net_expected_return"] = fixed_row["net_total_return"]
+            if metric_values.get("downside_risk") is None and fixed_row.get("loss_probability") is not None:
+                metric_values["downside_risk"] = fixed_row["loss_probability"]
+            if metric_values.get("evidence") is None:
+                metric_values["evidence"] = opportunity.confidence
+
+            country = None
+            sector = None
+            try:
+                classification = load_classification_projection(
+                    instrument_id,
+                    storage_root=root,
+                    effective_at=decision_time,
+                    decision_time=decision_time,
+                )
+                classification_value = classification.get("classification")
+                if isinstance(classification_value, Mapping):
+                    country = classification_value.get("country")
+                    sector = classification_value.get("sector")
+            except (OSError, TypeError, ValueError):
+                pass
+            country = country or fixed_row.get("country")
+            sector = sector or fixed_row.get("issuer_sector")
+            common_times = [opportunity.decision_time]
+            if output_entry is not None:
+                common_times.append(output_entry[1])
+            if fixed_row and fixed_screen.get("decision_time"):
+                common_times.append(str(fixed_screen["decision_time"]))
+            source_hashes = [("opportunity_universe", opportunity.universe_hash),
+                             ("opportunity_policy", opportunity.config_hash),
+                             ("opportunity_vintage", opportunity.source_vintage_hash)]
+            if output_entry is not None and output_entry[2]:
+                source_hashes.append(("bulk_run", output_entry[2]))
+            if fixed_row and fixed_screen.get("analysis_snapshot_id"):
+                source_hashes.append(("fixed_income_screener", str(fixed_screen["analysis_snapshot_id"])))
+            candidates_list.append(
+                SelectionCandidate(
+                    opportunity=opportunity,
+                    common_metrics_as_of=max(
+                        pd.Timestamp(value).tz_convert("UTC") for value in common_times
+                    ).isoformat(),
+                    country=None if country is None else str(country),
+                    sector=None if sector is None else str(sector),
+                    net_expected_return=metric_values.get("net_expected_return"),
+                    downside_risk=metric_values.get("downside_risk"),
+                    marginal_impact=metric_values.get("marginal_impact"),
+                    liquidity=metric_values.get("liquidity"),
+                    cost=metric_values.get("cost"),
+                    evidence=metric_values.get("evidence"),
+                    source_hashes=tuple(source_hashes),
+                )
+            )
+        candidates = tuple(candidates_list)
+        if not candidates:
+            return {
+                "contract": "selection-run.v1",
+                "status": "unavailable",
+                "mode": mode if mode in {"asset_specific", "cross_asset"} else "unavailable",
+                "reason": "frozen_opportunity_candidates_unavailable",
+                "decision_time": decision_time,
+                "top_n": policy.top_n if top_n is None else top_n,
+                "seed": seed,
+                "policy": policy.to_record(),
+                "candidate_table": [],
+                "selected_ids": [],
+                "exclusion_funnel": [],
+                "source_snapshot_hashes": {},
+                "portfolio_reference": None,
+                "persistence_status": "not_attempted",
+                "execution_allowed": False,
+            }
+
+        if portfolio_snapshot is None and snapshot is not None:
+            candidate_snapshot = getattr(snapshot, "portfolio_snapshot", None)
+            if isinstance(candidate_snapshot, Mapping):
+                portfolio_snapshot = dict(candidate_snapshot)
+            else:
+                binding = getattr(snapshot, "candidate_price_binding", None)
+                binding = binding if isinstance(binding, Mapping) else {}
+                portfolio_id = getattr(snapshot, "portfolio_id", None)
+                snapshot_id = getattr(snapshot, "snapshot_id", binding.get("snapshot_id"))
+                as_of = getattr(snapshot, "as_of", binding.get("as_of"))
+                if portfolio_id and snapshot_id and as_of:
+                    holdings = getattr(snapshot, "holdings", None)
+                    portfolio_snapshot = {
+                        "portfolio_id": str(portfolio_id),
+                        "snapshot_id": str(snapshot_id),
+                        "as_of": str(as_of),
+                        "holdings": holdings.to_dict(orient="records") if isinstance(holdings, pd.DataFrame) else [],
+                    }
+
+        if reference_anchor is None and portfolio_snapshot is None and snapshot is not None:
+            supplied_anchor = getattr(snapshot, "vwce_anchor_snapshot", None)
+            if isinstance(supplied_anchor, VWCEAnchorSnapshot):
+                reference_anchor = supplied_anchor
+            else:
+                evidence = getattr(snapshot, "vwce_anchor_evidence", None)
+                listing_id = getattr(snapshot, "vwce_listing_id", None)
+                currency = getattr(snapshot, "benchmark_reference_currency", None)
+                horizon = getattr(snapshot, "benchmark_reference_horizon_years", None)
+                effective_date = getattr(snapshot, "benchmark_reference_end_date", None)
+                if evidence is not None and listing_id and currency and horizon and effective_date:
+                    try:
+                        resolved = resolve_vwce_anchor(
+                            evidence,
+                            listing_id=str(listing_id),
+                            effective_date=str(effective_date),
+                            decision_time=decision_time,
+                            currency=str(currency),
+                            horizon_years=float(horizon),
+                            conversion_evidence=getattr(snapshot, "vwce_conversion_evidence", None),
+                        )
+                        reference_anchor = VWCEAnchorSnapshot(
+                            status="available" if resolved.status == "available" else "unavailable",
+                            reason=resolved.reason,
+                            canonical_share_class_id=resolved.canonical_share_class_id,
+                            listing_id=resolved.listing_id,
+                            effective_date=resolved.effective_date,
+                            knowledge_cutoff=resolved.decision_time,
+                            output_currency=resolved.output_currency,
+                            horizon_years=resolved.horizon_years,
+                            anchor_digest=resolved.anchor_digest,
+                            resolution_digest=resolved.replay_digest,
+                            risk_envelope_status="unavailable",
+                            risk_metrics=(),
+                        )
+                    except (TypeError, ValueError):
+                        reference_anchor = None
+
+        if portfolio_policy is None and snapshot is not None:
+            try:
+                goals = load_portfolio_goals_projection(snapshot, root=root)
+                versions = goals.get("policy_history", ())
+                if isinstance(versions, Sequence) and not isinstance(versions, (str, bytes)):
+                    usable_versions = [
+                        item for item in versions
+                        if isinstance(item, Mapping)
+                        and item.get("saved_at")
+                        and _known_by_cutoff(item.get("saved_at"))
+                    ]
+                    if usable_versions:
+                        portfolio_policy = policy_from_record(usable_versions[-1])
+            except (OSError, TypeError, ValueError):
+                portfolio_policy = None
+
+        if risk_profile is None:
+            supplied_profile = getattr(snapshot, "risk_profile", None) if snapshot is not None else None
+            if isinstance(supplied_profile, RiskProfileVersion):
+                risk_profile = supplied_profile
+            elif isinstance(supplied_profile, Mapping):
+                try:
+                    risk_profile = risk_profile_version_from_record(supplied_profile)
+                except (TypeError, ValueError):
+                    risk_profile = None
+            if risk_profile is None:
+                try:
+                    presets = load_risk_profile_presets()
+                    default_profile = next(item for item in presets if item.profile_id == "medium")
+                    risk_profile = risk_profile_preset_version(default_profile)
+                except (StopIteration, OSError, TypeError, ValueError):
+                    risk_profile = None
+
     try:
         run = build_selection_run(
             candidates,

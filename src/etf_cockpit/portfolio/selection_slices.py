@@ -61,10 +61,16 @@ def materialise_selection_slices(
         eligible = tuple(row for row in members if _utility_eligible(row))
         raw_support = len(members)
         effective_support = float(len(eligible))
-        classification_missing = (
-            definition.dimension in {"country", "sector", "country_sector"}
-            and definition.value == "unavailable"
-        )
+        if definition.dimension == "country_sector":
+            classification_missing = (
+                not isinstance(definition.value, tuple)
+                or any(str(value).casefold() == "unavailable" for value in definition.value)
+            )
+        else:
+            classification_missing = (
+                definition.dimension in {"country", "sector"}
+                and str(definition.value).casefold() == "unavailable"
+            )
         if mode != "cross_asset":
             status = "unavailable"
             reason = "cross_asset_utility_unavailable"

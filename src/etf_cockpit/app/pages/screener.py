@@ -242,7 +242,7 @@ def screener_page(_page: ft.Page, _state: AppState) -> ft.Control:
             status_colour,
         ),
         _fixed_income_returns_block(_page, fixed_income_result),
-        _top_n_selection_block(_page, decision_time),
+        _top_n_selection_block(_page, decision_time, _state.snapshot),
         panel(
             ft.Column(
                 [
@@ -303,10 +303,10 @@ def screener_page(_page: ft.Page, _state: AppState) -> ft.Control:
     return ft.Column(controls, spacing=14, expand=True, scroll=ft.ScrollMode.AUTO)
 
 
-def _top_n_selection_block(page: ft.Page | None, decision_time: str) -> ft.Control:
+def _top_n_selection_block(page: ft.Page | None, decision_time: str, snapshot: object) -> ft.Control:
     """Show saved advisory selection runs and their frozen exclusion funnel."""
 
-    current = [load_top_n_selection(mode="cross_asset", decision_time=decision_time)]
+    current = [load_top_n_selection(mode="cross_asset", decision_time=decision_time, snapshot=snapshot)]
     initial_policy = current[0].get("policy")
     initial_policy = initial_policy if isinstance(initial_policy, dict) else {}
     maximum_top_n = initial_policy.get("maximum_top_n", 25)
@@ -494,6 +494,7 @@ def _top_n_selection_block(page: ft.Page | None, decision_time: str) -> ft.Contr
                 mode=str(mode.value or "cross_asset"),
                 top_n=int(top_n.value or 1),
                 decision_time=decision_time,
+                snapshot=snapshot,
             )
         except (TypeError, ValueError):
             result = {"status": "unavailable", "reason": "top_n_value_invalid", "policy": initial_policy}

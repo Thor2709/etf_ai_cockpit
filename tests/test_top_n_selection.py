@@ -1,7 +1,9 @@
-from dataclasses import replace
+from dataclasses import asdict, replace
+from types import SimpleNamespace
 
 from etf_cockpit.analysis.decision.contracts import OpportunityResult
 from etf_cockpit.data.local_storage import TransactionalStore
+from etf_cockpit.application.ui_facade import load_top_n_selection
 from etf_cockpit.portfolio.risk_profiles import VWCEAnchorSnapshot
 from etf_cockpit.portfolio.selection_slices import materialise_selection_slices
 from etf_cockpit.portfolio.top_n_selection import (
@@ -10,6 +12,7 @@ from etf_cockpit.portfolio.top_n_selection import (
     load_selection_policy,
     persist_selection_run,
 )
+from etf_cockpit.portfolio.goals_constraints import validate_portfolio_policy
 
 
 DECISION_TIME = "2026-09-30T20:00:00+00:00"
@@ -167,30 +170,47 @@ def test_portfolio_change_creates_new_run_identity_without_mutating_earlier_run(
     policy = _policy()
     original_portfolio = {"portfolio_id": "portfolio-test", "snapshot_id": "snapshot-1", "as_of": DECISION_TIME}
     changed_portfolio = {"portfolio_id": "portfolio-test", "snapshot_id": "snapshot-2", "as_of": DECISION_TIME}
+    constraints_a = validate_portfolio_policy(
+        {"max_position_weight": 0.2}, policy_id="portfolio-goals:test", version=1
+    )
+    constraints_b = validate_portfolio_policy(
+        {"max_position_weight": 0.3}, policy_id="portfolio-goals:test", version=1
+    )
     earlier = build_selection_run(
         candidates,
         decision_time=DECISION_TIME,
         policy=policy,
         portfolio_snapshot=original_portfolio,
+        portfolio_policy=constraints_a,
     )
     frozen_record = earlier.to_record()
-    later = build_selection_run(
+    changed_constraints = build_selection_run(
+        candidates,
+        decision_time=DECISION_TIME,
+        policy=policy,
+        portfolio_snapshot=original_portfolio,
+        portfolio_policy=constraints_b,
+    )
+    changed_portfolio_run = build_selection_run(
         candidates,
         decision_time=DECISION_TIME,
         policy=policy,
         portfolio_snapshot=changed_portfolio,
+        portfolio_policy=constraints_a,
     )
 
-    assert earlier.run_id != later.run_id
-    assert earlier.input_hash != later.input_hash
+    assert len({earlier.run_id, changed_constraints.run_id, changed_portfolio_run.run_id}) == 3
+    assert len({earlier.input_hash, changed_constraints.input_hash, changed_portfolio_run.input_hash}) == 3
     assert earlier.to_record() == frozen_record
     with TransactionalStore(tmp_path) as store:
         first_record = persist_selection_run(store, earlier)
-        second_record = persist_selection_run(store, later)
+        second_record = persist_selection_run(store, changed_constraints)
+        third_record = persist_selection_run(store, changed_portfolio_run)
         stored_runs = store.list("top_n_selection_run.v1")
     assert first_record.payload == frozen_record
-    assert second_record.payload == later.to_record()
-    assert len(stored_runs) == 2
+    assert second_record.payload == changed_constraints.to_record()
+    assert third_record.payload == changed_portfolio_run.to_record()
+    assert len(stored_runs) == 3
     assert next(item for item in stored_runs if item.entity_id == earlier.run_id).payload == frozen_record
 
 
@@ -214,6 +234,12 @@ def test_missing_portfolio_uses_vwce_anchor_or_returns_unavailable_reason() -> N
         candidates,
         decision_time=DECISION_TIME,
         policy=_policy(),
+        reference_anchor=replace(anchor, risk_envelope_status="available"),
+    )
+    unavailable_envelope = build_selection_run(
+        candidates,
+        decision_time=DECISION_TIME,
+        policy=_policy(),
         reference_anchor=anchor,
     )
     unavailable = build_selection_run(
@@ -226,6 +252,10 @@ def test_missing_portfolio_uses_vwce_anchor_or_returns_unavailable_reason() -> N
     assert available.mode == "cross_asset"
     assert available.portfolio_reference["kind"] == "vwce_benchmark_hierarchy_reference"
     assert available.portfolio_reference["instrument_id"] == "synthetic-vwce-anchor"
+    assert len(available.selected_ids) == 1
+    assert all(row["utility_score"] is not None for row in available.candidate_table)
+    assert unavailable_envelope.mode == "cross_asset"
+    assert unavailable_envelope.reason == "vwce_reference_risk_envelope_unavailable"
     assert unavailable.mode == "unavailable"
     assert unavailable.reason == "reference_portfolio_unavailable"
 
@@ -264,3 +294,182 @@ def test_slices_conserve_table_sparse_country_sector_is_insufficient_and_scores_
             assert row["utility_score"] == original_scores[row["instrument_id"]]
     assert sparse["status"] == "insufficient_support"
     assert sparse["selected_ids"] == ()
+
+
+def test_country_sector_slice_with_missing_classification_is_unavailable() -> None:
+    candidates = tuple(
+        _candidate(
+            f"unclassified-{index}",
+            "etf",
+            country=None,
+            sector=None,
+        )
+        for index in range(5)
+    )
+    run = build_selection_run(
+        candidates,
+        decision_time=DECISION_TIME,
+        policy=_policy(support=5),
+        portfolio_snapshot={"portfolio_id": "portfolio-test", "snapshot_id": "snapshot-1", "as_of": DECISION_TIME},
+    )
+
+    missing_slice = next(
+        item for item in materialise_selection_slices(run)
+        if item["dimension"] == "country_sector"
+        and item["value"] == ("unavailable", "unavailable")
+    )
+    assert missing_slice["status"] == "unavailable"
+    assert missing_slice["reason"] == "slice_classification_unavailable"
+    assert missing_slice["selected_ids"] == ()
+
+
+def test_loader_builds_persists_frozen_evidence_and_rejects_stale_context_reuse(tmp_path, monkeypatch) -> None:
+    import etf_cockpit.application.bulk_run as bulk_run
+    import etf_cockpit.application.ui_facade as ui_facade
+
+    instrument_ids = tuple(f"asset-{index}" for index in range(5))
+    opportunities = {
+        instrument_id: _candidate(
+            instrument_id,
+            "bond" if instrument_id == "asset-4" else "etf",
+        ).opportunity
+        for instrument_id in instrument_ids
+    }
+    bulk_results = {
+        instrument_id: {
+            "decision_time": DECISION_TIME,
+            "marginal_impact": 0.5,
+            "liquidity": 0.5,
+            "cost": 0.2,
+            **({} if instrument_id == "asset-4" else {
+                "net_expected_return": 0.5,
+                "downside_risk": 0.2,
+            }),
+        }
+        for instrument_id in instrument_ids
+    }
+    fixed_screen = {
+        "status": "available",
+        "decision_time": DECISION_TIME,
+        "analysis_snapshot_id": "fixed-screen-snapshot",
+        "rows": [{
+            "instrument_id": "asset-4",
+            "net_total_return": 0.7,
+            "loss_probability": 0.1,
+            "country": "DE",
+            "issuer_sector": "Industrials",
+        }],
+    }
+
+    class FakeBulkService:
+        workflow_type = "bulk_analysis"
+
+        def __init__(self, _root):
+            self.scheduler = SimpleNamespace(
+                list_workflows=lambda limit: (SimpleNamespace(
+                    workflow_type="bulk_analysis",
+                    workflow_id="bulk-run-1",
+                    created_at=DECISION_TIME,
+                ),),
+                list_jobs=lambda _workflow_id: tuple(
+                    SimpleNamespace(
+                        inputs={"instrument_id": instrument_id},
+                        finished_at=DECISION_TIME,
+                    )
+                    for instrument_id in instrument_ids
+                ),
+            )
+
+        def get_run(self, _workflow_id):
+            return SimpleNamespace(
+                results=bulk_results,
+                hashes={instrument_id: f"bulk-hash-{instrument_id}" for instrument_id in instrument_ids},
+            )
+
+    monkeypatch.setattr(bulk_run, "BulkAnalysisService", FakeBulkService)
+    monkeypatch.setattr(
+        ui_facade,
+        "load_fixed_income_screener",
+        lambda **_kwargs: fixed_screen,
+    )
+    monkeypatch.setattr(
+        ui_facade,
+        "load_opportunity_assessment",
+        lambda instrument_id, **_kwargs: asdict(opportunities[instrument_id]),
+    )
+    monkeypatch.setattr(
+        ui_facade,
+        "load_classification_projection",
+        lambda instrument_id, **_kwargs: {
+            "status": "available",
+            "classification": {"country": "DE", "sector": "Industrials"},
+        },
+    )
+    snapshot = SimpleNamespace(
+        config=SimpleNamespace(
+            universe=SimpleNamespace(by_id=lambda: {instrument_id: object() for instrument_id in instrument_ids})
+        ),
+    )
+    portfolio = {"portfolio_id": "portfolio-test", "snapshot_id": "snapshot-1", "as_of": DECISION_TIME}
+    constraints_a = validate_portfolio_policy(
+        {"max_position_weight": 0.2}, policy_id="portfolio-goals:test", version=1
+    )
+    constraints_b = validate_portfolio_policy(
+        {"max_position_weight": 0.3}, policy_id="portfolio-goals:test", version=1
+    )
+
+    earlier = load_top_n_selection(
+        mode="cross_asset",
+        top_n=1,
+        decision_time=DECISION_TIME,
+        snapshot=snapshot,
+        portfolio_snapshot=portfolio,
+        portfolio_policy=constraints_a,
+        storage_root=tmp_path,
+    )
+    changed = load_top_n_selection(
+        mode="cross_asset",
+        top_n=1,
+        decision_time=DECISION_TIME,
+        snapshot=snapshot,
+        portfolio_snapshot=portfolio,
+        portfolio_policy=constraints_b,
+        storage_root=tmp_path,
+    )
+    assert earlier["persistence_status"] == "persisted"
+    assert len(earlier["candidate_table"]) == 5
+    assert earlier["candidate_table"][-1]["instrument_id"] == "asset-4"
+    bond_metrics = earlier["candidate_table"][-1]["common_metrics"]
+    assert bond_metrics["net_expected_return"] == 0.7
+    assert bond_metrics["downside_risk"] == 0.1
+    earlier_record = dict(earlier)
+    assert changed["persistence_status"] == "persisted"
+    assert changed["run_id"] != earlier["run_id"]
+    assert changed["input_hash"] != earlier["input_hash"]
+    assert earlier == earlier_record
+    with TransactionalStore(tmp_path) as store:
+        stored_runs = store.list("top_n_selection_run.v1")
+    assert len(stored_runs) == 2
+    assert next(item for item in stored_runs if item.entity_id == earlier["run_id"]).payload["input_hash"] == earlier["input_hash"]
+
+    monkeypatch.setattr(
+        ui_facade,
+        "load_opportunity_assessment",
+        lambda instrument_id, **_kwargs: {
+            "status": "unavailable",
+            "instrument": instrument_id,
+            "reason_code": "opportunity_result_unavailable",
+        },
+    )
+    unavailable = load_top_n_selection(
+        mode="cross_asset",
+        top_n=1,
+        decision_time=DECISION_TIME,
+        snapshot=snapshot,
+        portfolio_snapshot=portfolio,
+        portfolio_policy=constraints_b,
+        storage_root=tmp_path,
+    )
+    assert unavailable["status"] == "unavailable"
+    assert unavailable["reason"] == "frozen_opportunity_candidates_unavailable"
+    assert unavailable.get("run_id") != changed["run_id"]
