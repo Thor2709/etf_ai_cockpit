@@ -288,7 +288,7 @@ def project_fund_recommendation(
                     item.after_trade_analysis,
                     item.after_trade_snapshot,
                 )
-            except Exception:
+            except ValueError:
                 # Keep the fund surface advisory when the shared projection
                 # contract cannot interpret ordinary-fund after-trade inputs.
                 results.append(

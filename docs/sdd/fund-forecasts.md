@@ -38,7 +38,8 @@ configured risk-profile presets. Missing fee stack, benchmark, blocked analysis,
 unavailable horizon, or uncalibrated distribution blocks every profile with
 binding reasons. Without after-trade inputs, profiles are unavailable with
 `risk_profile_after_trade_context_unavailable`. The existing portfolio
-projection contract cannot currently score the fund distribution itself; when
-it rejects supplied context, that profile is recorded unavailable without
-changing the shared risk-profile contract. Execution remains disabled. Top-*N*
-selection and all user interface work are outside this slice.
+projection contract cannot currently score the fund distribution itself. A
+`ValueError` rejecting supplied context records that profile unavailable with
+`risk_profile_fund_context_unavailable`; unexpected projection exceptions
+propagate. The shared risk-profile contract is unchanged. Execution remains
+disabled. Top-*N* selection and all user interface work are outside this slice.

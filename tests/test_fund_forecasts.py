@@ -24,7 +24,6 @@ from etf_cockpit.analysis.fund_forecasts import (
 from etf_cockpit.analysis.fund_peers import FundPeerCohort
 from etf_cockpit.analysis.peer_cohorts import CohortMembership, PeerMetricResult
 from etf_cockpit.portfolio import risk_profiles
-from etf_cockpit.portfolio.risk_profiles import ProfileEligibilityResult
 
 
 DECISION = datetime(2026, 6, 1, 12, tzinfo=timezone.utc)
@@ -414,37 +413,90 @@ def test_profile_projection_requires_after_trade_context_and_calls_once_per_pres
         for profile in no_context.profile_results
     )
 
+    analysis = SimpleNamespace(
+        candidate=SimpleNamespace(
+            candidate_id="candidate-fixture",
+            name="Candidate fixture",
+            targets={"ETF-A": 0.25, "ETF-B": 0.75},
+            cash_weight=0.0,
+        ),
+        allocations=(),
+        snapshot_binding=SimpleNamespace(
+            account_id="account-fixture",
+            portfolio_id="portfolio-fixture",
+            snapshot_id="snapshot-fixture",
+            source_revision="1",
+            source_checksum="source-fixture",
+            price_source_revision="1",
+            price_source_checksum="price-fixture",
+            as_of="2025-02-01",
+            holdings_view="combined",
+            holdings_sources=(),
+        ),
+        service_evidence={},
+        constraints=(),
+        source_stale=False,
+        sector_exposure=(),
+        region_exposure=(),
+        currency_exposure=(),
+        cost=None,
+    )
+    snapshot = object()
+    real_project = risk_profiles.project_risk_profile
     calls: list[str] = []
 
-    def fake_project(profile, analysis, snapshot):
+    def spy_project(profile, after_trade_analysis, after_trade_snapshot):
         calls.append(profile.profile_id)
-        return SimpleNamespace(
-            eligibility=ProfileEligibilityResult(
-                profile_id=profile.profile_id,
-                status="unavailable",
-                eligible=None,
-                rank=None,
-                recommendation="unavailable",
-                binding_reasons=("test_projection_unavailable",),
-                constraints=(),
-            ),
-            projection_id=f"projection-{profile.profile_id}",
-        )
+        return real_project(profile, after_trade_analysis, after_trade_snapshot)
 
-    monkeypatch.setattr(risk_profiles, "project_risk_profile", fake_project)
+    monkeypatch.setattr(risk_profiles, "project_risk_profile", spy_project)
     with_context = project_fund_recommendation(
         replace(
             calibrated_input,
-            after_trade_analysis=object(),
-            after_trade_snapshot=object(),
+            after_trade_analysis=analysis,
+            after_trade_snapshot=snapshot,
         )
     )
-    assert len(calls) == 5
-    assert tuple(calls) == tuple(profile.profile_id for profile in with_context.profile_results)
-    assert all(
-        profile.binding_reasons == ("test_projection_unavailable",)
-        for profile in with_context.profile_results
+    expected_profile_ids = tuple(
+        profile.profile_id
+        for profile in risk_profiles.load_risk_profile_presets()
     )
+    assert tuple(calls) == expected_profile_ids
+    assert tuple(
+        (profile.profile_id, profile.status)
+        for profile in with_context.profile_results
+    ) == tuple((profile_id, "blocked") for profile_id in expected_profile_ids)
+    assert all(profile.eligible is False for profile in with_context.profile_results)
+
+    def contract_error(profile, after_trade_analysis, after_trade_snapshot):
+        raise ValueError("unsupported after-trade context")
+
+    monkeypatch.setattr(risk_profiles, "project_risk_profile", contract_error)
+    unavailable = project_fund_recommendation(
+        replace(
+            calibrated_input,
+            after_trade_analysis=analysis,
+            after_trade_snapshot=snapshot,
+        )
+    )
+    assert all(
+        profile.status == "unavailable"
+        and profile.binding_reasons == ("risk_profile_fund_context_unavailable",)
+        for profile in unavailable.profile_results
+    )
+
+    def unexpected_error(profile, after_trade_analysis, after_trade_snapshot):
+        raise RuntimeError("unexpected projection failure")
+
+    monkeypatch.setattr(risk_profiles, "project_risk_profile", unexpected_error)
+    with pytest.raises(RuntimeError, match="unexpected projection failure"):
+        project_fund_recommendation(
+            replace(
+                calibrated_input,
+                after_trade_analysis=analysis,
+                after_trade_snapshot=snapshot,
+            )
+        )
 
 
 def test_projection_hash_config_fail_closed_and_no_etf_only_metrics(tmp_path) -> None:
