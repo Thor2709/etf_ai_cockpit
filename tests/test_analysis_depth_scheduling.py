@@ -326,6 +326,73 @@ def test_concurrent_cache_publication_rejects_different_valid_results():
     }
 
 
+def test_concurrent_optional_omission_and_value_conflict_preserves_first_publication():
+    profile = load_analysis_depth_profiles()["full"]
+    stage = next(stage for stage in profile.stages if not stage.mandatory)
+    profile = replace(profile, stages=(stage,))
+    instrument_id = "ETF.CACHE"
+    analysis_input = {"value": 3}
+    analyzer_id = "tests.depth.concurrent-optional-determinism.v1"
+    resource_plan = create_resource_plan(profile)
+    cache = {}
+    cache_lock = Lock()
+    runner_lock = Lock()
+    barrier = Barrier(2, timeout=5)
+    runner_results = []
+
+    def runner(_instrument, _stage_input, _current_stage, _resource_plan):
+        with runner_lock:
+            result = None if not runner_results else {
+                "stage_id": stage.stage_id,
+                "passed": True,
+                "value": "present",
+            }
+            runner_results.append(result)
+        barrier.wait()
+        return result
+
+    def execute(run_id):
+        return execute_profiled_stages(
+            profile,
+            instrument_id,
+            analysis_input,
+            analyzer_id,
+            runner,
+            cache,
+            run_id=run_id,
+            resource_plan=resource_plan,
+            cache_lock=cache_lock,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(execute, f"optional-determinism-{index}") for index in range(2)]
+        outcomes = []
+        for future in futures:
+            try:
+                outcomes.append(("result", future.result()))
+            except AnalysisDepthError as error:
+                outcomes.append(("error", error))
+
+    successful = [value for outcome, value in outcomes if outcome == "result"]
+    errors = [value for outcome, value in outcomes if outcome == "error"]
+    cache_key = stage_cache_key(instrument_id, analysis_input, analyzer_id, stage)
+    assert len(successful) == 1
+    assert len(errors) == 1
+    assert "determinism violation" in str(errors[0])
+    failed_stage_records = [
+        record for record in errors[0].timing_records
+        if record.stage_id == stage.stage_id and record.timing_kind == "stage"
+    ]
+    assert len(failed_stage_records) == 1
+    assert failed_stage_records[0].outcome == "failed"
+    successful_result = successful[0][0]["stages"][stage.stage_id]
+    assert cache[cache_key] == {
+        "content_hash": stage_output_hash(successful_result),
+        "result": successful_result,
+    }
+    assert {result is None for result in runner_results} == {True, False}
+
+
 def test_bulk_jobs_persist_concurrent_determinism_timings_once(monkeypatch, tmp_path):
     _install_plan_estimate(monkeypatch, cpu=2.0)
     service = BulkAnalysisService(tmp_path)

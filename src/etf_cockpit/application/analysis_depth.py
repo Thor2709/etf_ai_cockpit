@@ -1010,7 +1010,7 @@ def execute_profiled_stages(
                 ))
             if error is not None:
                 raise MandatoryEvidenceError(error, timing_records=timing_records)
-            if not reused and stage_result is not None:
+            if not reused:
                 with cache_lock if cache_lock is not None else nullcontext():
                     existing = cache.get(key)
                     existing_hash = None

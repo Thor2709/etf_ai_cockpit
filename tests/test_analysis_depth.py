@@ -209,6 +209,52 @@ def test_optional_runner_exception_keeps_its_existing_type():
     assert caught.value is failure
 
 
+def test_optional_none_result_is_cached_and_reused_on_sequential_rerun():
+    profile = load_analysis_depth_profiles()["full"]
+    optional_stage = next(stage for stage in profile.stages if not stage.mandatory)
+    one_stage_profile = replace(profile, stages=(optional_stage,))
+    cache = {}
+    calls = 0
+
+    def runner(_instrument_id, _analysis_input, _stage, _resource_plan):
+        nonlocal calls
+        calls += 1
+        return None
+
+    first_output, first_timings = execute_profiled_stages(
+        one_stage_profile,
+        "ETF.TEST",
+        {"value": 1},
+        "tests.depth.optional-omission-cache.v1",
+        runner,
+        cache,
+        run_id="optional-omission-cold",
+        resource_plan=create_resource_plan(one_stage_profile),
+    )
+    second_output, second_timings = execute_profiled_stages(
+        one_stage_profile,
+        "ETF.TEST",
+        {"value": 1},
+        "tests.depth.optional-omission-cache.v1",
+        runner,
+        cache,
+        run_id="optional-omission-warm",
+        resource_plan=create_resource_plan(one_stage_profile),
+    )
+
+    cache_key = stage_cache_key(
+        "ETF.TEST", {"value": 1}, "tests.depth.optional-omission-cache.v1", optional_stage
+    )
+    assert calls == 1
+    assert cache[cache_key] == {"content_hash": stage_output_hash(None), "result": None}
+    assert first_output["stages"][optional_stage.stage_id] is None
+    assert second_output["stages"][optional_stage.stage_id] is None
+    assert first_output["omitted_optional_stages"] == [optional_stage.stage_id]
+    assert second_output["omitted_optional_stages"] == [optional_stage.stage_id]
+    assert first_timings[0].cache_state == "cold"
+    assert second_timings[0].cache_state == "warm"
+
+
 def test_analysis_depth_error_keeps_prior_and_failing_stage_timings():
     profile = load_analysis_depth_profiles()["quick"]
     failing_stage = profile.stages[1]

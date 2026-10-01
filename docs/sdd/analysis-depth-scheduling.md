@@ -2,7 +2,7 @@
 
 Profile depth runs reserve each job's full plan estimates for CPU, memory, and disk before the scheduler claims it. The durable scheduler checks those aggregate reservations atomically, so the plan's worker limit and caller's `max_jobs` request set upper bounds while available resources and scheduler concurrency determine how many jobs can run together. Low-resource runs use one worker and a shard size of one. Legacy bulk runs continue to execute one job at a time with scheduler default resources.
 
-For each content-addressed stage cache key, publication replaces a corrupt entry, reuses a valid entry with the same output hash, and raises `AnalysisDepthError` when a valid entry has a different hash, which signals a determinism violation.
+For each content-addressed stage cache key, publication replaces a corrupt entry, reuses a valid entry with the same output hash, and raises `AnalysisDepthError` when a valid entry has a different hash, which signals a determinism violation. Successful optional stages that return `None` publish and reuse a hashed omission through the same path, so concurrent omission and value results for one key are treated as a determinism violation.
 
 The shared stage cache is guarded while entries are read and published. Concurrent results for the same content key must have the same content hash. Timing-store writes are serialized within the process so concurrent jobs do not overwrite one another's records.
 
