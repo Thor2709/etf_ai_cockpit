@@ -1,11 +1,11 @@
 {
   "artifact_identity": {
-    "linux_junit_tests": 5677,
-    "release_gate_attempt": 1,
-    "release_gate_run_id": 36862476970,
-    "reviewed_head_sha": "125791086f67d4327a9920ec5edf5463dd19611c",
+    "linux_junit_tests": 5730,
+    "release_gate_attempt": 2,
+    "release_gate_run_id": 36878561647,
+    "reviewed_head_sha": "da46b6ace5b785e0f3d98c5603655fe39437e705",
     "terminal_result": "success",
-    "windows_junit_tests": 5677
+    "windows_junit_tests": 5730
   },
   "execution_allowed": false,
   "policy": "Reuse is allowed only when the classifier independently proves protected source, dependency, product-tree, environment, workflow and policy identities are unchanged from the exact base.",
