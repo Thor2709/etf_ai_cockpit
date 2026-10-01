@@ -82,6 +82,74 @@ FINAL_RELEASE_MANIFEST = FINAL_RELEASE_SOURCE.parent / "SOURCE_MANIFEST.sha256"
 FINAL_RELEASE_SPEC_SHA256 = "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810"
 FINAL_RELEASE_VERIFIED_DATE = "2026-07-21"
 FINAL_RELEASE_AUDITED_COMMIT = "452d44034197cd5d837c1854603eea030e02acf6"
+LEGACY_BOOTSTRAP_RECORDS: dict[str, dict[str, Any]] = {
+    "ISSUE-0011": {
+        "acceptance_evidence": [],
+        "dependency_edge_evidence": {},
+        "phase": "phase-08-frontend-api",
+        "programme_status": "in_progress",
+        "status_transition": {
+            "from": "in_progress",
+            "review_reference": "B00 canonical import from audited programme state",
+            "to": "in_progress",
+        },
+        "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+        "verified_date": "2026-07-21",
+    },
+    "ISSUE-0012": {
+        "acceptance_evidence": [],
+        "dependency_edge_evidence": {},
+        "phase": "phase-01-governance-scope",
+        "programme_status": "in_progress",
+        "status_transition": {
+            "from": "in_progress",
+            "review_reference": "B00 canonical import from audited programme state",
+            "to": "in_progress",
+        },
+        "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+        "verified_date": "2026-07-21",
+    },
+    "ISSUE-0014": {
+        "acceptance_evidence": [],
+        "dependency_edge_evidence": {},
+        "phase": "phase-01-governance-scope",
+        "programme_status": "in_progress",
+        "status_transition": {
+            "from": "in_progress",
+            "review_reference": "B00 canonical import from audited programme state",
+            "to": "in_progress",
+        },
+        "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+        "verified_date": "2026-07-21",
+    },
+    # B1 owner decision 2026-10-01.
+    "ISSUE-0039": {
+        "acceptance_evidence": [],
+        "dependency_edge_evidence": {},
+        "phase": "phase-01-governance-scope",
+        "programme_status": "in_progress",
+        "status_transition": {
+            "from": "in_progress",
+            "review_reference": "B00 canonical import from audited programme state",
+            "to": "in_progress",
+        },
+        "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+        "verified_date": "2026-07-21",
+    },
+    "ISSUE-0040": {
+        "acceptance_evidence": [],
+        "dependency_edge_evidence": {},
+        "phase": "phase-01-governance-scope",
+        "programme_status": "in_progress",
+        "status_transition": {
+            "from": "in_progress",
+            "review_reference": "B00 canonical import from audited programme state",
+            "to": "in_progress",
+        },
+        "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
+        "verified_date": "2026-07-21",
+    },
+}
 DECLARATION_CORRECTION_EVENT = "dependency_edge_declaration_correction"
 DECLARATION_CORRECTION_PAIRS = frozenset({
     ("ISSUE-0167", "ISSUE-0132"),
@@ -1622,22 +1690,20 @@ def validate_status_replay_prefix_shape(
     verified_date: object,
     status_transition: object,
     allow_legacy_bootstrap_origin: bool = False,
+    phase: object = None,
 ) -> None:
     """Validate the complete canonical prefix before a bounded status replay."""
     if allow_legacy_bootstrap_origin and transition_history in (None, []):
+        expected = LEGACY_BOOTSTRAP_RECORDS.get(issue_id)
         if (
-            issue_id not in {"ISSUE-0011", "ISSUE-0012", "ISSUE-0014"}
-            or acceptance_evidence != []
-            or programme_status != "in_progress"
-            or dependency_edge_evidence != {}
-            or status_transition
-            != {
-                "from": "in_progress",
-                "to": "in_progress",
-                "review_reference": "B00 canonical import from audited programme state",
-            }
-            or verified_commit != "452d44034197cd5d837c1854603eea030e02acf6"
-            or verified_date != "2026-07-21"
+            expected is None
+            or phase != expected["phase"]
+            or acceptance_evidence != expected["acceptance_evidence"]
+            or programme_status != expected["programme_status"]
+            or dependency_edge_evidence != expected["dependency_edge_evidence"]
+            or status_transition != expected["status_transition"]
+            or verified_commit != expected["verified_commit"]
+            or verified_date != expected["verified_date"]
         ):
             raise ValueError(f"{issue_id}: legacy bootstrap replay prefix is malformed")
         _validate_review_date(
@@ -1696,7 +1762,7 @@ def validate_status_replay_prefix_shape(
         replayed_status = target
         ordinary_events.append(event)
     if allow_legacy_bootstrap_origin:
-        if [
+        if issue_id not in LEGACY_BOOTSTRAP_RECORDS or [
             (event.get("from"), event.get("to")) for event in ordinary_events
         ] != [
             ("in_progress", "implemented_initially"),
@@ -1782,26 +1848,7 @@ def is_issue0011_legacy_replay_source(
     issue_id: str, record: object
 ) -> bool:
     """Recognise only the audited B00 source records missing replay history."""
-    phase = {
-        "ISSUE-0011": "phase-08-frontend-api",
-        "ISSUE-0012": "phase-01-governance-scope",
-        "ISSUE-0014": "phase-01-governance-scope",
-    }.get(issue_id)
-    if phase is None:
-        return False
-    return record == {
-        "acceptance_evidence": [],
-        "dependency_edge_evidence": {},
-        "phase": phase,
-        "programme_status": "in_progress",
-        "status_transition": {
-            "from": "in_progress",
-            "review_reference": "B00 canonical import from audited programme state",
-            "to": "in_progress",
-        },
-        "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-        "verified_date": "2026-07-21",
-    }
+    return issue_id in LEGACY_BOOTSTRAP_RECORDS and record == LEGACY_BOOTSTRAP_RECORDS[issue_id]
 
 
 def validate_control_transition_event(
@@ -2194,6 +2241,7 @@ def ready_records(registry: dict[str, Any]) -> list[dict[str, Any]]:
 __all__ = [
     "CLOSED_LEDGER",
     "CLASSIFICATIONS",
+    "LEGACY_BOOTSTRAP_RECORDS",
     "is_issue0011_legacy_replay_source",
     "EDGE_EVIDENCE_STATES",
     "FINAL_RELEASE_SOURCE",
