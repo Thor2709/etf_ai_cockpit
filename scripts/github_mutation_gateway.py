@@ -38,6 +38,7 @@ INFORMATIONAL_MARKER_RE = re.compile(
     r"^<!-- etf-ai-cockpit:fundamental-release-link=[1-9][0-9]* -->(?:\n|$)"
 )
 SINGLE_HOP_STATUS_TARGETS = frozenset({"ready", "in_progress", "integrated"})
+STATUS_BATCH_AUTHORITY_TYPES = frozenset({"status", "status_replay"})
 RECOVERY_AUTHORITY_ID = (
     "db7622b54f8afd1ccdf24a6b356f3691aecb2e46b68c90136e8389aa2b9c08d8"
 )
@@ -640,6 +641,35 @@ def _git_blob_bytes(root: Path, revision: str, path: Path) -> bytes | None:
     return completed.stdout
 
 
+def is_status_batch(records: list[dict[str, Any]]) -> bool:
+    """Return whether one push appends a reviewed batch of status authorities.
+
+    A batch is two or more status/status_replay records for distinct issues that
+    all bind the same source commit, candidate blob and reviewed plan. Each record
+    keeps its own issue-scoped projection; every other authority type remains
+    exactly one append per push.
+    """
+
+    if len(records) < 2 or any(
+        record.get("authority_type") not in STATUS_BATCH_AUTHORITY_TYPES
+        for record in records
+    ):
+        return False
+    payloads = [record["payload"] for record in records]
+    shared = {
+        (
+            payload.get("source_sha"),
+            payload.get("candidate_path"),
+            payload.get("candidate_blob_oid"),
+            payload.get("candidate_blob_sha256"),
+            payload.get("plan_sha256"),
+        )
+        for payload in payloads
+    }
+    stable_ids = [payload.get("stable_id") for payload in payloads]
+    return len(shared) == 1 and len(set(stable_ids)) == len(stable_ids)
+
+
 def validate_authority_git_transition(
     root: Path,
     *,
@@ -647,7 +677,7 @@ def validate_authority_git_transition(
     event_after: str,
     main_ref: str | None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-    """Require one immutable ledger append for this exact main push."""
+    """Require one immutable ledger append (or one status batch) for this exact main push."""
 
     if not SHA_RE.fullmatch(event_before) or not SHA_RE.fullmatch(event_after):
         raise MutationPolicyError(
@@ -692,19 +722,23 @@ def validate_authority_git_transition(
         )
     before_records = parse_authority_ledger(before_bytes) if before_bytes else []
     after_records = parse_authority_ledger(after_bytes)
+    appended = after_records[len(before_records) :]
     if (
         not after_bytes.startswith(before_bytes)
-        or authority_ledger_bytes(after_records[:-1]) != before_bytes
-        or len(after_records) != len(before_records) + 1
+        or authority_ledger_bytes(after_records[: len(before_records)]) != before_bytes
+        or not appended
+        or (len(appended) > 1 and not is_status_batch(appended))
     ):
         raise MutationPolicyError(
             "authority_ledger_not_exactly_one_append",
             _policy_evidence("authority_ledger_not_exactly_one_append"),
         )
     authority = after_records[-1]
-    if authority["authority_type"] != "legacy_bootstrap" and authority["payload"].get(
-        "source_sha"
-    ) != event_before:
+    if any(
+        record["authority_type"] != "legacy_bootstrap"
+        and record["payload"].get("source_sha") != event_before
+        for record in appended
+    ):
         raise MutationPolicyError(
             "authority_event_before_mismatch",
             _policy_evidence("authority_event_before_mismatch"),
@@ -1921,11 +1955,12 @@ def validate_projected_git_binding(
     before_records = parse_authority_ledger(before)
     after_records = parse_authority_ledger(after)
     sequence = int(record["sequence"])
+    appended = after_records[len(before_records) :]
     if (
-        len(before_records) != sequence
-        or len(after_records) != sequence + 1
-        or after_records[-1]["authority_id"] != record["authority_id"]
-        or authority_ledger_bytes(after_records[:-1]) != before
+        not len(before_records) <= sequence < len(after_records)
+        or after_records[sequence]["authority_id"] != record["authority_id"]
+        or authority_ledger_bytes(after_records[: len(before_records)]) != before
+        or (len(appended) != 1 and not is_status_batch(appended))
         or projected.get("ledger_blob_sha256") != _sha256(after)
     ):
         raise ValueError("projected_authority_ledger_transition_mismatch")

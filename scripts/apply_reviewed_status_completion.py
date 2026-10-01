@@ -48,6 +48,20 @@ except ModuleNotFoundError:
 
 SCHEMA_VERSION = "etf-ai-cockpit.status-completion-candidate/2.0"
 REPLAY_SCHEMA_VERSION = "etf-ai-cockpit.status-replay-candidate/3.0"
+BATCH_SCHEMA_VERSION = "etf-ai-cockpit.status-batch-candidate/1.0"
+BATCH_KEYS = {
+    "schema_version",
+    "execution_allowed",
+    "expected_parent_sha",
+    "remote_inventory_sha256",
+    "plan_semantic_sha256",
+    "entries",
+}
+BATCH_SHARED_ENTRY_KEYS = (
+    "expected_parent_sha",
+    "remote_inventory_sha256",
+    "plan_semantic_sha256",
+)
 DEFAULT_CANDIDATE = Path(".github/issue-transitions/post-merge-control-candidate.json")
 ZERO_SUMMARY = {"create": 0, "update": 0, "close": 0, "reopen": 0, "blocked": 0}
 ONE_UPDATE_SUMMARY = {"create": 0, "update": 1, "close": 0, "reopen": 0, "blocked": 0}
@@ -1172,6 +1186,141 @@ def validate_candidate(
         raise ValueError("current plan contains a non-status delta")
 
 
+def status_batch_entry_stable_id(entry: object) -> str:
+    """Return the stable ID of one batch entry (a single status or replay candidate)."""
+
+    if not isinstance(entry, dict):
+        raise ValueError("status batch entry must be a JSON object")
+    key = (
+        "expected_replay"
+        if entry.get("schema_version") == REPLAY_SCHEMA_VERSION
+        else "expected_update"
+    )
+    contract = entry.get(key)
+    if not isinstance(contract, dict) or not isinstance(contract.get("stable_id"), str):
+        raise ValueError("status batch entry contract is malformed")
+    return str(contract["stable_id"])
+
+
+def status_batch_entry_plan(plan: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    """Return the one-action view of a reviewed batch plan used by single-entry validators."""
+
+    return {**plan, "summary": dict(ONE_UPDATE_SUMMARY), "actions": [action]}
+
+
+def validate_status_batch(
+    root: Path,
+    candidate: dict[str, Any],
+    plan: dict[str, Any],
+    remote: list[dict[str, Any]],
+    authorities: list[dict[str, Any]],
+    *,
+    expected_parent: str,
+    expected_head: str,
+    candidate_oid: str,
+    candidate_sha256: str,
+) -> list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]]:
+    """Validate one batch candidate against its appended authorities.
+
+    Every entry is an exact single status or status-replay candidate and is checked
+    by the unchanged single-entry validator against a one-action view of the shared
+    plan. Returns (authority, entry, reviewed remote issue) in authority order.
+    """
+
+    if set(candidate) != BATCH_KEYS:
+        raise ValueError("status batch candidate envelope fields are not narrowly bounded")
+    if candidate.get("schema_version") != BATCH_SCHEMA_VERSION:
+        raise ValueError("status batch candidate schema version mismatch")
+    if candidate.get("execution_allowed") is not False:
+        raise ValueError("candidate must preserve execution_allowed=false")
+    if candidate.get("expected_parent_sha") != expected_parent:
+        raise ValueError("status batch candidate expected parent mismatch")
+    if not mutation_gateway.is_status_batch(authorities):
+        raise ValueError("appended authorities are not one status batch")
+    entries = candidate.get("entries")
+    if not isinstance(entries, list) or len(entries) != len(authorities):
+        raise ValueError("status batch entries do not match the appended authorities")
+    actions = plan.get("actions")
+    if (
+        plan.get("summary") != {**ZERO_SUMMARY, "update": len(entries)}
+        or not isinstance(actions, list)
+        or len(actions) != len(entries)
+        or any(not isinstance(action, dict) for action in actions)
+    ):
+        raise ValueError("status batch plan is not exactly one update per entry")
+    actions_by_id = {str(action.get("stable_id", "")): action for action in actions}
+    stable_ids = [status_batch_entry_stable_id(entry) for entry in entries]
+    if (
+        len(actions_by_id) != len(actions)
+        or stable_ids != sorted(set(stable_ids))
+        or set(stable_ids) != set(actions_by_id)
+    ):
+        raise ValueError("status batch entries and plan actions are not one-to-one")
+    if [authority["payload"]["stable_id"] for authority in authorities] != stable_ids:
+        raise ValueError("status batch authorities are not in candidate order")
+
+    states: dict[str, dict[str, Any]] = {}
+
+    def control_record(revision: str, stable_id: str, context: str) -> dict[str, Any]:
+        if revision not in states:
+            states[revision] = load_control_state_at(root, revision)
+        return control_state_record(states[revision], stable_id, context=context)
+
+    targets: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]] = []
+    for entry, authority, stable_id in zip(entries, authorities, stable_ids, strict=True):
+        if any(entry.get(key) != candidate[key] for key in BATCH_SHARED_ENTRY_KEYS):
+            raise ValueError("status batch entry binding differs from the batch envelope")
+        entry_plan = status_batch_entry_plan(plan, actions_by_id[stable_id])
+        payload = authority["payload"]
+        if entry.get("schema_version") == REPLAY_SCHEMA_VERSION:
+            if authority["authority_type"] != "status_replay":
+                raise ValueError("status batch replay entry is not bound to a replay authority")
+            replay = entry["expected_replay"]
+            if not _is_ancestor(
+                root, str(replay.get("reviewed_product_commit", "")), expected_head
+            ):
+                raise ValueError("status replay reviewed product commit is not in the reviewed head")
+            validate_candidate(
+                entry,
+                entry_plan,
+                remote,
+                source_record=control_record(expected_parent, stable_id, "source"),
+                current_record=control_record(expected_head, stable_id, "current"),
+            )
+            authority_ref = mutation_gateway.replay_candidate_authority_ref(payload)
+        else:
+            if authority["authority_type"] != "status":
+                raise ValueError("status batch status entry is not bound to a status authority")
+            validate_candidate(entry, entry_plan, remote)
+            update = entry["expected_update"]
+            if (
+                payload["from_status"] != update["from_status"]
+                or payload["to_status"] != update["to_status"]
+            ):
+                raise ValueError("status batch authority transition differs from its entry")
+            authority_ref = mutation_gateway.candidate_authority_ref(payload)
+        if (
+            entry.get("authority_ref") != payload["candidate_authority_ref"]
+            or payload["candidate_authority_ref"] != authority_ref
+            or payload["candidate_blob_oid"] != candidate_oid
+            or payload["candidate_blob_sha256"] != candidate_sha256
+            or payload["plan_sha256"] != candidate["plan_semantic_sha256"]
+            or payload["source_sha"] != expected_parent
+        ):
+            raise ValueError("status batch candidate does not bind the committed authority")
+        matches = [
+            issue
+            for issue in remote
+            if int(issue.get("number", 0)) == payload["issue_number"]
+            and str(issue.get("id", "")) == payload["database_id"]
+            and str(issue.get("node_id") or issue.get("nodeId") or "") == payload["node_id"]
+        ]
+        if len(matches) != 1:
+            raise ValueError("status batch authority target issue identity mismatch")
+        targets.append((authority, entry, matches[0]))
+    return targets
+
+
 def validate_issue0018_recovery_contract(
     *,
     authority: dict[str, Any],
@@ -1425,7 +1574,152 @@ def run(
             refresh_remainder_of=refresh_remainder_of,
         )
         payload = authority["payload"]
-        if authority["authority_type"] == "managed_refresh":
+        appended = records[len(prior_records) :]
+        if len(appended) > 1:
+            if recovery:
+                raise ValueError("status recovery cannot apply a status batch")
+            candidate_bytes = candidate_path.read_bytes()
+            candidate = load_candidate(candidate_bytes)
+            validate_git_bindings(
+                root,
+                candidate,
+                candidate_path=candidate_path,
+                candidate_bytes=candidate_bytes,
+                expected_parent=expected_parent,
+                expected_head=expected_head,
+                main_ref=main_ref,
+            )
+            candidate_oid = _git(
+                root,
+                "rev-parse",
+                f"{expected_head}:{DEFAULT_CANDIDATE.as_posix()}",
+            )
+            candidate_sha256 = _canonical_candidate_blob_sha256(root, expected_head)
+            targets = validate_status_batch(
+                root,
+                candidate,
+                plan,
+                remote,
+                appended,
+                expected_parent=expected_parent,
+                expected_head=expected_head,
+                candidate_oid=candidate_oid,
+                candidate_sha256=candidate_sha256,
+            )
+            evidence.update(
+                {
+                    "remote_inventory_sha256": candidate["remote_inventory_sha256"],
+                    "plan_semantic_sha256": candidate["plan_semantic_sha256"],
+                    "candidate_blob_sha256": candidate_sha256,
+                    "action_scope": sync.safe_plan_evidence(plan, remote)["actions"],
+                    "status_batch": [
+                        {
+                            "authority_id": record["authority_id"],
+                            "authority_type": record["authority_type"],
+                            "stable_id": record["payload"]["stable_id"],
+                            "from_status": record["payload"]["from_status"],
+                            "to_status": record["payload"]["to_status"],
+                        }
+                        for record, _entry, _issue in targets
+                    ],
+                }
+            )
+            if not apply:
+                evidence["terminal_status"] = "validated"
+                print("VALIDATED_STATUS_BATCH_CANDIDATE")
+                return
+
+            def batch_revalidator() -> None:
+                revalidate_live_authority(
+                    root,
+                    expected_parent=expected_parent,
+                    expected_head=expected_head,
+                    main_ref=main_ref,
+                    attestation=attestation,
+                    run_reader=actions_run_reader,
+                    main_fetcher=main_fetcher,
+                    caller_proof_verifier=proof_revalidator,  # type: ignore[arg-type]
+                )
+
+            event_fields = {
+                "event_name": str(event_name),
+                "event_ref": str(event_ref),
+                "run_attempt": str(run_attempt),
+                "event_before": str(event_before),
+                "event_after": str(event_after),
+                "actor": str(actor),
+                "pusher": str(pusher),
+                "run_id": str(run_id),
+                "run_number": str(run_number),
+                "workflow_ref": str(workflow_ref),
+                "repository": str(repository),
+                "event_payload_sha256": str(event_payload_sha256),
+            }
+            batch_results: list[dict[str, Any]] = []
+            for record, _entry, issue in targets:
+                record_payload = record["payload"]
+                record_binding = {
+                    **git_binding,
+                    "authority_id": record["authority_id"],
+                    "authority_sequence": record["sequence"],
+                    "authority_type": record["authority_type"],
+                }
+                if record["authority_type"] == "status_replay":
+                    result = mutation_gateway.append_status_replay(
+                        issue,
+                        stable_id=str(record_payload["stable_id"]),
+                        issue_number=int(record_payload["issue_number"]),
+                        database_id=str(record_payload["database_id"]),
+                        node_id=str(record_payload["node_id"]),
+                        from_status=str(record_payload["from_status"]),
+                        to_status=str(record_payload["to_status"]),
+                        reviewed_product_commit=str(
+                            record_payload["reviewed_product_commit"]
+                        ),
+                        hops=list(record_payload["hops"]),
+                        source_sha=expected_parent,
+                        head_sha=expected_head,
+                        candidate_blob_sha256=candidate_sha256,
+                        plan_sha256=str(candidate["plan_semantic_sha256"]),
+                        **event_fields,
+                        authority_record=record,
+                        git_binding=record_binding,
+                        transport=mutation_transport,
+                        authority_revalidator=batch_revalidator,
+                    )
+                else:
+                    result = mutation_gateway.append_status_event(
+                        issue,
+                        stable_id=str(record_payload["stable_id"]),
+                        from_status=str(record_payload["from_status"]),
+                        to_status=str(record_payload["to_status"]),
+                        source_sha=expected_parent,
+                        head_sha=expected_head,
+                        candidate_blob_sha256=candidate_sha256,
+                        plan_sha256=str(candidate["plan_semantic_sha256"]),
+                        **event_fields,
+                        authority_record=record,
+                        git_binding=record_binding,
+                        transport=mutation_transport,
+                        authority_revalidator=batch_revalidator,
+                    )
+                batch_results.append(result)
+                if not result.get("accepted"):
+                    break
+            gateway_evidence = {
+                "transport": "github_issue_comment_append",
+                "transport_contract": "one_projection_per_batch_authority",
+                "accepted": len(batch_results) == len(targets)
+                and all(result.get("accepted") for result in batch_results),
+                "terminal_status": (
+                    "applied"
+                    if len(batch_results) == len(targets)
+                    and all(result.get("accepted") for result in batch_results)
+                    else str(batch_results[-1].get("terminal_status", "failed"))
+                ),
+                "batch": batch_results,
+            }
+        elif authority["authority_type"] == "managed_refresh":
             mutation_gateway.validate_reviewed_managed_refresh(
                 root, plan, remote, authority_record=authority,
                 git_binding=git_binding, attestation=attestation,
