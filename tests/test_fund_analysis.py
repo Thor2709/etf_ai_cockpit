@@ -159,6 +159,21 @@ def test_intraday_fee_coverage_start_abstains() -> None:
     assert record.return_decomposition.class_fee_return is None
 
 
+def test_intraday_fee_start_before_window_abstains() -> None:
+    source = _input()
+    fee_term = next(term for term in source.terms if term.name == "ongoing_fee_bps")
+    terms = tuple(
+        replace(term, valid_from="2025-12-31T12:00:00Z") if term is fee_term else term
+        for term in source.terms
+    )
+
+    record = analyze_fund(replace(source, terms=terms))
+
+    assert record.status == "insufficient_evidence"
+    assert "fee_term_intraday_boundary_unsupported" in record.blockers
+    assert record.return_decomposition.class_fee_return is None
+
+
 def test_date_aligned_fee_change_still_accrues_by_day() -> None:
     source = _input()
     fee_term = next(term for term in source.terms if term.name == "ongoing_fee_bps")
@@ -206,6 +221,49 @@ def test_distribution_reinvests_at_exact_ex_date_nav() -> None:
     # 1 + 10 / 90 units, valued at the 90 end NAV, returns 100 / 100 - 1 = 0.
     assert record.status == "available"
     assert abs(record.return_decomposition.total_return) < Decimal("1e-26")
+
+
+def test_same_ex_date_distributions_reinvest_as_one_amount() -> None:
+    distribution = FundDistributionObservation(
+        date(2026, 1, 31),
+        datetime(2026, 1, 31, 17, tzinfo=timezone.utc),
+        Decimal("10"),
+        "distribution:jan31",
+    )
+    single_source = _input(
+        distribution_policy="distributing",
+        distributions=(distribution,),
+        distribution_history_complete=True,
+        nav_values=("100", "90"),
+        nav_dates=(date(2026, 1, 1), date(2026, 1, 31)),
+    )
+    multiple_source = replace(
+        single_source,
+        distributions=(
+            replace(
+                distribution,
+                amount_per_share=Decimal("5"),
+                source_id="distribution:jan31-first",
+            ),
+            replace(
+                distribution,
+                amount_per_share=Decimal("5"),
+                source_id="distribution:jan31-second",
+            ),
+        ),
+    )
+    terms = tuple(
+        replace(term, value="true") if term.name == "fees_reflected_in_nav" else term
+        for term in single_source.terms
+    )
+
+    single = analyze_fund(replace(single_source, terms=terms)).return_decomposition
+    multiple = analyze_fund(replace(multiple_source, terms=terms)).return_decomposition
+
+    # (1 + 10 / 90) × 90 / 100 − 1 = 0.
+    assert single.status == multiple.status == "available"
+    assert abs(multiple.total_return) < Decimal("1e-26")
+    assert multiple.reinvested_distributions_return == single.reinvested_distributions_return
 
 
 def test_distribution_without_ex_date_nav_abstains_instead_of_using_stale_nav() -> None:

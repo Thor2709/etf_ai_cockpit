@@ -597,16 +597,22 @@ def _decomposition(
     if status == "available" and start_nav is not None and end_nav is not None and accrued_fee_return is not None:
         nav_change = end_nav.nav_per_share / start_nav.nav_per_share - Decimal("1")
         units = Decimal("1")
+        distribution_amounts: dict[date, Decimal] = {}
         for distribution in distributions:
+            distribution_amounts[distribution.ex_date] = (
+                distribution_amounts.get(distribution.ex_date, Decimal("0"))
+                + distribution.amount_per_share
+            )
+        for ex_date, amount_per_share in sorted(distribution_amounts.items()):
             reinvestment_nav = next(
-                (row for row in nav_history if row.as_of == distribution.ex_date),
+                (row for row in nav_history if row.as_of == ex_date),
                 None,
             )
             if reinvestment_nav is None:
                 blockers = (*blockers, "missing_distribution_reinvestment_nav")
                 status = "insufficient_evidence"
                 break
-            units *= Decimal("1") + distribution.amount_per_share / reinvestment_nav.nav_per_share
+            units *= Decimal("1") + amount_per_share / reinvestment_nav.nav_per_share
         if status == "available":
             gross_local_return = units * end_nav.nav_per_share / start_nav.nav_per_share - Decimal("1")
             distribution_return = gross_local_return - nav_change
@@ -745,21 +751,26 @@ def _class_fee_return(
         if term.name in {"ongoing_fee_bps", "fees_reflected_in_nav"}
         and _timestamp(term.available_at, "term available_at") <= decision
     )
+    window_start = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
+    window_end = datetime.combine(end_date, time.min, tzinfo=timezone.utc)
     for term in known_terms:
-        for raw_boundary in (term.valid_from, term.valid_to):
-            if raw_boundary is None:
-                continue
-            boundary = _timestamp(raw_boundary, "term validity").astimezone(timezone.utc)
-            if (
-                start_date <= boundary.date() < end_date
-                and boundary.time() != time.min
-            ):
-                return (
-                    None,
-                    False,
-                    (_FEE_TERM_INTRADAY_BOUNDARY_UNSUPPORTED,),
-                    tuple(dict.fromkeys(_term_reference(known) for known in known_terms)),
-                )
+        valid_from = _timestamp(term.valid_from, "term valid_from").astimezone(timezone.utc)
+        valid_to = (
+            _timestamp(term.valid_to, "term valid_to").astimezone(timezone.utc)
+            if term.valid_to is not None
+            else None
+        )
+        overlaps_window = valid_from < window_end and (valid_to is None or valid_to > window_start)
+        if overlaps_window and any(
+            boundary is not None and boundary.time() != time.min
+            for boundary in (valid_from, valid_to)
+        ):
+            return (
+                None,
+                False,
+                (_FEE_TERM_INTRADAY_BOUNDARY_UNSUPPORTED,),
+                tuple(dict.fromkeys(_term_reference(known) for known in known_terms)),
+            )
     known_links = tuple(
         link
         for link in item.underlying_links
@@ -782,9 +793,10 @@ def _class_fee_return(
     dates = sorted(boundaries)
     for interval_start, interval_end in zip(dates, dates[1:]):
         days = Decimal((interval_end - interval_start).days)
-        fee_term, fee_conflict = _term_at(item.terms, "ongoing_fee_bps", interval_start, decision)
+        interval_start_at = datetime.combine(interval_start, time.min, tzinfo=timezone.utc)
+        fee_term, fee_conflict = _term_at(item.terms, "ongoing_fee_bps", interval_start_at, decision)
         reflected_term, reflected_conflict = _term_at(
-            item.terms, "fees_reflected_in_nav", interval_start, decision
+            item.terms, "fees_reflected_in_nav", interval_start_at, decision
         )
         if fee_conflict:
             blockers.append("conflicted_ongoing_fee_bps")
@@ -908,20 +920,32 @@ def _fx_rate_on_date(
 def _term_at(
     terms: tuple[FundTerm, ...],
     name: str,
-    effective_date: date,
+    effective_date: date | datetime,
     decision: datetime,
 ) -> tuple[FundTerm | None, bool]:
-    matching = tuple(
-        term
-        for term in terms
-        if term.name == name
-        and _timestamp(term.available_at, "term available_at") <= decision
-        and _timestamp(term.valid_from, "term valid_from").astimezone(timezone.utc).date() <= effective_date
-        and (
-            term.valid_to is None
-            or _timestamp(term.valid_to, "term valid_to").astimezone(timezone.utc).date() > effective_date
-        )
+    matching: list[FundTerm] = []
+    effective_at = (
+        effective_date.astimezone(timezone.utc)
+        if isinstance(effective_date, datetime)
+        else None
     )
+    for term in terms:
+        if term.name != name or _timestamp(term.available_at, "term available_at") > decision:
+            continue
+        valid_from = _timestamp(term.valid_from, "term valid_from").astimezone(timezone.utc)
+        valid_to = (
+            _timestamp(term.valid_to, "term valid_to").astimezone(timezone.utc)
+            if term.valid_to is not None
+            else None
+        )
+        if effective_at is not None:
+            applies = valid_from <= effective_at and (valid_to is None or valid_to > effective_at)
+        else:
+            applies = valid_from.date() <= effective_date and (
+                valid_to is None or valid_to.date() > effective_date
+            )
+        if applies:
+            matching.append(term)
     if not matching:
         return None, False
     latest = max(_timestamp(term.valid_from, "term valid_from") for term in matching)
