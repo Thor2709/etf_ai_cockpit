@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import hashlib
 import io
 from pathlib import Path
+import re
 
 import yaml
 
@@ -37,7 +38,9 @@ def test_fixture_parses_euronext_format_and_rejection_reasons() -> None:
 
 def test_missing_post_header_date_records_nothing(tmp_path: Path) -> None:
     payload = (Path(__file__).parent / "fixtures" / "euronext_oslo_sample.csv").read_bytes()
-    payload = payload.replace(b"01 Oct 2026\n", b"")
+    stripped = re.sub(rb"01 Oct 2026\r?\n", b"", payload, count=1)
+    assert stripped != payload  # the post-header date line was present and removed
+    payload = stripped
     config_path = _write_config(tmp_path, minimum_rows=1)
 
     result = euronext_listing.capture_euronext_oslo_listing(
