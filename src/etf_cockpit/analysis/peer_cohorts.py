@@ -62,6 +62,7 @@ class PeerObservation:
     active_from: str | None = None
     active_to: str | None = None
     revision: int = 1
+    inapplicable_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1010,18 +1011,19 @@ def _parent_percentile(
 
 
 def _observation_hash(item: PeerObservation) -> str:
-    return _hash(
-        {
-            "instrument_id": item.instrument_id,
-            "metric": item.metric,
-            "value": item.value,
-            "weight": item.weight,
-            "effective_at": _iso(_time(item.effective_at)),
-            "known_at": _iso(_time(item.known_at)),
-            "revision": item.revision,
-            "context_version": item.context.version_id,
-        }
-    )
+    payload = {
+        "instrument_id": item.instrument_id,
+        "metric": item.metric,
+        "value": item.value,
+        "weight": item.weight,
+        "effective_at": _iso(_time(item.effective_at)),
+        "known_at": _iso(_time(item.known_at)),
+        "revision": item.revision,
+        "context_version": item.context.version_id,
+    }
+    if item.inapplicable_reason is not None:
+        payload["inapplicable_reason"] = item.inapplicable_reason
+    return _hash(payload)
 
 
 def _exclusion_reason(
@@ -1049,7 +1051,7 @@ def _exclusion_reason(
     except PeerCohortError:
         return "invalid_timestamp"
     if not item.applicable:
-        return "metric_inapplicable"
+        return item.inapplicable_reason or "metric_inapplicable"
     if item.value is None or not _finite(item.value):
         return "invalid_value"
     if not _finite(item.weight) or item.weight <= 0:

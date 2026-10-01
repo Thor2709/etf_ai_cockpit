@@ -17,6 +17,7 @@ from etf_cockpit.analysis.fund_analysis import (
     FundAnalysisRecord,
     FundLifecycleRisk,
     FundMetricApplicability,
+    FundReturnDecomposition,
     load_fund_analysis_config,
 )
 from etf_cockpit.analysis.peer_cohorts import (
@@ -63,6 +64,7 @@ _TERMINAL_LIFECYCLE_STATUSES = frozenset(
     }
 )
 _YEAR_DAYS = Decimal("365.2425")
+_FUND_SHARE_CLASS_REPRESENTATIVE_RULE = "earliest_inception_then_share_class_id"
 
 
 class FundPeerError(ValueError):
@@ -97,6 +99,7 @@ class FundPeerCohort:
     peer_lifecycle_risks: tuple[tuple[str, FundLifecycleRisk], ...]
     abstention_reason: str | None
     execution_allowed: bool = False
+    share_class_representative_rule: str = _FUND_SHARE_CLASS_REPRESENTATIVE_RULE
 
 
 @dataclass(frozen=True)
@@ -127,6 +130,8 @@ def build_fund_peer_cohort(
     _validate_fund_peer_input(target)
     for peer in peers:
         _validate_fund_peer_input(peer)
+    decision = _timestamp(decision_time, "decision_time")
+    target_record_not_known = _record_known_after(target.analysis_record, decision)
     peer_instrument_ids = [peer.context.instrument_id for peer in peers]
     if len(peer_instrument_ids) != len(set(peer_instrument_ids)):
         raise FundPeerError("each share class requires its own fund context identity")
@@ -137,14 +142,26 @@ def build_fund_peer_cohort(
     order = list(_FUND_DIMENSION_ORDER)
     if target.context.asset_class != "fixed_income":
         order = [name for name in order if name not in {"duration", "rating"}]
-    observations = tuple(
+    raw_observations = tuple(
         _peer_observation(
             peer,
             effective_at,
             decision_time,
             target_horizon=target.analysis_record.return_decomposition.requested_horizon,
+            target_start=target.analysis_record.return_decomposition.start_nav_date,
+            target_end=target.analysis_record.return_decomposition.end_nav_date,
+            window_end_tolerance_days=policy.peer_window_end_tolerance_days,
         )
         for peer in peers
+    )
+    representatives = _share_class_representatives(
+        peers, raw_observations, decision, effective_at
+    )
+    observations = tuple(
+        _apply_share_class_representatives(
+            peer, observation, representatives
+        )
+        for peer, observation in zip(peers, raw_observations, strict=True)
     )
     cohort = construct_cohort(
         target.context,
@@ -160,7 +177,7 @@ def build_fund_peer_cohort(
     target_decomposition = target.analysis_record.return_decomposition
     target_total_return = (
         target_decomposition.total_return
-        if target_decomposition.status == "available"
+        if target_decomposition.status == "available" and not target_record_not_known
         else None
     )
     target_value = float(target_total_return) if target_total_return is not None else None
@@ -171,7 +188,21 @@ def build_fund_peer_cohort(
         applicable=True,
     )
     abstention_reason: str | None = None
-    if cohort.support < policy.peer_minimum_support:
+    if target_record_not_known:
+        abstention_reason = "target_not_known_at_decision"
+        metric = replace(
+            metric,
+            status="unavailable",
+            raw_value=None,
+            winsorized_value=None,
+            median=None,
+            mad=None,
+            percentile=None,
+            shrunk_percentile=None,
+            interval=None,
+            reason_code="TARGET_NOT_KNOWN_AT_DECISION",
+        )
+    elif cohort.support < policy.peer_minimum_support:
         abstention_reason = "insufficient_peer_support"
         metric = replace(
             metric,
@@ -256,6 +287,19 @@ def calculate_fund_benchmark_metrics(
         if benchmark_returns is not None
         else ()
     )
+    if _record_known_after(window_record, decision):
+        unavailable_reason = "fund_record_not_known_at_decision"
+        return FundBenchmarkMetrics(
+            FUND_BENCHMARK_METRICS_CONTRACT,
+            window_record.record_id,
+            window_record.benchmark_id,
+            start,
+            end,
+            _unavailable("excess_total_return", unavailable_reason),
+            _unavailable("tracking_difference", unavailable_reason),
+            _unavailable("tracking_error", unavailable_reason),
+            evidence,
+        )
     if not window_record.benchmark_id:
         excess = _unavailable("excess_total_return", "missing_disclosure_benchmark")
         tracking_difference = _tracking_state(
@@ -306,6 +350,7 @@ def calculate_fund_benchmark_metrics(
             start,
             end,
             unavailable_reason,
+            decision,
         )
     return FundBenchmarkMetrics(
         FUND_BENCHMARK_METRICS_CONTRACT,
@@ -329,7 +374,13 @@ def _tracking_metrics(
     start: date | None,
     end: date | None,
     unavailable_reason: str | None,
+    decision: datetime,
 ) -> tuple[FundMetricApplicability, FundMetricApplicability]:
+    if any(_record_known_after(record, decision) for record in periodic_fund_returns):
+        reason = "periodic_fund_record_not_known_at_decision"
+        return _unavailable("tracking_difference", reason), _unavailable(
+            "tracking_error", reason
+        )
     if mandate is None or mandate.casefold() not in {"active", "passive", "index"}:
         unavailable = _unavailable("tracking_difference", "mandate_unclassified")
         return unavailable, _unavailable("tracking_error", "mandate_unclassified")
@@ -355,6 +406,32 @@ def _tracking_metrics(
     saw_date_mismatch = False
     for record in periodic_fund_returns:
         decomposition = record.return_decomposition
+        if (
+            record.fund_id != window_record.fund_id
+            or decomposition.fund_id
+            != window_record.return_decomposition.fund_id
+        ):
+            reason = "periodic_fund_identity_mismatch"
+            return _unavailable("tracking_difference", reason), _unavailable(
+                "tracking_error", reason
+            )
+        if (
+            record.share_class_id != window_record.share_class_id
+            or decomposition.share_class_id
+            != window_record.return_decomposition.share_class_id
+        ):
+            reason = "periodic_share_class_mismatch"
+            return _unavailable("tracking_difference", reason), _unavailable(
+                "tracking_error", reason
+            )
+        if (
+            decomposition.selected_currency
+            != window_record.return_decomposition.selected_currency
+        ):
+            reason = "periodic_currency_mismatch"
+            return _unavailable("tracking_difference", reason), _unavailable(
+                "tracking_error", reason
+            )
         if (
             record.benchmark_id != window_record.benchmark_id
             or decomposition.start_nav_date is None
@@ -592,11 +669,30 @@ def _peer_observation(
     decision_time: str,
     *,
     target_horizon: str,
+    target_start: date | None,
+    target_end: date | None,
+    window_end_tolerance_days: int,
 ) -> PeerObservation:
     decomposition = item.analysis_record.return_decomposition
     effective = _time_string(decomposition.end_nav_date, effective_at)
     active_from, active_to = _lifecycle_window(item, decision_time)
     target_return = decomposition.total_return
+    applicable = (
+        decomposition.status == "available"
+        and decomposition.requested_horizon == target_horizon
+    )
+    inapplicable_reason = None
+    if (
+        decomposition.requested_horizon == target_horizon
+        and not _peer_window_aligned(
+            decomposition,
+            target_start,
+            target_end,
+            window_end_tolerance_days,
+        )
+    ):
+        applicable = False
+        inapplicable_reason = "window_misaligned"
     return PeerObservation(
         instrument_id=item.context.instrument_id,
         context=item.context,
@@ -604,14 +700,103 @@ def _peer_observation(
         value=float(target_return) if target_return is not None else None,
         weight=1.0,
         effective_at=effective,
-        known_at=item.analysis_record.decision_time.isoformat(),
-        applicable=(
-            decomposition.status == "available"
-            and decomposition.requested_horizon == target_horizon
-        ),
+        known_at=_record_known_at(item.analysis_record).isoformat(),
+        applicable=applicable,
         economic_strategy_id=_economic_strategy_id(item),
         active_from=active_from,
         active_to=active_to,
+        inapplicable_reason=inapplicable_reason,
+    )
+
+
+def _peer_window_aligned(
+    decomposition: FundReturnDecomposition,
+    target_start: date | None,
+    target_end: date | None,
+    window_end_tolerance_days: int,
+) -> bool:
+    peer_start = decomposition.start_nav_date
+    peer_end = decomposition.end_nav_date
+    if (
+        target_start is None
+        or target_end is None
+        or peer_start is None
+        or peer_end is None
+    ):
+        return False
+    return (
+        (peer_end - peer_start).days == (target_end - target_start).days
+        and abs((peer_end - target_end).days) <= window_end_tolerance_days
+    )
+
+
+def _share_class_representatives(
+    peers: Sequence[FundPeerFund],
+    observations: Sequence[PeerObservation],
+    decision: datetime,
+    effective_at: str,
+) -> dict[str, str]:
+    by_strategy: dict[str, list[tuple[FundPeerFund, PeerObservation]]] = {}
+    effective = _timestamp(effective_at, "effective_at")
+    for peer, observation in zip(peers, observations, strict=True):
+        strategy = _economic_strategy_id(peer)
+        by_strategy.setdefault(strategy, []).append((peer, observation))
+    representatives: dict[str, str] = {}
+    for strategy, group in by_strategy.items():
+        known = [
+            pair for pair in group if not _record_known_after(pair[0].analysis_record, decision)
+        ]
+        eligible = [
+            pair
+            for pair in known
+            if pair[1].applicable
+            and not (
+                pair[1].active_from
+                and _timestamp(pair[1].active_from, "active_from") > effective
+            )
+            and not (
+                pair[1].active_to
+                and _timestamp(pair[1].active_to, "active_to") <= effective
+            )
+        ]
+        candidates = eligible or known or group
+        representative, _ = min(
+            candidates,
+            key=lambda pair: _share_class_representative_rank(pair[0], decision),
+        )
+        representatives[strategy] = representative.context.instrument_id
+    return representatives
+
+
+def _share_class_representative_rank(
+    item: FundPeerFund, decision: datetime
+) -> tuple[date, str]:
+    active_from, _ = _lifecycle_window(item, decision.isoformat())
+    inception = (
+        _timestamp(active_from, "active_from").date()
+        if active_from is not None
+        else item.analysis_record.return_decomposition.start_nav_date or date.max
+    )
+    return inception, item.share_class.share_class_id
+
+
+def _apply_share_class_representatives(
+    item: FundPeerFund,
+    observation: PeerObservation,
+    representatives: dict[str, str],
+) -> PeerObservation:
+    representative_id = representatives[_economic_strategy_id(item)]
+    if (
+        observation.instrument_id == representative_id
+        or not observation.applicable
+    ):
+        return observation
+    return replace(
+        observation,
+        applicable=False,
+        inapplicable_reason=(
+            f"economic_strategy_duplicate_of:{representative_id}"
+        ),
     )
 
 
@@ -712,6 +897,20 @@ def _time_string(value: date | None, default: str) -> str:
     if value is None:
         return default
     return datetime.combine(value, datetime.min.time(), tzinfo=timezone.utc).isoformat()
+
+
+def _record_known_at(record: FundAnalysisRecord) -> datetime:
+    return max(
+        _timestamp(record.decision_time, "fund record decision_time"),
+        _timestamp(
+            record.return_decomposition.decision_time,
+            "fund return decision_time",
+        ),
+    )
+
+
+def _record_known_after(record: FundAnalysisRecord, decision: datetime) -> bool:
+    return _record_known_at(record) > decision
 
 
 def _timestamp(value: datetime | str, name: str = "timestamp") -> datetime:

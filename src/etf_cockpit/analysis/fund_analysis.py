@@ -166,6 +166,7 @@ class FundAnalysisConfig:
     frequency_minimum_horizon_days: tuple[tuple[str, int], ...]
     peer_minimum_support: int
     tracking_minimum_periods: int
+    peer_window_end_tolerance_days: int
     fee_tier_bands_bps: tuple[Decimal, ...]
 
 
@@ -275,12 +276,16 @@ def load_fund_analysis_config(path: Path = FUND_ANALYSIS_CONFIG) -> FundAnalysis
     if not isinstance(peers, dict) or set(peers) != {
         "minimum_support",
         "tracking_minimum_periods",
+        "window_end_tolerance_days",
         "fee_tier_bands_bps",
     }:
         raise FundAnalysisError("fund peer configuration keys are invalid")
     peer_minimum_support = _config_integer(peers["minimum_support"], "peer minimum_support", 1)
     tracking_minimum_periods = _config_integer(
         peers["tracking_minimum_periods"], "tracking minimum_periods", 2
+    )
+    peer_window_end_tolerance_days = _config_integer(
+        peers["window_end_tolerance_days"], "peer window_end_tolerance_days", 0
     )
     fee_tier_bands = peers["fee_tier_bands_bps"]
     if not isinstance(fee_tier_bands, list) or not fee_tier_bands:
@@ -304,6 +309,7 @@ def load_fund_analysis_config(path: Path = FUND_ANALYSIS_CONFIG) -> FundAnalysis
         tuple(sorted(frequencies.items())),
         peer_minimum_support,
         tracking_minimum_periods,
+        peer_window_end_tolerance_days,
         fee_tier_bands_bps,
     )
 

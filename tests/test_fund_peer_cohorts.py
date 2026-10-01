@@ -168,9 +168,78 @@ def test_share_classes_count_once_and_collapsed_classes_are_auditable() -> None:
     assert result.peer_metric.raw_value == pytest.approx(0.01)
 
 
-def test_lifecycle_window_and_future_known_observations_are_point_in_time() -> None:
+def test_share_class_representative_does_not_change_when_returns_are_swapped() -> None:
     config = replace(load_fund_analysis_config(), peer_minimum_support=1)
     target = _fund("TARGET", "TARGET-CLASS")
+
+    def cohort(old_return: str, new_return: str):
+        old_launch = FundLifecycleEvent(
+            fund_id="PEER-OLD",
+            event_id="old-launch",
+            status=FundLifecycleStatus.LAUNCHED,
+            effective_at="2010-01-01T00:00:00Z",
+            available_at="2010-01-02T00:00:00Z",
+            source="fixture",
+            source_id="old-launch-source",
+            authority=SourceAuthority.OFFICIAL,
+        )
+        new_launch = FundLifecycleEvent(
+            fund_id="PEER-NEW",
+            event_id="new-launch",
+            status=FundLifecycleStatus.LAUNCHED,
+            effective_at="2015-01-01T00:00:00Z",
+            available_at="2015-01-02T00:00:00Z",
+            source="fixture",
+            source_id="new-launch-source",
+            authority=SourceAuthority.OFFICIAL,
+        )
+        peers = (
+            _fund(
+                "PEER-OLD",
+                "PEER-CLASS-Z",
+                sub_fund_id="PEER-MANDATE",
+                return_value=Decimal(old_return),
+                lifecycle_events=(old_launch,),
+            ),
+            _fund(
+                "PEER-NEW",
+                "PEER-CLASS-A",
+                sub_fund_id="PEER-MANDATE",
+                return_value=Decimal(new_return),
+                lifecycle_events=(new_launch,),
+            ),
+        )
+        return build_fund_peer_cohort(
+            target,
+            peers,
+            effective_at=EFFECTIVE,
+            decision_time=DECISION,
+            config=config,
+        )
+
+    old_class_wins = cohort("0.01", "0.99")
+    old_class_loses = cohort("0.99", "0.01")
+
+    assert old_class_wins.cohort.observations[0].instrument_id == "PEER-CLASS-Z"
+    assert old_class_loses.cohort.observations[0].instrument_id == "PEER-CLASS-Z"
+    assert old_class_wins.cohort.observations[0].value == pytest.approx(0.01)
+    assert old_class_loses.cohort.observations[0].value == pytest.approx(0.99)
+    assert old_class_wins.collapsed_share_classes[0].retained_share_class_id == (
+        "PEER-CLASS-Z"
+    )
+    assert old_class_wins.share_class_representative_rule == (
+        "earliest_inception_then_share_class_id"
+    )
+
+
+def test_lifecycle_window_and_future_known_observations_are_point_in_time() -> None:
+    config = replace(load_fund_analysis_config(), peer_minimum_support=1)
+    target = _fund(
+        "TARGET",
+        "TARGET-CLASS",
+        start=date(2023, 5, 31),
+        end=date(2024, 5, 31),
+    )
     merged = FundLifecycleEvent(
         fund_id="MERGED-FUND",
         event_id="merge-event",
@@ -187,6 +256,8 @@ def test_lifecycle_window_and_future_known_observations_are_point_in_time() -> N
         "MERGED-CLASS",
         record_known_at="2024-05-31T00:00:00Z",
         lifecycle_events=(merged,),
+        start=date(2023, 5, 31),
+        end=date(2024, 5, 31),
     )
     before = build_fund_peer_cohort(
         target,
@@ -221,6 +292,45 @@ def test_lifecycle_window_and_future_known_observations_are_point_in_time() -> N
     )
     assert "FUTURE-CLASS" not in excluded.cohort.members
     assert excluded.cohort.exclusions["FUTURE-CLASS"] == "future_known"
+
+
+def test_future_known_target_fund_record_is_unavailable() -> None:
+    target = _fund(
+        "TARGET",
+        "TARGET-CLASS",
+        record_known_at="2025-01-03T00:00:00Z",
+    )
+    result = build_fund_peer_cohort(
+        target,
+        (_fund("PEER", "PEER-CLASS"),),
+        effective_at=EFFECTIVE,
+        decision_time=DECISION,
+        config=replace(load_fund_analysis_config(), peer_minimum_support=1),
+    )
+
+    assert result.status == "unavailable"
+    assert result.abstention_reason == "target_not_known_at_decision"
+    assert result.peer_metric.reason_code == "TARGET_NOT_KNOWN_AT_DECISION"
+
+
+def test_misaligned_peer_return_window_is_excluded() -> None:
+    target = _fund("TARGET", "TARGET-CLASS")
+    peer = _fund(
+        "PEER",
+        "PEER-CLASS",
+        start=date(2023, 12, 26),
+        end=date(2024, 12, 26),
+    )
+    result = build_fund_peer_cohort(
+        target,
+        (peer,),
+        effective_at=EFFECTIVE,
+        decision_time=DECISION,
+        config=replace(load_fund_analysis_config(), peer_minimum_support=1),
+    )
+
+    assert "PEER-CLASS" not in result.cohort.members
+    assert result.cohort.exclusions["PEER-CLASS"] == "window_misaligned"
 
 
 def test_benchmark_excess_tracking_difference_and_error_match_hand_values(tmp_path) -> None:
@@ -283,6 +393,101 @@ def test_benchmark_excess_tracking_difference_and_error_match_hand_values(tmp_pa
     assert float(result.tracking_difference.value) == pytest.approx(float(expected_difference))
     assert result.tracking_error.state is FundMetricState.AVAILABLE
     assert float(result.tracking_error.value) == pytest.approx(expected_error)
+
+
+def test_future_known_window_fund_record_makes_excess_unavailable(tmp_path) -> None:
+    window = _record(
+        "FUND",
+        "CLASS",
+        Decimal("0.10"),
+        start=START,
+        end=END,
+        benchmark_id="DISCLOSURE-INDEX",
+        decision_time=datetime(2025, 1, 3, tzinfo=timezone.utc),
+    )
+    result = _benchmark_metrics(window, (), tmp_path)
+
+    assert result.excess_total_return.state is FundMetricState.UNAVAILABLE
+    assert result.excess_total_return.reason == "fund_record_not_known_at_decision"
+
+
+def test_future_known_periodic_fund_record_makes_tracking_unavailable(tmp_path) -> None:
+    window = _record(
+        "FUND", "CLASS", Decimal("0.10"), start=START, end=END,
+        benchmark_id="DISCLOSURE-INDEX",
+    )
+    middle = date(2024, 7, 1)
+    periods = (
+        _record(
+            "FUND", "CLASS", Decimal("0.05"), start=START, end=middle,
+            benchmark_id="DISCLOSURE-INDEX",
+        ),
+        _record(
+            "FUND", "CLASS", Decimal("0.05"), start=middle, end=END,
+            benchmark_id="DISCLOSURE-INDEX",
+            decision_time=datetime(2025, 1, 3, tzinfo=timezone.utc),
+        ),
+    )
+    result = _benchmark_metrics(window, periods, tmp_path)
+
+    assert result.excess_total_return.state is FundMetricState.AVAILABLE
+    assert result.tracking_difference.reason == (
+        "periodic_fund_record_not_known_at_decision"
+    )
+    assert result.tracking_error.reason == (
+        "periodic_fund_record_not_known_at_decision"
+    )
+
+
+def test_tracking_rejects_periodic_returns_for_a_foreign_fund(tmp_path) -> None:
+    window = _record(
+        "FUND", "CLASS", Decimal("0.10"), start=START, end=END,
+        benchmark_id="DISCLOSURE-INDEX",
+    )
+    periodic = _record(
+        "OTHER-FUND", "CLASS", Decimal("0.10"), start=START,
+        end=date(2024, 7, 1), benchmark_id="DISCLOSURE-INDEX",
+    )
+    result = _benchmark_metrics(window, (periodic,), tmp_path)
+
+    assert result.tracking_difference.reason == "periodic_fund_identity_mismatch"
+    assert result.tracking_error.reason == "periodic_fund_identity_mismatch"
+
+
+def test_tracking_rejects_periodic_returns_for_a_foreign_share_class(tmp_path) -> None:
+    window = _record(
+        "FUND", "CLASS", Decimal("0.10"), start=START, end=END,
+        benchmark_id="DISCLOSURE-INDEX",
+    )
+    periodic = _record(
+        "FUND", "OTHER-CLASS", Decimal("0.10"), start=START,
+        end=date(2024, 7, 1), benchmark_id="DISCLOSURE-INDEX",
+    )
+    result = _benchmark_metrics(window, (periodic,), tmp_path)
+
+    assert result.tracking_difference.reason == "periodic_share_class_mismatch"
+    assert result.tracking_error.reason == "periodic_share_class_mismatch"
+
+
+def test_tracking_rejects_periodic_returns_in_a_foreign_currency(tmp_path) -> None:
+    window = _record(
+        "FUND", "CLASS", Decimal("0.10"), start=START, end=END,
+        benchmark_id="DISCLOSURE-INDEX",
+    )
+    periodic = _record(
+        "FUND", "CLASS", Decimal("0.10"), start=START,
+        end=date(2024, 7, 1), benchmark_id="DISCLOSURE-INDEX",
+    )
+    periodic = replace(
+        periodic,
+        return_decomposition=replace(
+            periodic.return_decomposition, selected_currency="USD"
+        ),
+    )
+    result = _benchmark_metrics(window, (periodic,), tmp_path)
+
+    assert result.tracking_difference.reason == "periodic_currency_mismatch"
+    assert result.tracking_error.reason == "periodic_currency_mismatch"
 
 
 def test_benchmark_absence_date_mismatch_and_short_series_abstain_distinctly(
@@ -478,13 +683,15 @@ def _fund(
     record_known_at: str = DECISION,
     lifecycle_events: tuple[FundLifecycleEvent, ...] = (),
     instrument_type: str = "ordinary_fund",
+    start: date = START,
+    end: date = END,
 ) -> FundPeerFund:
     record = _record(
         fund_id,
         class_id,
         return_value,
-        start=date(2023, 5, 31),
-        end=date(2024, 5, 31),
+        start=start,
+        end=end,
         benchmark_id="BENCHMARK-1",
         mandate=mandate,
         distribution=distribution,
@@ -630,6 +837,29 @@ def _benchmark_series(
         source_id="benchmark-fixture",
         provenance="test-fixture",
         corporate_action_coverage=canonical_coverage,
+    )
+
+
+def _benchmark_metrics(
+    window: FundAnalysisRecord,
+    periodic: tuple[FundAnalysisRecord, ...],
+    coverage_directory: Path,
+):
+    middle = date(2024, 7, 1)
+    benchmark = _benchmark_series(
+        "DISCLOSURE-INDEX",
+        START,
+        END,
+        {START: 100.0, middle: 100.0, END: 105.0},
+        coverage_directory=coverage_directory / "benchmark-coverage",
+    )
+    return calculate_fund_benchmark_metrics(
+        window,
+        benchmark,
+        decision_time=datetime.fromisoformat(DECISION.replace("Z", "+00:00")),
+        mandate="index",
+        periodic_fund_returns=periodic,
+        tracking_minimum_periods=2,
     )
 
 
