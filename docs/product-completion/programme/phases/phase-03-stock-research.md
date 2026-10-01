@@ -48,7 +48,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
 |---|---|---|---|---|---|---|---|
 | `ISSUE-0091` | `P0` | `integrated` | `stock-research` | `ISSUE-0073`, `UPDATEV2-0012` | - | `ISSUE-0092`, `ISSUE-0093`, `ISSUE-0094`, `ISSUE-0095`, `ISSUE-0096`, `ISSUE-0097`, `ISSUE-0156` | - |
-| `ISSUE-0092` | `P0/P1` | `implemented_initially` | `stock-research` | `ISSUE-0074`, `ISSUE-0091` | - | `ISSUE-0097` | - |
+| `ISSUE-0092` | `P0/P1` | `integrated` | `stock-research` | `ISSUE-0074`, `ISSUE-0091` | - | `ISSUE-0097` | - |
 | `ISSUE-0093` | `P0/P1` | `implemented_initially` | `stock-research` | `ISSUE-0091` | - | - | - |
 | `ISSUE-0094` | `P0/P1` | `planned` | `stock-research` | `ISSUE-0084`, `ISSUE-0091` | - | - | - |
 | `ISSUE-0095` | `P1` | `integrated` | `stock-research` | `ISSUE-0091` | - | - | - |
