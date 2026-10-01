@@ -108,15 +108,34 @@ def test_b1_records_are_recognised_and_prefix_validates() -> None:
         _validate_prefix(issue_id, record, history=[])
 
 
+def _assert_control_state_record_matches_allowance(
+    issue_id: str, record: dict[str, object]
+) -> None:
+    legacy_record = core.LEGACY_BOOTSTRAP_RECORDS[issue_id]
+    if record == legacy_record:
+        assert core.is_issue0011_legacy_replay_source(issue_id, record)
+        _validate_prefix(issue_id, record)
+        return
+
+    assert not core.is_issue0011_legacy_replay_source(issue_id, record)
+    legacy_status_order = core.CONTROL_STATUS_ORDER[legacy_record["programme_status"]]
+    record_status_order = core.CONTROL_STATUS_ORDER.get(str(record.get("programme_status")))
+    assert record_status_order is not None and record_status_order > legacy_status_order, (
+        f"{issue_id} must have a later lifecycle status than its legacy bootstrap record"
+    )
+    assert record.get("status_transition") != legacy_record["status_transition"], (
+        f"{issue_id} must retain its replay status transition"
+    )
+
+
 def test_control_state_records_are_recognised_by_allowance() -> None:
     control_state = json.loads(
         Path("issues/programme_control_state.json").read_text(encoding="utf-8")
     )
     for issue_id in ("ISSUE-0039", "ISSUE-0040"):
-        record = control_state["records"][issue_id]
-
-        assert core.is_issue0011_legacy_replay_source(issue_id, record)
-        _validate_prefix(issue_id, record)
+        _assert_control_state_record_matches_allowance(
+            issue_id, control_state["records"][issue_id]
+        )
 
 
 def test_single_field_mutations_are_rejected_for_all_records() -> None:
