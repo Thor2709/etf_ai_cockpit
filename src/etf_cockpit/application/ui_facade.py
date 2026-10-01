@@ -76,6 +76,15 @@ from etf_cockpit.portfolio.forecast_aggregation import (
     PortfolioForecastSnapshot,
     build_portfolio_forecast_snapshot,
 )
+from etf_cockpit.portfolio.top_n_selection import (
+    SELECTION_RUN_ENTITY_TYPE,
+    SelectionCandidate,
+    SelectionPolicyError,
+    build_selection_run,
+    load_selection_policy,
+    persist_selection_run,
+)
+from etf_cockpit.portfolio.selection_slices import materialise_selection_slices
 from etf_cockpit.portfolio.calendar import build_portfolio_calendar
 from etf_cockpit.portfolio.maturity_ladder import build_portfolio_maturity_ladder
 
@@ -1465,6 +1474,129 @@ def load_fixed_income_analytics_projection(
         return dict(result) if isinstance(result, dict) else unavailable
     except (FixedIncomeAnalyticsError, OSError, TypeError, ValueError):
         return unavailable | {"reason_codes": ["fixed_income_analytics_invalid"]}
+
+
+def load_top_n_selection(
+    *,
+    candidates: Sequence[SelectionCandidate] | None = None,
+    mode: str = "cross_asset",
+    decision_time: str | None = None,
+    top_n: int | None = None,
+    seed: int | None = None,
+    portfolio_snapshot: Mapping[str, object] | None = None,
+    reference_anchor: object | None = None,
+    portfolio_policy: object | None = None,
+    risk_profile: object | None = None,
+    storage_root: Path | None = None,
+) -> dict[str, object]:
+    """Load the latest immutable top-N run or persist a new frozen-input run."""
+
+    root = Path(storage_root or ROOT).resolve()
+    try:
+        policy = load_selection_policy()
+    except SelectionPolicyError as exc:
+        return {
+            "contract": "selection-run.v1",
+            "status": "unavailable",
+            "mode": "unavailable",
+            "reason": str(exc),
+            "selected_ids": [],
+            "candidate_table": [],
+            "exclusion_funnel": [],
+            "policy": None,
+            "persistence_status": "not_attempted",
+            "execution_allowed": False,
+        }
+
+    if candidates is None:
+        requested_top_n = policy.top_n if top_n is None else top_n
+        try:
+            with TransactionalStore(root, read_only=True) as store:
+                records = store.list(SELECTION_RUN_ENTITY_TYPE)
+        except (OSError, StorageSchemaError, sqlite3.DatabaseError, ValueError):
+            records = ()
+        compatible = [
+            record
+            for record in records
+            if record.payload.get("mode") == mode
+            and record.payload.get("top_n") == requested_top_n
+            and (decision_time is None or record.payload.get("decision_time") == decision_time)
+            and record.payload.get("contract") == "selection-run.v1"
+        ]
+        if compatible:
+            latest = max(compatible, key=lambda record: (record.created_at, record.entity_id))
+            return {
+                **latest.payload,
+                "slices": materialise_selection_slices(latest.payload),
+                "persistence_status": "persisted",
+                "persistence_revision": latest.revision,
+                "history_count": len(compatible),
+            }
+        return {
+            "contract": "selection-run.v1",
+            "status": "unavailable",
+            "mode": mode if mode in {"asset_specific", "cross_asset"} else "unavailable",
+            "reason": "frozen_opportunity_candidates_unavailable",
+            "decision_time": decision_time,
+            "top_n": requested_top_n,
+            "seed": seed,
+            "policy": policy.to_record(),
+            "candidate_table": [],
+            "selected_ids": [],
+            "exclusion_funnel": [],
+            "source_snapshot_hashes": {},
+            "portfolio_reference": None,
+            "persistence_status": "not_attempted",
+            "execution_allowed": False,
+        }
+
+    if not decision_time:
+        return {
+            "contract": "selection-run.v1",
+            "status": "unavailable",
+            "mode": "unavailable",
+            "reason": "selection_decision_time_unavailable",
+            "selected_ids": [],
+            "candidate_table": [],
+            "exclusion_funnel": [],
+            "policy": policy.to_record(),
+            "persistence_status": "not_attempted",
+            "execution_allowed": False,
+        }
+    try:
+        run = build_selection_run(
+            candidates,
+            decision_time=decision_time,
+            mode=mode,  # type: ignore[arg-type]
+            policy=policy,
+            top_n=top_n,
+            seed=seed,
+            portfolio_snapshot=portfolio_snapshot,
+            reference_anchor=reference_anchor,
+            portfolio_policy=portfolio_policy,  # type: ignore[arg-type]
+            risk_profile=risk_profile,  # type: ignore[arg-type]
+        )
+        with TransactionalStore(root) as store:
+            stored = persist_selection_run(store, run)
+    except (OSError, StorageSchemaError, sqlite3.DatabaseError, TypeError, ValueError) as exc:
+        return {
+            "contract": "selection-run.v1",
+            "status": "unavailable",
+            "mode": "unavailable",
+            "reason": "selection_run_unavailable:" + str(exc),
+            "selected_ids": [],
+            "candidate_table": [],
+            "exclusion_funnel": [],
+            "policy": policy.to_record(),
+            "persistence_status": "failed",
+            "execution_allowed": False,
+        }
+    return {
+        **run.to_record(),
+        "slices": materialise_selection_slices(run),
+        "persistence_status": "persisted",
+        "persistence_revision": stored.revision,
+    }
 
 
 def load_fixed_income_screener(
