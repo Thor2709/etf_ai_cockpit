@@ -337,12 +337,9 @@ def analyze_fund(item: FundAnalysisInput) -> FundAnalysisRecord:
             blockers.append("invalid_fee")
 
     fee_treatment_term = terms["fees_reflected_in_nav"]
-    fees_reflected_in_nav: bool | None = None
     if fee_treatment_term is None:
         blockers.append("missing_fee_treatment")
-    elif fee_treatment_term.value.casefold() in {"true", "false"}:
-        fees_reflected_in_nav = fee_treatment_term.value.casefold() == "true"
-    else:
+    elif fee_treatment_term.value.casefold() not in {"true", "false"}:
         blockers.append("invalid_fee_treatment")
 
     cutoff_term = terms["dealing_cutoff"]
@@ -457,10 +454,23 @@ def analyze_fund(item: FundAnalysisInput) -> FundAnalysisRecord:
         )
     )
     evidence.extend(row.source_id for row in known_distributions)
+    if start_nav is not None and end_nav is not None and any(
+        not any(nav.as_of == distribution.ex_date for nav in eligible_nav)
+        for distribution in known_distributions
+    ):
+        blockers.append("missing_distribution_reinvestment_nav")
     if distribution_policy == "accumulating" and any(
         row.amount_per_share != Decimal("0") for row in known_distributions
     ):
         blockers.append("distributions_conflict_with_accumulating_class")
+
+    class_fee_return: Decimal | None = None
+    if start_nav is not None and end_nav is not None:
+        class_fee_return, _, fee_return_blockers, interval_fee_refs = _class_fee_return(
+            item, start_nav, end_nav, decision, config
+        )
+        blockers.extend(fee_return_blockers)
+        evidence.extend(interval_fee_refs)
 
     fx_start: Decimal | None = None
     fx_end: Decimal | None = None
@@ -497,8 +507,7 @@ def analyze_fund(item: FundAnalysisInput) -> FundAnalysisRecord:
         end_nav,
         known_distributions,
         eligible_nav,
-        total_fee_bps,
-        fees_reflected_in_nav,
+        class_fee_return,
         fx_start,
         fx_end,
         fx_return,
@@ -540,7 +549,7 @@ def analyze_fund(item: FundAnalysisInput) -> FundAnalysisRecord:
         blockers=tuple(dict.fromkeys(blockers)),
         assumptions=(
             "nav_share_class_returns_include_any_declared_currency_hedge",
-            "reinvest_distributions_at_latest_known_nav_on_or_before_ex_date",
+            "reinvest_distributions_only_at_evidenced_ex_date_nav",
             "dealing_cutoff_is_interpreted_in_utc",
             "ongoing_fees_accrue_linearly_on_actual_elapsed_days",
             "execution_allowed=false",
@@ -561,8 +570,7 @@ def _decomposition(
     end_nav: FundNAVObservation | None,
     distributions: tuple[FundDistributionObservation, ...],
     nav_history: tuple[FundNAVObservation, ...],
-    total_fee_bps: Decimal | None,
-    fees_reflected_in_nav: bool | None,
+    accrued_fee_return: Decimal | None,
     fx_start: Decimal | None,
     fx_end: Decimal | None,
     fx_return: Decimal | None,
@@ -580,13 +588,12 @@ def _decomposition(
         "total_return": None,
         "residual": None,
     }
-    if status == "available" and start_nav is not None and end_nav is not None and total_fee_bps is not None:
+    if status == "available" and start_nav is not None and end_nav is not None and accrued_fee_return is not None:
         nav_change = end_nav.nav_per_share / start_nav.nav_per_share - Decimal("1")
         units = Decimal("1")
-        matching_nav = tuple(row for row in nav_history if row.as_of <= end_nav.as_of)
         for distribution in distributions:
             reinvestment_nav = next(
-                (row for row in reversed(matching_nav) if row.as_of <= distribution.ex_date),
+                (row for row in nav_history if row.as_of == distribution.ex_date),
                 None,
             )
             if reinvestment_nav is None:
@@ -597,14 +604,7 @@ def _decomposition(
         if status == "available":
             gross_local_return = units * end_nav.nav_per_share / start_nav.nav_per_share - Decimal("1")
             distribution_return = gross_local_return - nav_change
-            elapsed_days = Decimal((end_nav.as_of - start_nav.as_of).days)
-            fee_return = (
-                -(total_fee_bps / Decimal("10000"))
-                * elapsed_days
-                / Decimal(config.annual_fee_day_count)
-                if fees_reflected_in_nav is False
-                else Decimal("0")
-            )
+            fee_return = accrued_fee_return
             selected_return = (Decimal("1") + gross_local_return + fee_return) * (
                 Decimal("1") + (fx_return or Decimal("0"))
             ) - Decimal("1")
@@ -666,25 +666,125 @@ def _fee_stack(
         return None, item.underlying_structure == "single", ()
     if item.underlying_structure == "single":
         return root_fee, True, ()
-    links = tuple(
+    known_links = tuple(
         link
         for link in item.underlying_links
-        if link.parent_fund_id == item.fund_id
-        and link.as_of <= as_of
-        and _timestamp(link.available_at, "underlying available_at") <= decision
+        if _timestamp(link.available_at, "underlying available_at") <= decision
     )
-    refs = tuple(link.source_id for link in links)
-    if not links:
-        return None, False, refs
-    if abs(sum((link.weight for link in links), Decimal("0")) - Decimal("1")) > config.underlying_weight_tolerance:
-        return None, False, refs
-    if any(link.ongoing_fee_bps is None for link in links):
-        return None, False, refs
-    stacked = root_fee + sum(
-        (link.weight * link.ongoing_fee_bps for link in links if link.ongoing_fee_bps is not None),
-        Decimal("0"),
+    eligible_links = tuple(link for link in known_links if link.as_of <= as_of)
+    refs: list[str] = []
+    complete = True
+    stacked = root_fee
+
+    def add_parent(parent_id: str, weight: Decimal, path: tuple[str, ...]) -> None:
+        nonlocal complete, stacked
+        if parent_id in path:
+            complete = False
+            return
+        candidates = tuple(link for link in eligible_links if link.parent_fund_id == parent_id)
+        if not candidates:
+            if parent_id == item.fund_id or any(link.parent_fund_id == parent_id for link in known_links):
+                complete = False
+            return
+        snapshot_date = max(link.as_of for link in candidates)
+        snapshot = tuple(link for link in candidates if link.as_of == snapshot_date)
+        underlying_ids = tuple(link.underlying_fund_id for link in snapshot)
+        if len(set(underlying_ids)) != len(underlying_ids):
+            complete = False
+            refs.extend(link.source_id for link in snapshot)
+            return
+        if abs(sum((link.weight for link in snapshot), Decimal("0")) - Decimal("1")) > config.underlying_weight_tolerance:
+            complete = False
+        for link in snapshot:
+            refs.append(link.source_id)
+            if link.ongoing_fee_bps is None:
+                complete = False
+            else:
+                stacked += weight * link.weight * link.ongoing_fee_bps
+            if link.underlying_fund_id in path or link.underlying_fund_id == parent_id:
+                complete = False
+            elif any(known.parent_fund_id == link.underlying_fund_id for known in known_links):
+                add_parent(link.underlying_fund_id, weight * link.weight, (*path, parent_id))
+
+    add_parent(item.fund_id, Decimal("1"), ())
+    return (stacked if complete else None), complete, tuple(dict.fromkeys(refs))
+
+
+def _class_fee_return(
+    item: FundAnalysisInput,
+    start_nav: FundNAVObservation,
+    end_nav: FundNAVObservation,
+    decision: datetime,
+    config: FundAnalysisConfig,
+) -> tuple[Decimal | None, bool, tuple[str, ...], tuple[str, ...]]:
+    start_date = start_nav.as_of
+    end_date = end_nav.as_of
+    if start_date >= end_date:
+        return Decimal("0"), True, (), ()
+
+    known_terms = tuple(
+        term
+        for term in item.terms
+        if term.name in {"ongoing_fee_bps", "fees_reflected_in_nav"}
+        and _timestamp(term.available_at, "term available_at") <= decision
     )
-    return stacked, True, refs
+    known_links = tuple(
+        link
+        for link in item.underlying_links
+        if _timestamp(link.available_at, "underlying available_at") <= decision
+    )
+    boundaries = {start_date, end_date}
+    for term in known_terms:
+        for raw_boundary in (term.valid_from, term.valid_to):
+            if raw_boundary is not None:
+                boundary = _timestamp(raw_boundary, "term validity").date()
+                if start_date < boundary < end_date:
+                    boundaries.add(boundary)
+    for link in known_links:
+        if start_date < link.as_of < end_date:
+            boundaries.add(link.as_of)
+
+    fee_return = Decimal("0")
+    blockers: list[str] = []
+    references: list[str] = []
+    dates = sorted(boundaries)
+    for interval_start, interval_end in zip(dates, dates[1:]):
+        days = Decimal((interval_end - interval_start).days)
+        fee_term, fee_conflict = _term_at(item.terms, "ongoing_fee_bps", interval_start, decision)
+        reflected_term, reflected_conflict = _term_at(
+            item.terms, "fees_reflected_in_nav", interval_start, decision
+        )
+        if fee_conflict:
+            blockers.append("conflicted_ongoing_fee_bps")
+        if reflected_conflict:
+            blockers.append("conflicted_fees_reflected_in_nav")
+        if fee_term is None or reflected_term is None:
+            blockers.append("insufficient_fee_term_coverage")
+            continue
+        try:
+            interval_root_fee = _decimal(fee_term.value, "ongoing_fee_bps")
+            if interval_root_fee < Decimal("0"):
+                raise FundAnalysisError("ongoing fee must be non-negative")
+        except FundAnalysisError:
+            blockers.append("invalid_fee")
+            continue
+        if reflected_term.value.casefold() not in {"true", "false"}:
+            blockers.append("invalid_fee_treatment")
+            continue
+        if reflected_term.value.casefold() == "true":
+            references.extend((_term_reference(fee_term), _term_reference(reflected_term)))
+            continue
+        interval_fee, stack_complete, stack_refs = _fee_stack(
+            item, interval_root_fee, interval_start, decision, config
+        )
+        references.extend((_term_reference(fee_term), _term_reference(reflected_term), *stack_refs))
+        if not stack_complete or interval_fee is None:
+            blockers.append("fee_stack_incomplete")
+            continue
+        fee_return -= interval_fee / Decimal("10000") * days / Decimal(config.annual_fee_day_count)
+    if blockers:
+        return None, False, tuple(dict.fromkeys(blockers)), tuple(dict.fromkeys(references))
+    return fee_return, True, (), tuple(dict.fromkeys(references))
 
 
 def _lifecycle_risk(
@@ -708,33 +808,25 @@ def _lifecycle_risk(
         + [event.source_id for event in known_changes]
     ))
     complete = item.lifecycle_history_complete
+
+    def observed_or_unknown(observed: bool) -> bool | None:
+        if observed:
+            return True
+        return False if complete else None
+
     return FundLifecycleRisk(
         contract_version=FUND_ANALYSIS_CONTRACT,
-        closure_risk=(
+        closure_risk=observed_or_unknown(
             any(event.status in {FundLifecycleStatus.CLOSED, FundLifecycleStatus.LIQUIDATED} for event in known_lifecycle)
-            if complete
-            else None
         ),
-        merger_risk=(
-            any(event.status is FundLifecycleStatus.MERGED for event in known_lifecycle)
-            if complete
-            else None
-        ),
-        manager_change=(
+        merger_risk=observed_or_unknown(any(event.status is FundLifecycleStatus.MERGED for event in known_lifecycle)),
+        manager_change=observed_or_unknown(
             any(event.kind is FundTermChangeKind.MANAGER_CHANGE for event in known_changes)
-            if complete
-            else None
         ),
-        benchmark_change=(
+        benchmark_change=observed_or_unknown(
             any(event.kind is FundTermChangeKind.BENCHMARK_CHANGE for event in known_changes)
-            if complete
-            else None
         ),
-        fee_change=(
-            any(event.kind is FundTermChangeKind.FEE_CHANGE for event in known_changes)
-            if complete
-            else None
-        ),
+        fee_change=observed_or_unknown(any(event.kind is FundTermChangeKind.FEE_CHANGE for event in known_changes)),
         evidence_references=refs,
     ), refs
 

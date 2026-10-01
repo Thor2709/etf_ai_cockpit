@@ -28,8 +28,20 @@ from etf_cockpit.data.fund_identity import (
 DECISION = datetime(2026, 2, 5, 12, tzinfo=timezone.utc)
 
 
-def test_accumulating_and_distributing_returns_reconcile_with_class_fees() -> None:
+def test_accumulating_return_matches_hand_calculated_values() -> None:
     accumulating = analyze_fund(_input())
+    result = accumulating.return_decomposition
+
+    # 104 / 100 - 1 = 0.04; no distribution; -50 bps * 34 / 365;
+    # 0.04 - 50 / 10000 * 34 / 365 = 0.039534246575342465753424658.
+    assert accumulating.status == "available"
+    assert result.nav_change_return == Decimal("0.04")
+    assert result.reinvested_distributions_return == Decimal("0")
+    assert result.class_fee_return == Decimal("-0.0004657534246575342465753424658")
+    assert result.total_return == Decimal("0.039534246575342465753424658")
+
+
+def test_distributing_return_matches_hand_calculated_values() -> None:
     distribution = FundDistributionObservation(
         ex_date=date(2026, 1, 15),
         available_at=datetime(2026, 1, 15, 17, tzinfo=timezone.utc),
@@ -44,26 +56,110 @@ def test_accumulating_and_distributing_returns_reconcile_with_class_fees() -> No
             nav_values=("100", "101", "102"),
         )
     )
+    result = distributing.return_decomposition
 
-    for record in (accumulating, distributing):
-        result = record.return_decomposition
-        assert record.status == "available"
-        assert result.total_return is not None
-        assert result.nav_change_return is not None
-        assert result.reinvested_distributions_return is not None
-        assert result.class_fee_return is not None
-        assert result.residual is not None
-        expected = (
-            Decimal("1")
-            + result.nav_change_return
-            + result.reinvested_distributions_return
-            + result.class_fee_return
-        ) * (Decimal("1") + result.fx_return) - Decimal("1")
-        assert abs(result.total_return - expected) <= result.reconciliation_tolerance
-        assert abs(result.residual) <= result.reconciliation_tolerance
-    assert accumulating.return_decomposition.reinvested_distributions_return == Decimal("0")
-    assert distributing.return_decomposition.reinvested_distributions_return > Decimal("0")
-    assert accumulating.return_decomposition.class_fee_return < Decimal("0")
+    # Reinvest 2 / 101 units at the Jan 15 ex-date NAV: (1 + 2 / 101) *
+    # 102 / 100 - 1 = 0.04019801980198019801980198. Minus the 0.02 NAV
+    # change gives 0.02019801980198019801980198; subtract 50 bps * 34 / 365.
+    assert distributing.status == "available"
+    assert result.nav_change_return == Decimal("0.02")
+    assert result.reinvested_distributions_return == Decimal("0.02019801980198019801980198")
+    assert result.class_fee_return == Decimal("-0.0004657534246575342465753424658")
+    assert result.total_return == Decimal("0.039732266377322663773226638")
+
+
+def test_fee_change_after_nav_window_does_not_reprice_historical_interval() -> None:
+    source = _input()
+    fee_term = next(term for term in source.terms if term.name == "ongoing_fee_bps")
+    terms = tuple(term for term in source.terms if term.name != "ongoing_fee_bps") + (
+        replace(fee_term, valid_to="2026-02-05T00:00:00Z"),
+        replace(
+            fee_term,
+            value="100",
+            valid_from="2026-02-05T00:00:00Z",
+            source_id="term:fee-increase",
+        ),
+    )
+
+    record = analyze_fund(replace(source, terms=terms))
+
+    # Jan 1 to Feb 4 is 34 days; the Feb 5 increase earns no days in this window.
+    assert record.status == "available"
+    assert record.total_fee_bps == Decimal("100")
+    assert record.return_decomposition.class_fee_return == Decimal(
+        "-0.0004657534246575342465753424658"
+    )
+
+
+def test_fee_term_coverage_gap_abstains() -> None:
+    source = _input()
+    fee_term = next(term for term in source.terms if term.name == "ongoing_fee_bps")
+    terms = tuple(term for term in source.terms if term.name != "ongoing_fee_bps") + (
+        replace(fee_term, valid_to="2026-01-20T00:00:00Z"),
+        replace(
+            fee_term,
+            valid_from="2026-01-22T00:00:00Z",
+            source_id="term:fee-after-gap",
+        ),
+    )
+
+    record = analyze_fund(replace(source, terms=terms))
+
+    assert record.status == "insufficient_evidence"
+    assert record.return_decomposition.status == "insufficient_evidence"
+    assert "insufficient_fee_term_coverage" in record.blockers
+    assert record.return_decomposition.total_return is None
+
+
+def test_distribution_reinvests_at_exact_ex_date_nav() -> None:
+    source = _input(
+        distribution_policy="distributing",
+        distributions=(
+            FundDistributionObservation(
+                date(2026, 1, 31),
+                datetime(2026, 1, 31, 17, tzinfo=timezone.utc),
+                Decimal("10"),
+                "distribution:jan31",
+            ),
+        ),
+        distribution_history_complete=True,
+        nav_values=("100", "90"),
+        nav_dates=(date(2026, 1, 1), date(2026, 1, 31)),
+    )
+    terms = tuple(
+        replace(term, value="true") if term.name == "fees_reflected_in_nav" else term
+        for term in source.terms
+    )
+
+    record = analyze_fund(replace(source, terms=terms))
+
+    # 1 + 10 / 90 units, valued at the 90 end NAV, returns 100 / 100 - 1 = 0.
+    assert record.status == "available"
+    assert abs(record.return_decomposition.total_return) < Decimal("1e-26")
+
+
+def test_distribution_without_ex_date_nav_abstains_instead_of_using_stale_nav() -> None:
+    source = _input(
+        distribution_policy="distributing",
+        distributions=(
+            FundDistributionObservation(
+                date(2026, 1, 15),
+                datetime(2026, 1, 15, 17, tzinfo=timezone.utc),
+                Decimal("10"),
+                "distribution:jan15",
+            ),
+        ),
+        distribution_history_complete=True,
+        nav_values=("100", "90"),
+        nav_dates=(date(2026, 1, 1), date(2026, 2, 4)),
+    )
+
+    record = analyze_fund(source)
+
+    assert record.status == "insufficient_evidence"
+    assert record.return_decomposition.status == "insufficient_evidence"
+    assert "missing_distribution_reinvestment_nav" in record.blockers
+    assert record.return_decomposition.total_return is None
 
 
 def test_hedged_and_unhedged_classes_use_point_in_time_fx() -> None:
@@ -174,6 +270,74 @@ def test_fund_of_funds_stacks_known_underlying_fees_and_abstains_if_unknown() ->
     assert unknown.return_decomposition.total_return is None
 
 
+def test_fee_stack_uses_latest_applicable_allocation_snapshot_and_rejects_duplicates() -> None:
+    old_snapshot = FundUnderlyingLink(
+        "FUND-1", "UNDER-1", Decimal("1"), Decimal("30"),
+        date(2026, 1, 1), "2026-01-01T09:00:00Z", "link:old-snapshot",
+    )
+    latest_snapshot = replace(
+        old_snapshot,
+        ongoing_fee_bps=Decimal("40"),
+        as_of=date(2026, 2, 1),
+        available_at="2026-02-01T09:00:00Z",
+        source_id="link:latest-snapshot",
+    )
+    latest = analyze_fund(
+        _input(underlying_structure="fund_of_funds", underlying_links=(old_snapshot, latest_snapshot))
+    )
+    duplicate = analyze_fund(
+        _input(
+            underlying_structure="fund_of_funds",
+            underlying_links=(
+                latest_snapshot,
+                replace(latest_snapshot, ongoing_fee_bps=Decimal("45"), source_id="link:duplicate"),
+            ),
+        )
+    )
+
+    assert latest.total_fee_bps == Decimal("90")
+    assert latest.fee_stack_status == "complete"
+    assert duplicate.total_fee_bps is None
+    assert duplicate.fee_stack_status == "fee_stack_incomplete"
+
+
+def test_fee_stack_traverses_nested_links_and_marks_missing_fees_or_cycles_incomplete() -> None:
+    root_to_master = FundUnderlyingLink(
+        "FUND-1", "MASTER-1", Decimal("1"), Decimal("30"),
+        date(2026, 1, 1), "2026-01-01T09:00:00Z", "link:root-master",
+    )
+    master_to_underlying = FundUnderlyingLink(
+        "MASTER-1", "UNDER-1", Decimal("1"), Decimal("20"),
+        date(2026, 1, 1), "2026-01-01T09:00:00Z", "link:master-underlying",
+    )
+    complete = analyze_fund(
+        _input(
+            underlying_structure="master_feeder",
+            underlying_links=(root_to_master, master_to_underlying),
+        )
+    )
+    missing_fee = analyze_fund(
+        _input(
+            underlying_structure="master_feeder",
+            underlying_links=(root_to_master, replace(master_to_underlying, ongoing_fee_bps=None)),
+        )
+    )
+    cycle = analyze_fund(
+        _input(
+            underlying_structure="master_feeder",
+            underlying_links=(
+                root_to_master,
+                replace(master_to_underlying, underlying_fund_id="FUND-1"),
+            ),
+        )
+    )
+
+    assert complete.total_fee_bps == Decimal("100")
+    assert complete.fee_stack_status == "complete"
+    assert missing_fee.fee_stack_status == "fee_stack_incomplete"
+    assert cycle.fee_stack_status == "fee_stack_incomplete"
+
+
 def test_missing_benchmark_fee_dealing_or_history_abstains_without_zero_fills() -> None:
     full = _input()
     missing_benchmark = replace(
@@ -224,6 +388,83 @@ def test_missing_benchmark_fee_dealing_or_history_abstains_without_zero_fills() 
     no_history_record = analyze_fund(missing_history)
     assert no_history_record.lifecycle_risk.manager_change is False
     assert no_history_record.lifecycle_risk.closure_risk is False
+
+
+def test_lifecycle_flags_preserve_observed_events_with_incomplete_history() -> None:
+    available_closure = FundLifecycleEvent(
+        fund_id="FUND-1",
+        event_id="closure:known",
+        status=FundLifecycleStatus.CLOSED,
+        effective_at="2026-02-01T00:00:00Z",
+        available_at="2026-02-01T00:00:00Z",
+        source="fixture",
+        source_id="closure:known",
+        authority=SourceAuthority.OFFICIAL,
+    )
+    available_merger = replace(
+        available_closure,
+        event_id="merger:known",
+        status=FundLifecycleStatus.MERGED,
+        source_id="merger:known",
+        successor_fund_id="FUND-2",
+    )
+    known_changes = tuple(
+        FundTermChangeEvent(
+            "FUND-1",
+            kind,
+            "2026-02-01T00:00:00Z",
+            "2026-02-01T00:00:00Z",
+            f"{kind.value}:known",
+            SourceAuthority.OFFICIAL,
+            "old",
+            "new",
+        )
+        for kind in (
+            FundTermChangeKind.MANAGER_CHANGE,
+            FundTermChangeKind.BENCHMARK_CHANGE,
+            FundTermChangeKind.FEE_CHANGE,
+        )
+    )
+    observed = analyze_fund(
+        replace(
+            _input(),
+            lifecycle_history_complete=False,
+            lifecycle_events=(available_closure, available_merger),
+            term_change_events=known_changes,
+        )
+    ).lifecycle_risk
+    incomplete_empty = analyze_fund(
+        replace(_input(), lifecycle_history_complete=False)
+    ).lifecycle_risk
+    complete_empty = analyze_fund(
+        replace(_input(), lifecycle_history_complete=True)
+    ).lifecycle_risk
+
+    assert observed.closure_risk is True
+    assert observed.merger_risk is True
+    assert observed.manager_change is True
+    assert observed.benchmark_change is True
+    assert observed.fee_change is True
+    assert all(
+        value is None
+        for value in (
+            incomplete_empty.closure_risk,
+            incomplete_empty.merger_risk,
+            incomplete_empty.manager_change,
+            incomplete_empty.benchmark_change,
+            incomplete_empty.fee_change,
+        )
+    )
+    assert all(
+        value is False
+        for value in (
+            complete_empty.closure_risk,
+            complete_empty.merger_risk,
+            complete_empty.manager_change,
+            complete_empty.benchmark_change,
+            complete_empty.fee_change,
+        )
+    )
 
 
 def _input(
