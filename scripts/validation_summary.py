@@ -353,7 +353,7 @@ def _validate_replay_candidate_evidence(
         if evidence.get(key) != candidate.get(key):
             raise ValueError(f"status replay candidate {key} identity mismatch")
     replay = candidate.get("expected_replay")
-    _validate_replay_contract(replay, root=root, base=base, head=head)
+    replay = _validate_replay_contract(replay, root=root, base=base, head=head)
     candidate_blob_sha256 = str(evidence.get("candidate_blob_sha256", ""))
     if (
         not HASH_RE.fullmatch(candidate_blob_sha256)
@@ -392,7 +392,7 @@ def _validate_replay_contract(
     root: Path,
     base: str,
     head: str,
-) -> None:
+) -> dict[str, Any]:
     """Check one replay contract against the control state at base and head."""
 
     if (
@@ -519,6 +519,7 @@ def _validate_replay_contract(
         stable_id=str(replay["stable_id"]),
     ) != current_record:
         raise ValueError("status replay candidate complete canonical projection is invalid")
+    return replay
 
 
 def _validate_batch_candidate_evidence(
@@ -606,7 +607,7 @@ def _validate_batch_candidate_evidence(
             raise ValueError("status batch candidate entry identity is invalid")
         if replay_entry:
             replay = entry.get("expected_replay")
-            _validate_replay_contract(replay, root=root, base=base, head=head)
+            replay = _validate_replay_contract(replay, root=root, base=base, head=head)
             if (
                 row.get("from_status") != replay["from_status"]
                 or row.get("to_status") != replay["to_status"]
