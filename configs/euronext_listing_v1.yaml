@@ -1,0 +1,25 @@
+schema_version: euronext-listing.v1
+provider_id: euronext_oslo_listing
+endpoint: https://live.euronext.com/en/pd_es/data/stocks/download?mics=XOSL%2CMERK%2CXOAS
+scope: listing:euronext_oslo:all
+timeout_seconds: 20
+minimum_rows: 200
+user_agent: ETF AI Evidence Cockpit/1.0 (public listing capture)
+markets:
+  - Oslo Børs
+  - Euronext Growth Oslo
+  - Euronext Expand Oslo
+savings_bank_patterns:
+  - SPAREBANK
+  - SPAREBANKEN
+  - SPBK
+  - SPB
+  - SPARBNK
+savings_bank_include_names:
+  - VOSS VEKSEL OGLAND
+  - HØLAND OG SETSKOG
+savings_bank_exclude_names:
+  - DNB BANK
+  - PARETO BANK
+  - INSTABANK
+  - KRAFT BANK

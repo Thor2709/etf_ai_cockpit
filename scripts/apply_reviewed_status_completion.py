@@ -25,6 +25,7 @@ try:
     from scripts import sync_github_issues as sync
     from scripts.issue_registry_core import (
         CONTROL_ALLOWED_TRANSITIONS,
+        LEGACY_BOOTSTRAP_RECORDS,
         REGISTRY_PATH,
         control_state_record,
         is_issue0011_legacy_replay_source,
@@ -37,6 +38,7 @@ except ModuleNotFoundError:
     import sync_github_issues as sync
     from issue_registry_core import (
         CONTROL_ALLOWED_TRANSITIONS,
+        LEGACY_BOOTSTRAP_RECORDS,
         REGISTRY_PATH,
         control_state_record,
         is_issue0011_legacy_replay_source,
@@ -949,7 +951,10 @@ def _validate_status_replay_candidate(
     history_append = cast(list[dict[str, Any]], history_append)
     evidence_prefix = cast(list[dict[str, Any]], evidence_prefix)
     evidence_append = cast(list[dict[str, Any]], evidence_append)
-    legacy_bootstrap = is_issue0011_legacy_replay_source(stable_id, source_record)
+    legacy_bootstrap = (
+        stable_id in LEGACY_BOOTSTRAP_RECORDS
+        and is_issue0011_legacy_replay_source(stable_id, source_record)
+    )
     validate_status_replay_prefix_shape(
         stable_id,
         history_prefix,
@@ -964,6 +969,7 @@ def _validate_status_replay_candidate(
         verified_date=(source_record.get("verified_date") if isinstance(source_record, dict) else None),
         status_transition=(source_record.get("status_transition") if isinstance(source_record, dict) else None),
         allow_legacy_bootstrap_origin=legacy_bootstrap,
+        phase=(source_record.get("phase") if isinstance(source_record, dict) else None),
     )
     if len(history_append) != 2 or len(evidence_append) != 2:
         raise ValueError("status replay requires exactly two matching appended entries")
@@ -1029,6 +1035,7 @@ def _validate_status_replay_candidate(
         verified_date=source_record.get("verified_date"),
         status_transition=source_record.get("status_transition"),
         allow_legacy_bootstrap_origin=legacy_bootstrap,
+        phase=source_record.get("phase"),
     )
     if legacy_bootstrap:
         source_history = []
@@ -1042,6 +1049,7 @@ def _validate_status_replay_candidate(
         verified_date=current_record.get("verified_date"),
         status_transition=current_record.get("status_transition"),
         allow_legacy_bootstrap_origin=legacy_bootstrap,
+        phase=current_record.get("phase"),
     )
     if (
         source_record.get("programme_status") != "in_progress"

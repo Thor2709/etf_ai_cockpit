@@ -1,0 +1,56 @@
+schema_version: "analysis-depth-profiles.v1"
+reference_fixture_id: reference_3000_supported_instruments
+reference_fixture_digest: null  # No reference content digest is registered, so benchmark certification stays disabled.
+reference_machine:
+  cpu_cores: 20
+  memory_mb: 32768
+  gpu_label: "RTX 5070"
+profiles:
+  quick:
+    profile_id: quick
+    profile_version: "analysis-depth.quick.v1"
+    mandatory_stages: [identity_gate, prices_gate, data_gate, hard_risk_gate, liquidity_gate, data_quality_gate, formulas]
+    optional_stages: [core_asset_facts, core_peers, forecast_baseline, core_costs]
+    model_families: [deterministic_baseline]
+    sources: [configured_core_sources]
+    horizons: [selected]
+    seeds: [0]
+    robustness: {bootstrap_replicates: 0, stability_repeats: 0, scenario_checks: false}
+    slo_seconds: 300
+    shard_size: 64
+  medium:
+    profile_id: medium
+    profile_version: "analysis-depth.medium.v1"
+    mandatory_stages: [identity_gate, prices_gate, data_gate, hard_risk_gate, liquidity_gate, data_quality_gate, formulas]
+    optional_stages: [core_asset_facts, core_peers, forecast_baseline, core_costs, core_ensemble, calibration_uncertainty, core_scenarios]
+    model_families: [deterministic_baseline, approved_core_ensemble]
+    sources: [configured_core_sources]
+    horizons: [selected]
+    seeds: [0]
+    robustness: {bootstrap_replicates: 0, stability_repeats: 1, scenario_checks: true}
+    slo_seconds: 1800
+    shard_size: 32
+  high:
+    profile_id: high
+    profile_version: "analysis-depth.high.v1"
+    mandatory_stages: [identity_gate, prices_gate, data_gate, hard_risk_gate, liquidity_gate, data_quality_gate, formulas]
+    optional_stages: [core_asset_facts, core_peers, forecast_baseline, core_costs, core_ensemble, calibration_uncertainty, core_scenarios, broader_documents, expanded_features, source_reconciliation, bootstrap_stability, scenario_checks]
+    model_families: [deterministic_baseline, approved_core_ensemble, approved_extended_models]
+    sources: [configured_core_sources, configured_lawful_documents]
+    horizons: [selected]
+    seeds: [0, 1, 2]
+    robustness: {bootstrap_replicates: 25, stability_repeats: 3, scenario_checks: true}
+    slo_seconds: 3600
+    shard_size: 16
+  full:
+    profile_id: full
+    profile_version: "analysis-depth.full.v1"
+    mandatory_stages: [identity_gate, prices_gate, data_gate, hard_risk_gate, liquidity_gate, data_quality_gate, formulas]
+    optional_stages: [core_asset_facts, core_peers, forecast_baseline, core_costs, core_ensemble, calibration_uncertainty, core_scenarios, broader_documents, expanded_features, source_reconciliation, bootstrap_stability, scenario_checks, model_clones, coverage_audit, bias_audit, audit_replay]
+    model_families: [all_approved_models]
+    sources: [all_approved_lawful_sources]
+    horizons: [all_supported]
+    seeds: [0, 1, 2, 3, 4]
+    robustness: {bootstrap_replicates: 100, stability_repeats: 5, scenario_checks: true, audit_replay: true}
+    slo_seconds: 36000
+    shard_size: 8

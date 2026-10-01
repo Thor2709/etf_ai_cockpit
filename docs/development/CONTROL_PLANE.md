@@ -27,6 +27,8 @@ legacy `package_status` label.
 
 ## Authority map
 
+Legacy bootstrap status replay accepts only the exact source projections in `LEGACY_BOOTSTRAP_RECORDS` from `scripts/issue_registry_core.py`. The B1 owner decision 2026-10-01 adds ISSUE-0039 and ISSUE-0040 with their audited B00 status transitions; this permits bounded replay-origin recognition without changing lifecycle state or performing a status transition.
+
 | Fact | Semantic authority | Legal edit source | Generator / projection | Consumer |
 | --- | --- | --- | --- | --- |
 | Product scope and acceptance | Immutable July source packages, original issue clauses, normative amendments; reviewed canonical extensions | Original sources stay immutable; extensions follow existing reviewed control authority | `issue_registry_core.py` → registry and issue cards | Implementer and formal reviewers |
@@ -50,6 +52,18 @@ Use `python scripts/generate_programme.py --root .`, then repeat with `--check`.
 Keep grouped atomic publication and byte-clean verification. The historical
 `generation_base_commit` identifies imported reconciliation evidence; it is not
 current main and should not be churned after every merge.
+
+## Point-in-time universe membership
+
+Universe membership is captured in two local layers: exact received payloads are
+SHA-256 addressed and gzip-compressed under `data/raw/universe_membership`, while
+an append-only SQLite ledger under `data/derived/universe_membership` stores
+membership interval revisions and capture dates. The `configured` scope records
+the saved watchlist; `listing:<venue>:<asset_type>` records a declared complete
+listing. Reads expose only captured dates known by the requested cutoff. Licensed
+history is imported only with its licence reference and per-row knowledge time.
+Byte payloads are preserved byte-for-byte; text payloads are UTF-8 encoded as
+given, and structured rows are encoded as compact UTF-8 JSON in received order.
 
 ## NOW, NEXT and future work
 

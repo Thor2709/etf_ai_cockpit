@@ -21,3 +21,6 @@ plans/archive/2026-09-08-control-plane/** -text
 # Checksummed synthetic economics fixtures must stay byte-exact on every platform.
 tests/fixtures/economics/** -text
 tests/fixtures/sec_nport/**/*.tsv -whitespace
+
+# Captured Euronext export fixture: tests hash and edit exact payload bytes.
+tests/fixtures/euronext_oslo_sample.csv -text

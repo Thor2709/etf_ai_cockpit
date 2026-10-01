@@ -1,0 +1,19 @@
+schema_version: 1
+# Conservative deterministic defaults for the ordinary-fund baseline.
+reconciliation_tolerance: "0.000001"
+underlying_weight_tolerance: "0.000001"
+annual_fee_day_count: 365
+maximum_nav_anchor_gap_days: 7
+dealing_cutoff_timezone: UTC
+horizon_days:
+  1W: 7
+  1M: 30
+  3M: 90
+  6M: 180
+  1Y: 365
+frequency_minimum_horizon_days:
+  daily: 1
+  weekly: 7
+  biweekly: 14
+  monthly: 30
+  quarterly: 90
