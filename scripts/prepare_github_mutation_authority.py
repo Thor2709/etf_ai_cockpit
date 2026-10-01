@@ -15,6 +15,7 @@ try:
     from scripts import github_mutation_gateway as gateway
     from scripts import sync_github_issues as sync
     from scripts.issue_registry_core import (
+        LEGACY_BOOTSTRAP_RECORDS,
         control_state_record,
         is_issue0011_legacy_replay_source,
         load_control_state,
@@ -26,6 +27,7 @@ except ModuleNotFoundError:
     import github_mutation_gateway as gateway
     import sync_github_issues as sync
     from issue_registry_core import (  # type: ignore[no-redef]
+        LEGACY_BOOTSTRAP_RECORDS,
         control_state_record,
         is_issue0011_legacy_replay_source,
         load_control_state,
@@ -167,7 +169,10 @@ def prepare(
         source_evidence = source_record.get("acceptance_evidence")
         current_history = current_record.get("transition_history")
         current_evidence = current_record.get("acceptance_evidence")
-        legacy_bootstrap = is_issue0011_legacy_replay_source(stable_id, source_record)
+        legacy_bootstrap = (
+            stable_id in LEGACY_BOOTSTRAP_RECORDS
+            and is_issue0011_legacy_replay_source(stable_id, source_record)
+        )
         validate_status_replay_prefix_shape(
             stable_id,
             source_history,
@@ -178,6 +183,7 @@ def prepare(
             verified_date=source_record.get("verified_date"),
             status_transition=source_record.get("status_transition"),
             allow_legacy_bootstrap_origin=legacy_bootstrap,
+            phase=source_record.get("phase"),
         )
         validate_status_replay_prefix_shape(
             stable_id,
@@ -189,6 +195,7 @@ def prepare(
             verified_date=current_record.get("verified_date"),
             status_transition=current_record.get("status_transition"),
             allow_legacy_bootstrap_origin=legacy_bootstrap,
+            phase=current_record.get("phase"),
         )
         if legacy_bootstrap:
             source_history = []

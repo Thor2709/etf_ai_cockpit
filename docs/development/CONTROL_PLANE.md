@@ -27,6 +27,8 @@ legacy `package_status` label.
 
 ## Authority map
 
+Legacy bootstrap status replay accepts only the exact source projections in `LEGACY_BOOTSTRAP_RECORDS` from `scripts/issue_registry_core.py`. The B1 owner decision 2026-10-01 adds ISSUE-0039 and ISSUE-0040 with their audited null-transition records; this permits bounded replay-origin recognition without changing lifecycle state or performing a status transition.
+
 | Fact | Semantic authority | Legal edit source | Generator / projection | Consumer |
 | --- | --- | --- | --- | --- |
 | Product scope and acceptance | Immutable July source packages, original issue clauses, normative amendments; reviewed canonical extensions | Original sources stay immutable; extensions follow existing reviewed control authority | `issue_registry_core.py` → registry and issue cards | Implementer and formal reviewers |
