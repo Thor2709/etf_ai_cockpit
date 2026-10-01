@@ -3,23 +3,377 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "implemented_initially",
-      "issue_id": "ISSUE-0093",
+      "from": "planned",
+      "issue_id": "ISSUE-0029",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0043",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0058",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0066",
+      "to": "in_progress"
+    },
+    {
+      "from": "hardening_required",
+      "issue_id": "ISSUE-0079",
       "to": "integrated"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0094",
+      "to": "in_progress"
+    },
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0096",
+      "to": "integrated"
+    },
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0097",
+      "to": "integrated"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0105",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0107",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0108",
+      "to": "in_progress"
+    },
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0109",
+      "to": "integrated"
+    },
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0113",
+      "to": "integrated"
+    },
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0114",
+      "to": "integrated"
+    },
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0116",
+      "to": "integrated"
+    },
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0119",
+      "to": "integrated"
+    },
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0120",
+      "to": "integrated"
+    },
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0121",
+      "to": "integrated"
+    },
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0122",
+      "to": "integrated"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0123",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0124",
+      "to": "in_progress"
+    },
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0125",
+      "to": "integrated"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0126",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0127",
+      "to": "in_progress"
+    },
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0128",
+      "to": "integrated"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0131",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0132",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0133",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0134",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0135",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0142",
+      "to": "in_progress"
+    },
+    {
+      "from": "hardening_required",
+      "issue_id": "ISSUE-0143",
+      "to": "integrated"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0147",
+      "to": "in_progress"
+    },
+    {
+      "from": "hardening_required",
+      "issue_id": "ISSUE-0149",
+      "to": "integrated"
+    },
+    {
+      "from": "implemented_initially",
+      "issue_id": "ISSUE-0150",
+      "to": "integrated"
+    },
+    {
+      "from": "hardening_required",
+      "issue_id": "ISSUE-0151",
+      "to": "integrated"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0157",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0158",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0159",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0160",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0161",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0162",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0163",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0164",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0165",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0166",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0167",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0168",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0169",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0170",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0171",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0173",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0174",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0176",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0181",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "UPDATEV2-0023",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "UPDATEV2-0024",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "UPDATEV2-0025",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "UPDATEV2-0026",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "UPDATEV2-0030",
+      "to": "in_progress"
     }
   ],
-  "base_commit": "cb69cd34285edbba5ce22ebc2af00042be08d23d",
-  "branch": "claude/issue-0093-lifecyclec-20261001",
+  "base_commit": "7f1466d49591415fde16bf71adb8b1f6f5c39265",
+  "branch": "claude/lifecycle-batch1b-20261001",
   "issue_ids": [
-    "ISSUE-0093"
+    "ISSUE-0029",
+    "ISSUE-0043",
+    "ISSUE-0058",
+    "ISSUE-0066",
+    "ISSUE-0079",
+    "ISSUE-0094",
+    "ISSUE-0096",
+    "ISSUE-0097",
+    "ISSUE-0105",
+    "ISSUE-0107",
+    "ISSUE-0108",
+    "ISSUE-0109",
+    "ISSUE-0113",
+    "ISSUE-0114",
+    "ISSUE-0116",
+    "ISSUE-0119",
+    "ISSUE-0120",
+    "ISSUE-0121",
+    "ISSUE-0122",
+    "ISSUE-0123",
+    "ISSUE-0124",
+    "ISSUE-0125",
+    "ISSUE-0126",
+    "ISSUE-0127",
+    "ISSUE-0128",
+    "ISSUE-0131",
+    "ISSUE-0132",
+    "ISSUE-0133",
+    "ISSUE-0134",
+    "ISSUE-0135",
+    "ISSUE-0142",
+    "ISSUE-0143",
+    "ISSUE-0147",
+    "ISSUE-0149",
+    "ISSUE-0150",
+    "ISSUE-0151",
+    "ISSUE-0157",
+    "ISSUE-0158",
+    "ISSUE-0159",
+    "ISSUE-0160",
+    "ISSUE-0161",
+    "ISSUE-0162",
+    "ISSUE-0163",
+    "ISSUE-0164",
+    "ISSUE-0165",
+    "ISSUE-0166",
+    "ISSUE-0167",
+    "ISSUE-0168",
+    "ISSUE-0169",
+    "ISSUE-0170",
+    "ISSUE-0171",
+    "ISSUE-0173",
+    "ISSUE-0174",
+    "ISSUE-0176",
+    "ISSUE-0181",
+    "UPDATEV2-0023",
+    "UPDATEV2-0024",
+    "UPDATEV2-0025",
+    "UPDATEV2-0026",
+    "UPDATEV2-0030"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "27a7412840c4c11c57dc4618efcc7722be24b2d6ca1d3628d1d822724f21b6e3",
+    "base_registry_sha256": "86a8c00e3b432f737c276c15f23a082674066a9eee4c536118791f95c89dc01b",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "86a8c00e3b432f737c276c15f23a082674066a9eee4c536118791f95c89dc01b",
-    "reason": "Transition only ISSUE-0093 from implemented_initially to integrated; preserve dependencies, GitHub issue open state, external authority and execution_allowed=false.",
+    "proposed_registry_sha256": "b2d90a807ed7258ac22c89feab5cd7d113a0bf3005fd0b835863d3b55770f972",
+    "reason": "Status-only batch of 60 reviewed lifecycle transitions; each issue moves exactly one canonical step (or one bounded replay); preserve dependencies, GitHub issue open state, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
