@@ -16,6 +16,7 @@ from etf_cockpit.application.analysis_depth import (
     AnalysisDepthError,
     AnalysisTimingRecord,
     MANDATORY_STAGE_IDS,
+    MandatoryEvidenceError,
     REFERENCE_FIXTURE_ID,
     analysis_run_identity,
     append_timing_records,
@@ -151,6 +152,59 @@ def test_missing_mandatory_evidence_fails_with_reason_without_downgrade(tmp_path
     timing_path = service.scheduler.root / ANALYSIS_TIMINGS_RELATIVE_PATH
     timing_frame = pd.read_parquet(timing_path)
     assert timing_frame["stage_id"].tolist() == list(MANDATORY_STAGE_IDS[:4])
+    assert timing_frame["outcome"].tolist() == ["succeeded", "succeeded", "succeeded", "failed"]
+
+
+def test_mandatory_runner_exception_keeps_prior_and_failed_stage_timings():
+    profile = load_analysis_depth_profiles()["quick"]
+    failure = RuntimeError("evidence unavailable")
+
+    def runner(instrument_id, analysis_input, stage, resource_plan):
+        if stage.stage_id == "hard_risk_gate":
+            raise failure
+        return _runner(instrument_id, analysis_input, stage, resource_plan)
+
+    with pytest.raises(MandatoryEvidenceError) as caught:
+        execute_profiled_stages(
+            profile,
+            "ETF.TEST",
+            {"value": 1},
+            "tests.depth.v1",
+            runner,
+            {},
+            run_id="failed-stage-test",
+            resource_plan=create_resource_plan(profile),
+        )
+
+    assert caught.value.__cause__ is failure
+    records = caught.value.timing_records
+    assert [record.stage_id for record in records] == list(MANDATORY_STAGE_IDS[:4])
+    assert [record.outcome for record in records] == ["succeeded", "succeeded", "succeeded", "failed"]
+    assert records[-1].wall_time_seconds >= 0
+
+
+def test_optional_runner_exception_keeps_its_existing_type():
+    profile = load_analysis_depth_profiles()["full"]
+    optional_stage = next(stage for stage in profile.stages if not stage.mandatory)
+    one_stage_profile = replace(profile, stages=(optional_stage,))
+    failure = RuntimeError("optional stage unavailable")
+
+    def runner(_instrument_id, _analysis_input, _stage, _resource_plan):
+        raise failure
+
+    with pytest.raises(RuntimeError) as caught:
+        execute_profiled_stages(
+            one_stage_profile,
+            "ETF.TEST",
+            {"value": 1},
+            "tests.depth.v1",
+            runner,
+            {},
+            run_id="optional-stage-test",
+            resource_plan=create_resource_plan(one_stage_profile),
+        )
+
+    assert caught.value is failure
 
 
 def test_stage_timing_excludes_acquisition_and_training_with_fake_clock(monkeypatch):

@@ -24,7 +24,7 @@ from etf_cockpit.core.resource_profiles import estimate_workflow_resources
 ANALYSIS_DEPTH_SCHEMA_VERSION = "analysis-depth.v1"
 ANALYSIS_STAGE_SCHEMA_VERSION = "analysis-stage-manifest.v1"
 ANALYSIS_RESOURCE_PLAN_SCHEMA_VERSION = "analysis-resource-plan.v1"
-ANALYSIS_TIMING_SCHEMA_VERSION = "analysis-timing.v1"
+ANALYSIS_TIMING_SCHEMA_VERSION = "analysis-timing.v2"
 ANALYSIS_UPGRADE_LINK_SCHEMA_VERSION = "analysis-upgrade-link.v1"
 ANALYSIS_DEPTH_PROFILES_PATH = (
     Path(__file__).resolve().parents[3] / "configs" / "analysis_depth_profiles.yaml"
@@ -296,8 +296,11 @@ class AnalysisTimingRecord:
     model_omissions: tuple[str, ...] = ()
     peak_resources: tuple[tuple[str, float], ...] = ()
     schema_version: str = ANALYSIS_TIMING_SCHEMA_VERSION
+    outcome: str = "succeeded"
 
     def __post_init__(self) -> None:
+        if self.outcome not in {"succeeded", "failed", "unknown"}:
+            raise AnalysisDepthError("outcome must be succeeded, failed or unknown")
         if self.timing_kind not in {"stage", "cold_acquisition", "training_centre"}:
             raise AnalysisDepthError("timing_kind must be stage, cold_acquisition or training_centre")
         if self.cache_state not in {"cold", "warm"}:
@@ -329,6 +332,7 @@ class AnalysisTimingRecord:
             "provider_wait_seconds": self.provider_wait_seconds,
             "model_omissions": list(self.model_omissions),
             "peak_resources": dict(self.peak_resources),
+            "outcome": self.outcome,
         }
 
     def to_json(self) -> str:
@@ -813,6 +817,7 @@ def execute_profiled_stages(
             if tracing_started:
                 tracemalloc.start()
             started = time.perf_counter()
+            runner_called = False
             try:
                 if resource_plan is None:
                     raise AnalysisDepthError("profile-depth stages require a frozen resource plan")
@@ -821,10 +826,29 @@ def execute_profiled_stages(
                     if not stage.mandatory
                     else stage
                 )
+                runner_called = True
                 raw_result = stage_runner(instrument_id, analysis_input, runner_stage, resource_plan)
-            except Exception:
+            except Exception as exc:
+                elapsed = time.perf_counter() - started
+                _current_bytes, peak_bytes = tracemalloc.get_traced_memory()
                 if tracing_started:
                     tracemalloc.stop()
+                if stage.mandatory and runner_called:
+                    peak_resources = (("python_heap_peak_mb", peak_bytes / 1_048_576),)
+                    timing_records.append(AnalysisTimingRecord(
+                        run_id=run_id,
+                        profile_id=profile.profile_id,
+                        timing_kind="stage",
+                        stage_id=stage.stage_id,
+                        wall_time_seconds=elapsed,
+                        cache_state="cold",
+                        peak_resources=peak_resources,
+                        outcome="failed",
+                    ))
+                    raise MandatoryEvidenceError(
+                        f"mandatory stage {stage.stage_id} failed: {exc}",
+                        timing_records=timing_records,
+                    ) from exc
                 raise
             elapsed = time.perf_counter() - started
             _current_bytes, peak_bytes = tracemalloc.get_traced_memory()
@@ -870,6 +894,7 @@ def execute_profiled_stages(
             provider_wait_seconds=provider_wait,
             model_omissions=model_omissions,
             peak_resources=peak_resources,
+            outcome="failed" if error is not None else "succeeded",
         ))
         for timing_kind, seconds in separate_timings:
             timing_records.append(AnalysisTimingRecord(
@@ -882,6 +907,7 @@ def execute_profiled_stages(
                 provider_wait_seconds=provider_wait,
                 model_omissions=model_omissions,
                 peak_resources=peak_resources,
+                outcome="failed" if error is not None else "succeeded",
             ))
         if error is not None:
             raise MandatoryEvidenceError(error, timing_records=timing_records)
@@ -917,7 +943,12 @@ def append_timing_records(root: Path, records: Sequence[AnalysisTimingRecord]) -
     if path.is_file():
         previous = pd.read_parquet(path)
         expected = list(frame.columns)
-        if list(previous.columns) != expected:
+        legacy = [column for column in expected if column != "outcome"]
+        if list(previous.columns) == legacy:
+            previous = previous.copy()
+            previous["outcome"] = "unknown"
+            previous = previous[expected]
+        elif list(previous.columns) != expected:
             raise AnalysisDepthError("analysis_timings.parquet has an unsupported schema")
         frame = pd.concat((previous, frame), ignore_index=True)
     frame.to_parquet(path, index=False)

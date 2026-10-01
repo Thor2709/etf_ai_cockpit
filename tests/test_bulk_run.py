@@ -1,5 +1,8 @@
 import pytest
 
+import pandas as pd
+
+from etf_cockpit.application.analysis_depth import ANALYSIS_TIMINGS_RELATIVE_PATH, MANDATORY_STAGE_IDS
 from etf_cockpit.core import job_scheduler
 from etf_cockpit.application.bulk_run import BulkAnalysisService
 from etf_cockpit.core.job_scheduler import JobStatus
@@ -66,6 +69,31 @@ def test_bulk_failure_isolation(tmp_path):
     assert run.states["ETF.GOOD.B"] == JobStatus.SUCCEEDED.value
     assert set(run.results) == {"ETF.GOOD.A", "ETF.GOOD.B"}
     assert run.coverage_completed == run.coverage_total == 3
+
+
+def test_profiled_mandatory_runner_failure_persists_failed_stage_timing(tmp_path):
+    service = BulkAnalysisService(tmp_path)
+    failure = RuntimeError("evidence unavailable")
+
+    def stage_runner(_instrument_id, _analysis_input, stage, _resource_plan):
+        if stage.stage_id == "hard_risk_gate":
+            raise failure
+        return {"stage_id": stage.stage_id, "passed": True}
+
+    run = service.start(
+        {"ETF.FAIL": {"value": 1}},
+        analyzer_id="tests.depth.v1",
+        depth_profile="quick",
+        stage_runner=stage_runner,
+    )
+
+    assert run.states["ETF.FAIL"] == JobStatus.FAILED.value
+    assert "evidence unavailable" in run.failures["ETF.FAIL"]
+    assert run.results == {}
+    timing_path = service.scheduler.root / ANALYSIS_TIMINGS_RELATIVE_PATH
+    timing_frame = pd.read_parquet(timing_path)
+    assert timing_frame["stage_id"].tolist() == list(MANDATORY_STAGE_IDS[:4])
+    assert timing_frame["outcome"].tolist() == ["succeeded", "succeeded", "succeeded", "failed"]
 
 
 def test_bulk_run_creates_new_history(tmp_path):
