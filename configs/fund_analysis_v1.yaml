@@ -17,3 +17,7 @@ frequency_minimum_horizon_days:
   biweekly: 14
   monthly: 30
   quarterly: 90
+peers:
+  minimum_support: 3
+  tracking_minimum_periods: 12
+  fee_tier_bands_bps: ["25", "50", "100", "200"]
