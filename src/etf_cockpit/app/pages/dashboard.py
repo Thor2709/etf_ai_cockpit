@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from collections.abc import Mapping
@@ -14,6 +15,7 @@ from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, 
 from etf_cockpit.app.components.simple_scores import score_colour, simple_score_grouped_sections, simple_score_legend
 from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.state import ActivityUnavailableError, AppState, activity_result_error
+from etf_cockpit.application.contracts import ApiStatus, CommandResult, DashboardAction, DashboardActionCommand
 from etf_cockpit.application.benchmark_reference import adjusted_price_binding_for_reference, context_from_snapshot
 from etf_cockpit.core.paths import FORECASTS_DIR
 from etf_cockpit.core.paths import ROOT
@@ -75,6 +77,53 @@ def _restore_cancelled_result(state: AppState, action_id: str, *controls: ft.Con
     if message is not None:
         for control in controls:
             control.value = message
+
+
+def _execute_dashboard_action(
+    state: AppState,
+    action: DashboardAction,
+    *,
+    dataset_type: str | None = None,
+    selected_path: str | None = None,
+    file_name: str | None = None,
+    content: bytes | None = None,
+) -> CommandResult:
+    command = DashboardActionCommand(
+        idempotency_key=f"dashboard-{uuid.uuid4().hex}",
+        action=action,
+        dataset_type=dataset_type,
+        selected_path=selected_path,
+        file_name=file_name,
+        content=content,
+    )
+    result = state.application_api.execute(command)
+    if result.status not in (ApiStatus.ACCEPTED, ApiStatus.REPLAYED):
+        raise ActivityUnavailableError(
+            result.error_message or f"Dashboard action {action} was not accepted ({result.status.value})."
+        )
+    if not dict(result.details).get("message", "").strip():
+        raise ActivityUnavailableError("Dashboard action completed without a readable result message.")
+    return result
+
+
+def _dashboard_action_message(
+    state: AppState,
+    action: DashboardAction,
+    *,
+    dataset_type: str | None = None,
+    selected_path: str | None = None,
+    file_name: str | None = None,
+    content: bytes | None = None,
+) -> str:
+    result = _execute_dashboard_action(
+        state,
+        action,
+        dataset_type=dataset_type,
+        selected_path=selected_path,
+        file_name=file_name,
+        content=content,
+    )
+    return dict(result.details)["message"]
 
 
 def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
@@ -707,21 +756,36 @@ def _action_bar(page: ft.Page, state: AppState) -> ft.Control:
                             "1. Refresh yfinance data",
                             key_name="dashboard.refresh-yfinance",
                             icon=ft.Icons.REFRESH,
-                            on_click=lambda _event: _run_action(page, state, "Refresh yfinance data", state.refresh_yfinance_data),
+                            on_click=lambda _event: _run_action(
+                                page,
+                                state,
+                                "Refresh yfinance data",
+                                lambda: _dashboard_action_message(state, "refresh_yfinance_data"),
+                            ),
                             width=220,
                         ),
                         _workflow_button(
                             "2. Run algorithms",
                             key_name="dashboard.run-algorithms",
                             icon=ft.Icons.AUTO_GRAPH,
-                            on_click=lambda _event: _run_action(page, state, "Run algorithms", state.run_algorithm_scores),
+                            on_click=lambda _event: _run_action(
+                                page,
+                                state,
+                                "Run algorithms",
+                                lambda: _dashboard_action_message(state, "run_algorithm_scores"),
+                            ),
                             width=190,
                         ),
                         _workflow_button(
                             "3. Run forecasting models",
                             key_name="dashboard.run-forecasting-models",
                             icon=ft.Icons.MODEL_TRAINING,
-                            on_click=lambda _event: _run_action(page, state, "Run forecasting models", state.run_forecasting_models),
+                            on_click=lambda _event: _run_action(
+                                page,
+                                state,
+                                "Run forecasting models",
+                                lambda: _dashboard_action_message(state, "run_forecasting_models"),
+                            ),
                             width=245,
                         ),
                         _workflow_button(
@@ -955,9 +1019,14 @@ def _export_pack(page: ft.Page, state: AppState) -> None:
     def worker() -> None:
         try:
             with state.share_activity(action_id):
-                path = state.export_audit_packet()
+                command_result = _execute_dashboard_action(state, "export_audit_packet")
+            details = dict(command_result.details)
+            output_path = details.get("output_path", "").strip()
+            if not output_path:
+                raise ActivityUnavailableError("Audit packet export completed without an output path.")
+            path = Path(output_path)
             state.finish_activity(
-                f"Audit packet exported: {path}",
+                details["message"],
                 output_path=path,
                 expected_action_id=action_id,
             )
@@ -1043,13 +1112,34 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
         page.update()
 
     def dry_run(_event: ft.ControlEvent) -> None:
-        _run_dialog_action(page, state, result_text, "Validate current data", "Running dry-run validation", state.renew_data_dry_run)
+        _run_dialog_action(
+            page,
+            state,
+            result_text,
+            "Validate current data",
+            "Running dry-run validation",
+            lambda: _dashboard_action_message(state, "renew_data_dry_run"),
+        )
 
     def api_status(_event: ft.ControlEvent) -> None:
-        _run_dialog_action(page, state, result_text, "Use API/yfinance provider", "Checking provider configuration", state.renew_data_api_status)
+        _run_dialog_action(
+            page,
+            state,
+            result_text,
+            "Use API/yfinance provider",
+            "Checking provider configuration",
+            lambda: _dashboard_action_message(state, "renew_data_api_status"),
+        )
 
     def rollback_prices(_event: ft.ControlEvent) -> None:
-        _run_dialog_action(page, state, result_text, "Rollback prices", "Searching previous clean price snapshot", state.rollback_latest_prices)
+        _run_dialog_action(
+            page,
+            state,
+            result_text,
+            "Rollback prices",
+            "Searching previous clean price snapshot",
+            lambda: _dashboard_action_message(state, "rollback_latest_prices"),
+        )
 
     file_picker = ft.FilePicker(key="dashboard.renew-import.file-picker")
     try:
@@ -1078,12 +1168,24 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
                 )
                 with state.share_activity(action_id):
                     if selected_path:
-                        message = state.validate_local_import(selected_path, dataset_type)
+                        message = _dashboard_action_message(
+                            state,
+                            "validate_local_import",
+                            dataset_type=dataset_type,
+                            selected_path=selected_path,
+                        )
                     elif selected_bytes is not None:
-                        message = state.import_local_upload(selected_name, selected_bytes, dataset_type)
+                        message = _dashboard_action_message(
+                            state,
+                            "import_local_upload",
+                            dataset_type=dataset_type,
+                            file_name=selected_name,
+                            content=selected_bytes,
+                        )
                     else:
                         raise ActivityUnavailableError("Selected file did not expose a path or readable bytes.")
                 state.finish_activity(message, expected_action_id=action_id)
+                result_text.value = message
             except Exception as exc:
                 if not state.activity_was_cancelled(action_id):
                     state.fail_activity(
@@ -1097,6 +1199,7 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
                         ),
                         expected_action_id=action_id,
                     )
+                    result_text.value = state.last_message
             finally:
                 _restore_cancelled_result(state, action_id, result_text)
                 state.release_activity(action_id)
