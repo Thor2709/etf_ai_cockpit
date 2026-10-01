@@ -14,6 +14,7 @@ from scripts import apply_reviewed_status_completion as completion
 from scripts import github_mutation_gateway as gateway
 from scripts import prepare_github_mutation_authority as prepare
 from scripts import sync_github_issues as sync
+from scripts import validation_summary
 
 ISSUES = (("ISSUE-0179", 179), ("ISSUE-0180", 180))
 RUN_ATTESTATION = {
@@ -381,3 +382,56 @@ def test_status_batch_apply_appends_each_issue_in_order_and_stops_on_rejection(
     rejected = json.loads((tmp_path / "rejected.json").read_text(encoding="utf-8"))
     assert rejected["mutation"]["accepted"] is False
     assert len(rejected["mutation"]["batch"]) == 1
+
+
+def _summary_artifacts(tmp_path: Path, evidence: dict[str, Any]) -> Path:
+    artifacts = tmp_path / "artifacts"
+    folder = artifacts / f"{validation_summary.CANDIDATE_ARTIFACT_PREFIX}{'a' * 40}"
+    folder.mkdir(parents=True)
+    (folder / "status-completion-candidate.json").write_text(json.dumps(evidence), encoding="utf-8")
+    return artifacts
+
+
+def test_validation_summary_accepts_validated_batch_evidence_and_rejects_tampering(
+    tmp_path: Path,
+) -> None:
+    root, source, head, _plan_unused, remote = _prepared_head(tmp_path)
+    evidence_path = tmp_path / "evidence.json"
+    completion.run(
+        root,
+        root / completion.DEFAULT_CANDIDATE,
+        expected_parent=source,
+        expected_head=head,
+        main_ref=None,
+        apply=False,
+        evidence_out=evidence_path,
+        remote_reader=lambda: remote,
+    )
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    validation_summary._validate_candidate_evidence(
+        root, _summary_artifacts(tmp_path / "ok", evidence), base=source, head=head
+    )
+
+    tampered = {
+        "status": lambda e: e["status_batch"][0].update(to_status="in_progress"),
+        "order": lambda e: e["status_batch"].reverse(),
+        "count": lambda e: e["status_batch"].pop(),
+        "type": lambda e: e["status_batch"][0].update(authority_type="status_replay"),
+        "duplicate": lambda e: e["status_batch"][1].update(
+            authority_id=e["status_batch"][0]["authority_id"]
+        ),
+        "mode": lambda e: e.update(mode="apply"),
+        "blob": lambda e: e.update(candidate_blob_sha256="0" * 64),
+        "scope": lambda e: e["action_scope"][0].update(remote_state="closed"),
+    }
+    for name, mutate in tampered.items():
+        mutated = copy.deepcopy(evidence)
+        mutate(mutated)
+        with pytest.raises(ValueError):
+            validation_summary._validate_candidate_evidence(
+                root, _summary_artifacts(tmp_path / name, mutated), base=source, head=head
+            )
+    with pytest.raises(ValueError):
+        validation_summary._validate_candidate_evidence(
+            root, _summary_artifacts(tmp_path / "head", evidence), base=source, head=source
+        )
