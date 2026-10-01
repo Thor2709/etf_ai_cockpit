@@ -7,11 +7,13 @@ ports and application commands.
 """
 
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+import hashlib
 import json
 import math
 from numbers import Real
 from pathlib import Path
+import sqlite3
 
 import pandas as pd
 
@@ -23,7 +25,7 @@ from etf_cockpit.data.capital_allocation import capital_allocation_analysis
 from etf_cockpit.data.market_adjustments import CorporateActionCoverage
 from etf_cockpit.data.duckdb_store import PRICE_PARQUET, load_prices
 from etf_cockpit.data.fx_data import FX_CLEAN_PATH, load_fx_rates
-from etf_cockpit.data.local_storage import storage_layout
+from etf_cockpit.data.local_storage import StorageRevisionConflict, StorageSchemaError, TransactionalStore, storage_layout
 from etf_cockpit.data.market_adjustments import CorporateActionStore
 from etf_cockpit.data.macro_warehouse import MacroWarehouse, load_risk_free_proxy_mappings
 from etf_cockpit.data.provenance import price_staleness_status
@@ -199,6 +201,19 @@ from etf_cockpit.portfolio.currency import CurrencyProjection, project_portfolio
 from etf_cockpit.portfolio.exposure_cube import build_portfolio_exposure_cube
 from etf_cockpit.application.portfolio_sandbox import *  # noqa: F401,F403
 from etf_cockpit.portfolio.sandbox import PortfolioAnalysis, select_holdings_view  # noqa: F401
+from etf_cockpit.portfolio.goals_constraints import (
+    PORTFOLIO_GOALS_SCHEMA,
+    PortfolioPolicy,
+    alert_record,
+    build_alerts,
+    build_what_if_scenario,
+    policy_editor_value,
+    policy_from_record,
+    policy_record,
+    source_snapshot_hash,
+    validate_portfolio_policy,
+    what_if_record,
+)
 from etf_cockpit.application.overlap import *  # noqa: F401,F403
 from etf_cockpit.application.overlap import load_direct_holdings
 from etf_cockpit.signals.simple_scores import *  # noqa: F401,F403
@@ -3237,3 +3252,324 @@ def load_score_metric_history_projection(instrument_id: str, *, frame=None) -> d
     return {"status": "available", "instrument_id": instrument_id, "rows": records,
             "message": "Persisted score-component snapshots across local runs. As-of dates and stored provenance do not establish knowledge-time availability or replay guarantees.",
             "execution_allowed": False}
+
+
+def load_portfolio_goals_projection(
+    snapshot: object,
+    analysis: PortfolioAnalysis | None = None,
+    *,
+    action: Mapping[str, object] | None = None,
+    root: Path = ROOT,
+) -> dict[str, object]:
+    """Load revisioned portfolio goals and snapshot-bound what-if evidence.
+
+    The optional action is one of ``save_policy``, ``simulate``,
+    ``acknowledge`` or ``snooze``. State uses the existing transactional user
+    store; candidate analysis and alert evidence remain advisory and never
+    write portfolio ledger entries.
+    """
+
+    binding = getattr(analysis, "snapshot_binding", None) if analysis is not None else None
+    account_id = str(getattr(binding, "account_id", getattr(snapshot, "account_id", "default")) or "default")
+    portfolio_id = str(getattr(binding, "portfolio_id", getattr(snapshot, "portfolio_id", "default")) or "default")
+    storage_id = hashlib.sha256(f"{account_id}\0{portfolio_id}".encode("utf-8")).hexdigest()
+    entity_type = PORTFOLIO_GOALS_SCHEMA
+    command = dict(action) if isinstance(action, Mapping) else None
+    command_type = str(command.get("type", "")) if command is not None else ""
+    state: dict[str, object] = {
+        "schema_version": PORTFOLIO_GOALS_SCHEMA,
+        "policy_versions": [],
+        "scenarios": [],
+        "acknowledgement_history": [],
+    }
+    stored_revision = 0
+
+    try:
+        layout = storage_layout(root)
+        database_exists = layout.transactional_path.is_file()
+        if database_exists or command is not None:
+            with TransactionalStore(root, read_only=command is None) as store:
+                record = store.get(entity_type, storage_id)
+                if record is not None:
+                    if record.payload.get("schema_version") != PORTFOLIO_GOALS_SCHEMA:
+                        return _portfolio_goals_unavailable("stored_portfolio_goals_schema_invalid")
+                    state = dict(record.payload)
+                    stored_revision = record.revision
+                if command is not None:
+                    if not isinstance(state.get("policy_versions"), list) or not isinstance(state.get("scenarios"), list) or not isinstance(state.get("acknowledgement_history"), list):
+                        return _portfolio_goals_unavailable("stored_portfolio_goals_history_invalid")
+                    versions = list(state["policy_versions"])
+                    active_record = versions[-1] if versions else None
+                    latest_policy = policy_from_record(active_record)
+                    if versions and latest_policy is None:
+                        return _portfolio_goals_unavailable("stored_portfolio_policy_invalid")
+                    active_policy = _portfolio_goals_policy_as_of(versions, analysis)
+                    policy_id = f"portfolio-goals:{storage_id}"
+                    if active_policy is None:
+                        active_policy = PortfolioPolicy(policy_id=policy_id, version=0)
+                    evidence = _portfolio_goals_evidence(snapshot, analysis, active_policy, command_type)
+                    current_hash = source_snapshot_hash(analysis) if analysis is not None else None
+                    alerts, unavailable_alerts = build_alerts(
+                        analysis,
+                        active_policy,
+                        snapshot=snapshot,
+                        evidence=evidence,
+                        snapshot_hash=current_hash,
+                    ) if analysis is not None else ((), ({"kind": "all", "status": "unavailable", "reason": "analysis_unavailable"},))
+                    acknowledgement_history = list(state["acknowledgement_history"])
+                    scenarios = list(state["scenarios"])
+                    saved_at = _portfolio_goals_action_time(command.get("at"))
+
+                    if command_type == "save_policy":
+                        raw_policy = command.get("policy")
+                        next_policy = validate_portfolio_policy(
+                            raw_policy,
+                            policy_id=f"portfolio-goals:{storage_id}",
+                            version=len(versions) + 1,
+                        )
+                        _validate_portfolio_goal_identifiers(next_policy, snapshot)
+                        versions.append(policy_record(next_policy, saved_at=saved_at))
+                    elif command_type == "simulate":
+                        if analysis is None:
+                            return _portfolio_goals_unavailable("what_if_analysis_unavailable")
+                        forecast = None
+                        try:
+                            forecast = load_portfolio_forecast_aggregation(
+                                snapshot,
+                                analysis,
+                                horizon_days=PRIMARY_MODEL_HORIZON_DAYS,
+                            )
+                        except (ArithmeticError, KeyError, TypeError, ValueError, AttributeError):
+                            forecast = {"status": "unavailable", "reason": "canonical_portfolio_forecast_unavailable"}
+                        scenario = build_what_if_scenario(
+                            analysis,
+                            snapshot,
+                            active_policy,
+                            evidence=evidence,
+                            forecast=forecast,
+                        )
+                        scenario_value = what_if_record(scenario)
+                        if versions and _portfolio_goals_policy_as_of(versions, analysis) is None:
+                            scenario_value["status"] = "blocked"
+                            scenario_value["rejected_candidates"] = [
+                                *scenario_value.get("rejected_candidates", []),
+                                "portfolio_policy: no saved policy version was available at the source decision time",
+                            ]
+                        scenario_value["saved_at"] = saved_at
+                        scenarios.append(scenario_value)
+                    elif command_type in {"acknowledge", "snooze"}:
+                        if analysis is None or current_hash is None:
+                            return _portfolio_goals_unavailable("alert_source_snapshot_unavailable")
+                        requested_ids = command.get("alert_ids")
+                        if not isinstance(requested_ids, Sequence) or isinstance(requested_ids, (str, bytes)):
+                            return {"status": "invalid", "reason": "alert_ids_must_be_an_array", "execution_allowed": False}
+                        current_alerts = {item.alert_id: item for item in alerts}
+                        selected_ids = tuple(sorted({str(item).strip() for item in requested_ids if str(item).strip()}))
+                        if not selected_ids or any(identifier not in current_alerts for identifier in selected_ids):
+                            return {"status": "invalid", "reason": "alert_condition_not_active_for_selected_snapshot", "execution_allowed": False}
+                        snoozed_until = None
+                        if command_type == "snooze":
+                            snoozed_until = _portfolio_goals_action_time(command.get("until"))
+                            if datetime.fromisoformat(snoozed_until) <= datetime.fromisoformat(saved_at):
+                                return {"status": "invalid", "reason": "snooze_until_must_follow_action_time", "execution_allowed": False}
+                        for identifier in selected_ids:
+                            acknowledgement_history.append({
+                                "alert_id": identifier,
+                                "source_snapshot_hash": current_hash,
+                                "action": command_type,
+                                "acted_at": saved_at,
+                                "snoozed_until": snoozed_until,
+                            })
+                    else:
+                        return {"status": "invalid", "reason": "unsupported_portfolio_goals_action", "execution_allowed": False}
+
+                    state = {
+                        "schema_version": PORTFOLIO_GOALS_SCHEMA,
+                        "policy_versions": versions,
+                        "scenarios": scenarios,
+                        "acknowledgement_history": acknowledgement_history,
+                    }
+                    store.put(entity_type, storage_id, state, expected_revision=stored_revision)
+    except ValueError as exc:
+        return {"status": "invalid", "reason": str(exc), "execution_allowed": False}
+    except StorageRevisionConflict as exc:
+        return {"status": "conflict", "reason": str(exc), "execution_allowed": False}
+    except (OSError, sqlite3.Error, StorageSchemaError) as exc:
+        return _portfolio_goals_unavailable(f"local_portfolio_goals_store_unavailable:{type(exc).__name__}")
+
+    versions = state.get("policy_versions", [])
+    versions = versions if isinstance(versions, list) else []
+    active_record = versions[-1] if versions else None
+    latest_policy = policy_from_record(active_record)
+    effective_policy = _portfolio_goals_policy_as_of(versions, analysis)
+    policy_id = f"portfolio-goals:{storage_id}"
+    editor_value = policy_editor_value(latest_policy)
+    current_hash = source_snapshot_hash(analysis) if analysis is not None else None
+    alert_policy = effective_policy or PortfolioPolicy(policy_id=policy_id, version=0)
+    evidence = _portfolio_goals_evidence(snapshot, analysis, alert_policy, command_type) if analysis is not None else {}
+    if analysis is not None:
+        alerts, unavailable_alerts = build_alerts(
+            analysis,
+            alert_policy,
+            snapshot=snapshot,
+            evidence=evidence,
+            snapshot_hash=current_hash,
+        )
+    else:
+        alerts, unavailable_alerts = (), ({"kind": "all", "status": "unavailable", "reason": "analysis_unavailable"},)
+    actions = state.get("acknowledgement_history", [])
+    actions = actions if isinstance(actions, list) else []
+    decorated_alerts: list[dict[str, object]] = []
+    for alert in alerts:
+        history = [
+            row for row in actions
+            if isinstance(row, Mapping)
+            and row.get("alert_id") == alert.alert_id
+            and row.get("source_snapshot_hash") == current_hash
+        ]
+        snoozes = [row for row in history if row.get("action") == "snooze"]
+        decorated_alerts.append({
+            **alert_record(alert),
+            "acknowledged": any(row.get("action") == "acknowledge" for row in history),
+            "snoozed_until": snoozes[-1].get("snoozed_until") if snoozes else None,
+        })
+    scenario_history = state.get("scenarios", [])
+    scenario_history = scenario_history if isinstance(scenario_history, list) else []
+    latest_scenario = scenario_history[-1] if scenario_history else {
+        "status": "unavailable", "reason": "no_what_if_scenario_has_been_run", "execution_allowed": False,
+    }
+    return {
+        "status": "available" if latest_policy is not None or not versions else "unavailable",
+        "reason": None if latest_policy is not None or not versions else "stored_portfolio_policy_invalid",
+        "source_snapshot_hash": current_hash,
+        "policy": None if latest_policy is None else policy_record(latest_policy),
+        "policy_as_of": (
+            {"status": "available", "version": effective_policy.version, "policy_id": effective_policy.policy_id}
+            if effective_policy is not None
+            else {"status": "unavailable", "reason": "no_policy_version_available_at_source_decision_time" if versions else "no_saved_policy"}
+        ),
+        "policy_editor": editor_value,
+        "policy_history": versions,
+        "alerts": decorated_alerts,
+        "unavailable_alerts": list(unavailable_alerts),
+        "acknowledgement_history": actions,
+        "scenario": latest_scenario,
+        "scenarios": scenario_history,
+        "audit_export": {
+            "policy_versions": versions,
+            "scenario_results": scenario_history,
+            "alerts": decorated_alerts,
+            "acknowledgements": actions,
+        },
+        "execution_allowed": False,
+    }
+
+
+def _portfolio_goals_evidence(
+    snapshot: object,
+    analysis: PortfolioAnalysis | None,
+    policy: PortfolioPolicy,
+    action_type: str,
+) -> dict[str, object]:
+    if analysis is None:
+        return {}
+    evidence: dict[str, object] = {}
+    service_evidence = getattr(analysis, "service_evidence", {})
+    service_evidence = service_evidence if isinstance(service_evidence, Mapping) else {}
+    risk = service_evidence.get("risk")
+    risk = risk if isinstance(risk, Mapping) else {}
+    for metric in ("max_drawdown", "income_yield", "liquidity_eur", "forecast_deterioration"):
+        value = risk.get(metric) if metric == "max_drawdown" else service_evidence.get(metric)
+        if metric == "max_drawdown" and not isinstance(value, Mapping):
+            portfolio_risk = risk.get("portfolio")
+            if isinstance(portfolio_risk, Mapping) and metric in portfolio_risk:
+                value = {
+                    "status": risk.get("status", "unavailable"),
+                    "value": portfolio_risk.get(metric),
+                    "reason": risk.get("reason"),
+                }
+        evidence[metric] = value if isinstance(value, Mapping) else {
+            "status": "unavailable",
+            "value": None,
+            "reason": f"canonical_{metric}_projection_unavailable",
+        }
+    needs_calendar = action_type == "simulate" or any((
+        policy.event_within_days is not None,
+        policy.maturity_within_days is not None,
+        policy.maximum_maturity_days is not None,
+    ))
+    if needs_calendar:
+        try:
+            evidence["calendar"] = load_portfolio_calendar_projection(snapshot, analysis)
+        except (OSError, KeyError, TypeError, ValueError, AttributeError):
+            evidence["calendar"] = {"status": "unavailable", "reason": "point_in_time_calendar_unavailable", "events": None}
+    return evidence
+
+
+def _portfolio_goals_action_time(value: object) -> str:
+    raw = datetime.now(timezone.utc) if value is None else datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    if raw.tzinfo is None:
+        raise ValueError("portfolio goal action times must include a timezone")
+    return raw.astimezone(timezone.utc).isoformat()
+
+
+def _portfolio_goals_policy_as_of(versions: Sequence[object], analysis: object | None) -> PortfolioPolicy | None:
+    binding = getattr(analysis, "snapshot_binding", None) if analysis is not None else None
+    raw_cutoff = str(getattr(binding, "as_of", "") or "").strip()
+    if not raw_cutoff:
+        return None
+    try:
+        if len(raw_cutoff) == 10:
+            cutoff = datetime.combine(date.fromisoformat(raw_cutoff), datetime.max.time(), tzinfo=timezone.utc)
+        else:
+            cutoff = datetime.fromisoformat(raw_cutoff.replace("Z", "+00:00"))
+            if cutoff.tzinfo is None:
+                return None
+            cutoff = cutoff.astimezone(timezone.utc)
+    except ValueError:
+        return None
+    for record in reversed(versions):
+        if not isinstance(record, Mapping):
+            continue
+        try:
+            saved_at = datetime.fromisoformat(str(record.get("saved_at", "")).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if saved_at.tzinfo is None or saved_at.astimezone(timezone.utc) > cutoff:
+            continue
+        policy = policy_from_record(record)
+        if policy is not None:
+            return policy
+    return None
+
+
+def _validate_portfolio_goal_identifiers(policy: PortfolioPolicy, snapshot: object) -> None:
+    config = getattr(snapshot, "config", None)
+    universe = getattr(config, "universe", None)
+    by_id = getattr(universe, "by_id", None)
+    if not callable(by_id):
+        raise ValueError("portfolio policy instrument universe is unavailable")
+    valid_ids = {str(value) for value in by_id()}
+    holdings = getattr(snapshot, "holdings", None)
+    if isinstance(holdings, pd.DataFrame):
+        column = "etf_id" if "etf_id" in holdings.columns else "instrument_id" if "instrument_id" in holdings.columns else None
+        if column is not None:
+            valid_ids.update(str(value).strip() for value in holdings[column].tolist() if str(value).strip())
+    policy_ids = {key for key, _ in policy.target_weights} | {key for key, _, _ in policy.target_bands}
+    unknown = sorted(policy_ids - valid_ids)
+    if unknown:
+        raise ValueError(f"unknown portfolio policy instrument ids: {', '.join(unknown)}")
+
+
+def _portfolio_goals_unavailable(reason: str) -> dict[str, object]:
+    return {
+        "status": "unavailable",
+        "reason": reason,
+        "policy": {"status": "unavailable", "value": None, "reason": reason},
+        "policy_history": [],
+        "alerts": [],
+        "unavailable_alerts": [{"kind": "all", "status": "unavailable", "reason": reason}],
+        "acknowledgement_history": [],
+        "scenario": {"status": "unavailable", "reason": reason, "execution_allowed": False},
+        "execution_allowed": False,
+    }

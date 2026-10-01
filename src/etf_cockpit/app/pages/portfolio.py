@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import json
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
@@ -32,6 +33,7 @@ from etf_cockpit.application.ui_facade import (
     load_portfolio_performance_series,
     load_portfolio_calendar_projection,
     load_portfolio_holdings_projection,
+    load_portfolio_goals_projection,
     portfolio_snapshot_binding,
     performance_series_frame,
     CANONICAL_DISTRIBUTION_HORIZONS_DAYS,
@@ -325,7 +327,7 @@ def _portfolio_forecast_block(
         options=[ft.dropdown.Option(str(value)) for value in sorted(CANONICAL_DISTRIBUTION_HORIZONS_DAYS)],
         width=210,
         dense=True,
-        on_change=refresh,
+        on_select=refresh,
     )
     currency = ft.TextField(
         key="portfolio.forecast.currency",
@@ -884,6 +886,178 @@ def _holding_display(
     return format_number(value) if isinstance(value, (int, float)) else str(value)
 
 
+def _portfolio_goals_block(
+    page: ft.Page | None,
+    state: AppState,
+    current_analysis: list[PortfolioAnalysis],
+) -> ft.Control:
+    projection = [load_portfolio_goals_projection(state.snapshot, current_analysis[0])]
+    policy_editor = ft.TextField(
+        key="portfolio-goals.policy",
+        label="Versioned portfolio policy (JSON)",
+        value=json.dumps(projection[0].get("policy_editor", {}), ensure_ascii=False, indent=2),
+        multiline=True,
+        min_lines=7,
+        max_lines=12,
+        expand=True,
+    )
+    snooze_until = ft.TextField(
+        key="portfolio-goals.snooze-until",
+        label="Snooze until (ISO 8601 with timezone)",
+        hint_text="For example, 2026-10-02T12:00:00+02:00",
+        width=330,
+        dense=True,
+    )
+    status = ft.Text("Policy limits are optional; unavailable evidence stays unavailable.", color=theme.MUTED, selectable=True)
+    results = ft.Text(key="portfolio-goals.results", selectable=True, font_family="Consolas", size=12)
+
+    def render_result(value: Mapping[str, object]) -> None:
+        summary = {
+            "status": value.get("status"),
+            "source_snapshot_hash": value.get("source_snapshot_hash"),
+            "policy": value.get("policy"),
+            "policy_as_of": value.get("policy_as_of"),
+            "policy_history": value.get("policy_history"),
+            "alerts": value.get("alerts"),
+            "unavailable_alerts": value.get("unavailable_alerts"),
+            "scenario": value.get("scenario"),
+            "acknowledgement_history": value.get("acknowledgement_history"),
+            "execution_allowed": value.get("execution_allowed", False),
+        }
+        results.value = json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True, default=str)
+        editor_value = value.get("policy_editor")
+        if isinstance(editor_value, Mapping) and value.get("policy") is not None:
+            policy_editor.value = json.dumps(editor_value, ensure_ascii=False, indent=2, sort_keys=True, default=str)
+
+    render_result(projection[0])
+
+    def apply_action(action: Mapping[str, object], message: str) -> None:
+        result = load_portfolio_goals_projection(state.snapshot, current_analysis[0], action=action)
+        if result.get("status") in {"available", "partial"}:
+            projection[0] = result
+            status.value = message
+            status.color = theme.GREEN
+        else:
+            status.value = f"Portfolio goals unavailable: {result.get('reason', result.get('status', 'unknown'))}"
+            status.color = theme.AMBER
+        render_result(result)
+        _safe_update(page)
+
+    def save_policy(_event: ft.ControlEvent | None) -> None:
+        try:
+            values = json.loads(str(policy_editor.value or "{}"))
+            if not isinstance(values, Mapping):
+                raise ValueError("policy must be a JSON object")
+            apply_action({"type": "save_policy", "policy": values}, "Validated policy saved as a new version.")
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            status.value = f"Policy was not saved: {exc}"
+            status.color = theme.AMBER
+            _safe_update(page)
+
+    def run_what_if(_event: ft.ControlEvent | None) -> None:
+        apply_action({"type": "simulate"}, "What-if recorded from the selected snapshot; the portfolio ledger was not changed.")
+
+    def active_alert_ids() -> tuple[str, ...]:
+        alerts = projection[0].get("alerts", ())
+        if not isinstance(alerts, (list, tuple)):
+            return ()
+        return tuple(
+            str(item.get("alert_id"))
+            for item in alerts
+            if isinstance(item, Mapping) and item.get("alert_id")
+        )
+
+    def acknowledge_alerts(_event: ft.ControlEvent | None) -> None:
+        identifiers = active_alert_ids()
+        if not identifiers:
+            status.value = "There are no active alert conditions to acknowledge."
+            status.color = theme.MUTED
+            _safe_update(page)
+            return
+        apply_action({"type": "acknowledge", "alert_ids": identifiers}, "Acknowledgement saved; active conditions remain visible.")
+
+    def snooze_alerts(_event: ft.ControlEvent | None) -> None:
+        identifiers = active_alert_ids()
+        if not identifiers:
+            status.value = "There are no active alert conditions to snooze."
+            status.color = theme.MUTED
+            _safe_update(page)
+            return
+        apply_action(
+            {"type": "snooze", "alert_ids": identifiers, "until": str(snooze_until.value or "")},
+            "Snooze saved; active conditions remain visible.",
+        )
+
+    def draft_what_if(_event: ft.ControlEvent | None) -> None:
+        scenario = projection[0].get("scenario")
+        candidate = current_analysis[0].candidate
+        if (
+            not isinstance(scenario, Mapping)
+            or scenario.get("status") != "ready"
+            or scenario.get("source_snapshot_hash") != projection[0].get("source_snapshot_hash")
+            or scenario.get("candidate_id") != candidate.candidate_id
+        ):
+            status.value = "Draft proposal blocked: run a ready what-if for the current candidate and snapshot first."
+            status.color = theme.AMBER
+            _safe_update(page)
+            return
+        try:
+            handoff = draft_portfolio_proposal(state.snapshot, current_analysis[0])
+            status.value = f"Draft proposal hand-off prepared ({len(handoff.get('changes', ())) } changes); execution remains disabled."
+            status.color = theme.GREEN
+            _safe_update(page)
+        except (TypeError, ValueError) as exc:
+            status.value = f"Draft proposal unavailable: {exc}"
+            status.color = theme.AMBER
+            _safe_update(page)
+
+    def export_audit(_event: ft.ControlEvent | None) -> None:
+        try:
+            audit = projection[0].get("audit_export")
+            source_hash = str(projection[0].get("source_snapshot_hash") or "").strip()
+            if not isinstance(audit, Mapping) or not source_hash:
+                raise ValueError("snapshot-bound portfolio goals audit is unavailable")
+            path = EXPORTS_DIR / f"portfolio_goals_{current_analysis[0].candidate.candidate_id}_{source_hash[:12]}.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(audit, ensure_ascii=False, indent=2, sort_keys=True, default=str), encoding="utf-8")
+            state.last_export_path = path
+            status.value = f"Portfolio goals audit exported to {path.name}; execution remains disabled."
+            status.color = theme.GREEN
+            _safe_update(page)
+        except (OSError, TypeError, ValueError) as exc:
+            status.value = f"Portfolio goals audit unavailable: {exc}"
+            status.color = theme.AMBER
+            _safe_update(page)
+
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Portfolio goals, alerts and what-if",
+                    "Edit optional non-advisory limits, inspect after-trade evidence, and create a draft hand-off only after an explicit what-if action. Execution is disabled.",
+                ),
+                ft.Text("Enter target_weights and target_bands by existing instrument id; percentage fields use fractions from 0 to 1. Omitted limits remain unconfigured, and unsupported evidence is shown as unavailable.", color=theme.MUTED, selectable=True),
+                policy_editor,
+                ft.Row([snooze_until], wrap=True),
+                ft.Row(
+                    [
+                        ft.Button("Save policy version", key="portfolio-goals.policy.save", on_click=save_policy),
+                        ft.OutlinedButton("Run what-if", key="portfolio-goals.what-if", on_click=run_what_if),
+                        ft.OutlinedButton("Acknowledge active alerts", key="portfolio-goals.alert.acknowledge", on_click=acknowledge_alerts),
+                        ft.OutlinedButton("Snooze active alerts", key="portfolio-goals.alert.snooze", on_click=snooze_alerts),
+                        ft.OutlinedButton("Prepare draft proposal", key="portfolio-goals.draft-proposal", on_click=draft_what_if),
+                        ft.TextButton("Export goals audit", key="portfolio-goals.audit-export", on_click=export_audit),
+                    ],
+                    wrap=True,
+                ),
+                status,
+                results,
+            ],
+            spacing=10,
+        )
+    )
+
+
 def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
     """Render editable research candidates without creating executable intent."""
 
@@ -1326,6 +1500,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
             _portfolio_holdings_block(page, state, current_analysis, draft_holdings_proposal, holdings_refresh_callbacks),
             result_host,
             rebalance_host,
+            _portfolio_goals_block(page, state, current_analysis),
         ],
         expand=True,
         spacing=14,
