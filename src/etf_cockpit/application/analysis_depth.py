@@ -1,0 +1,1070 @@
+"""Versioned analysis-depth workload manifests and measured run evidence.
+
+Stage wall time is exclusive of runner-reported acquisition and Training Centre
+time; those durations are stored as separate timing records.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from dataclasses import replace
+import hashlib
+import json
+import math
+from pathlib import Path
+import time
+import tracemalloc
+from collections.abc import Callable, Mapping, Sequence
+
+import yaml
+
+from etf_cockpit.core.resource_profiles import estimate_workflow_resources
+
+
+ANALYSIS_DEPTH_SCHEMA_VERSION = "analysis-depth.v1"
+ANALYSIS_STAGE_SCHEMA_VERSION = "analysis-stage-manifest.v1"
+ANALYSIS_RESOURCE_PLAN_SCHEMA_VERSION = "analysis-resource-plan.v1"
+ANALYSIS_TIMING_SCHEMA_VERSION = "analysis-timing.v2"
+ANALYSIS_UPGRADE_LINK_SCHEMA_VERSION = "analysis-upgrade-link.v1"
+ANALYSIS_DEPTH_PROFILES_PATH = (
+    Path(__file__).resolve().parents[3] / "configs" / "analysis_depth_profiles.yaml"
+)
+ANALYSIS_TIMINGS_RELATIVE_PATH = Path("data") / "analysis_timings.parquet"
+REFERENCE_FIXTURE_ID = "reference_3000_supported_instruments"
+REFERENCE_INSTRUMENT_COUNT = 3_000
+
+MANDATORY_STAGE_IDS = (
+    "identity_gate",
+    "prices_gate",
+    "data_gate",
+    "hard_risk_gate",
+    "liquidity_gate",
+    "data_quality_gate",
+    "formulas",
+)
+MANDATORY_GATE_IDS = frozenset(MANDATORY_STAGE_IDS) - {"formulas"}
+PROFILE_IDS = ("quick", "medium", "high", "full")
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    pass
+
+
+def _construct_unique_mapping(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise yaml.constructor.ConstructorError(
+                "while loading the analysis-depth registry",
+                node.start_mark,
+                f"duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_unique_mapping,
+)
+
+
+class AnalysisDepthError(ValueError):
+    """Raised when a depth profile or its stage evidence is invalid."""
+
+
+class MandatoryEvidenceError(AnalysisDepthError):
+    """Raised when a required stage does not produce complete evidence."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        timing_records: Sequence[AnalysisTimingRecord] = (),
+    ) -> None:
+        super().__init__(message)
+        self.timing_records = tuple(timing_records)
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+
+
+def _content_hash(value: object) -> str:
+    return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _string_tuple(value: object, label: str, *, allow_empty: bool = False) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise AnalysisDepthError(f"{label} must be a list of strings")
+    result = tuple(item.strip() for item in value if isinstance(item, str))
+    if len(result) != len(value) or any(not item for item in result):
+        raise AnalysisDepthError(f"{label} must contain non-blank strings")
+    if len(set(result)) != len(result):
+        raise AnalysisDepthError(f"{label} must not contain duplicates")
+    if not result and not allow_empty:
+        raise AnalysisDepthError(f"{label} must not be empty")
+    return result
+
+
+def _seed_tuple(value: object, label: str) -> tuple[int, ...]:
+    if not isinstance(value, (list, tuple)) or not value:
+        raise AnalysisDepthError(f"{label} must be a non-empty list of integer seeds")
+    if any(isinstance(item, bool) or not isinstance(item, int) for item in value):
+        raise AnalysisDepthError(f"{label} must contain integer seeds")
+    result = tuple(value)
+    if len(set(result)) != len(result):
+        raise AnalysisDepthError(f"{label} must not contain duplicate seeds")
+    return result
+
+
+def _scalar_settings(value: object, label: str) -> tuple[tuple[str, object], ...]:
+    if not isinstance(value, Mapping):
+        raise AnalysisDepthError(f"{label} must be a mapping")
+    result: list[tuple[str, object]] = []
+    for key, item in sorted(value.items(), key=lambda entry: str(entry[0])):
+        if not isinstance(key, str) or not key.strip():
+            raise AnalysisDepthError(f"{label} keys must be non-blank strings")
+        if isinstance(item, bool) or isinstance(item, (int, float, str)):
+            if isinstance(item, float) and not math.isfinite(item):
+                raise AnalysisDepthError(f"{label} values must be finite")
+            result.append((key, item))
+        else:
+            raise AnalysisDepthError(f"{label} values must be scalar JSON values")
+    return tuple(result)
+
+
+def _require_keys(value: Mapping[str, object], expected: set[str], label: str) -> None:
+    if set(value) != expected:
+        missing = sorted(expected - set(value))
+        unknown = sorted(str(item) for item in set(value) - expected)
+        details = []
+        if missing:
+            details.append(f"missing {', '.join(missing)}")
+        if unknown:
+            details.append(f"unsupported {', '.join(str(item) for item in unknown)}")
+        raise AnalysisDepthError(f"{label} has invalid fields: {'; '.join(details)}")
+
+
+@dataclass(frozen=True)
+class AnalysisStageManifest:
+    """Immutable versioned description of one analysis stage."""
+
+    stage_id: str
+    mandatory: bool
+    stage_version: str
+    model_families: tuple[str, ...] = ()
+    sources: tuple[str, ...] = ()
+    horizons: tuple[str, ...] = ()
+    seeds: tuple[int, ...] = ()
+    robustness: tuple[tuple[str, object], ...] = ()
+    schema_version: str = ANALYSIS_STAGE_SCHEMA_VERSION
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "stage_id": self.stage_id,
+            "mandatory": self.mandatory,
+            "stage_version": self.stage_version,
+            "model_families": list(self.model_families),
+            "sources": list(self.sources),
+            "horizons": list(self.horizons),
+            "seeds": list(self.seeds),
+            "robustness": dict(self.robustness),
+        }
+
+    def to_json(self) -> str:
+        return _canonical_json(self.to_dict())
+
+
+@dataclass(frozen=True)
+class AnalysisDepthProfile:
+    """Frozen workload depth, separate from local hardware capacity."""
+
+    profile_id: str
+    profile_version: str
+    stages: tuple[AnalysisStageManifest, ...]
+    model_families: tuple[str, ...]
+    sources: tuple[str, ...]
+    horizons: tuple[str, ...]
+    seeds: tuple[int, ...]
+    robustness: tuple[tuple[str, object], ...]
+    slo_seconds: int
+    shard_size: int
+    reference_fixture_id: str
+    reference_fixture_digest: str | None
+    reference_cpu_cores: int
+    reference_memory_mb: int
+    reference_gpu_label: str
+    schema_version: str = ANALYSIS_DEPTH_SCHEMA_VERSION
+
+    @property
+    def mandatory_stages(self) -> tuple[str, ...]:
+        return tuple(stage.stage_id for stage in self.stages if stage.mandatory)
+
+    @property
+    def optional_stages(self) -> tuple[str, ...]:
+        return tuple(stage.stage_id for stage in self.stages if not stage.mandatory)
+
+    @property
+    def manifest_hash(self) -> str:
+        return _content_hash(self.to_dict(include_hash=False))
+
+    def stage(self, stage_id: str) -> AnalysisStageManifest:
+        for stage in self.stages:
+            if stage.stage_id == stage_id:
+                return stage
+        raise KeyError(stage_id)
+
+    def to_dict(self, *, include_hash: bool = True) -> dict[str, object]:
+        result: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "profile_id": self.profile_id,
+            "profile_version": self.profile_version,
+            "stages": [stage.to_dict() for stage in self.stages],
+            "model_families": list(self.model_families),
+            "sources": list(self.sources),
+            "horizons": list(self.horizons),
+            "seeds": list(self.seeds),
+            "robustness": dict(self.robustness),
+            "slo_seconds": self.slo_seconds,
+            "shard_size": self.shard_size,
+            "reference_fixture_id": self.reference_fixture_id,
+            "reference_fixture_digest": self.reference_fixture_digest,
+            "reference_machine": {
+                "cpu_cores": self.reference_cpu_cores,
+                "memory_mb": self.reference_memory_mb,
+                "gpu_label": self.reference_gpu_label,
+            },
+        }
+        if include_hash:
+            result["manifest_hash"] = self.manifest_hash
+        return result
+
+    def to_json(self) -> str:
+        return _canonical_json(self.to_dict())
+
+
+@dataclass(frozen=True)
+class AnalysisResourcePlan:
+    """Depth workload hints plus a separate hardware-profile estimate."""
+
+    profile_id: str
+    hardware_profile_id: str
+    shard_size: int
+    cpu_fallback: bool
+    low_resource: bool
+    estimated_cpu: float
+    estimated_memory_mb: int
+    estimated_disk_mb: int
+    compatibility_status: str
+    reasons: tuple[str, ...] = ()
+    schema_version: str = ANALYSIS_RESOURCE_PLAN_SCHEMA_VERSION
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "profile_id": self.profile_id,
+            "hardware_profile_id": self.hardware_profile_id,
+            "shard_size": self.shard_size,
+            "cpu_fallback": self.cpu_fallback,
+            "low_resource": self.low_resource,
+            "estimated_cpu": self.estimated_cpu,
+            "estimated_memory_mb": self.estimated_memory_mb,
+            "estimated_disk_mb": self.estimated_disk_mb,
+            "compatibility_status": self.compatibility_status,
+            "reasons": list(self.reasons),
+        }
+
+    def to_json(self) -> str:
+        return _canonical_json(self.to_dict())
+
+
+@dataclass(frozen=True)
+class AnalysisTimingRecord:
+    """Measured stage, acquisition, or Training Centre timing evidence."""
+
+    run_id: str
+    profile_id: str
+    timing_kind: str
+    stage_id: str
+    wall_time_seconds: float
+    cache_state: str
+    provider_wait_seconds: float | None = None
+    model_omissions: tuple[str, ...] = ()
+    peak_resources: tuple[tuple[str, float], ...] = ()
+    schema_version: str = ANALYSIS_TIMING_SCHEMA_VERSION
+    outcome: str = "succeeded"
+
+    def __post_init__(self) -> None:
+        if self.outcome not in {"succeeded", "failed", "unknown"}:
+            raise AnalysisDepthError("outcome must be succeeded, failed or unknown")
+        if self.timing_kind not in {"stage", "cold_acquisition", "training_centre"}:
+            raise AnalysisDepthError("timing_kind must be stage, cold_acquisition or training_centre")
+        if self.cache_state not in {"cold", "warm"}:
+            raise AnalysisDepthError("cache_state must be cold or warm")
+        _finite_nonnegative(self.wall_time_seconds, "wall_time_seconds")
+        if self.provider_wait_seconds is not None:
+            _finite_nonnegative(self.provider_wait_seconds, "provider_wait_seconds")
+        if not self.run_id or not self.profile_id or not self.stage_id:
+            raise AnalysisDepthError("timing records require run, profile and stage identifiers")
+        if any(not isinstance(item, str) or not item.strip() for item in self.model_omissions):
+            raise AnalysisDepthError("model_omissions must contain non-blank strings")
+        if any(
+            not isinstance(name, str) or not name.strip()
+            for name, _value in self.peak_resources
+        ):
+            raise AnalysisDepthError("peak resource names must be non-blank strings")
+        for name, value in self.peak_resources:
+            _finite_nonnegative(value, f"peak_resources.{name}")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "run_id": self.run_id,
+            "profile_id": self.profile_id,
+            "timing_kind": self.timing_kind,
+            "stage_id": self.stage_id,
+            "wall_time_seconds": self.wall_time_seconds,
+            "cache_state": self.cache_state,
+            "provider_wait_seconds": self.provider_wait_seconds,
+            "model_omissions": list(self.model_omissions),
+            "peak_resources": dict(self.peak_resources),
+            "outcome": self.outcome,
+        }
+
+    def to_json(self) -> str:
+        return _canonical_json(self.to_dict())
+
+
+@dataclass(frozen=True)
+class AnalysisUpgradeLink:
+    """Lineage from an immutable earlier run to a deeper new run."""
+
+    parent_run_id: str
+    child_run_id: str
+    from_profile: str
+    to_profile: str
+    reused_stage_hashes: tuple[str, ...] = ()
+    schema_version: str = ANALYSIS_UPGRADE_LINK_SCHEMA_VERSION
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "parent_run_id": self.parent_run_id,
+            "child_run_id": self.child_run_id,
+            "from_profile": self.from_profile,
+            "to_profile": self.to_profile,
+            "reused_stage_hashes": list(self.reused_stage_hashes),
+        }
+
+    def to_json(self) -> str:
+        return _canonical_json(self.to_dict())
+
+
+def _finite_nonnegative(value: object, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise AnalysisDepthError(f"{label} must be a finite non-negative number")
+    converted = float(value)
+    if not math.isfinite(converted) or converted < 0:
+        raise AnalysisDepthError(f"{label} must be a finite non-negative number")
+    return converted
+
+
+def _profile_from_mapping(
+    profile_id: str,
+    raw: object,
+    reference: object,
+    reference_fixture_digest: object,
+) -> AnalysisDepthProfile:
+    if not isinstance(raw, Mapping) or not isinstance(reference, Mapping):
+        raise AnalysisDepthError(f"profile {profile_id} must be a mapping")
+    _require_keys(
+        raw,
+        {
+            "profile_id", "profile_version", "mandatory_stages", "optional_stages",
+            "model_families", "sources", "horizons", "seeds", "robustness",
+            "slo_seconds", "shard_size",
+        },
+        f"profile {profile_id}",
+    )
+    _require_keys(reference, {"cpu_cores", "memory_mb", "gpu_label"}, "reference_machine")
+    if raw.get("profile_id") != profile_id:
+        raise AnalysisDepthError(f"profile key and profile_id differ for {profile_id}")
+    profile_version = raw.get("profile_version")
+    if not isinstance(profile_version, str) or not profile_version.strip():
+        raise AnalysisDepthError(f"profile {profile_id} needs a version")
+    mandatory = _string_tuple(raw.get("mandatory_stages"), f"{profile_id}.mandatory_stages")
+    optional = _string_tuple(raw.get("optional_stages"), f"{profile_id}.optional_stages", allow_empty=True)
+    if mandatory != MANDATORY_STAGE_IDS or set(mandatory) != set(MANDATORY_STAGE_IDS):
+        missing = sorted(set(MANDATORY_STAGE_IDS) - set(mandatory))
+        raise AnalysisDepthError(f"profile {profile_id} drops mandatory stage or gate: {', '.join(missing)}")
+    if not MANDATORY_GATE_IDS.issubset(mandatory):
+        raise AnalysisDepthError(f"profile {profile_id} drops a mandatory gate")
+    if set(mandatory) & set(optional):
+        raise AnalysisDepthError(f"profile {profile_id} repeats a stage as optional")
+    models = _string_tuple(raw.get("model_families"), f"{profile_id}.model_families")
+    sources = _string_tuple(raw.get("sources"), f"{profile_id}.sources")
+    horizons = _string_tuple(raw.get("horizons"), f"{profile_id}.horizons")
+    seeds = _seed_tuple(raw.get("seeds"), f"{profile_id}.seeds")
+    robustness = _scalar_settings(raw.get("robustness"), f"{profile_id}.robustness")
+    slo_seconds = raw.get("slo_seconds")
+    shard_size = raw.get("shard_size")
+    if isinstance(slo_seconds, bool) or not isinstance(slo_seconds, int) or slo_seconds <= 0:
+        raise AnalysisDepthError(f"profile {profile_id}.slo_seconds must be a positive integer")
+    if isinstance(shard_size, bool) or not isinstance(shard_size, int) or shard_size <= 0:
+        raise AnalysisDepthError(f"profile {profile_id}.shard_size must be a positive integer")
+    stages = tuple(
+        AnalysisStageManifest(stage_id, True, "1") for stage_id in mandatory
+    ) + tuple(
+        AnalysisStageManifest(
+            stage_id=stage_id,
+            mandatory=False,
+            stage_version="1",
+            model_families=models,
+            sources=sources,
+            horizons=horizons,
+            seeds=seeds,
+            robustness=robustness,
+        )
+        for stage_id in optional
+    )
+    reference_cpu = reference.get("cpu_cores")
+    reference_memory = reference.get("memory_mb")
+    reference_gpu = reference.get("gpu_label")
+    if (
+        isinstance(reference_cpu, bool) or not isinstance(reference_cpu, int) or reference_cpu <= 0
+        or isinstance(reference_memory, bool) or not isinstance(reference_memory, int) or reference_memory <= 0
+        or not isinstance(reference_gpu, str) or not reference_gpu.strip()
+    ):
+        raise AnalysisDepthError("reference_machine needs positive cpu_cores/memory_mb and gpu_label")
+    if reference_fixture_digest is None:
+        normalized_reference_digest = None
+    elif (
+        not isinstance(reference_fixture_digest, str)
+        or len(reference_fixture_digest) != 64
+        or any(character not in "0123456789abcdefABCDEF" for character in reference_fixture_digest)
+    ):
+        raise AnalysisDepthError("reference_fixture_digest must be a SHA-256 hex digest or null")
+    else:
+        normalized_reference_digest = reference_fixture_digest.casefold()
+    return AnalysisDepthProfile(
+        profile_id=profile_id,
+        profile_version=profile_version,
+        stages=stages,
+        model_families=models,
+        sources=sources,
+        horizons=horizons,
+        seeds=seeds,
+        robustness=robustness,
+        slo_seconds=slo_seconds,
+        shard_size=shard_size,
+        reference_fixture_id=REFERENCE_FIXTURE_ID,
+        reference_fixture_digest=normalized_reference_digest,
+        reference_cpu_cores=reference_cpu,
+        reference_memory_mb=reference_memory,
+        reference_gpu_label=reference_gpu,
+    )
+
+
+def load_analysis_depth_profiles(path: Path | None = None) -> dict[str, AnalysisDepthProfile]:
+    """Load and validate the local registry, rejecting incomplete manifests."""
+
+    registry_path = Path(path) if path is not None else ANALYSIS_DEPTH_PROFILES_PATH
+    try:
+        raw = yaml.load(registry_path.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
+    except (OSError, yaml.YAMLError) as exc:
+        raise AnalysisDepthError(f"analysis-depth registry is unavailable or invalid: {exc}") from exc
+    if not isinstance(raw, Mapping) or raw.get("schema_version") != "analysis-depth-profiles.v1":
+        raise AnalysisDepthError("analysis-depth registry schema_version is unsupported")
+    _require_keys(
+        raw,
+        {
+            "schema_version",
+            "reference_fixture_id",
+            "reference_fixture_digest",
+            "reference_machine",
+            "profiles",
+        },
+        "analysis-depth registry",
+    )
+    if raw.get("reference_fixture_id") != REFERENCE_FIXTURE_ID:
+        raise AnalysisDepthError("analysis-depth registry reference fixture is unsupported")
+    reference = raw.get("reference_machine")
+    profiles_raw = raw.get("profiles")
+    if not isinstance(profiles_raw, Mapping) or set(profiles_raw) != set(PROFILE_IDS):
+        raise AnalysisDepthError("analysis-depth registry must declare Quick, Medium, High and Full")
+    profiles = {
+        profile_id: _profile_from_mapping(
+            profile_id,
+            profiles_raw[profile_id],
+            reference,
+            raw.get("reference_fixture_digest"),
+        )
+        for profile_id in PROFILE_IDS
+    }
+    mandatory_sets = {profile.mandatory_stages for profile in profiles.values()}
+    if len(mandatory_sets) != 1 or next(iter(mandatory_sets)) != MANDATORY_STAGE_IDS:
+        raise AnalysisDepthError("all profiles must preserve the identical mandatory stage set")
+    return profiles
+
+
+def profile_from_dict(payload: object) -> AnalysisDepthProfile:
+    """Rebuild a profile frozen into a durable run and verify its content hash."""
+
+    if not isinstance(payload, Mapping):
+        raise AnalysisDepthError("frozen analysis-depth profile must be an object")
+    profile_id = payload.get("profile_id")
+    if profile_id not in PROFILE_IDS:
+        raise AnalysisDepthError("frozen analysis-depth profile id is unsupported")
+    raw_reference = payload.get("reference_machine")
+    if not isinstance(payload.get("stages"), list) or not isinstance(raw_reference, Mapping):
+        raise AnalysisDepthError("frozen analysis-depth profile manifest is malformed")
+    stage_list = payload["stages"]
+    mandatory = [item.get("stage_id") for item in stage_list if isinstance(item, Mapping) and item.get("mandatory") is True]
+    optional = [item.get("stage_id") for item in stage_list if isinstance(item, Mapping) and item.get("mandatory") is False]
+    if len(mandatory) + len(optional) != len(stage_list):
+        raise AnalysisDepthError("frozen profile has malformed stages")
+    raw = {
+        "profile_id": profile_id,
+        "profile_version": payload.get("profile_version"),
+        "mandatory_stages": mandatory,
+        "optional_stages": optional,
+        "model_families": payload.get("model_families"),
+        "sources": payload.get("sources"),
+        "horizons": payload.get("horizons"),
+        "seeds": payload.get("seeds"),
+        "robustness": payload.get("robustness"),
+        "slo_seconds": payload.get("slo_seconds"),
+        "shard_size": payload.get("shard_size"),
+    }
+    profile = _profile_from_mapping(
+        str(profile_id),
+        raw,
+        raw_reference,
+        payload.get("reference_fixture_digest"),
+    )
+    expected_stages = payload.get("stages")
+    if [stage.to_dict() for stage in profile.stages] != expected_stages:
+        raise AnalysisDepthError("frozen profile stage details do not match the declared profile settings")
+    expected_hash = payload.get("manifest_hash")
+    if not isinstance(expected_hash, str) or expected_hash != profile.manifest_hash:
+        raise AnalysisDepthError("frozen analysis-depth manifest hash is invalid")
+    return profile
+
+
+def create_resource_plan(
+    profile: AnalysisDepthProfile,
+    *,
+    hardware_profile: str = "auto",
+    low_resource: bool = False,
+) -> AnalysisResourcePlan:
+    """Estimate hardware compatibility while retaining depth semantics."""
+
+    estimate = estimate_workflow_resources("bulk_analysis", requested_profile=hardware_profile)
+    effective_profile = str(estimate["profile"])
+    shard_size = max(1, profile.shard_size // 4) if low_resource else profile.shard_size
+    reasons_raw = estimate.get("reasons", ())
+    reasons = tuple(str(item) for item in reasons_raw) if isinstance(reasons_raw, (list, tuple)) else ()
+    return AnalysisResourcePlan(
+        profile_id=profile.profile_id,
+        hardware_profile_id=effective_profile,
+        shard_size=shard_size,
+        cpu_fallback=True,
+        low_resource=bool(low_resource),
+        estimated_cpu=float(estimate["cpu"]),
+        estimated_memory_mb=int(estimate["memory_mb"]),
+        estimated_disk_mb=int(estimate["disk_mb"]),
+        compatibility_status=str(estimate["status"]),
+        reasons=reasons,
+    )
+
+
+def resource_plan_from_dict(payload: object) -> AnalysisResourcePlan:
+    """Rebuild a resource plan frozen into a durable run."""
+
+    if not isinstance(payload, Mapping) or payload.get("schema_version") != ANALYSIS_RESOURCE_PLAN_SCHEMA_VERSION:
+        raise AnalysisDepthError("stored analysis resource plan is malformed")
+    _require_keys(
+        payload,
+        {
+            "schema_version", "profile_id", "hardware_profile_id", "shard_size",
+            "cpu_fallback", "low_resource", "estimated_cpu", "estimated_memory_mb",
+            "estimated_disk_mb", "compatibility_status", "reasons",
+        },
+        "stored analysis resource plan",
+    )
+    reasons = payload.get("reasons", ())
+    if not isinstance(reasons, (list, tuple)) or any(not isinstance(item, str) for item in reasons):
+        raise AnalysisDepthError("stored resource plan reasons are malformed")
+    if not isinstance(payload.get("cpu_fallback"), bool) or not isinstance(payload.get("low_resource"), bool):
+        raise AnalysisDepthError("stored resource plan flags are malformed")
+    if any(not isinstance(payload.get(field), str) or not payload.get(field) for field in ("profile_id", "hardware_profile_id", "compatibility_status")):
+        raise AnalysisDepthError("stored resource plan identifiers are malformed")
+    try:
+        shard_size = payload["shard_size"]
+        memory_mb = payload["estimated_memory_mb"]
+        disk_mb = payload["estimated_disk_mb"]
+        if any(isinstance(item, bool) or not isinstance(item, int) or item <= 0 for item in (shard_size, memory_mb, disk_mb)):
+            raise ValueError("integer resource fields must be positive")
+        cpu = _finite_nonnegative(payload["estimated_cpu"], "estimated_cpu")
+        return AnalysisResourcePlan(
+            profile_id=str(payload["profile_id"]),
+            hardware_profile_id=str(payload["hardware_profile_id"]),
+            shard_size=shard_size,
+            cpu_fallback=payload["cpu_fallback"],
+            low_resource=payload["low_resource"],
+            estimated_cpu=cpu,
+            estimated_memory_mb=memory_mb,
+            estimated_disk_mb=disk_mb,
+            compatibility_status=str(payload["compatibility_status"]),
+            reasons=tuple(reasons),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise AnalysisDepthError("stored analysis resource plan is malformed") from exc
+
+
+def analysis_run_identity(
+    inputs: Mapping[str, object],
+    analyzer_id: str,
+    profile: AnalysisDepthProfile,
+    *,
+    horizons: Sequence[str] | None = None,
+    seeds: Sequence[int] | None = None,
+) -> str:
+    """Hash the exact inputs and frozen workload manifest used by a bulk run."""
+
+    if not inputs:
+        raise AnalysisDepthError("run identity requires at least one instrument")
+    input_hashes = [
+        (instrument_id, _content_hash(_json_safe(analysis_input)))
+        for instrument_id, analysis_input in sorted(inputs.items())
+    ]
+    identity = {
+        "analyzer_id": analyzer_id,
+        "profile_id": profile.profile_id,
+        "manifest_hash": profile.manifest_hash,
+        "horizons": list(horizons if horizons is not None else profile.horizons),
+        "seeds": list(seeds if seeds is not None else profile.seeds),
+        "inputs": input_hashes,
+    }
+    return _content_hash(identity)
+
+
+def stage_cache_key(
+    instrument_id: str,
+    analysis_input: object,
+    analyzer_id: str,
+    stage: AnalysisStageManifest,
+    *,
+    horizons: Sequence[str] | None = None,
+    seeds: Sequence[int] | None = None,
+) -> str:
+    """Return a content-derived key that shares invariant stages across depths."""
+
+    key: dict[str, object] = {
+        "instrument_id": instrument_id,
+        "input_hash": _content_hash(_json_safe(analysis_input)),
+        "analyzer_id": analyzer_id,
+        "stage": stage.to_dict(),
+    }
+    if not stage.mandatory:
+        key["horizons"] = list(horizons if horizons is not None else stage.horizons)
+        key["seeds"] = list(seeds if seeds is not None else stage.seeds)
+    return _content_hash(key)
+
+
+def stage_output_hash(value: object) -> str:
+    """Hash a JSON-exportable stage result for content-addressed reuse."""
+
+    return _content_hash(_json_safe(value))
+
+
+def _json_safe(value: object) -> object:
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise AnalysisDepthError("analysis inputs and stage outputs must use finite numbers")
+        return value
+    if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            raise AnalysisDepthError("analysis inputs and stage outputs must use string keys")
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    raise AnalysisDepthError(f"analysis input or stage output is not JSON-exportable: {type(value).__name__}")
+
+
+def _mandatory_result_error(stage: AnalysisStageManifest, result: object) -> str | None:
+    if not stage.mandatory:
+        return None
+    if result is None or result is False or result == "" or result == [] or result == {}:
+        return f"mandatory evidence missing for stage {stage.stage_id}"
+    if isinstance(result, Mapping):
+        status = result.get("status")
+        if isinstance(status, str) and status.casefold() in {"failed", "blocked", "missing", "unavailable", "incomplete", "omitted", "skipped"}:
+            return f"mandatory evidence for stage {stage.stage_id} did not complete: {status}"
+        if result.get("passed") is False:
+            return f"mandatory gate {stage.stage_id} failed"
+    return None
+
+
+def _stage_return_parts(value: object) -> tuple[object, Mapping[str, object]]:
+    if isinstance(value, Mapping) and "analysis_depth_result" in value and "analysis_depth_timing" in value:
+        timing = value["analysis_depth_timing"]
+        if not isinstance(timing, Mapping):
+            raise AnalysisDepthError("analysis_depth_timing must be an object")
+        return value["analysis_depth_result"], timing
+    return value, {}
+
+
+def _timing_metadata(
+    raw: Mapping[str, object], profile: AnalysisDepthProfile
+) -> tuple[float | None, tuple[str, ...], tuple[tuple[str, float], ...], tuple[tuple[str, float], ...]]:
+    provider_wait_raw = raw.get("provider_wait_seconds")
+    provider_wait = None if provider_wait_raw is None else _finite_nonnegative(provider_wait_raw, "provider_wait_seconds")
+    omissions_raw = raw.get("model_omissions", ())
+    omissions = _string_tuple(omissions_raw, "model_omissions", allow_empty=True)
+    if not set(omissions).issubset(profile.model_families):
+        raise AnalysisDepthError("model omission references a family outside the frozen profile")
+    peaks_raw = raw.get("peak_resources", {})
+    peaks: list[tuple[str, float]] = []
+    if not isinstance(peaks_raw, Mapping):
+        raise AnalysisDepthError("peak_resources must be an object")
+    for key, value in sorted(peaks_raw.items(), key=lambda entry: str(entry[0])):
+        if not isinstance(key, str) or not key.strip():
+            raise AnalysisDepthError("peak resource names must be non-blank strings")
+        peaks.append((key, _finite_nonnegative(value, f"peak_resources.{key}")))
+    separate: list[tuple[str, float]] = []
+    for field, kind in (("cold_acquisition_seconds", "cold_acquisition"), ("training_centre_seconds", "training_centre")):
+        if field in raw:
+            separate.append((kind, _finite_nonnegative(raw[field], field)))
+    return provider_wait, omissions, tuple(peaks), tuple(separate)
+
+
+StageRunner = Callable[[str, object, AnalysisStageManifest, AnalysisResourcePlan], object]
+
+
+def execute_profiled_stages(
+    profile: AnalysisDepthProfile,
+    instrument_id: str,
+    analysis_input: object,
+    analyzer_id: str,
+    stage_runner: StageRunner,
+    cache: dict[str, dict[str, object]],
+    *,
+    run_id: str,
+    cache_state: str = "cold",
+    resource_plan: AnalysisResourcePlan | None = None,
+    horizons: Sequence[str] | None = None,
+    seeds: Sequence[int] | None = None,
+) -> tuple[dict[str, object], tuple[AnalysisTimingRecord, ...]]:
+    """Run each frozen stage or reuse a content-identical durable stage result."""
+
+    if not callable(stage_runner):
+        raise TypeError("stage_runner must be callable for a profile-depth run")
+    if cache_state not in {"cold", "warm"}:
+        raise AnalysisDepthError("cache_state must be cold or warm")
+    stage_outputs: dict[str, object] = {}
+    stage_hashes: dict[str, dict[str, object]] = {}
+    timing_records: list[AnalysisTimingRecord] = []
+    omissions: set[str] = set()
+    omitted_stages: list[str] = []
+
+    for stage in profile.stages:
+        stage_horizons = tuple(horizons if horizons is not None else stage.horizons)
+        stage_seeds = tuple(seeds if seeds is not None else stage.seeds)
+        key = stage_cache_key(
+            instrument_id,
+            analysis_input,
+            analyzer_id,
+            stage,
+            horizons=stage_horizons,
+            seeds=stage_seeds,
+        )
+        lookup_started = time.perf_counter()
+        cached = cache.get(key)
+        cache_hit = (
+            isinstance(cached, Mapping)
+            and "result" in cached
+            and cached.get("content_hash") == _content_hash(_json_safe(cached["result"]))
+        )
+        provider_wait: float | None = None
+        model_omissions: tuple[str, ...] = ()
+        peak_resources: tuple[tuple[str, float], ...] = ()
+        separate_timings: tuple[tuple[str, float], ...] = ()
+        if cache_hit:
+            tracing_started = not tracemalloc.is_tracing()
+            if tracing_started:
+                tracemalloc.start()
+            else:
+                tracemalloc.reset_peak()
+            tracemalloc.reset_peak()
+            stage_result = cached["result"]
+            content_hash = str(cached["content_hash"])
+            reused = True
+            elapsed = time.perf_counter() - lookup_started
+            stage_cache_state = "warm"
+            _current_bytes, peak_bytes = tracemalloc.get_traced_memory()
+            peak_resources = (("python_heap_peak_mb", peak_bytes / 1_048_576),)
+            if tracing_started:
+                tracemalloc.stop()
+        else:
+            tracing_started = not tracemalloc.is_tracing()
+            if tracing_started:
+                tracemalloc.start()
+            started = time.perf_counter()
+            runner_called = False
+            try:
+                if resource_plan is None:
+                    raise AnalysisDepthError("profile-depth stages require a frozen resource plan")
+                runner_stage = (
+                    replace(stage, horizons=stage_horizons, seeds=stage_seeds)
+                    if not stage.mandatory
+                    else stage
+                )
+                runner_called = True
+                raw_result = stage_runner(instrument_id, analysis_input, runner_stage, resource_plan)
+            except Exception as exc:
+                elapsed = time.perf_counter() - started
+                _current_bytes, peak_bytes = tracemalloc.get_traced_memory()
+                if tracing_started:
+                    tracemalloc.stop()
+                if stage.mandatory and runner_called:
+                    peak_resources = (("python_heap_peak_mb", peak_bytes / 1_048_576),)
+                    timing_records.append(AnalysisTimingRecord(
+                        run_id=run_id,
+                        profile_id=profile.profile_id,
+                        timing_kind="stage",
+                        stage_id=stage.stage_id,
+                        wall_time_seconds=elapsed,
+                        cache_state="cold",
+                        peak_resources=peak_resources,
+                        outcome="failed",
+                    ))
+                    raise MandatoryEvidenceError(
+                        f"mandatory stage {stage.stage_id} failed: {exc}",
+                        timing_records=timing_records,
+                    ) from exc
+                raise
+            elapsed = time.perf_counter() - started
+            _current_bytes, peak_bytes = tracemalloc.get_traced_memory()
+            if tracing_started:
+                tracemalloc.stop()
+            stage_result, timing_raw = _stage_return_parts(raw_result)
+            provider_wait, model_omissions, reported_peaks, separate_timings = _timing_metadata(timing_raw, profile)
+            reported_separate_seconds = sum(seconds for _kind, seconds in separate_timings)
+            if reported_separate_seconds > elapsed:
+                raise AnalysisDepthError(
+                    "runner-reported acquisition and Training Centre time exceeds stage runner wall time"
+                )
+            elapsed -= reported_separate_seconds
+            peak_resources = tuple(sorted((*reported_peaks, ("python_heap_peak_mb", peak_bytes / 1_048_576))))
+            stage_result = _json_safe(stage_result)
+            reused = False
+            stage_cache_state = "cold"
+            content_hash = _content_hash(stage_result)
+        error = _mandatory_result_error(stage, stage_result)
+        if error is None and isinstance(stage_result, Mapping):
+            declared_omissions = stage_result.get("model_omissions", ())
+            if isinstance(declared_omissions, (list, tuple)):
+                model_omissions = tuple(str(item) for item in declared_omissions)
+                if not set(model_omissions).issubset(profile.model_families):
+                    raise AnalysisDepthError("model omission references a family outside the frozen profile")
+        if error is None:
+            omissions.update(model_omissions)
+            if stage_result is None and not stage.mandatory:
+                omitted_stages.append(stage.stage_id)
+            stage_outputs[stage.stage_id] = stage_result
+            stage_hashes[stage.stage_id] = {
+                "cache_key": key,
+                "content_hash": content_hash,
+                "reused": reused,
+            }
+        timing_records.append(AnalysisTimingRecord(
+            run_id=run_id,
+            profile_id=profile.profile_id,
+            timing_kind="stage",
+            stage_id=stage.stage_id,
+            wall_time_seconds=elapsed,
+            cache_state=stage_cache_state,
+            provider_wait_seconds=provider_wait,
+            model_omissions=model_omissions,
+            peak_resources=peak_resources,
+            outcome="failed" if error is not None else "succeeded",
+        ))
+        for timing_kind, seconds in separate_timings:
+            timing_records.append(AnalysisTimingRecord(
+                run_id=run_id,
+                profile_id=profile.profile_id,
+                timing_kind=timing_kind,
+                stage_id=stage.stage_id,
+                wall_time_seconds=seconds,
+                cache_state=stage_cache_state,
+                provider_wait_seconds=provider_wait,
+                model_omissions=model_omissions,
+                peak_resources=peak_resources,
+                outcome="failed" if error is not None else "succeeded",
+            ))
+        if error is not None:
+            raise MandatoryEvidenceError(error, timing_records=timing_records)
+        if not reused and stage_result is not None:
+            cache[key] = {"content_hash": content_hash, "result": stage_result}
+
+    deterministic_fields = {stage_id: stage_outputs[stage_id] for stage_id in profile.mandatory_stages}
+    output = {
+        "profile_id": profile.profile_id,
+        "manifest_hash": profile.manifest_hash,
+        "deterministic_fields": deterministic_fields,
+        "stages": stage_outputs,
+        "stage_hashes": stage_hashes,
+        "omitted_optional_stages": omitted_stages,
+        "model_omissions": sorted(omissions),
+    }
+    return output, tuple(timing_records)
+
+
+def append_timing_records(root: Path, records: Sequence[AnalysisTimingRecord]) -> Path | None:
+    """Append measured records to the project's Parquet timing store."""
+
+    if not records:
+        return None
+    import pandas as pd
+
+    path = Path(root) / ANALYSIS_TIMINGS_RELATIVE_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = [record.to_dict() for record in records]
+    for row in rows:
+        row["peak_resources"] = _canonical_json(row["peak_resources"])
+    frame = pd.DataFrame(rows)
+    if path.is_file():
+        previous = pd.read_parquet(path)
+        expected = list(frame.columns)
+        legacy = [column for column in expected if column != "outcome"]
+        if list(previous.columns) == legacy:
+            previous = previous.copy()
+            previous["outcome"] = "unknown"
+            previous = previous[expected]
+        elif list(previous.columns) != expected:
+            raise AnalysisDepthError("analysis_timings.parquet has an unsupported schema")
+        frame = pd.concat((previous, frame), ignore_index=True)
+    frame.to_parquet(path, index=False)
+    return path
+
+
+def timing_percentiles(
+    records: Sequence[AnalysisTimingRecord],
+    *,
+    profile_id: str | None = None,
+    timing_kind: str = "stage",
+) -> dict[str, float | int]:
+    """Compute p50/p95 from stored measurements without deriving an ETA."""
+
+    values = sorted(
+        record.wall_time_seconds
+        for record in records
+        if record.timing_kind == timing_kind and (profile_id is None or record.profile_id == profile_id)
+    )
+    if not values:
+        raise AnalysisDepthError("percentiles require measured timing records")
+
+    def percentile(p: float) -> float:
+        position = (len(values) - 1) * p
+        lower = math.floor(position)
+        upper = math.ceil(position)
+        if lower == upper:
+            return float(values[lower])
+        fraction = position - lower
+        return float(values[lower] + (values[upper] - values[lower]) * fraction)
+
+    return {"sample_count": len(values), "p50_seconds": percentile(0.50), "p95_seconds": percentile(0.95)}
+
+
+def certify_benchmark(
+    profile: AnalysisDepthProfile,
+    *,
+    fixture_id: str,
+    fixture_content_digest: str | None,
+    instrument_count: int,
+    cache_state: str,
+    cache_hits: int,
+    p95_seconds: float,
+    machine: Mapping[str, object] | None,
+) -> dict[str, object]:
+    """Certify only matching reference content measured with observed cache hits."""
+
+    reasons: list[str] = []
+    if fixture_id != profile.reference_fixture_id:
+        reasons.append("measurement did not use the declared reference fixture")
+    if instrument_count != REFERENCE_INSTRUMENT_COUNT:
+        reasons.append("measurement did not cover 3000 supported instruments")
+    if isinstance(cache_hits, bool) or not isinstance(cache_hits, int) or cache_hits < 0:
+        raise AnalysisDepthError("cache_hits must be a non-negative integer")
+    measured_cache_state = "warm" if cache_hits > 0 else "cold"
+    if cache_state != measured_cache_state:
+        reasons.append("reported cache state does not match measured cache hits")
+    if cache_hits == 0:
+        reasons.append("measurement was not warm-cache")
+    if profile.reference_fixture_digest is None:
+        reasons.append("declared reference fixture content digest is unavailable")
+    elif (
+        not isinstance(fixture_content_digest, str)
+        or len(fixture_content_digest) != 64
+        or any(character not in "0123456789abcdefABCDEF" for character in fixture_content_digest)
+    ):
+        reasons.append("fixture content digest is not a SHA-256 hex digest")
+    elif fixture_content_digest.casefold() != profile.reference_fixture_digest:
+        reasons.append("fixture content digest does not match the declared reference digest")
+    machine = machine or {}
+    try:
+        cpu = int(machine.get("cpu_cores", 0))
+        memory_mb = float(machine.get("memory_total_mb", machine.get("memory_mb", 0)))
+        gpu_label = str(machine.get("gpu_label", ""))
+    except (TypeError, ValueError):
+        cpu, memory_mb, gpu_label = 0, 0.0, ""
+    if cpu < profile.reference_cpu_cores or memory_mb < profile.reference_memory_mb:
+        reasons.append("measurement machine does not meet the declared CPU and memory reference")
+    if profile.reference_gpu_label.casefold() not in gpu_label.casefold():
+        reasons.append("measurement machine does not match the declared GPU reference")
+    measured = _finite_nonnegative(p95_seconds, "p95_seconds")
+    if measured > profile.slo_seconds:
+        reasons.append(f"p95 {measured:.6g}s exceeded the {profile.slo_seconds}s SLO")
+    return {
+        "status": "certified" if not reasons else "not_certified",
+        "reason": None if not reasons else "; ".join(reasons),
+        "p95_seconds": measured,
+        "slo_seconds": profile.slo_seconds,
+    }
+
+
+__all__ = [
+    "ANALYSIS_DEPTH_PROFILES_PATH",
+    "ANALYSIS_TIMINGS_RELATIVE_PATH",
+    "AnalysisDepthError",
+    "AnalysisDepthProfile",
+    "AnalysisResourcePlan",
+    "AnalysisStageManifest",
+    "AnalysisTimingRecord",
+    "AnalysisUpgradeLink",
+    "MANDATORY_GATE_IDS",
+    "MANDATORY_STAGE_IDS",
+    "MandatoryEvidenceError",
+    "PROFILE_IDS",
+    "REFERENCE_FIXTURE_ID",
+    "REFERENCE_INSTRUMENT_COUNT",
+    "StageRunner",
+    "analysis_run_identity",
+    "append_timing_records",
+    "certify_benchmark",
+    "create_resource_plan",
+    "execute_profiled_stages",
+    "load_analysis_depth_profiles",
+    "profile_from_dict",
+    "resource_plan_from_dict",
+    "stage_cache_key",
+    "stage_output_hash",
+    "timing_percentiles",
+]
