@@ -1,0 +1,54 @@
+schema_version: risk_profiles.v1
+preset_version: 1
+default_profile_id: medium
+profiles:
+  - profile_id: safe
+    label: Safe
+    intent: Materially lower downside and concentration than the matching VWCE snapshot.
+    parameters: {risk_budget_ratio: 0.65, max_position_weight: 0.10, max_sector_weight: 0.25, max_country_weight: 0.45, max_currency_weight: 0.35}
+    guardrails:
+      risk_budget_ratio: [0.50, 0.74]
+      max_position_weight: [0.05, 0.12]
+      max_sector_weight: [0.20, 0.30]
+      max_country_weight: [0.30, 0.50]
+      max_currency_weight: [0.20, 0.40]
+  - profile_id: safe_medium
+    label: Safe–Medium
+    intent: Keep risk below VWCE while allowing positive net opportunity.
+    parameters: {risk_budget_ratio: 0.82, max_position_weight: 0.15, max_sector_weight: 0.35, max_country_weight: 0.55, max_currency_weight: 0.45}
+    guardrails:
+      risk_budget_ratio: [0.75, 0.94]
+      max_position_weight: [0.13, 0.18]
+      max_sector_weight: [0.31, 0.40]
+      max_country_weight: [0.51, 0.60]
+      max_currency_weight: [0.41, 0.50]
+  - profile_id: medium
+    label: Medium
+    intent: Target a VWCE-like joint downside and upside envelope after costs and uncertainty.
+    parameters: {risk_budget_ratio: 1.00, max_position_weight: 0.20, max_sector_weight: 0.45, max_country_weight: 0.65, max_currency_weight: 0.55}
+    guardrails:
+      risk_budget_ratio: [0.95, 1.05]
+      max_position_weight: [0.19, 0.23]
+      max_sector_weight: [0.41, 0.50]
+      max_country_weight: [0.61, 0.70]
+      max_currency_weight: [0.51, 0.65]
+  - profile_id: medium_aggressive
+    label: Medium–Aggressive
+    intent: Allow higher risk only when the matched VWCE envelope supports incremental upside.
+    parameters: {risk_budget_ratio: 1.15, max_position_weight: 0.25, max_sector_weight: 0.55, max_country_weight: 0.75, max_currency_weight: 0.70}
+    guardrails:
+      risk_budget_ratio: [1.06, 1.25]
+      max_position_weight: [0.24, 0.30]
+      max_sector_weight: [0.51, 0.60]
+      max_country_weight: [0.71, 0.80]
+      max_currency_weight: [0.66, 0.75]
+  - profile_id: aggressive
+    label: Aggressive
+    intent: Use the highest long-only risk envelope while retaining all absolute evidence, liquidity and product gates.
+    parameters: {risk_budget_ratio: 1.30, max_position_weight: 0.35, max_sector_weight: 0.65, max_country_weight: 0.85, max_currency_weight: 0.80}
+    guardrails:
+      risk_budget_ratio: [1.26, 1.50]
+      max_position_weight: [0.31, 0.40]
+      max_sector_weight: [0.61, 0.75]
+      max_country_weight: [0.81, 0.95]
+      max_currency_weight: [0.76, 0.90]

@@ -15,9 +15,11 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from etf_cockpit.models.calibration import coverage_confidence_interval, conformal_quantile_adjustment
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.resource_profiles import ResourcePolicy, estimate_workflow_resources
 from etf_cockpit.core.timing import timing_summary
+from etf_cockpit.models.coverage_audit import build_coverage_audit
 from etf_cockpit.models.model_zoo import model_zoo_frame
 from etf_cockpit.portfolio.costs import estimated_cost_bps
 
@@ -52,6 +54,8 @@ LAB_MODEL_COLUMNS = [
     "net_value_status",
     "interval_coverage",
     "conformal_coverage",
+    "conformal_coverage_ci_lower",
+    "conformal_coverage_ci_upper",
     "calibration_status",
     "drift_status",
     "drift_score",
@@ -72,6 +76,9 @@ FORECAST_OUTCOME_COLUMNS = [
     "outcome_reason",
     "target_date",
     "actual_return",
+    "prediction_id",
+    "fold_id",
+    "out_of_fold",
 ]
 LAB_RUN_COLUMNS = [
     "run_id",
@@ -144,6 +151,7 @@ def build_forecast_lab_workspace(
     *,
     as_of_date: date | str | None = None,
     timing_records: Iterable[Mapping[str, object]] | None = None,
+    scenario_records: Mapping[str, Mapping[str, object]] | None = None,
     profile_id: str = "auto",
 ) -> dict[str, object]:
     """Build the Forecast Lab report with canonical costs and measured runtimes."""
@@ -160,6 +168,8 @@ def build_forecast_lab_workspace(
         round_trip_cost_bps=forecast_round_trip_cost_bps(config, instrument_ids),
         model_runtime_ms=latest_forecast_runtimes(records),
         configured_horizons=config.models.forecast_horizons_trading_days,
+        scenario_records=scenario_records,
+        subgroup_universe=config.universe.etfs,
         profile_id=profile_id,
     )
 
@@ -173,6 +183,8 @@ def build_forecast_lab_report(
     round_trip_cost_bps: Mapping[str, float] | None = None,
     model_runtime_ms: Mapping[tuple[str, str], float] | None = None,
     configured_horizons: Iterable[int] | None = None,
+    scenario_records: Mapping[str, Mapping[str, object]] | None = None,
+    subgroup_universe: Iterable[object] | None = None,
     profile_id: str = "auto",
 ) -> dict[str, object]:
     """Build a read-only report from local forecast and adjusted-price rows.
@@ -199,6 +211,7 @@ def build_forecast_lab_report(
     empty_evaluation = pd.DataFrame(columns=WALK_FORWARD_EVALUATION_COLUMNS)
     empty_outcomes = pd.DataFrame(columns=FORECAST_OUTCOME_COLUMNS)
     model_catalogue = model_zoo_frame()
+    scenario_replay_inputs = _scenario_replay_inputs(scenario_records)
     missing_forecasts = sorted(FORECAST_REQUIRED_COLUMNS - set(forecasts.columns))
     missing_prices = sorted(PRICE_REQUIRED_COLUMNS - set(prices.columns))
     if missing_forecasts or missing_prices:
@@ -211,6 +224,7 @@ def build_forecast_lab_report(
             "walk_forward_splits": empty_splits,
             "walk_forward_evaluation": empty_evaluation,
             "forecast_outcomes": empty_outcomes,
+            "scenario_replay_inputs": scenario_replay_inputs,
             "notes": tuple(
                 [f"Forecast columns missing: {', '.join(missing_forecasts)}."] if missing_forecasts else []
             )
@@ -230,6 +244,7 @@ def build_forecast_lab_report(
             "walk_forward_splits": empty_splits,
             "walk_forward_evaluation": empty_evaluation,
             "forecast_outcomes": empty_outcomes,
+            "scenario_replay_inputs": scenario_replay_inputs,
             "notes": ("Unadjusted price rows were rejected; forecast diagnostics require adjusted_close.",),
             "resource_profile": resource_estimate,
             "execution_allowed": False,
@@ -263,6 +278,7 @@ def build_forecast_lab_report(
             "walk_forward_splits": empty_splits,
             "walk_forward_evaluation": empty_evaluation,
             "forecast_outcomes": empty_outcomes,
+            "scenario_replay_inputs": scenario_replay_inputs,
             "notes": ("No dated forecast rows are available in the local cache.",),
             "resource_profile": resource_estimate,
             "execution_allowed": False,
@@ -283,10 +299,28 @@ def build_forecast_lab_report(
             "walk_forward_splits": empty_splits,
             "walk_forward_evaluation": empty_evaluation,
             "forecast_outcomes": empty_outcomes,
+            "scenario_replay_inputs": scenario_replay_inputs,
             "notes": ("No forecast rows are available at the selected as-of date.",),
             "resource_profile": resource_estimate,
             "execution_allowed": False,
         }
+
+    subgroup_results_by_model: dict[str, list[dict[str, object]]] = {}
+    if subgroup_universe is not None:
+        known_model_ids = set(model_catalogue["model_id"].astype(str))
+        for model_name, model_forecasts in frame.groupby("model_name", sort=True):
+            if str(model_name) not in known_model_ids:
+                continue
+            subgroup_results_by_model[str(model_name)] = build_coverage_audit(
+                subgroup_universe,
+                price_frame,
+                model_forecasts,
+                as_of_date=effective_as_of.date(),
+            ).to_dict()["groups"]
+        model_catalogue = model_zoo_frame(
+            optional_status=optional_status,
+            subgroup_results_by_model=subgroup_results_by_model,
+        )
 
     # For a requested historical as-of, later outcomes were not yet knowable.
     known_prices = (
@@ -303,6 +337,8 @@ def build_forecast_lab_report(
         str(instrument_id): group.sort_values("date").set_index("date")[["adjusted_close", *stale_columns]]
         for instrument_id, group in known_prices.groupby("etf_id", sort=False)
     }
+    split_rows = build_walk_forward_splits(frame["forecast_date"].dt.date.unique())
+    frame = _mark_walk_forward_provenance(frame, split_rows)
     matured, outcomes = _matured_rows(frame, price_lookup, round_trip_cost_bps)
     model_rows = _model_summaries(
         frame,
@@ -313,7 +349,6 @@ def build_forecast_lab_report(
         configured_horizons,
     )
     run_rows = _run_summaries(frame)
-    split_rows = build_walk_forward_splits(frame["forecast_date"].dt.date.unique())
     notes = [
         "Evaluation uses only local forecast artefacts and adjusted-close prices; a historical as-of replay "
         "uses only prices up to that date.",
@@ -337,10 +372,32 @@ def build_forecast_lab_report(
         "runs": run_rows,
         "walk_forward_splits": split_rows,
         "walk_forward_evaluation": evaluate_walk_forward(split_rows, matured),
+        "scenario_replay_inputs": scenario_replay_inputs,
         "notes": tuple(notes),
         "resource_profile": resource_estimate,
         "execution_allowed": False,
     }
+
+
+def _scenario_replay_inputs(
+    records: Mapping[str, Mapping[str, object]] | None,
+) -> dict[str, dict[str, object]]:
+    """Persist replay seeds and inputs while leaving generated paths untouched."""
+
+    if not isinstance(records, Mapping):
+        return {}
+    output: dict[str, dict[str, object]] = {}
+    for instrument_id, record in sorted(records.items(), key=lambda item: str(item[0])):
+        if not isinstance(record, Mapping):
+            continue
+        seed = record.get("scenario_seed")
+        inputs = record.get("scenario_inputs")
+        if isinstance(seed, int) and not isinstance(seed, bool) and seed >= 0 and isinstance(inputs, Mapping):
+            output[str(instrument_id)] = {
+                "scenario_seed": seed,
+                "scenario_inputs": dict(inputs),
+            }
+    return output
 
 
 def build_walk_forward_splits(
@@ -395,6 +452,43 @@ def evaluate_walk_forward(splits: pd.DataFrame, matured: pd.DataFrame) -> pd.Dat
     return pd.DataFrame(rows, columns=WALK_FORWARD_EVALUATION_COLUMNS)
 
 
+def _mark_walk_forward_provenance(frame: pd.DataFrame, splits: pd.DataFrame) -> pd.DataFrame:
+    marked = frame.copy()
+    marked["prediction_id"] = marked.apply(_prediction_identifier, axis=1)
+    marked["fold_id"] = None
+    marked["out_of_fold"] = False
+    fold_count = pd.Series(0, index=marked.index, dtype="int64")
+    for split in splits.itertuples(index=False):
+        forecast_days = _naive_utc(marked["forecast_date"]).dt.normalize()
+        start, end = pd.Timestamp(split.test_start), pd.Timestamp(split.test_end)
+        mask = forecast_days.ge(start) & forecast_days.le(end)
+        fold_count.loc[mask] += 1
+        first_assignment = mask & fold_count.eq(1)
+        marked.loc[first_assignment, "fold_id"] = str(split.split_id)
+        marked.loc[first_assignment, "out_of_fold"] = True
+    overlapping = fold_count.ne(1)
+    marked.loc[overlapping, "fold_id"] = None
+    marked.loc[overlapping, "out_of_fold"] = False
+    return marked
+
+
+def _prediction_identifier(row: pd.Series) -> str:
+    existing = _noneable_text(row.get("prediction_id"))
+    if existing is not None:
+        return existing
+    model_id = _noneable_text(row.get("model_id")) or str(row.get("model_name") or "")
+    forecast_date = pd.Timestamp(row["forecast_date"]).isoformat()
+    return "|".join(
+        (
+            model_id,
+            str(_noneable_text(row.get("run_id")) or ""),
+            str(row.get("etf_id") or ""),
+            forecast_date,
+            str(int(row["horizon_days"])),
+        )
+    )
+
+
 def _matured_rows(
     frame: pd.DataFrame,
     price_lookup: dict[str, pd.DataFrame],
@@ -416,6 +510,9 @@ def _matured_rows(
             "outcome_reason": None,
             "target_date": None,
             "actual_return": None,
+            "prediction_id": row["prediction_id"],
+            "fold_id": row["fold_id"],
+            "out_of_fold": bool(row["out_of_fold"]),
         }
         if row["status"] != "ok":
             outcome_row["outcome_status"] = "skipped" if row["status"] == "skipped" else "unavailable"
@@ -465,6 +562,9 @@ def _matured_rows(
                 "direction_hit": float(np.sign(expected) == np.sign(actual)),
                 "q10_return": q10,
                 "q90_return": q90,
+                "prediction_id": row["prediction_id"],
+                "fold_id": row["fold_id"],
+                "out_of_fold": bool(row["out_of_fold"]),
                 "interval_hit": None if q10 is None or q90 is None else float(q10 <= actual <= q90),
                 "gross_forward_value": gross_value,
                 "round_trip_cost": round_trip_cost,
@@ -539,6 +639,8 @@ def _model_summaries(
                 "net_value_status": net_status,
                 "interval_coverage": _rounded(interval.mean() if not interval.empty else None),
                 "conformal_coverage": conformal["coverage"],
+                "conformal_coverage_ci_lower": conformal["coverage_ci_lower"],
+                "conformal_coverage_ci_upper": conformal["coverage_ci_upper"],
                 "calibration_status": conformal["status"],
                 "drift_status": drift_status,
                 "drift_score": drift_score,
@@ -583,22 +685,39 @@ def _net_value(evaluated: pd.DataFrame) -> tuple[float | None, str]:
 
 def _conformal_diagnostics(evaluated: pd.DataFrame, minimum_samples: int) -> dict[str, object]:
     if evaluated.empty:
-        return {"coverage": None, "status": "conformal_pending"}
+        return {"coverage": None, "coverage_ci_lower": None, "coverage_ci_upper": None, "status": "conformal_pending"}
     calibrated_hits = []
     for _, group in evaluated.groupby(["etf_id", "horizon_days"], sort=True):
         group = group.sort_values("forecast_date")
         earlier: list[tuple[pd.Timestamp, float]] = []
         for _, row in group.iterrows():
-            # A residual is known only once its own target session has passed;
-            # overlapping multi-day horizons must not calibrate earlier views.
-            prior_errors = [error for target, error in earlier if target <= row["forecast_date"]]
-            if len(prior_errors) >= minimum_samples:
-                radius = float(np.quantile(prior_errors, 0.90, method="higher"))
+            # The strict comparison excludes an outcome maturing at the view time.
+            forecast_time = pd.to_datetime(row.get("forecast_date"), errors="coerce", utc=True)
+            prior_errors = [
+                error for target, error in earlier
+                if pd.notna(forecast_time) and target < forecast_time and np.isfinite(error)
+            ]
+            conformal = conformal_quantile_adjustment(
+                prior_errors,
+                minimum_matured_samples=minimum_samples,
+                target_coverage=0.90,
+            )
+            if conformal["status"] == "available":
+                radius = float(conformal["adjustment"])
                 calibrated_hits.append(float(abs(float(row["actual_return"]) - float(row["expected_return"])) <= radius))
-            earlier.append((row["target_date"], float(row["absolute_error"])))
+            target_time = pd.to_datetime(row.get("target_date"), errors="coerce", utc=True)
+            error = pd.to_numeric(pd.Series([row.get("absolute_error")]), errors="coerce").iloc[0]
+            if pd.notna(target_time) and pd.notna(error):
+                earlier.append((target_time, float(error)))
     if not calibrated_hits:
-        return {"coverage": None, "status": "conformal_pending"}
-    return {"coverage": _rounded(float(np.mean(calibrated_hits))), "status": "conformal_diagnostic"}
+        return {"coverage": None, "coverage_ci_lower": None, "coverage_ci_upper": None, "status": "conformal_pending"}
+    interval = coverage_confidence_interval(calibrated_hits)
+    return {
+        "coverage": _rounded(float(np.mean(calibrated_hits))),
+        "coverage_ci_lower": _rounded(interval[0]) if interval is not None else None,
+        "coverage_ci_upper": _rounded(interval[1]) if interval is not None else None,
+        "status": "conformal_diagnostic",
+    }
 
 
 def _actual_return(

@@ -10,7 +10,7 @@ from typing import Callable, Iterable, Mapping
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
-from etf_cockpit.core.config import DataProvidersConfig, ProviderSection
+from etf_cockpit.core.config import DataProvidersConfig, ProviderSection, resolve_provider_api_key
 from etf_cockpit.core.paths import CLEAN_DIR
 from etf_cockpit.data.alphavantage_provider import AlphaVantageProvider
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority, redact_mapping, redact_text
@@ -19,6 +19,7 @@ from etf_cockpit.data.fmp_provider import FmpProvider
 from etf_cockpit.data.tiingo_provider import TiingoProvider
 from etf_cockpit.data.twelvedata_provider import TwelveDataProvider
 from etf_cockpit.data.source_policy import SourcePolicyError, load_source_policies
+from etf_cockpit.security.credentials import canonical_provider_account
 
 
 REQUIRED_PROVIDER_IDS = frozenset(
@@ -49,6 +50,7 @@ _KEYLESS_PROVIDERS = frozenset(
     {
         "yfinance",
         "sec_edgar",
+        "ecb",
         "filings_xbrl_org",
         "stooq",
         "rss",
@@ -57,6 +59,9 @@ _KEYLESS_PROVIDERS = frozenset(
         "index_provider",
     }
 )
+_OPTIONAL_CREDENTIAL_CAPABILITIES = {
+    "finnhub": frozenset({"prices", "fx", "etf_metadata", "etf_holdings"}),
+}
 _AUTHORITY_BY_PROVIDER = {
     "sec_edgar": SourceAuthority.OFFICIAL,
     "filings_xbrl_org": SourceAuthority.OFFICIAL,
@@ -66,6 +71,41 @@ _AUTHORITY_BY_PROVIDER = {
     "manual_local": SourceAuthority.COMMUNITY,
 }
 _VALID_STATUSES = frozenset({"ok", "unavailable", "rate_limited", "timeout", "malformed", "error", "forbidden"})
+
+
+def invalidate_cached_probe_results(provider_id: str, path: Path | None = None) -> None:
+    """Remove persisted probe rows tied to a changed provider credential."""
+
+    destination = Path(path or DEFAULT_PROBE_PATH)
+    csv_destination = destination.with_suffix(".csv")
+    existing = [candidate for candidate in (destination, csv_destination) if candidate.is_file()]
+    if not existing:
+        return
+    try:
+        frame = pd.read_parquet(destination) if destination.is_file() else pd.read_csv(csv_destination)
+        if "provider_id" not in frame.columns:
+            raise ValueError("provider probe cache has no provider_id column")
+        selected = canonical_provider_account(provider_id)
+        frame = frame.loc[frame["provider_id"].astype(str).str.casefold() != selected].copy()
+        parquet_payload: bytes | None = None
+        if destination.is_file():
+            frame.attrs["schema_version"] = PROBE_SCHEMA_VERSION
+            parquet_payload = BytesIO()
+            frame.to_parquet(parquet_payload, index=False)
+        csv_payload = frame.to_csv(index=False).encode("utf-8")
+        requests = []
+        if parquet_payload is not None:
+            requests.append(AtomicWriteRequest(destination, parquet_payload.getvalue(), _validate_parquet))
+        requests.append(AtomicWriteRequest(csv_destination, csv_payload, _validate_csv))
+        atomic_write_group(tuple(requests))
+    except Exception:
+        for candidate in (destination, csv_destination):
+            try:
+                candidate.unlink(missing_ok=True)
+            except OSError:
+                pass
+        if destination.exists() or csv_destination.exists():
+            raise OSError("provider probe cache could not be invalidated") from None
 
 
 class ProviderRegistry:
@@ -202,23 +242,56 @@ class ProviderRegistry:
             rate_limit_note="probe not run",
             last_success_at=None,
             error_fingerprint=None,
-            secret_present=bool(section.api_key),
+            secret_present=False,
         )
         if not configured:
             return (replace(base, entitlement="disabled", message="Provider disabled by configuration."),)
-        if self._requires_api_key(provider_id, active) and not section.api_key.strip():
-            return (replace(
-                base,
-                configured=False,
-                entitlement="api_key_required",
-                message="Provider unavailable: required API key is not configured.",
-            ),)
+        optional_capabilities = _OPTIONAL_CREDENTIAL_CAPABILITIES.get(provider_id) or _OPTIONAL_CREDENTIAL_CAPABILITIES.get(active)
+        requires_api_key = self._requires_api_key(provider_id, active)
+        credential: str | None = None
+        if requires_api_key or optional_capabilities:
+            try:
+                credential_name = canonical_provider_account(active)
+                credential = resolve_provider_api_key(
+                    credential_name,
+                    configured_value=section.api_key,
+                )
+            except Exception:
+                return (replace(
+                    base,
+                    status="error",
+                    configured=False,
+                    entitlement="credential_unavailable",
+                    message="Provider credential could not be resolved safely.",
+                ),)
+            credential_present = bool(credential and credential.strip())
+            base = replace(base, secret_present=credential_present)
+            if requires_api_key and not credential_present:
+                return (replace(
+                    base,
+                    configured=False,
+                    entitlement="api_key_required",
+                    message="Provider unavailable: required API key is not configured.",
+                ),)
         probe = self._probes.get(provider_id) or self._probes.get(active)
         if probe is None:
             return (replace(base, entitlement="configured", message="No capability probe registered; no network call was made."),)
+        adapter = getattr(probe, "__self__", None)
+        if adapter is not None and (requires_api_key or optional_capabilities):
+            if isinstance(getattr(adapter, "section", None), ProviderSection):
+                adapter.section = section.model_copy(update={"api_key": credential or ""})
+            adapter_values = getattr(adapter, "__dict__", {})
+            for attribute in ("api_key", "_api_key"):
+                if attribute in adapter_values:
+                    setattr(adapter, attribute, credential or "")
         try:
             result = probe()
-            return self._normalise_result(base, result)
+            capabilities = self._normalise_result(base, result)
+            if optional_capabilities:
+                capabilities = tuple(
+                    item for item in capabilities if item.dataset_type in optional_capabilities
+                )
+            return capabilities
         except Exception as exc:
             status = _exception_status(exc)
             fingerprint = hashlib.sha256(f"{type(exc).__name__}:{redact_text(exc)}".encode()).hexdigest()[:16]
@@ -241,6 +314,8 @@ class ProviderRegistry:
 
     @staticmethod
     def _requires_api_key(provider_id: str, active: str) -> bool:
+        # Key-required providers (T8 contract, e.g. finnhub) stay api_key_required without a
+        # credential; the capability mapping only limits what a keyed probe may declare.
         return provider_id == "fred" or active not in _KEYLESS_PROVIDERS
 
     @staticmethod
@@ -311,4 +386,11 @@ def _validate_csv(path: Path) -> None:
     pd.read_csv(path)
 
 
-__all__ = ["DEFAULT_PROBE_PATH", "PROBE_SCHEMA_VERSION", "REQUIRED_PROVIDER_IDS", "ProviderRegistry"]
+__all__ = [
+    "DEFAULT_PROBE_PATH",
+    "PROBE_SCHEMA_VERSION",
+    "REQUIRED_PROVIDER_IDS",
+    "ProviderRegistry",
+    "canonical_provider_account",
+    "invalidate_cached_probe_results",
+]

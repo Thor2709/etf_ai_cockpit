@@ -8,6 +8,10 @@ import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
+from etf_cockpit.app.components.fixed_income_views import (
+    build_fixed_income_bond_view_model,
+    fixed_income_bond_panel,
+)
 from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel, _valuation_panel, build_etf_disclosure_panel, build_etf_structure_panel, build_etf_liquidity_panel, build_instrument_detail
 from etf_cockpit.app.state import AppState
@@ -504,6 +508,67 @@ def _render_evidence_section(
     return _detail_disclosure(title, panel(ft.Column([section_header(title, subtitle), *lines], key=key, spacing=5)), value.get("status", "Evidence and explicit limitations"), expanded=expanded)
 
 
+def _render_opportunity_card(value: object) -> ft.Control:
+    opportunity = value if isinstance(value, Mapping) else {}
+    percentile = opportunity.get("percentile")
+    percentile_text = (
+        f"{float(percentile):.1f}%"
+        if isinstance(percentile, (int, float))
+        else "unavailable"
+    )
+    domain_scores = opportunity.get("domain_scores", ())
+    domain_line = ", ".join(
+        f"{row[0]}={row[1] if row[1] is not None else 'unavailable'}"
+        for row in domain_scores
+        if isinstance(row, (tuple, list)) and len(row) == 2
+    ) or "unavailable"
+    driver_lines = []
+    for label, field in (("Positive drivers", "positive_drivers"), ("Negative drivers", "negative_drivers")):
+        rows = opportunity.get(field, ())
+        summaries = [
+            f"{row.get('metric_id', 'unavailable')} (z={row.get('z_score', 'unavailable')})"
+            for row in rows
+            if isinstance(row, Mapping)
+        ]
+        driver_lines.append(
+            ft.Text(f"{label}: {', '.join(summaries) or 'unavailable'}", color=theme.MUTED, size=11, selectable=True)
+        )
+    return panel(
+        ft.Column(
+            [
+                section_header(
+                    "Opportunity",
+                    "Point-in-time universe and peer rank; timing remains separate from opportunity.",
+                ),
+                evidence_chip(
+                    "Opportunity",
+                    str(opportunity.get("status", "Insufficient Evidence")),
+                    theme.MUTED,
+                ),
+                ft.Text(
+                    f"Universe rank: {opportunity.get('universe_rank', 'unavailable')}/{opportunity.get('universe_support', 'unavailable')} | Percentile: {percentile_text}",
+                    color=theme.TEXT,
+                    size=13,
+                    selectable=True,
+                ),
+                ft.Text(
+                    f"Peer: {opportunity.get('peer_id', 'unavailable')} | Peer rank: {opportunity.get('peer_rank', 'unavailable')}/{opportunity.get('peer_support', 'unavailable')} | Peer percentile: {opportunity.get('peer_percentile', 'unavailable')}",
+                    color=theme.MUTED,
+                    size=11,
+                    selectable=True,
+                ),
+                ft.Text(f"Domains: {domain_line}", color=theme.MUTED, size=11, selectable=True),
+                ft.Text(f"Confidence: {opportunity.get('confidence', 'unavailable')} | Coverage: {opportunity.get('coverage', 'unavailable')}", color=theme.MUTED, size=11, selectable=True),
+                *driver_lines,
+                ft.Text(f"Timing: {opportunity.get('timing', 'Insufficient')}", color=theme.MUTED, size=11, selectable=True),
+                ft.Text(str(opportunity.get("explanation", "Domain evidence is unavailable.")), color=theme.MUTED, size=11, selectable=True),
+            ],
+            key="instrument-detail.opportunity",
+            spacing=5,
+        )
+    )
+
+
 def _render_etf_order_preview(page: ft.Page | None, state: AppState, instrument_id: str, report: object) -> ft.Control:
     """Render a small local order-size preview without granting execution authority."""
 
@@ -867,7 +932,24 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         disabled=not export_available,
         on_click=export_instrument_evidence,
     )
-    rows = [
+    fixed_income_terms = model.sections.get("fixed_income_terms")
+    fixed_income_terms = fixed_income_terms if isinstance(fixed_income_terms, Mapping) else {}
+    asset_type = str(model.identity.get("asset_type") or model.identity.get("asset_class") or "").casefold()
+    is_bond = asset_type in {"bond", "fixed_income", "fixed income", "government_bond", "corporate_bond"} or fixed_income_terms.get("status") in {"available", "quarantined"}
+    rows: list[ft.Control] = []
+    if is_bond:
+        rows.append(
+            fixed_income_bond_panel(
+                build_fixed_income_bond_view_model(
+                    selected,
+                    terms_projection=fixed_income_terms,
+                    market_data_projection=model.sections.get("fixed_income_market_data"),
+                    analytics_projection=model.sections.get("fixed_income_analytics"),
+                    risk_projection=model.sections.get("fixed_income_risk"),
+                )
+            )
+        )
+    rows.extend([
         _render_evidence_section(
             "Fixed-income risk",
             model.sections.get("fixed_income_risk"),
@@ -925,6 +1007,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         _render_etf_order_preview(page, state, selected, model.sections.get("etf_liquidity")),
         _render_evidence_section("ETF Economics", model.sections.get("etf_economics"), subtitle="Historical fees, share-class metrics, matched point-in-time tracking and closure-quality proxy evidence; missing values remain unavailable."),
         _render_evidence_section("Evidence Score", model.sections.get("scores"), subtitle="Authority score, quality, final label/reason and blocked gates; execution_allowed=false."),
+        _render_opportunity_card(model.sections.get("opportunity")),
         _render_evidence_section(
             "Peer cohort and adapter lineage",
             model.sections.get("peer_cohort"),
@@ -1020,7 +1103,7 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         ),
         _render_evidence_section("What changed since the last run", model.sections.get("run_changes")),
         _render_evidence_section("Point-in-time vintage history", vintage_history, subtitle="Append-only effective and availability timestamps, revisions, corrections and source-vintage metadata."),
-    ]
+    ])
     return ft.Column(
         [
             panel(ft.Column([

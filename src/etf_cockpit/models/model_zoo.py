@@ -9,7 +9,7 @@ are represented as unavailable evidence rather than silently replaced.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from math import sqrt
 from typing import Literal
@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 
-MODEL_ZOO_SCHEMA_VERSION = "model-zoo.v1"
+MODEL_ZOO_SCHEMA_VERSION = "model-zoo.v2"
 ModelTask = Literal["return", "risk", "quantile", "fundamentals"]
 ModelState = Literal["available", "unavailable"]
 
@@ -43,6 +43,9 @@ class ModelCard:
     checksum: str = "not_applicable"
     promotion_state: str = "shadow_only"
     execution_allowed: bool = False
+    subgroup_results: tuple[Mapping[str, object], ...] = ()
+    subgroup_status: str = "unavailable"
+    subgroup_reason: str | None = "No per-model subgroup evidence was supplied."
 
     def __post_init__(self) -> None:
         if self.execution_allowed:
@@ -71,6 +74,9 @@ class ModelCard:
             "checksum": self.checksum,
             "promotion_state": self.promotion_state,
             "execution_allowed": False,
+            "subgroup_results": [dict(result) for result in self.subgroup_results],
+            "subgroup_status": self.subgroup_status,
+            "subgroup_reason": self.subgroup_reason,
         }
 
 
@@ -81,12 +87,15 @@ def model_zoo_catalogue(
     *,
     optional_status: Mapping[str, bool] | None = None,
     horizons: Sequence[int] = _DEFAULT_HORIZONS,
+    subgroup_results_by_model: Mapping[str, Sequence[Mapping[str, object]]] | None = None,
 ) -> tuple[ModelCard, ...]:
     """Return deterministic baseline/challenger cards.
 
     ``optional_status`` is supplied by the local weight inventory or by a
     forecast artefact report.  Missing entries remain explicitly unavailable.
-    No network or package discovery is performed here.
+    ``subgroup_results_by_model`` attaches local subgroup evidence to cards;
+    missing entries stay unavailable with a reason.  No network or package
+    discovery is performed here.
     """
 
     clean_horizons = tuple(sorted({int(value) for value in horizons if int(value) > 0})) or _DEFAULT_HORIZONS
@@ -103,13 +112,26 @@ def model_zoo_catalogue(
         _card("timesfm", "TimesFM", "foundation", ("return", "quantile"), clean_horizons, ("adjusted_close",), "Model-specific terms", "optional", True, "available" if optional_status.get("timesfm", False) else "unavailable", "Optional local weights and runtime are not available." if not optional_status.get("timesfm", False) else "Optional local challenger; validation and licence review remain required.", "high", "high"),
         _card("toto", "Toto", "foundation", ("return", "quantile"), clean_horizons, ("adjusted_close",), "Model-specific terms", "optional", True, "available" if optional_status.get("toto", False) else "unavailable", "Optional local weights and runtime are not available." if not optional_status.get("toto", False) else "Optional local challenger; validation and licence review remain required.", "high", "high"),
     )
-    return cards
+    if subgroup_results_by_model is None:
+        return cards
+    return tuple(
+        replace(
+            card,
+            subgroup_results=tuple(dict(result) for result in subgroup_results_by_model.get(card.model_id, ())),
+            subgroup_status=("available" if subgroup_results_by_model.get(card.model_id) else "unavailable"),
+            subgroup_reason=(
+                None if subgroup_results_by_model.get(card.model_id) else "No per-model subgroup evidence was supplied."
+            ),
+        )
+        for card in cards
+    )
 
 
 def model_zoo_frame(
     *,
     optional_status: Mapping[str, bool] | None = None,
     horizons: Sequence[int] = _DEFAULT_HORIZONS,
+    subgroup_results_by_model: Mapping[str, Sequence[Mapping[str, object]]] | None = None,
 ) -> pd.DataFrame:
     """Serialise cards into a stable UI/report table."""
 
@@ -117,8 +139,16 @@ def model_zoo_frame(
         "model_id", "display_name", "family", "tasks", "horizons", "data_needs",
         "licence", "version", "optional", "state", "state_reason", "latency_class",
         "resource_class", "checksum", "promotion_state", "execution_allowed",
+        "subgroup_results", "subgroup_status", "subgroup_reason",
     ]
-    rows = [card.to_dict() for card in model_zoo_catalogue(optional_status=optional_status, horizons=horizons)]
+    rows = [
+        card.to_dict()
+        for card in model_zoo_catalogue(
+            optional_status=optional_status,
+            horizons=horizons,
+            subgroup_results_by_model=subgroup_results_by_model,
+        )
+    ]
     return pd.DataFrame(rows, columns=columns)
 
 

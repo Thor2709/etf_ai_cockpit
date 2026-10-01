@@ -1,0 +1,42 @@
+schema_version: 1
+version: decision-cutover-v1.0.0
+
+# Conservative typed defaults; see rank_validation.py for the cited rule.
+replay:
+  holding_period_sessions: 21
+  minimum_universe_support: 20
+
+validation:
+  top_n: 5
+  bottom_n: 5
+  minimum_decision_dates: 12
+  subperiod_count: 3
+  minimum_stable_subperiods: 3
+  minimum_group_support: 3
+  significance_t: 3.0
+
+monitoring:
+  minimum_observations: 4
+  alert_threshold: 1.0
+
+rankers:
+  QV:
+    version: decision-qv-v1
+    weights:
+      quality: 0.5
+      value: 0.5
+  QVM:
+    version: decision-qvm-v1
+    weights:
+      quality: 0.3333333333333333
+      value: 0.3333333333333333
+      momentum: 0.3333333333333333
+  v3:
+    version: score-engine-v3
+    score_column: v3_score
+  balanced_challenger:
+    version: decision-balanced-qvm-v1
+    weights:
+      quality: 0.4
+      value: 0.4
+      momentum: 0.2

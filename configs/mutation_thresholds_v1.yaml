@@ -1,0 +1,8 @@
+version: 1
+scope: safety-critical-packages
+required_kill_rate: 1.0
+critical_mutants:
+  - id: hidden_bond_second_calculation
+  - id: kill_switch_check_removed
+  - id: pretrade_order_limit_removed
+  - id: ledger_replay_cutoff_shifted

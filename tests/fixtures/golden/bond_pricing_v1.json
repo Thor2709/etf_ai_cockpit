@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "instrument_id": "BOND-1",
+  "expected": {
+    "clean_price": "100",
+    "dirty_price": "100",
+    "yield_to_maturity": "0.05"
+  },
+  "tolerances": {
+    "clean_price": "0.000001",
+    "dirty_price": "0.000001",
+    "yield_to_maturity": "0.00000001"
+  }
+}

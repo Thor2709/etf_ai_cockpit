@@ -31,6 +31,11 @@ from etf_cockpit.core.constants import APP_VERSION
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, ROOT
 from etf_cockpit.core.secure_update import describe_release_evidence
 from etf_cockpit.governance.product_scope import load_authority_matrix, load_product_governance
+from etf_cockpit.security.credentials import (
+    CredentialVault,
+    CredentialVaultError,
+    canonical_provider_account,
+)
 
 
 def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
@@ -232,6 +237,97 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
             settings_status.color = theme.RED
         refresh_settings_status()
 
+    def select_credential_provider(_event: ft.ControlEvent) -> None:
+        credential_value.value = ""
+        credential_status.value = "Enter a credential to save or remove the selected provider value."
+        credential_status.color = theme.MUTED
+        refresh_settings_status()
+
+    def edit_credential(_event: ft.ControlEvent) -> None:
+        credential_status.value = "Credential values are never shown after save."
+        credential_status.color = theme.MUTED
+        refresh_settings_status()
+
+    def save_provider_credential(_event: ft.ControlEvent) -> None:
+        provider_name = str(credential_provider.value or "").strip()
+        secret = credential_value.value or ""
+        try:
+            if not provider_name:
+                raise CredentialVaultError("A provider name is required.")
+            CredentialVault().set(canonical_provider_account(provider_name), secret)
+            credential_status.value = "Credential saved in the Windows-protected vault; cached provider probes were invalidated."
+            credential_status.color = theme.GREEN
+        except CredentialVaultError as exc:
+            credential_status.value = f"Credential could not be saved safely: {exc}"
+            credential_status.color = theme.RED
+        except Exception:
+            credential_status.value = "Credential could not be saved safely. Check the Windows vault status and try again."
+            credential_status.color = theme.RED
+        finally:
+            credential_value.value = ""
+        refresh_settings_status()
+
+    def delete_provider_credential(_event: ft.ControlEvent) -> None:
+        provider_name = str(credential_provider.value or "").strip()
+        try:
+            if not provider_name:
+                raise CredentialVaultError("A provider name is required.")
+            CredentialVault().delete(canonical_provider_account(provider_name))
+            credential_status.value = "Credential removed from the Windows-protected vault; cached provider probes were invalidated."
+            credential_status.color = theme.GREEN
+        except CredentialVaultError as exc:
+            credential_status.value = f"Credential could not be removed safely: {exc}"
+            credential_status.color = theme.RED
+        except Exception:
+            credential_status.value = "Credential could not be removed safely. Check the Windows vault status and try again."
+            credential_status.color = theme.RED
+        finally:
+            credential_value.value = ""
+        refresh_settings_status()
+
+    credential_provider_names = sorted(
+        {
+            canonical_provider_account(provider_name)
+            for provider_name, section in config.data_providers.providers.items()
+            if provider_name not in {"prices", "fx", "etf_metadata", "etf_holdings"}
+        }
+        | {
+            canonical_provider_account(section.active_provider)
+            for section in config.data_providers.providers.values()
+            if (section.active_provider or "none").strip().casefold() not in {"", "none"}
+        }
+    )
+    credential_provider = ft.Dropdown(
+        label="Provider",
+        value=credential_provider_names[0] if credential_provider_names else None,
+        options=[ft.dropdown.Option(name) for name in credential_provider_names],
+        key="settings.credential-provider",
+        width=220,
+        dense=True,
+        on_select=select_credential_provider,
+    )
+    credential_value = ft.TextField(
+        label="Provider credential",
+        password=True,
+        can_reveal_password=False,
+        hint_text="Stored with Windows protection; never included in settings exports.",
+        key="settings.credential-value",
+        width=360,
+        on_change=edit_credential,
+    )
+    vault_status = CredentialVault().status()
+    initial_credential_status = (
+        f"Credential vault unavailable: {vault_status['reason']} Existing .env values remain usable."
+        if vault_status["status"] == "unavailable"
+        else "No credential action has run in this session."
+    )
+    credential_status = ft.Text(
+        initial_credential_status,
+        key="settings.credential-status",
+        color=theme.MUTED,
+        selectable=True,
+    )
+
     provider_lines = [
         f"{name}: provider={section.active_provider or 'none'}; base URL={'configured' if section.base_url else 'not configured'}"
         for name, section in config.data_providers.providers.items()
@@ -285,7 +381,7 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
                                     "Manage credentials",
                                     key="settings.manage-credentials",
                                     disabled=True,
-                                    tooltip="Unavailable: secure credential CRUD depends on ISSUE-0176.",
+                                    tooltip="Credential controls are available below. ISSUE-0176",
                                 ),
                             ],
                             wrap=True,
@@ -319,7 +415,33 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
             panel(ft.Column([section_header("Portfolio context targets", "Used for drift context only; they do not override stock/ETF evidence scores."), ft.Text("\n".join(target_lines), color=theme.MUTED, selectable=True)])),
             panel(ft.Column([section_header("Guardrail settings", "Data-quality failures still block analysis; allocation caps are displayed as context."), ft.Text(str(config.risks.model_dump()), color=theme.MUTED, selectable=True)])),
             panel(ft.Column([section_header("Asset support matrix", "Daily ETF/stock data is score eligible. Intraday, futures and options are research-only or unsupported; leveraged/inverse instruments require manual review."), ft.Text("execution_allowed=false", color=theme.AMBER)])),
-            panel(ft.Column([section_header("Data providers", "Provider definitions are visible and versioned here. Credential CRUD is unavailable until ISSUE-0176."), ft.Text("\n".join(provider_lines), color=theme.MUTED, selectable=True), ft.Text("CREDENTIAL_CRUD_UNAVAILABLE_ISSUE_0176 · no plaintext credential field is exposed.", color=theme.AMBER, selectable=True)], spacing=12)),
+            panel(
+                ft.Column(
+                    [
+                        section_header(
+                            "Data providers",
+                            "Provider definitions are visible and versioned here. Vault credentials use Windows DPAPI; existing .env values remain a fallback.",
+                        ),
+                        ft.Text("\n".join(provider_lines), color=theme.MUTED, selectable=True),
+                        ft.Row([credential_provider, credential_value], wrap=True, spacing=10),
+                        ft.Row(
+                            [
+                                ft.Button("Save credential", key="settings.credential-save", on_click=save_provider_credential),
+                                ft.OutlinedButton("Delete credential", key="settings.credential-delete", on_click=delete_provider_credential),
+                            ],
+                            wrap=True,
+                        ),
+                        credential_status,
+                        ft.Text(
+                            "DPAPI credentials can be recovered only by the same Windows user profile. A backup restored under another profile cannot decrypt them; re-enter unrecoverable credentials.",
+                            key="settings.credential-recovery",
+                            color=theme.AMBER,
+                            selectable=True,
+                        ),
+                    ],
+                    spacing=12,
+                )
+            ),
             panel(ft.Column([section_header("Model settings", "Toto and TimesFM remain local optional evidence sources."), ft.Text("\n".join(model_lines), color=theme.MUTED, selectable=True)])),
         ],
         spacing=14,

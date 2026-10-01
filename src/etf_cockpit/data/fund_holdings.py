@@ -68,7 +68,9 @@ class HoldingsNormalisationResult:
 
 def _authority_for_source(source: str) -> str:
     value = str(source or "").strip().lower()
-    if value in {"issuer", "official_issuer", "issuer_csv", "issuer_xlsx", "issuer_json", "official"}:
+    if value in {"sec_nport", "sec_nport_official"}:
+        return "official"
+    if value in {"issuer", "official_issuer", "issuer_csv", "issuer_xlsx", "issuer_json", "official", "sec_nport", "sec_nport_official"}:
         return "issuer"
     if value in {"yfinance", "yahoo", "vendor", "vendor_top_holdings"} or "yfinance" in value or "yahoo" in value:
         return "vendor"
@@ -216,12 +218,12 @@ def normalise_holdings(
     name_only_manual_review = not bool(row_has_explicit_identifier.all())
     if name_only_manual_review:
         warnings.append("missing_isin_or_ticker_manual_review")
-    confidence = 1.0 if completeness == "full" and authority == "issuer" else 0.60 if completeness == "full" else 0.50 if authority == "vendor" else 0.55
+    confidence = 1.0 if completeness == "full" and authority in {"official", "issuer"} else 0.60 if completeness == "full" else 0.50 if authority == "vendor" else 0.55
     if freshness == "stale":
         confidence = min(confidence, 0.25)
     if name_only_manual_review:
         confidence = min(confidence, 0.55)
-    score_eligible = completeness == "full" and freshness == "fresh" and authority == "issuer" and not name_only_manual_review
+    score_eligible = completeness == "full" and freshness == "fresh" and authority in {"official", "issuer"} and not name_only_manual_review
     canonical = _canonical_holdings_json(selected[[column for column in _HOLDING_CANONICAL_COLUMNS if column in selected.columns]])
     source_id = "fundhold:" + hashlib.sha256(f"{instrument}|{as_of_date.isoformat()}|{source}|{canonical}".encode("utf-8")).hexdigest()[:24]
     selected["instrument_id"] = instrument
@@ -355,7 +357,7 @@ def _holdings_write_reasons(
         reasons.append(f"completeness={result.completeness!r}")
     if require_score_eligibility and result.freshness != "fresh":
         reasons.append(f"freshness={result.freshness!r}")
-    if require_score_eligibility and result.authority != "issuer":
+    if require_score_eligibility and result.authority not in {"official", "issuer"}:
         reasons.append(f"authority={result.authority!r}")
     if require_score_eligibility and result.score_eligible is not True:
         reasons.append("score_eligible=False")
@@ -511,7 +513,7 @@ def validate_holdings_store_frame(frame: pd.DataFrame, *, destination: Path) -> 
             raise ValueError(f"Existing holdings store has invalid completeness: {destination}")
         if result.freshness not in {"fresh", "stale"}:
             raise ValueError(f"Existing holdings store has invalid freshness: {destination}")
-        if result.authority not in {"issuer", "vendor", "unknown"}:
+        if result.authority not in {"official", "issuer", "vendor", "unknown"}:
             raise ValueError(f"Existing holdings store has invalid authority: {destination}")
 
 

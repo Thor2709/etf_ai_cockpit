@@ -57,6 +57,7 @@ from etf_cockpit.application.ui_facade import (
     read_priips_kid_records,
     score_history_frame,
     load_score_metric_history_projection,
+    load_opportunity_assessment,
     sort_news_items,
     load_bound_factor_risk_panel,
     allocation_frame,
@@ -132,6 +133,7 @@ _SECTION_NAMES = (
     "etf_liquidity",
     "etf_economics",
     "scores",
+    "opportunity",
     "feature_drivers",
     "risk",
     "attribution",
@@ -2804,6 +2806,10 @@ def build_instrument_detail(
         expected_source_digest=innovation_source_digest,
     )
     valuation = _valuation_panel(instrument_id, identity_panel.get("asset_type"), decision_time)
+    opportunity = load_opportunity_assessment(
+        instrument_id,
+        decision_time=projection_time or decision_time,
+    )
     if (
         isinstance(financial_institutions, Mapping)
         and financial_institutions.get("business_model") == "bank"
@@ -2834,6 +2840,7 @@ def build_instrument_detail(
             "etf_liquidity": liquidity,
             "etf_economics": economics,
             "scores": _score_panel(signal, scoreboard, derived, friction),
+            "opportunity": opportunity,
             "feature_drivers": _feature_driver_panel(instrument_id),
             "risk": _risk_panel(features, friction, derived["crowding"]),
             "attribution": _attribution_panel(

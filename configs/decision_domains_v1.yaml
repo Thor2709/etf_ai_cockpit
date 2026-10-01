@@ -346,3 +346,195 @@ stock_decision:
     - earnings_momentum
     - model_evidence
   execution_allowed: false
+
+etf_decision_graph:
+  version: decision-etf-v1.0.0
+  execution_allowed: false
+  vehicle_metrics:
+    - metric_id: tracking_difference_abs
+      domain: tracking
+      subfamily: tracking_difference
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: CONDITIONAL
+      rank_authority: true
+    - metric_id: tracking_error
+      domain: tracking
+      subfamily: tracking_error
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: CONDITIONAL
+      rank_authority: true
+    - metric_id: ter
+      domain: cost_implementation
+      subfamily: fund_cost_realised_drag
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: CONDITIONAL
+      rank_authority: true
+    - metric_id: estimated_trading_cost
+      domain: cost_implementation
+      subfamily: trading_implementation
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: CONDITIONAL
+      rank_authority: true
+    - metric_id: premium_discount_abs
+      domain: cost_implementation
+      subfamily: trading_implementation
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: OPTIONAL
+      rank_authority: true
+    - metric_id: spread_proxy_bps
+      domain: cost_implementation
+      subfamily: trading_implementation
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: OPTIONAL
+      rank_authority: true
+    - metric_id: spread_p95_bps
+      domain: cost_implementation
+      subfamily: trading_implementation
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: OPTIONAL
+      rank_authority: true
+    - metric_id: premium_discount_stability
+      domain: cost_implementation
+      subfamily: trading_implementation
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: OPTIONAL
+      rank_authority: true
+    - metric_id: order_to_daily_turnover
+      domain: cost_implementation
+      subfamily: trading_implementation
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: OPTIONAL
+      rank_authority: true
+    - metric_id: look_through_hhi
+      domain: diversification
+      subfamily: issuer_concentration
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: CONDITIONAL
+      rank_authority: true
+    - metric_id: look_through_top_10_share
+      domain: diversification
+      subfamily: issuer_concentration
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: OPTIONAL
+      rank_authority: true
+    - metric_id: unresolved_exposure_weight
+      domain: diversification
+      subfamily: look_through_completeness
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: CONDITIONAL
+      rank_authority: true
+    - metric_id: closure_risk_score
+      domain: structural_risk
+      subfamily: scale_closure_resilience
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: OPTIONAL
+      rank_authority: true
+    - metric_id: unsecured_counterparty_exposure
+      domain: structural_risk
+      subfamily: structural_robustness
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: OPTIONAL
+      rank_authority: true
+    - metric_id: collateral_concentration_stress
+      domain: structural_risk
+      subfamily: structural_robustness
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: OPTIONAL
+      rank_authority: true
+    - metric_id: tax_drag
+      domain: structural_risk
+      subfamily: tax_currency_hedging
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: OPTIONAL
+      rank_authority: true
+    - metric_id: currency_mismatch
+      domain: structural_risk
+      subfamily: tax_currency_hedging
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: OPTIONAL
+      rank_authority: true
+  exposure_metrics:
+    - metric_id: look_through_pe_ratio
+      domain: exposure_valuation
+      subfamily: valuation
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: lower_is_better
+      requirement_class: CONDITIONAL
+      rank_authority: true
+    - metric_id: look_through_roic
+      domain: exposure_quality
+      subfamily: capital_efficiency
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: higher_is_better
+      requirement_class: CONDITIONAL
+      rank_authority: true
+    - metric_id: expected_etf_return
+      domain: exposure_expected_return
+      subfamily: expected_return
+      weight: 1.0
+      subfamily_weight: 1.0
+      comparison_scope: ETF_EXPOSURE_PEERS
+      metric_shape: higher_is_better
+      requirement_class: OPTIONAL
+      rank_authority: true
+
+# Decision-rank cutover is owner-controlled. Typed thresholds and the
+# promotion-record contract live in decision_cutover_v1.yaml.
+rank_cutover:
+  enabled: false
+  promotion_record: null
