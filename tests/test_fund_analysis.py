@@ -39,6 +39,10 @@ def test_accumulating_return_matches_hand_calculated_values() -> None:
     assert result.reinvested_distributions_return == Decimal("0")
     assert result.class_fee_return == Decimal("-0.0004657534246575342465753424658")
     assert result.total_return == Decimal("0.039534246575342465753424658")
+    # (104 / 100 - 1 - 50 / 10000 * 34 / 365) -
+    # (0.04 + 0 - 50 / 10000 * 34 / 365) = 0.
+    assert result.residual == Decimal("0")
+    assert abs(result.residual) <= result.reconciliation_tolerance
 
 
 def test_distributing_return_matches_hand_calculated_values() -> None:
@@ -66,6 +70,11 @@ def test_distributing_return_matches_hand_calculated_values() -> None:
     assert result.reinvested_distributions_return == Decimal("0.02019801980198019801980198")
     assert result.class_fee_return == Decimal("-0.0004657534246575342465753424658")
     assert result.total_return == Decimal("0.039732266377322663773226638")
+    # Both (1 + 2 / 101) * 102 / 100 - 1 and
+    # 0.02 + (((1 + 2 / 101) * 102 / 100 - 1) - 0.02) give the same gross
+    # return, so after subtracting 50 / 10000 * 34 / 365 on each side the residual is 0.
+    assert result.residual == Decimal("0")
+    assert abs(result.residual) <= result.reconciliation_tolerance
 
 
 def test_fee_change_after_nav_window_does_not_reprice_historical_interval() -> None:
@@ -109,6 +118,67 @@ def test_fee_term_coverage_gap_abstains() -> None:
     assert record.return_decomposition.status == "insufficient_evidence"
     assert "insufficient_fee_term_coverage" in record.blockers
     assert record.return_decomposition.total_return is None
+
+
+def test_intraday_fee_change_boundary_abstains() -> None:
+    source = _input()
+    fee_term = next(term for term in source.terms if term.name == "ongoing_fee_bps")
+    boundary = "2026-01-20T12:00:00Z"
+    terms = tuple(term for term in source.terms if term.name != "ongoing_fee_bps") + (
+        replace(fee_term, valid_to=boundary),
+        replace(
+            fee_term,
+            value="100",
+            valid_from=boundary,
+            source_id="term:fee-increase-noon",
+        ),
+    )
+
+    record = analyze_fund(replace(source, terms=terms))
+
+    assert record.status == "insufficient_evidence"
+    assert "fee_term_intraday_boundary_unsupported" in record.blockers
+    assert "fee_term_intraday_boundary_unsupported" in record.return_decomposition.reason_codes
+    assert record.return_decomposition.class_fee_return is None
+
+
+def test_intraday_fee_coverage_start_abstains() -> None:
+    source = _input()
+    fee_term = next(term for term in source.terms if term.name == "ongoing_fee_bps")
+    terms = tuple(
+        replace(term, valid_from="2026-01-20T12:00:00Z")
+        if term is fee_term
+        else term
+        for term in source.terms
+    )
+
+    record = analyze_fund(replace(source, terms=terms))
+
+    assert record.status == "insufficient_evidence"
+    assert "fee_term_intraday_boundary_unsupported" in record.blockers
+    assert record.return_decomposition.class_fee_return is None
+
+
+def test_date_aligned_fee_change_still_accrues_by_day() -> None:
+    source = _input()
+    fee_term = next(term for term in source.terms if term.name == "ongoing_fee_bps")
+    terms = tuple(term for term in source.terms if term.name != "ongoing_fee_bps") + (
+        replace(fee_term, valid_to="2026-01-20T00:00:00Z"),
+        replace(
+            fee_term,
+            value="100",
+            valid_from="2026-01-20T00:00:00Z",
+            source_id="term:fee-increase-midnight",
+        ),
+    )
+
+    record = analyze_fund(replace(source, terms=terms))
+
+    assert record.status == "available"
+    assert record.total_fee_bps == Decimal("100")
+    assert record.return_decomposition.class_fee_return == Decimal(
+        "-0.0006712328767123287671232876713"
+    )
 
 
 def test_distribution_reinvests_at_exact_ex_date_nav() -> None:
@@ -247,11 +317,11 @@ def test_fund_of_funds_stacks_known_underlying_fees_and_abstains_if_unknown() ->
     links = (
         FundUnderlyingLink(
             "FUND-1", "UNDER-1", Decimal("0.6"), Decimal("30"),
-            date(2026, 1, 1), "2026-01-01T09:00:00Z", "link:one",
+            date(2026, 1, 1), "2026-01-01T09:00:00Z", "link:one", terminal_holding=True,
         ),
         FundUnderlyingLink(
             "FUND-1", "UNDER-2", Decimal("0.4"), Decimal("20"),
-            date(2026, 1, 1), "2026-01-01T09:00:00Z", "link:two",
+            date(2026, 1, 1), "2026-01-01T09:00:00Z", "link:two", terminal_holding=True,
         ),
     )
     known = analyze_fund(_input(underlying_structure="fund_of_funds", underlying_links=links))
@@ -273,7 +343,7 @@ def test_fund_of_funds_stacks_known_underlying_fees_and_abstains_if_unknown() ->
 def test_fee_stack_uses_latest_applicable_allocation_snapshot_and_rejects_duplicates() -> None:
     old_snapshot = FundUnderlyingLink(
         "FUND-1", "UNDER-1", Decimal("1"), Decimal("30"),
-        date(2026, 1, 1), "2026-01-01T09:00:00Z", "link:old-snapshot",
+        date(2026, 1, 1), "2026-01-01T09:00:00Z", "link:old-snapshot", terminal_holding=True,
     )
     latest_snapshot = replace(
         old_snapshot,
@@ -308,12 +378,18 @@ def test_fee_stack_traverses_nested_links_and_marks_missing_fees_or_cycles_incom
     )
     master_to_underlying = FundUnderlyingLink(
         "MASTER-1", "UNDER-1", Decimal("1"), Decimal("20"),
-        date(2026, 1, 1), "2026-01-01T09:00:00Z", "link:master-underlying",
+        date(2026, 1, 1), "2026-01-01T09:00:00Z", "link:master-underlying", terminal_holding=True,
     )
     complete = analyze_fund(
         _input(
             underlying_structure="master_feeder",
             underlying_links=(root_to_master, master_to_underlying),
+        )
+    )
+    missing_child_links = analyze_fund(
+        _input(
+            underlying_structure="master_feeder",
+            underlying_links=(root_to_master,),
         )
     )
     missing_fee = analyze_fund(
@@ -334,6 +410,8 @@ def test_fee_stack_traverses_nested_links_and_marks_missing_fees_or_cycles_incom
 
     assert complete.total_fee_bps == Decimal("100")
     assert complete.fee_stack_status == "complete"
+    assert missing_child_links.fee_stack_status == "fee_stack_incomplete"
+    assert "fee_stack_incomplete_holding:MASTER-1" in missing_child_links.blockers
     assert missing_fee.fee_stack_status == "fee_stack_incomplete"
     assert cycle.fee_stack_status == "fee_stack_incomplete"
 

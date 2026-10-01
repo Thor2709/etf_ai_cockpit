@@ -32,6 +32,8 @@ FUND_RETURN_CONTRACT = "fund-return-decomposition.v1"
 FUND_ANALYSIS_CONFIG = Path(__file__).resolve().parents[3] / "configs" / "fund_analysis_v1.yaml"
 _CURRENCY = re.compile(r"^[A-Z]{3}$")
 _TIME = re.compile(r"^\d{2}:\d{2}$")
+# Fee accrual is date-based, so intraday fee coverage boundaries are unsupported.
+_FEE_TERM_INTRADAY_BOUNDARY_UNSUPPORTED = "fee_term_intraday_boundary_unsupported"
 
 
 class FundAnalysisError(ValueError):
@@ -78,12 +80,15 @@ class FundUnderlyingLink:
     as_of: date
     available_at: str
     source_id: str
+    terminal_holding: bool | None = None
 
     def __post_init__(self) -> None:
         if not self.parent_fund_id.strip() or not self.underlying_fund_id.strip():
             raise FundAnalysisError("underlying link fund IDs must be non-empty")
         if not self.source_id.strip():
             raise FundAnalysisError("underlying links require a source ID")
+        if self.terminal_holding is not None and not isinstance(self.terminal_holding, bool):
+            raise FundAnalysisError("terminal_holding must be a boolean when supplied")
         if not self.weight.is_finite() or not Decimal("0") < self.weight <= Decimal("1"):
             raise FundAnalysisError("underlying link weight must be in (0, 1]")
         if self.ongoing_fee_bps is not None and (
@@ -426,7 +431,7 @@ def analyze_fund(item: FundAnalysisInput) -> FundAnalysisRecord:
     end_date = end_nav.as_of if end_nav is not None else effective_date
     if item.underlying_structure not in {"single", "fund_of_funds", "master_feeder"}:
         raise FundAnalysisError("underlying structure is unsupported")
-    total_fee_bps, fee_stack_complete, fee_refs = _fee_stack(
+    total_fee_bps, fee_stack_complete, fee_refs, fee_stack_blockers = _fee_stack(
         item,
         root_fee,
         end_date,
@@ -434,6 +439,7 @@ def analyze_fund(item: FundAnalysisInput) -> FundAnalysisRecord:
         config,
     )
     evidence.extend(fee_refs)
+    blockers.extend(fee_stack_blockers)
     if not fee_stack_complete:
         blockers.append("fee_stack_incomplete")
 
@@ -661,11 +667,11 @@ def _fee_stack(
     as_of: date,
     decision: datetime,
     config: FundAnalysisConfig,
-) -> tuple[Decimal | None, bool, tuple[str, ...]]:
+) -> tuple[Decimal | None, bool, tuple[str, ...], tuple[str, ...]]:
     if root_fee is None:
-        return None, item.underlying_structure == "single", ()
+        return None, item.underlying_structure == "single", (), ()
     if item.underlying_structure == "single":
-        return root_fee, True, ()
+        return root_fee, True, (), ()
     known_links = tuple(
         link
         for link in item.underlying_links
@@ -673,6 +679,7 @@ def _fee_stack(
     )
     eligible_links = tuple(link for link in known_links if link.as_of <= as_of)
     refs: list[str] = []
+    stack_blockers: list[str] = []
     complete = True
     stacked = root_fee
 
@@ -683,7 +690,7 @@ def _fee_stack(
             return
         candidates = tuple(link for link in eligible_links if link.parent_fund_id == parent_id)
         if not candidates:
-            if parent_id == item.fund_id or any(link.parent_fund_id == parent_id for link in known_links):
+            if parent_id == item.fund_id:
                 complete = False
             return
         snapshot_date = max(link.as_of for link in candidates)
@@ -703,11 +710,21 @@ def _fee_stack(
                 stacked += weight * link.weight * link.ongoing_fee_bps
             if link.underlying_fund_id in path or link.underlying_fund_id == parent_id:
                 complete = False
-            elif any(known.parent_fund_id == link.underlying_fund_id for known in known_links):
+            elif any(known.parent_fund_id == link.underlying_fund_id for known in eligible_links):
                 add_parent(link.underlying_fund_id, weight * link.weight, (*path, parent_id))
+            elif link.terminal_holding is not True:
+                complete = False
+                stack_blockers.append(
+                    f"fee_stack_incomplete_holding:{link.underlying_fund_id}"
+                )
 
     add_parent(item.fund_id, Decimal("1"), ())
-    return (stacked if complete else None), complete, tuple(dict.fromkeys(refs))
+    return (
+        (stacked if complete else None),
+        complete,
+        tuple(dict.fromkeys(refs)),
+        tuple(dict.fromkeys(stack_blockers)),
+    )
 
 
 def _class_fee_return(
@@ -728,6 +745,21 @@ def _class_fee_return(
         if term.name in {"ongoing_fee_bps", "fees_reflected_in_nav"}
         and _timestamp(term.available_at, "term available_at") <= decision
     )
+    for term in known_terms:
+        for raw_boundary in (term.valid_from, term.valid_to):
+            if raw_boundary is None:
+                continue
+            boundary = _timestamp(raw_boundary, "term validity").astimezone(timezone.utc)
+            if (
+                start_date <= boundary.date() < end_date
+                and boundary.time() != time.min
+            ):
+                return (
+                    None,
+                    False,
+                    (_FEE_TERM_INTRADAY_BOUNDARY_UNSUPPORTED,),
+                    tuple(dict.fromkeys(_term_reference(known) for known in known_terms)),
+                )
     known_links = tuple(
         link
         for link in item.underlying_links
@@ -737,7 +769,7 @@ def _class_fee_return(
     for term in known_terms:
         for raw_boundary in (term.valid_from, term.valid_to):
             if raw_boundary is not None:
-                boundary = _timestamp(raw_boundary, "term validity").date()
+                boundary = _timestamp(raw_boundary, "term validity").astimezone(timezone.utc).date()
                 if start_date < boundary < end_date:
                     boundaries.add(boundary)
     for link in known_links:
@@ -774,10 +806,11 @@ def _class_fee_return(
         if reflected_term.value.casefold() == "true":
             references.extend((_term_reference(fee_term), _term_reference(reflected_term)))
             continue
-        interval_fee, stack_complete, stack_refs = _fee_stack(
+        interval_fee, stack_complete, stack_refs, stack_blockers = _fee_stack(
             item, interval_root_fee, interval_start, decision, config
         )
         references.extend((_term_reference(fee_term), _term_reference(reflected_term), *stack_refs))
+        blockers.extend(stack_blockers)
         if not stack_complete or interval_fee is None:
             blockers.append("fee_stack_incomplete")
             continue
@@ -883,8 +916,11 @@ def _term_at(
         for term in terms
         if term.name == name
         and _timestamp(term.available_at, "term available_at") <= decision
-        and _timestamp(term.valid_from, "term valid_from").date() <= effective_date
-        and (term.valid_to is None or _timestamp(term.valid_to, "term valid_to").date() > effective_date)
+        and _timestamp(term.valid_from, "term valid_from").astimezone(timezone.utc).date() <= effective_date
+        and (
+            term.valid_to is None
+            or _timestamp(term.valid_to, "term valid_to").astimezone(timezone.utc).date() > effective_date
+        )
     )
     if not matching:
         return None, False
