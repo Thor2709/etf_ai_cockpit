@@ -994,9 +994,11 @@ def execute_profiled_stages(
         if not reused and stage_result is not None:
             with cache_lock if cache_lock is not None else nullcontext():
                 existing = cache.get(key)
-                if isinstance(existing, Mapping) and existing.get("content_hash") != content_hash:
-                    raise AnalysisDepthError("identical stage-cache keys produced different outputs")
-                if isinstance(existing, Mapping) and "result" in existing:
+                if (
+                    isinstance(existing, Mapping)
+                    and "result" in existing
+                    and stage_output_hash(existing["result"]) == existing.get("content_hash") == content_hash
+                ):
                     stage_result = existing["result"]
                     stage_outputs[stage.stage_id] = stage_result
                 else:

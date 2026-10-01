@@ -14,6 +14,7 @@ from etf_cockpit.application.analysis_depth import (
     load_analysis_depth_profiles,
 )
 from etf_cockpit.application.bulk_run import BulkAnalysisService
+from etf_cockpit.core import resource_profiles
 from etf_cockpit.core.resource_profiles import HardwareSnapshot, estimate_workflow_resources
 
 
@@ -32,12 +33,12 @@ def _install_plan_estimate(monkeypatch, *, cpu=3.0, memory_mb=1_536, disk_mb=4_0
     )
 
 
-def _set_test_hardware(service, *, max_concurrency=3):
+def _set_test_hardware(service, *, max_concurrency=3, cpu_cores=4):
     policy = service.scheduler.resource_policy
     policy.profile_id = "high"
     policy.snapshot = HardwareSnapshot(
         platform="test",
-        cpu_cores=4,
+        cpu_cores=cpu_cores,
         memory_total_mb=65_536,
         memory_available_mb=65_536,
         disk_free_mb=131_072,
@@ -334,6 +335,13 @@ def test_incompatible_mandatory_plan_fails_before_submission(monkeypatch, tmp_pa
 
 def test_mandatory_hashes_match_across_worker_and_low_resource_plans(monkeypatch, tmp_path):
     _install_plan_estimate(monkeypatch)
+    high_profile = resource_profiles._PROFILE_BY_ID["high"]
+    # Allow the scheduler to admit three full CPU=3 reservations together.
+    monkeypatch.setitem(
+        resource_profiles._PROFILE_BY_ID,
+        "high",
+        replace(high_profile, job_cpu_limit=9),
+    )
     values = tuple(range(1, 131))
     inputs = {f"ETF.{index}": {"values": values} for index in range(3)}
     observed_plans = {"serial": [], "parallel": [], "low_resource": [], "perturbed": []}
@@ -369,12 +377,20 @@ def test_mandatory_hashes_match_across_worker_and_low_resource_plans(monkeypatch
     )
 
     parallel = BulkAnalysisService(tmp_path / "parallel")
-    _set_test_hardware(parallel)
+    _set_test_hardware(parallel, cpu_cores=9)
+    parallel_barrier = Barrier(3, timeout=5)
+    parallel_runner = numerical_runner_for(observed_plans["parallel"])
+
+    def parallel_runner_with_barrier(instrument_id, analysis_input, stage, resource_plan):
+        if stage.stage_id == MANDATORY_STAGE_IDS[0]:
+            parallel_barrier.wait()
+        return parallel_runner(instrument_id, analysis_input, stage, resource_plan)
+
     parallel_run = parallel.start(
         inputs,
         analyzer_id="tests.depth.parity.v1",
         depth_profile="quick",
-        stage_runner=numerical_runner_for(observed_plans["parallel"]),
+        stage_runner=parallel_runner_with_barrier,
     )
 
     low_resource = BulkAnalysisService(tmp_path / "low-resource")
@@ -410,6 +426,7 @@ def test_mandatory_hashes_match_across_worker_and_low_resource_plans(monkeypatch
     assert all(plan.shard_size == default_shard_size for plan in observed_plans["serial"])
     assert all(plan.shard_size == default_shard_size for plan in observed_plans["parallel"])
     assert all(plan.shard_size == 1 for plan in observed_plans["low_resource"])
+    assert all(plan.estimated_cpu == 3.0 for plan in observed_plans["parallel"])
     assert all(plan.cpu_fallback for plans in observed_plans.values() for plan in plans)
 
     def mandatory_hashes(run, instrument_id):

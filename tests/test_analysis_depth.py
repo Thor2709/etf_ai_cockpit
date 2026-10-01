@@ -24,6 +24,8 @@ from etf_cockpit.application.analysis_depth import (
     create_resource_plan,
     execute_profiled_stages,
     load_analysis_depth_profiles,
+    stage_cache_key,
+    stage_output_hash,
     timing_percentiles,
 )
 from etf_cockpit.application.bulk_run import BulkAnalysisService
@@ -405,6 +407,42 @@ def test_synthetic_reference_label_is_not_certified_and_cache_misses_stay_cold()
     assert cold_output["deterministic_fields"] == warm_output["deterministic_fields"]
     assert all(record.cache_state == "cold" for record in cold_records)
     assert all(record.cache_state == "warm" for record in warm_records)
+
+
+def test_corrupt_publication_entry_is_replaced_with_recomputed_result():
+    profile = load_analysis_depth_profiles()["quick"]
+    stage = profile.stages[0]
+    profile = replace(profile, stages=(stage,))
+    instrument_id = "ETF.CACHE"
+    analysis_input = {"value": 3}
+    analyzer_id = "tests.depth.corrupt-cache.v1"
+    resource_plan = create_resource_plan(profile)
+    recomputed_result = _runner(instrument_id, analysis_input, stage, resource_plan)
+    corrupted_result = {**recomputed_result, "value": recomputed_result["value"] + 1}
+    content_hash = stage_output_hash(recomputed_result)
+    cache_key = stage_cache_key(instrument_id, analysis_input, analyzer_id, stage)
+    cache = {cache_key: {"content_hash": content_hash, "result": corrupted_result}}
+    runner_calls = []
+
+    def runner(*args):
+        runner_calls.append(args[2].stage_id)
+        return _runner(*args)
+
+    output, _records = execute_profiled_stages(
+        profile,
+        instrument_id,
+        analysis_input,
+        analyzer_id,
+        runner,
+        cache,
+        run_id="corrupt-cache-publication",
+        resource_plan=resource_plan,
+    )
+
+    assert runner_calls == [stage.stage_id]
+    assert output["stages"][stage.stage_id] == recomputed_result
+    assert output["stage_hashes"][stage.stage_id]["content_hash"] == content_hash
+    assert cache[cache_key] == {"content_hash": content_hash, "result": recomputed_result}
 
 
 def test_low_resource_mode_changes_sharding_not_mandatory_results_or_hashes(tmp_path):
