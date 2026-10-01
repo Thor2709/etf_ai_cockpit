@@ -686,20 +686,20 @@ class AppState:
             entry = self.require_activity(expected_action_id or self.shared_activity_id)
             _, retryable = classify_exception(exc)
             result = self.workflow_controller.fail(entry.action_id, exc, retryable=retryable)
+            entry.message = f"{label} failed: {result.message}"
+            self.error_store.record_exception(
+                action_id=entry.action_id,
+                exc=exc,
+                retry_callback=retry_callback,
+                user_message=entry.message,
+            )
             entry.status = "failed"
             entry.step = "Failed"
             entry.finished_at = _utc_now()
-            entry.message = f"{label} failed: {result.message}"
             entry.error = result.message
             self.current_activity = None
             self.last_message = entry.message
             self.recent_activity = (self.recent_activity + [entry])[-8:]
-        self.error_store.record_exception(
-            action_id=entry.action_id,
-            exc=exc,
-            retry_callback=retry_callback,
-            user_message=entry.message,
-        )
         log_event(
             event_type="activity_failed",
             severity="error",
