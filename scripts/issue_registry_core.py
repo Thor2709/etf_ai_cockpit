@@ -128,7 +128,11 @@ LEGACY_BOOTSTRAP_RECORDS: dict[str, dict[str, Any]] = {
         "dependency_edge_evidence": {},
         "phase": "phase-01-governance-scope",
         "programme_status": "in_progress",
-        "status_transition": None,
+        "status_transition": {
+            "from": "in_progress",
+            "review_reference": "B00 canonical import from audited programme state",
+            "to": "in_progress",
+        },
         "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
         "verified_date": "2026-07-21",
     },
@@ -137,7 +141,11 @@ LEGACY_BOOTSTRAP_RECORDS: dict[str, dict[str, Any]] = {
         "dependency_edge_evidence": {},
         "phase": "phase-01-governance-scope",
         "programme_status": "in_progress",
-        "status_transition": None,
+        "status_transition": {
+            "from": "in_progress",
+            "review_reference": "B00 canonical import from audited programme state",
+            "to": "in_progress",
+        },
         "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
         "verified_date": "2026-07-21",
     },
@@ -1689,10 +1697,7 @@ def validate_status_replay_prefix_shape(
         expected = LEGACY_BOOTSTRAP_RECORDS.get(issue_id)
         if (
             expected is None
-            or (
-                expected["status_transition"] is None
-                and phase != expected["phase"]
-            )
+            or phase != expected["phase"]
             or acceptance_evidence != expected["acceptance_evidence"]
             or programme_status != expected["programme_status"]
             or dependency_edge_evidence != expected["dependency_edge_evidence"]
