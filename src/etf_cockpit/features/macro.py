@@ -42,6 +42,7 @@ def build_macro_context(
     benchmark_data_id: str | None = None,
     benchmark_reference: Mapping[str, object] | None = None,
     benchmark_registry: CanonicalBenchmarkRegistry | None = None,
+    as_of_date: date | None = None,
 ) -> dict[str, object]:
     """Build a local macro context snapshot without network access.
 
@@ -73,6 +74,17 @@ def build_macro_context(
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     frame["etf_id"] = frame["etf_id"].astype(str).str.strip()
     frame = frame.dropna(subset=["date", "adjusted_close"])
+    freshness_as_of = as_of_date
+    price_cutoff = None if as_of_date is None else pd.Timestamp(as_of_date, tz="UTC") + pd.Timedelta(days=1)
+    if freshness_as_of is None and isinstance(benchmark_reference, Mapping):
+        analysis = benchmark_reference.get("analysis")
+        if isinstance(analysis, Mapping):
+            decision_time = pd.to_datetime(analysis.get("decision_time"), errors="coerce", utc=True)
+            if not pd.isna(decision_time):
+                freshness_as_of = decision_time.date()
+                price_cutoff = decision_time
+    if price_cutoff is not None:
+        frame = frame[frame["date"] < price_cutoff]
     frame = frame[(frame["etf_id"] != "") & (frame["adjusted_close"] > 0)]
     if frame.empty:
         return _unavailable("The local price snapshot has no usable adjusted-close rows.")
@@ -86,13 +98,14 @@ def build_macro_context(
     pivot = frame.pivot_table(index="date", columns="etf_id", values="adjusted_close", aggfunc="last").sort_index()
     pivot = pivot.reindex(sorted(pivot.columns), axis=1)
     latest_date = pivot.index.max()
+    freshness_as_of = freshness_as_of or latest_date.date()
     filled = pivot.ffill(limit=5)
     latest_day = filled.iloc[-1]
     returns = filled.pct_change(fill_method=None)
     metadata = _metadata_by_id(instruments)
-    proxy_rows = [_proxy_summary(name, pivot, returns, metadata) for name in _PROXY_KEYWORDS]
-    breadth = _breadth_summary(pivot)
-    volatility = _volatility_summary(returns)
+    proxy_rows = [_proxy_summary(name, pivot, returns, metadata, freshness_as_of) for name in _PROXY_KEYWORDS]
+    breadth = _breadth_summary(pivot, freshness_as_of)
+    volatility = _volatility_summary(returns, freshness_as_of)
     regime_frame = filled.rename_axis("date").stack(future_stack=True).rename("adjusted_close").reset_index()
     regime_frame.columns = ["date", "etf_id", "adjusted_close"]
     regime = build_market_regime(
@@ -103,7 +116,7 @@ def build_macro_context(
         benchmark_reference=benchmark_reference,
         benchmark_registry=benchmark_registry,
     )
-    freshness_days = max(0, (date.today() - latest_date.date()).days)
+    freshness_days = (freshness_as_of - latest_date.date()).days
     dashboard_label = _dashboard_label(regime.get("regime_score_10"))
 
     return {
@@ -160,7 +173,13 @@ def _metadata_by_id(instruments: Iterable[object]) -> dict[str, dict[str, str]]:
     return result
 
 
-def _proxy_summary(name: str, pivot: pd.DataFrame, returns: pd.DataFrame, metadata: dict[str, dict[str, str]]) -> dict[str, object]:
+def _proxy_summary(
+    name: str,
+    pivot: pd.DataFrame,
+    returns: pd.DataFrame,
+    metadata: dict[str, dict[str, str]],
+    freshness_as_of: date,
+) -> dict[str, object]:
     candidates: list[str] = []
     for identifier in pivot.columns:
         if metadata and str(identifier) not in metadata:
@@ -197,11 +216,11 @@ def _proxy_summary(name: str, pivot: pd.DataFrame, returns: pd.DataFrame, metada
         "source": "local adjusted_close price snapshot",
         "provider_symbol": None,
         "provenance": "local adjusted_close price snapshot",
-        "freshness_status": "fresh" if (date.today() - sample.index.max().date()).days <= 7 else "stale",
+        "freshness_status": "fresh" if (freshness_as_of - sample.index.max().date()).days <= 7 else "stale",
     }
 
 
-def _breadth_summary(pivot: pd.DataFrame) -> dict[str, object]:
+def _breadth_summary(pivot: pd.DataFrame, freshness_as_of: date) -> dict[str, object]:
     if len(pivot) < 200:
         return {"status": "unavailable", "reason": "At least 200 local trading days are required.", "pct_above_sma200": None, "source": "local adjusted_close price snapshot", "freshness_status": "unavailable"}
     filled = pivot.ffill(limit=5)
@@ -217,11 +236,11 @@ def _breadth_summary(pivot: pd.DataFrame) -> dict[str, object]:
         "as_of": as_of.isoformat(),
         "source": "local adjusted_close price snapshot",
         "provenance": "local adjusted_close price snapshot",
-        "freshness_status": "fresh" if (date.today() - as_of).days <= 7 else "stale",
+        "freshness_status": "fresh" if (freshness_as_of - as_of).days <= 7 else "stale",
     }
 
 
-def _volatility_summary(returns: pd.DataFrame) -> dict[str, object]:
+def _volatility_summary(returns: pd.DataFrame, freshness_as_of: date) -> dict[str, object]:
     sample = returns.tail(20)
     values = sample.std(skipna=True).dropna() * (252**0.5)
     return {
@@ -232,7 +251,7 @@ def _volatility_summary(returns: pd.DataFrame) -> dict[str, object]:
         "as_of": returns.index.max().date().isoformat() if not returns.empty else None,
         "source": "local adjusted_close price snapshot",
         "provenance": "local adjusted_close price snapshot",
-        "freshness_status": "fresh" if not returns.empty and (date.today() - returns.index.max().date()).days <= 7 else "stale" if not returns.empty else "unavailable",
+        "freshness_status": "fresh" if not returns.empty and (freshness_as_of - returns.index.max().date()).days <= 7 else "stale" if not returns.empty else "unavailable",
     }
 
 

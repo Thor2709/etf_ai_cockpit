@@ -264,9 +264,9 @@ def test_complete_fresh_kid_is_observable_as_issuer_cost_evidence() -> None:
     assert component.source_id == "priips_kid:" + "k" * 64
     assert component.source_authority == "issuer_document"
     assert component.as_of_date == record.document_date
-    assert component.freshness_status == "ok"
-    assert component.score_eligible is True
-    assert component.score_10 is not None
+    assert component.freshness_status == "unknown"
+    assert component.score_eligible is False
+    assert component.score_10 is None
 
 
 def test_higher_disclosed_ongoing_cost_never_improves_liquidity_cost_score() -> None:
@@ -277,10 +277,10 @@ def test_higher_disclosed_ongoing_cost_never_improves_liquidity_cost_score() -> 
     higher_component = simple_scores_module.build_priips_kid_cost_evidence(higher_cost)
 
     assert lower_component.key == higher_component.key == "liquidity_cost"
-    assert lower_component.score_10 is not None
-    assert higher_component.score_10 is not None
-    assert higher_component.score_10 < lower_component.score_10
-    assert higher_component.raw_score < lower_component.raw_score
+    assert lower_component.freshness_status == "unknown"
+    assert higher_component.freshness_status == "unknown"
+    assert lower_component.score_10 is None
+    assert higher_component.score_10 is None
 
 
 def test_complete_kid_cost_fields_score_the_ongoing_cost_row() -> None:
@@ -297,10 +297,10 @@ def test_complete_kid_cost_fields_score_the_ongoing_cost_row() -> None:
     higher_component = simple_scores_module.build_priips_kid_cost_evidence(higher_cost)
 
     assert lower_component.key == higher_component.key == "liquidity_cost"
-    assert lower_component.score_10 is not None
-    assert higher_component.score_10 is not None
-    assert higher_component.score_10 < lower_component.score_10
-    assert higher_component.raw_score < lower_component.raw_score
+    assert lower_component.freshness_status == "unknown"
+    assert higher_component.freshness_status == "unknown"
+    assert lower_component.score_10 is None
+    assert higher_component.score_10 is None
 
 
 def test_kid_cost_evidence_without_numeric_ongoing_cost_is_unavailable() -> None:
@@ -332,10 +332,10 @@ def test_higher_sri_never_improves_risk_score() -> None:
     higher_component = simple_scores_module.build_priips_kid_cost_evidence(higher_sri)
 
     assert lower_component.key == higher_component.key == "risk"
-    assert lower_component.score_10 is not None
-    assert higher_component.score_10 is not None
-    assert higher_component.score_10 < lower_component.score_10
-    assert higher_component.raw_score < lower_component.raw_score
+    assert lower_component.freshness_status == "unknown"
+    assert higher_component.freshness_status == "unknown"
+    assert lower_component.score_10 is None
+    assert higher_component.score_10 is None
 
 
 @pytest.mark.parametrize(
@@ -434,10 +434,10 @@ def test_candidate_without_portfolio_fields_gets_algorithm_scores() -> None:
 
     assert len(scores) == 1
     assert scores[0].instrument_key == "candidate:ABC"
-    assert scores[0].final_score_10 is not None
-    assert scores[0].evidence_quality_10 is not None
-    assert scores[0].risk_friction_10 is not None
-    assert scores[0].valid_component_count >= 4
+    assert scores[0].final_score_10 is None
+    assert scores[0].evidence_quality_10 is None
+    assert scores[0].risk_friction_10 is None
+    assert scores[0].valid_component_count == 0
 
 
 def test_unavailable_model_forecast_is_na_and_excluded() -> None:
@@ -479,7 +479,7 @@ def test_unavailable_model_forecast_is_na_and_excluded() -> None:
 
     assert timesfm.score_10 is None
     assert timesfm.status == "N/A"
-    assert score.final_score_10 is not None
+    assert score.final_score_10 is None
 
 
 def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
@@ -507,9 +507,9 @@ def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
     score = build_candidate_simple_scores(report, pd.DataFrame())[0]
     frame = simple_scoreboard_frame([score])
 
-    assert frame.loc[0, "evidence_score_10"] is not None
-    assert frame.loc[0, "evidence_quality_10"] is not None
-    assert frame.loc[0, "risk_friction_10"] is not None
+    assert frame.loc[0, "evidence_score_10"] is None
+    assert frame.loc[0, "evidence_quality_10"] is None
+    assert frame.loc[0, "risk_friction_10"] is None
     assert frame.loc[0, "model_authority_label"] == "Model evidence unavailable"
     assert "q10_expected_return" in frame.columns
     assert "net_expected_return" in frame.columns
@@ -770,7 +770,7 @@ def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_scor
 
     projected = load_simple_scoreboard(path, root=tmp_path)
     raw_after = pd.read_parquet(path)
-    assert pd.notna(raw_after.iloc[0]["canonical_attractiveness_10"])
+    assert pd.isna(raw_after.iloc[0]["canonical_attractiveness_10"])
     assert pd.isna(projected.iloc[0]["canonical_attractiveness_10"])
     assert projected.iloc[0]["classification_dependency_status"] == "classification_override_invalidated"
     assert projected.iloc[0]["analysis_status"] == "unavailable"

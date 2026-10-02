@@ -462,8 +462,20 @@ def _load_structure_caps(instrument_ids: object, decision_time: object) -> dict[
             holdings=evidence.holdings,
             decision_time=decision_time,
         )
-    except Exception:
-        return {item: 0.0 for item in ids}
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        caps = structure_confidence_caps(ids, decision_time=decision_time)
+        for item in ids:
+            caps.provenance[item] = {
+                "structure_projection_version": "unavailable",
+                "structure_schema_version": "unavailable",
+                "structure_confidence_version": "unavailable",
+                "structure_provenance_hash": "unavailable",
+                "structure_confidence_cap": 0.0,
+                "status": "unavailable",
+                "reason_code": "structural_evidence_load_failed",
+                "reason": f"Structural evidence load failed ({type(exc).__name__}): {exc}",
+            }
+        return caps
 
 
 def _cached_structure_columns_match(
@@ -1945,7 +1957,24 @@ def _postprocess_forecast_benchmark_fields(
             output.append(replace(forecast, expected_excess_return=None, prob_beat_benchmark=None))
             continue
         excess = float(forecast.expected_return - benchmark_daily * forecast.horizon_days)
-        volatility = max(float(forecast.forecast_vol or 0.0), 1e-6)
+        try:
+            volatility = float(forecast.forecast_vol)
+        except (TypeError, ValueError):
+            volatility = None
+        if volatility is None or not math.isfinite(volatility) or volatility <= 0:
+            output.append(
+                replace(
+                    forecast,
+                    expected_excess_return=excess,
+                    prob_beat_benchmark=None,
+                    reason_unavailable=(
+                        f"{forecast.reason_unavailable}; forecast_vol_unavailable_for_benchmark_probability"
+                        if forecast.reason_unavailable
+                        else "forecast_vol_unavailable_for_benchmark_probability"
+                    ),
+                )
+            )
+            continue
         output.append(
             replace(
                 forecast,
@@ -2218,8 +2247,8 @@ class BacktestService:
         fundamentals = load_fundamental_evidence()
         try:
             structure_evidence = _load_local_structural_evidence()
-        except Exception:
-            structure_evidence = None
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            return _empty_backtest_report(f"Structural evidence unavailable ({type(exc).__name__}): {exc}; backtest was not run.")
         operational_input_binding = _operational_evidence_input_binding(self.config)
         identity_store, calendar_identity_resolver = _open_backtest_calendar_identity_resolver()
         try:
@@ -2355,7 +2384,7 @@ class BacktestService:
             return None
         try:
             structure_evidence = _load_local_structural_evidence()
-        except Exception:
+        except (OSError, ValueError, TypeError, KeyError):
             return None
         try:
             snapshot = dict(zip(snapshot_paths, read_atomic_group(snapshot_paths), strict=True))
@@ -2486,7 +2515,7 @@ class BacktestService:
                 metadata=metadata,
                 quality_momentum_evidence=quality_momentum_evidence,
             )
-        except Exception:
+        except (OSError, ValueError, TypeError, KeyError, UnicodeDecodeError):
             return None
 
 

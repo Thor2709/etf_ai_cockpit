@@ -202,11 +202,24 @@ def generate_signals(
                 "and the signal authority is reduced pending review."
             )
         status = "blocked" if blocked_by else ("warning" if warnings else "ok")
-        expected_edge = float(row.get("expected_edge_60d") or 0.0)
+        try:
+            expected_edge = float(row.get("expected_edge_60d"))
+        except (TypeError, ValueError):
+            expected_edge = None
+        if expected_edge is not None and not isfinite(expected_edge):
+            expected_edge = None
         cost_estimate = estimate_execution_cost(config, str(row["etf_id"]), abs(float(trade_value or 0.0)))
-        estimated_cost = cost_estimate.total_cost_bps if trade_value is not None and abs(float(trade_value)) > 0 else float(row.get("cost_bps") or 0.0)
-        expected_edge_bps = expected_edge * 10_000
-        edge_to_cost_ratio = abs(expected_edge_bps) / estimated_cost if estimated_cost else None
+        if trade_value is not None and abs(float(trade_value)) > 0:
+            estimated_cost = cost_estimate.total_cost_bps
+        else:
+            try:
+                estimated_cost = float(row.get("cost_bps"))
+            except (TypeError, ValueError):
+                estimated_cost = None
+            if estimated_cost is not None and not isfinite(estimated_cost):
+                estimated_cost = None
+        expected_edge_bps = expected_edge * 10_000 if expected_edge is not None else None
+        edge_to_cost_ratio = abs(expected_edge_bps) / estimated_cost if expected_edge_bps is not None and estimated_cost is not None and estimated_cost > 0 else None
         drift_percent = float(row.get("drift") or 0.0)
         drift_eur = drift_percent * total_value
         cost_stress = _cost_stress_metrics(
@@ -241,7 +254,11 @@ def generate_signals(
                 "structure_confidence_cap": structure_cap,
                 "structure_projection_version": (structure_provenance or {}).get("structure_projection_version", "unavailable"),
                 "structure_provenance_hash": (structure_provenance or {}).get("structure_provenance_hash", "unavailable"),
+                "structure_evidence_status": (structure_provenance or {}).get("status", "not_supplied"),
+                "structure_evidence_reason_code": (structure_provenance or {}).get("reason_code"),
+                "structure_evidence_reason": (structure_provenance or {}).get("reason"),
                 "canonical_coverage": canonical_score.coverage,
+                "score_unavailable_reason_codes": str(row.get("score_unavailable_reason_codes") or ""),
                 "formula_version": canonical_score.formula_version,
                 "formula_checksum": canonical_score.formula_checksum,
                 "source_vintage_hash": canonical_score.source_vintage_hash,
@@ -429,22 +446,33 @@ def _cost_stress_metrics(
     config: AppConfig,
     *,
     etf_id: str,
-    expected_edge_bps: float,
-    base_cost_bps: float,
+    expected_edge_bps: float | None,
+    base_cost_bps: float | None,
     trade_value_eur: float | None,
 ) -> dict[str, object]:
     if trade_value_eur is not None and abs(trade_value_eur) > 0:
         low_cost = estimate_execution_cost(config, etf_id, abs(trade_value_eur), stress_multiplier=0.75).total_cost_bps
         base_cost = estimate_execution_cost(config, etf_id, abs(trade_value_eur)).total_cost_bps
         high_cost = estimate_execution_cost(config, etf_id, abs(trade_value_eur), stress_multiplier=1.75).total_cost_bps
+    elif base_cost_bps is None or not isfinite(base_cost_bps) or base_cost_bps < 0:
+        return {
+            "cost_low_bps": None,
+            "cost_base_bps": None,
+            "cost_high_bps": None,
+            "edge_to_cost_low": None,
+            "edge_to_cost_base": None,
+            "edge_to_cost_high": None,
+            "cost_stress_warning": "insufficient_edge_or_cost",
+            "cost_stress_assumptions": f"Configured transaction cost evidence is unavailable for {etf_id}.",
+        }
     else:
         low_cost = max(0.0, base_cost_bps * 0.75)
         base_cost = max(0.0, base_cost_bps)
         high_cost = max(0.0, base_cost_bps * 1.75)
     min_ratio = config.risks.portfolio_limits.min_edge_to_cost_ratio
-    low_ratio = _edge_to_cost(expected_edge_bps, low_cost)
-    base_ratio = _edge_to_cost(expected_edge_bps, base_cost)
-    high_ratio = _edge_to_cost(expected_edge_bps, high_cost)
+    low_ratio = _edge_to_cost(expected_edge_bps, low_cost) if expected_edge_bps is not None else None
+    base_ratio = _edge_to_cost(expected_edge_bps, base_cost) if expected_edge_bps is not None else None
+    high_ratio = _edge_to_cost(expected_edge_bps, high_cost) if expected_edge_bps is not None else None
     if high_ratio is not None and high_ratio >= min_ratio:
         warning = "edge_survives_high_cost_stress"
     elif base_ratio is not None and base_ratio >= min_ratio:
@@ -478,9 +506,9 @@ def _technical_expected_edge(scored: pd.DataFrame) -> pd.Series:
     """Keep the deterministic action baseline separate from return estimates."""
 
     return (
-        0.50 * scored["momentum_60d"].fillna(0)
-        + 0.25 * scored["momentum_120d"].fillna(0)
-        + 0.25 * scored["relative_strength_60d"].fillna(0)
+        0.50 * scored["momentum_60d"]
+        + 0.25 * scored["momentum_120d"]
+        + 0.25 * scored["relative_strength_60d"]
     ).clip(-0.30, 0.30)
 
 

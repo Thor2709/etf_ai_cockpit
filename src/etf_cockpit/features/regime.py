@@ -63,6 +63,11 @@ def build_market_regime(
     benchmark_above_sma200 = bool(latest.get(benchmark_id, np.nan) > sma200.get(benchmark_id, np.nan))
     benchmark_return_60d = _horizon_return(benchmark, 60)
     benchmark_return_120d = _horizon_return(benchmark, 120)
+    if benchmark_return_60d is None or benchmark_return_120d is None:
+        return _empty_regime(
+            "Benchmark return evidence is unavailable for the required 60/120-session regime horizons.",
+            benchmark_reference=reference,
+        )
     returns = filled.pct_change(fill_method=None)
     median_vol_60d = float(returns.tail(60).std(skipna=True).median() * np.sqrt(252)) if len(returns) >= 60 else None
     drawdowns = filled / filled.cummax() - 1.0
@@ -82,8 +87,8 @@ def build_market_regime(
     score = 5.0
     score += 1.8 if benchmark_above_sma200 else -1.8
     score += (combined_pct_above - 0.50) * 4.0
-    score += 0.8 if (benchmark_return_60d or 0.0) > 0 else -0.6
-    score += 0.7 if (benchmark_return_120d or 0.0) > 0 else -0.5
+    score += 0.8 if benchmark_return_60d > 0 else -0.6
+    score += 0.7 if benchmark_return_120d > 0 else -0.5
     if median_vol_60d is not None and median_vol_60d > 0.30:
         score -= 0.8
     if median_drawdown < -0.15:

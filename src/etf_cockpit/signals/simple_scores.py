@@ -525,7 +525,7 @@ class SimpleInstrumentScore:
 
     @property
     def valid_component_count(self) -> int:
-        return sum(1 for component in self.components if component.score_10 is not None)
+        return sum(1 for component in self.components if component.score_eligible)
 
     @property
     def total_component_count(self) -> int:
@@ -659,7 +659,7 @@ def _component_is_score_eligible(component: SimpleScoreComponent) -> bool:
         and authority not in {"model_advisory", "manual_context", "community", "model"}
         and bool(as_of_date)
         and bool(freshness_status)
-        and freshness_status not in {"stale", "stale_block", "unavailable", "missing", "missing_or_pending", "not_checked"}
+        and freshness_status not in {"stale", "stale_block", "unavailable", "missing", "missing_or_pending", "not_checked", "unknown"}
         and not component.conflict_id
     )
 
@@ -709,6 +709,7 @@ def build_simple_instrument_scores(
         else pd.DataFrame()
     )
     forecast_history = load_forecast_history()
+    decision_as_of = signals[0].signal_date if signals else _parse_date((benchmark_reference or {}).get("decision_time"))
     calibration = evaluate_forecast_calibration(forecast_history, prices)
     calibration_by_id = calibration_lookup(calibration)
     regime = build_market_regime(
@@ -782,6 +783,7 @@ def build_simple_instrument_scores(
         calibration_by_id=calibration_by_id,
         regime=regime,
         include_latest_input=True,
+        decision_date=decision_as_of,
     )
     scores = sorted(
         [*universe_scores, *candidate_scores],
@@ -1244,10 +1246,7 @@ def load_simple_scoreboard(path: Path | None = None, *, root: Path | None = None
     output_path = path or DERIVED_DIR / "scoreboard.parquet"
     if not output_path.exists():
         return pd.DataFrame()
-    try:
-        frame = pd.read_parquet(output_path)
-    except Exception:
-        return pd.DataFrame()
+    frame = pd.read_parquet(output_path)
     return project_classification_score_frame(frame, root=root)
 
 
@@ -1313,7 +1312,7 @@ def build_universe_simple_scores(
         as_of_date = _noneable_str(price_info.get("date")) or _noneable_str(signal.signal_date)
         components = _attach_component_provenance(
             [
-            _data_quality_component(quality_info, [*signal.blocked_by, *signal.warnings]),
+            _data_quality_component(quality_info, [*signal.blocked_by, *signal.warnings], signal.signal_date),
             _component(
                 "momentum",
                 signal.components.momentum,
@@ -1346,6 +1345,7 @@ def build_universe_simple_scores(
             _forecast_component(signal.etf_id, "toto", raw_forecast_scores, forecast_details, forecasts),
             ],
             as_of_date,
+            signal.signal_date,
         )
         _raw_final, evidence_score = combine_component_scores(components, ETF_EVIDENCE_WEIGHTS)
         quality_score = _evidence_quality_score(components, warnings=[*signal.blocked_by, *signal.warnings], asset_type="ETF")
@@ -1523,6 +1523,7 @@ def build_candidate_simple_scores(
     calibration_by_id: dict[str, dict[str, object]] | None = None,
     regime: dict[str, object] | None = None,
     include_latest_input: bool = False,
+    decision_date: date | None = None,
 ) -> list[SimpleInstrumentScore]:
     report = candidate_report.copy() if candidate_report is not None else pd.DataFrame()
     forecasts = candidate_forecasts.copy() if candidate_forecasts is not None else pd.DataFrame()
@@ -1586,7 +1587,7 @@ def build_candidate_simple_scores(
         blocked = _split_flags(row.get("blocked_by"))
         as_of_date = _noneable_str(row.get("latest_date"))
         component_rows = [
-            _candidate_data_quality_component(row, blocked),
+            _candidate_data_quality_component(row, blocked, decision_date),
             _component("momentum", _candidate_momentum_raw(row), _candidate_momentum_why(row), authority="high"),
             _component("trend", _candidate_trend_raw(row), _candidate_trend_why(row), authority="high"),
             _component("risk", _candidate_risk_raw(row), _candidate_risk_why(row), authority="high", role="risk_friction"),
@@ -1630,7 +1631,7 @@ def build_candidate_simple_scores(
                 _forecast_component(instrument_id, "toto", raw_forecast_scores, forecast_details, forecasts),
             ]
         )
-        components = _attach_component_provenance(component_rows, as_of_date)
+        components = _attach_component_provenance(component_rows, as_of_date, decision_date)
         weight_map = ETF_EVIDENCE_WEIGHTS if asset_type == "ETF" else STOCK_EVIDENCE_WEIGHTS
         _raw_final, evidence_score = combine_component_scores(components, weight_map)
         quality_score = _evidence_quality_score(components, warnings=blocked, asset_type=asset_type)
@@ -1985,25 +1986,28 @@ def _component(
         status="OK" if score is not None else "N/A",
         explanation=COMPONENT_EXPLANATIONS[key],
         good_score=GOOD_SCORE_TEXT[key],
-        why=why if score is not None else "Not enough valid yfinance data for this component, so it is excluded from the final score.",
+        why=why,
         authority=authority,
         score_role=role,
     )
 
 
-def _component_freshness_status(as_of_date: str | None) -> str | None:
+def _component_freshness_status(as_of_date: str | None, decision_date: date | None) -> str:
     parsed = _parse_date(as_of_date)
-    if parsed is None:
-        return None
-    return "stale" if _business_days_between(parsed, date.today()) > 10 else "ok"
+    if parsed is None or decision_date is None:
+        return "unknown"
+    if parsed > decision_date:
+        return "unavailable"
+    return "stale" if _business_days_between(parsed, decision_date) > 10 else "ok"
 
 
 def _attach_component_provenance(
     components: list[SimpleScoreComponent],
     as_of_date: str | None,
+    decision_date: date | None,
 ) -> list[SimpleScoreComponent]:
     clean_date = _noneable_str(as_of_date)
-    freshness = _component_freshness_status(clean_date)
+    freshness = _component_freshness_status(clean_date, decision_date)
     return [
         replace(
             component,
@@ -2096,24 +2100,26 @@ def _candidate_relative_reference(frame: pd.DataFrame) -> float | None:
     return None
 
 
-def _data_quality_component(info: dict[str, object], warnings: list[str]) -> SimpleScoreComponent:
+def _data_quality_component(info: dict[str, object], warnings: list[str], decision_date: date) -> SimpleScoreComponent:
     raw, why = _data_quality_raw_and_reason(
         latest_date=str(info.get("date") or ""),
         rows=_safe_float(info.get("rows")),
         missing_adjusted=_safe_float(info.get("missing_adjusted_close")),
         non_adjusted_count=_safe_float(info.get("non_adjusted_count")),
         warnings=warnings,
+        decision_date=decision_date,
     )
     return _component("data_quality", raw, why, authority="hard", role="evidence_quality")
 
 
-def _candidate_data_quality_component(row: pd.Series, warnings: list[str]) -> SimpleScoreComponent:
+def _candidate_data_quality_component(row: pd.Series, warnings: list[str], decision_date: date | None) -> SimpleScoreComponent:
     raw, why = _data_quality_raw_and_reason(
         latest_date=str(row.get("latest_date") or ""),
         rows=_safe_float(row.get("rows")),
         missing_adjusted=0.0,
         non_adjusted_count=0.0,
         warnings=warnings,
+        decision_date=decision_date,
     )
     return _component("data_quality", raw, why, authority="hard", role="evidence_quality")
 
@@ -2125,13 +2131,18 @@ def _data_quality_raw_and_reason(
     missing_adjusted: float | None,
     non_adjusted_count: float | None,
     warnings: list[str],
+    decision_date: date | None,
 ) -> tuple[float | None, str]:
     score = 9.0
     reason: list[str] = ["Source is yfinance, so evidence is labelled research-grade rather than institutional."]
     latest = _parse_date(latest_date)
     if latest is None:
         return -1.0, "No valid latest price date is available; this is a hard data-quality review item."
-    age_days = _business_days_between(latest, date.today())
+    if decision_date is None:
+        return None, "Data quality freshness is unavailable because the decision as-of date is missing."
+    if latest > decision_date:
+        return None, "Latest price evidence is after the decision as-of date and is excluded."
+    age_days = _business_days_between(latest, decision_date)
     reason.append(f"Latest price date is {latest.isoformat()} ({age_days} business days old).")
     if age_days > 10:
         score = min(score, 2.0)
@@ -2162,7 +2173,7 @@ def _liquidity_component(info: dict[str, object]) -> SimpleScoreComponent:
     return _component("liquidity_cost", raw, why, authority="high", role="risk_friction")
 
 
-def build_priips_kid_cost_evidence(record: object) -> SimpleScoreComponent:
+def build_priips_kid_cost_evidence(record: object, *, as_of_date: date | None = None) -> SimpleScoreComponent:
     """Expose complete, fresh issuer KID cost evidence at the score seam.
 
     The helper is intentionally opt-in: the approved score weights and primary
@@ -2174,7 +2185,7 @@ def build_priips_kid_cost_evidence(record: object) -> SimpleScoreComponent:
     document_date = _noneable_str(getattr(record, "document_date", None))
     source_sha = _noneable_str(getattr(record, "source_sha256", None))
     source_id = f"priips_kid:{source_sha}" if source_sha else ""
-    freshness = _component_freshness_status(document_date)
+    freshness = _component_freshness_status(document_date, as_of_date)
     warnings = tuple(str(item).strip() for item in (getattr(record, "warnings", ()) or ()) if str(item).strip())
     conflict_id = "methodology_holdings_conflict" if "methodology_holdings_conflict" in warnings else None
     cost_fields = getattr(record, "cost_fields", {})
@@ -2298,8 +2309,15 @@ def _etf_exposure_component(info: dict[str, object] | None) -> SimpleScoreCompon
             authority="medium",
             score_role="evidence",
         )
-    top_weight = _safe_float(info.get("top_weight_sum")) or 0.0
-    largest = _safe_float(info.get("largest_weight")) or 0.0
+    top_weight = _safe_float(info.get("top_weight_sum"))
+    largest = _safe_float(info.get("largest_weight"))
+    if top_weight is None or largest is None:
+        return _component(
+            "etf_exposure",
+            None,
+            "ETF exposure is unavailable because top-weight concentration evidence is incomplete.",
+            authority="medium",
+        )
     count = int(_safe_float(info.get("holding_count")) or 0)
     top10_penalty = min(top_weight / 0.60, 1.0) * 4.0
     largest_penalty = min(largest / 0.15, 1.0) * 3.0
@@ -2386,8 +2404,11 @@ def _evidence_quality_score(
 
 
 def _risk_friction_score(components: list[SimpleScoreComponent], *, warnings: list[str]) -> float | None:
-    risk = _score_by_key(components, "risk")
-    liquidity = _score_by_key(components, "liquidity_cost")
+    risk = next((component.score_10 for component in components if component.key == "risk" and component.score_eligible), None)
+    liquidity = next(
+        (component.score_10 for component in components if component.key == "liquidity_cost" and component.score_eligible),
+        None,
+    )
     values = [(risk, 0.60), (liquidity, 0.40)]
     weighted = _weighted_score_10(values)
     if weighted is None:
@@ -3537,7 +3558,7 @@ def _score_10_to_raw(score_10: float | None) -> float | None:
 def _parse_date(value: object) -> date | None:
     try:
         parsed = pd.to_datetime(value, errors="coerce")
-    except Exception:
+    except (TypeError, ValueError, OverflowError):
         return None
     if pd.isna(parsed):
         return None
