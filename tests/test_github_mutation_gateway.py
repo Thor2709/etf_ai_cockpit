@@ -4,6 +4,7 @@ import copy
 import json
 import subprocess
 import threading
+from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
@@ -1583,7 +1584,7 @@ def test_read_gh_retries_transient_http_502_then_succeeds(
         return "ok"
 
     monkeypatch.setattr(gateway, "_run_gh", run)
-    monkeypatch.setattr(gateway.time, "sleep", sleeps.append)
+    monkeypatch.setattr(gateway, "time", SimpleNamespace(sleep=sleeps.append))
 
     assert gateway._read_gh(["api", "endpoint"]) == "ok"
     assert calls == 2
@@ -1607,7 +1608,7 @@ def test_read_gh_retries_other_transient_http_statuses(
         return "ok"
 
     monkeypatch.setattr(gateway, "_run_gh", run)
-    monkeypatch.setattr(gateway.time, "sleep", sleeps.append)
+    monkeypatch.setattr(gateway, "time", SimpleNamespace(sleep=sleeps.append))
 
     assert gateway._read_gh(["api", "endpoint"]) == "ok"
     assert calls == 3
@@ -1630,7 +1631,7 @@ def test_read_gh_retries_transient_transport_marker_then_succeeds(
         return "ok"
 
     monkeypatch.setattr(gateway, "_run_gh", run)
-    monkeypatch.setattr(gateway.time, "sleep", sleeps.append)
+    monkeypatch.setattr(gateway, "time", SimpleNamespace(sleep=sleeps.append))
 
     assert gateway._read_gh(["api", "endpoint"]) == "ok"
     assert calls == 2
@@ -1652,7 +1653,7 @@ def test_read_gh_exhausts_transient_attempts(
         raise failure
 
     monkeypatch.setattr(gateway, "_run_gh", run)
-    monkeypatch.setattr(gateway.time, "sleep", sleeps.append)
+    monkeypatch.setattr(gateway, "time", SimpleNamespace(sleep=sleeps.append))
 
     with pytest.raises(subprocess.CalledProcessError) as captured:
         gateway._read_gh(["api", "endpoint"])
@@ -1683,7 +1684,7 @@ def test_read_gh_fails_immediately_for_non_transient_errors(
         raise failure
 
     monkeypatch.setattr(gateway, "_run_gh", run)
-    monkeypatch.setattr(gateway.time, "sleep", sleeps.append)
+    monkeypatch.setattr(gateway, "time", SimpleNamespace(sleep=sleeps.append))
 
     with pytest.raises(subprocess.CalledProcessError) as captured:
         gateway._read_gh(["api", "endpoint"])
