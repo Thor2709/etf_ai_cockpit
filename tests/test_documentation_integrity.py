@@ -198,6 +198,65 @@ def test_documented_argparse_scripts_accept_help() -> None:
         )
 
 
+def test_sync_github_issues_direct_help() -> None:
+    script = ROOT / "scripts" / "sync_github_issues.py"
+    environment = os.environ.copy()
+    configured_pythonpath = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = os.pathsep.join(
+        value for value in (str(ROOT / "src"), configured_pythonpath) if value
+    )
+    result = subprocess.run(
+        [sys.executable, str(script), "--help"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        env=environment,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, (result.stdout[-2000:], result.stderr[-2000:])
+
+
+def test_application_api_generator_preserves_fixed_income_guide_sections(
+    tmp_path: Path,
+) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "generate_application_api_docs.py"),
+            "--root",
+            str(tmp_path),
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    guide = (tmp_path / "docs" / "architecture" / "application-api.md").read_text(
+        encoding="utf-8"
+    )
+    assert """## Fixed-income contractual terms
+
+`LocalApplicationApi.get_fixed_income_terms` and
+`application.ui_facade.load_fixed_income_terms_projection` expose the same
+read-only `fixed-income-terms.v1` projection. The data layer alone validates
+and generates supported contractual schedules; selectors and pages only render
+terms, source/knowledge/retrieval lineage, overlay history, conflicts and
+capability flags. Pricing, screening, proposals and execution remain false.
+
+## Fixed-income risk
+
+`LocalApplicationApi.calculate_fixed_income_risk`,
+`calculate_and_persist_fixed_income_risk` and `get_fixed_income_risk`, with
+their serialisable facade equivalents, expose `fixed-income-risk.v1`. The
+application boundary returns verified local component/scenario evidence,
+explicit unknowns, units, mapping, assumptions, coverage and lineage. Pages
+only render projections; calculations, proposals, orders and execution are not
+available through this surface.""" in guide
+
+
 def test_generated_documentation_has_no_drift() -> None:
     for script in (
         "generate_data_dictionary.py",
