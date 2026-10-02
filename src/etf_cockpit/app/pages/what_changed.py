@@ -3,7 +3,9 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components.glass_pages import page_panel
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.formatting import format_count
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
     REQUIRED_CHANGE_DIMENSIONS,
@@ -15,6 +17,9 @@ from etf_cockpit.application.ui_facade import (
     select_comparison_runs,
     upstream_run_context,
 )
+
+
+panel = page_panel("what-changed")
 
 
 def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
@@ -144,7 +149,7 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
                 )
             )
         table_container.controls = [
-            ft.Text(f"{len(visible)} instrument(s) shown", color=theme.MUTED, size=11),
+            ft.Text(f"{format_count(len(visible))} instrument(s) shown", color=theme.MUTED, size=11),
             *cards,
         ] if visible else [ft.Text("No instruments match the selected filters.", color=theme.MUTED)]
         try:
@@ -167,7 +172,7 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> ft.Control:
             spacing=4,
         )
     lineage = ft.Text(
-        f"Lineage registry {version_summary['registry_version']} · {version_summary['record_count']} records · "
+        f"Lineage registry {version_summary['registry_version']} · {format_count(version_summary['record_count'])} records · "
         f"signature {str(version_summary['registry_signature'])[:16]}… · cache rebuilds are required when a dependency version or content hash changes.",
         color=theme.MUTED,
         selectable=True,

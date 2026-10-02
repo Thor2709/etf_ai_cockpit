@@ -3,7 +3,8 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components.glass_pages import page_panel
+from etf_cockpit.app.components.cards import section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
     create_encrypted_backup,
@@ -36,6 +37,9 @@ from etf_cockpit.security.credentials import (
     CredentialVaultError,
     canonical_provider_account,
 )
+
+
+panel = page_panel("settings")
 
 
 def settings_page(_page: ft.Page, state: AppState) -> ft.Control:

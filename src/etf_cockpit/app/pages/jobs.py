@@ -6,7 +6,9 @@ import threading
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components.glass_pages import page_panel
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.formatting import format_count, format_timestamp
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.core.session_log import redact_text
@@ -20,6 +22,9 @@ from etf_cockpit.application.ui_facade import (
     generated_cache_cleanup,
     resource_profile_report,
 )
+
+
+panel = page_panel("jobs")
 
 
 def _refresh_activity_shell(page: ft.Page, state: AppState) -> None:
@@ -192,7 +197,7 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
             rows: list[ft.Control] = [
                 ft.Row(
                     [
-                        ft.Text(f"{workflows.total} workflow(s) · recovered leases: {len(recovered)}", color=theme.MUTED),
+                        ft.Text(f"{format_count(workflows.total)} workflow(s) · recovered leases: {len(recovered)}", color=theme.MUTED),
                         ft.TextButton("Recover expired leases", key="jobs.recover", on_click=refresh),
                         ft.TextButton("Refresh", key="jobs.refresh", on_click=refresh),
                         ft.TextButton("Run durable self-check", key="jobs.self-check", on_click=run_self_check),
@@ -211,8 +216,8 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
                         selectable=True,
                     ),
                     ft.Text(
-                        f"Created {workflow.created_at} · jobs {workflow.job_count} · "
-                        f"hash chain {'valid' if workflow.hash_chain_valid else 'INVALID'} · finished {workflow.finished_at or 'running'}",
+                        f"Created {format_timestamp(workflow.created_at)} · jobs {workflow.job_count} · "
+                        f"hash chain {'valid' if workflow.hash_chain_valid else 'INVALID'} · finished {format_timestamp(workflow.finished_at, unavailable='running')}",
                         color=theme.MUTED,
                         size=11,
                         selectable=True,
@@ -226,7 +231,7 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
                             on_click=lambda _event, workflow_id=workflow.workflow_id: cancel_workflow(workflow_id),
                         )
                     )
-                controls.append(ft.Text(f"  ↳ {workflow.job_count} durable job(s) registered.", color=theme.MUTED, size=11, selectable=True))
+                controls.append(ft.Text(f"  ↳ {format_count(workflow.job_count)} durable job(s) registered.", color=theme.MUTED, size=11, selectable=True))
                 rows.append(panel(ft.Column(controls, spacing=5)))
             body.controls = rows
             message.value = "Durable jobs are local, resumable and audit-linked."
