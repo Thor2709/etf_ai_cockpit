@@ -403,8 +403,8 @@ jobs:
           if-no-files-found: error
 
   release-gate:
-    # Independent of preflight so the long gate starts at once; validation-summary still requires both.
-    needs: [classifier, supply-chain]
+    # Independent of preflight and supply-chain so the long gate starts at once; validation-summary requires both, the shards do not.
+    needs: [classifier]
     if: github.event_name == 'pull_request' && needs.classifier.outputs.package_gate_required == 'true'
     name: release-gate (${{ matrix.platform }}, shard ${{ matrix.shard }}/3)
     strategy:
@@ -479,6 +479,13 @@ jobs:
             requirements-release.txt
             requirements-release-parsers.txt
 
+      - name: Install pinned release environment
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --requirement requirements-release.txt
+          python -m pip install --requirement requirements-release-parsers.txt
+
       - name: Configure isolated user profile
         shell: bash
         run: |
@@ -493,13 +500,6 @@ jobs:
             echo "XDG_CACHE_HOME=$profile/cache"
             echo "PIP_CACHE_DIR=$profile/cache/pip"
           } >> "$GITHUB_ENV"
-
-      - name: Install pinned release environment
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --requirement requirements-release.txt
-          python -m pip install --requirement requirements-release-parsers.txt
 
       - name: Verify protected environment
         shell: bash
@@ -627,6 +627,13 @@ jobs:
             requirements-release.txt
             requirements-release-parsers.txt
 
+      - name: Install pinned pilot environment
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --requirement requirements-release.txt
+          python -m pip install --requirement requirements-release-parsers.txt
+
       - name: Configure isolated user profile
         shell: bash
         run: |
@@ -641,13 +648,6 @@ jobs:
             echo "XDG_CACHE_HOME=$profile/cache"
             echo "PIP_CACHE_DIR=$profile/cache/pip"
           } >> "$GITHUB_ENV"
-
-      - name: Install pinned pilot environment
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --requirement requirements-release.txt
-          python -m pip install --requirement requirements-release-parsers.txt
 
       - name: Verify protected environment
         shell: bash
