@@ -13,6 +13,11 @@ import xml.etree.ElementTree as ET
 
 _ROOT = Path(__file__).resolve().parents[1]
 _PLATFORMS = {"linux", "windows"}
+# scripts/release_gate.py writes the serial phase to junit-serial.xml and the "not serial" phase to
+# junit-parallel.xml, then merges both into junit-full.xml.  Any other report name counts as a
+# complete report (both phases).
+_SERIAL_REPORT = "junit-serial.xml"
+_PARALLEL_REPORT = "junit-parallel.xml"
 
 
 def _platform(report: Path) -> str:
@@ -66,7 +71,12 @@ def _duration(testcase: ET.Element, report: Path) -> Decimal:
 
 
 def build_duration_payload(reports: list[Path]) -> dict[str, object]:
-    """Sum testcase time per file within each platform, then keep the platform maximum."""
+    """Sum testcase time per file within each platform, then keep the platform maximum.
+
+    Reports named ``junit-serial.xml`` (the serial phase) also fill ``serial_files``.  A platform's
+    file totals come from its complete/parallel reports; its serial reports are added to the totals
+    only when it supplied no complete report (junit-full.xml already contains the serial phase).
+    """
 
     if not reports:
         raise ValueError("At least one JUnit XML report is required")
@@ -74,8 +84,18 @@ def build_duration_payload(reports: list[Path]) -> dict[str, object]:
     totals_by_platform: defaultdict[str, defaultdict[str, Decimal]] = defaultdict(
         lambda: defaultdict(Decimal)
     )
+    serial_by_platform: defaultdict[str, defaultdict[str, Decimal]] = defaultdict(
+        lambda: defaultdict(Decimal)
+    )
+    complete_platforms: set[str] = set()
+    serial_seen = False
+    any_testcases = False
     for report in reports:
         platform = _platform(report)
+        name = report.name.lower()
+        is_serial = name == _SERIAL_REPORT
+        is_phase = is_serial or name == _PARALLEL_REPORT
+        serial_seen = serial_seen or is_serial
         try:
             root = ET.parse(report).getroot()
         except (OSError, ET.ParseError) as exc:
@@ -84,23 +104,43 @@ def build_duration_payload(reports: list[Path]) -> dict[str, object]:
         report_totals: defaultdict[str, Decimal] = defaultdict(Decimal)
         for testcase in root.iter("testcase"):
             report_totals[_test_file(testcase)] += _duration(testcase, report)
-        if not report_totals:
-            raise ValueError(f"JUnit XML report contains no testcases: {report}")
+        if not report_totals and not is_phase:
+            raise ValueError(f"JUnit XML report contains no testcases: {report}")  # a phase may be empty
+        any_testcases = any_testcases or bool(report_totals)
+        if not is_phase:
+            complete_platforms.add(platform)
         for file_path, total in report_totals.items():
-            totals_by_platform[platform][file_path] += total
+            if is_serial:
+                serial_by_platform[platform][file_path] += total
+            else:
+                totals_by_platform[platform][file_path] += total
+    if not any_testcases:
+        raise ValueError("JUnit XML reports contain no testcases")
+    for platform, serial_totals in serial_by_platform.items():
+        if platform not in complete_platforms:
+            for file_path, total in serial_totals.items():
+                totals_by_platform[platform][file_path] += total
 
+    files = _platform_maximum(totals_by_platform)
+    report_names = sorted(f"{report.parent.name}/{report.name}" for report in reports)
+    source = f"JUnit XML reports: {', '.join(report_names)}"
+    payload: dict[str, object] = {"source": source, "unit": "seconds", "files": files}
+    if serial_seen:
+        payload["serial_files"] = {
+            file_path: seconds for file_path, seconds in _platform_maximum(serial_by_platform).items() if seconds > 0
+        }
+    return payload
+
+
+def _platform_maximum(totals_by_platform: defaultdict[str, defaultdict[str, Decimal]]) -> dict[str, float]:
     maximum_by_file: dict[str, Decimal] = {}
     for platform_totals in totals_by_platform.values():
         for file_path, total in platform_totals.items():
             maximum_by_file[file_path] = max(maximum_by_file.get(file_path, total), total)
-
-    files = {
+    return {
         file_path: float(duration.quantize(Decimal("0.1"), rounding=ROUND_HALF_EVEN))
         for file_path, duration in sorted(maximum_by_file.items())
     }
-    report_names = sorted(f"{report.parent.name}/{report.name}" for report in reports)
-    source = f"JUnit XML reports: {', '.join(report_names)}"
-    return {"source": source, "unit": "seconds", "files": files}
 
 
 def main(argv: list[str] | None = None) -> int:
