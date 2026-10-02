@@ -10,6 +10,7 @@ from etf_cockpit.application import ui_facade
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.types import DataQualityReport, ForecastResult
 from etf_cockpit.features import macro, regime, volatility
+from etf_cockpit.parsers.priips_kid import PriipsKidRecord
 from etf_cockpit.services import BacktestService, _load_structure_caps, _postprocess_forecast_benchmark_fields
 from etf_cockpit.signals import simple_scores
 from etf_cockpit.signals.gates import evaluate_risk_gates
@@ -299,6 +300,31 @@ def test_kid_cost_scores_use_the_explicit_decision_as_of_date() -> None:
     assert higher_cost.raw_score < lower_cost.raw_score
 
 
+def test_kid_cost_evidence_without_decision_date_is_unavailable() -> None:
+    record = PriipsKidRecord(
+        product="Example ETF",
+        isin="IE000Q4J3CW6",
+        manufacturer="Vanguard",
+        sri=4,
+        cost_fields={"ongoing_costs": "0.07% of the value of your investment p.a. EUR 7"},
+        holding_period_years=5,
+        scenarios=("moderate",),
+        document_date="2025-01-06",
+        extraction_confidence="high",
+        warnings=(),
+        source_sha256="k" * 64,
+        source_pages=(1, 2, 3),
+        manual_review=False,
+        score_eligible=True,
+    )
+
+    component = simple_scores.build_priips_kid_cost_evidence(record)
+
+    assert component.freshness_status == "unknown"
+    assert component.score_eligible is False
+    assert component.score_10 is None
+
+
 def _macro_prices() -> pd.DataFrame:
     dates = pd.date_range("2024-01-01", periods=240, freq="B")
     return pd.DataFrame(
@@ -345,6 +371,117 @@ def test_macro_decision_time_excludes_same_day_prices_after_explicit_as_of_date(
     equity = next(row for row in result["proxy_rows"] if row["proxy"] == "equity")
     assert result["as_of"] == "2024-01-10"
     assert equity["period_return_20d"] == pytest.approx(0.1)
+
+
+def test_macro_price_projection_excludes_prices_known_after_decision(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(macro, "validate_benchmark_reference", lambda *_args, **_kwargs: "BENCH")
+    prices = pd.DataFrame(
+        [
+            {"date": "2024-01-09T18:00:00Z", "known_at": "2024-01-09T18:00:00Z", "etf_id": "EQUITY", "adjusted_close": 100.0},
+            {"date": "2024-01-10T10:00:00Z", "known_at": "2024-01-10T13:00:00Z", "etf_id": "EQUITY", "adjusted_close": 999.0},
+        ]
+    )
+    reference = {"status": "unavailable", "analysis": {"decision_time": "2024-01-10T12:00:00Z"}}
+
+    result = macro.build_macro_context(
+        prices,
+        benchmark_data_id="BENCH",
+        benchmark_reference=reference,
+        as_of_date=date(2024, 1, 10),
+    )
+
+    assert result["as_of"] == "2024-01-09"
+
+
+def test_macro_observations_exclude_effective_times_after_decision(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(macro, "validate_benchmark_reference", lambda *_args, **_kwargs: "BENCH")
+    decision_time = "2024-01-10T12:00:00Z"
+    reference = {"status": "unavailable", "analysis": {"decision_time": decision_time}}
+    observations = [
+        {
+            "series_id": "cpi_inflation",
+            "value": 3.0,
+            "unit": "%",
+            "source_id": "local",
+            "observed_at": "2024-01-09T00:00:00Z",
+            "available_at": "2024-01-09T23:59:00Z",
+            "timezone_confidence": "exact",
+            "availability_confidence": "exact",
+        },
+        {
+            "series_id": "cpi_inflation",
+            "value": 4.0,
+            "unit": "%",
+            "source_id": "local",
+            "observed_at": "2024-01-10T13:00:00Z",
+            "available_at": "2024-01-10T11:00:00Z",
+            "timezone_confidence": "exact",
+            "availability_confidence": "exact",
+        },
+    ]
+
+    result = macro.build_macro_context(
+        _macro_prices(),
+        observations=observations,
+        benchmark_data_id="BENCH",
+        benchmark_reference=reference,
+        as_of_date=date(2024, 1, 9),
+    )
+
+    assert [row["value"] for row in result["inflation_rates"]["rows"]] == [3.0]
+
+
+def test_empty_signal_scoring_uses_nested_benchmark_decision_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    candidate_report = pd.DataFrame(
+        [
+            {
+                "instrument_id": "ABC",
+                "name": "ABC Test Stock",
+                "yahoo_symbol": "ABC.DE",
+                "latest_date": "2025-01-10",
+                "latest_price": 100.0,
+                "rows": 300,
+                "return_3m": 0.10,
+                "return_6m": 0.18,
+                "return_12m": 0.25,
+                "volatility_60d_ann": 0.18,
+                "current_drawdown": -0.04,
+                "sma50_signal": True,
+                "sma200_signal": True,
+                "median_turnover_60d_eur": 2_500_000,
+                "blocked_by": "",
+            }
+        ]
+    )
+    monkeypatch.setattr(simple_scores, "load_latest_candidate_report", lambda: (candidate_report, None))
+    monkeypatch.setattr(simple_scores, "load_candidate_price_binding", lambda: None)
+    monkeypatch.setattr(simple_scores, "load_forecast_history", pd.DataFrame)
+    monkeypatch.setattr(simple_scores, "evaluate_forecast_calibration", lambda *_args: pd.DataFrame())
+    monkeypatch.setattr(simple_scores, "build_market_regime", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(simple_scores, "build_portfolio_fit_lookup", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(simple_scores, "build_benchmark_attribution_lookup", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(simple_scores, "build_universe_simple_scores", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(simple_scores, "_latest_candidate_input_frame", pd.DataFrame)
+    monkeypatch.setattr(simple_scores, "_etf_exposure_lookup", dict)
+    monkeypatch.setattr(simple_scores, "_backtest_trust_lookup", lambda **_kwargs: {})
+    monkeypatch.setattr(simple_scores, "_news_inventory_lookup", dict)
+    reference = {"status": "unavailable", "analysis": {"decision_time": "2025-01-15T00:00:00Z"}}
+
+    scores = simple_scores.build_simple_instrument_scores(
+        load_config(),
+        [],
+        pd.DataFrame(),
+        pd.DataFrame(),
+        universe_revision="audit-test",
+        cash_comparison_lookup={},
+        benchmark_reference=reference,
+    )
+
+    candidate = next(score for score in scores if score.display_id == "ABC")
+    freshness = next(component.freshness_status for component in candidate.components if component.key == "momentum")
+    data_quality = next(component for component in candidate.components if component.key == "data_quality")
+    assert freshness == "ok"
+    assert data_quality.score_10 is not None
 
 
 def test_macro_observations_available_at_decision_time_are_excluded(monkeypatch: pytest.MonkeyPatch) -> None:

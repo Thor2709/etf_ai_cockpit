@@ -69,11 +69,19 @@ def build_macro_context(
     if "is_adjusted" in prices.columns and not prices["is_adjusted"].fillna(False).astype(bool).all():
         return _unavailable("The local price snapshot contains a non-adjusted price series.")
 
-    frame = prices.loc[:, ["date", "etf_id", "adjusted_close"]].copy()
+    price_columns = ["date", "etf_id", "adjusted_close"]
+    if "known_at" in prices.columns:
+        price_columns.append("known_at")
+    frame = prices.loc[:, price_columns].copy()
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce", utc=True)
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
+    if "known_at" in frame.columns:
+        frame["known_at"] = pd.to_datetime(frame["known_at"], errors="coerce", utc=True)
     frame["etf_id"] = frame["etf_id"].astype(str).str.strip()
-    frame = frame.dropna(subset=["date", "adjusted_close"])
+    required_timestamps = ["date", "adjusted_close"]
+    if "known_at" in frame.columns:
+        required_timestamps.append("known_at")
+    frame = frame.dropna(subset=required_timestamps)
     decision_time = None
     if isinstance(benchmark_reference, Mapping):
         analysis = benchmark_reference.get("analysis")
@@ -85,12 +93,13 @@ def build_macro_context(
     evaluation_cutoff = None
     if as_of_date is not None:
         evaluation_cutoff = pd.Timestamp(as_of_date, tz="UTC") + pd.Timedelta(days=1)
-        frame = frame[frame["date"] < evaluation_cutoff]
-    if decision_time is not None:
-        frame = frame[frame["date"] < decision_time]
     observation_cutoff = decision_time
     if evaluation_cutoff is not None:
         observation_cutoff = evaluation_cutoff if observation_cutoff is None else min(observation_cutoff, evaluation_cutoff)
+    if observation_cutoff is not None:
+        frame = frame[frame["date"] < observation_cutoff]
+        if "known_at" in frame.columns:
+            frame = frame[frame["known_at"] < observation_cutoff]
     frame = frame[(frame["etf_id"] != "") & (frame["adjusted_close"] > 0)]
     if frame.empty:
         return _unavailable("The local price snapshot has no usable adjusted-close rows.")
@@ -346,7 +355,13 @@ def _macro_observation_summary(observations: Iterable[object], *, decision_time:
         else:
             raw = {name: getattr(observation, name, None) for name in ("series_id", "value", "unit", "source_id", "available_at", "observed_at")}
         available_at = pd.to_datetime(raw.get("available_at"), errors="coerce", utc=True)
-        if pd.isna(available_at) or available_at >= decision_time:
+        observed_at = pd.to_datetime(raw.get("observed_at"), errors="coerce", utc=True)
+        if (
+            pd.isna(available_at)
+            or pd.isna(observed_at)
+            or available_at >= decision_time
+            or observed_at >= decision_time
+        ):
             continue
         if str(raw.get("timezone_confidence") or "unknown").lower() not in {"exact", "assumed"}:
             continue

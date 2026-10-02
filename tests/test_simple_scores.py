@@ -256,18 +256,19 @@ def _kid_for_score(**changes: object) -> PriipsKidRecord:
 
 
 def test_complete_fresh_kid_is_observable_as_issuer_cost_evidence() -> None:
-    record = _kid_for_score()
+    record = _kid_for_score(document_date="2025-01-06")
     assert hasattr(simple_scores_module, "build_priips_kid_cost_evidence")
-    component = simple_scores_module.build_priips_kid_cost_evidence(record)
+    component = simple_scores_module.build_priips_kid_cost_evidence(record, as_of_date=date(2025, 1, 10))
 
     assert component is not None
     assert component.key == "liquidity_cost"
     assert component.source_id == "priips_kid:" + "k" * 64
     assert component.source_authority == "issuer_document"
     assert component.as_of_date == record.document_date
-    assert component.freshness_status == "unknown"
-    assert component.score_eligible is False
-    assert component.score_10 is None
+    assert component.freshness_status == "ok"
+    assert component.score_eligible is True
+    assert component.score_10 == pytest.approx(4.6)
+    assert component.raw_score == pytest.approx(-0.07)
 
 
 def test_higher_disclosed_ongoing_cost_never_improves_liquidity_cost_score() -> None:

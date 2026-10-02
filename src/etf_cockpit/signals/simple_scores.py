@@ -709,7 +709,9 @@ def build_simple_instrument_scores(
         else pd.DataFrame()
     )
     forecast_history = load_forecast_history()
-    decision_as_of = signals[0].signal_date if signals else _parse_date((benchmark_reference or {}).get("decision_time"))
+    analysis_reference = (benchmark_reference or {}).get("analysis")
+    reference_decision_time = analysis_reference.get("decision_time") if isinstance(analysis_reference, Mapping) else None
+    decision_as_of = signals[0].signal_date if signals else _parse_date(reference_decision_time)
     calibration = evaluate_forecast_calibration(forecast_history, prices)
     calibration_by_id = calibration_lookup(calibration)
     regime = build_market_regime(
