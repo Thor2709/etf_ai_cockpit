@@ -20,6 +20,7 @@ from etf_cockpit.data.market_adjustments import (
     FXObservation,
     FXObservationStore,
 )
+from etf_cockpit.portfolio import ledger as ledger_module
 from etf_cockpit.portfolio.ledger import Ledger, LedgerInvariantError, LedgerPosting
 from etf_cockpit.portfolio.ledger_projection import replay_ledger
 
@@ -367,7 +368,8 @@ def test_v7_migrates_v6_ledger_facts_without_rewriting_them(tmp_path):
         assert entry.postings[0] == LedgerPosting("cash", "EUR", debit=Decimal("25.50"))
 
 
-def test_replay_positions_settlement_trial_balance_and_fx_are_point_in_time(tmp_path):
+def test_replay_positions_settlement_trial_balance_and_fx_are_point_in_time(monkeypatch, tmp_path):
+    monkeypatch.setattr(ledger_module, "_utc_now", lambda: "2026-09-30T12:00:00.000000Z")
     with TransactionalStore(tmp_path / "ledger") as store:
         ledger = Ledger(store.connection)
         ledger.create_account(
@@ -470,7 +472,43 @@ def test_replay_positions_settlement_trial_balance_and_fx_are_point_in_time(tmp_
         assert not_yet_known.cash == ()
 
 
-def test_corporate_action_store_replay_posts_split_and_net_dividend(tmp_path):
+def test_replay_excludes_entries_recorded_after_known_at(monkeypatch, tmp_path):
+    monkeypatch.setattr(ledger_module, "_utc_now", lambda: "2026-09-30T12:00:00.000000Z")
+    with TransactionalStore(tmp_path / "ledger") as store:
+        ledger = Ledger(store.connection)
+        ledger.create_account(
+            "positions", name="Positions", account_type="asset", authority="paper", account_role="position"
+        )
+        ledger.create_account("offset", name="Position offset", account_type="equity", authority="paper")
+        ledger.post(
+            "opening-lot",
+            authority="paper",
+            effective_at="2026-09-28T12:00:00Z",
+            postings=(
+                LedgerPosting("positions", None, instrument_id="AAA", quantity_delta=Decimal("10"), lot_id="lot-1"),
+                LedgerPosting("offset", None, instrument_id="AAA", quantity_delta=Decimal("-10"), lot_id="lot-1"),
+            ),
+        )
+
+        before_recorded = replay_ledger(
+            store.connection,
+            authority="paper",
+            as_of="2026-09-30T23:59:59Z",
+            known_at="2026-09-30T11:59:59.999999Z",
+        )
+        after_recorded = replay_ledger(
+            store.connection,
+            authority="paper",
+            as_of="2026-09-30T23:59:59Z",
+            known_at="2026-09-30T12:00:00.000001Z",
+        )
+
+    assert before_recorded.positions == ()
+    assert after_recorded.positions[0].quantity == Decimal("10")
+
+
+def test_corporate_action_store_replay_posts_split_and_net_dividend(monkeypatch, tmp_path):
+    monkeypatch.setattr(ledger_module, "_utc_now", lambda: "2026-09-30T12:00:00.000000Z")
     with TransactionalStore(tmp_path / "ledger") as store:
         ledger = Ledger(store.connection)
         ledger.create_account(
@@ -602,7 +640,8 @@ def test_corporate_action_store_replay_posts_split_and_net_dividend(tmp_path):
         assert corrected.trial_balance_balanced is True
 
 
-def test_replay_keeps_missing_lot_and_settlement_explicit(tmp_path):
+def test_replay_keeps_missing_lot_and_settlement_explicit(monkeypatch, tmp_path):
+    monkeypatch.setattr(ledger_module, "_utc_now", lambda: "2026-09-30T12:00:00.000000Z")
     with TransactionalStore(tmp_path) as store:
         ledger = Ledger(store.connection)
         ledger.create_account(
