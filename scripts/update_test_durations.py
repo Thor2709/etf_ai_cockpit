@@ -7,10 +7,24 @@ from collections import defaultdict
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 import json
 from pathlib import Path, PurePosixPath
+import re
 import xml.etree.ElementTree as ET
 
 
 _ROOT = Path(__file__).resolve().parents[1]
+_PLATFORMS = {"linux", "windows"}
+
+
+def _platform(report: Path) -> str:
+    """Return the platform label from the nearest platform-labelled directory."""
+
+    for component in reversed(report.parts[:-1]):
+        labels = _PLATFORMS.intersection(re.split(r"[-_.]", component.lower()))
+        if len(labels) > 1:
+            raise ValueError(f"JUnit report path identifies multiple platforms: {report}")
+        if labels:
+            return next(iter(labels))
+    raise ValueError(f"JUnit report path does not identify a platform: {report}")
 
 
 def _test_file(testcase: ET.Element) -> str:
@@ -52,13 +66,16 @@ def _duration(testcase: ET.Element, report: Path) -> Decimal:
 
 
 def build_duration_payload(reports: list[Path]) -> dict[str, object]:
-    """Sum testcase time per file within each report, then keep the largest report total."""
+    """Sum testcase time per file within each platform, then keep the platform maximum."""
 
     if not reports:
         raise ValueError("At least one JUnit XML report is required")
 
-    maximum_by_file: dict[str, Decimal] = {}
+    totals_by_platform: defaultdict[str, defaultdict[str, Decimal]] = defaultdict(
+        lambda: defaultdict(Decimal)
+    )
     for report in reports:
+        platform = _platform(report)
         try:
             root = ET.parse(report).getroot()
         except (OSError, ET.ParseError) as exc:
@@ -70,7 +87,12 @@ def build_duration_payload(reports: list[Path]) -> dict[str, object]:
         if not report_totals:
             raise ValueError(f"JUnit XML report contains no testcases: {report}")
         for file_path, total in report_totals.items():
-            maximum_by_file[file_path] = max(maximum_by_file.get(file_path, Decimal(0)), total)
+            totals_by_platform[platform][file_path] += total
+
+    maximum_by_file: dict[str, Decimal] = {}
+    for platform_totals in totals_by_platform.values():
+        for file_path, total in platform_totals.items():
+            maximum_by_file[file_path] = max(maximum_by_file.get(file_path, total), total)
 
     files = {
         file_path: float(duration.quantize(Decimal("0.1"), rounding=ROUND_HALF_EVEN))
