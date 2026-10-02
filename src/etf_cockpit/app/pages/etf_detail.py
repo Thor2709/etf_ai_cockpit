@@ -3,7 +3,8 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import metric_card, panel, section_header
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.components.research_surface import decision_tag, metric_card, panel, unavailable_card
 from etf_cockpit.app.components.simple_scores import score_colour
 from etf_cockpit.app.components.risk_badges import risk_badge
 from etf_cockpit.app.state import AppState
@@ -187,6 +188,7 @@ def etf_detail_page(page: ft.Page, state: AppState) -> ft.Control:
                     scroll=ft.ScrollMode.AUTO,
                 )
             ),
+            unavailable_card("Expected-return range", "ETF forecast rows store one expected return per model and horizon, not a q10/q50/q90 distribution; no fan chart is drawn.", key="instrument-detail.expected-return-range"),
             _fundamentals_panel(selected),
             _news_panel(selected),
         ],
@@ -300,12 +302,7 @@ def _score_display(score_10: float | None) -> str:
 
 
 def _decision_badge(score_10: float | None) -> ft.Container:
-    return ft.Container(
-        content=ft.Text(decision_from_score(score_10), color="#FFFFFF", size=11, weight=ft.FontWeight.BOLD),
-        bgcolor=score_colour(score_10),
-        padding=ft.Padding(left=8, top=4, right=8, bottom=4),
-        border_radius=6,
-    )
+    return decision_tag(decision_from_score(score_10), score_10, key="instrument-detail.decision-tag")
 
 
 def _score_10_bar(score_10: float | None, width: int = 180) -> ft.Row:

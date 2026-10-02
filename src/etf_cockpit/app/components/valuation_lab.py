@@ -9,7 +9,8 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.components.research_surface import panel
 from etf_cockpit.application.ui_facade import build_stock_research_report, load_valuation_market_inputs
 
 def _valuation_panel(
@@ -236,7 +237,7 @@ def _selectable_text(value: str, *, color: str) -> ft.SelectionArea:
 
 def _research_number(value: object) -> str:
     if value is None:
-        return "n/a"
+        return "N/A"
     try:
         return f"{float(value):.4g}"
     except (TypeError, ValueError):
@@ -245,7 +246,7 @@ def _research_number(value: object) -> str:
 
 def _research_value(value: object) -> str:
     if value is None:
-        return "n/a"
+        return "N/A"
     try:
         return f"{float(value) * 100.0:.2f}%"
     except (TypeError, ValueError):
