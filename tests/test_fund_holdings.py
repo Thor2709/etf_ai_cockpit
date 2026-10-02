@@ -302,7 +302,7 @@ def test_holdings_import_path_normalises_csv_and_persists_records(tmp_path: Path
     source = tmp_path / "holdings.csv"
     pd.DataFrame({"security": ["A"], "ticker": ["A"], "weight": [1.0]}).to_csv(source, index=False)
     destination = tmp_path / "fund_holdings.parquet"
-    imported = import_etf_holdings(source, "VWCE", "2026-07-10", "issuer", destination=destination)
+    imported = import_etf_holdings(source, "VWCE", "2026-07-10", "issuer", destination=destination, today="2026-07-11")
     assert imported.score_eligible is True
     assert pd.read_parquet(destination).loc[0, "instrument_id"] == "VWCE"
 
