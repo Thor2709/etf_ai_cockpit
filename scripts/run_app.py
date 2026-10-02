@@ -9,7 +9,7 @@ for candidate in (ROOT / "src", ROOT / "app" / "src"):
     if candidate.exists():
         sys.path.insert(0, str(candidate))
 
-from etf_cockpit.core.runtime import configure_runtime_environment
+from etf_cockpit.core.runtime import configure_runtime_environment  # noqa: E402 - imports follow the sys.path bootstrap above
 
 configure_runtime_environment()
 
